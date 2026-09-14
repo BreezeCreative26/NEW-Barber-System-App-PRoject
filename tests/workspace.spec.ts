@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { openFixtureShop, origin, base } from "./fixture";
 test("initial network failure retries in place and unexpected HTML has a useful recovery message", async ({
   page,
 }) => {
@@ -544,8 +545,6 @@ test("insights tab renders period-scoped aggregates from saved records at deskto
   page,
 }) => {
   await enter(page);
-  const origin = "http://localhost:3000";
-  const base = origin + "/api/sandbox";
   const w = await (await page.request.get(base + "/workspace")).json();
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + 4);
@@ -598,14 +597,7 @@ test("insights tab renders period-scoped aggregates from saved records at deskto
 
 test("appointment side panel: contextual actions, note, series ops, customer link; drawer on desktop, sheet on phone", async ({ page }) => {
   test.setTimeout(90000);
-  const origin = "http://localhost:3000";
-  const base = origin + "/api/sandbox";
-  await page.goto("/workspace");
-  await page.getByRole("button", { name: "Open as owner", exact: true }).click();
-  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
-  expect((await page.request.post(base + "/auth/demo", { headers: { Origin: origin }, data: { rebuild: true } })).status()).toBe(201);
-  await page.reload();
-  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
+  await openFixtureShop(page);
   const w = await (await page.request.get(base + "/workspace")).json();
   // Book a fresh visit today at a free time so the panel has a CONFIRMED subject.
   const staff = w.staff[0];
@@ -678,15 +670,7 @@ test("appointment side panel: contextual actions, note, series ops, customer lin
 
 test("customers tab: filters, add customer with tags, profile stats, picker in booking form", async ({ page }) => {
   test.setTimeout(90000);
-  const origin = "http://localhost:3000";
-  const base = origin + "/api/sandbox";
-  await page.goto("/workspace");
-  await page.getByRole("button", { name: "Open as owner", exact: true }).click();
-  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
-  // Rebuild the demo so the shop state is identical on every run.
-  expect((await page.request.post(base + "/auth/demo", { headers: { Origin: origin }, data: { rebuild: true } })).status()).toBe(201);
-  await page.reload();
-  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
+  await openFixtureShop(page);
   await section(page, "Customers");
   const list = page.getByTestId("customer-list");
   await expect(list.locator("li").first()).toBeVisible();
@@ -757,14 +741,7 @@ function plusDays(date: string, n: number) {
 
 test("service studio and barber studio: create with presentation flags, matrix from the service side, profile with skills, tabs, and the public page reflects it", async ({ page }) => {
   test.setTimeout(120000);
-  const origin = "http://localhost:3000";
-  const base = origin + "/api/sandbox";
-  await page.goto("/workspace");
-  await page.getByRole("button", { name: "Open as owner", exact: true }).click();
-  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
-  expect((await page.request.post(base + "/auth/demo", { headers: { Origin: origin }, data: { rebuild: true } })).status()).toBe(201);
-  await page.reload();
-  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
+  const fixture = await openFixtureShop(page);
 
   // ---- Service studio ----
   await section(page, "Services");
@@ -869,10 +846,10 @@ test("service studio and barber studio: create with presentation flags, matrix f
   await expect(teamCard).toContainText("Hidden online");
 
   // ---- Public page ----
-  const shop = await (await page.request.get(origin + "/api/public/shops/demo")).json();
+  const shop = await (await page.request.get(origin + `/api/public/shops/${fixture.slug}`)).json();
   expect(shop.staff.map((s: { id: string }) => s.id)).not.toContain(b.id);
   expect(shop.services.map((s: { name: string }) => s.name)).not.toContain("Studio hot towel finish");
-  await page.goto("/book/demo");
+  await page.goto(`/book/${fixture.slug}`);
   await expect(page.getByText("Studio hot towel finish")).toHaveCount(0);
   await expect(page.getByText(b.name, { exact: true })).toHaveCount(0);
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations).toEqual([]);

@@ -736,6 +736,18 @@ test("standard demo account: one-click owner/barber sign-in, fixed credentials, 
     (await fresh.post(base + "/auth/login", { data: { email: "owner@demo.test", password: "Demo1234!" } })).status(),
   ).toBe(200);
   expect((await (await fresh.get(base + "/workspace")).json()).shop.id).toBe(after.shop_id);
+  // Isolated fixture copies never touch the shared demo: private slug/emails, same seed.
+  const fx = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
+  const fixture = await (await fx.post(base + "/auth/demo", { data: { fixture: true } })).json();
+  expect(fixture.shop_id).not.toBe(after.shop_id);
+  expect(fixture.slug).toMatch(/^demo-[0-9a-f]{8}$/);
+  expect(fixture.email).toMatch(/^owner-[0-9a-f]{8}@demo\.test$/);
+  const fw = await (await fx.get(base + "/workspace")).json();
+  expect(fw.shop.id).toBe(fixture.shop_id);
+  expect(fw.services).toHaveLength(8);
+  expect((await fresh.get(origin + "/api/public/shops/demo")).status()).toBe(200);
+  expect((await (await fresh.get(base + "/workspace")).json()).shop.id).toBe(after.shop_id);
+  await fx.dispose();
   // Invalid options are rejected.
   expect((await owner.post(base + "/auth/demo", { data: { as: "ceo" } })).status()).toBe(400);
   await Promise.all([owner.dispose(), fresh.dispose(), barber.dispose()]);

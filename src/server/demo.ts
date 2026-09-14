@@ -74,9 +74,19 @@ async function retirePrevious(db: D1Database) {
   await db.batch(statements);
 }
 
-export async function buildDemo(c: Ctx): Promise<Seed> {
+export type DemoOptions = {
+  // Isolated fixture: same seed content under a private slug/emails. Never touches the shared
+  // demo shop, so parallel test workers can each build one without racing `retirePrevious`.
+  isolated?: boolean;
+};
+export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed & { slug: string; ownerEmail: string; barberEmail: string }> {
   const db = c.env.DB;
-  await retirePrevious(db);
+  const tag = options.isolated ? `-${crypto.randomUUID().slice(0, 8)}` : "";
+  const slug = options.isolated ? `demo${tag}` : DEMO_SLUG;
+  const ownerEmail = options.isolated ? `owner${tag}@demo.test` : DEMO_OWNER_EMAIL;
+  const barberEmail = options.isolated ? `jay${tag}@demo.test` : DEMO_BARBER_EMAIL;
+  const shopName = options.isolated ? `Demo Barbershop ${tag.slice(1)}` : "Demo Barbershop";
+  if (!options.isolated) await retirePrevious(db);
   const now = Date.now();
   const today = shopToday("Europe/London", now);
   const random = rng(20260914);
@@ -108,9 +118,9 @@ export async function buildDemo(c: Ctx): Promise<Seed> {
   const s: D1PreparedStatement[] = [
     db.prepare(
       "INSERT INTO shops(id,name,address,created_at,slug,online_booking,lead_time_min,booking_window_days) VALUES(?,?,?,?,?,1,60,42)",
-    ).bind(shopId, "Demo Barbershop", "12 Market Row, London E8 4QJ", now, DEMO_SLUG),
+    ).bind(shopId, shopName, "12 Market Row, London E8 4QJ", now, slug),
     db.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)")
-      .bind(ownerUser, DEMO_OWNER_EMAIL, "Demo Owner", encoded, salt, now),
+      .bind(ownerUser, ownerEmail, "Demo Owner", encoded, salt, now),
     db.prepare("INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?)").bind(shopId, ownerUser),
     db.prepare("INSERT INTO app_memberships(id,shop_id,user_id,role) VALUES(?,?,?,'OWNER')").bind(ownerMembership, shopId, ownerUser),
   ];
@@ -144,10 +154,10 @@ export async function buildDemo(c: Ctx): Promise<Seed> {
   const inviteId = uid();
   s.push(
     db.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)")
-      .bind(barberUser, DEMO_BARBER_EMAIL, "Jay Carter", encoded, salt, now),
+      .bind(barberUser, barberEmail, "Jay Carter", encoded, salt, now),
     db.prepare(
       "INSERT INTO staff_invitations(id,shop_id,staff_id,email,role,token_hash,expires_at,created_at) VALUES(?,?,?,?,'BARBER',?,?,?)",
-    ).bind(inviteId, shopId, staff[0].id, DEMO_BARBER_EMAIL, await digest(uid()), now + 86400000, now),
+    ).bind(inviteId, shopId, staff[0].id, barberEmail, await digest(uid()), now + 86400000, now),
     db.prepare("INSERT INTO app_memberships(id,shop_id,user_id,role,staff_id) VALUES(?,?,?,'BARBER',?)").bind(barberMembership, shopId, barberUser, staff[0].id),
     db.prepare("UPDATE staff_invitations SET accepted_at=? WHERE id=?").bind(now, inviteId),
   );
@@ -275,21 +285,38 @@ export async function buildDemo(c: Ctx): Promise<Seed> {
       "INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
     ).bind(uid(), shopId, "shop", shopId, "DEMO_SHOP_BUILT", "demo-seed", `${seq} fictional appointments, 3 barbers, ${services.length} services. No payments or messages.`, now),
   ]);
-  return { shopId, ownerUser, ownerMembership, barberUser, barberMembership };
+  return { shopId, ownerUser, ownerMembership, barberUser, barberMembership, slug, ownerEmail, barberEmail };
 }
 
 // POST /auth/demo — build (or rebuild) the demo shop and sign in as its owner.
 export async function demoRoute(c: Ctx) {
   const body = await readInput(
     c,
-    z.object({ rebuild: z.boolean().default(false), as: z.enum(["owner", "barber"]).default("owner") }).strict(),
+    z
+      .object({
+        rebuild: z.boolean().default(false),
+        as: z.enum(["owner", "barber"]).default("owner"),
+        // fixture=true builds a private, fully seeded copy for automated tests; the shared demo is untouched.
+        fixture: z.boolean().default(false),
+      })
+      .strict(),
   );
-  let shop = await demoShopId(c.env.DB);
-  if (!shop || body.rebuild) {
-    await buildDemo(c);
-    shop = (await demoShopId(c.env.DB))!;
+  let shop: string | null;
+  let email: string;
+  let slug = DEMO_SLUG;
+  if (body.fixture) {
+    const seed = await buildDemo(c, { isolated: true });
+    shop = seed.shopId;
+    slug = seed.slug;
+    email = body.as === "barber" ? seed.barberEmail : seed.ownerEmail;
+  } else {
+    shop = await demoShopId(c.env.DB);
+    if (!shop || body.rebuild) {
+      await buildDemo(c);
+      shop = (await demoShopId(c.env.DB))!;
+    }
+    email = body.as === "barber" ? DEMO_BARBER_EMAIL : DEMO_OWNER_EMAIL;
   }
-  const email = body.as === "barber" ? DEMO_BARBER_EMAIL : DEMO_OWNER_EMAIL;
   const m = await c.env.DB.prepare(
     "SELECT m.id,m.version,u.password_hash FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND u.email=? AND m.active=1",
   )
@@ -303,5 +330,5 @@ export async function demoRoute(c: Ctx) {
     c.env.DB.prepare("DELETE FROM account_assertions"),
   ]);
   cookies(c, session.raw);
-  return c.json({ ok: true, shop_id: shop, email, password: DEMO_PASSWORD, slug: DEMO_SLUG }, 201);
+  return c.json({ ok: true, shop_id: shop, email, password: DEMO_PASSWORD, slug }, 201);
 }

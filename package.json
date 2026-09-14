@@ -8,6 +8,7 @@
     "test:unit": "vitest run",
     "db:migrate:local": "wrangler d1 migrations apply barbershop-os-local --local",
     "test:e2e": "playwright test",
+    "test:area": "playwright test --reporter=line",
     "test:db": "node tests/d1-invariants.mjs",
     "test": "npm run typecheck && npm run test:unit && npm run test:db && npm run test:e2e",
     "preview": "wrangler pages dev",

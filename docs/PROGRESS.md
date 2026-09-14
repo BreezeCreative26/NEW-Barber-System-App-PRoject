@@ -1,6 +1,14 @@
 # Barbershop OS — Progress and next-session handoff
 
-## Latest — OLLO rebrand (2026-09-14)
+## Latest — faster build loop (2026-09-14)
+
+- **Working rule (AGENTS.md):** fast loop / slow gate. Iterate with `npm run test:area -- tests/<file>.spec.ts [-g name]`; run the full `npm test` gate once per task before the commit; batch screenshots/docs at handoff.
+- **Playwright:** workers now `max(2, 2×CPU)` (override with `PW_WORKERS`), `fullyParallel`. Full suite 4.0 min → 3.6 min on this 2-core box; the wrangler dev worker is the bottleneck, so more workers give diminishing returns. Affected-file runs are ~1–1.5 min.
+- **Parallel-safe seeded fixtures:** `POST /auth/demo {fixture:true}` builds a private copy of the demo seed (own slug `demo-xxxxxxxx`, own emails) and signs in; the shared demo shop is untouched. `tests/fixture.ts` exposes `openFixtureShop(page)`; the three browser tests that previously rebuilt the shared demo now use it (no cross-test races, no serialisation). Only the demo-account test rebuilds the shared demo.
+- Verified: tsc, build, full Playwright **123 passed / 1 skipped / 0 failed**.
+- Slowest remaining tests are the 5-width responsive loops (7–9 s each ×15) and the 503-record pagination case (20 s); candidates for trimming if the gate needs to get faster.
+
+## Earlier — OLLO rebrand (2026-09-14)
 
 - Logo supplied by the user (calendar-bot mark in periwinkle `#6985e8` on cream, navy `#181b2a` wordmark). Saved to `public/static/brand/` (source PNG, transparent PNG, hand-drawn `ollo-mark.svg` used for favicon, sidebar brand and "Powered by" chips).
 - Palette: `:root` tokens re-pointed (`--accent #4a5fd9`, `--accent-dark #3546b4`, `--ink #181b2a`, `--muted #5b6178`, `--line #e2e4ee`, `--canvas #f5f6fb`, new `--ollo`, `--ollo-soft`, `--cream`). ~370 hard-coded forest/sage hexes were hue-rotated to the brand hue with lightness preserved; over-dark navies lifted into the accent range; hero uses an accent gradient. Enum calendar colours and semantic status tones were protected so bookings still read the same.
