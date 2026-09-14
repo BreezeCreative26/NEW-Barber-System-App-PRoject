@@ -5,7 +5,7 @@ import {
   type APIRequestContext,
 } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { section } from "./fixture";
+import { section, openNotifications } from "./fixture";
 import { readFileSync } from "node:fs";
 import type { WorkspaceData } from "../src/server/domain";
 const origin = "http://localhost:3000",
@@ -784,6 +784,8 @@ test("entry screen is the single project hub: owner, barber, customer booking, m
   await page.getByRole("button", { name: "Open as owner", exact: true }).click();
   await expect(page.getByText("Demo Barbershop").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
+  // Waitlist moved off the timetable into the notifications drawer.
+  await openNotifications(page);
   await expect(page.getByRole("heading", { name: "Waitlist" })).toBeVisible();
 });
 function plus(date: string, n: number) {

@@ -5,8 +5,22 @@ import {
   type CSSProperties,
 } from "react";
 import type { WorkspaceData, StoredBooking } from "../server/domain";
-import { Avatar, Icon } from "./ui";
+import { Avatar, BlockIcons, Icon } from "./ui";
 import { time, money, datePlus } from "./fixtures";
+
+// Phone-first timetable: below this width columns narrow and the board scrolls sideways
+// inside its own region so the page itself never overflows.
+const PHONE = "(max-width: 767px)";
+export function useCompact() {
+  const [compact, setCompact] = useState(() => window.matchMedia(PHONE).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(PHONE);
+    const update = () => setCompact(mq.matches);
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return compact;
+}
 
 export type CalendarDraft = { staffId: string; start: number };
 // Native buttons remain buttons (not an incomplete ARIA grid). One free slot
@@ -87,6 +101,7 @@ export function Calendar({
   >(null);
   const [activeSlots, setActiveSlots] = useState<Record<string, number>>({});
   const [now, setNow] = useState(Date.now());
+  const compact = useCompact();
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60000);
     return () => clearInterval(timer);
@@ -142,23 +157,12 @@ export function Calendar({
         No barbers match this view. Add a barber or clear the filter.
       </p>
     );
+  const gutter = compact ? 44 : 64;
+  const columnWidth = compact ? 150 : 190;
   return (
     <>
-      <div className="calendar-legend" aria-label="Timetable legend">
-        <span>
-          <i className="legend-free" aria-hidden="true" /> Free chair time
-        </span>
-        <span>
-          <i className="legend-unavailable" aria-hidden="true" /> Break / leave
-          / closed
-        </span>
-        <span>
-          <i className="legend-buffer" aria-hidden="true" /> Buffer
-        </span>
-        <span>Card colour = barber · open short visits for full details</span>
-      </div>
       <div
-        className="calendar-scroll connected-scroll"
+        className={`calendar-scroll connected-scroll ${compact ? "compact" : ""}`}
         tabIndex={0}
         role="region"
         aria-label="Saved appointment timetable"
@@ -169,33 +173,37 @@ export function Calendar({
           style={
             {
               "--columns": staff.length,
-              minWidth: Math.max(310, staff.length * 190 + 64),
+              "--gutter": `${gutter}px`,
+              minWidth: Math.max(compact ? 260 : 310, staff.length * columnWidth + gutter),
             } as CSSProperties
           }
         >
           <div className="calendar-staff-header">
             <div className="timezone-label">
-              UK time<span>London</span>
+              UK<span>London</span>
             </div>
-            {staff.map((s) => (
-              <div className="staff-column-heading" key={s.id}>
-                <Avatar
-                  initials={s.name
-                    .split(" ")
-                    .map((n) => n[0])
-                    .slice(0, 2)
-                    .join("")}
-                  colour={s.colour || ["sage", "sand", "blue", "clay"][w.staff.findIndex((member) => member.id === s.id) % 4]}
-                />
-                <div>
-                  <strong>{s.name}</strong>
-                  <span>
-                    {occupied.filter((b) => b.staff_id === s.id).length}{" "}
-                    appointments
-                  </span>
+            {staff.map((s) => {
+              const mine = occupied.filter((b) => b.staff_id === s.id);
+              const taken = mine.reduce((n, b) => n + b.price_pence, 0);
+              return (
+                <div className="staff-column-heading" key={s.id}>
+                  <Avatar
+                    initials={s.name
+                      .split(" ")
+                      .map((n) => n[0])
+                      .slice(0, 2)
+                      .join("")}
+                    colour={s.colour || ["sage", "sand", "blue", "clay"][w.staff.findIndex((member) => member.id === s.id) % 4]}
+                  />
+                  <div>
+                    <strong>{s.name}</strong>
+                    <span aria-label={`${money(taken)} booked, ${mine.length} visit${mine.length === 1 ? "" : "s"}`}>
+                      {money(taken)} · {mine.length} visit{mine.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div
             className="calendar-timeline connected-timeline"
@@ -344,13 +352,19 @@ export function Calendar({
                         <strong>
                           <time>{time(b.start_min)}</time> {b.customer_name}
                         </strong>
-                        {b.duration_min >= 30 && <span>{b.service_name}</span>}
+                        {b.duration_min >= 30 && (
+                          <span>
+                            {b.service_name} · {money(b.price_pence)}
+                          </span>
+                        )}
                         {b.duration_min >= 15 && (
                           <small className="event-status">
                             {labels[b.status]}
-                            {b.duration_min >= 45
-                              ? ` · ${money(b.price_pence)}`
-                              : ""}
+                            <BlockIcons
+                              online={b.channel === "ONLINE"}
+                              series={!!b.series_id}
+                              walkIn={b.source === "WALK_IN"}
+                            />
                           </small>
                         )}
                       </button>
@@ -378,20 +392,32 @@ export function Calendar({
           ? `Last focused chair time: ${time(focusedSlot.start)} · ${staff.find((s) => s.id === focusedSlot.staffId)?.name} · ${date}. Selecting a cell only starts a draft; review and confirm to save.`
           : ""}
       </div>
-      <footer className="calendar-footer">
-        <span>
-          <Icon name="clock" size={15} /> Click a free 15-minute cell to start a
-          booking.
-        </span>
-        <span>
-          Service + extras + 10-minute buffer are checked before saving.
-        </span>
+      <footer className="calendar-foot">
+        <div className="calendar-legend" aria-label="Timetable legend">
+          <span>
+            <i className="legend-free" aria-hidden="true" /> Free
+          </span>
+          <span>
+            <i className="legend-unavailable" aria-hidden="true" /> Break / leave / closed
+          </span>
+          <span>
+            <i className="legend-buffer" aria-hidden="true" /> Buffer
+          </span>
+          <span className="legend-note">Card colour = barber</span>
+        </div>
+        <details className="calendar-help">
+          <summary>
+            <Icon name="help" size={14} /> How the timetable works
+          </summary>
+          <p id="timetable-keyboard-help">
+            Click or press Enter on a free 15-minute cell to start a draft; the service, extras and
+            10-minute buffer are checked before anything is saved. Tab reaches one free slot per barber;
+            arrow keys move between free slots, Home / End jump within a barber. Agenda and New booking
+            are alternatives. Complete selected-day records are loaded from the database; no deposits are
+            collected.
+          </p>
+        </details>
       </footer>
-      <p className="calendar-keyboard-help" id="timetable-keyboard-help">
-        Tab to a free slot or appointment. Arrow keys move between free slots;
-        Home / End jump within a barber. Enter opens a draft. Agenda and New
-        booking are alternatives.
-      </p>
     </>
   );
 }

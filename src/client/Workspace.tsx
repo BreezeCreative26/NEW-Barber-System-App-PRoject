@@ -21,7 +21,7 @@ import type {
   Holiday,
   StaffDayOff,
 } from "../server/domain";
-import { Brand, Button, Icon, Modal, Notice, Badge, Avatar, TopBar, Rail, TabBar, type NavItem } from "./ui";
+import { Brand, Button, Icon, IconButton, Modal, Notice, Badge, Avatar, TopBar, Rail, TabBar, type NavItem } from "./ui";
 import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, type CalendarDraft, type RangeBooking } from "./Calendar";
@@ -801,9 +801,11 @@ export function Workspace() {
   dateRef.current = date;
   const queriedDate = useRef("");
   const [loadedDate, setLoadedDate] = useState("");
-  const [calendarView, setCalendarView] = useState(() =>
-    window.matchMedia("(max-width: 740px)").matches ? "agenda" : "day",
-  );
+  // Day timetable everywhere: on phones the board scrolls sideways inside its own region.
+  const [calendarView, setCalendarView] = useState("day");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
   const [week, setWeek] = useState<{ key: string; bookings: RangeBooking[] } | null>(null);
   const [weekLoading, setWeekLoading] = useState(false);
   const weekKey = date
@@ -1115,6 +1117,40 @@ export function Workspace() {
   const todayRows = (w?.bookings || []).filter((b) => b.date === (w?.today || "") && !["CANCELLED", "NO_SHOW"].includes(b.status));
   const todayTaken = todayRows.reduce((n, b) => n + b.price_pence, 0);
   const todayVisits = todayRows.length;
+  // Waitlist lives in the notifications drawer (bell) rather than on top of the timetable.
+  useEffect(() => {
+    if (!w) return;
+    let cancelled = false;
+    api<{ waitlist: WaitlistEntry[] }>(`/waitlist?from=${w.today}`)
+      .then((r) => !cancelled && setWaitlist(r.waitlist))
+      .catch(() => !cancelled && setWaitlist([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [w?.now, w?.bookings.length, w?.today]);
+  const activeFilterCount = [barber, statusFilter, search].filter(Boolean).length;
+  const dayStats = (() => {
+    const booked = activeBookings.reduce((n, b) => n + b.duration_min, 0);
+    const open = w
+      ? w.staff
+          .filter((s) => s.active && (!barber || s.id === barber))
+          .reduce((n, s) => {
+            const h = w.hours.find(
+              (x) => x.staff_id === s.id && x.weekday === new Date(`${date}T12:00:00Z`).getUTCDay(),
+            );
+            if (!h?.enabled) return n;
+            return n + (Math.min(h.ends, w.shop.closes) - Math.max(h.starts, w.shop.opens)) - Math.max(0, h.break_end - h.break_start);
+          }, 0)
+      : 0;
+    return {
+      value: activeBookings.reduce((n, b) => n + b.price_pence, 0),
+      visits: activeBookings.length,
+      completed: activeBookings.filter((b) => b.status === "COMPLETED").length,
+      online: filteredBookings.filter((b) => b.channel === "ONLINE").length,
+      walkIns: filteredBookings.filter((b) => b.source === "WALK_IN").length,
+      utilisation: open ? Math.min(100, Math.round((booked / open) * 100)) : null,
+    };
+  })();
   const directoryFilters = (
     <section className="workspace-toolbar" aria-label="Directory filters">
       <Field label={tab === "Team" ? "Search team" : "Search catalogue"}>
@@ -1168,10 +1204,8 @@ export function Workspace() {
         onWallet={() => {
           if (tab !== "Insights" && canNavigate()) setTab("Insights");
         }}
-        bell={w ? { count: w.issues.length } : null}
-        onBell={() => {
-          if (tab !== "Appointments" && canNavigate()) setTab("Appointments");
-        }}
+        bell={w ? { count: w.issues.length + waitlist.length, open: notificationsOpen } : null}
+        onBell={() => setNotificationsOpen((v) => !v)}
         account={
           w
             ? {
@@ -1189,6 +1223,28 @@ export function Workspace() {
           <Icon name="shield" size={14} /> Local test data
         </span>
       </TopBar>
+      {w && notificationsOpen && (
+        <NotificationsDrawer
+          w={w}
+          date={date}
+          waitlist={waitlist}
+          onRefreshWaitlist={() =>
+            api<{ waitlist: WaitlistEntry[] }>(`/waitlist?from=${w.today}`)
+              .then((r) => setWaitlist(r.waitlist))
+              .catch(() => {})
+          }
+          onBook={(entry) => {
+            setNotificationsOpen(false);
+            if (tab !== "Appointments") setTab("Appointments");
+            setEditor({ kind: "booking", waitlist: entry });
+          }}
+          onReview={(id) => {
+            setNotificationsOpen(false);
+            openBooking(id);
+          }}
+          onClose={() => setNotificationsOpen(false)}
+        />
+      )}
       <div className="workspace-layout">
         <Rail
           items={navItems.filter((n) => n.key !== "Audit" && n.key !== "Accounts")}
@@ -1214,33 +1270,29 @@ export function Workspace() {
           }}
         />
         <main id="workspace-main" className="workspace-main">
-          <header className="workspace-heading">
-            <div>
-              <p className="eyebrow">
-                {tab === "Appointments"
-                  ? "LET’S MAKE IT A GOOD ONE"
-                  : "YOUR SHOP / " + tab.toUpperCase()}
-              </p>
-              <h1>{tab === "Appointments" ? "Your day, at a glance." : tab}</h1>
-              <p>
-                {tab === "Appointments"
-                  ? "Keep the chairs moving. Your saved timetable, all in one place."
-                  : "Manage your shop with changes saved to the local test database."}
-              </p>
-            </div>
-            <Button
-              variant="secondary"
-              disabled={loading || !online}
-              onClick={() =>
-                refresh()
-                  .then(() => setNotice("View refreshed."))
-                  .catch(() => {})
-              }
-            >
-              <Icon name="refresh" />
-              {loading ? "Refreshing…" : "Refresh"}
-            </Button>
-          </header>
+          {tab === "Appointments" ? (
+            <h1 className="visually-hidden">Appointments</h1>
+          ) : (
+            <header className="workspace-heading">
+              <div>
+                <p className="eyebrow">{"YOUR SHOP / " + tab.toUpperCase()}</p>
+                <h1>{tab}</h1>
+                <p>Manage your shop with changes saved to the local test database.</p>
+              </div>
+              <Button
+                variant="secondary"
+                disabled={loading || !online}
+                onClick={() =>
+                  refresh()
+                    .then(() => setNotice("View refreshed."))
+                    .catch(() => {})
+                }
+              >
+                <Icon name="refresh" />
+                {loading ? "Refreshing…" : "Refresh"}
+              </Button>
+            </header>
+          )}
           {!online && (
             <Notice tone="warning" icon="offline">
               Offline: this view may be stale. Changes are not queued or saved
@@ -1310,7 +1362,13 @@ export function Workspace() {
                 <Notice tone="warning">
                   <strong>
                     {w.issues.length} appointment(s) need schedule review.
-                  </strong>
+                  </strong>{" "}
+                  <button
+                    className="workspace-text-button"
+                    onClick={() => setNotificationsOpen(true)}
+                  >
+                    Open notifications
+                  </button>
                   {w.issues.map((issue) => (
                     <p key={issue.booking_id}>
                       {issue.ref}: {issue.reason}.{" "}
@@ -1325,289 +1383,288 @@ export function Workspace() {
                 </Notice>
               )}
               {tab === "Appointments" && (
-                <>
-                  <WaitlistPanel w={w} date={date} onBook={(entry) => setEditor({ kind: "booking", waitlist: entry })} />
-                  <section
-                    className="stats-grid connected-stats"
-                    aria-label="Selected day statistics"
-                  >
-                    {[
-                      {
-                        label: "Appointments",
-                        value: filteredBookings.length,
-                        icon: "calendarCheck",
-                        foot: "Selected day and filters",
-                      },
-                      {
-                        label: "Booked service value",
-                        value: money(
-                          activeBookings.reduce((n, b) => n + b.price_pence, 0),
-                        ),
-                        icon: "wallet",
-                        foot: "Not collected · excludes cancelled / no-show",
-                      },
-                      {
-                        label: "Chair time booked",
-                        value: (() => {
-                          const booked = activeBookings.reduce((n, b) => n + b.duration_min, 0);
-                          const open = w.staff
-                            .filter((s) => s.active && (!barber || s.id === barber))
-                            .reduce((n, s) => {
-                              const h = w.hours.find(
-                                (x) => x.staff_id === s.id && x.weekday === new Date(`${date}T12:00:00Z`).getUTCDay(),
-                              );
-                              if (!h?.enabled) return n;
-                              return n + (Math.min(h.ends, w.shop.closes) - Math.max(h.starts, w.shop.opens)) - Math.max(0, h.break_end - h.break_start);
-                            }, 0);
-                          return open ? `${Math.min(100, Math.round((booked / open) * 100))}%` : "—";
-                        })(),
-                        icon: "checks",
-                        foot: `${activeBookings.filter((b) => b.status === "COMPLETED").length} completed · of rostered hours`,
-                      },
-                      {
-                        label: "Booked online",
-                        value: filteredBookings.filter(
-                          (b) => b.channel === "ONLINE",
-                        ).length,
-                        icon: "user",
-                        foot: `${filteredBookings.filter((b) => b.source === "WALK_IN").length} walk-ins · included above`,
-                      },
-                    ].map((s) => (
-                      <article className="stat-card" key={s.label}>
-                        <div className="stat-label">
-                          {s.label}
-                          <Icon name={s.icon} />
-                        </div>
-                        <div className="stat-value">
-                          {dayReady ? s.value : "—"}
-                        </div>
-                        <div className="stat-foot">{s.foot}</div>
-                      </article>
-                    ))}
-                  </section>
-                  <section
-                    className="calendar-card connected-calendar"
-                    aria-label="Appointment calendar"
-                  >
-                    <header className="calendar-toolbar calendar-command-bar">
-                      <div className="calendar-date-heading">
-                        <h2>Your timetable</h2>
-                        <p>
+                <section
+                  className="calendar-card connected-calendar"
+                  aria-label="Appointment calendar"
+                >
+                  <h2 className="visually-hidden">Your timetable</h2>
+                  <div className="toolbar calendar-toolbar-row" aria-label="Timetable controls">
+                    <Button
+                      variant="secondary"
+                      className="toolbar-today"
+                      onClick={() => setDate(w.today)}
+                      aria-pressed={date === w.today}
+                    >
+                      Today
+                    </Button>
+                    <span className="toolbar-date-group">
+                      <Button
+                        variant="ghost"
+                        className="icon-only"
+                        aria-label={calendarView === "week" ? "Previous week" : "Previous day"}
+                        onClick={() => setDate(datePlus(date || w.today, calendarView === "week" ? -7 : -1))}
+                      >
+                        <Icon name="left" />
+                      </Button>
+                      <span className="toolbar-date">
+                        <span className="toolbar-date-text" aria-hidden="true">
                           {!date
                             ? "Choose a date"
                             : calendarView === "week"
-                              ? `Week of ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" }).format(new Date(weekKey + "T12:00:00Z"))} – ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" }).format(new Date(datePlus(weekKey, 6) + "T12:00:00Z"))}`
+                              ? `Week of ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(weekKey + "T12:00:00Z"))}`
                               : new Intl.DateTimeFormat("en-GB", {
-                                  dateStyle: "full",
-                                }).format(new Date(date + "T12:00:00Z"))}{" "}
-                          · London time
-                        </p>
-                      </div>
-                      <div className="calendar-primary-actions">
-                        <div className="segmented" aria-label="Calendar view">
-                          <button
-                            type="button"
-                            aria-pressed={calendarView === "day"}
-                            onClick={() => setCalendarView("day")}
-                          >
-                            <Icon name="calendar" size={16} />
-                            Day timetable
-                          </button>
-                          <button
-                            type="button"
-                            aria-pressed={calendarView === "week"}
-                            onClick={() => setCalendarView("week")}
-                          >
-                            <Icon name="dashboard" size={16} />
-                            Week
-                          </button>
-                          <button
-                            type="button"
-                            aria-pressed={calendarView === "agenda"}
-                            onClick={() => setCalendarView("agenda")}
-                          >
-                            <Icon name="list" size={16} />
-                            Agenda
-                          </button>
-                        </div>
-                        <Button
-                          disabled={!online || stale || loading}
-                          onClick={() => setEditor({ kind: "booking" })}
-                          data-testid="new-booking"
-                        >
-                          <Icon name="plus" />
-                          New booking
-                        </Button>
-                      </div>
-                    </header>
-                    <div className="calendar-controls">
-                      <div className="calendar-date-controls">
-                        <Field label="Appointment date">
-                          <input
-                            type="date"
-                            value={date}
-                            onChange={(e) => {
-                              if (e.target.value) setDate(e.target.value);
-                            }}
-                          />
-                        </Field>
-                        <div className="calendar-day-actions">
-                          <Button
-                            variant="ghost"
-                            aria-label="Previous day"
-                            onClick={() =>
-                              setDate(datePlus(date || w.today, -1))
-                            }
-                          >
-                            <Icon name="left" />
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            onClick={() => setDate(w.today)}
-                          >
-                            Today
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            aria-label="Next day"
-                            onClick={() =>
-                              setDate(datePlus(date || w.today, 1))
-                            }
-                          >
-                            <Icon name="right" />
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="calendar-filters">
-                        <Field label="Barber filter">
-                          <select
-                            value={barber}
-                            onChange={(e) => setBarber(e.target.value)}
-                          >
-                            <option value="">All barbers</option>
-                            {w.staff.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.name}
-                              </option>
-                            ))}
-                          </select>
-                        </Field>
-                        <Field label="Status filter">
-                          <select
-                            value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value)}
-                          >
-                            <option value="">All statuses</option>
-                            {Object.entries(labels).map(([key, label]) => (
-                              <option key={key} value={key}>
-                                {label}
-                              </option>
-                            ))}
-                          </select>
-                        </Field>
-                        <Field label="Search appointments">
-                          <input
-                            placeholder="Name, phone or reference"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                          />
-                        </Field>
-                      </div>
-                    </div>
-                    <div className="calendar-filter-summary">
-                      <span>
-                        {dayReady
-                          ? `${filteredBookings.length} matching appointment${filteredBookings.length === 1 ? "" : "s"}`
-                          : "Loading appointments…"}{" "}
-                        · Selected-day search only
-                      </span>
-                      {(barber || statusFilter || search) && (
-                        <Button
-                          variant="ghost"
-                          onClick={() => {
-                            setBarber("");
-                            setStatusFilter("");
-                            setSearch("");
+                                  weekday: "short",
+                                  day: "numeric",
+                                  month: "short",
+                                }).format(new Date(date + "T12:00:00Z"))}
+                          <Icon name="down" size={14} />
+                        </span>
+                        <input
+                          type="date"
+                          aria-label="Appointment date"
+                          value={date}
+                          onChange={(e) => {
+                            if (e.target.value) setDate(e.target.value);
                           }}
-                        >
-                          Clear filters
-                        </Button>
+                        />
+                      </span>
+                      <Button
+                        variant="ghost"
+                        className="icon-only"
+                        aria-label={calendarView === "week" ? "Next week" : "Next day"}
+                        onClick={() => setDate(datePlus(date || w.today, calendarView === "week" ? 7 : 1))}
+                      >
+                        <Icon name="right" />
+                      </Button>
+                    </span>
+                    <span className="toolbar-select">
+                      <Icon name="users" size={15} />
+                      <select aria-label="Barber filter" value={barber} onChange={(e) => setBarber(e.target.value)}>
+                        <option value="">All barbers</option>
+                        {w.staff.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    </span>
+                    <Button
+                      variant={filtersOpen || statusFilter || search ? "secondary" : "ghost"}
+                      className="toolbar-filters"
+                      aria-expanded={filtersOpen}
+                      aria-controls="timetable-filters"
+                      aria-label="Filters"
+                      onClick={() => setFiltersOpen((v) => !v)}
+                      data-testid="filters-toggle"
+                    >
+                      <Icon name="sliders" size={16} />
+                      <span className="toolbar-label">Filters</span>
+                      {(statusFilter || search) && (
+                        <span className="count-badge inline" aria-label={`${[statusFilter, search].filter(Boolean).length} active`}>
+                          {[statusFilter, search].filter(Boolean).length}
+                        </span>
                       )}
+                    </Button>
+                    <span className="toolbar-grow" />
+                    <Button
+                      variant="ghost"
+                      className="icon-only toolbar-refresh"
+                      aria-label="Refresh"
+                      title="Refresh"
+                      aria-busy={loading}
+                      disabled={loading || !online}
+                      onClick={() =>
+                        refresh()
+                          .then(() => setNotice("View refreshed."))
+                          .catch(() => {})
+                      }
+                    >
+                      <Icon name="refresh" size={16} />
+                    </Button>
+                    <div className="segmented" aria-label="Calendar view">
+                      <button
+                        type="button"
+                        aria-pressed={calendarView === "day"}
+                        onClick={() => setCalendarView("day")}
+                        aria-label="Day timetable"
+                      >
+                        <Icon name="calendar" size={16} />
+                        <span className="toolbar-label">Day</span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={calendarView === "week"}
+                        onClick={() => setCalendarView("week")}
+                        aria-label="Week"
+                      >
+                        <Icon name="dashboard" size={16} />
+                        <span className="toolbar-label">Week</span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={calendarView === "agenda"}
+                        onClick={() => setCalendarView("agenda")}
+                        aria-label="Agenda"
+                      >
+                        <Icon name="list" size={16} />
+                        <span className="toolbar-label">Agenda</span>
+                      </button>
                     </div>
-                    {date && calendarView !== "week" && <WeekStrip date={date} onDate={setDate} />}
-                    {calendarView === "week" && date ? (
-                      <WeekView
-                        w={w}
-                        date={date}
-                        barber={barber}
-                        bookings={week?.key === weekKey ? week.bookings : null}
-                        loading={weekLoading}
-                        onDay={(d) => {
-                          setDate(d);
-                          setCalendarView("day");
+                    <Button
+                      disabled={!online || stale || loading}
+                      onClick={() => setEditor({ kind: "booking" })}
+                      data-testid="new-booking"
+                      className="toolbar-add"
+                    >
+                      <Icon name="plus" />
+                      New booking
+                    </Button>
+                  </div>
+                  {filtersOpen && (
+                    <div className="calendar-filters-panel" id="timetable-filters">
+                      <Field label="Status filter">
+                        <select
+                          value={statusFilter}
+                          onChange={(e) => setStatusFilter(e.target.value)}
+                        >
+                          <option value="">All statuses</option>
+                          {Object.entries(labels).map(([key, label]) => (
+                            <option key={key} value={key}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Search appointments">
+                        <input
+                          placeholder="Name, phone or reference"
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                        />
+                      </Field>
+                      <Button
+                        variant="ghost"
+                        disabled={!activeFilterCount}
+                        onClick={() => {
+                          setBarber("");
+                          setStatusFilter("");
+                          setSearch("");
                         }}
-                        onOpen={openBooking}
-                      />
-                    ) : !dayReady ? (
-                      <p role="status" className="calendar-empty">
-                        {error
-                          ? "Calendar unavailable. Use Retry workspace above."
-                          : "Loading this day’s appointments…"}
-                      </p>
-                    ) : (
-                      <>
-                        {calendarView === "day" && (
-                          <Calendar
-                            w={w}
-                            date={date}
-                            barber={barber}
-                            bookings={filteredBookings}
-                            disabled={!online || stale || loading}
-                            onDraft={(draft) =>
-                              setEditor({ kind: "booking", draft })
-                            }
-                            onOpen={(item) =>
-                              setEditor({ kind: "detail", item })
-                            }
-                          />
+                      >
+                        Clear filters
+                      </Button>
+                    </div>
+                  )}
+                  <div className="calendar-summary" role="status">
+                    <span>
+                      {!dayReady
+                        ? "Loading appointments…"
+                        : `${filteredBookings.length} matching appointment${filteredBookings.length === 1 ? "" : "s"}`}
+                      {activeFilterCount > 0 && dayReady ? " · filtered" : ""}
+                    </span>
+                    {dayReady && (
+                      <span className="calendar-summary-stats" aria-label="Selected day statistics">
+                        <span>
+                          <b>{money(dayStats.value)}</b> booked
+                        </span>
+                        <span>
+                          <b>{dayStats.completed}</b>/{dayStats.visits} completed
+                        </span>
+                        <span>
+                          <b>{dayStats.online}</b> online
+                        </span>
+                        {dayStats.utilisation !== null && (
+                          <span>
+                            <b>{dayStats.utilisation}%</b> of chair time
+                          </span>
                         )}
-                        {(calendarView === "agenda" ||
-                          filteredBookings.length === 0) && (
-                          <BookingList
-                            bookings={filteredBookings}
-                            w={w}
-                            onOpen={(item) =>
-                              setEditor({ kind: "detail", item })
-                            }
-                          />
-                        )}
-                        {calendarView === "day" &&
-                          filteredBookings.some((b) =>
-                            ["CANCELLED", "NO_SHOW"].includes(b.status),
-                          ) && (
-                            <section className="closed-day-bookings">
-                              <h3>Cancelled and no-show history</h3>
-                              <BookingList
-                                bookings={filteredBookings.filter((b) =>
-                                  ["CANCELLED", "NO_SHOW"].includes(b.status),
-                                )}
-                                w={w}
-                                onOpen={(item) =>
-                                  setEditor({ kind: "detail", item })
-                                }
-                              />
-                            </section>
-                          )}
-                      </>
+                      </span>
                     )}
-                    <p className="workspace-footnote">
-                      Complete selected-day records loaded from the database.
-                      Timetable clicks start a draft; the service, extras and
-                      buffer must fit before confirmation. No deposits
-                      collected.
+                    {activeFilterCount > 0 && !filtersOpen && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setBarber("");
+                          setStatusFilter("");
+                          setSearch("");
+                        }}
+                      >
+                        Clear filters
+                      </Button>
+                    )}
+                  </div>
+                  {date && calendarView !== "week" && <WeekStrip date={date} onDate={setDate} />}
+                  {calendarView === "week" && date ? (
+                    <WeekView
+                      w={w}
+                      date={date}
+                      barber={barber}
+                      bookings={week?.key === weekKey ? week.bookings : null}
+                      loading={weekLoading}
+                      onDay={(d) => {
+                        setDate(d);
+                        setCalendarView("day");
+                      }}
+                      onOpen={openBooking}
+                    />
+                  ) : !dayReady ? (
+                    <p role="status" className="calendar-empty">
+                      {error
+                        ? "Calendar unavailable. Use Retry workspace above."
+                        : "Loading this day’s appointments…"}
                     </p>
-                  </section>
-                </>
+                  ) : (
+                    <>
+                      {calendarView === "day" && (
+                        <Calendar
+                          w={w}
+                          date={date}
+                          barber={barber}
+                          bookings={filteredBookings}
+                          disabled={!online || stale || loading}
+                          onDraft={(draft) =>
+                            setEditor({ kind: "booking", draft })
+                          }
+                          onOpen={(item) =>
+                            setEditor({ kind: "detail", item })
+                          }
+                        />
+                      )}
+                      {(calendarView === "agenda" ||
+                        filteredBookings.length === 0) && (
+                        <BookingList
+                          bookings={filteredBookings}
+                          w={w}
+                          onOpen={(item) =>
+                            setEditor({ kind: "detail", item })
+                          }
+                        />
+                      )}
+                      {calendarView === "day" &&
+                        filteredBookings.some((b) =>
+                          ["CANCELLED", "NO_SHOW"].includes(b.status),
+                        ) && (
+                          <details className="closed-day-bookings">
+                            <summary>
+                              <h3>Cancelled and no-show history</h3>
+                              <span className="nav-count">
+                                {filteredBookings.filter((b) => ["CANCELLED", "NO_SHOW"].includes(b.status)).length}
+                              </span>
+                            </summary>
+                            <BookingList
+                              bookings={filteredBookings.filter((b) =>
+                                ["CANCELLED", "NO_SHOW"].includes(b.status),
+                              )}
+                              w={w}
+                              onOpen={(item) =>
+                                setEditor({ kind: "detail", item })
+                              }
+                            />
+                          </details>
+                        )}
+                    </>
+                  )}
+                </section>
               )}
               {tab === "Team" && (
                 <BarberStudio
@@ -2132,97 +2189,133 @@ type WaitlistEntry = {
   service_name: string;
   staff_name: string | null;
 };
-function WaitlistPanel({
+// Notifications drawer (bell): schedule issues and the waitlist live here, off the timetable.
+function NotificationsDrawer({
   w,
   date,
+  waitlist,
+  onRefreshWaitlist,
   onBook,
+  onReview,
+  onClose,
 }: {
   w: WorkspaceData;
   date: string;
+  waitlist: WaitlistEntry[];
+  onRefreshWaitlist: () => void;
   onBook: (entry: WaitlistEntry) => void;
+  onReview: (bookingId: string) => void;
+  onClose: () => void;
 }) {
-  const [rows, setRows] = useState<WaitlistEntry[] | null>(null);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
   const [expanded, setExpanded] = useState(false);
-  const load = () =>
-    api<{ waitlist: WaitlistEntry[] }>(`/waitlist?from=${w.today}`)
-      .then((r) => {
-        setRows(r.waitlist);
-        setError("");
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "Could not load waitlist."));
+  const ref = useRef<HTMLElement>(null);
   useEffect(() => {
-    load();
-  }, [w.now, w.bookings.length]);
+    const previous = document.activeElement as HTMLElement | null;
+    ref.current?.querySelector<HTMLElement>("button")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      previous?.focus();
+    };
+  }, []);
   async function close(entry: WaitlistEntry) {
     setBusyId(entry.id);
     try {
       await api(`/waitlist/${entry.id}/status`, "POST", { status: "CLOSED", version: entry.version });
-      await load();
+      onRefreshWaitlist();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not update.");
     } finally {
       setBusyId("");
     }
   }
-  if (!rows || rows.length === 0) return null;
-  const today = rows.filter((r) => r.date === date);
-  const shown = expanded ? rows : today.length ? today : rows.slice(0, 3);
+  const today = waitlist.filter((r) => r.date === date);
+  const shown = expanded ? waitlist : today.length ? today : waitlist.slice(0, 3);
   const part: Record<string, string> = { ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" };
+  const total = w.issues.length + waitlist.length;
   return (
-    <section className="waitlist-panel" aria-labelledby="waitlist-panel-heading">
-      <header>
-        <div>
-          <h2 id="waitlist-panel-heading">
-            <Icon name="bell" /> Waitlist
-            <span className="nav-count">{rows.length}</span>
-          </h2>
-          <p>
-            {today.length
-              ? `${today.length} customer${today.length === 1 ? "" : "s"} waiting for ${date === w.today ? "today" : "this day"}. Book them into a free slot or close the request.`
-              : "Customers who asked to be contacted when a full day opens up. Nothing is reserved until you book them."}
+    <>
+      <div className="drawer-scrim" onClick={onClose} aria-hidden="true" />
+      <aside className="drawer-right notifications-drawer" aria-label="Notifications" ref={ref} data-testid="notifications">
+        <h2>
+          Notifications
+          <small>{total ? `${total} item${total === 1 ? "" : "s"}` : "All clear"}</small>
+          <IconButton name="close" label="Close notifications" onClick={onClose} />
+        </h2>
+        {w.issues.length > 0 && (
+          <section className="notify-group" aria-labelledby="notify-issues-heading">
+            <h3 id="notify-issues-heading">
+              <Icon name="blocked" size={16} /> Schedule review
+              <span className="nav-count">{w.issues.length}</span>
+            </h3>
+            <p className="drawer-note left">Saved appointments that no longer fit the roster, hours or closures.</p>
+            <ul className="notify-list">
+              {w.issues.map((issue) => (
+                <li key={issue.booking_id}>
+                  <div>
+                    <strong>{issue.ref}</strong>
+                    <small>{issue.reason}</small>
+                  </div>
+                  <Button variant="secondary" onClick={() => onReview(issue.booking_id)}>
+                    Review appointment
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        <section className="notify-group waitlist-panel" aria-labelledby="waitlist-panel-heading">
+          <h3 id="waitlist-panel-heading">
+            <Icon name="bell" size={16} /> Waitlist
+            <span className="nav-count">{waitlist.length}</span>
+          </h3>
+          <p className="drawer-note left">
+            {waitlist.length === 0
+              ? "No one is waiting. Customers can join the waitlist from the public booking page when a day is full."
+              : today.length
+                ? `${today.length} customer${today.length === 1 ? "" : "s"} waiting for ${date === w.today ? "today" : "this day"}. Book them into a free slot or close the request.`
+                : "Customers who asked to be contacted when a full day opens up. Nothing is reserved until you book them."}
           </p>
-        </div>
-        {rows.length > shown.length || expanded ? (
-          <Button variant="ghost" onClick={() => setExpanded((v) => !v)}>
-            {expanded ? "Show fewer" : `Show all ${rows.length}`}
-          </Button>
-        ) : null}
-      </header>
-      <ErrorMessage error={error} />
-      <ul>
-        {shown.map((r) => (
-          <li key={r.id}>
-            <div>
-              <strong>{r.customer_name}</strong>
-              <small>
-                {r.phone}
-                {r.email ? ` · ${r.email}` : ""}
-              </small>
-            </div>
-            <div>
-              <span>{r.service_name}</span>
-              <small>
-                {r.staff_name || "Any barber"} · {part[r.daypart]}
-              </small>
-            </div>
-            <div>
-              <span>{new Date(`${r.date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" })}</span>
-              <small>asked {new Date(r.created_at).toLocaleDateString("en-GB")}</small>
-            </div>
-            <div className="waitlist-row-actions">
-              <Button onClick={() => onBook(r)} disabled={busyId === r.id}>
-                Book them in
-              </Button>
-              <Button variant="ghost" onClick={() => close(r)} disabled={busyId === r.id}>
-                {busyId === r.id ? "…" : "Close"}
-              </Button>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </section>
+          <ErrorMessage error={error} />
+          <ul className="notify-list">
+            {shown.map((r) => (
+              <li key={r.id}>
+                <div>
+                  <strong>{r.customer_name}</strong>
+                  <small>
+                    {r.service_name} · {r.staff_name || "Any barber"} · {part[r.daypart]}
+                  </small>
+                  <small>
+                    {new Date(`${r.date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" })}
+                    {" · "}
+                    {r.phone}
+                  </small>
+                </div>
+                <div className="waitlist-row-actions">
+                  <Button onClick={() => onBook(r)} disabled={busyId === r.id}>
+                    Book them in
+                  </Button>
+                  <Button variant="ghost" onClick={() => close(r)} disabled={busyId === r.id}>
+                    {busyId === r.id ? "…" : "Close"}
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {waitlist.length > shown.length || expanded ? (
+            <Button variant="ghost" onClick={() => setExpanded((v) => !v)}>
+              {expanded ? "Show fewer" : `Show all ${waitlist.length}`}
+            </Button>
+          ) : null}
+        </section>
+        <p className="drawer-note">Local test data · nothing here sends a message or takes a payment.</p>
+      </aside>
+    </>
   );
 }
 function ShareBooking({ booking, w }: { booking: StoredBooking; w: WorkspaceData }) {

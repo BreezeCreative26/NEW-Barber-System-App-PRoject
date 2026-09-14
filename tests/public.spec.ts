@@ -7,6 +7,7 @@ import {
 import AxeBuilder from "@axe-core/playwright";
 import { readFileSync } from "node:fs";
 import type { WorkspaceData } from "../src/server/domain";
+import { openNotifications } from "./fixture";
 
 // Public online booking, customer manage links and owner customer directory.
 // Every test creates its own fictional shop; nothing live is touched.
@@ -647,6 +648,9 @@ test.describe("public booking v2 UI", () => {
     const state = await r.storageState();
     await page.context().addCookies(state.cookies);
     await page.goto("/workspace");
+    await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
+    await expect(page.getByTestId("bell")).toHaveAccessibleName(/1 unread/);
+    await openNotifications(page);
     await expect(page.getByRole("heading", { name: /Waitlist/ })).toBeVisible();
     await page.getByRole("button", { name: "Book them in" }).click();
     await expect(page.getByRole("complementary", { name: "Waitlist request" })).toContainText("Waiting Wanda");

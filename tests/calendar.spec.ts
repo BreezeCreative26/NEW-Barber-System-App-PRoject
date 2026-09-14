@@ -1,6 +1,6 @@
 import { test, expect, request, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { section } from "./fixture";
+import { section, openFilters } from "./fixture";
 const origin = "http://localhost:3000";
 const base = origin + "/api/sandbox";
 function day(offset = 5) {
@@ -395,6 +395,7 @@ test("E1 filters preserve barber colour and hidden occupancy; navigation keeps f
   const colour = await event.getAttribute("class");
   await page.getByLabel("Barber filter").selectOption(bookings[1].staff_id);
   await expect(event).toHaveAttribute("class", colour!);
+  await openFilters(page);
   await page.getByLabel("Search appointments").fill("not a saved customer");
   await expect(page.locator(".calendar-event")).toHaveCount(0);
   await expect(
@@ -502,9 +503,8 @@ for (const width of [320, 390, 768, 1024, 1440])
       ),
     ).toBe(true);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-    await page
-      .getByRole("heading", { name: "Your timetable", exact: true })
-      .scrollIntoViewIfNeeded();
+    await expect(page.getByRole("heading", { name: "Your timetable", exact: true })).toBeAttached();
+    await page.getByTestId("filters-toggle").scrollIntoViewIfNeeded();
     await page.screenshot({
       path: test.info().outputPath(`e1-calendar-${width}.png`),
       fullPage: true,

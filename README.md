@@ -106,3 +106,4 @@ Ten migrations now exist, including both distinct `0002_*` files; `0005_local_ac
 **Nothing live:** no deployment/provider activation/charges/messages/transfers/public GitHub push. Model A remains: each shop receives haircut money; owners pay barbers externally. Future manual pay-runs calculate/export/record, not hold a wallet or initiate barber transfers. SaaS subscription money is separate.
 
 Older [build plans](docs/BUILD_PLAN.md), [decisions](docs/DECISIONS.md), [design](docs/DESIGN_SYSTEM.md), [quality gates](docs/QUALITY_GATES.md) and [feature register](docs/FEATURE_REGISTER.csv) remain references. Latest source/test state and short next-step handoff take precedence over historical pauses/counts.
+

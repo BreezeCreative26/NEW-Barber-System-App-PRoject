@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { openFixtureShop, origin, base, section } from "./fixture";
+import { openFixtureShop, origin, base, section, openFilters } from "./fixture";
 test("initial network failure retries in place and unexpected HTML has a useful recovery message", async ({
   page,
 }) => {
@@ -115,6 +115,7 @@ test("interrupted booking response retries idempotently and details/status filte
   await expect(
     page.getByRole("button").filter({ hasText: "Updated recovery client" }),
   ).toBeVisible();
+  await openFilters(page);
   await page.getByLabel("Status filter").selectOption("COMPLETED");
   await expect(
     page.getByRole("heading", { name: "No matching appointments" }),

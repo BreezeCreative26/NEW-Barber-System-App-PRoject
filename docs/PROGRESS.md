@@ -337,3 +337,14 @@ PM2 `barbershop-preview`, port 3000, `http://localhost:3000/workspace`; health r
 Selected GitHub repository remains https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject, previously public/empty. No push or visibility change authorized/performed. Recheck and obtain publication consent before syncing. Preserve local/genspark history.
 
 Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git status. Continue from this tested slice. No production action unless the user explicitly changes the instruction.
+
+## 2026-09-14 — Timetable rebuilt to the OLLO shell design
+
+- **One-row toolbar** (`.calendar-toolbar-row`): Today · ‹ date › (native date picker under a compact label) · Barber select · **Filters** toggle (`data-testid="filters-toggle"`, reveals Status filter + Search appointments + Clear filters) · Refresh · Day/Week/Agenda segmented · New booking. Phone: wraps to two rows, icon-only Add, full-width view switch.
+- **Day stats** collapsed from four stat cards into a one-line summary (`.calendar-summary`, `aria-label="Selected day statistics"`): booked value · completed/visits · online · % chair time.
+- **Waitlist + schedule issues moved into a Notifications drawer** (`data-testid="notifications"`, bell count = issues + waitlist). Waitlist heading, "Book them in" and "Close" behave as before. Escape / scrim / close button dismiss.
+- **Timetable on mobile**: day view is now the default at every width; `useCompact()` narrows columns (150px) and gutter (44px) below 768px and the board scrolls sideways inside its own region. Column heads show `£taken · N visits`; events show service · price and `BlockIcons` (online / standing / walk-in).
+- Legend + keyboard help folded into `.calendar-foot` (help is a `<details>`); cancelled/no-show history is a collapsible `<details>` with a count.
+- Page heading removed on Appointments (visually-hidden h1 + h2 "Your timetable" kept for AT/tests); other tabs unchanged.
+- Tests: new helpers `openFilters(page)` / `openNotifications(page)` in `tests/fixture.ts`; calendar/workspace/accounts/public specs updated; visual baselines refreshed deliberately (5/5).
+- Gate: tsc OK · guardrails PASS · vitest 26 · Playwright 103 passed / 1 flaky (`workspace.spec.ts:594` strict-mode clash on two "Reason" textareas in the appointment panel — pre-existing panel markup, passed on re-run twice; to be tightened with an exact label).

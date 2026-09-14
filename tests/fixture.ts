@@ -35,3 +35,17 @@ export async function section(page: Page, name: string) {
   await nav.getByTestId("tab-more").click();
   await nav.getByRole("menuitem", { name, exact: true }).click();
 }
+
+// Status / search filters live behind the toolbar "Filters" toggle; idempotent.
+export async function openFilters(page: Page) {
+  const toggle = page.getByTestId("filters-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  await expect(page.getByLabel("Status filter")).toBeVisible();
+}
+
+// Schedule issues and the waitlist live in the notifications drawer behind the bell.
+export async function openNotifications(page: Page) {
+  const bell = page.getByTestId("bell");
+  if ((await bell.getAttribute("aria-expanded")) !== "true") await bell.click();
+  await expect(page.getByTestId("notifications")).toBeVisible();
+}
