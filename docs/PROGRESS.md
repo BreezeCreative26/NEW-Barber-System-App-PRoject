@@ -1,6 +1,6 @@
 # Barbershop OS — Progress and next-session handoff
 
-Updated 2026-09-14 at verified 12:08 UTC test run. **WP-LOCAL-01 and recovery hardening verified locally.** Next: **WP-LOCAL-02 — catalogue completeness and scheduling overrides**. Current code captured by `732a6ec` auto-backup; handoff updates committed separately.
+Updated 2026-09-14 after 12:15 UTC verification. **WP-LOCAL-01, network recovery, and full-day staff leave verified locally.** Next: **WP-LOCAL-02 — add-ons, service coverage and partial-day scheduling overrides**. See the latest git log for code/checkpoint commits; preserve all ongoing work.
 
 ## Read this first
 
@@ -12,7 +12,8 @@ The application is no longer only a design preview. `/workspace` now uses local 
 
 - Isolated browser-owned test workspace creation: two editable example barbers, three services, weekly schedules, no seeded appointments/payments.
 - Shop name/address, Europe/London timezone, opening/closing hours, closed weekdays, provisional deposit/cancellation/no-show settings.
-- Staff creation/editing/deactivation, active status, seven-day schedules and valid lunch breaks.
+- Staff creation/editing/deactivation/reactivation, active status, seven-day schedules and valid lunch breaks.
+- Dated full-day staff leave persists, blocks availability/booking/moves, flags impacted appointments, and can be removed with audit retained. Other barbers remain available. Partial-day overrides are not implemented.
 - Service creation/editing/deactivation, category, integer-pence price and exact duration.
 - Dated shop closures, removal with audit retained, future-appointment impact warnings after closure/hours/deactivation changes.
 - Server-calculated availability: active staff/service, shop hours, staff hours, breaks, holidays, elapsed time, existing booking intervals and ten-minute buffer.
@@ -58,10 +59,11 @@ The application is no longer only a design preview. `/workspace` now uses local 
 | --- | --- | --- |
 | Build | Passed, Hono Worker plus React assets | `npm run build` |
 | TypeScript | Passed on latest inspected source | `npm run typecheck` |
-| Unit/route/domain | 36 passed: 23 preview + 13 local boundary/time/schema tests | `tests/fixtures.test.ts`, `tests/domain.test.ts` |
+| Unit/route/domain | 37 passed: 23 preview + 14 local boundary/time/schema tests | `tests/fixtures.test.ts`, `tests/domain.test.ts` |
 | Direct local D1 invariants | Passed independently of API pre-checks | `npm run test:db`, `tests/d1-invariants.mjs` |
-| Full browser/API suite | **45 passed, 0 failed/skipped/flaky** | `test-results/runs/1789387696509-24664/results.json`, start 2026-09-14 12:08:16 UTC, duration 90.53s |
-| Mutation endpoint coverage | All **13** POST/PUT/PATCH/DELETE routes covered by source-derived inventory; matching Origin, session and invalid-input checks pass | `tests/sandbox.spec.ts` |
+| Full browser/API suite | **47 passed, 0 failed/skipped/flaky** | `test-results/runs/1789388096127-32788/results.json`, start 2026-09-14 12:14:56 UTC |
+| Final focused recheck | **22 workspace/API tests passed**, 0 failed/skipped/flaky; latest source includes staff leave and isolated screenshot paths | `test-results/runs/1789388113442-33159/results.json`, start 2026-09-14 12:15:13 UTC |
+| Mutation endpoint coverage | All **15** POST/PUT/PATCH/DELETE routes covered by source-derived inventory; matching Origin, session and invalid-input checks pass | `tests/sandbox.spec.ts` |
 | Persisted UI workflow | Create staff/service/hours/settings/closure, reload, book, move, check in/start/complete, audit | `tests/workspace.spec.ts` |
 | Tenant/API/concurrency | Cross-shop reads/mutations, strict payloads, stale versions, idempotency, rollback, status/no-show, schedule impacts | `tests/sandbox.spec.ts` |
 | Responsive | 320/390/768/1024/1440 widths, all workspace sections, no page overflow | Workspace Playwright cases |
@@ -72,7 +74,7 @@ The application is no longer only a design preview. `/workspace` now uses local 
 | Dependency audit | Zero reported vulnerabilities in package audit | `npm audit --audit-level=high` |
 | Secret exclusion | `.dev.vars` ignored; local DB/artifacts ignored | `git check-ignore .dev.vars` |
 
-Resolved during this package: stable form labels needed for exact accessible selection; forced Secure cookie for HTTPS development proxy; overlapping Playwright runs initially collided on artifact cleanup (ENOENT). Current Playwright config isolates run output under `test-results/runs/<run-id>/`; that infrastructure failure was not a saved-workflow failure. Never run overlapping suites against a shared artifact path.
+Resolved during this package: stable form labels needed for exact accessible selection; forced Secure cookie for HTTPS development proxy; overlapping Playwright runs initially collided on artifact cleanup (ENOENT). Current Playwright config isolates run output under `test-results/runs/<run-id>/`; that infrastructure failure was not a saved-workflow failure. Never run overlapping suites against a shared artifact path. Workspace screenshots now also use each test's outputPath rather than concurrent writes to the same evidence PNG. A subsequent transient 500/trace stream failure occurred while another build and schema extension were active; local migrations are now applied and both full/focused suites passed afterward. Do not rebuild/migrate during a test run.
 
 New screenshots: `docs/evidence/workspace-{320,390,768,1024,1440}.png` and `workspace-booking-{320,390,768,1024,1440}.png`. Old preview evidence remains historical; no recolouring was applied.
 
@@ -101,7 +103,7 @@ Continue the same local database and matte UI. Do not rebuild the shell.
 
 1. Add persisted add-on catalogue, service/add-on eligibility and immutable booking-item snapshots.
 2. Add barber/service coverage, price/duration overrides and server quote recomputation; recheck availability whenever total duration changes.
-3. Add dated staff day-off/time overrides with affected-booking review, alongside weekly hours.
+3. Full-day staff leave is now implemented and verified. Extend to partial-day time overrides with affected-booking review, alongside weekly hours.
 4. Expand tests: 25-minute services, varying add-on durations, coverage disabled between review and write, dated overrides, stale quotes and cross-shop references.
 5. Improve saved booking views/pagination and operational form coverage, then connect customer/barber interfaces to the shared authoritative APIs without pretending test sessions are production roles.
 6. Implement checkout holds and expiry only as a deliberate next allocator extension, with late-confirmation tests. Current availability truthfully reports `holds:false`.
@@ -116,7 +118,7 @@ Continue the same local database and matte UI. Do not rebuild the shell.
 - No role-separated staff/customer/private-note authorization, production abuse controls or verified customer history.
 - No financial ledger/cash/tips/refunds/receipts, pay-runs or implied bank execution. Model A remains shop collection plus owner-paid external transfers.
 - No real notification providers, subscriptions, platform console, uploads/R2, installed PWA/service worker, offline writes or safe offline private cache.
-- No hold/expiry, public booking slug, add-on/override/time-off completeness or full calendar week/month.
+- No hold/expiry, public booking slug, add-on/price-duration override completeness, partial-day overrides or full calendar week/month.
 - Production auth/provider/policy choices gate their dependent work only; they do not block the next local slice.
 
 ## GitHub / continuity

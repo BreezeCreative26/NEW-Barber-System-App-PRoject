@@ -1,5 +1,19 @@
 /* Barbershop OS. D-012: preserve the existing matte palette. */
 /* Functional workspace: scoped layout additions, shared colours unchanged. */
+.modal .workspace-save-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+.workspace-editor-recovery {
+  border-top: 1px solid var(--line);
+  margin-top: 20px;
+  padding-top: 8px;
+}
+
 .workspace-banner {
   background: var(--forest);
   color: #fff;

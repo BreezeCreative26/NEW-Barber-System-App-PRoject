@@ -47,6 +47,14 @@ export type Holiday = {
   date: string;
   label: string;
 };
+export type StaffDayOff = {
+  id: string;
+  shop_id: string;
+  staff_id: string;
+  date: string;
+  reason: string;
+  created_at: number;
+};
 export type StoredBooking = {
   id: string;
   shop_id: string;
@@ -89,6 +97,7 @@ export type WorkspaceData = {
   services: Service[];
   hours: Hours[];
   holidays: Holiday[];
+  days_off: StaffDayOff[];
   bookings: StoredBooking[];
   audit: AuditEvent[];
   today: string;
@@ -172,6 +181,9 @@ export const hoursSchema = z
   .strict();
 export const holidaySchema = z
   .object({ date: dateSchema, label: z.string().trim().min(2).max(100) })
+  .strict();
+export const dayOffSchema = z
+  .object({ date: dateSchema, reason: z.string().trim().min(3).max(100) })
   .strict();
 export const bookingSchema = z
   .object({
@@ -296,8 +308,16 @@ export function slotReason(
   duration: number,
   now = Date.now(),
   excludeId?: string,
+  daysOff: StaffDayOff[] = [],
 ): string {
   if (!staff?.active) return "Barber unavailable";
+  if (
+    daysOff.some(
+      (d) =>
+        d.staff_id === staff.id && d.date === date && d.shop_id === shop.id,
+    )
+  )
+    return "Barber has a day off";
   if (
     JSON.parse(shop.closed_days).includes(weekday(date)) ||
     holidays.some((h) => h.date === date)

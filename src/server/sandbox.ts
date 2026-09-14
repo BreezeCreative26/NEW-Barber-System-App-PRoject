@@ -9,6 +9,8 @@ import { z } from "zod";
 import {
   bookingSchema,
   bookingDetailsSchema,
+  dayOffSchema,
+  type StaffDayOff,
   dateSchema,
   holidaySchema,
   hoursSchema,
@@ -169,6 +171,7 @@ sandbox.onError((err, c) => {
   const message = String(err);
   const known = [
     "quote_changed",
+    "staff_day_off",
     "slot_taken",
     "barber_unavailable",
     "service_changed",
@@ -294,12 +297,16 @@ sandbox.get("/workspace", async (c) => {
     c.env.DB.prepare(
       "SELECT * FROM audit_events WHERE shop_id=? ORDER BY created_at DESC,rowid DESC LIMIT 200",
     ).bind(sid),
+    c.env.DB.prepare(
+      "SELECT * FROM staff_days_off WHERE shop_id=? ORDER BY date,staff_id",
+    ).bind(sid),
   ]);
   const staff = result[0].results as Staff[];
   const services = result[1].results as Service[];
   const hours = result[2].results as Hours[];
   const holidays = result[3].results as Holiday[];
   const bookings = result[4].results as StoredBooking[];
+  const daysOff = result[6].results as StaffDayOff[];
   const issues = bookings
     .filter(
       (b) =>
@@ -318,6 +325,9 @@ sandbox.get("/workspace", async (c) => {
         b.date,
         b.start_min,
         b.duration_min,
+        Date.now(),
+        undefined,
+        daysOff,
       );
       return reason ? [{ booking_id: b.id, ref: ref(b), reason }] : [];
     });
@@ -329,6 +339,7 @@ sandbox.get("/workspace", async (c) => {
     holidays,
     bookings,
     audit: result[5].results as AuditEvent[],
+    days_off: daysOff,
     today: shopToday(shop.timezone),
     now: Date.now(),
     mode: "sandbox",
@@ -467,6 +478,56 @@ sandbox.put("/staff/:id/hours", async (c) => {
   if (!result[0].meta.changes) fail(409, "record_changed");
   return c.json({ ok: true });
 });
+sandbox.post("/staff/:id/days-off", async (c) => {
+  const body = await input(c, dayOffSchema);
+  const staffId = c.req.param("id");
+  const staff = await c.env.DB.prepare(
+    "SELECT id FROM staff WHERE shop_id=? AND id=?",
+  )
+    .bind(c.get("shopId"), staffId)
+    .first();
+  if (!staff) fail(404, "Barber not found");
+  const leaveId = id();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      "INSERT INTO staff_days_off(id,shop_id,staff_id,date,reason,created_at) VALUES(?,?,?,?,?,?)",
+    ).bind(
+      leaveId,
+      c.get("shopId"),
+      staffId,
+      body.date,
+      body.reason,
+      Date.now(),
+    ),
+    audit(
+      c,
+      "staff_day_off",
+      leaveId,
+      "DAY_OFF_ADDED",
+      `${staffId}: ${body.date} — ${body.reason}. Review existing appointments.`,
+    ),
+  ]);
+  return c.json({ id: leaveId }, 201);
+});
+sandbox.delete("/staff/:id/days-off/:leaveId", async (c) => {
+  const leaveId = c.req.param("leaveId");
+  const result = await c.env.DB.batch([
+    c.env.DB.prepare(
+      "DELETE FROM staff_days_off WHERE shop_id=? AND staff_id=? AND id=?",
+    ).bind(c.get("shopId"), c.req.param("id"), leaveId),
+    audit(
+      c,
+      "staff_day_off",
+      leaveId,
+      "DAY_OFF_REMOVED",
+      "Dated day off removed; weekly hours apply again.",
+      true,
+    ),
+  ]);
+  if (!result[0].meta.changes) fail(404, "Day off not found");
+  return c.json({ ok: true });
+});
+
 sandbox.post("/services", async (c) => {
   const b = await input(c, serviceSchema);
   const serviceId = id();
@@ -571,6 +632,9 @@ async function availabilityContext(
     c.env.DB.prepare(
       "SELECT * FROM bookings WHERE shop_id=? AND staff_id=? AND date>=? AND date<=?",
     ).bind(sid, staffId, date, date),
+    c.env.DB.prepare(
+      "SELECT * FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date=?",
+    ).bind(sid, staffId, date),
   ]);
   const staff = result[0].results[0] as Staff | undefined;
   const service = result[1].results[0] as Service | undefined;
@@ -583,6 +647,7 @@ async function availabilityContext(
     hours: (result[2].results[0] as Hours) ?? null,
     holidays: result[3].results as Holiday[],
     bookings: result[4].results as StoredBooking[],
+    daysOff: result[5].results as StaffDayOff[],
   };
 }
 sandbox.get("/availability", async (c) => {
@@ -620,6 +685,7 @@ sandbox.get("/availability", async (c) => {
               duration,
               Date.now(),
               booking?.id,
+              data.daysOff,
             ),
     }));
   return c.json({
@@ -672,6 +738,9 @@ sandbox.post("/bookings", async (c) => {
     b.date,
     b.start_min,
     data.service.duration_min,
+    Date.now(),
+    undefined,
+    data.daysOff,
   );
   if (reason) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
   const start = localInstant(b.date, b.start_min, data.shop.timezone)!;
@@ -810,6 +879,7 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     b.duration_min,
     Date.now(),
     b.id,
+    data.daysOff,
   );
   if (reason) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
   const start = localInstant(body.date, body.start_min, data.shop.timezone)!;

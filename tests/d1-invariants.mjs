@@ -147,6 +147,46 @@ try {
     ).start_min,
     540,
   );
+  // Dated leave must also block INSERT and reschedule inside the database itself.
+  const leave = await api(`/staff/${b.staff_id}/days-off`, "POST", {
+    date,
+    reason: "Write-time leave test",
+  });
+  assert.equal(leave.status, 201);
+  const leaveBlocked = {
+    ...duplicate,
+    id: crypto.randomUUID(),
+    request_id: crypto.randomUUID(),
+    sequence: 10003,
+    start_min: 630,
+    start_at: b.start_at + 90 * 60000,
+    end_at: b.end_at + 90 * 60000,
+  };
+  await assert.rejects(
+    () =>
+      db
+        .prepare(
+          `INSERT INTO bookings (${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`,
+        )
+        .bind(...columns.map((k) => leaveBlocked[k]))
+        .run(),
+    /staff_day_off/,
+  );
+  await assert.rejects(
+    () =>
+      db
+        .prepare(
+          "UPDATE bookings SET start_min=?,start_at=?,end_at=? WHERE id=?",
+        )
+        .bind(630, leaveBlocked.start_at, leaveBlocked.end_at, b.id)
+        .run(),
+    /staff_day_off/,
+  );
+  assert.equal(
+    (await api(`/staff/${b.staff_id}/days-off/${leave.body.id}`, "DELETE"))
+      .status,
+    200,
+  );
   // Closure is checked again inside INSERT even if an earlier availability read was valid.
   await api("/holidays", "POST", { date, label: "Write-time closure test" });
   const later = {

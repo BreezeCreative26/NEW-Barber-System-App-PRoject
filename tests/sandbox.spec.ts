@@ -104,6 +104,8 @@ const mutationContracts = [
   ["POST", "/staff"],
   ["PUT", "/staff/:id"],
   ["PUT", "/staff/:id/hours"],
+  ["POST", "/staff/:id/days-off"],
+  ["DELETE", "/staff/:id/days-off/:leaveId"],
   ["POST", "/services"],
   ["PUT", "/services/:id"],
   ["POST", "/holidays"],
@@ -132,7 +134,7 @@ test("all registered mutation endpoints enforce origin and session boundaries", 
   const w = await workspace(a);
   const before = w.audit.length;
   for (const [method, pattern] of mutationContracts) {
-    const path = pattern.replace(":id", crypto.randomUUID());
+    const path = pattern.replace(/:[a-zA-Z]+/g, () => crypto.randomUUID());
     const foreign = await a.fetch(base + path, {
       method,
       headers: { Origin: "https://invalid.example" },
@@ -158,6 +160,91 @@ test("all registered mutation endpoints enforce origin and session boundaries", 
   }
   expect((await workspace(a)).audit.length).toBe(before);
   await Promise.all([a.dispose(), anon.dispose()]);
+});
+
+test("staff days off persist, isolate shops, reject bookings and moves, and release without history loss", async () => {
+  const r = await owner();
+  const other = await owner();
+  const w = await workspace(r);
+  const booked = await create(r, w);
+  const second = await create(r, w, 900);
+  const p = payload(w, 630);
+  const staff = w.staff[0];
+  const leave = { date: p.date, reason: "Fictional annual leave" };
+  expect(
+    (
+      await other.post(base + `/staff/${staff.id}/days-off`, { data: leave })
+    ).status(),
+  ).toBe(404);
+  const created = await r.post(base + `/staff/${staff.id}/days-off`, {
+    data: leave,
+  });
+  expect(created.status()).toBe(201);
+  const id = (await created.json()).id;
+  expect(
+    (
+      await r.post(base + `/staff/${staff.id}/days-off`, { data: leave })
+    ).status(),
+  ).toBe(409);
+  let after = await workspace(r);
+  expect(after.days_off).toHaveLength(1);
+  expect(after.issues.map((i) => i.booking_id)).toContain(booked.id);
+  expect(after.issues[0].reason).toBe("Barber has a day off");
+  expect(after.bookings).toHaveLength(2);
+  const availability = await r.get(
+    base +
+      `/availability?date=${p.date}&staff_id=${staff.id}&service_id=${p.service_id}`,
+  );
+  expect(
+    (await availability.json()).slots.every(
+      (s: { reason: string }) => s.reason === "Barber has a day off",
+    ),
+  ).toBe(true);
+  expect((await r.post(base + "/bookings", { data: p })).status()).toBe(409);
+  expect(
+    (
+      await r.post(base + `/bookings/${second.id}/reschedule`, {
+        data: {
+          staff_id: staff.id,
+          date: p.date,
+          start_min: 630,
+          version: 0,
+          reason: "Test unavailable move",
+        },
+      })
+    ).status(),
+  ).toBe(409);
+  expect(
+    (await other.delete(base + `/staff/${staff.id}/days-off/${id}`)).status(),
+  ).toBe(404);
+  expect(
+    (await r.delete(base + `/staff/${w.staff[1].id}/days-off/${id}`)).status(),
+  ).toBe(404);
+  expect(
+    (
+      await r.post(base + "/bookings", {
+        data: {
+          ...p,
+          request_id: crypto.randomUUID(),
+          staff_id: w.staff[1].id,
+        },
+      })
+    ).status(),
+  ).toBe(201);
+  expect(
+    (await r.delete(base + `/staff/${staff.id}/days-off/${id}`)).status(),
+  ).toBe(200);
+  expect((await r.post(base + "/bookings", { data: p })).status()).toBe(201);
+  after = await workspace(r);
+  expect(after.days_off).toHaveLength(0);
+  expect(after.audit.filter((a) => a.action === "DAY_OFF_ADDED")).toHaveLength(
+    1,
+  );
+  expect(
+    after.audit.filter((a) => a.action === "DAY_OFF_REMOVED"),
+  ).toHaveLength(1);
+  expect(after.bookings.find((b) => b.id === second.id)?.start_min).toBe(900);
+  await Promise.all([r.dispose(), other.dispose()]);
 });
 
 const origin = "http://localhost:3000";

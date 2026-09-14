@@ -16,6 +16,7 @@ import type {
   Hours,
   StoredBooking,
   Holiday,
+  StaffDayOff,
 } from "../server/domain";
 import { Brand, Button, Icon, Modal, Notice, Badge } from "./ui";
 import { money, time, datePlus } from "./fixtures";
@@ -170,7 +171,9 @@ function SaveForm({
       <fieldset disabled={busy}>
         {children}
         <ErrorMessage error={error} />
-        <Button type="submit">{busy ? "Saving…" : label}</Button>
+        <div className="workspace-save-actions">
+          <Button type="submit">{busy ? "Saving…" : label}</Button>
+        </div>
       </fieldset>
     </form>
   );
@@ -179,6 +182,8 @@ type Editor =
   | { kind: "staff"; item?: Staff }
   | { kind: "service"; item?: Service }
   | { kind: "hours"; item: Staff }
+  | { kind: "daysOff"; item: Staff }
+  | { kind: "removeDayOff"; item: StaffDayOff }
   | { kind: "booking"; item?: StoredBooking }
   | { kind: "detail"; item: StoredBooking }
   | { kind: "contacts"; item: StoredBooking }
@@ -281,7 +286,11 @@ export function Workspace() {
     if (!current || !("item" in current) || !current.item) return;
     const itemId = current.item.id;
     let replacement: Editor | null = null;
-    if (current.kind === "staff" || current.kind === "hours") {
+    if (
+      current.kind === "staff" ||
+      current.kind === "hours" ||
+      current.kind === "daysOff"
+    ) {
       const item = latest.staff.find((s) => s.id === itemId);
       if (item) replacement = { ...current, item };
     } else if (current.kind === "service") {
@@ -644,6 +653,14 @@ export function Workspace() {
                           >
                             Weekly hours
                           </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={() =>
+                              setEditor({ kind: "daysOff", item: s })
+                            }
+                          >
+                            Days off
+                          </Button>
                         </div>
                       </article>
                     ))}
@@ -875,6 +892,7 @@ export function Workspace() {
           onMove={(item) => setEditor({ kind: "booking", item })}
           onEdit={(item) => setEditor({ kind: "contacts", item })}
           reloadEditor={reloadEditor}
+          onRemoveDayOff={(item) => setEditor({ kind: "removeDayOff", item })}
         />
       )}
     </div>
@@ -937,6 +955,7 @@ type EditorProps = {
   onMove: (b: StoredBooking) => void;
   onEdit: (b: StoredBooking) => void;
   reloadEditor: () => Promise<void>;
+  onRemoveDayOff: (item: StaffDayOff) => void;
 };
 function WorkspaceEditor({
   editor: e,
@@ -947,31 +966,36 @@ function WorkspaceEditor({
   onMove,
   onEdit,
   reloadEditor,
+  onRemoveDayOff,
 }: EditorProps) {
   const [reloadError, setReloadError] = useState("");
   const [reloading, setReloading] = useState(false);
   const title =
-    e.kind === "contacts"
-      ? "Edit booking details"
-      : e.kind === "staff"
-        ? e.item
-          ? "Edit barber"
-          : "Add barber"
-        : e.kind === "service"
-          ? e.item
-            ? "Edit service"
-            : "Add service"
-          : e.kind === "hours"
-            ? `${e.item.name} · weekly hours`
-            : e.kind === "booking"
+    e.kind === "daysOff"
+      ? `${e.item.name} · days off`
+      : e.kind === "removeDayOff"
+        ? "Remove day off"
+        : e.kind === "contacts"
+          ? "Edit booking details"
+          : e.kind === "staff"
+            ? e.item
+              ? "Edit barber"
+              : "Add barber"
+            : e.kind === "service"
               ? e.item
-                ? "Reschedule appointment"
-                : "New test booking"
-              : e.kind === "detail"
-                ? reference(e.item)
-                : e.kind === "holiday"
-                  ? "Add shop closure"
-                  : "Remove shop closure";
+                ? "Edit service"
+                : "Add service"
+              : e.kind === "hours"
+                ? `${e.item.name} · weekly hours`
+                : e.kind === "booking"
+                  ? e.item
+                    ? "Reschedule appointment"
+                    : "New test booking"
+                  : e.kind === "detail"
+                    ? reference(e.item)
+                    : e.kind === "holiday"
+                      ? "Add shop closure"
+                      : "Remove shop closure";
   return (
     <Modal
       title={title}
@@ -1149,6 +1173,66 @@ function WorkspaceEditor({
               </fieldset>
             );
           })}
+        </SaveForm>
+      )}
+      {e.kind === "daysOff" && (
+        <>
+          <Notice>
+            Full-day leave overrides weekly hours for this barber only. Existing
+            appointments stay saved and are flagged for review. Partial-day
+            overrides are not available yet.
+          </Notice>
+          <section className="workspace-day-off-list">
+            <h3>Saved days off</h3>
+            {w.days_off.filter((d) => d.staff_id === e.item.id).length ===
+              0 && <p>No saved days off.</p>}
+            {w.days_off
+              .filter((d) => d.staff_id === e.item.id)
+              .map((d) => (
+                <article className="workspace-closure" key={d.id}>
+                  <strong>{d.date}</strong>
+                  <p>{d.reason}</p>
+                  <Button variant="ghost" onClick={() => onRemoveDayOff(d)}>
+                    Remove {d.date}
+                  </Button>
+                </article>
+              ))}
+          </section>
+          <SaveForm
+            label="Save day off"
+            onSave={(f) =>
+              saved(`/staff/${e.item.id}/days-off`, "POST", {
+                date: text(f, "date"),
+                reason: text(f, "reason"),
+              })
+            }
+          >
+            <Field label="Day off date">
+              <input type="date" name="date" required defaultValue={date} />
+            </Field>
+            <Field label="Day off reason">
+              <input
+                name="reason"
+                required
+                minLength={3}
+                maxLength={100}
+                placeholder="Fictional test leave"
+              />
+            </Field>
+          </SaveForm>
+        </>
+      )}
+      {e.kind === "removeDayOff" && (
+        <SaveForm
+          label="Confirm removal"
+          onSave={() =>
+            saved(`/staff/${e.item.staff_id}/days-off/${e.item.id}`, "DELETE")
+          }
+        >
+          <p>
+            Remove the day off on {e.item.date}? Weekly hours will apply again.
+            Saved appointments and the audit history remain unchanged.
+          </p>
         </SaveForm>
       )}
       {e.kind === "holiday" && (

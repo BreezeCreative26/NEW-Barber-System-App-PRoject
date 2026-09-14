@@ -91,6 +91,49 @@ describe("strict scheduling inputs and London time", () => {
     expect(hoursSchema.safeParse({ version: 0, rows }).success).toBe(false);
   });
 });
+it("dated leave is barber- and shop-scoped, not a closure for every barber", () => {
+  const shop = {
+    id: "shop",
+    opens: 540,
+    closes: 1080,
+    closed_days: "[]",
+    timezone: "Europe/London",
+  } as Shop;
+  const staff = { id: "barber", active: 1 } as Staff;
+  const hours = {
+    enabled: 1,
+    starts: 540,
+    ends: 1080,
+    break_start: 540,
+    break_end: 540,
+  } as Hours;
+  const leave = {
+    id: "leave",
+    shop_id: "shop",
+    staff_id: "barber",
+    date: "2026-10-12",
+    reason: "Test leave",
+    created_at: 0,
+  };
+  const check = (days: (typeof leave)[]) =>
+    slotReason(
+      shop,
+      staff,
+      hours,
+      [],
+      [],
+      leave.date,
+      540,
+      30,
+      0,
+      undefined,
+      days,
+    );
+  expect(check([leave])).toBe("Barber has a day off");
+  expect(check([{ ...leave, staff_id: "other" }])).toBe("");
+  expect(check([{ ...leave, shop_id: "other" }])).toBe("");
+});
+
 describe("duration and buffer availability", () => {
   const shop = {
     opens: 540,

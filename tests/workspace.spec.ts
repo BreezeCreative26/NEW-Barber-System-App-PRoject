@@ -258,6 +258,62 @@ test("staff and service edits, inactive filters and reactivation survive refresh
     await expect(card).toBeVisible();
   }
 });
+test("dated staff leave survives reload, flags saved appointments and can be removed", async ({
+  page,
+}) => {
+  await enter(page);
+  const date = await bookingDraft(page, "Leave impact client");
+  await page.getByRole("button", { name: "Review appointment" }).click();
+  await page.getByRole("button", { name: "Confirm test booking" }).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  const w = await (await page.request.get("/api/sandbox/workspace")).json();
+  const barber = w.staff.find(
+    (s: { id: string }) => s.id === w.bookings[0].staff_id,
+  );
+  await section(page, "Team");
+  const card = page
+    .getByRole("article")
+    .filter({
+      has: page.getByRole("heading", { name: barber.name, exact: true }),
+    });
+  await card.getByRole("button", { name: "Days off", exact: true }).click();
+  await page.getByLabel("Day off date").fill(date);
+  await page.getByLabel("Day off reason").fill("Fictional test leave");
+  await page.getByRole("button", { name: "Save day off", exact: true }).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(
+    page.getByText("Barber has a day off.", { exact: false }),
+  ).toBeVisible();
+  await page.reload();
+  await section(page, "Team");
+  await card.getByRole("button", { name: "Days off", exact: true }).click();
+  await expect(
+    page.getByText("Fictional test leave", { exact: true }),
+  ).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.screenshot({
+    path: "docs/evidence/staff-days-off.png",
+    fullPage: true,
+  });
+  await page
+    .getByRole("button", { name: `Remove ${date}`, exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Confirm removal", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(
+    page.getByText("Barber has a day off.", { exact: false }),
+  ).not.toBeVisible();
+  await section(page, "Appointments");
+  await page.getByLabel("Appointment date", { exact: true }).fill(date);
+  await expect(
+    page.getByRole("button").filter({ hasText: "Leave impact client" }),
+  ).toBeVisible();
+  const after = await (await page.request.get("/api/sandbox/workspace")).json();
+  expect(after.bookings).toHaveLength(1);
+  expect(after.days_off).toHaveLength(0);
+});
 function future() {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + 4);
@@ -449,7 +505,7 @@ for (const width of [320, 390, 768, 1024, 1440])
     await section(page, "Appointments");
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await page.screenshot({
-      path: `docs/evidence/workspace-${width}.png`,
+      path: test.info().outputPath("evidence", `workspace-${width}.png`),
       fullPage: true,
     });
     await page
@@ -457,9 +513,15 @@ for (const width of [320, 390, 768, 1024, 1440])
       .click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await expect(page.getByLabel("Available start time")).toBeVisible();
+    const actionBox = await page
+      .getByRole("button", { name: "Review appointment", exact: true })
+      .boundingBox();
+    expect(actionBox).not.toBeNull();
+    expect(actionBox!.y).toBeGreaterThanOrEqual(0);
+    expect(actionBox!.y + actionBox!.height).toBeLessThanOrEqual(888);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await page.screenshot({
-      path: `docs/evidence/workspace-booking-${width}.png`,
+      path: test.info().outputPath("evidence", `workspace-booking-${width}.png`),
       fullPage: true,
     });
     await page.keyboard.press("Escape");
