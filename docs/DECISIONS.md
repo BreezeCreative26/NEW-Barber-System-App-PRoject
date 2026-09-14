@@ -66,6 +66,19 @@ Implemented engineering defaults for this test slice (not final commercial polic
 - A dated hours record replaces the weekly shift and single break for that date. Shop opening limits/closures and full-day leave still win. Changes flag affected bookings, never silently cancel them. Restoring weekly hours means deleting the override with audit retained.
 - Rules save individually per service. Test ownership is unchanged; production roles, holds, checkout, public booking and provider activation remain separate work.
 
+### D-014 — Original preview is the product UI foundation
+
+User clarified: “the main origional preview was best i liked the layout and stuff and how it functioned just needed to add features, update the ui and ux and colour ways and build on from this”. This follows their report that the calendar had disappeared and there seemed to be two previews.
+
+- Preserve and build on the original admin/customer/barber layout, navigation, calendar and interaction patterns. The stripped-down functional workspace is not the intended replacement design.
+- Bring the existing local D1 functionality into that original experience incrementally. Keep saved data, APIs, pricing/scheduling invariants and tests; do not discard the backend or restart the application.
+- Target one coherent user-facing app. Fixture scenarios can remain explicitly labelled internal/test references during migration, but must not compete with the main functional experience or masquerade as saved bookings.
+- Next visible deliverable: original-style admin shell and resource calendar backed by saved appointments and existing booking/detail/reschedule/status controls. Integrate complete date-scoped reads so the known 500-row defect is not carried into the calendar.
+- Improve UI/UX and colour treatments within the original design. No specific replacement palette was selected by this clarification; retain the previously approved matte forest/sage/teal baseline and rounded components while making targeted accessibility/usability refinements. This does not reinstate the cancelled D-011 recolouring.
+- D-012 local-only/no-provider/no-deployment and Model A remain unchanged. Layout approval does not mean all fixture functions or financial outcomes are implemented.
+
+This records product direction only; runtime consolidation has not yet been implemented.
+
 ## Proposed architecture decisions
 
 ### D-004 — Modular monolith on Hono / D1 / R2

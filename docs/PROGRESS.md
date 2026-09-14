@@ -1,12 +1,12 @@
 # Barbershop OS — Progress and next-session handoff
 
-Updated 2026-09-14 during the overall-product audit of `c1350a4`. **WP-LOCAL-02 remains implemented and verified locally.** This session audits rather than implements features. Next: **WP-LOCAL-03A — complete booking reads and interaction recovery**, before connecting customer/barber test interfaces. See the audit below for reproduced open findings; passing baseline tests do not close them.
+Updated 2026-09-14 after the user's original-preview clarification, recorded as **D-014**. **WP-LOCAL-02 remains implemented and verified locally.** Next visible deliverable: **WP-LOCAL-03A — original-style admin shell/calendar connected to saved bookings**, including complete reads and interaction recovery. This turn records the direction, not a completed UI consolidation. Audit findings below remain open.
 
 ## Read this first
 
-**D-012/D-013 control: keep the existing matte forest/sage colours, build functionality, nothing live.** No restart, production deployment, provider activation, real messages/charges/transfers or public GitHub push. This is not the completed 189-feature commercial SaaS.
+**D-014 controls UI continuity: build on the original preview layout/calendar, not the stripped-down workspace. D-012/D-013 retain matte forest/sage colours, persisted functionality and nothing live.** No restart, production deployment, provider activation, real messages/charges/transfers or public GitHub push. This is not the completed 189-feature commercial SaaS.
 
-`/workspace` is the authoritative local D1 test application. `/preview/admin`, `/preview/book` and `/preview/barber` remain separate fixture-only experiences, preserved by regression tests. Browser-owned sandbox capabilities are not verified production identity or staff/customer roles.
+Runtime is still split: `/workspace` is the local D1 test application; `/preview/admin`, `/preview/book` and `/preview/barber` are fixture-only. The user finds this confusing and explicitly prefers the original preview's layout and interactions. That original UI is now the confirmed product foundation, to be connected to the existing backend rather than demoted to a separate reference. Do not merely redirect to fixtures and claim restoration is complete. Browser-owned sandbox capabilities are not production identity or staff/customer roles.
 
 ## Completed local functionality
 
@@ -125,10 +125,11 @@ A limited check of official SQUIRE, Booksy and Fresha pages found waitlists, rem
 
 ### Audit verification
 
-Regression rerun in progress; final result/report will be recorded before committing this audit. Runtime sources and migrations remain at c1350a4. Earlier build/migration bootstrap evidence above belongs to WP-LOCAL-02, not a fresh audit migration exercise.
+The prior audit completed `npm test` and `npm audit --audit-level=high` successfully: 42 unit/route/domain tests, direct D1 checks, 54 browser/API tests, zero reported dependency vulnerabilities. Report `test-results/runs/1789390332489-47050/results.json`, started 2026-09-14 12:52:12 UTC, duration 80.27 seconds, zero failed/skipped/flaky; report re-read during this clarification turn. `npm run build` also passed after the suite. Runtime sources/migrations/tests remained at c1350a4; audit notes were auto-backed up in 05599ae before this clarification. No new runtime tests or migrations were run for this documentation-only direction change. Earlier migration bootstrap evidence belongs to WP-LOCAL-02.
 
-## Exact next work package: WP-LOCAL-03A
+## Exact next work package: WP-LOCAL-03A — original UI, saved calendar
 
+0. **D-014 visible goal:** reuse the original admin shell, navigation, resource calendar, date/barber controls and mobile agenda, connecting them to persisted appointments and existing create/detail/reschedule/status APIs. Integrate setup/catalogue/team/schedule functionality into that same interface. Preserve backend/data/tests; no second replacement design or cosmetic redirect to fixture-only screens. Compare actual before/after screenshots at desktop/tablet/phone sizes before calling the consolidation complete.
 1. Fix AUD-01 with tenant-scoped server date/status/barber/search/cursor reads and admin pagination; separate complete impact/summary reads and paginate audit. Prove >500 records, tied timestamps, no cross-shop access and no disappearing near-term appointments.
 2. Fix AUD-02/03/05: preserve multi-section drafts, confirm dirty dismissal, define pending-save closure, and add workspace render recovery/response validation. Reproduce failures first as focused tests; retain all existing regression cases.
 3. Extract only the query/API/editor boundaries needed for those fixes. No broad refactor, recolour or new framework.

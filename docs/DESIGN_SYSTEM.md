@@ -1,6 +1,14 @@
 # Barbershop OS — UI/UX design contract
 
-Version 1.2 · 2026-09-14 · D-012 is controlling: keep the existing matte forest/sage colours and rounded components. D-011 recolouring and WP-001-A-R1 are cancelled. Build functional workflows using current tokens; do not restart visual design.
+Version 1.3 · 2026-09-14 · D-014 confirms the original preview's layout, navigation, calendar and interaction patterns as the product UI foundation. Build persisted features into that experience, rather than treating the simpler workspace as the replacement design. Refine UI/UX incrementally. D-012 matte forest/sage/teal colours and rounded components remain the baseline; no specific replacement palette was selected. D-011 recolouring and WP-001-A-R1 remain cancelled.
+
+## Original-interface continuity
+
+- Reuse/extract the original Admin, Book and Barber presentation components and shared CSS; replace fixture data/actions with authoritative APIs per vertical slice.
+- Preserve the original admin sidebar/header/calendar toolbar, barber-column resource calendar and mobile agenda behaviour. Keep date navigation, search, filtering and appointment details discoverable.
+- Bring functional setup, add-ons, staff rules, schedules and booking editors into that navigation. Do not lose working CRUD or database invariants during UI consolidation.
+- Give users one obvious main app entry. Keep any fixture-only scenarios clearly marked and outside ordinary functional navigation. A redirect back to fixture screens alone is not the fix.
+- Compare before/after screenshots with the original design at desktop, tablet and phone sizes; verify both visual continuity and persistence/recovery. Do not claim that visually restoring a calendar connects its data.
 
 ## 1. Definition of excellent design
 
