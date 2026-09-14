@@ -16,6 +16,21 @@ app.get("/api/health", (c) =>
     persistence: c.env?.APP_MODE === "sandbox" && !!c.env?.DB,
   }),
 );
+// Diagnostic: shows what the worker sees so proxy/origin problems can be verified.
+app.all("/api/origin-check", (c) => {
+  const url = new URL(c.req.url);
+  const pick = (h: string) => c.req.header(h) ?? null;
+  return c.json({
+    method: c.req.method,
+    request_origin: url.origin,
+    host: pick("host"),
+    origin_header: pick("origin"),
+    referer: pick("referer"),
+    x_forwarded_host: pick("x-forwarded-host"),
+    x_forwarded_proto: pick("x-forwarded-proto"),
+    sec_fetch_site: pick("sec-fetch-site"),
+  });
+});
 app.get("/", (c) =>
   c.redirect(c.env?.APP_MODE === "sandbox" ? "/workspace" : "/preview/admin"),
 );

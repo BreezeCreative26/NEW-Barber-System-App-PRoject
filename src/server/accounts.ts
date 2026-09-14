@@ -25,21 +25,54 @@ export const ACCOUNT_COOKIE = "barbershop_account";
 // tunnels) rewrite Host, so the forwarded host/proto and an explicit sandbox-only
 // allow-list also count as "this site". Cross-site origins are always refused.
 export function sameOrigin(c: Ctx): boolean {
-  const origin = c.req.header("origin");
-  if (!origin) return false;
   const url = new URL(c.req.url);
-  if (origin === url.origin) return true;
-  const fwdHost = c.req.header("x-forwarded-host")?.split(",")[0].trim();
-  const fwdProto = c.req.header("x-forwarded-proto")?.split(",")[0].trim();
-  if (fwdHost) {
-    for (const proto of fwdProto ? [fwdProto] : ["https", "http"])
-      if (origin === `${proto}://${fwdHost}`) return true;
+  const origin = c.req.header("origin") ?? "";
+  const hostOf = (v: string | undefined | null) => {
+    if (!v) return "";
+    try {
+      return new URL(v.includes("://") ? v : `https://${v}`).host.toLowerCase();
+    } catch {
+      return "";
+    }
+  };
+  const originHost = hostOf(origin);
+  // 1. Exact match.
+  if (origin && origin === url.origin) return true;
+  // 2. Browser-asserted same-origin/same-site fetch (cannot be forged cross-site).
+  const site = c.req.header("sec-fetch-site");
+  if (site === "same-origin" || site === "same-site") return true;
+  // 3. Proxies rewrite the scheme and/or Host; compare hosts only against the
+  //    request host and any forwarded host.
+  const candidates = [
+    url.host,
+    hostOf(c.req.header("host")),
+    ...(c.req.header("x-forwarded-host") || "").split(",").map((h) => hostOf(h.trim())),
+  ].filter(Boolean);
+  if (originHost && candidates.includes(originHost)) return true;
+  // 4. No Origin (older browsers on same-origin POST) but a same-host Referer.
+  if (!origin) {
+    const ref = hostOf(c.req.header("referer"));
+    if (ref && candidates.includes(ref)) return true;
   }
+  // 5. Explicit sandbox allow-list.
   const allowed = (c.env.ALLOWED_ORIGINS || "")
     .split(",")
     .map((o) => o.trim().replace(/\/$/, ""))
     .filter(Boolean);
-  return allowed.some((a) => a === "*" || a === origin);
+  if (allowed.some((a) => a === "*" || a === origin || hostOf(a) === originHost)) return true;
+  // Diagnostics only: no bodies or cookies are logged.
+  console.warn(
+    "origin_forbidden",
+    JSON.stringify({
+      url_origin: url.origin,
+      origin,
+      host: c.req.header("host") ?? null,
+      x_forwarded_host: c.req.header("x-forwarded-host") ?? null,
+      sec_fetch_site: site ?? null,
+      referer_host: hostOf(c.req.header("referer")) || null,
+    }),
+  );
+  return false;
 }
 const LEGACY_COOKIE = "barbershop_test_session";
 const uid = () => crypto.randomUUID();

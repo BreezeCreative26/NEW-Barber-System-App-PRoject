@@ -666,7 +666,22 @@ test("same-origin guard accepts forwarded proxy hosts and refuses foreign origin
     data: { name: "Origin probe" },
   });
   expect(bad.status()).toBe(403);
-  await Promise.all([r.dispose(), mismatch.dispose()]);
+  // HTTPS terminating proxy: browser Origin is https, worker sees http on the same host.
+  const scheme = await request.newContext();
+  expect(
+    (await scheme.post(base + "/session", { headers: { Origin: "https://localhost:3000" }, data: { name: "Origin probe" } })).status(),
+  ).toBe(201);
+  // Browser-asserted same-origin fetch is trusted even when Origin is rewritten.
+  const fetchSite = await request.newContext();
+  expect(
+    (await fetchSite.post(base + "/session", { headers: { Origin: "https://wrapper.example", "Sec-Fetch-Site": "same-origin" }, data: { name: "Origin probe" } })).status(),
+  ).toBe(201);
+  // Cross-site fetch is refused even if Origin matches nothing.
+  const cross = await request.newContext();
+  expect(
+    (await cross.post(base + "/session", { headers: { Origin: "https://evil.example", "Sec-Fetch-Site": "cross-site" }, data: { name: "Origin probe" } })).status(),
+  ).toBe(403);
+  await Promise.all([r.dispose(), mismatch.dispose(), scheme.dispose(), fetchSite.dispose(), cross.dispose()]);
 });
 
 test("standard demo account: one-click owner/barber sign-in, fixed credentials, idempotent rebuild", async () => {
