@@ -1,12 +1,24 @@
 # Barbershop OS — Progress and next-session handoff
 
-Updated 2026-09-14 after the user's original-preview clarification, recorded as **D-014**. **WP-LOCAL-02 remains implemented and verified locally.** Next visible deliverable: **WP-LOCAL-03A — original-style admin shell/calendar connected to saved bookings**, including complete reads and interaction recovery. This turn records the direction, not a completed UI consolidation. Audit findings below remain open.
+Updated 2026-09-14 with the **comprehensive enhancement plan (D-015)**, continuing the original-interface direction D-014 from 9a1a416. **WP-LOCAL-02 remains implemented and verified locally.** Next visible deliverable: **WP-LOCAL-03A — original-style admin shell/calendar connected to saved bookings**, including complete reads and interaction recovery. This is planning only; no UI consolidation, audit fix or new runtime feature is claimed.
 
 ## Read this first
 
 **D-014 controls UI continuity: build on the original preview layout/calendar, not the stripped-down workspace. D-012/D-013 retain matte forest/sage colours, persisted functionality and nothing live.** No restart, production deployment, provider activation, real messages/charges/transfers or public GitHub push. This is not the completed 189-feature commercial SaaS.
 
 Runtime is still split: `/workspace` is the local D1 test application; `/preview/admin`, `/preview/book` and `/preview/barber` are fixture-only. The user finds this confusing and explicitly prefers the original preview's layout and interactions. That original UI is now the confirmed product foundation, to be connected to the existing backend rather than demoted to a separate reference. Do not merely redirect to fixtures and claim restoration is complete. Browser-owned sandbox capabilities are not production identity or staff/customer roles.
+
+## Latest session — comprehensive enhancement planning, D-015
+
+User asked to enhance/modernise every created feature, ensure correct visual placement and enjoyable customer/admin experiences, explain current feature progress, identify improvements and produce a comprehensive plan. No runtime changes were requested/executed as part of this planning deliverable.
+
+- Rechecked revision/clean tree, original Admin fixture imports, current docs and feature register. Counts unchanged: 189 unique requirements, 53 implementing / 136 not_started; zero production verified/accepted. Re-inspected original committed admin desktop, customer phone and barber phone screenshots for layout continuity; no new screenshots or UI fixes generated.
+- **BUILD_PLAN section 12** now contains the current-state matrix, enhancement coverage for every existing area, missing product capabilities, market-informed proposals, sequenced 03A/03B substeps and acceptance/decision dependencies. Earlier architecture, financial model and milestones retained; no new register rows or release-scope changes.
+- **DESIGN_SYSTEM** adds an enhancement checklist covering shell/calendar/drawers/directories/forms/customer steps/barber queue/colour/feedback, including dense/empty/error/mobile cases.
+- **QUALITY_GATES** adds pending T-ENH-01..11 integration contracts for original-layout continuity, complete calendar reads, saved lifecycle, multi-row drafts, dirty/pending dismissal, render recovery, setup, customer-to-barber flow, time policy, placement/accessibility and performance. These are not executed tests.
+- **DECISIONS D-015 and README** reflect this plan and the unchanged runtime split. The original layout remains the product foundation, not the list-only replacement. Keep matte baseline; no new palette, live service, deployment or external publication authorized.
+- Immediate execution order: **03A/1a complete queries → 03A/1b original calendar integration → 03A/1c integrated setup/form polish**. Then original customer/barber connected test journeys, holds and gated identity/payment/communications/finance/PWA/SaaS work. Do not respond to the next build instruction with another planning reset.
+- Validation for this planning turn: document diff/requirement-ID checks and unchanged runtime files only. Prior 42/54 regression evidence below remains the latest runtime run; no new full suite claimed. AUD-01..08 remain open as documented.
 
 ## Completed local functionality
 

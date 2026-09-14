@@ -229,6 +229,29 @@ Target WCAG 2.2 AA; automated checks alone do not prove conformance.
 - Initial booking route target <=200 KB compressed first-party JS, reviewed if Stripe SDK load affects the checkout route. Measure separately rather than hiding third-party cost.
 - Slot API provisional target p95 <=500 ms under agreed pilot load; define dataset/concurrency and report actual results.
 
+## Enhancement checklist — original design, every existing feature
+
+D-015 requests comprehensive refinement, not a replacement theme. Apply these as each feature is connected. They are proposed implementation/review criteria; no new screenshots or fixes are claimed by this checklist.
+
+| Surface/component | Placement and behaviour to inspect | Required non-default cases |
+| --- | --- | --- |
+| Original admin shell | Stable sidebar/header rhythm; one primary action per page; clear active section and shop context; main content width matches task | Narrow tablet drawer, long shop name, keyboard focus, no duplicate navigation or competing preview switch |
+| Calendar toolbar | Date controls grouped; staff/view/filter controls separated from New booking; wrap cleanly on phone | Five viewport widths, 200% zoom, long staff names and many active filters |
+| Calendar events | Fixed time gutter/staff headings; short events stay legible; details on activation; distinguish status from payment and source | Dense day, one/no/many staff, long services, overlapping requests, breaks/leave/closures; no invented revenue |
+| Appointment drawer | Summary first, visit actions second, history/details below; consistent action footer; preserve calendar context on close | Status conflict, read-after-save failure, forbidden detail, phone keyboard and safe-area footer |
+| Directories | Consistent names and price/duration alignment; searchable active/inactive states; secondary actions do not crowd key data | Empty/no matches, long names, large amounts, archived staff/services, retained filter after editing |
+| Service/add-on forms | Short labelled sections; eligibility selection readable; clear inherited versus custom price/time; optional extras not preselected | Zero/free values, inactive links, errors, more services than fit a dialog, multiple dirty rows |
+| Staff schedule forms | Weekly and dated scope visually distinct; explicit break/closed state; consequence summary before change | Invalid time ordering, full-day leave overriding shift, many impacted bookings, keyboard time entry |
+| Customer steps | Original service/barber/date/details/review sequence; fixed progress/back conventions; concise help | No slots, withdrawn service/add-on, stale quote, changed duration, returning to a prior step |
+| Price summary | Itemized service/extras, total, deposit and remaining balance; comparable numeric alignment | £0, add-on duration, barber override, provider unconnected; no misleading paid badge |
+| Barber queue | Current and next appointment prominent; Today/Earnings/Profile navigation preserved; contextual labelled next action | Empty day, late customer, outdated server state, large text, locked/unlocked device, offline without cache |
+| Shared forms | Label/helper/error spacing; focus first invalid field; pending feedback in-place; unsaved and ambiguous-save handling | Escape/backdrop/back navigation, interrupted mutation, stale row, validation error and long error text |
+| Feedback | Reserve layout for loading; warnings near affected controls; toast supplementary; no success without known result | 401 expiry, forbidden record, HTML proxy, timeout, offline, unexpected rendering exception |
+| Colour and type | Existing forest/sage/teal role tokens; semantic error/warning colours; consistent scale/radii; measured contrast | Selected/disabled/focus/hover states and non-colour status meaning; no arbitrary per-page colours |
+| Images/motion | Reserve image dimensions, meaningful fallback; subtle functional transitions respecting reduced motion | Missing/invalid upload, slow network, layout shift and unsupported animation preference |
+
+No stock dashboard charts, loading shimmer or fashionable gradients count as modernisation unless they help the task. Introduce reusable components from real needs; do not build an unrelated design-system project. Current original evidence (`admin-1440.png`, `book-390.png`, `barber-390.png`) was re-inspected during planning; use it for continuity, not proof that future changes render correctly.
+
 ## 10. Review rubric and approval
 
 Score 1–5 for hierarchy, spacing/alignment, typography, component consistency, content clarity, responsive behaviour, accessibility and interaction completeness. Target >=4 per category, with no blocking issue. A score is review judgement, not a substitute for tests.

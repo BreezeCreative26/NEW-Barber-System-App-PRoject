@@ -194,6 +194,26 @@ A missing integration cannot be replaced by a success toast to pass a gate. A na
 
 After a bug: reproduce, add regression test, fix root cause, re-run neighbouring workflows, update evidence. Test impacted features after shared component/domain changes.
 
+## Enhancement integration gates — D-014/D-015
+
+The existing passing suite does not prove the original UI is connected or close audit defects. The following are **pending acceptance contracts**, not tests already implemented or passed. Add them to the relevant API/browser tests while implementing the named slice.
+
+| Contract | Features / finding | Required evidence |
+| --- | --- | --- |
+| T-ENH-01 Main interface continuity | A-02/A-12/X-02..04, D-014 | Original-style sidebar/header/calendar and mobile agenda; one obvious main entry; no saved-looking fixture data; compare before/after five-width screenshots |
+| T-ENH-02 Complete calendar data | A-02/A-09/A-10, AUD-01 | >500 records, tied timestamps, past/near/future queries, cursor boundaries, concurrent insertion behaviour and complete independent issue/summary queries; two-shop denial |
+| T-ENH-03 Original-UI saved lifecycle | A-03..08/B-12/C-26 | Create on selected date/barber, reload, inspect original items, move, status/cancel; failure retains original allocation and idempotent retries do not duplicate |
+| T-ENH-04 Multi-row save safety | A-19/A-20, AUD-02 | Edit two service rules, save one: other draft preserved or explicit atomic save-all; stale-version rejection and reset-to-inherit keep zero distinct |
+| T-ENH-05 Dirty and pending dismissal | X-01/X-02, AUD-03 | Escape/Close/backdrop/in-app navigation warn when dirty; pending mutation policy prevents ambiguous repeat; explicit discard and save both tested |
+| T-ENH-06 Render and response recovery | X-01/X-12, AUD-05 | Fault-injected response/render error yields actionable workspace recovery, not empty root; no claim that a pending operation could not have saved |
+| T-ENH-07 Complete setup availability | A-13..21/A-28 | Existing setup CRUD remains reachable in original navigation; weekly/dated/full-day precedence, affected-booking warnings, quote refresh and preserved historical items |
+| T-ENH-08 Customer-to-barber journey | C-01..19/B-09/B-13/S-02/S-03 | Persisted customer-test booking appears for owner and assigned barber; role-specific APIs expose minimum fields and reject other users/shops; no owner-data role switch |
+| T-ENH-09 Policy-safe visit status | A-07/A-08/S-20, AUD-04/O-09 | Approved early/backdated/override rules enforced at server with audit; no premature financial eligibility; keep tests pending until policy chosen |
+| T-ENH-10 Placement and accessibility | X-03/X-04 | Five widths, landscape, 200% zoom, mobile keyboard, long names, large totals, dense/empty data; no clipping/overlap; keyboard and screen-reader checks plus axe |
+| T-ENH-11 Measured task performance | X-13, D-015 | Report environment/dataset and lab or field status for payload/API/Web Vitals and booking/walk-in task times; do not mark target values as measured outcomes |
+
+At closure of WP-LOCAL-03A rerun the complete regression on unchanged source, inspect screenshots and demonstrate retained saved records. Production role/provider/device acceptance remains separate. Planning review only validates document consistency, requirement preservation and evidence references; it is not a new runtime regression.
+
 ## 9. Automation roadmap
 
 Automation includes `typecheck`, `test:unit`, `test:db`, `test:e2e` and combined `test`. Local D1/API tests now prove appointment conflicts, snapshot/audit guards, transaction rollback, tenant-negative operations, versions and replay. Browser tests require PM2 and local migrations. Playwright artifacts use a unique run directory to prevent concurrent cleanup collisions; do not launch overlapping tests unnecessarily. Dedicated lint/CI and production identity/provider/device tests remain to implement. Secrets stay in ignored local vars or deployment secret stores; all current test data is fictional.

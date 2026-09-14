@@ -4,7 +4,7 @@ Multi-tenant barbershop SaaS in development: customer booking, shop administrati
 
 ## Current status
 
-**Local functionality, not a live SaaS.** Continuing from `c8abf5c`; no restart, recolouring or deployment. The current matte forest/sage palette and rounded components are unchanged.
+**Local functionality, not a live SaaS.** Application baseline `c1350a4`; latest work is comprehensive enhancement planning (D-015), not a runtime update. The original preview layout/calendar is the confirmed product UI foundation (D-014). Its consolidation with the persisted backend is still pending. Matte forest/sage colours and rounded components remain; no restart or deployment.
 
 `/workspace` saves fictional test records in local Cloudflare D1:
 - Isolated browser-owned shop with editable example staff/services; no seeded appointments or payments.
@@ -33,7 +33,11 @@ Prices are integer pence; add-on durations are 0–120 minutes, with at most ten
 
 Server-paginated booking/admin queries, connected customer and assigned-barber test interfaces, managed identity/MFA/invites, public shop routing and customer portal, checkout holds/expiry, Stripe, notifications, cash/tips/ledger/refunds, reports/pay-runs, subscriptions/platform console and installable/offline PWA remain incomplete or unimplemented. No production roles or payment outcomes are implied by this slice.
 
-Next package: remove the latest-500 booking display limitation through tenant-scoped paginated/day queries, then connect customer/barber test surfaces to the same authoritative APIs. Add checkout holds only with concurrency/expiry/late-confirmation tests. Do not deploy or activate providers.
+Next package **WP-LOCAL-03A**: complete tenant-scoped booking queries, connect saved appointments/actions to the original-style admin shell/calendar/mobile agenda, then integrate and polish existing setup/team/services/schedules with safe forms. Do not redirect to fixture screens and call that integration. Customer/barber journeys follow using the original layouts and least-data APIs. Holds require concurrency/expiry/late-confirmation tests. No deployment or provider activation.
+
+The [comprehensive enhancement plan](docs/BUILD_PLAN.md#12-comprehensive-enhancement-and-modernisation-plan) covers every existing area, missing customer/admin/barber/finance/PWA/SaaS capabilities, proposed additions, delivery order and acceptance. [Design checklist](docs/DESIGN_SYSTEM.md#enhancement-checklist--original-design-every-existing-feature) and [pending integration gates](docs/QUALITY_GATES.md#enhancement-integration-gates--d-014d-015) define visual and functional proof. Register remains 189 requirements: 53 partially implementing, 136 not started; not a completion percentage.
+
+Open audit findings include incomplete booking/impact lists beyond 500, loss of other unsaved service-rule drafts after a per-rule save, unconfirmed dirty-form dismissal, missing workspace render recovery and unresolved early-completion policy. See PROGRESS for reproductions and limitations; the existing passing regression does not close these gaps.
 
 ## Entry points
 

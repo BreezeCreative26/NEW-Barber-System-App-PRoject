@@ -79,6 +79,16 @@ User clarified: “the main origional preview was best i liked the layout and st
 
 This records product direction only; runtime consolidation has not yet been implemented.
 
+### D-015 — Comprehensive enhancement plan for the original experience
+
+User requests a comprehensive assessment and plan to enhance/modernise all created features, ensure correct visual placement, improve customer/admin enjoyment, and identify remaining or valuable new features. This planning request builds on D-014 rather than replacing it.
+
+- Extend the existing BUILD_PLAN with an area-by-area current/built/missing/enhancement/acceptance matrix and sequenced deliveries. Update design and quality contracts and progress together.
+- Keep original layout identity, local data/guards and matte colour baseline; improve consistency, accessible density, form safety, responsiveness and end-to-end interaction. No new palette or layout reset selected.
+- Record actual partial feature counts and prior test evidence separately from planned improvements. No feature becomes verified from a plan.
+- Market-informed P-01..04 proposals, later-version requirements, financial/provider choices and native scope still require their specific decisions. Requesting a comprehensive plan does not approve every proposed feature or external activation.
+- Next implementation remains complete booking reads followed by the original calendar connected to saved data. Planning alone does not consolidate the two runtime interfaces.
+
 ## Proposed architecture decisions
 
 ### D-004 — Modular monolith on Hono / D1 / R2

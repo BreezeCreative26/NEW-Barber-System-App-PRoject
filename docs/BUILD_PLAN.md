@@ -1,6 +1,8 @@
 # Barbershop OS — Build plan
 
-Version: 1.3 · Updated: 2026-09-14 · D-012: keep current matte colours, functionality first, nothing live. Local D1 workspace/setup/booking slice implemented; see PROGRESS for tested scope. WP-001-A-R1 recolouring is cancelled. Production SaaS is not complete.
+Version: 1.4 · Updated: 2026-09-14 · D-012/D-014/D-015: enhance the original interface, connect persisted functionality, retain matte colours, nothing live. Local functionality exists; original UI consolidation is not implemented. WP-001-A-R1 recolouring remains cancelled. Production SaaS is not complete.
+
+**Current comprehensive enhancement plan:** [Section 12 — feature-by-feature improvements, delivery order and acceptance](#12-comprehensive-enhancement-and-modernisation-plan). Earlier sections preserve the architecture, Model A, original requirements, milestones and decisions; section 12 makes their next execution concrete rather than restarting the plan.
 
 ## 1. Mandate and sources of truth
 
@@ -361,3 +363,120 @@ Original out-of-scope boundaries: PAYE payroll; barbers across shops; chat/SMS c
 - Review screenshots after changes to shared layout, typography, components or navigation.
 - Update tracker and progress in the same commit as delivered work; keep sessions small and traceable.
 - User approval of visuals does not override failed functional or security gates.
+
+## 12. Comprehensive enhancement and modernisation plan
+
+Requested 2026-09-14; continuation of D-014, not a rebuild. This section is an actionable proposal for enhancing every existing area and completing the wider product. Plan approval does not mark features implemented or authorize providers/deployment. Work starts from the original interface and current tested backend; changes are delivered and reviewed in small, complete slices.
+
+### 12.1 Honest starting point
+
+Revision checked: 9a1a416; application baseline c1350a4. The current app has two disconnected UI layers: the preferred original fixture preview and a simpler persisted owner-test workspace. Consolidating them is the first user-visible outcome, not optional polish.
+
+| Register area | Total | Implementing (partial) | Not started |
+| --- | ---: | ---: | ---: |
+| Customer | 46 | 12 | 34 |
+| Barber | 32 | 6 | 26 |
+| Admin | 47 | 23 | 24 |
+| SaaS | 20 | 3 | 17 |
+| Acceptance, quality, notifications, integrations, roadmap | 44 | 9 | 35 |
+| **Total** | **189** | **53** | **136** |
+
+There are zero production verified/accepted feature rows. These counts are not a completion percentage. Original scope tags include 125 MVP rows across all areas, 25 v1.5, 34 added and 5 v2; this is separate from the 125 original customer/barber/admin IDs. Superseded and deferred rows remain visible but are not necessarily work to implement unchanged.
+
+Previous verification: 42 unit/route/domain tests, direct local D1 checks and 54 browser/API tests passed. The audit also reproduced open defects outside those test cases (AUD-01..05). No new tests, feature delivery, device acceptance or visual fixes are claimed by this planning update.
+
+### 12.2 Modernise the experience, not replace the design
+
+Keep the original sidebar/header, resource calendar, mobile agenda, customer steps and barber bottom navigation. Use existing matte forest/sage/teal, consistent white surfaces and rounded geometry. Modernisation means clearer hierarchy, readable density, faster actions, progressive disclosure, reliable state and fewer surprises. No blanket dark-mode/theme-builder, new colour palette or visual framework is required.
+
+Proposed admin destinations, within the original shell: Calendar, Appointments, Team, Services & add-ons, Clients, Shop finances, Reports, Settings; add action-required issues where they are relevant. Destinations become normal navigation only when useful persisted functionality exists. Do not ship decorative empty sections, invented KPIs or finance samples as operational data. Keep a clearly marked test-mode banner, but remove fixture scenario controls from the eventual main workflow. Customer, barber and platform experiences have separate task/permission contexts, not an owner-data role toggle.
+
+Detailed placement rules live in DESIGN_SYSTEM's enhancement checklist. Quality is checked on real rendered pages, with long labels/content, dense calendars, no results, failures, mobile keyboards, zoom and focus—not just attractive default screenshots.
+
+### 12.3 Every existing feature: retain, connect, enhance
+
+All rows below describe planned improvements, not new completion claims. Feature IDs point to existing register obligations; later-scope features retain their existing tags.
+
+| Existing area / IDs | What is actually built | Enhancement and completion work | Acceptance evidence |
+| --- | --- | --- | --- |
+| App shell/navigation — X-01..04, D-014 | Original fixture shell; separate workspace | Reuse original shell, one obvious main entry, consistent active section/breadcrumbs, retained date/filter/back state, responsive navigation and render recovery | User can find calendar/setup without changing previews; keyboard and five-width screenshots; reload/deep-link recovery |
+| Calendar/agenda — A-02/A-11/A-12 | Fixture day resource calendar; persisted day list | Bind original calendar to complete date-scoped API; fixed time/staff headers, readable short events, breaks/closures/leave overlays, current-time line, staff filter, safe detail drawer. Complete week/month in a separate follow-on, not in the first merge | >500-record completeness and stable ordering; no clipping at high density; keyboard creation/move equivalent; week/month remains open until tested |
+| Appointments and walk-ins — A-03..08, B-12..15, C-26/C-29 | Reviewed create, snapshots, status and atomic moves | Consistent drawer with visit summary, original service/add-on items and history; explicit reschedule review; policy-aware next action; visible unsaved/pending state; clearer conflict alternatives and read-after-save recovery | Create/reload/move/status/cancel using original UI; same reference/snapshot; conflict retains old slot; no duplicate retry |
+| Search, filters, pagination — A-10/A-12/C-04 | Client-side limited-list search/filter | Tenant-scoped server queries; date range/staff/status, clear-all chips, result counts, no-match guidance and stable cursors. Do not put customer names/phones in URLs or analytics | Near/past/future records found outside first page; cross-shop search denied; rapid typing cancels obsolete requests |
+| Services/categories — A-17/A-18/C-01/C-05 | Persisted service fields and activity | Original-style directory with consistent price/duration columns, category grouping, active/inactive state, field-level validation and accessible edit sheet; add real description/popular/image fields when implementing their acceptance | Historical bookings unchanged; retained filter after edit; licensed/owner images with safe fallback; no fake popular/rating badges |
+| Add-ons — A-21/C-03 | Catalogue, eligibility links, price and duration | Searchable eligibility selection, compact linked-service summary, exact extra time/price, deliberate deactivation feedback; customer add-ons never preselected to increase spend | Eligibility enforced by API; aggregate duration rechecks slots; review lists each item; zero-minute/free values handled |
+| Barber coverage/rates — A-19/A-20/C-02 | Individual versioned rules | Searchable service rule panels or accessible table; obvious inherited/custom/disabled states; reset-to-default explanation; keep other edited rows when saving one | AUD-02 fixed; stale row cannot overwrite newer values; £0 stays distinct from inherit; moving bookings does not silently reprice |
+| Staff directory — A-23/A-24/A-26/B-04 | Local profile text, active/inactive, search | Original team cards/detail sections, clear service coverage/schedule tabs; complete avatar/invite/suspended/access states alongside real identity; deactivation shows affected visits | Deactivation preserves records and stops selection; production deactivation also revokes membership/session; invite states not faked |
+| Weekly hours/breaks — A-15/A-28 | Weekly shift and one break per day | Clear weekly grid, closed-state controls, time ordering validation, day-copy convenience with explicit review, timezone and buffer explanation | Identical UI/API boundaries; keyboard time entry; copy only mutates on explicit save; no hidden overlap |
+| Leave, closures, dated hours — A-13/A-14/A-28 | Full-day leave, holidays, replacement shift/break | Unified availability section; clear weekly versus dated precedence; affected-booking list before confirmation and after save; linked appointments, restore-weekly action | Complete impact list beyond cap; race-time recheck; no silent cancellation; scoped to correct barber/date |
+| Shop settings/policies — A-41..45 | Name/address/London hours/default policy values | Group profile, opening hours and booking policy; validation with example summary; disclose which values affect new versus historical bookings; add validated logo and complete service-deposit policy after decision | Saved/reloaded values and immutable snapshots match; no unsupported timezones; payments shown as unconnected until verified |
+| Audit/recovery — A-09/S-14/X-01 | Append-only events, retries, stale conflict handling | Paginated history, actor/time/reason and privacy-safe changed fields; actionable issue links; correct loading/offline/error/forbidden state; dirty-form confirmation and render boundary | AUD-01/03/05 fixed; no falsely successful mutation; raw personal data/secrets absent from logs |
+| Customer booking — C-01..19/C-25..34 | Original fixture journey; shared quote/slot APIs | Connect original service/barber/date/details/review sequence; real eligibility/next availability, plain-language price breakdown, no forced installation, preserve inputs on back/conflict. Add holds before checkout | Customer test booking appears in owner calendar; no fixture slot/price authority; selected unavailable time gets useful alternatives |
+| Barber working day — B-08..18/S-20 | Original fixture queue; owner-test visit APIs | Connect original Today/earnings/profile layout with assigned-booking-only API; current/next/upcoming grouping, clear check-in/start/complete controls, allowed notes/history and last-refreshed state | Two barbers cannot read each other's restricted records; actions update owner view; service state never implies a card collection |
+
+UI convenience proposals such as copy-day hours or an optional density setting should be implemented only as small, validated improvements within these packages, not as new speculative systems. Drag/drop rescheduling, if added, needs touch/keyboard alternatives and confirmed server success; never optimistically label a conflicted move saved.
+
+### 12.4 Complete the missing product capabilities
+
+| Capability / register coverage | Functional deliverable | Required dependencies and failure handling |
+| --- | --- | --- |
+| Identity and shop onboarding — S-01..03/S-18, A-24/A-47, B-01/B-02 | Owner setup, managed sign-in, memberships, MFA, invitations/revocation/recovery; barber and customer authorization | Provider selection is separate from local contract tests. Test two shops, stale sessions, invitations and least privilege. Do not postpone permission design until after connecting private surfaces |
+| Public shop entry and customer access — S-08, C-18/C-33..37, A-30 | Shop slug/public projection, optional email, verified guest/customer grants, upcoming/past/cancelled visits, legitimate notes/history boundaries | Stable customer ID, consent and retention; expiring/revocable grants, no reference/phone-only disclosure. Self-service cancel/reschedule C-38..40 remains v1.5 unless approved |
+| Reservation lifecycle — C-27, X-05/X-06/X-14 | Server holds with truthful expiry, bounded acquisition/release/reclaim and safe confirmation | Existing allocation extended transactionally; simultaneous channels, stale quote, expiry, abuse and delayed confirmation tested. No success after reservation loss |
+| Shop-owned customer payments — C-20..24/C-28, A-25/A-34/A-35/A-45, X-07 | Approved shop Stripe account context, test checkout/deposit, saved-card consent, verified webhook inbox, refunds and reconciliation | Resolve deposits/fees/account model; protect signatures and account context; duplicate/out-of-order/late events, restricted accounts, browser close and refund failure tests |
+| Cash/tips/receipts — B-17..24, AC-06 | Authoritative remaining balance, payment attempts, cash recipient, tips and receipt/delivery | Ledger from first collection; distinguish appointment/payment/refund state; payment-source totals reconcile. Terminal needs real supported hardware proof; native Tap-to-Pay not implied |
+| Earnings/manual pay-runs — A-27/A-31/A-32/A-39, B-25/B-26/B-28, S-11..13 | Agreed share snapshots, eligible earnings, frozen allocations, export and owner-attested external-payment records | Resolve share/fees/cash/recipient policy; overlapping/repeated batches and post-run refunds/corrections safe. No money moved by the app |
+| Reporting — A-01/A-36..39, B-08/B-30 | Accurate collected/earned/refunded/cash/occupancy/no-show/service-mix measures and drill-down/export | Written metric definitions, shop-local periods, reconciled historical amounts, authorized/formula-safe CSV; absence of data shown honestly |
+| Communications — C-30/C-31/A-44, N/X-08 | Outbox, confirmations/reminders/change notices, channel settings, delivery attempts and retries | Agreed scheduler/provider path, consent/short-notice rules, booking-version invalidation and exhausted-delivery issues; no scheduled trigger assumed on unsupported hosted deployment |
+| Reviews — C-41/B-30/B-31 | One eligible completed-visit review, genuine ratings/counts, reporting/moderation policy | Verified access, safe text rendering, deletion/edit policy; no fabricated five-star social proof. Barber replies keep v1.5 scope |
+| PWA — S-09/S-10/B-16/AC-07 | Install/help/update flow, restricted previously synced queue and supported push | Real-device tests; expiry and logout/shop-switch purge; no private broad cache, background sync promise or offline payment/booking confirmation |
+| SaaS platform — S-04..07/S-16 | Shop subscription onboarding, plan/trial/grace entitlements, owner billing and audited platform operations | SaaS funds separate from haircut funds; verified events, tenant-safe suspension/restore and usage-cost limits; platform role has no automatic client-note access |
+| Operational readiness — S-15/S-17, X-11/X-12, I-01..04 | Secure storage/export/retention, support, structured monitoring, data restore, maps and privacy-safe analytics | No secrets/PII in logs; file validation and least-privilege R2; restore drill and incident ownership. Analytics/identity/provider activation needs separate permission |
+
+Existing v1.5/v2 items (loyalty, customer memberships, gift cards, favourites, self-service changes, tax summaries, integrations and others) remain in the feature register. Native, multi-location, public queue display and ambiguous roadmap terms still need explicit scope decisions. Comprehensive planning does not mean launching every later feature at once.
+
+### 12.5 Modern, useful additions worth validating
+
+The prior official SQUIRE/Booksy/Fresha comparison in section 8 supports treating waitlists, dependable reminders, customer history, checkout and reporting as competitive basics, not novel differentiators. No new market scan or vendor usability benchmark was run for this update.
+
+Prioritize P-01 cancellation waitlist, P-02 quick rebooking and P-03 safe migration/import once their foundations exist. P-04 family/dependent appointments is valuable if target shops need it. P-05 exception handling and P-06 cash close/transparent earnings strengthen already planned scope. Explicit consent, expiry, fair allocation, current-price review and import validation matter more than a slick button.
+
+Optional ideas to user-test, not committed features: “next suitable slot” suggestions when a booking conflicts; quick command/search access for busy admins with a discoverable non-keyboard equivalent; a simple setup checklist; a concise end-of-day task list. Avoid packing every convenience into the first calendar merge.
+
+AI is not a prerequisite for a modern app. If later desired, start with permission-scoped explanations of already reconciled reports or draft communications requiring review. Do not allow an AI feature to autonomously change bookings, quote financial entitlements, send messages, charge customers or infer sensitive customer traits. Provider costs/privacy and evaluation would be separate gates.
+
+### 12.6 Execution order: small deliveries inside the existing milestones
+
+These are substeps, not extra parallel projects. Each implementation must include relevant schema/API/UI/tests together; UI polish ships with each feature rather than as a giant final reskin.
+
+| Order / existing package | Visible delivery | Exit condition / main dependency |
+| --- | --- | --- |
+| 1a — WP-LOCAL-03A query foundation | Complete date/staff/status/search reads usable by calendar and list | AUD-01 regression at >500 records, deterministic cursors, independent impact summaries, two-shop isolation; old endpoints retained during migration |
+| 1b — WP-LOCAL-03A original calendar integration | Original shell/calendar/mobile agenda showing saved bookings; existing create/detail/move/status controls | Create/reload/reschedule from original-style calendar; existing data untouched; compare original/current screenshots; one main entry, no redirect to fake fixture data |
+| 1c — WP-LOCAL-03A existing-feature polish | Team/services/add-ons/rates/hours/settings integrated into original navigation; consistent forms | All existing CRUD remains discoverable; AUD-02/03/05 tests; drafts and pending actions protected; five-width review. Close 03A only when all three substeps pass |
+| 2a — WP-LOCAL-03B connected customer path | Original booking steps use shared catalogue/quote/slots; test confirmation visible to owner | Public projection and explicit test grant; no owner cookie/data reused as customer authentication; back/reload/conflict recovery |
+| 2b — WP-LOCAL-03B connected barber day | Assigned test queue performs allowed visit actions and refreshes correctly | Least-data server authorization; end-to-end customer → admin → barber scenario; no fixture earnings/charges |
+| 3 — WP-LOCAL-03C plus WP-002/003 completion | Holds, final time policies, customer-access and managed identity contracts; finish calendar scope in focused follow-on | Roles/privacy/expiry correctness before real private usage; native/week/month/provider decisions remain explicit rather than silently deferred |
+| 4 — WP-004 | Collections/refunds plus ledger foundation and durable communications | Approved test-provider activation; full failure/retry/reconciliation proof, no live money/messages |
+| 5 — WP-005/006 | Cash/tips/receipts, working-day close, manual pay-runs/reports/reviews; supported PWA | Money traceability and correction tests; scoped offline/device proof; finance policy and hardware dependencies |
+| 6 — WP-007 / M8 release gates | Subscription/platform operations, observability/privacy/restore and controlled pilot | Existing WP-007-B covers release work and M8 pilot acceptance. No production until explicit approval and all applicable gates pass |
+
+Identity authorization, migration safety, accessibility, logging and performance accompany every phase. Do not build the whole customer/barber UI around owner-only authorization and retrofit security later. No calendar-date estimates until 1a/1b establish measured delivery capacity; report small/medium/large scope and actual test findings per slice rather than promise “all features” in a few days.
+
+### 12.7 Improvement acceptance and release discipline
+
+For each delivered slice record: original requirement IDs; prior defect or user task; changed components/API/schema; test results; before/after screenshots; known limitations; next exact action; commit. Keep visual, local-functional and production-acceptance evidence distinct even when attached to the same feature row. Do not raise the register to verified simply because a page renders.
+
+- **Visual:** original layout identity retained, consistent spacing/type/colour/controls, visible actions without clipped text or overlapping sticky areas at 320/390/768/1024/1440 widths, landscape and 200% zoom. Test dense and empty data, 100-character names, long service labels and the on-screen keyboard.
+- **Interaction:** all visible controls have real outcomes and understandable disabled states; loading/error/offline/conflict/session-expired states recover; back/dismiss/reload behaviour is explicit. Avoid blanket autosave for financial/policy changes and no blind retry of ambiguous mutations.
+- **Data:** saved appointments and historical price/items survive consolidation; no hidden cap, cross-tenant leaks, double bookings or destructive history rewrite. Concurrency and negative API tests protect every new data path.
+- **Finance:** balances and reports reconcile to immutable movements; no duplicate charges/allocations; refunds and external-payment corrections remain traceable; Model A terminology is enforced.
+- **Accessibility and performance:** automated axe plus manual keyboard/screen-reader/device checks; 44px touch-target design aim, readable focus/status; measured LCP/INP/CLS/API budgets per DESIGN_SYSTEM. Performance targets are not achieved merely by specifying them.
+- **User enjoyment:** test representative book, change appointment, walk-in, staff-hours and day-close tasks with owners/barbers/customers; measure unassisted completion, time, errors and friction. Refine based on observed behaviour, not preference assumptions alone.
+- **Operations:** valid migrations, isolated restore rehearsal, failure monitoring, secret/PII protection, support procedures and explicit pilot/release approval.
+
+### 12.8 Decisions only when they block dependent work
+
+No decision is needed to preserve the original shell, fix capped reads, protect drafts or improve spacing/accessibility. Before dependent features ask only the relevant question: fixed/configurable/service-level deposit (O-05); share meaning and card-fee/cash custody (O-03/O-04); booking horizon/lead-time/early completion and correction policy (O-09); auth/customer-grant and note privacy (O-07/O-10); reminder channels/scheduler (O-12/O-15); native/Terminal launch scope (O-02/O-06); SaaS pricing/limits (O-11); recipients/exports (O-14). New P-01..04 features need scope approval rather than silent insertion into the 189-row register.
+
+**Immediate next implementation remains 1a → 1b:** complete booking queries, then original-style calendar with saved bookings. The comprehensive plan does not justify another planning reset or continuing to polish the replacement workspace in isolation.
