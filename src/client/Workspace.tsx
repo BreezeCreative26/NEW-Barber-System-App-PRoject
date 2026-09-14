@@ -237,6 +237,53 @@ function SaveForm({
     </form>
   );
 }
+const DEMO = { email: "owner@demo.test", barber: "jay@demo.test", password: "Demo1234!" };
+function DemoEntry({ onDone }: { onDone: () => Promise<void> }) {
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  async function open(as: "owner" | "barber", rebuild = false) {
+    setBusy(as + (rebuild ? "-rebuild" : ""));
+    setError("");
+    try {
+      await api("/auth/demo", "POST", { as, rebuild });
+      await onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not open the demo shop.");
+    } finally {
+      setBusy("");
+    }
+  }
+  return (
+    <section className="workspace-panel demo-entry" aria-labelledby="demo-heading">
+      <Badge>Standard demo</Badge>
+      <h2 id="demo-heading">Open the demo shop</h2>
+      <p>
+        <strong>Demo Barbershop</strong> — 3 barbers, 8 services, 4 add-ons, ~120 fictional
+        appointments over the past 10 weeks and next fortnight, a standing booking, a waitlist and
+        online booking at <code>/book/demo</code>. Same data every time you rebuild.
+      </p>
+      <div className="demo-actions">
+        <Button onClick={() => open("owner")} disabled={!!busy}>
+          <Icon name="store" />
+          {busy === "owner" ? "Opening…" : "Open as owner"}
+        </Button>
+        <Button variant="secondary" onClick={() => open("barber")} disabled={!!busy}>
+          <Icon name="scissors" />
+          {busy === "barber" ? "Opening…" : "Open as barber (Jay)"}
+        </Button>
+        <Button variant="ghost" onClick={() => open("owner", true)} disabled={!!busy}>
+          <Icon name="refresh" />
+          {busy === "owner-rebuild" ? "Rebuilding…" : "Rebuild demo data"}
+        </Button>
+      </div>
+      <ErrorMessage error={error} />
+      <p className="helper">
+        Sign in later from any browser with <code>{DEMO.email}</code> / <code>{DEMO.password}</code>
+        {" "}(barber: <code>{DEMO.barber}</code>). Fictional data only; no payments or messages.
+      </p>
+    </section>
+  );
+}
 function AuthEntry({
   token = "",
   claim = false,
@@ -304,6 +351,7 @@ function AuthEntry({
             autoComplete="username"
             required
             maxLength={254}
+            defaultValue={!claim && !token ? DEMO.email : undefined}
           />
         </Field>
         <Field label="Password">
@@ -314,8 +362,14 @@ function AuthEntry({
             required
             minLength={claim || token ? 12 : 1}
             maxLength={128}
+            defaultValue={!claim && !token ? DEMO.password : undefined}
           />
         </Field>
+        {!claim && !token && (
+          <p className="helper demo-hint">
+            Demo credentials are pre-filled: <code>{DEMO.email}</code> / <code>{DEMO.password}</code>. Barber view: <code>{DEMO.barber}</code>.
+          </p>
+        )}
       </SaveForm>
       <p className="helper">
         Fictional accounts only. Use a unique test password of at least 12
@@ -1107,6 +1161,9 @@ export function Workspace() {
             <p className="workspace-success" role="status">
               {notice}
             </p>
+          )}
+          {needsSession && !w && !inviteToken && (
+            <DemoEntry onDone={accountChanged} />
           )}
           {(inviteToken || (needsSession && !w)) && (
             <AuthEntry token={inviteToken} onDone={accountChanged} />

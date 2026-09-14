@@ -3,6 +3,7 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import type { D1Database } from "@cloudflare/workers-types";
 import { z } from "zod";
+import { demoRoute } from "./demo";
 
 export type Account = {
   id: string;
@@ -15,11 +16,31 @@ export type Account = {
   version: number;
 };
 export type AppEnv = {
-  Bindings: { DB: D1Database; APP_MODE?: string };
+  Bindings: { DB: D1Database; APP_MODE?: string; ALLOWED_ORIGINS?: string };
   Variables: { shopId: string; actor: string; account: Account | null };
 };
 type Ctx = Context<AppEnv>;
 export const ACCOUNT_COOKIE = "barbershop_account";
+// Same-origin guard for every write. Development proxies (preview wrappers, HTTPS
+// tunnels) rewrite Host, so the forwarded host/proto and an explicit sandbox-only
+// allow-list also count as "this site". Cross-site origins are always refused.
+export function sameOrigin(c: Ctx): boolean {
+  const origin = c.req.header("origin");
+  if (!origin) return false;
+  const url = new URL(c.req.url);
+  if (origin === url.origin) return true;
+  const fwdHost = c.req.header("x-forwarded-host")?.split(",")[0].trim();
+  const fwdProto = c.req.header("x-forwarded-proto")?.split(",")[0].trim();
+  if (fwdHost) {
+    for (const proto of fwdProto ? [fwdProto] : ["https", "http"])
+      if (origin === `${proto}://${fwdHost}`) return true;
+  }
+  const allowed = (c.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((o) => o.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+  return allowed.some((a) => a === "*" || a === origin);
+}
 const LEGACY_COOKIE = "barbershop_test_session";
 const uid = () => crypto.randomUUID();
 export const digest = async (value: string) =>
@@ -80,7 +101,7 @@ export async function readInput<T>(c: Ctx, schema: z.ZodType<T>): Promise<T> {
 }
 // Web Crypto's portable Workers PBKDF2 limit is 100,000. Local test adapter only;
 // production managed identity, MFA/recovery and security acceptance remain separate.
-async function passwordHash(password: string, salt: string) {
+export async function passwordHash(password: string, salt: string) {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(password),
@@ -181,7 +202,7 @@ function event(
     Date.now(),
   );
 }
-async function newSession(
+export async function newSession(
   c: Ctx,
   membership: string,
   expectedHash: string | null = null,
@@ -204,7 +225,7 @@ async function newSession(
     ),
   };
 }
-function cookies(c: Ctx, raw: string) {
+export function cookies(c: Ctx, raw: string) {
   setCookie(c, ACCOUNT_COOKIE, raw, {
     httpOnly: true,
     secure: true,
@@ -278,6 +299,7 @@ accounts.post("/login", async (c) => {
   cookies(c, session.raw);
   return c.json({ ok: true });
 });
+accounts.post("/demo", demoRoute);
 accounts.post("/logout", async (c) => {
   await readInput(c, z.object({}).strict());
   const token = getCookie(c, ACCOUNT_COOKIE);

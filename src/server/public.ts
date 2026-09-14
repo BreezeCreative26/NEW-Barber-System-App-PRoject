@@ -24,7 +24,7 @@ import {
   type StaffServiceRule,
   type StoredBooking,
 } from "./domain";
-import { readInput, digest, type AppEnv } from "./accounts";
+import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
 import {
   audit,
   availabilityContext,
@@ -77,8 +77,7 @@ pub.use("*", async (c, next) => {
       404,
     );
   if (!["GET", "HEAD"].includes(c.req.method)) {
-    const origin = c.req.header("origin");
-    if (!origin || origin !== new URL(c.req.url).origin)
+    if (!sameOrigin(c))
       return c.json(
         { error: "origin_forbidden", message: "Same-origin requests are required." },
         403,

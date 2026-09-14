@@ -637,3 +637,104 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     ).toBeVisible();
     await staffContext.close();
   });
+
+test("same-origin guard accepts forwarded proxy hosts and refuses foreign origins", async () => {
+  const r = await request.newContext();
+  // Bare mismatch is refused.
+  const foreign = await r.post(base + "/session", {
+    headers: { Origin: "https://evil.example" },
+    data: { name: "Origin probe" },
+  });
+  expect(foreign.status()).toBe(403);
+  expect((await foreign.json()).error).toBe("origin_forbidden");
+  // Missing origin is refused.
+  expect((await r.post(base + "/session", { data: { name: "Origin probe" } })).status()).toBe(403);
+  // A development proxy that rewrites Host but forwards the public host is accepted.
+  const forwarded = await r.post(base + "/session", {
+    headers: {
+      Origin: "https://preview.example.dev",
+      "X-Forwarded-Host": "preview.example.dev",
+      "X-Forwarded-Proto": "https",
+    },
+    data: { name: "Origin probe" },
+  });
+  expect(forwarded.status()).toBe(201);
+  // Forwarded host that does not match the Origin is still refused.
+  const mismatch = await request.newContext();
+  const bad = await mismatch.post(base + "/session", {
+    headers: { Origin: "https://evil.example", "X-Forwarded-Host": "preview.example.dev" },
+    data: { name: "Origin probe" },
+  });
+  expect(bad.status()).toBe(403);
+  await Promise.all([r.dispose(), mismatch.dispose()]);
+});
+
+test("standard demo account: one-click owner/barber sign-in, fixed credentials, idempotent rebuild", async () => {
+  test.setTimeout(90000);
+  const owner = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
+  const opened = await owner.post(base + "/auth/demo", { data: {} });
+  expect(opened.status(), await opened.text()).toBe(201);
+  const body = await opened.json();
+  expect(body.email).toBe("owner@demo.test");
+  expect(body.slug).toBe("demo");
+  const w = await (await owner.get(base + "/workspace")).json();
+  expect(w.shop.name).toBe("Demo Barbershop");
+  expect(w.account.role).toBe("OWNER");
+  expect(w.staff).toHaveLength(3);
+  expect(w.services).toHaveLength(8);
+  expect(w.addons.length).toBeGreaterThanOrEqual(4);
+  // History spans the past and future and includes every status and both channels.
+  const insights = await (await owner.get(base + "/insights?days=90")).json();
+  const statuses = new Set(insights.by_status.map((s: any) => s.status));
+  expect(statuses.has("COMPLETED")).toBe(true);
+  expect(statuses.has("NO_SHOW")).toBe(true);
+  expect(insights.upcoming.n).toBeGreaterThan(5);
+  expect(insights.waitlist_open).toBe(2);
+  const range = await (
+    await owner.get(base + `/bookings/range?from=${w.today}&to=${plus(w.today, 14)}`)
+  ).json();
+  expect(range.bookings.some((b: any) => b.series_id)).toBe(true);
+  expect(range.bookings.some((b: any) => b.channel === "ONLINE")).toBe(true);
+  // Password login works from a fresh browser.
+  const fresh = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
+  expect(
+    (await fresh.post(base + "/auth/login", { data: { email: "owner@demo.test", password: "Demo1234!" } })).status(),
+  ).toBe(200);
+  expect((await (await fresh.get(base + "/workspace")).json()).shop.id).toBe(body.shop_id);
+  // Public booking page is live for the demo slug.
+  expect((await fresh.get(origin + "/api/public/shops/demo")).status()).toBe(200);
+  // Barber sign-in is scoped to Jay only.
+  const barber = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
+  expect((await barber.post(base + "/auth/demo", { data: { as: "barber" } })).status()).toBe(201);
+  const bw = await (await barber.get(base + "/workspace")).json();
+  expect(bw.account.role).toBe("BARBER");
+  expect(bw.account.email).toBe("jay@demo.test");
+  expect(bw.bookings.every((b: any) => b.staff_id === bw.account.staff_id)).toBe(true);
+  // Rebuild replaces the shop with a fresh id; the old one is retired and the emails reused.
+  const rebuilt = await owner.post(base + "/auth/demo", { data: { rebuild: true } });
+  expect(rebuilt.status()).toBe(201);
+  const after = await rebuilt.json();
+  expect(after.shop_id).not.toBe(body.shop_id);
+  expect(
+    (await fresh.post(base + "/auth/login", { data: { email: "owner@demo.test", password: "Demo1234!" } })).status(),
+  ).toBe(200);
+  expect((await (await fresh.get(base + "/workspace")).json()).shop.id).toBe(after.shop_id);
+  // Invalid options are rejected.
+  expect((await owner.post(base + "/auth/demo", { data: { as: "ceo" } })).status()).toBe(400);
+  await Promise.all([owner.dispose(), fresh.dispose(), barber.dispose()]);
+});
+
+test("entry screen offers the demo shop and opens it in the browser", async ({ page }) => {
+  await page.goto("/workspace");
+  await expect(page.getByRole("heading", { name: "Open the demo shop" })).toBeVisible();
+  await expect(page.getByLabel("Account email")).toHaveValue("owner@demo.test");
+  await page.getByRole("button", { name: "Open as owner", exact: true }).click();
+  await expect(page.getByText("Demo Barbershop").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Waitlist" })).toBeVisible();
+});
+function plus(date: string, n: number) {
+  const d = new Date(date + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}

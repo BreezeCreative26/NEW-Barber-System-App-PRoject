@@ -6947,3 +6947,36 @@ input[aria-invalid="true"] {
     gap: 6px;
   }
 }
+
+/* ---------- Demo entry ---------- */
+.demo-entry {
+  max-width: 600px;
+  margin: 24px auto 0;
+  border: 1px solid #cfe0d3;
+  background: linear-gradient(180deg, #f3f8f2, #fff 70%);
+}
+.demo-entry h2 {
+  margin: 10px 0 6px;
+}
+.demo-entry code,
+.demo-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: #eef2ec;
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+.demo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 6px;
+}
+.demo-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.demo-hint {
+  margin: -4px 0 0;
+}

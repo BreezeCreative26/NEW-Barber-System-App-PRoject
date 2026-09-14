@@ -51,6 +51,7 @@ import accounts, {
   ACCOUNT_COOKIE,
   resolveAccount,
   readInput,
+  sameOrigin,
   type AppEnv,
 } from "./accounts";
 type Env = AppEnv;
@@ -139,8 +140,7 @@ sandbox.use("*", async (c, next) => {
       404,
     );
   if (!["GET", "HEAD"].includes(c.req.method)) {
-    const origin = c.req.header("origin");
-    if (!origin || origin !== new URL(c.req.url).origin)
+    if (!sameOrigin(c))
       return c.json(
         {
           error: "origin_forbidden",
@@ -172,7 +172,7 @@ sandbox.use("*", async (c, next) => {
     method = c.req.method;
   const publicAuth =
     method === "POST" &&
-    ["/auth/login", "/auth/accept", "/auth/logout"].includes(path);
+    ["/auth/login", "/auth/accept", "/auth/logout", "/auth/demo"].includes(path);
   const bootstrap = path === "/session" && method === "POST" && !accountToken;
   if (!account && !session && !publicAuth && !bootstrap)
     return c.json(
