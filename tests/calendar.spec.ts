@@ -535,6 +535,289 @@ for (const width of [320, 390, 768, 1024, 1440])
     expect(errors).toEqual([]);
   });
 
+test("rebooking creates a separately priced visit and opens its saved day without changing history", async ({
+  page,
+}) => {
+  await enter(page);
+  const [original] = await populateCalendar(page);
+  let w = await (await page.request.get(base + "/workspace")).json();
+  const service = w.services.find((s: any) => s.id === original.service_id);
+  const updated = await page.request.put(base + `/services/${service.id}`, {
+    headers: { Origin: origin },
+    data: {
+      name: service.name,
+      category: service.category,
+      duration_min: service.duration_min,
+      price_pence: 3700,
+      active: 1,
+      version: service.version,
+    },
+  });
+  expect(updated.status()).toBe(200);
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page
+    .getByRole("button", { name: /^5 minute fictional client with/ })
+    .click();
+  await page.getByRole("button", { name: "Book again", exact: true }).click();
+  await expect(page.getByLabel("Previous visit")).toContainText(
+    "previous price £25",
+  );
+  await expect(page.getByLabel("Fictional customer name")).toHaveValue(
+    original.customer_name,
+  );
+  await expect(page.getByLabel("Test UK mobile number")).toHaveValue(
+    original.phone,
+  );
+  await expect(page.getByLabel("Test notes", { exact: true })).toHaveValue("");
+  await page.getByRole("button", { name: "4 weeks", exact: true }).click();
+  const nextDate = new Date(original.date + "T12:00:00Z");
+  nextDate.setUTCDate(nextDate.getUTCDate() + 28);
+  const target = nextDate.toISOString().slice(0, 10);
+  await expect(page.getByLabel("Booking date", { exact: true })).toHaveValue(
+    target,
+  );
+  await page
+    .getByRole("button", { name: "Use first available time", exact: true })
+    .click();
+  await expect(page.getByLabel("Available start time")).toHaveValue("540");
+  await page
+    .getByRole("button", { name: "Review appointment", exact: true })
+    .click();
+  await expect(page.getByLabel("Review appointment details")).toContainText(
+    "£37",
+  );
+  await expect(page.getByLabel("Review appointment details")).toBeFocused();
+  await page
+    .getByRole("button", { name: "Edit selections", exact: true })
+    .click();
+  await expect(page.getByLabel("Fictional customer name")).toHaveValue(
+    original.customer_name,
+  );
+  await page
+    .getByRole("button", { name: "Review appointment", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Confirm test booking", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(
+    page.getByLabel("Appointment date", { exact: true }),
+  ).toHaveValue(target);
+  const created = (
+    await (await page.request.get(base + "/bookings?date=" + target)).json()
+  ).bookings;
+  expect(created).toHaveLength(1);
+  expect(created[0].id).not.toBe(original.id);
+  expect(created[0].sequence).not.toBe(original.sequence);
+  expect(created[0].price_pence).toBe(3700);
+  expect(
+    (await (await page.request.get(base + "/bookings/" + original.id)).json())
+      .booking,
+  ).toEqual(original);
+  await page.reload();
+  await page.getByLabel("Appointment date", { exact: true }).fill(target);
+  await expect(
+    page.getByRole("button", { name: /^5 minute fictional client with/ }),
+  ).toBeVisible();
+});
+
+test("rebooking unavailable service requires a replacement and appointment action changes protect unsaved notes", async ({
+  page,
+}) => {
+  await enter(page);
+  const [original] = await populateCalendar(page);
+  const w = await (await page.request.get(base + "/workspace")).json();
+  const service = w.services.find((s: any) => s.id === original.service_id);
+  await page.request.put(base + `/services/${service.id}`, {
+    headers: { Origin: origin },
+    data: {
+      name: service.name,
+      category: service.category,
+      duration_min: service.duration_min,
+      price_pence: service.price_pence,
+      active: 0,
+      version: service.version,
+    },
+  });
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page
+    .getByRole("button", { name: /^5 minute fictional client with/ })
+    .click();
+  await page.getByLabel("Reason / operational note").fill("Draft status note");
+  await page.getByRole("button", { name: "Book again", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "unsaved appointment changes",
+  );
+  await page.getByRole("button", { name: "Keep editing appointment" }).click();
+  await expect(page.getByLabel("Reason / operational note")).toHaveValue(
+    "Draft status note",
+  );
+  await page.getByRole("button", { name: "Book again", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Discard changes and continue", exact: true })
+    .click();
+  await expect(page.getByLabel("Service", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Previous visit")).toContainText("unavailable");
+  await expect(page.getByLabel("Fictional customer name")).toHaveValue(
+    original.customer_name,
+  );
+  await page
+    .getByLabel("Service", { exact: true })
+    .selectOption(
+      w.services.find((s: any) => s.id !== original.service_id && s.active).id,
+    );
+  await expect(
+    page.getByRole("button", { name: "Use first available time", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "6 weeks", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("alert")).toContainText("unsaved changes");
+  await page.getByRole("button", { name: "Discard changes and close" }).click();
+  expect(
+    (await (await page.request.get(base + "/bookings/" + original.id)).json())
+      .booking,
+  ).toEqual(original);
+});
+
+test("pending status save blocks action switching and first-time shortcut never invents availability", async ({
+  page,
+}) => {
+  await enter(page);
+  const [original] = await populateCalendar(page);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/sandbox/bookings/*/status", async (route) => {
+    const response = await route.fetch();
+    await gate;
+    await route.fulfill({ response });
+  });
+  await page
+    .getByRole("button", { name: /^5 minute fictional client with/ })
+    .click();
+  await page
+    .getByRole("button", { name: "Update appointment status", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Saving…", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Book again", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("save is in progress");
+  await expect(page.getByLabel("Previous visit")).toHaveCount(0);
+  release();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await page
+    .getByRole("button", { name: /^5 minute fictional client with/ })
+    .click();
+  await page.getByRole("button", { name: "Book again", exact: true }).click();
+  const sunday = new Date(original.date + "T12:00:00Z");
+  sunday.setUTCDate(sunday.getUTCDate() + ((7 - sunday.getUTCDay()) % 7) + 7);
+  await page
+    .getByLabel("Booking date", { exact: true })
+    .fill(sunday.toISOString().slice(0, 10));
+  await expect(
+    page.getByRole("button", { name: "Use first available time", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByLabel("Available start time")).toHaveValue("");
+  await expect(
+    page.getByText("No available times.", { exact: false }),
+  ).toBeVisible();
+});
+
+for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
+  test(`responsive rebook and move review at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    if (width === 844) await page.setViewportSize({ width, height: 390 });
+    if (width === 1920) await page.setViewportSize({ width, height: 1080 });
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await enter(page);
+    const [original] = await populateCalendar(page);
+    await page
+      .getByRole("button", { name: /^5 minute fictional client with/ })
+      .click();
+    await page.getByRole("button", { name: "Book again", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Use first available time", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Review appointment", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await expect(
+      page.getByRole("button", { name: "Close dialog", exact: true }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(
+      page.getByRole("button", { name: "Confirm test booking", exact: true }),
+    ).toBeInViewport({ ratio: 1 });
+    if (width === 1440) {
+      await page.evaluate(() => {
+        document.documentElement.style.zoom = "2";
+      });
+      expect(
+        await dialog.evaluate((e) => e.scrollWidth <= e.clientWidth + 1),
+      ).toBe(true);
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth + 1,
+        ),
+      ).toBe(true);
+      await page.evaluate(() => {
+        document.documentElement.style.zoom = "";
+      });
+    }
+    expect(
+      await dialog.evaluate((e) => e.scrollWidth <= e.clientWidth + 1),
+    ).toBe(true);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth + 1,
+      ),
+    ).toBe(true);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page.screenshot({
+      path: test.info().outputPath(`rebook-review-${width}.png`),
+      fullPage: true,
+    });
+    await page
+      .getByRole("button", { name: "Close dialog", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Discard changes and close" })
+      .click();
+    await page
+      .getByRole("button", { name: /^5 minute fictional client with/ })
+      .click();
+    await page.getByRole("button", { name: "Reschedule", exact: true }).click();
+    await page.getByLabel("Available start time").selectOption("900");
+    await page
+      .getByLabel("Reason for rescheduling")
+      .fill("Fictional customer requested move");
+    await page
+      .getByRole("button", { name: "Review appointment", exact: true })
+      .click();
+    await expect(page.locator(".reschedule-comparison")).toContainText("09:00");
+    await expect(page.locator(".reschedule-comparison")).toContainText("15:00");
+    expect(
+      await dialog.evaluate((e) => e.scrollWidth <= e.clientWidth + 1),
+    ).toBe(true);
+    await page.screenshot({
+      path: test.info().outputPath(`move-review-${width}.png`),
+      fullPage: true,
+    });
+    await page
+      .getByRole("button", { name: "Confirm reschedule", exact: true })
+      .click();
+    await expect(page.getByRole("dialog")).not.toBeVisible();
+    const moved = (
+      await (await page.request.get(base + "/bookings/" + original.id)).json()
+    ).booking;
+    expect(moved.start_min).toBe(900);
+    expect(moved.items_json).toBe(original.items_json);
+    expect(errors).toEqual([]);
+  });
+
 for (const width of [390, 1440])
   test(`connected timetable is accessible and usable at ${width}px`, async ({
     browser,

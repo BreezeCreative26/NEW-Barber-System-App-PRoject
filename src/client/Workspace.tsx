@@ -171,10 +171,12 @@ function SaveForm({
   children,
   onSave,
   label = "Save changes",
+  className = "",
 }: {
   children: ReactNode;
   onSave: (data: FormData) => Promise<void>;
   label?: string;
+  className?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -208,7 +210,7 @@ function SaveForm({
   }
   return (
     <form
-      className="workspace-form"
+      className={`workspace-form ${className}`}
       onSubmit={submit}
       onChange={() => setSavedMessage("")}
       aria-busy={busy}
@@ -235,7 +237,12 @@ type Editor =
   | { kind: "hours"; item: Staff }
   | { kind: "daysOff"; item: Staff }
   | { kind: "removeDayOff"; item: StaffDayOff }
-  | { kind: "booking"; item?: StoredBooking; draft?: CalendarDraft }
+  | {
+      kind: "booking";
+      item?: StoredBooking;
+      draft?: CalendarDraft;
+      rebook?: StoredBooking;
+    }
   | { kind: "detail"; item: StoredBooking }
   | { kind: "contacts"; item: StoredBooking }
   | { kind: "holiday" }
@@ -364,7 +371,19 @@ export function Workspace() {
         "The workspace needs a fresh read before saving. Close this dialog and use Retry workspace; no page reload is needed.",
         409,
       );
-    await api(path, method, body);
+    const result = await api<{ booking?: StoredBooking }>(path, method, body);
+    if (
+      result.booking &&
+      (path === "/bookings" || path.endsWith("/reschedule"))
+    ) {
+      // Show the actual saved destination, including a new visit on another date.
+      dateRef.current = result.booking.date;
+      queriedDate.current = result.booking.date;
+      setDate(result.booking.date);
+      setBarber("");
+      setStatusFilter("");
+      setSearch("");
+    }
     if (editor?.kind !== "serviceRules") setEditor(null);
     setNotice("Saved to your local test database.");
     try {
@@ -1278,6 +1297,7 @@ export function Workspace() {
           onClose={() => setEditor(null)}
           saved={saved}
           onMove={(item) => setEditor({ kind: "booking", item })}
+          onRebook={(rebook) => setEditor({ kind: "booking", rebook })}
           onEdit={(item) => setEditor({ kind: "contacts", item })}
           reloadEditor={reloadEditor}
           onRemoveDayOff={(item) => setEditor({ kind: "removeDayOff", item })}
@@ -1347,6 +1367,7 @@ type EditorProps = {
   onClose: () => void;
   saved: (path: string, method: string, body?: unknown) => Promise<void>;
   onMove: (b: StoredBooking) => void;
+  onRebook: (b: StoredBooking) => void;
   onEdit: (b: StoredBooking) => void;
   reloadEditor: () => Promise<void>;
   onRemoveDayOff: (item: StaffDayOff) => void;
@@ -1360,12 +1381,29 @@ function WorkspaceEditor({
   onClose,
   saved,
   onMove,
+  onRebook,
   onEdit,
   reloadEditor,
   onRemoveDayOff,
   onEditOverride,
   onRemoveOverride,
 }: EditorProps) {
+  const detailRef = useRef<HTMLDivElement>(null);
+  const [nextAction, setNextAction] = useState<(() => void) | null>(null);
+  const [transitionError, setTransitionError] = useState("");
+  function requestAction(action: () => void) {
+    if (detailRef.current?.querySelector('form[aria-busy="true"]')) {
+      setTransitionError(
+        "A save is in progress. Wait for its result before switching actions.",
+      );
+      return;
+    }
+    if (detailRef.current?.querySelector('form[data-dirty="true"]')) {
+      setNextAction(() => action);
+      return;
+    }
+    action();
+  }
   const [reloadError, setReloadError] = useState("");
   const [reloading, setReloading] = useState(false);
   const title =
@@ -1414,7 +1452,7 @@ function WorkspaceEditor({
       onClose={onClose}
       context="LOCAL DATABASE · TEST DATA ONLY"
       protectChanges
-      wide={e.kind === "hours"}
+      wide={e.kind === "hours" || e.kind === "booking"}
     >
       {e.kind === "addon" && <AddonEditor addon={e.item} w={w} saved={saved} />}
       {e.kind === "serviceRules" && (
@@ -1749,6 +1787,7 @@ function WorkspaceEditor({
           initialDate={date}
           booking={e.item}
           draft={e.draft}
+          rebook={e.rebook}
           saved={saved}
         />
       )}
@@ -1799,7 +1838,7 @@ function WorkspaceEditor({
         </SaveForm>
       )}
       {e.kind === "detail" && (
-        <>
+        <div ref={detailRef}>
           <section className="workspace-booking-detail">
             <BookingItems
               items={JSON.parse(e.item.items_json) as BookingItem[]}
@@ -1826,16 +1865,52 @@ function WorkspaceEditor({
               hours. Owner test overrides require a reason.
             </Notice>
           </section>
-          {e.item.status === "CONFIRMED" && (
-            <Button variant="secondary" onClick={() => onMove(e.item)}>
-              Reschedule
+          <div className="appointment-detail-actions">
+            <Button onClick={() => requestAction(() => onRebook(e.item))}>
+              <Icon name="calendar" />
+              Book again
             </Button>
+            {e.item.status === "CONFIRMED" && (
+              <Button
+                variant="secondary"
+                onClick={() => requestAction(() => onMove(e.item))}
+              >
+                Reschedule
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              onClick={() => requestAction(() => onEdit(e.item))}
+            >
+              Edit booking details
+            </Button>
+          </div>
+          <ErrorMessage error={transitionError} />
+          {nextAction && (
+            <section className="dialog-close-warning" role="alert">
+              <p>
+                You have unsaved appointment changes. Keep editing or discard
+                them before switching actions.
+              </p>
+              <Button variant="secondary" onClick={() => setNextAction(null)}>
+                Keep editing appointment
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  if (
+                    detailRef.current?.querySelector('form[aria-busy="true"]')
+                  )
+                    return;
+                  nextAction();
+                }}
+              >
+                Discard changes and continue
+              </Button>
+            </section>
           )}
-          <Button variant="ghost" onClick={() => onEdit(e.item)}>
-            Edit booking details
-          </Button>
           <StatusForm booking={e.item} w={w} saved={saved} />
-        </>
+        </div>
       )}
       {"item" in e && e.item && "version" in e.item && (
         <footer className="workspace-editor-recovery">
@@ -2234,28 +2309,54 @@ function BookingForm({
   initialDate,
   booking: b,
   draft,
+  rebook,
   saved,
 }: {
   w: WorkspaceData;
   initialDate: string;
   draft?: CalendarDraft;
+  rebook?: StoredBooking;
   booking?: StoredBooking;
   saved: EditorProps["saved"];
 }) {
-  const [date, setDate] = useState(b?.date || initialDate);
+  const rebookBase = rebook && rebook.date > w.today ? rebook.date : w.today;
+  const [date, setDate] = useState(
+    b?.date || (rebook ? datePlus(rebookBase, 21) : initialDate),
+  );
+  const reviewRef = useRef<HTMLElement>(null);
+  const [reviewContact, setReviewContact] = useState({ name: "", phone: "" });
+  function markDraft(button: HTMLElement) {
+    const form = button.closest("form");
+    if (form) form.dataset.dirty = "true";
+    setReview(false);
+  }
   const [staff, setStaff] = useState(
-    b?.staff_id || draft?.staffId || w.staff.find((s) => s.active)?.id || "",
+    b?.staff_id ||
+      draft?.staffId ||
+      (rebook
+        ? w.staff.find((s) => s.id === rebook.staff_id && s.active)?.id || ""
+        : w.staff.find((s) => s.active)?.id || ""),
   );
   const [service, setService] = useState(
     b?.service_id ||
-      w.services.find(
-        (s) =>
-          s.active &&
-          !w.service_rules.some(
-            (r) => r.staff_id === staff && r.service_id === s.id && !r.enabled,
-          ),
-      )?.id ||
-      "",
+      (rebook
+        ? w.services.find(
+            (s) =>
+              s.id === rebook.service_id &&
+              s.active &&
+              !w.service_rules.some(
+                (r) =>
+                  r.staff_id === staff && r.service_id === s.id && !r.enabled,
+              ),
+          )?.id || ""
+        : w.services.find(
+            (s) =>
+              s.active &&
+              !w.service_rules.some(
+                (r) =>
+                  r.staff_id === staff && r.service_id === s.id && !r.enabled,
+              ),
+          )?.id || ""),
   );
   const [addonIds, setAddonIds] = useState<string[]>([]);
   const [start, setStart] = useState("");
@@ -2265,6 +2366,12 @@ function BookingForm({
   const [review, setReview] = useState(false);
   const request = useRef({ payload: "", key: crypto.randomUUID() });
   const draftPending = useRef(draft?.start);
+  useEffect(() => {
+    if (review) {
+      reviewRef.current?.focus();
+      reviewRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [review]);
   useEffect(() => {
     let current = true;
     setSlots(null);
@@ -2303,6 +2410,7 @@ function BookingForm({
   }, [date, staff, service, addonIds, refresh, b?.id]);
   return (
     <SaveForm
+      className="booking-workflow"
       label={
         review
           ? b
@@ -2313,6 +2421,10 @@ function BookingForm({
       onSave={async (f) => {
         if (!slots || !start) throw new Error("Choose an available time.");
         if (!review) {
+          setReviewContact({
+            name: b?.customer_name || text(f, "customer_name"),
+            phone: b?.phone || text(f, "phone"),
+          });
           setReview(true);
           return;
         }
@@ -2354,6 +2466,44 @@ function BookingForm({
         }
       }}
     >
+      {rebook && (
+        <aside className="booking-slot-origin" aria-label="Previous visit">
+          <strong>Book again · {reference(rebook)}</strong>
+          <p>
+            {rebook.customer_name} · {rebook.service_name} · previous price{" "}
+            {money(rebook.price_pence)}
+          </p>
+          <p>
+            A separate new appointment using current prices. Previous notes and
+            add-ons are not copied; choose any extras below. The original visit
+            stays unchanged.
+          </p>
+          {(!staff || !service) && (
+            <p>
+              The previous barber or service is unavailable. Choose an active,
+              eligible replacement.
+            </p>
+          )}
+        </aside>
+      )}
+      {b && (
+        <aside
+          className="booking-slot-origin"
+          aria-label="Original appointment"
+        >
+          <strong>
+            Moving {reference(b)} · {b.customer_name}
+          </strong>
+          <p>
+            {b.date} · {time(b.start_min)} ·{" "}
+            {w.staff.find((s) => s.id === b.staff_id)?.name}
+          </p>
+          <p>
+            Original price {money(b.price_pence)} and service items stay
+            unchanged. The original time is kept if the move fails.
+          </p>
+        </aside>
+      )}
       {draft && (
         <aside
           className="booking-slot-origin"
@@ -2370,204 +2520,306 @@ function BookingForm({
           </p>
         </aside>
       )}
-      <div onChange={() => setReview(false)}>
-        <div className="workspace-form-grid">
-          <Field label="Barber">
-            <select
-              value={staff}
-              onChange={(e) => setStaff(e.target.value)}
-              required
-            >
-              <option value="">Choose barber</option>
-              {w.staff
-                .filter((s) => s.active || s.id === b?.staff_id)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                    {s.active ? "" : " (inactive)"}
-                  </option>
-                ))}
-            </select>
-          </Field>
-          <Field label="Service">
-            <select
-              value={service}
-              onChange={(e) => {
-                setService(e.target.value);
-                setAddonIds([]);
-              }}
-              disabled={!!b}
-              required
-            >
-              <option value="">Choose service</option>
-              {w.services
-                .filter((s) => s.active || s.id === b?.service_id)
-                .map((s) => (
-                  <option
-                    key={s.id}
-                    value={s.id}
-                    disabled={w.service_rules.some(
-                      (r) =>
-                        r.staff_id === staff &&
-                        r.service_id === s.id &&
-                        !r.enabled,
-                    )}
-                  >
-                    {s.name}
-                    {w.service_rules.some(
-                      (r) =>
-                        r.staff_id === staff &&
-                        r.service_id === s.id &&
-                        !r.enabled,
-                    )
-                      ? " (not offered)"
-                      : ""}
-                  </option>
-                ))}
-            </select>
-          </Field>
-        </div>
-        {!b && (
-          <fieldset className="workspace-addon-options">
-            <legend>Optional add-ons</legend>
-            {w.addons
-              .filter(
-                (a) =>
-                  (a.active &&
-                    w.addon_links.some(
-                      (l) => l.addon_id === a.id && l.service_id === service,
-                    )) ||
-                  addonIds.includes(a.id),
-              )
-              .map((a) => (
-                <label className="workspace-check" key={a.id}>
-                  <input
-                    type="checkbox"
-                    checked={addonIds.includes(a.id)}
-                    onChange={(e) =>
-                      setAddonIds((ids) =>
-                        e.target.checked
-                          ? [...ids, a.id]
-                          : ids.filter((id) => id !== a.id),
-                      )
-                    }
-                  />
-                  {a.name} · {money(a.price_pence)} · +{a.duration_min} min
-                  {a.active ? "" : " (unavailable)"}
-                </label>
-              ))}
-            {!w.addons.some(
-              (a) =>
-                a.active &&
-                w.addon_links.some(
-                  (l) => l.addon_id === a.id && l.service_id === service,
-                ),
-            ) && <p>No add-ons offered with this service.</p>}
-          </fieldset>
-        )}
-        <Field label="Booking date">
-          <input
-            type="date"
-            required
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-        </Field>
-        <ErrorMessage error={error} />
-        {error && (
-          <Button variant="secondary" onClick={() => setRefresh((n) => n + 1)}>
-            Retry availability
-          </Button>
-        )}
-        {!slots && !error && <p role="status">Checking saved availability…</p>}
-        {slots && (
-          <>
-            <Field label="Available start time">
+      <div className="booking-layout" onChange={() => setReview(false)}>
+        <section
+          className="booking-selection"
+          aria-labelledby="booking-service-heading"
+        >
+          <h3 id="booking-service-heading">1. Service & time</h3>
+          <div className="workspace-form-grid">
+            <Field label="Barber">
               <select
-                value={start}
-                onChange={(e) => setStart(e.target.value)}
+                value={staff}
+                onChange={(e) => setStaff(e.target.value)}
                 required
               >
-                <option value="">Choose a time</option>
-                {slots.slots.map((s) => (
-                  <option
-                    key={s.start_min}
-                    value={s.start_min}
-                    disabled={!!s.reason}
-                  >
-                    {time(s.start_min)}
-                    {s.reason ? ` — ${s.reason}` : ""}
-                  </option>
+                <option value="">Choose barber</option>
+                {w.staff
+                  .filter((s) => s.active || s.id === b?.staff_id)
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                      {s.active ? "" : " (inactive)"}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            <Field label="Service">
+              <select
+                value={service}
+                onChange={(e) => {
+                  setService(e.target.value);
+                  setAddonIds([]);
+                }}
+                disabled={!!b}
+                required
+              >
+                <option value="">Choose service</option>
+                {w.services
+                  .filter((s) => s.active || s.id === b?.service_id)
+                  .map((s) => (
+                    <option
+                      key={s.id}
+                      value={s.id}
+                      disabled={w.service_rules.some(
+                        (r) =>
+                          r.staff_id === staff &&
+                          r.service_id === s.id &&
+                          !r.enabled,
+                      )}
+                    >
+                      {s.name}
+                      {w.service_rules.some(
+                        (r) =>
+                          r.staff_id === staff &&
+                          r.service_id === s.id &&
+                          !r.enabled,
+                      )
+                        ? " (not offered)"
+                        : ""}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+          </div>
+          {!b && (
+            <fieldset className="workspace-addon-options">
+              <legend>Optional add-ons</legend>
+              {w.addons
+                .filter(
+                  (a) =>
+                    (a.active &&
+                      w.addon_links.some(
+                        (l) => l.addon_id === a.id && l.service_id === service,
+                      )) ||
+                    addonIds.includes(a.id),
+                )
+                .map((a) => (
+                  <label className="workspace-check" key={a.id}>
+                    <input
+                      type="checkbox"
+                      checked={addonIds.includes(a.id)}
+                      onChange={(e) =>
+                        setAddonIds((ids) =>
+                          e.target.checked
+                            ? [...ids, a.id]
+                            : ids.filter((id) => id !== a.id),
+                        )
+                      }
+                    />
+                    {a.name} · {money(a.price_pence)} · +{a.duration_min} min
+                    {a.active ? "" : " (unavailable)"}
+                  </label>
                 ))}
-              </select>
-            </Field>
-            {slots.slots.every((s) => s.reason) && (
-              <Notice tone="warning">
-                No available times. Try another day or barber, or review weekly
-                hours.
-              </Notice>
-            )}
-            <BookingItems items={slots.items} />
-            {slots.overridden && (
-              <Badge>Barber-specific price / duration</Badge>
-            )}
-            <p className="workspace-quote">
-              <strong>{money(slots.price_pence)}</strong> · {slots.duration_min}{" "}
-              minutes + 10-minute buffer
-              <br />
-              Test deposit policy {money(slots.deposit_policy_pence)} — not
-              collected. Cancellation policy: {slots.cancel_hours} hours.
-            </p>
-          </>
-        )}
-        {!b && (
-          <>
-            <Field label="Fictional customer name">
-              <input
-                name="customer_name"
-                required
-                minLength={2}
-                maxLength={100}
-              />
-            </Field>
-            <Field label="Test UK mobile number">
-              <input
-                name="phone"
-                type="tel"
-                required
-                placeholder="07700 900123"
-              />
-            </Field>
-            <Field label="Booking source">
-              <select name="source">
-                <option value="TEST_BOOKING">Test booking</option>
-                <option value="WALK_IN">Walk-in</option>
-              </select>
-            </Field>
-            <Field label="Test notes">
-              <textarea name="notes" maxLength={500} />
-            </Field>
-          </>
-        )}
-        {b && (
-          <Field label="Reason for rescheduling">
-            <textarea name="reason" required minLength={3} maxLength={300} />
+              {!w.addons.some(
+                (a) =>
+                  a.active &&
+                  w.addon_links.some(
+                    (l) => l.addon_id === a.id && l.service_id === service,
+                  ),
+              ) && <p>No add-ons offered with this service.</p>}
+            </fieldset>
+          )}
+          <h4>Choose your date</h4>
+          {rebook && (
+            <div
+              className="booking-date-shortcuts"
+              aria-label="Rebooking date shortcuts"
+            >
+              <p>
+                Weeks from {rebookBase}. Choose a date, then check available
+                times.
+              </p>
+              {[3, 4, 6].map((weeks) => (
+                <Button
+                  key={weeks}
+                  variant="secondary"
+                  aria-pressed={date === datePlus(rebookBase, weeks * 7)}
+                  onClick={(e) => {
+                    markDraft(e.currentTarget);
+                    setDate(datePlus(rebookBase, weeks * 7));
+                  }}
+                >
+                  {weeks} weeks
+                </Button>
+              ))}
+            </div>
+          )}
+          <Field label="Booking date">
+            <input
+              type="date"
+              required
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
           </Field>
-        )}
+          <ErrorMessage error={error} />
+          {error && (
+            <Button
+              variant="secondary"
+              onClick={() => setRefresh((n) => n + 1)}
+            >
+              Retry availability
+            </Button>
+          )}
+          {!slots && !error && (
+            <p role="status">Checking saved availability…</p>
+          )}
+          {slots && (
+            <>
+              <Field label="Available start time">
+                <select
+                  value={start}
+                  onChange={(e) => setStart(e.target.value)}
+                  required
+                >
+                  <option value="">Choose a time</option>
+                  {slots.slots.map((s) => (
+                    <option
+                      key={s.start_min}
+                      value={s.start_min}
+                      disabled={!!s.reason}
+                    >
+                      {time(s.start_min)}
+                      {s.reason ? ` — ${s.reason}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <div className="booking-time-shortcut">
+                <Button
+                  variant="secondary"
+                  disabled={!slots.slots.some((s) => !s.reason)}
+                  onClick={(e) => {
+                    markDraft(e.currentTarget);
+                    const first = slots.slots.find((s) => !s.reason);
+                    if (first) setStart(String(first.start_min));
+                  }}
+                >
+                  Use first available time
+                </Button>
+                <small>Selected barber and date only. No time is held.</small>
+              </div>
+              {slots.slots.every((s) => s.reason) && (
+                <Notice tone="warning">
+                  No available times. Try another day or barber, or review
+                  weekly hours.
+                </Notice>
+              )}
+              <BookingItems items={slots.items} />
+              {slots.overridden && (
+                <Badge>Barber-specific price / duration</Badge>
+              )}
+              <p className="workspace-quote">
+                <strong>{money(slots.price_pence)}</strong> ·{" "}
+                {slots.duration_min} minutes + 10-minute buffer
+                <br />
+                Test deposit policy {money(slots.deposit_policy_pence)} — not
+                collected. Cancellation policy: {slots.cancel_hours} hours.
+              </p>
+            </>
+          )}
+        </section>
+        <section
+          className="booking-customer"
+          aria-labelledby="booking-customer-heading"
+        >
+          <h3 id="booking-customer-heading">
+            2. {b ? "Move details" : "Customer details"}
+          </h3>
+          {!b && (
+            <>
+              <Field label="Fictional customer name">
+                <input
+                  name="customer_name"
+                  defaultValue={rebook?.customer_name}
+                  required
+                  minLength={2}
+                  maxLength={100}
+                />
+              </Field>
+              <Field label="Test UK mobile number">
+                <input
+                  name="phone"
+                  defaultValue={rebook?.phone}
+                  type="tel"
+                  required
+                  placeholder="07700 900123"
+                />
+              </Field>
+              <Field label="Booking source">
+                <select name="source">
+                  <option value="TEST_BOOKING">Test booking</option>
+                  <option value="WALK_IN">Walk-in</option>
+                </select>
+              </Field>
+              <Field label="Test notes">
+                <textarea name="notes" maxLength={500} />
+              </Field>
+            </>
+          )}
+          {b && (
+            <Field label="Reason for rescheduling">
+              <textarea name="reason" required minLength={3} maxLength={300} />
+            </Field>
+          )}
+          <p className="workspace-footnote">
+            Review the details before saving. No payment or message will be
+            sent.
+          </p>
+        </section>
       </div>
       {review && (
-        <Notice>
-          <strong>
-            Ready to save: {date} at {time(Number(start))}.
-          </strong>
-          <BookingItems items={slots?.items || []} />
-          <p>
-            {w.staff.find((s) => s.id === staff)?.name} · {slots?.service_name}{" "}
-            · {money(slots?.price_pence || 0)}
-          </p>
-          Confirm below to save in local D1. Availability is checked again
-          atomically; no hold, payment or notification is created.
-        </Notice>
+        <section
+          className="booking-review"
+          ref={reviewRef}
+          tabIndex={-1}
+          aria-label="Review appointment details"
+        >
+          <Notice>
+            <strong>
+              Ready to save: {date} at {time(Number(start))}.
+            </strong>
+            <p>
+              {reviewContact.name} · {reviewContact.phone}
+            </p>
+            {b && (
+              <div className="reschedule-comparison">
+                <p>
+                  <strong>From</strong>
+                  {b.date} · {time(b.start_min)}
+                  <br />
+                  {w.staff.find((s) => s.id === b.staff_id)?.name}
+                </p>
+                <p>
+                  <strong>To</strong>
+                  {date} · {time(Number(start))}
+                  <br />
+                  {w.staff.find((s) => s.id === staff)?.name}
+                </p>
+              </div>
+            )}
+            <BookingItems items={slots?.items || []} />
+            <p>
+              {w.staff.find((s) => s.id === staff)?.name} ·{" "}
+              {slots?.service_name} · {money(slots?.price_pence || 0)}
+            </p>
+            Confirm below to save in local D1. Availability is checked again
+            atomically; no hold, payment or notification is created.
+          </Notice>
+          <Button
+            variant="ghost"
+            onClick={(e) => {
+              const first = e.currentTarget
+                .closest("form")
+                ?.querySelector<HTMLSelectElement>("select:not(:disabled)");
+              setReview(false);
+              first?.focus();
+            }}
+          >
+            Edit selections
+          </Button>
+        </section>
       )}
       <p className="workspace-footnote">
         Local test workflow only. Times are Europe/London. Data is saved only

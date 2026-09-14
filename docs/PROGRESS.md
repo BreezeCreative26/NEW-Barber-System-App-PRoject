@@ -1,5 +1,14 @@
 # Barbershop OS — Progress and next-session handoff
 
+## Latest — build-first rebooking delivery (2026-09-14)
+
+- User requested less documentation and immediate connected building. AGENTS now requires brief planning, actual code, tests and one short handoff; old plans remain references, not recurring rewrite/approval gates. Full [100-area feature brief](https://www.genspark.ai/api/files/s/sRhSuhAH) read; use as overlapping/expanded backlog, not 100 delivered features.
+- Built Book again with customer/contact and available barber/service prefill, 3/4/6-week shortcuts, current-price review and a new saved identity/reference. Original visit/history stays unchanged; notes/extras are not silently copied. Added first available time for selected barber/date, explicit original/proposed reschedule comparison, review/edit focus, dirty/pending action-switch protection and saved-destination calendar navigation.
+- Responsive grouped form and pinned dialog header/actions checked at 320/390/768/1024/1440/1920px, 844×390 landscape and CSS 200% zoom. Inspected real screenshots; retained `docs/evidence/rebook-review-1440.png`, `move-review-320.png`, `rebook-review-844.png`. Physical-device/screen-reader acceptance is not claimed.
+- Final stable-source build/typecheck, **42 unit/route/domain tests**, direct D1 invariants and **78 browser/API tests passed**, zero failed/skipped/flaky. Report `test-results/runs/1789395309383-64889/results.json`, 14:15:09.390 UTC, 147.451s. Ten new cases cover rebooking prices/history, unavailable service, dirty/pending actions, closed dates and responsive reviews. Initial test regex matched both 5/15-minute clients; anchored it before passing runs. Final visual pass improved sticky title/Close visibility.
+- HTTPS preview tested end-to-end: create fictional booking → open → Book again; zero page errors. No schema/API/dependency/provider/deployment change, no data reset. Existing feature register retained; new brief not yet exhaustively deduplicated into it. This is owner-operated rebooking, not customer identity, automatic messaging, recurring bookings or the full E2 package.
+- Next: wider settings/navigation draft protection, then local account/membership/permission foundations so public/customer/barber journeys can share authorized records. Continue building from the actual source; no another comprehensive plan required. Prior sections below are historical.
+
 Updated 2026-09-14 for **D-018 — E1 built and verified locally**. The user said “yes build” and asked for coordinated parallel tasks. This supersedes D-017's pause; no planning reset. E1 extends the same original-style persisted `/workspace`, preserving matte colours, records, APIs and all booking guards. No new identity/payment module or production deployment.
 
 ## Latest delivery — E1 calendar controls, cards and keyboard use
