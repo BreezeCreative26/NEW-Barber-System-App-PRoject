@@ -1,4 +1,271 @@
 /* Barbershop OS. D-012: preserve the existing matte palette. */
+/* Connected original-style shop calendar; no fixture financial data. */
+.workspace .workspace-sidebar {
+  background: var(--forest);
+  color: #d7e4da;
+  padding: 28px 18px;
+}
+.workspace .workspace-sidebar nav button {
+  color: #d7e4da;
+  min-height: 44px;
+}
+.workspace .workspace-sidebar nav button:hover {
+  background: #ffffff12;
+}
+.workspace .workspace-sidebar nav button[aria-current] {
+  background: #ffffff1c;
+  color: #fff;
+  box-shadow: inset 3px 0 #a9cbbb;
+}
+.workspace .workspace-sidebar .workspace-shop {
+  color: #fff;
+  font-size: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #ffffff26;
+}
+.workspace .workspace-sidebar .workspace-footnote {
+  color: #c2d5c8;
+}
+.workspace .design-reference-links {
+  color: #c2d5c8;
+  font-size: 12px;
+  margin-top: 30px;
+}
+.workspace .design-reference-links summary {
+  cursor: pointer;
+  padding: 8px 0;
+}
+.workspace .design-reference-links a {
+  color: #e3ede6;
+  display: block;
+  padding: 8px 0;
+}
+.workspace .workspace-main {
+  padding: 30px clamp(16px, 2.5vw, 40px);
+  max-width: none;
+}
+.workspace .workspace-banner {
+  background: #edf3ed;
+  color: #294639;
+  border-bottom: 1px solid var(--line);
+}
+.workspace .workspace-heading {
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--line);
+}
+.workspace .workspace-heading h1 {
+  font-size: clamp(25px, 2.5vw, 34px);
+  letter-spacing: -1px;
+}
+.workspace .workspace-heading p {
+  max-width: 60ch;
+}
+.workspace .connected-stats {
+  margin-bottom: 24px;
+}
+.workspace .connected-stats .stat-card {
+  padding: 20px;
+}
+.workspace .connected-stats .stat-value {
+  font-size: 29px;
+}
+.workspace .connected-stats .stat-foot {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.workspace .connected-calendar .workspace-footnote {
+  display: block;
+  padding: 14px 20px;
+  margin: 0;
+}
+.workspace .connected-calendar .calendar-toolbar p {
+  font-size: 12px;
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+.workspace .connected-scroll {
+  max-height: 620px;
+  overscroll-behavior: contain;
+}
+.workspace .connected-timeline {
+  background: #fff;
+}
+.workspace .connected-timeline .barber-column {
+  min-width: 0;
+}
+.workspace .timetable-slot {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #e9eee7;
+  background: transparent;
+  color: var(--accent);
+  padding: 0 8px;
+  text-align: right;
+}
+.workspace .timetable-slot span {
+  opacity: 0;
+  font-size: 12px;
+}
+.workspace .timetable-slot:hover:not(:disabled),
+.workspace .timetable-slot:focus-visible {
+  background: #edf5ee;
+}
+.workspace .timetable-slot:hover span,
+.workspace .timetable-slot:focus-visible span {
+  opacity: 1;
+}
+.workspace .timetable-slot.blocked {
+  background: repeating-linear-gradient(
+    135deg,
+    #f4f5f2,
+    #f4f5f2 5px,
+    #ecefe9 5px,
+    #ecefe9 6px
+  );
+  color: #59695e;
+}
+.workspace .timetable-slot.blocked span {
+  opacity: 1;
+}
+.workspace .connected-calendar .calendar-event {
+  left: 5px;
+  right: 5px;
+  padding: 4px 8px;
+  text-align: left;
+  z-index: 2;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.workspace .connected-calendar .calendar-event strong {
+  font-size: 12px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.workspace .connected-calendar .calendar-event span,
+.workspace .connected-calendar .calendar-event small {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.workspace .connected-calendar .staff-column-heading strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.workspace .connected-calendar .staff-column-heading div > span {
+  font-size: 11px;
+}
+.workspace .connected-calendar .timezone-label,
+.workspace .connected-calendar .timezone-label span {
+  font-size: 10px;
+  color: #536859;
+}
+.workspace .connected-calendar .time-gutter > span {
+  font-size: 11px;
+  color: #536859;
+}
+.workspace .connected-calendar .calendar-footer {
+  flex-wrap: wrap;
+  gap: 10px;
+  line-height: 1.5;
+}
+.workspace .connected-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 2px solid #a75341;
+  pointer-events: none;
+  z-index: 3;
+}
+.workspace .connected-now span {
+  position: absolute;
+  top: -10px;
+  left: 4px;
+  background: #a75341;
+  color: #fff;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 10px;
+}
+.workspace .closed-day-bookings {
+  padding: 20px;
+  border-top: 1px solid var(--line);
+}
+.dialog-close-warning {
+  padding: 16px;
+  margin: 12px 0 20px;
+  border: 1px solid #b9a56f;
+  border-radius: 12px;
+  background: #faf6e9;
+}
+.dialog-close-warning .button {
+  margin: 8px 8px 0 0;
+}
+@media (min-width: 768px) {
+  .workspace .workspace-sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+}
+@media (max-width: 1024px) {
+  .workspace .connected-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 767px) {
+  .workspace .workspace-sidebar {
+    padding: 16px;
+  }
+  .workspace .workspace-sidebar .design-reference-links {
+    display: none;
+  }
+  .workspace .workspace-main {
+    padding: 22px 16px;
+  }
+  .workspace .connected-stats {
+    gap: 10px;
+  }
+  .workspace .connected-stats .stat-card {
+    padding: 14px;
+  }
+  .workspace .connected-stats .stat-value {
+    font-size: 24px;
+  }
+  .workspace .connected-stats .stat-label {
+    font-size: 12px;
+    gap: 4px;
+  }
+  .workspace .connected-calendar .calendar-toolbar {
+    align-items: stretch;
+  }
+  .workspace .connected-calendar .segmented {
+    display: flex;
+    width: 100%;
+  }
+  .workspace .connected-calendar .segmented button {
+    flex: 1;
+    min-height: 44px;
+  }
+  .workspace .connected-calendar .calendar-footer {
+    display: block;
+  }
+  .workspace .connected-calendar .calendar-footer > span {
+    display: flex;
+    margin: 6px 0;
+  }
+}
+
 /* Functional workspace: scoped layout additions, shared colours unchanged. */
 .modal .workspace-save-actions {
   position: sticky;

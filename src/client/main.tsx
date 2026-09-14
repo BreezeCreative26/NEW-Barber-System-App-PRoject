@@ -8,7 +8,7 @@ import { Workspace } from "./Workspace";
 import { PreviewBar, Notice, type Scenario } from "./ui";
 
 class PreviewErrorBoundary extends Component<
-  { children: ReactNode },
+  { children: ReactNode; workspace?: boolean },
   { failed: boolean }
 > {
   state = { failed: false };
@@ -18,13 +18,18 @@ class PreviewErrorBoundary extends Component<
   render() {
     return this.state.failed ? (
       <main className="state-card">
-        <h1>The preview needs a fresh start</h1>
+        <h1>
+          {this.props.workspace
+            ? "The workspace could not display this view"
+            : "The preview needs a fresh start"}
+        </h1>
         <p>
-          No bookings or payments have been made. Reload to restore the example
-          screens.
+          {this.props.workspace
+            ? "Reload to check your saved records. If a save was in progress, inspect its result before repeating it. No live payments are enabled."
+            : "No bookings or payments have been made. Reload to restore the example screens."}
         </p>
         <a className="button primary" href={location.pathname}>
-          Reload preview
+          {this.props.workspace ? "Reload workspace" : "Reload preview"}
         </a>
       </main>
     ) : (
@@ -73,5 +78,11 @@ function App() {
   );
 }
 createRoot(document.getElementById("root")!).render(
-  location.pathname === "/workspace" ? <Workspace /> : <App />,
+  location.pathname === "/workspace" ? (
+    <PreviewErrorBoundary workspace>
+      <Workspace />
+    </PreviewErrorBoundary>
+  ) : (
+    <App />
+  ),
 );

@@ -404,6 +404,16 @@ async function save(page: Page, name = "Save changes") {
     .getByRole("dialog")
     .getByRole("button", { name, exact: true })
     .click();
+  if (name.endsWith(" rule")) {
+    await expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: "This service rule is saved" }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Close dialog", exact: true })
+      .click();
+  }
   await expect(page.getByRole("dialog")).not.toBeVisible();
 }
 

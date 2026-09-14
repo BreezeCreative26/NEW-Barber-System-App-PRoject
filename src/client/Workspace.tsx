@@ -22,6 +22,7 @@ import type {
   StaffDayOff,
 } from "../server/domain";
 import { Brand, Button, Icon, Modal, Notice, Badge } from "./ui";
+import { Calendar, WeekStrip, type CalendarDraft } from "./Calendar";
 import { money, time, datePlus } from "./fixtures";
 
 const reference = (b: StoredBooking) =>
@@ -113,6 +114,31 @@ async function api<T>(
     window.clearTimeout(timeout);
   }
 }
+async function readDay(date: string): Promise<StoredBooking[]> {
+  const rows: StoredBooking[] = [];
+  let cursor: { cursor_start: number; cursor_id: string } | null = null;
+  do {
+    const query = new URLSearchParams({
+      date,
+      limit: "200",
+      ...(cursor
+        ? {
+            cursor_start: String(cursor.cursor_start),
+            cursor_id: cursor.cursor_id,
+          }
+        : {}),
+    });
+    const page: {
+      bookings: StoredBooking[];
+      next_cursor: { cursor_start: number; cursor_id: string } | null;
+    } = await api(`/bookings?${query}`);
+    if (!Array.isArray(page.bookings))
+      throw new Error("Invalid calendar response. Retry workspace.");
+    rows.push(...page.bookings);
+    cursor = page.next_cursor;
+  } while (cursor);
+  return rows;
+}
 const text = (f: FormData, k: string) => String(f.get(k) ?? "");
 const number = (f: FormData, k: string) => Number(text(f, k));
 const minute = (s: string) => {
@@ -152,16 +178,23 @@ function SaveForm({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [savedMessage, setSavedMessage] = useState("");
   const lock = useRef(false);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (lock.current) return;
-    const f = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const f = new FormData(form);
     lock.current = true;
     setBusy(true);
     setError("");
     try {
       await onSave(f);
+      if (label !== "Review appointment") delete form.dataset.dirty;
+      if (label.endsWith(" rule"))
+        setSavedMessage(
+          "This service rule is saved. Other unsaved edits are kept.",
+        );
     } catch (e) {
       setError(
         e instanceof Error
@@ -174,10 +207,16 @@ function SaveForm({
     }
   }
   return (
-    <form className="workspace-form" onSubmit={submit}>
+    <form
+      className="workspace-form"
+      onSubmit={submit}
+      onChange={() => setSavedMessage("")}
+      aria-busy={busy}
+    >
       <fieldset disabled={busy}>
         {children}
         <ErrorMessage error={error} />
+        {savedMessage && <p role="status">{savedMessage}</p>}
         <div className="workspace-save-actions">
           <Button type="submit">{busy ? "Saving…" : label}</Button>
         </div>
@@ -196,7 +235,7 @@ type Editor =
   | { kind: "hours"; item: Staff }
   | { kind: "daysOff"; item: Staff }
   | { kind: "removeDayOff"; item: StaffDayOff }
-  | { kind: "booking"; item?: StoredBooking }
+  | { kind: "booking"; item?: StoredBooking; draft?: CalendarDraft }
   | { kind: "detail"; item: StoredBooking }
   | { kind: "contacts"; item: StoredBooking }
   | { kind: "holiday" }
@@ -211,6 +250,13 @@ export function Workspace() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [editorRevision, setEditorRevision] = useState(0);
   const [date, setDate] = useState("");
+  const dateRef = useRef("");
+  dateRef.current = date;
+  const queriedDate = useRef("");
+  const [loadedDate, setLoadedDate] = useState("");
+  const [calendarView, setCalendarView] = useState(() =>
+    window.matchMedia("(max-width: 740px)").matches ? "agenda" : "day",
+  );
   const [search, setSearch] = useState("");
   const [barber, setBarber] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -225,8 +271,30 @@ export function Workspace() {
     setLoading(true);
     try {
       const w = await api<WorkspaceData>("/workspace");
+      for (const key of [
+        "staff",
+        "services",
+        "hours",
+        "holidays",
+        "days_off",
+        "addons",
+        "addon_links",
+        "service_rules",
+        "schedule_overrides",
+        "audit",
+        "issues",
+      ] as const) {
+        if (!Array.isArray(w[key]))
+          throw new Error(
+            "The workspace response is incomplete. Retry workspace to load a fresh copy.",
+          );
+      }
+      const targetDate = dateRef.current || w.today;
+      const bookings = await readDay(targetDate);
       if (sequence === loadSequence.current) {
-        setData(w);
+        queriedDate.current = targetDate;
+        setLoadedDate(targetDate);
+        setData({ ...w, bookings });
         setNeedsSession(false);
         setError("");
         setStale(false);
@@ -275,6 +343,21 @@ export function Workspace() {
       window.removeEventListener("offline", disconnect);
     };
   }, []);
+  useEffect(() => {
+    if (date && date !== queriedDate.current) refresh().catch(() => {});
+  }, [date]);
+  async function openBooking(id: string) {
+    try {
+      const result = await api<{ booking: StoredBooking }>(`/bookings/${id}`);
+      setEditor({ kind: "detail", item: result.booking });
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Could not open appointment. Retry workspace.",
+      );
+    }
+  }
   async function saved(path: string, method: string, body?: unknown) {
     if (stale)
       throw new ApiError(
@@ -282,7 +365,7 @@ export function Workspace() {
         409,
       );
     await api(path, method, body);
-    setEditor(null);
+    if (editor?.kind !== "serviceRules") setEditor(null);
     setNotice("Saved to your local test database.");
     try {
       await refresh();
@@ -355,6 +438,21 @@ export function Workspace() {
           .toLowerCase()
           .includes(directorySearch.toLowerCase()),
     ) || [];
+  const dayReady = !!w && loadedDate === date && !loading;
+  const filteredBookings = (w?.bookings || [])
+    .filter(
+      (b) =>
+        b.date === date &&
+        (!barber || b.staff_id === barber) &&
+        (!statusFilter || b.status === statusFilter) &&
+        `${b.customer_name} ${b.phone} ${b.service_name} ${reference(b)}`
+          .toLowerCase()
+          .includes(search.toLowerCase()),
+    )
+    .sort((a, b) => a.start_at - b.start_at || a.id.localeCompare(b.id));
+  const activeBookings = filteredBookings.filter(
+    (b) => !["CANCELLED", "NO_SHOW"].includes(b.status),
+  );
   const directoryFilters = (
     <section className="workspace-toolbar" aria-label="Directory filters">
       <Field label={tab === "Team" ? "Search team" : "Search catalogue"}>
@@ -398,46 +496,71 @@ export function Workspace() {
       </header>
       <div className="workspace-layout">
         <aside className="workspace-sidebar">
-          <Brand />
+          <Brand light />
           <p className="workspace-shop">
             {w?.shop.name || "Build better days."}
           </p>
           <nav aria-label="Workspace sections">
-            {["Appointments", "Team", "Services", "Settings", "Audit"].map(
-              (name, i) => (
-                <button
-                  key={name}
-                  type="button"
-                  aria-current={tab === name ? "page" : undefined}
-                  onClick={() => {
-                    setTab(name);
-                    setNotice("");
-                    setDirectorySearch("");
-                    setDirectoryStatus("");
-                  }}
-                >
-                  <Icon
-                    name={
-                      ["calendar", "users", "scissors", "settings", "shield"][i]
-                    }
-                  />
-                  {name}
-                </button>
-              ),
-            )}
+            {[
+              "Appointments",
+              "Team",
+              "Services",
+              "Settings",
+              "Audit",
+              "Accounts",
+            ].map((name, i) => (
+              <button
+                key={name}
+                type="button"
+                aria-current={tab === name ? "page" : undefined}
+                onClick={() => {
+                  setTab(name);
+                  setNotice("");
+                  setDirectorySearch("");
+                  setDirectoryStatus("");
+                }}
+              >
+                <Icon
+                  name={
+                    [
+                      "calendar",
+                      "users",
+                      "scissors",
+                      "settings",
+                      "shield",
+                      "user",
+                    ][i]
+                  }
+                />
+                {name}
+              </button>
+            ))}
           </nav>
           <p className="workspace-footnote">
             Development access belongs to this browser for 7 days. This is not
             production sign-in.
           </p>
-          <a href="/preview/admin">Original design previews</a>
+          <details className="design-reference-links">
+            <summary>Design references · sample only</summary>
+            <a href="/preview/admin">Original admin reference</a>
+            <a href="/preview/book">Customer design reference</a>
+            <a href="/preview/barber">Barber design reference</a>
+          </details>
         </aside>
         <main id="workspace-main" className="workspace-main">
           <header className="workspace-heading">
             <div>
-              <p className="eyebrow">BARBERSHOP OS / LOCAL DEVELOPMENT</p>
-              <h1>{tab}</h1>
-              <p>Same calm workspace. Now with saved test records.</p>
+              <p className="eyebrow">
+                {tab === "Appointments"
+                  ? "LET’S MAKE IT A GOOD ONE"
+                  : "YOUR SHOP / " + tab.toUpperCase()}
+              </p>
+              <h1>{tab === "Appointments" ? "Your day, at a glance." : tab}</h1>
+              <p>
+                {tab === "Appointments"
+                  ? "Keep the chairs moving. Your saved timetable, all in one place."
+                  : "Manage your shop with changes saved to the local test database."}
+              </p>
             </div>
             <Button
               variant="secondary"
@@ -520,14 +643,7 @@ export function Workspace() {
                       {issue.ref}: {issue.reason}.{" "}
                       <button
                         className="workspace-text-button"
-                        onClick={() =>
-                          setEditor({
-                            kind: "detail",
-                            item: w.bookings.find(
-                              (b) => b.id === issue.booking_id,
-                            )!,
-                          })
-                        }
+                        onClick={() => openBooking(issue.booking_id)}
                       >
                         Review appointment
                       </button>
@@ -537,6 +653,54 @@ export function Workspace() {
               )}
               {tab === "Appointments" && (
                 <>
+                  <section
+                    className="stats-grid connected-stats"
+                    aria-label="Selected day statistics"
+                  >
+                    {[
+                      {
+                        label: "Appointments",
+                        value: filteredBookings.length,
+                        icon: "calendarCheck",
+                        foot: "Selected day and filters",
+                      },
+                      {
+                        label: "Booked service value",
+                        value: money(
+                          activeBookings.reduce((n, b) => n + b.price_pence, 0),
+                        ),
+                        icon: "wallet",
+                        foot: "Not collected · excludes cancelled / no-show",
+                      },
+                      {
+                        label: "Completed visits",
+                        value: activeBookings.filter(
+                          (b) => b.status === "COMPLETED",
+                        ).length,
+                        icon: "checks",
+                        foot: "Service status, not payment",
+                      },
+                      {
+                        label: "Walk-ins",
+                        value: filteredBookings.filter(
+                          (b) => b.source === "WALK_IN",
+                        ).length,
+                        icon: "user",
+                        foot: "Included in appointments",
+                      },
+                    ].map((s) => (
+                      <article className="stat-card" key={s.label}>
+                        <div className="stat-label">
+                          {s.label}
+                          <Icon name={s.icon} />
+                        </div>
+                        <div className="stat-value">
+                          {dayReady ? s.value : "—"}
+                        </div>
+                        <div className="stat-foot">{s.foot}</div>
+                      </article>
+                    ))}
+                  </section>
                   <section className="workspace-toolbar">
                     <Field label="Appointment date">
                       <input
@@ -615,26 +779,92 @@ export function Workspace() {
                       Today
                     </Button>
                   </div>
-                  <section className="workspace-panel">
-                    <BookingList
-                      bookings={w.bookings
-                        .filter(
-                          (b) =>
-                            b.date === date &&
-                            (!barber || b.staff_id === barber) &&
-                            (!statusFilter || b.status === statusFilter) &&
-                            `${b.customer_name} ${b.phone} ${reference(b)}`
-                              .toLowerCase()
-                              .includes(search.toLowerCase()),
-                        )
-                        .sort((a, b) => a.start_at - b.start_at)}
-                      w={w}
-                      onOpen={(item) => setEditor({ kind: "detail", item })}
-                    />
+                  <section
+                    className="calendar-card connected-calendar"
+                    aria-label="Appointment calendar"
+                  >
+                    <header className="calendar-toolbar">
+                      <div>
+                        <h2>Your timetable</h2>
+                        <p>Saved appointments · Europe/London</p>
+                      </div>
+                      <div className="segmented" aria-label="Calendar view">
+                        <button
+                          type="button"
+                          aria-pressed={calendarView === "day"}
+                          onClick={() => setCalendarView("day")}
+                        >
+                          <Icon name="calendar" size={16} />
+                          Day timetable
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={calendarView === "agenda"}
+                          onClick={() => setCalendarView("agenda")}
+                        >
+                          <Icon name="list" size={16} />
+                          Agenda
+                        </button>
+                      </div>
+                    </header>
+                    {date && <WeekStrip date={date} onDate={setDate} />}
+                    {!dayReady ? (
+                      <p role="status" className="calendar-empty">
+                        {error
+                          ? "Calendar unavailable. Use Retry workspace above."
+                          : "Loading this day’s appointments…"}
+                      </p>
+                    ) : (
+                      <>
+                        {calendarView === "day" && (
+                          <Calendar
+                            w={w}
+                            date={date}
+                            barber={barber}
+                            bookings={filteredBookings}
+                            disabled={!online || stale || loading}
+                            onDraft={(draft) =>
+                              setEditor({ kind: "booking", draft })
+                            }
+                            onOpen={(item) =>
+                              setEditor({ kind: "detail", item })
+                            }
+                          />
+                        )}
+                        {(calendarView === "agenda" ||
+                          filteredBookings.length === 0) && (
+                          <BookingList
+                            bookings={filteredBookings}
+                            w={w}
+                            onOpen={(item) =>
+                              setEditor({ kind: "detail", item })
+                            }
+                          />
+                        )}
+                        {calendarView === "day" &&
+                          filteredBookings.some((b) =>
+                            ["CANCELLED", "NO_SHOW"].includes(b.status),
+                          ) && (
+                            <section className="closed-day-bookings">
+                              <h3>Cancelled and no-show history</h3>
+                              <BookingList
+                                bookings={filteredBookings.filter((b) =>
+                                  ["CANCELLED", "NO_SHOW"].includes(b.status),
+                                )}
+                                w={w}
+                                onOpen={(item) =>
+                                  setEditor({ kind: "detail", item })
+                                }
+                              />
+                            </section>
+                          )}
+                      </>
+                    )}
                     <p className="workspace-footnote">
-                      Showing saved appointments for this day (latest 500
-                      records loaded). Service status is separate from payment.
-                      No deposits collected.
+                      Complete selected-day records loaded from the database.
+                      Timetable clicks start a draft; the service, extras and
+                      buffer must fit before confirmation. No deposits
+                      collected.
                     </p>
                   </section>
                 </>
@@ -937,6 +1167,46 @@ export function Workspace() {
                   </section>
                 </div>
               )}
+              {tab === "Accounts" && (
+                <section className="workspace-panel">
+                  <Badge>Access setup · not yet connected</Badge>
+                  <h2>Accounts & permissions</h2>
+                  <p>
+                    This browser currently has local test-owner access. Staff
+                    profiles and service eligibility are saved, but they are not
+                    sign-in accounts.
+                  </p>
+                  <div className="workspace-card-grid">
+                    {[
+                      {
+                        name: "Shop owner / admin",
+                        detail:
+                          "Planned: secure sign-in, shop setup, invitations, staff permissions and account recovery.",
+                      },
+                      {
+                        name: "Barber / staff",
+                        detail:
+                          "Planned: individual sign-in, assigned timetable, permitted customer details and own earnings.",
+                      },
+                      {
+                        name: "Customer",
+                        detail:
+                          "Planned: sign-up/sign-in or verified guest access, own bookings and secure booking history.",
+                      },
+                    ].map((role) => (
+                      <article key={role.name}>
+                        <h3>{role.name}</h3>
+                        <p>{role.detail}</p>
+                      </article>
+                    ))}
+                  </div>
+                  <Notice>
+                    No passwords are collected by this screen. Real account and
+                    permission flows are the next separate build; hiding buttons
+                    is not authorization.
+                  </Notice>
+                </section>
+              )}
               {tab === "Audit" && (
                 <section className="workspace-panel">
                   <h2>Recorded activity</h2>
@@ -1111,6 +1381,7 @@ function WorkspaceEditor({
       title={title}
       onClose={onClose}
       context="LOCAL DATABASE · TEST DATA ONLY"
+      protectChanges
       wide={e.kind === "hours"}
     >
       {e.kind === "addon" && <AddonEditor addon={e.item} w={w} saved={saved} />}
@@ -1441,7 +1712,13 @@ function WorkspaceEditor({
         </SaveForm>
       )}
       {e.kind === "booking" && (
-        <BookingForm w={w} initialDate={date} booking={e.item} saved={saved} />
+        <BookingForm
+          w={w}
+          initialDate={date}
+          booking={e.item}
+          draft={e.draft}
+          saved={saved}
+        />
       )}
       {e.kind === "contacts" && (
         <SaveForm
@@ -1924,19 +2201,29 @@ function BookingForm({
   w,
   initialDate,
   booking: b,
+  draft,
   saved,
 }: {
   w: WorkspaceData;
   initialDate: string;
+  draft?: CalendarDraft;
   booking?: StoredBooking;
   saved: EditorProps["saved"];
 }) {
   const [date, setDate] = useState(b?.date || initialDate);
   const [staff, setStaff] = useState(
-    b?.staff_id || w.staff.find((s) => s.active)?.id || "",
+    b?.staff_id || draft?.staffId || w.staff.find((s) => s.active)?.id || "",
   );
   const [service, setService] = useState(
-    b?.service_id || w.services.find((s) => s.active)?.id || "",
+    b?.service_id ||
+      w.services.find(
+        (s) =>
+          s.active &&
+          !w.service_rules.some(
+            (r) => r.staff_id === staff && r.service_id === s.id && !r.enabled,
+          ),
+      )?.id ||
+      "",
   );
   const [addonIds, setAddonIds] = useState<string[]>([]);
   const [start, setStart] = useState("");
@@ -1945,6 +2232,7 @@ function BookingForm({
   const [refresh, setRefresh] = useState(0);
   const [review, setReview] = useState(false);
   const request = useRef({ payload: "", key: crypto.randomUUID() });
+  const draftPending = useRef(draft?.start);
   useEffect(() => {
     let current = true;
     setSlots(null);
@@ -1959,7 +2247,20 @@ function BookingForm({
       `/availability?${new URLSearchParams({ date, staff_id: staff, service_id: service, addon_ids: addonIds.join(","), ...(b ? { booking_id: b.id } : {}) })}`,
     )
       .then((s) => {
-        if (current) setSlots(s);
+        if (current) {
+          setSlots(s);
+          if (draftPending.current !== undefined) {
+            const candidate = s.slots.find(
+              (slot) => slot.start_min === draftPending.current && !slot.reason,
+            );
+            if (candidate) setStart(String(candidate.start_min));
+            else
+              setError(
+                "The clicked time does not fit this service and buffer. Choose another time or service.",
+              );
+            draftPending.current = undefined;
+          }
+        }
       })
       .catch((e) => {
         if (current) setError(e.message);

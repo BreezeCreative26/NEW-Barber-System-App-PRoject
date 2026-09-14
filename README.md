@@ -4,99 +4,109 @@ Multi-tenant barbershop SaaS in development: customer booking, shop administrati
 
 ## Current status
 
-**Local functionality, not a live SaaS.** Application baseline `c1350a4`; latest work is comprehensive enhancement planning (D-015), not a runtime update. The original preview layout/calendar is the confirmed product UI foundation (D-014). Its consolidation with the persisted backend is still pending. Matte forest/sage colours and rounded components remain; no restart or deployment.
+**Working local preview, not a deployed commercial SaaS.** The original-style calendar is now connected to the persisted local database at `/workspace`. Matte forest/sage colours and rounded components are retained. All existing staff, services, add-ons, pricing, schedules, settings and booking controls remain available in that same app.
 
-`/workspace` saves fictional test records in local Cloudflare D1:
-- Isolated browser-owned shop with editable example staff/services; no seeded appointments or payments.
-- Shop settings, opening hours, closures, weekly staff shifts/breaks and full-day leave.
-- **Add-on catalogue:** create/edit/deactivate, price, extra minutes and eligible service links.
-- **Barber service rules:** enable/disable coverage and override price/duration; blank overrides inherit catalogue defaults.
-- **Dated hours:** create/edit/remove a partial-day shift and break, replacing that day's weekly template. Closures and full-day leave still win.
-- Authoritative itemized quotes; add-ons recheck exact total duration and clear stale slot selections. Catalogue/rule changes invalidate old quote versions.
-- Reviewed/idempotent test bookings and walk-ins, day lists, search/status filters and contact/notes corrections.
-- Atomic reschedule, cancellation, check-in, in-service, completion and grace-checked no-show; affected-booking warnings and append-only audit.
-- Immutable service/add-on item snapshots, stored atomically with the booking. History is not repriced on edits or moves.
-- In-page network/proxy retry, preserved draft inputs, stale-editor refresh and duplicate-safe booking replay after interrupted responses.
+Development preview: https://3000-iz3aw7n21l3edjgvt4bkj-5c13a017.sandbox.novita.ai/workspace
 
-Original `/preview/admin`, `/preview/book` and `/preview/barber` remain separate fixture-only screens. Their checkout and finance controls are not connected to this database.
+Local: http://localhost:3000/workspace. The HTTPS URL is temporary sandbox access, not a production deployment. Existing browser cookies retain access to that browser's test shop. New browsers create separate fictional shops; no saved bookings are seeded into a new workspace.
 
-## Using the new controls
+## What works now
 
-1. **Services → Add add-on:** set the price and extra minutes, select eligible services and save.
-2. **Team → Services & pricing:** configure one service at a time. Each named Save button saves that service's rule and closes the dialog. Unset rules allow the service at catalogue values; blank price/duration overrides restore defaults.
-3. **Team → Dated hours:** choose a date and replacement shift/break. Equal break times mean no break. Edit or remove a saved override from the same list.
-4. **Appointments → New booking:** select barber/service and optional add-ons, then choose a newly checked slot. Review itemized prices and confirm. Existing booking details retain the original line items after catalogue changes.
+- Original-style day timetable and mobile agenda with a seven-day date strip, date navigation, staff/status/search filters and real selected-day statistics. Booked service value is not collected revenue.
+- Click a free 15-minute timetable cell to start a booking draft with barber/time. Service, extras and buffer are checked by the authoritative availability API; a click is not a reservation.
+- Saved test bookings and walk-ins, itemized review, immutable price/duration/items, appointment details, contact corrections, reschedule, cancellation, check-in/start/complete/no-show and audit.
+- Complete paginated selected-day reads rather than the old 500-record display window. Future schedule-impact warnings read independently and can open off-day appointments by authorized ID.
+- Staff/service create/edit/deactivate/reactivate; add-on catalogue with eligibility links; individual barber service eligibility and price/duration overrides.
+- Weekly shifts/breaks, full-day leave, shop closures and dated replacement shifts/breaks; saved shop settings and basic policy values.
+- Pricing rules save individually without closing the editor or losing other rows' drafts. Empty override inherits catalogue values; zero is a valid explicit price.
+- Workspace dialogs protect unsaved Escape/backdrop/Close and refuse close while saving. Network/proxy failures retry in place; lost booking responses replay safely; malformed workspace arrays/render failures have recovery.
+- Accounts section explicitly shows what remains unconnected. It is not a sign-in screen and collects no passwords.
 
-Prices are integer pence; add-on durations are 0–120 minutes, with at most ten unique add-ons per booking. Start times are on a 15-minute grid; durations are summed exactly, not rounded. A ten-minute buffer follows the entire appointment. Zero price overrides are allowed. These are local test policies, not final commercial financial terms.
+Original `/preview/admin`, `/preview/book` and `/preview/barber` remain **fixture-only design references**. Customer/barber references still do not save real appointments or payments. They are not alternative production apps.
 
-## Remaining work
+## Try the connected workflow
 
-Server-paginated booking/admin queries, connected customer and assigned-barber test interfaces, managed identity/MFA/invites, public shop routing and customer portal, checkout holds/expiry, Stripe, notifications, cash/tips/ledger/refunds, reports/pay-runs, subscriptions/platform console and installable/offline PWA remain incomplete or unimplemented. No production roles or payment outcomes are implied by this slice.
+1. Open the development preview; create a **test workspace** if this browser has no session. Use fictional details only.
+2. Select a future working date. Desktop defaults to **Day timetable**; mobile defaults to **Agenda**, with a timetable switch available.
+3. Click a free cell, select the service/extras, enter fictional customer details, review and confirm. The service must fit the available interval including its buffer.
+4. Click the appointment to inspect it, reschedule, correct details or change status. Cancellation requires a reason; no refund/payment is implied.
+5. Open **Team** for profiles, individual services/pricing, weekly hours, days off and dated hours. Open **Services** for catalogue/add-ons; **Settings** for shop policies and closures.
+6. In multi-service pricing, save each changed service. Other drafts stay open; use Close only after saving, or explicitly discard them.
 
-Next package **WP-LOCAL-03A**: complete tenant-scoped booking queries, connect saved appointments/actions to the original-style admin shell/calendar/mobile agenda, then integrate and polish existing setup/team/services/schedules with safe forms. Do not redirect to fixture screens and call that integration. Customer/barber journeys follow using the original layouts and least-data APIs. Holds require concurrency/expiry/late-confirmation tests. No deployment or provider activation.
+Prices are integer pence. Add-ons allow 0–120 extra minutes and up to ten unique items per booking. Start grid is 15 minutes, occupancy is exact duration plus a ten-minute buffer. These are local test defaults, not finalized commercial policies.
 
-The [comprehensive enhancement plan](docs/BUILD_PLAN.md#12-comprehensive-enhancement-and-modernisation-plan) covers every existing area, missing customer/admin/barber/finance/PWA/SaaS capabilities, proposed additions, delivery order and acceptance. [Design checklist](docs/DESIGN_SYSTEM.md#enhancement-checklist--original-design-every-existing-feature) and [pending integration gates](docs/QUALITY_GATES.md#enhancement-integration-gates--d-014d-015) define visual and functional proof. Register remains 189 requirements: 53 partially implementing, 136 not started; not a completion percentage.
+## What is not yet built
 
-Open audit findings include incomplete booking/impact lists beyond 500, loss of other unsaved service-rule drafts after a per-rule save, unconfirmed dirty-form dismissal, missing workspace render recovery and unresolved early-completion policy. See PROGRESS for reproductions and limitations; the existing passing regression does not close these gaps.
+- Customer sign-up/sign-in, admin/staff accounts, memberships, invitation lifecycle, real role permissions, MFA and recovery.
+- Connected customer/barber operational journeys, public shop routing and verified customer portal/history.
+- Checkout holds/expiry, Stripe/provider integrations, messages/reminders, cash/tips/ledger/refunds/receipts and manual pay-runs.
+- Full week/month resource calendar, drag/drop, shop-wide/date-range search and independently paginated audit UI.
+- Installed/offline PWA, reviews, subscription billing/entitlements and platform-owner console.
+- Production security/privacy/monitoring/restore/device acceptance.
+
+Next requested build: **WP-LOCAL-04 — working local test accounts and server-enforced permissions**, beginning with owner account/session lifecycle and migration of the existing browser-owned shop, then staff invitations/assigned accounts and customer ownership. See [BUILD_PLAN section 13](docs/BUILD_PLAN.md#13-active-delivery-and-accountpermission-build-sequence). No fake role switch or preview mock user may authorize customer/barber records.
+
+Remaining quality work includes full nested response validation, settings/navigation draft protection, scalable impact evaluation, detailed audit metadata and final early/backdated completion policy. Do not infer all audit findings are closed from the calendar delivery.
 
 ## Entry points
 
-Local: `http://localhost:3000/workspace`, also available through the project's temporary development Preview. Production URL: **none**.
-
 | URI | Behaviour |
 | --- | --- |
-| `/` | `/workspace` in sandbox mode; otherwise `/preview/admin` |
-| `/workspace` | Persisted local test workspace |
-| `/preview/admin`, `/preview/book`, `/preview/barber` | Fixture-only design experiences |
-| `/api/health` | Mode, persistence capability, `livePayments:false` |
-| `POST /api/sandbox/session` | Create/reuse browser-owned workspace |
-| `GET /api/sandbox/workspace` | Shop/setup/catalogue/rules/overrides, latest 500 bookings and 200 audit events |
-| `PUT /api/sandbox/shop` | Versioned settings |
-| `POST /api/sandbox/staff`, `PUT /api/sandbox/staff/:id` | Create/edit/deactivate staff |
-| `PUT /api/sandbox/staff/:id/hours` | Seven-day schedule |
+| `/` | Redirects to `/workspace` in sandbox mode; otherwise fixture admin |
+| `/workspace` | Connected local owner-test calendar and shop setup |
+| `/preview/admin`, `/preview/book`, `/preview/barber` | Fixture-only design references |
+| `/api/health` | Configured mode/persistence capability; `livePayments:false` |
+| `POST /api/sandbox/session` | Create/reuse browser-owned test shop |
+| `GET /api/sandbox/workspace` | Setup/catalogue, legacy 500-booking snapshot, 200 audit events and independently evaluated future impact warnings |
+| `GET /api/sandbox/bookings` | Required `date`; optional `limit` (1–200), `staff_id`, `status`; paired `cursor_start` and `cursor_id`. Returns `bookings` and `next_cursor` |
+| `PUT /api/sandbox/shop` | Versioned shop/settings update |
+| `POST /api/sandbox/staff`, `PUT /api/sandbox/staff/:id` | Staff create/edit/activity |
+| `PUT /api/sandbox/staff/:id/hours` | Weekly schedule |
 | `POST /api/sandbox/staff/:id/days-off`, `DELETE /api/sandbox/staff/:id/days-off/:leaveId` | Full-day leave |
-| `PUT /api/sandbox/staff/:id/services/:serviceId` | Eligibility and price/duration rule; version 0 creates, current version updates |
-| `POST /api/sandbox/staff/:id/overrides` | Create dated replacement hours |
-| `PUT /api/sandbox/staff/:id/overrides/:overrideId`, `DELETE /api/sandbox/staff/:id/overrides/:overrideId` | Edit/remove dated hours |
-| `POST /api/sandbox/services`, `PUT /api/sandbox/services/:id` | Create/edit/deactivate services |
-| `POST /api/sandbox/addons`, `PUT /api/sandbox/addons/:id` | Create/edit/deactivate add-on with `service_ids` links |
+| `PUT /api/sandbox/staff/:id/services/:serviceId` | Versioned eligibility and price/duration override |
+| `POST /api/sandbox/staff/:id/overrides`, `PUT /api/sandbox/staff/:id/overrides/:overrideId`, `DELETE /api/sandbox/staff/:id/overrides/:overrideId` | Dated replacement shifts |
+| `POST /api/sandbox/services`, `PUT /api/sandbox/services/:id` | Catalogue create/edit/activity |
+| `POST /api/sandbox/addons`, `PUT /api/sandbox/addons/:id` | Add-ons and `service_ids` eligibility links |
 | `POST /api/sandbox/holidays`, `DELETE /api/sandbox/holidays/:id` | Shop closures |
-| `GET /api/sandbox/availability` | `date`, `staff_id`, `service_id`, optional comma-separated `addon_ids`, optional `booking_id` for original snapshot quote; `holds:false` |
-| `POST /api/sandbox/bookings` | Save/replay; request UUID, quote versions and optional unique `addon_ids` array |
-| `GET /api/sandbox/bookings/:id` | Tenant-scoped detail with immutable `items_json` |
-| `PATCH /api/sandbox/bookings/:id/details` | Versioned contact/notes correction, reason required |
-| `POST /api/sandbox/bookings/:id/reschedule`, `POST /api/sandbox/bookings/:id/status` | Versioned/audited lifecycle operations |
+| `GET /api/sandbox/availability` | `date`, `staff_id`, `service_id`, optional comma-separated `addon_ids`, optional `booking_id` for reschedule snapshot; `holds:false` |
+| `POST /api/sandbox/bookings` | Payload-bound request UUID, quote versions and optional unique add-on IDs |
+| `GET /api/sandbox/bookings/:id` | Tenant-scoped detail |
+| `PATCH /api/sandbox/bookings/:id/details` | Versioned correction with reason |
+| `POST /api/sandbox/bookings/:id/reschedule`, `POST /api/sandbox/bookings/:id/status` | Versioned/audited appointment operations |
 
-## Data and safety
+Day read cursors provide deterministic ordering, not an immutable cross-page snapshot under concurrent edits. Refresh rechecks current records. The legacy workspace booking cap is retained for compatibility but is not the main calendar data source. Future impact evaluation is complete for current records but still needs measured scale optimization.
 
-D1 tables: shops, sandbox_sessions, staff, staff_hours, staff_days_off, staff_schedule_overrides, services, addons, addon_services, staff_service_rules, bookings and audit_events. The `0004_catalogue_and_dated_hours.sql` migration preserves existing bookings as one service item; new bookings store all item snapshots in the same row/write as their interval allocation.
+## Data and security
 
-Tenant-aware foreign keys, strict input schemas and transactional SQLite triggers enforce overlap, hours/leave/closures, eligibility, quote freshness, item sums and immutable snapshots. Add-on/link/rule edits increment the shop quote version in the same transaction. UI availability alone is not the booking lock. Rescheduling preserves the original itemized commercial terms but checks current staff eligibility and schedule.
+Stack: Hono/React/TypeScript/Vite, local Cloudflare D1, Wrangler and PM2. No new dependency or schema migration in the connected-calendar slice.
 
-Sessions use random capabilities, SHA-256 hashes in D1 and HttpOnly/Secure/SameSite=Strict cookies, expiring after seven days. **Test workspace ownership is not verified production identity or role authorization.** Shop scope is server-derived; matching Origin is required for mutations. Every sandbox endpoint fails closed without D1 and local `APP_MODE=sandbox`.
+D1 tables: shops, sandbox_sessions, staff, staff_hours, staff_days_off, staff_schedule_overrides, services, addons, addon_services, staff_service_rules, holidays, bookings and audit_events. Booking `items_json` contains immutable service/add-on snapshots. Existing five migration files remain applied; the next migration prefix is 0005. Do not rename the two distinct 0002 files.
 
-`.dev.vars`, `.wrangler/` and test artifacts are ignored. The database ID is a local placeholder. No real customer information belongs here. There is no offline write queue, private offline cache or recovery after losing the cookie. Only booking creation has payload-bound request-key idempotency; inspect refreshed records before retrying other interrupted creates.
+Shop scope comes from a hashed random capability with HttpOnly/Secure/SameSite=Strict cookie and seven-day expiry. Every API fails closed without local `APP_MODE=sandbox` and DB binding; mutation Origin must match. This is **not production identity or staff/customer role authorization**. SQLite write-time guards protect overlaps, hours, eligibility, quote/item values and historical snapshots. Only booking creation has request-key replay; check records before repeating other interrupted creates.
 
-London timezone only; DST gaps/repeated local times are rejected. Completion records service status, never payment. Model A is unchanged: shops ultimately collect customer payments directly; owners pay barbers externally. Future pay-runs calculate/export/record, not execute bank transfers or hold a wallet. SaaS billing is separate.
+London timezone only. Offline views are not a private cache or write queue. No recovery after losing the current browser cookie exists yet. Do not enter real personal/sensitive data.
 
-## Local setup and verification
+Model A: each shop ultimately receives customer money; owners pay barbers externally. The app will calculate/export/record manual pay-runs, not hold a wallet or initiate bank transfers. SaaS subscription money is separate.
 
-Project `/home/user/webapp`, branch `main`.
+## Local development and verification
 
-1. Set `APP_MODE="sandbox"` in ignored `.dev.vars` only.
-2. Run `npm run db:migrate:local` before building code that uses new tables. Never `--remote` for this work.
-3. Stop the old port-3000/PM2 instance, run `npm run build`, then `pm2 start ecosystem.config.cjs`.
-4. Verify `curl http://localhost:3000/api/health` and open `/workspace`.
-5. Use fictional data. Run `npm test` with the service running: TypeScript, unit/route tests, direct local D1 invariants and Playwright API/browser tests.
+Project: `/home/user/webapp`, branch `main`.
 
-Latest gate: **42 unit/route/domain tests, direct-D1 guards and 54 browser/API tests passed**, including the original recovery/regression suite and all 21 mutation route boundaries. Fresh local migration bootstrap also passed; dependency audit reported zero vulnerabilities. See [PROGRESS](docs/PROGRESS.md) for the exact report, screenshot evidence and limitations.
+1. Keep `APP_MODE="sandbox"` in ignored `.dev.vars` only.
+2. Apply local migrations when needed: `npm run db:migrate:local` (never remote for this work).
+3. For a fresh service start: stop the old PM2/port-3000 process, run `npm run build`, then `pm2 start ecosystem.config.cjs`.
+4. Verify `/api/health`; run `npm test` with the local service available.
 
-Network errors recover through **Retry workspace** / **Retry availability**. A successful save followed by a failed read must retry the read, not the saved operation. **Discard edits and load latest** explicitly replaces stale form contents. Test artifacts live under `test-results/runs/<run-id>/`; never share a run ID between concurrent invocations or migrate/build while tests run. Automated axe scans are not complete WCAG/device certification.
+Connected calendar verification: build, 42 unit/route/domain tests, direct D1 checks and 60 browser/API cases passed in the final unchanged-source regression; dependency audit reported zero vulnerabilities. The exact 13:24 UTC report is recorded in [PROGRESS](docs/PROGRESS.md). New coverage includes 503 records, cursor ties/tenant boundaries, timetable create/reload/move/cancel, multi-row drafts and response recovery. Existing five-size layout and fixture preview tests remain. Automated Chromium/axe checks are not full real-device/WCAG/security certification.
 
-## Project playbook
+Build/migration must not run during tests. Artifacts use unique `test-results/runs/<run-id>/` directories. `.dev.vars`, local databases, dependencies and generated traces remain ignored.
 
-[Session instructions](AGENTS.md) · [Build plan](docs/BUILD_PLAN.md) · [Progress](docs/PROGRESS.md) · [Decisions](docs/DECISIONS.md) · [189-row register](docs/FEATURE_REGISTER.csv) · [Design standards](docs/DESIGN_SYSTEM.md) · [Quality gates](docs/QUALITY_GATES.md)
+## Project records
 
-## Publication and deployment
+[Build plan](docs/BUILD_PLAN.md) · [Progress/handoff](docs/PROGRESS.md) · [Decisions](docs/DECISIONS.md) · [Feature register](docs/FEATURE_REGISTER.csv) · [Design](docs/DESIGN_SYSTEM.md) · [Quality gates](docs/QUALITY_GATES.md) · [Session instructions](AGENTS.md)
 
-No production deployment, live credentials, real messages, charges or transfers. Selected GitHub repository: https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject. Previously public/empty; no push or visibility change authorized. Recheck and obtain publication consent before syncing. Local commits and project auto-backup preserve work without publishing to that repository.
+All 189 requirements and 125 original C/B/A IDs remain. Local calendar progress does not mark the production SaaS complete.
+
+## Deployment
+
+No production deployment, provider activation, real charges/messages/transfers or public GitHub push. Selected GitHub repo remains https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject; publication/visibility must be checked and authorized before pushing. Local commits and project backup preserve the work.

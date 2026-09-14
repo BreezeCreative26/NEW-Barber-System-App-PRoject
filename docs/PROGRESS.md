@@ -1,14 +1,45 @@
 # Barbershop OS — Progress and next-session handoff
 
-Updated 2026-09-14 with the **comprehensive enhancement plan (D-015)**, continuing the original-interface direction D-014 from 9a1a416. **WP-LOCAL-02 remains implemented and verified locally.** Next visible deliverable: **WP-LOCAL-03A — original-style admin shell/calendar connected to saved bookings**, including complete reads and interaction recovery. This is planning only; no UI consolidation, audit fix or new runtime feature is claimed.
+Updated 2026-09-14 after **implementing the connected calendar slice of WP-LOCAL-03A**, continuing from a725561. The running `/workspace` now includes an original-style timetable and all existing persisted setup/booking controls. See current delivery below. Customer/admin/staff sign-in and memberships are NOT implemented; next requested build is WP-LOCAL-04 test accounts/permissions. Remaining 03A search/audit/scale work is tracked, not silently marked complete.
 
 ## Read this first
 
 **D-014 controls UI continuity: build on the original preview layout/calendar, not the stripped-down workspace. D-012/D-013 retain matte forest/sage colours, persisted functionality and nothing live.** No restart, production deployment, provider activation, real messages/charges/transfers or public GitHub push. This is not the completed 189-feature commercial SaaS.
 
-Runtime is still split: `/workspace` is the local D1 test application; `/preview/admin`, `/preview/book` and `/preview/barber` are fixture-only. The user finds this confusing and explicitly prefers the original preview's layout and interactions. That original UI is now the confirmed product foundation, to be connected to the existing backend rather than demoted to a separate reference. Do not merely redirect to fixtures and claim restoration is complete. Browser-owned sandbox capabilities are not production identity or staff/customer roles.
+Main runtime `/workspace` now has an original-style connected day timetable/agenda, dark forest navigation and integrated Team/Services/Settings/Audit. The primary entry is unchanged and existing cookies/data still work. `/preview/*` remain fixture-only references, no longer linked prominently as a competing main app. Customer/barber operational integration and role-specific identity are unfinished. The Accounts section says so explicitly; it does not collect passwords or pretend to authenticate.
 
-## Latest session — comprehensive enhancement planning, D-015
+## Current delivery — visible calendar and reliability improvements
+
+User requested visible building rather than another planning-only cycle. Actual changes:
+
+1. `src/client/Calendar.tsx`: saved barber-column day timetable, 15-minute clickable draft cells, working-hours/break/leave/closure shading, actual current-time marker, week-date strip and agenda alternative. Staff/time draft prefills only after authoritative service availability allows it; no slot is held by a click.
+2. Existing appointment controls are connected to the timetable: create/review/save, open details, immutable service/add-on history, reschedule and status/cancellation. Cancelled/no-show history remains accessible and releases occupied time. New stats use filtered saved records; booked value excludes cancelled/no-show and is explicitly not collected revenue.
+3. Main navigation keeps all existing staff/services/add-ons/individual rules/weekly and dated schedules/shop settings/audit available in one app. Forest sidebar and calendar reuse the original style. Accounts is an honest unfinished-access overview, not a login implementation.
+4. `GET /api/sandbox/bookings?date=YYYY-MM-DD&limit=200`: complete date-scoped reads with deterministic `(start_at,id)` cursors and optional staff/status filters. The main UI follows every selected-day page, not the legacy 500-row workspace snapshot. Impact warnings now read future active bookings independently; issue details load directly by authorized ID, even outside the selected day/snapshot.
+5. Per-service pricing saves keep the editor open and preserve other rows' drafts; success feedback clears when that row is edited again. Shared protected workspace dialogs confirm dirty Escape/backdrop/Close, disallow pending-save close and retain non-destructive editing. General settings/tab navigation and other nested editor-switch policies still need further work.
+6. Workspace response checks validate required arrays; a workspace render error boundary provides honest reload/recheck guidance. It never asserts that an interrupted save did not happen.
+
+**Scope honesty:** no customer sign-up/sign-in, real admin/staff accounts, membership permissions, public customer booking, holds/payments/messages, week/month resource calendar, drag/drop or PWA implemented in this slice. Existing owner capability remains unchanged. Accounts/permissions is next, not a fake completed screen.
+
+### Current verification
+
+- First focused run: 13/13 calendar/catalogue tests passed.
+- Full run at 13:20:58 UTC: 42 unit/route/domain tests, direct local D1 invariants and **60/60 browser/API tests**, zero failed/skipped/flaky; dependency audit zero vulnerabilities. Report `test-results/runs/1789392058383-53472/results.json` (104.56s).
+- **Final run passed on unchanged source:** build → typecheck → 42 unit/route/domain tests → direct D1 invariants → **60/60 browser/API tests** → identical before/after source hash → dependency audit (zero vulnerabilities) → diff check; exit 0. Report `test-results/runs/1789392279064-55106/results.json`, started 2026-09-14 13:24:39 UTC, 106.22s, zero failed/skipped/flaky. Includes the final form-success-feedback refinement. Worker 141.76 kB (42.60 gzip), client JS 507.76 kB (120.57 gzip).
+- Six new cases in `tests/calendar.spec.ts`: 503-record complete reads/impact warnings, deterministic cursor ties and tenant/invalid-query checks; click/create/reload/move/cancel flow; multi-row pricing and explicit discard; failed-day/malformed-response recovery; 390/1440 timetable axe/layout/slot checks. Existing catalogue save helper explicitly closes the now-staying-open rule editor; no security/booking tests weakened.
+- Existing five-width and original fixture preview regressions passed. Actual populated desktop/calendar and mobile/agenda screenshots captured and inspected: `docs/evidence/connected-calendar-1440.png`, `connected-agenda-390.png`. Slot dialog screenshots from focused run also inspected.
+- Public HTTPS development preview was browser-tested: isolated fictional workspace creation and timetable display succeeded. URL: `https://3000-iz3aw7n21l3edjgvt4bkj-5c13a017.sandbox.novita.ai/workspace`. Temporary sandbox service only, not production deployment.
+- No migrations/dependencies/provider configuration added. Existing local records retained. New API/UI uses the same tenant, mutation, quote and database collision guards. Preview/test data created only in separate fictional shops.
+
+### Audit resolution status
+
+- AUD-01: main calendar selected-day truncation and missing impact warnings fixed and reproduced regression passed. Legacy `/workspace.bookings` still caps 500 for compatibility; global/date-range search and paginated audit/impact UI are not completed. Impact scan is now complete but still needs measured scale/performance work.
+- AUD-02: individual rule saves preserve other dirty drafts, tested.
+- AUD-03: workspace dialog Escape/Close/backdrop and pending-save protections implemented; direct in-app navigation/settings and broader transition coverage remain.
+- AUD-05: required-array response validation and workspace render boundary implemented; malformed response recovery tested. Full nested response validation remains an improvement.
+- AUD-04/06/07/08: timing policy, production identity/abuse, broader architecture/performance and audit-detail work remain as recorded below.
+
+## Historical session — comprehensive enhancement planning, D-015
 
 User asked to enhance/modernise every created feature, ensure correct visual placement and enjoyable customer/admin experiences, explain current feature progress, identify improvements and produce a comprehensive plan. No runtime changes were requested/executed as part of this planning deliverable.
 
@@ -54,7 +85,7 @@ User asked to enhance/modernise every created feature, ensure correct visual pla
 - Booking replay hashes omit empty default add-on selections to preserve the earlier normalized payload contract. Only booking creation has request-key idempotency; inspect refreshed records before repeating other interrupted creates.
 - No external API calls, production resources or credentials were added. `.dev.vars`, `.wrangler/` and test-results stay ignored.
 
-## Latest verification — conclusive result
+## Prior WP-LOCAL-02 verification — conclusive result
 
 Final command: build → typecheck → unit tests → direct D1 invariants → complete Playwright suite → unchanged-source hash check → dependency audit → diff check. Exit code **0**.
 
@@ -108,7 +139,7 @@ User requested an honest whole-app assessment and improvements towards a market-
 
 Register recount: customer 12 implementing / 34 not_started; barber 6 / 26; admin 23 / 24; SaaS 3 / 17; other acceptance/quality/notification/roadmap/integration rows 9 / 35. Total 53 / 136. Do not convert this into a completion percentage: implementing is partial, requirements differ in size, and some share the same foundation. No production verified/accepted rows. Preserve all original scope decisions.
 
-### Reproduced findings — OPEN, not fixed by this audit
+### Findings as reproduced during the audit — see current resolution status above
 
 | ID / priority | Evidence and impact | Required improvement |
 | --- | --- | --- |
@@ -139,7 +170,9 @@ A limited check of official SQUIRE, Booksy and Fresha pages found waitlists, rem
 
 The prior audit completed `npm test` and `npm audit --audit-level=high` successfully: 42 unit/route/domain tests, direct D1 checks, 54 browser/API tests, zero reported dependency vulnerabilities. Report `test-results/runs/1789390332489-47050/results.json`, started 2026-09-14 12:52:12 UTC, duration 80.27 seconds, zero failed/skipped/flaky; report re-read during this clarification turn. `npm run build` also passed after the suite. Runtime sources/migrations/tests remained at c1350a4; audit notes were auto-backed up in 05599ae before this clarification. No new runtime tests or migrations were run for this documentation-only direction change. Earlier migration bootstrap evidence belongs to WP-LOCAL-02.
 
-## Exact next work package: WP-LOCAL-03A — original UI, saved calendar
+## Original WP-LOCAL-03A checklist — connected calendar slice now delivered
+
+The first visible calendar integration is implemented above. Do not rebuild it. Remaining checklist obligations stay tracked; BUILD_PLAN section 13 defines the newly prioritized WP-LOCAL-04 accounts/permissions work requested by the user.
 
 0. **D-014 visible goal:** reuse the original admin shell, navigation, resource calendar, date/barber controls and mobile agenda, connecting them to persisted appointments and existing create/detail/reschedule/status APIs. Integrate setup/catalogue/team/schedule functionality into that same interface. Preserve backend/data/tests; no second replacement design or cosmetic redirect to fixture-only screens. Compare actual before/after screenshots at desktop/tablet/phone sizes before calling the consolidation complete.
 1. Fix AUD-01 with tenant-scoped server date/status/barber/search/cursor reads and admin pagination; separate complete impact/summary reads and paginate audit. Prove >500 records, tied timestamps, no cross-shop access and no disappearing near-term appointments.
@@ -153,7 +186,7 @@ The prior audit completed `npm test` and `npm audit --audit-level=high` successf
 
 - London timezone; exact duration + ten-minute buffer; one dated shift/break per barber/date. Multiple split shifts, overnight work and arbitrary multi-zone support are not implemented.
 - Add-ons/service rules are owner-test controls, not production staff self-management. Rules save per service. Deleted dated overrides retain audit, not a restorable version-history UI.
-- Workspace still loads latest 500 bookings and 200 audit events. Availability reads authoritative scoped database records independently, but display/issue pagination is next.
+- Legacy workspace snapshot retains 500 bookings and 200 audit events. The main timetable uses complete paginated day reads instead, and impact warnings are evaluated independently. Date-range/global search, audit pagination and measured impact-scan scalability remain unfinished.
 - Seven-day capability session, no account recovery/logout management or automatic old-test cleanup. Use fictional records only; no private offline cache/write queue.
 - No customer portal, public shop routing, financial ledger/cash/tips/refunds/receipts/pay-runs, reviews, messaging, subscriptions/platform console or installed/offline PWA.
 - Model A unchanged: shop receives customer money; owners segregate and pay barbers externally. No wallet, bank transfer execution or live payment claims.

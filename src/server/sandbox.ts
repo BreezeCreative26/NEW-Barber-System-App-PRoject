@@ -291,6 +291,65 @@ sandbox.post("/session", async (c) => {
   return c.json({ shop_id: shopId, mode: "sandbox" }, 201);
 });
 
+// Complete, tenant-scoped day reads. The legacy workspace snapshot is not a calendar data source.
+sandbox.get("/bookings", async (c) => {
+  const parsed = z
+    .object({
+      date: dateSchema,
+      limit: z.coerce.number().int().min(1).max(200).default(100),
+      cursor_start: z.coerce.number().int().nonnegative().optional(),
+      cursor_id: z.string().uuid().optional(),
+      staff_id: z.string().uuid().optional(),
+      status: z
+        .enum([
+          "CONFIRMED",
+          "CHECKED_IN",
+          "IN_SERVICE",
+          "COMPLETED",
+          "CANCELLED",
+          "NO_SHOW",
+        ])
+        .optional(),
+    })
+    .strict()
+    .refine(
+      (q) => (q.cursor_start === undefined) === (q.cursor_id === undefined),
+      "Supply both cursor fields",
+    )
+    .safeParse(c.req.query());
+  if (!parsed.success) return fail(400, "Invalid booking query");
+  const q = parsed.data;
+  const conditions = ["shop_id=?", "date=?"];
+  const values: (string | number)[] = [c.get("shopId"), q.date];
+  if (q.staff_id) {
+    conditions.push("staff_id=?");
+    values.push(q.staff_id);
+  }
+  if (q.status) {
+    conditions.push("status=?");
+    values.push(q.status);
+  }
+  if (q.cursor_id !== undefined) {
+    conditions.push("(start_at>? OR (start_at=? AND id>?))");
+    values.push(q.cursor_start!, q.cursor_start!, q.cursor_id);
+  }
+  const result = await c.env.DB.prepare(
+    `SELECT * FROM bookings WHERE ${conditions.join(" AND ")} ORDER BY start_at,id LIMIT ?`,
+  )
+    .bind(...values, q.limit + 1)
+    .all<StoredBooking>();
+  const rows = result.results.slice(0, q.limit);
+  const last = rows.at(-1);
+  return c.json({
+    date: q.date,
+    bookings: rows,
+    next_cursor:
+      result.results.length > q.limit && last
+        ? { cursor_start: last.start_at, cursor_id: last.id }
+        : null,
+  });
+});
+
 sandbox.get("/workspace", async (c) => {
   const sid = c.get("shopId");
   const shop = await readShop(c);
@@ -335,7 +394,13 @@ sandbox.get("/workspace", async (c) => {
   const daysOff = result[6].results as StaffDayOff[];
   const rules = result[9].results as StaffServiceRule[];
   const overrides = result[10].results as ScheduleOverride[];
-  const issues = bookings
+  // Impact warnings must not inherit the display snapshot's 500-record cap.
+  const future = await c.env.DB.prepare(
+    "SELECT * FROM bookings WHERE shop_id=? AND start_at>? AND status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') ORDER BY start_at,id",
+  )
+    .bind(sid, Date.now())
+    .all<StoredBooking>();
+  const issues = future.results
     .filter(
       (b) =>
         b.start_at > Date.now() &&

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useState,
   useRef,
   type ReactNode,
   type ButtonHTMLAttributes,
@@ -218,7 +219,9 @@ export function Modal({
   onClose,
   wide = false,
   context = "DESIGN PREVIEW",
+  protectChanges = false,
 }: {
+  protectChanges?: boolean;
   context?: string;
   title: string;
   children: ReactNode;
@@ -226,6 +229,28 @@ export function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const [closeWarning, setCloseWarning] = useState("");
+  function requestClose() {
+    if (
+      protectChanges &&
+      ref.current?.querySelector("form fieldset[disabled]")
+    ) {
+      setCloseWarning(
+        "A save is in progress. Wait for its result before closing.",
+      );
+      return;
+    }
+    if (
+      protectChanges &&
+      ref.current?.querySelector('form[data-dirty="true"]')
+    ) {
+      setCloseWarning(
+        "You have unsaved changes. Keep editing or discard them before closing.",
+      );
+      return;
+    }
+    onClose();
+  }
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     ref.current?.showModal();
@@ -241,6 +266,12 @@ export function Modal({
       ref={ref}
       className={`modal ${wide ? "wide" : ""}`}
       aria-labelledby="dialog-title"
+      onChangeCapture={(e) => {
+        if (protectChanges && e.target instanceof HTMLElement) {
+          const form = e.target.closest("form");
+          if (form) form.dataset.dirty = "true";
+        }
+      }}
       onKeyDown={(e) => {
         if (e.key !== "Tab") return;
         const nodes = Array.from(
@@ -261,10 +292,10 @@ export function Modal({
       }}
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        requestClose();
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) requestClose();
       }}
     >
       <div className="modal-inner">
@@ -273,8 +304,31 @@ export function Modal({
             <span className="eyebrow">{context}</span>
             <h2 id="dialog-title">{title}</h2>
           </div>
-          <IconButton name="close" label="Close dialog" onClick={onClose} />
+          <IconButton
+            name="close"
+            label="Close dialog"
+            onClick={requestClose}
+          />
         </header>
+        {closeWarning && (
+          <section className="dialog-close-warning" role="alert">
+            <p>{closeWarning}</p>
+            <Button variant="secondary" onClick={() => setCloseWarning("")}>
+              Keep editing
+            </Button>
+            {closeWarning.startsWith("You have") && (
+              <Button
+                variant="danger"
+                onClick={() => {
+                  if (!ref.current?.querySelector("form fieldset[disabled]"))
+                    onClose();
+                }}
+              >
+                Discard changes and close
+              </Button>
+            )}
+          </section>
+        )}
         {children}
       </div>
     </dialog>

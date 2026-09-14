@@ -1,6 +1,6 @@
 # Barbershop OS — Build plan
 
-Version: 1.4 · Updated: 2026-09-14 · D-012/D-014/D-015: enhance the original interface, connect persisted functionality, retain matte colours, nothing live. Local functionality exists; original UI consolidation is not implemented. WP-001-A-R1 recolouring remains cancelled. Production SaaS is not complete.
+Version: 1.4 · Updated: 2026-09-14 · D-012/D-014/D-015: enhance the original interface, connect persisted functionality, retain matte colours, nothing live. Connected original-style day timetable and integrated local setup are now implemented; customer/barber identity and journey consolidation remains incomplete. See section 13 for delivered scope and next account/permission packages. WP-001-A-R1 recolouring remains cancelled. Production SaaS is not complete.
 
 **Current comprehensive enhancement plan:** [Section 12 — feature-by-feature improvements, delivery order and acceptance](#12-comprehensive-enhancement-and-modernisation-plan). Earlier sections preserve the architecture, Model A, original requirements, milestones and decisions; section 12 makes their next execution concrete rather than restarting the plan.
 
@@ -479,4 +479,51 @@ For each delivered slice record: original requirement IDs; prior defect or user 
 
 No decision is needed to preserve the original shell, fix capped reads, protect drafts or improve spacing/accessibility. Before dependent features ask only the relevant question: fixed/configurable/service-level deposit (O-05); share meaning and card-fee/cash custody (O-03/O-04); booking horizon/lead-time/early completion and correction policy (O-09); auth/customer-grant and note privacy (O-07/O-10); reminder channels/scheduler (O-12/O-15); native/Terminal launch scope (O-02/O-06); SaaS pricing/limits (O-11); recipients/exports (O-14). New P-01..04 features need scope approval rather than silent insertion into the 189-row register.
 
-**Immediate next implementation remains 1a → 1b:** complete booking queries, then original-style calendar with saved bookings. The comprehensive plan does not justify another planning reset or continuing to polish the replacement workspace in isolation.
+**Delivery update:** the connected calendar slice below now implements selected-day reads and the original-style timetable with saved actions. Continue from the current code, not from an unimplemented 1a/1b plan. Remaining work is explicit below.
+
+## 13. Active delivery and account/permission build sequence
+
+Latest user instruction: stop planning-only cycles; make progress visible in the running development preview. Requested customer sign-up/sign-in, shop setup, barbers/services/prices, staff/admin accounts and permissions, timetable slot creation/moving/scheduling/cancellation and richer settings. “Live preview” means the local development service, not authorization for production deployment or provider activation.
+
+### Delivered in the connected calendar slice
+
+- Original-style forest sidebar and familiar heading/stats/calendar treatment, with all existing Team, Services, individual pricing, schedules, Settings and Audit actions reachable in the same `/workspace` app.
+- Day timetable and agenda, week-date strip, date/staff/status/search controls, real selected-day counts and booked service value explicitly not collected revenue.
+- Click a 15-minute cell to start a draft with barber/time selected; authoritative availability checks service/extras/buffer. Existing appointment opens details, reschedule and status/cancellation flows; saved history persists. Blocks mark off-duty, breaks, closures and leave; cancelled/no-show items appear separately and release time.
+- `GET /api/sandbox/bookings` supplies scoped date reads with deterministic `(start_at,id)` pagination, optional staff/status filters and strict query validation. Main calendar reads all selected-day pages instead of the legacy 500 snapshot. Impact warnings query future active appointments independently.
+- Multi-service pricing saves keep the dialog and other drafts open. Dialog Escape/backdrop/close protects dirty forms and refuses closing during a pending save. Workspace malformed responses and rendering exceptions have recovery instead of blank content.
+- Accounts section accurately explains current browser-only test access and the three unfinished account experiences. It does not collect passwords or pretend to authenticate staff/customers.
+
+Remaining 03A items: shop-wide/date-range search, independently paginated audit UI, scalable/paginated impact evaluation, more comprehensive response schemas, wider dismissal/navigation tests and deeper original-layout refinement. Current calendar is day/agenda plus week date navigation, not a full week/month resource view. No drag/drop or implemented customer/staff account is implied.
+
+### Next: WP-LOCAL-04 — working test accounts and permissions, not login mockups
+
+This is a prioritized implementation specification prompted by the user's latest request, not delivered functionality. Use a genuine sandbox-only identity adapter for local account tests if managed-provider configuration remains paused. Production managed identity/MFA/provider approval remains a separate gate. Do not use Genspark preview mock identity as customer/barber authorization.
+
+| Delivery | Data/API/UI work | Required proof |
+| --- | --- | --- |
+| 04A Owner account and session lifecycle | Local fictional account sign-up/sign-in/sign-out; securely hashed/salted test credentials or approved managed-provider test adapter; expiring server sessions, rotation, byte limits and login abuse controls; honest unverified/local-only labels. Persist user-to-shop membership; let the existing browser capability claim only its own test workspace through an explicit migration action | No plaintext passwords/tokens in DB/logs/client bundle; wrong credentials generic error, session fixation/expiry/revocation tests; existing bookings retained; cannot claim an arbitrary shop ID; not yet production authentication certification |
+| 04B Staff invitations and permission enforcement | Link staff profile to membership without treating profile role text as authorization. Owner issues hashed single-use expiring/revocable test invitation; local copyable link while no messages enabled. Staff signs in to own account, sees assigned calendar; owner controls permissions. Define protected owner/admin/barber scopes centrally | Cross-shop/other-barber denial on every read/mutation including existing sandbox routes; replay/revoked invite rejected; last owner cannot be removed; suspended staff session loses access; UI hiding never substitutes for API checks |
+| 04C Customer account and booking ownership | Separate customer/account records, own-booking sign-in view and optional secure guest grant; add server-derived customer ID to new bookings. Do not auto-claim historical appointments by matching phone/email. Customer role never receives owner-wide workspace payloads | Customer A cannot read/cancel/move Customer B records; reference/phone alone never grants access; session expiry preserves safe recovery; original booking screen integrated with appropriate test grants |
+| 04D Settings and account management | Owner settings for staff access/invites/session revoke; staff personal account view; customer account/contact preferences; distinct shop policies versus personal settings; auditable changes and verified contact-change/recovery design | Stale-version/conflict recovery, privilege escalation denied, credentials/contact data protected, sign-out clears approved private client state. Recovery requiring message delivery remains gated until provider activation |
+
+Proposed initial authorization matrix, to confirm before implementation (do not invent elevated roles from arbitrary text):
+
+| Action | Owner | Authorized admin | Barber | Customer |
+| --- | --- | --- | --- | --- |
+| Shop profile/policies/catalogue/pricing | Yes | Explicit grant | View assigned context only | Public projection only |
+| Staff invite/role change/session revoke | Yes | Only explicitly delegated, never beyond own grant | No | No |
+| Shop timetable and appointment operations | Yes | Explicit grant | Assigned scope and allowed transitions | Own/granted details; self-service change scope still explicit |
+| Private notes/customer history | Purpose-limited | Explicit grant | Minimum needed for assignment | Own permitted projection, never internal staff notes |
+| Refunds/finance/pay-runs/subscriptions | Yes under relevant privilege | Separate financial grant; no implicit owner powers | Own earnings/recorded payments only | Own receipts/payment attempts only |
+
+04A and 04B should be separate tested deliveries, not a single giant auth rewrite. Apply authorization to legacy endpoints too; never leave an owner-capability bypass reachable by a lower-privilege session. Add immutable actor identity to audit while preserving historical sandbox actors. Use the next migration prefix 0005; do not rename the two existing 0002 files.
+
+### Follow-on timetable and settings completion
+
+1. Connect the original customer and barber task layouts using 04's real test memberships/grants; prove customer booking → owner timetable → assigned barber action in different browser sessions. Shop setup gets a short completion checklist with actionable links, not invented onboarding completion.
+2. Complete week/month view in a bounded package, maintain selected staff/date/filter state, add safe direct-date lookup and full search. Any drag/drop is an optional convenience over the same reschedule API with keyboard/form alternative, review and conflict rollback.
+3. Expand booking policy settings only after defining deposit rules, lead time/horizon, early/backdated completion, cancellation and privilege overrides. Individual price/duration/eligibility remains server-authoritative with historical snapshots.
+4. Then reservation holds/expiry, approved provider test integrations, ledger/cash/tips/receipts, messages, finance/pay-runs, PWA and SaaS gates from sections 8/12. Do not fake delivery or financial success to make everything look available.
+
+**Efficient session contract:** each build turn begins with a narrow visible outcome, modifies the actual app, runs focused/full checks appropriate to risk, shares the running preview and ends with a commit plus next actionable package. Only blockers require questions; provider inactivity must not be used to postpone permitted local UI/data/permission work. Update this plan with delivered facts rather than reauthor it every session.

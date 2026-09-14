@@ -89,6 +89,14 @@ User requests a comprehensive assessment and plan to enhance/modernise all creat
 - Market-informed P-01..04 proposals, later-version requirements, financial/provider choices and native scope still require their specific decisions. Requesting a comprehensive plan does not approve every proposed feature or external activation.
 - Next implementation remains complete booking reads followed by the original calendar connected to saved data. Planning alone does not consolidate the two runtime interfaces.
 
+### D-016 — Visible development delivery, with explicit account/permission follow-on
+
+User requested more efficient building visible in the running preview: customer sign-up/sign-in, shop setup, staff/admin accounts and permissions, individual service pricing, timetable slot booking/moving/cancellation and settings. Continue implementation rather than another planning-only turn. “Live preview” does not supersede the no-production/no-provider boundary.
+
+This delivery connects the original-style admin day timetable to persisted booking actions and existing setup, plus complete day reads and safer editors. Individual service-rule saves now keep the dialog open and preserve other drafts, superseding that UI detail of D-013. Calendar day/agenda and week date navigation do not imply full week/month views or drag/drop.
+
+Account sign-in/permissions are not implemented by an Accounts overview. BUILD_PLAN section 13 defines next WP-LOCAL-04 owner/session, staff/invite/permission, customer-ownership and account-settings slices. A sandbox-only real test-identity adapter may support local development while production managed identity remains gated; no fake UI login or Genspark preview mock identity may authorize application records. The proposed fine-grained role matrix and production provider/policy choices still require validation during implementation.
+
 ## Proposed architecture decisions
 
 ### D-004 — Modular monolith on Hono / D1 / R2
