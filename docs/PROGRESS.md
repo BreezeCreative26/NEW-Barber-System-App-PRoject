@@ -1,6 +1,6 @@
 # Barbershop OS — Progress and next-session handoff
 
-Updated 2026-09-14 after 12:15 UTC verification. **WP-LOCAL-01, network recovery, and full-day staff leave verified locally.** Next: **WP-LOCAL-02 — add-ons, service coverage and partial-day scheduling overrides**. See the latest git log for code/checkpoint commits; preserve all ongoing work.
+Updated 2026-09-14 after the final 12:16 UTC full-suite verification. **WP-LOCAL-01, network recovery, and full-day staff leave verified locally.** Next: **WP-LOCAL-02 — add-ons, service coverage and partial-day scheduling overrides**. See the latest git log for code/checkpoint commits; preserve all ongoing work.
 
 ## Read this first
 
@@ -61,7 +61,7 @@ The application is no longer only a design preview. `/workspace` now uses local 
 | TypeScript | Passed on latest inspected source | `npm run typecheck` |
 | Unit/route/domain | 37 passed: 23 preview + 14 local boundary/time/schema tests | `tests/fixtures.test.ts`, `tests/domain.test.ts` |
 | Direct local D1 invariants | Passed independently of API pre-checks | `npm run test:db`, `tests/d1-invariants.mjs` |
-| Full browser/API suite | **47 passed, 0 failed/skipped/flaky** | `test-results/runs/1789388096127-32788/results.json`, start 2026-09-14 12:14:56 UTC |
+| Full browser/API suite | **47 passed, 0 failed/skipped/flaky** | `test-results/runs/1789388174436-34108/results.json`, start 2026-09-14 12:16:14 UTC, duration 92.24s |
 | Final focused recheck | **22 workspace/API tests passed**, 0 failed/skipped/flaky; latest source includes staff leave and isolated screenshot paths | `test-results/runs/1789388113442-33159/results.json`, start 2026-09-14 12:15:13 UTC |
 | Mutation endpoint coverage | All **15** POST/PUT/PATCH/DELETE routes covered by source-derived inventory; matching Origin, session and invalid-input checks pass | `tests/sandbox.spec.ts` |
 | Persisted UI workflow | Create staff/service/hours/settings/closure, reload, book, move, check in/start/complete, audit | `tests/workspace.spec.ts` |
@@ -73,6 +73,8 @@ The application is no longer only a design preview. `/workspace` now uses local 
 | Visual inspection | Desktop and phone workspace plus phone booking dialog inspected; no clipping/overlap found; matte palette retained | `docs/evidence/workspace-1440.png`, `workspace-390.png`, `workspace-booking-390.png` |
 | Dependency audit | Zero reported vulnerabilities in package audit | `npm audit --audit-level=high` |
 | Secret exclusion | `.dev.vars` ignored; local DB/artifacts ignored | `git check-ignore .dev.vars` |
+| Mobile save actions | Review/save action remains within the viewport at all five widths; form contents scroll | Workspace bounding-box assertions and screenshots |
+| Migration bootstrap | Foundation, snapshot and quote guards applied successfully to a separate empty local DB; staff-leave migration applied to working local DB before final suite | Wrangler local migration checks; no remote operations |
 
 Resolved during this package: stable form labels needed for exact accessible selection; forced Secure cookie for HTTPS development proxy; overlapping Playwright runs initially collided on artifact cleanup (ENOENT). Current Playwright config isolates run output under `test-results/runs/<run-id>/`; that infrastructure failure was not a saved-workflow failure. Never run overlapping suites against a shared artifact path. Workspace screenshots now also use each test's outputPath rather than concurrent writes to the same evidence PNG. A subsequent transient 500/trace stream failure occurred while another build and schema extension were active; local migrations are now applied and both full/focused suites passed afterward. Do not rebuild/migrate during a test run.
 
