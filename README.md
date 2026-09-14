@@ -59,6 +59,8 @@ Next proposed milestone: M1, three reference screens (admin calendar, customer s
 
 - Project location: `/home/user/webapp`.
 - Branch: `main`.
+- Selected GitHub repository: https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject
+- GitHub connection verified with push access. Repository was empty and public when checked; upload is paused until the user confirms visibility. No project files have been pushed to GitHub yet.
 - Existing build command: `npm run build` (not run as part of planning-only work).
 - Future sandbox preview: build, then PM2-managed Wrangler on port 3000 after a PM2 configuration is created.
 - Production URL: none.

@@ -1,6 +1,6 @@
 # Barbershop OS — Progress and next-session handoff
 
-Last updated: 2026-09-14 · Current work package: WP-000 planning baseline.
+Last updated: 2026-09-14 · Latest work package: WP-000-GH repository connection; sync blocked on visibility confirmation.
 
 ## Read this first
 
@@ -62,7 +62,18 @@ Acceptance: documents agree on Model A and current state, original IDs preserved
 | APP-TESTS | No application tests executed | not applicable | No implementation in this work package |
 | VISUAL-REVIEW | No screenshots or UI review produced | pending M1 | Proposed tokens are not approved designs |
 
+## GitHub connection
+
+- Selected repository: https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject
+- GitHub setup succeeded for BreezeCreative26; push access verified through repository API.
+- Initial check: public visibility, default branch main, no remote refs and size 0.
+- No project files pushed; no repository visibility change made. Paused to avoid unintentionally publishing source and product plans.
+- Next repository action: ask user to make it private or explicitly authorize public publication. Recheck visibility and remote refs before syncing; preserve any work added in the meantime.
+- Local commits remain intact. Existing genspark remote preserved; GitHub origin not added yet.
+
 ## Blockers / decisions
+
+GitHub sync is blocked on private/public confirmation; this does not block approved local design work.
 
 Immediate next step needs a product name/reference direction or approval for the proposed premium utilitarian direction. No later provider credential blocks writing the design proof.
 
@@ -97,6 +108,14 @@ Do not jump straight to all screens, pretend a demo session is production auth, 
 - Planning validation passed: 189 unique tracked requirements and all 125 original feature IDs preserved; documentation cross-references valid.
 - Work-package commit subject: `docs: establish Barbershop OS delivery and design playbook` (locate via git log).
 - Next work remains M1 after user review; no visual direction or launch-scope approval is implied.
+
+### 2026-09-14 — WP-000-GH repository connection
+
+- User reported connecting a repository. Ran setup_github_environment successfully.
+- Inspected local main, selected repository permissions, visibility and remote refs.
+- Detected empty public repository; stopped before push or visibility changes.
+- Recorded connection in README and this progress file. Application code and feature statuses unchanged.
+- No build or application tests needed for this documentation-only connection check. Next action is visibility confirmation, then safe normal push and remote commit verification.
 
 ## Update template for subsequent sessions
 
