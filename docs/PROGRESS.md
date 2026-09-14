@@ -1,5 +1,15 @@
 # Barbershop OS — Progress and next-session handoff
 
+## Latest — connected online booking, manage links and customers (2026-09-14)
+
+- Built the customer journey for real: `/book/:slug` reads the shop's live catalogue/barbers/rules/hours and books through the shared `createBooking` path (same quote, availability, lead-time/window and D1 trigger guards as the owner). `channel='ONLINE'` and optional email saved; owner timetable/stats/detail/customers show an Online badge. Migration `0006_public_booking.sql` adds shop slug/online/lead/window, booking channel/email, unique slug index and hashed `booking_manage_tokens`.
+- `/manage/:token` lets a customer view, move (own slot excluded, same barber/service), cancel (late-change flagged against the snapshot policy) and download `.ics`. Tokens are 72-char capability strings hashed at rest; short/garbage tokens 404; writes require same origin and current version; public availability never says who holds a slot. Throttles are scoped per shop/IP, per phone and per booking, using the existing `auth_throttle` table.
+- Owner side: Settings → Online booking panel (slug suggestion, on/off, notice, window, copy/open link; `slug_taken` handled), new Customers tab (grouped by phone with visits/completed/no-shows/value/last/next, search, history → open detail; barbers scoped to own visits).
+- Tests: new `tests/public.spec.ts` (9 cases: disabled/inactive hiding, slug uniqueness/validation, guards/replay/window/collision/channel, manage view/move/cancel/ics/version/origin, customers aggregation, end-to-end browser booking + move + cancel, axe/overflow at 320/390/768/1440, owner settings→customers UI at 390 with axe, public mutation inventory). Sandbox mutation inventory extended with `PUT /shop/online`; barber nav expectation updated for Customers. Final run: typecheck, 42 unit, D1 invariants, **103 browser/API passed** then 17/17 on the two touched files after inventory additions; zero flaky.
+- Evidence: `docs/evidence/public-book-{390,1440}.png`, `public-manage-{390,1440}.png`, `online-settings-1440.png`, `customers-{390,1440}.png`. Fixed a mobile issue found in screenshots: confirmation/manage action rows were fixed-position and covered content at 390px; now in-flow two-column grid.
+- Not done / next: confirmation and reminder messaging (needs a provider decision and consent rules), deposits/payments (Model A, shop-owned), waitlist for full days, customer-visible barber bios/photos, reception "find next available across barbers", and recurring/standing bookings. Suggested next slice: owner-triggered "send manage link" via copyable message templates (no provider) plus waitlist, then week view.
+
+
 ## Latest — build-first rebooking delivery (2026-09-14)
 
 - User requested less documentation and immediate connected building. AGENTS now requires brief planning, actual code, tests and one short handoff; old plans remain references, not recurring rewrite/approval gates. Full [100-area feature brief](https://www.genspark.ai/api/files/s/sRhSuhAH) read; use as overlapping/expanded backlog, not 100 delivered features.

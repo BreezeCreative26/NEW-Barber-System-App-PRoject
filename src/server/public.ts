@@ -360,8 +360,9 @@ async function issueManageToken(c: Ctx, booking: StoredBooking) {
 pub.post("/shops/:slug/bookings", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug"));
   const b = await readInput(c, publicBookingSchema);
-  await throttle(c, "book", clientKey(c), 30);
-  await throttle(c, "book-phone", b.phone, 8);
+  // Scoped per shop so one busy shop cannot lock customers out of another.
+  await throttle(c, "book", `${shop.id}:${clientKey(c)}`, 120);
+  await throttle(c, "book-phone", `${shop.id}:${b.phone}`, 12);
   const { minStart, maxDate } = limits(shop);
   const result = await createBooking(
     c,
@@ -441,7 +442,7 @@ async function bookingByToken(c: Ctx) {
   return { shop: shop!, booking, staffName: staff?.name ?? null };
 }
 pub.get("/manage/:token", async (c) => {
-  await throttle(c, "manage", clientKey(c), 120);
+  await throttle(c, "manage", clientKey(c), 600);
   const { shop, booking, staffName } = await bookingByToken(c);
   return c.json({ booking: customerView(booking, shop, staffName) });
 });
@@ -518,8 +519,8 @@ pub.post("/manage/:token/cancel", async (c) => {
     c,
     z.object({ version: z.number().int().min(0) }).strict(),
   );
-  await throttle(c, "manage-write", clientKey(c), 30);
   const { shop, booking, staffName } = await bookingByToken(c);
+  await throttle(c, "manage-write", booking.id, 30);
   if (booking.version !== body.version) fail(409, "record_changed");
   if (booking.status !== "CONFIRMED") fail(409, "invalid_transition");
   if (booking.start_at <= Date.now()) fail(409, "Time has passed");
@@ -561,8 +562,8 @@ pub.post("/manage/:token/reschedule", async (c) => {
       })
       .strict(),
   );
-  await throttle(c, "manage-write", clientKey(c), 30);
   const { shop, booking, staffName } = await bookingByToken(c);
+  await throttle(c, "manage-write", booking.id, 30);
   if (booking.status !== "CONFIRMED") fail(409, "invalid_transition");
   const { today, minStart, maxDate } = limits(shop);
   if (booking.start_at <= minStart)

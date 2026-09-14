@@ -6053,3 +6053,28 @@ input[aria-invalid="true"] {
   border-bottom: 1px solid var(--line);
   font-size: 13px;
 }
+@media (max-width: 740px) {
+  /* Confirmation and manage pages have several actions: keep them in flow. */
+  .public-confirmation .booking-actions {
+    position: static;
+    padding: 18px 0 4px;
+    margin-top: 6px;
+    background: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .public-confirmation .booking-actions > .button,
+  .public-confirmation .booking-actions > .primary {
+    margin: 0;
+    justify-content: center;
+    width: 100%;
+  }
+  .public-confirmation ~ .booking-footer,
+  .public-confirmation + .booking-footer {
+    margin-top: 12px;
+  }
+}

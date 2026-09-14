@@ -598,11 +598,12 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     await expect(
       staffPage.getByRole("button", { name: "New booking", exact: true }),
     ).toBeVisible();
+    // Barbers see Appointments, their own Customers and Accounts only.
     await expect(
       staffPage
         .getByRole("navigation", { name: "Workspace sections" })
         .getByRole("button"),
-    ).toHaveCount(2);
+    ).toHaveText(["Appointments", "Customers", "Accounts"]);
     const assigned = await (
       await staffPage.request.get(base + "/workspace")
     ).json();

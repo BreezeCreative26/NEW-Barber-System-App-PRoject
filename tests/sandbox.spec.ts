@@ -101,6 +101,7 @@ import { readFileSync } from "node:fs";
 const mutationContracts = [
   ["POST", "/session"],
   ["PUT", "/shop"],
+  ["PUT", "/shop/online"],
   ["POST", "/staff"],
   ["PUT", "/staff/:id"],
   ["PUT", "/staff/:id/hours"],

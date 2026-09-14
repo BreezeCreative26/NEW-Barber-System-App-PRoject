@@ -10,6 +10,10 @@ One connected barbershop platform in development: booking, shop operations, cust
 
 ## Working features
 
+- **Online booking (new):** Settings → Online booking sets a public address (`/book/<slug>`), an on/off switch, minimum notice and booking window. Customers pick service → barber → real date/time → details → review → confirm using the shop's live catalogue, barber rules, hours, leave, closures and the same D1 collision/quote guards as the owner. Bookings arrive tagged **Online** in the timetable, day stats and detail view.
+- **Customer manage link (new):** each online booking returns a private `/manage/<token>` page (hashed token, no account) to view, move (same barber/service, own slot excluded) or cancel, with version guards, lead-time/window limits, late-change flagging against the snapshot cancellation policy, and an `.ics` calendar download. No message is sent; the link is shown once on the confirmation screen.
+- **Customers directory (new):** owner/manager/reception see every customer grouped by mobile number with visits, completed, no-shows, completed value, last/next visit and search; barbers see only their own. Opening a customer lists full visit history and links into the appointment detail.
+
 - Connected day timetable/mobile agenda, week-date navigation, selected-day filters/search, complete paginated day reads, keyboard slot navigation, labelled buffers and saved-record statistics (not collected revenue).
 - Reviewed conflict-safe bookings/walk-ins, details/contact corrections, reschedule, cancellation/check-in/start/complete/no-show, immutable commercial snapshots and append-only audit.
 - **Book again:** open a visit and choose Book again. Prefills customer/contact and available original barber/service, with 3/4/6-week date shortcuts. Creates a separate new booking with current prices; old notes/add-ons are not copied and the original record stays unchanged. An unavailable barber/service requires an explicit replacement.
@@ -26,7 +30,7 @@ Phones use a single-column form; tablets/desktops use grouped columns where spac
 
 ## Not implemented / next
 
-Real owner/staff/customer identity and permissions, customer CRM/ownership and connected public/barber journeys remain unfinished. Accounts is an honest overview, not login. Holds, live providers/payments/messages, financial ledger/pay-runs, installed/offline PWA, full week/month calendars, loyalty/memberships, retail/inventory/marketing, reporting and platform subscriptions are not claimed complete.
+Customer accounts (customers act through a per-booking manage link, not a login), automatic confirmations/reminders, deposits/payments, waitlists, recurring bookings and a customer-facing barber profile/rating remain unfinished. Local owner/staff accounts exist (register, invite, roles); Accounts is honest about being a local test adapter. Holds, live providers/payments/messages, financial ledger/pay-runs, installed/offline PWA, full week/month calendars, loyalty/memberships, retail/inventory/marketing, reporting and platform subscriptions are not claimed complete.
 
 Next connected work: wider settings/navigation draft protection, then local account/membership/permission foundations for customer and barber journeys. Build-first: brief planning, working changes, tests, short handoff and commit—not repeated long planning documents. User's modern feature brief is [here](https://www.genspark.ai/api/files/s/sRhSuhAH); it guides backlog prioritisation and is not 100 completed features. Existing 189 requirement rows and original C/B/A IDs are retained; no new production acceptance is implied.
 
@@ -35,6 +39,14 @@ Next connected work: wider settings/navigation draft protection, then local acco
 | Path | Purpose |
 | --- | --- |
 | `/`, `/workspace` | Main local owner-test app; root redirects here in sandbox mode |
+| `/book/:slug` | Public customer booking for a shop with online booking enabled |
+| `/manage/:token` | Customer self-service: view, move, cancel, calendar export |
+| `/api/public/shops/:slug` | GET public catalogue, active barbers, rules, hours, window |
+| `/api/public/shops/:slug/days`, `/availability` | GET 14-day open counts / one day's slots (`staff_id`, `service_id`, `addon_ids`); slot holders are never revealed |
+| `/api/public/shops/:slug/bookings` | POST idempotent online booking (`request_id`), returns `manage_token` once; throttled per shop/IP and per phone |
+| `/api/public/manage/:token` | GET view; `/availability`, POST `/cancel`, `/reschedule` (versioned); `/calendar.ics` |
+| `/api/sandbox/shop/online` | PUT slug/online flag/lead time/window (owner/manager) |
+| `/api/sandbox/customers`, `/customers/:phone` | GET grouped directory (`q`, `limit`) and per-customer history |
 | `/preview/admin`, `/preview/book`, `/preview/barber` | Fixture references |
 | `/api/health` | Mode/persistence capability, `livePayments:false` |
 | `/api/sandbox/session` | POST creates/reuses isolated browser-owned shop |
@@ -54,7 +66,7 @@ D1 persists shops, hashed sandbox sessions, staff/catalogue/add-ons/rules, hours
 
 Tenant scope is server-derived from a seven-day capability cookie (HttpOnly/Secure/SameSite=Strict), not production identity. API requires local `APP_MODE=sandbox`, D1 and matching mutation Origin. D1 transactions guard overlap, schedule/eligibility/quote and history. Only booking creation has request-key replay; inspect other interrupted writes before repeating. No real personal data, offline write queue or lost-cookie recovery.
 
-Five existing migrations stay intact, including both distinct `0002_*` files. Next prefix 0005. This rebooking slice changes no schema/API/dependency. For fresh local start: build, then `pm2 start ecosystem.config.cjs` after freeing port 3000. Run `npm test` against the service; never build/migrate during tests. Keep `.dev.vars` and local data ignored.
+Seven migrations now exist, including both distinct `0002_*` files; `0005_local_accounts` and `0006_public_booking` (shop slug/online flags, booking `channel`/`email`, `booking_manage_tokens`). Next prefix 0007. For fresh local start: build, then `pm2 start ecosystem.config.cjs` after freeing port 3000. Run `npm test` against the service; never build/migrate during tests. Keep `.dev.vars` and local data ignored.
 
 **Nothing live:** no deployment/provider activation/charges/messages/transfers/public GitHub push. Model A remains: each shop receives haircut money; owners pay barbers externally. Future manual pay-runs calculate/export/record, not hold a wallet or initiate barber transfers. SaaS subscription money is separate.
 
