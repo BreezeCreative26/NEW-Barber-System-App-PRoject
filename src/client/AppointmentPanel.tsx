@@ -108,6 +108,23 @@ export function AppointmentPanel({
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   const [copied, setCopied] = useState(false);
+  // Switching to another editor while a nested form is saving or dirty needs an explicit choice.
+  const [nextAction, setNextAction] = useState<(() => void) | null>(null);
+  const [switchError, setSwitchError] = useState("");
+  function guarded(action: () => void) {
+    return () => {
+      setSwitchError("");
+      if (ref.current?.querySelector('form[aria-busy="true"]')) {
+        setSwitchError("A save is in progress. Wait for its result before switching actions.");
+        return;
+      }
+      if (ref.current?.querySelector('form[data-dirty="true"]')) {
+        setNextAction(() => action);
+        return;
+      }
+      action();
+    };
+  }
   const barber = w.staff.find((s) => s.id === booking.staff_id);
   const items = JSON.parse(booking.items_json) as BookingItem[];
   const noShowEarly = Date.now() < booking.start_at + w.shop.no_show_grace * 60000;
@@ -157,6 +174,7 @@ export function AppointmentPanel({
     }
   }
   const needsReason = confirm && ["CANCELLED", "NO_SHOW"].includes(confirm.status);
+  const goMove = guarded(onMove), goRebook = guarded(onRebook), goEdit = guarded(onEdit), goShare = guarded(onShare), goSeriesMove = guarded(onSeriesMove);
   const customer = timeline?.customer ?? null;
 
   return (
@@ -169,6 +187,10 @@ export function AppointmentPanel({
         aria-labelledby="panel-title"
         tabIndex={-1}
         onKeyDown={keyDown}
+        onChangeCapture={(e) => {
+          const form = (e.target as HTMLElement).closest("form");
+          if (form) form.dataset.dirty = "true";
+        }}
         data-testid="appointment-panel"
       >
         <div className="panel-handle" aria-hidden="true" />
@@ -313,7 +335,7 @@ export function AppointmentPanel({
               </ol>
               {laterInSeries.length > 0 && (
                 <div className="panel-actions-row">
-                  <Button variant="secondary" onClick={onSeriesMove}>Move series</Button>
+                  <Button variant="secondary" onClick={goSeriesMove}>Move series</Button>
                   <Button variant="ghost" onClick={() => setConfirm({ status: "CANCELLED", series: true })}>Cancel series</Button>
                 </div>
               )}
@@ -359,6 +381,24 @@ export function AppointmentPanel({
             </section>
           )}
           {error && <p className="workspace-error" role="alert">{error}</p>}
+          {switchError && <p className="workspace-error" role="alert">{switchError}</p>}
+          {nextAction && (
+            <section className="dialog-close-warning" role="alert">
+              <p>You have unsaved appointment changes. Keep editing or discard them before switching actions.</p>
+              <Button variant="secondary" onClick={() => setNextAction(null)}>Keep editing appointment</Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  if (ref.current?.querySelector('form[aria-busy="true"]')) return;
+                  const run = nextAction;
+                  setNextAction(null);
+                  run();
+                }}
+              >
+                Discard changes and continue
+              </Button>
+            </section>
+          )}
 
           {children}
 
@@ -391,7 +431,7 @@ export function AppointmentPanel({
               <Button disabled={!!busy} onClick={() => onStatus("CHECKED_IN", "")}>
                 <Icon name="check" size={16} /> {busy === "CHECKED_IN" ? "Saving…" : "Check in"}
               </Button>
-              <Button variant="secondary" onClick={onMove}>Reschedule</Button>
+              <Button variant="secondary" onClick={goMove}>Reschedule</Button>
               <Button variant="ghost" onClick={() => setConfirm({ status: "CANCELLED" })}>Cancel</Button>
               {isPast || !noShowEarly ? (
                 <Button variant="ghost" onClick={() => setConfirm({ status: "NO_SHOW" })}>No-show</Button>
@@ -411,14 +451,14 @@ export function AppointmentPanel({
               <Icon name="checks" size={16} /> {busy === "COMPLETED" ? "Saving…" : `Complete · ${money(booking.price_pence)}`}
             </Button>
           )}
-          <Button variant={["COMPLETED", "CANCELLED", "NO_SHOW"].includes(booking.status) ? "primary" : "ghost"} onClick={onRebook}>
+          <Button variant={["COMPLETED", "CANCELLED", "NO_SHOW"].includes(booking.status) ? "primary" : "ghost"} onClick={goRebook}>
             <Icon name="calendar" size={16} /> Book again
           </Button>
           <details className="panel-more">
             <summary aria-label="More actions"><Icon name="more" size={18} /></summary>
             <div className="panel-more-menu">
-              <button type="button" onClick={onEdit}><Icon name="user" size={14} /> Edit booking details</button>
-              <button type="button" onClick={onShare}><Icon name="message" size={14} /> Share confirmation</button>
+              <button type="button" onClick={goEdit}><Icon name="user" size={14} /> Edit name and phone</button>
+              <button type="button" onClick={goShare}><Icon name="message" size={14} /> Share confirmation</button>
               <button type="button" onClick={copyDetails}><Icon name="external" size={14} /> {copied ? "Copied" : "Copy details"}</button>
               <button type="button" disabled title="No live payments in this build"><Icon name="card" size={14} /> Record payment (off)</button>
             </div>

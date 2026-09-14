@@ -7320,7 +7320,9 @@ input[aria-invalid="true"] {
 }
 
 /* ---------- Customer picker in the booking form ---------- */
-.customer-picker { grid-column: 1 / -1; display: grid; gap: 8px; }
+.customer-picker { grid-column: 1 / -1; display: grid; gap: 8px; min-width: 0; max-width: 100%; }
+.customer-picker .workspace-form-grid { min-width: 0; }
+.customer-picker input { min-width: 0; max-width: 100%; }
 .customer-picker.picked {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -7377,7 +7379,7 @@ input[aria-invalid="true"] {
 .has-profile .customer-list { overflow: auto; flex: 1 1 auto; padding-right: 2px; }
 .customers-search > svg { flex: 0 0 auto; }
 .customers-search input::placeholder { color: #7d8a80; }
-label.customers-search { flex-direction: row; gap: 8px; font-weight: 400; }
+label.customers-search { flex-direction: row; gap: 8px; font-weight: 400; min-width: 0; max-width: 100%; box-sizing: border-box; }
 label.customers-sort { flex-direction: row; }
 .customer-check, .series-toggle, .panel-radio label, .series-dates label { flex-direction: row; font-weight: 500; }
 .panel-advanced summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
