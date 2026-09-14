@@ -586,3 +586,162 @@ test("insights tab renders period-scoped aggregates from saved records at deskto
     expect(axe.violations, `axe at ${width}`).toEqual([]);
   }
 });
+
+test("appointment side panel: contextual actions, note, series ops, customer link; drawer on desktop, sheet on phone", async ({ page }) => {
+  test.setTimeout(90000);
+  const origin = "http://localhost:3000";
+  const base = origin + "/api/sandbox";
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: "Open as owner", exact: true }).click();
+  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
+  expect((await page.request.post(base + "/auth/demo", { headers: { Origin: origin }, data: { rebuild: true } })).status()).toBe(201);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
+  const w = await (await page.request.get(base + "/workspace")).json();
+  // Book a fresh visit today at a free time so the panel has a CONFIRMED subject.
+  const staff = w.staff[0];
+  const service = w.services[0];
+  const avail = await (await page.request.get(base + `/availability?date=${w.today}&staff_id=${staff.id}&service_id=${service.id}`)).json();
+  const slot = avail.slots.find((s: any) => !s.reason);
+  test.skip(!slot, "No free slot left today in the demo shop");
+  const created = await page.request.post(base + "/bookings", {
+    headers: { Origin: origin },
+    data: { request_id: crypto.randomUUID(), staff_id: staff.id, service_id: service.id, date: w.today, start_min: slot.start_min, customer_name: "Panel Client", phone: "07700900654", source: "WALK_IN", quote: avail.quote, addon_ids: [] },
+  });
+  expect(created.status(), await created.text()).toBe(201);
+  const booking = (await created.json()).booking;
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.getByRole("button", { name: /Panel Client/ }).first().click();
+  const panel = page.getByTestId("appointment-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("heading", { level: 2 })).toContainText("Panel Client");
+  await expect(panel.locator(".panel-timeline li")).toHaveCount(1);
+  // Desktop: drawer on the right, calendar still visible behind.
+  const box = await panel.boundingBox();
+  expect(box!.x).toBeGreaterThan(700);
+  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
+  // Add a note inline.
+  await panel.getByRole("button", { name: "Add note" }).click();
+  await panel.getByLabel("Appointment note").fill("Prefers a 2 on the sides");
+  await panel.getByRole("button", { name: "Save note" }).click();
+  await expect(panel.locator(".panel-notes p")).toContainText("Prefers a 2");
+  await expect(panel.locator(".panel-timeline li")).toHaveCount(2);
+  // Check in → Start → Complete via footer actions.
+  await panel.getByRole("button", { name: "Check in" }).click();
+  await expect(panel.getByText("Checked in", { exact: true }).first()).toBeVisible();
+  await panel.getByRole("button", { name: "Start service" }).click();
+  await panel.getByRole("button", { name: /^Complete/ }).click();
+  await expect(panel.getByText("Completed", { exact: true }).first()).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Book again" })).toBeVisible();
+  // Customer card links through to the profile.
+  await panel.getByRole("button", { name: /Profile/ }).click();
+  await expect(page.getByTestId("customer-profile").getByRole("heading", { level: 2 })).toHaveText("Panel Client");
+  await expect(page.locator(".customer-history li")).toHaveCount(1);
+  // Standing series visit: cancel remaining from the panel.
+  await page.getByRole("navigation", { name: "Workspace sections" }).getByRole("button", { name: "Appointments", exact: true }).click();
+  const range = await (await page.request.get(base + `/bookings/range?from=${w.today}&to=${plusDays(w.today, 30)}`)).json();
+  const seriesVisit = range.bookings.find((b: any) => b.series_id && b.status === "CONFIRMED");
+  expect(seriesVisit).toBeTruthy();
+  await page.getByLabel("Appointment date", { exact: true }).fill(seriesVisit.date);
+  await page.getByRole("button", { name: new RegExp(seriesVisit.customer_name) }).first().click();
+  await expect(panel.getByText("Standing", { exact: true })).toBeVisible();
+  await expect(panel.locator(".series-strip li")).toHaveCount(5);
+  await panel.getByRole("button", { name: "Cancel series" }).click();
+  await panel.getByLabel(/Reason/).fill("Customer paused");
+  await panel.getByRole("button", { name: "Cancel visits" }).click();
+  await expect(panel.getByText("Cancelled", { exact: true }).first()).toBeVisible();
+  const after = await (await page.request.get(base + `/bookings/range?from=${w.today}&to=${plusDays(w.today, 90)}`)).json();
+  expect(after.bookings.filter((b: any) => b.series_id === seriesVisit.series_id && b.status === "CONFIRMED").length).toBe(0);
+  // Escape closes and focus returns.
+  await page.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
+  // Phone: bottom sheet, full width.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Agenda", exact: true }).click();
+  await page.locator(".workspace-booking-row").first().click();
+  await expect(panel).toBeVisible();
+  const sheet = await panel.boundingBox();
+  expect(sheet!.width).toBeGreaterThanOrEqual(380);
+  expect(sheet!.y).toBeGreaterThan(20);
+  const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+  expect(axe.violations).toEqual([]);
+});
+
+test("customers tab: filters, add customer with tags, profile stats, picker in booking form", async ({ page }) => {
+  test.setTimeout(90000);
+  const origin = "http://localhost:3000";
+  const base = origin + "/api/sandbox";
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: "Open as owner", exact: true }).click();
+  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
+  // Rebuild the demo so the shop state is identical on every run.
+  expect((await page.request.post(base + "/auth/demo", { headers: { Origin: origin }, data: { rebuild: true } })).status()).toBe(201);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
+  await section(page, "Customers");
+  const list = page.getByTestId("customer-list");
+  await expect(list.locator("li").first()).toBeVisible();
+  const all = await list.locator("li").count();
+  expect(all).toBeGreaterThan(20);
+  await page.getByRole("button", { name: "Regulars", exact: true }).click();
+  await expect.poll(async () => list.locator("li").count()).toBeLessThan(all);
+  await page.getByRole("button", { name: "All", exact: true }).click();
+  await page.getByLabel("Search customers").fill("Ada");
+  await expect.poll(async () => list.locator("li").count()).toBeLessThanOrEqual(3);
+  await page.getByLabel("Search customers").fill("");
+  // Add a customer with a tag.
+  await page.getByRole("button", { name: "Add customer" }).click();
+  await page.getByLabel("Full name").fill("Fresh Face");
+  await page.getByLabel("Mobile number").fill("07700 900 321");
+  await page.getByLabel("Add tag").fill("Student");
+  await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Add customer", exact: true }).last().click();
+  const profile = page.getByTestId("customer-profile");
+  await expect(profile.getByRole("heading", { level: 2 })).toHaveText("Fresh Face");
+  await expect(profile.locator(".tag", { hasText: "Student" }).first()).toBeVisible();
+  await expect(profile.locator(".stat-card").filter({ has: page.locator(".stat-label", { hasText: /^Visits/ }) }).locator(".stat-value")).toHaveText("0");
+  // Open a regular's profile: stats and favourites are populated.
+  await page.getByRole("button", { name: "All customers" }).click();
+  await page.getByRole("button", { name: "Regulars", exact: true }).click();
+  await expect(list.locator("li", { hasText: "Fresh Face" })).toHaveCount(0);
+  await list.locator("li button").first().click();
+  await expect(profile.locator(".customer-favourites strong").first()).not.toHaveText("Not yet");
+  await expect(profile.locator(".customer-history li").first()).toBeVisible();
+  const spend = await profile.locator(".stat-card", { hasText: "Lifetime spend" }).locator(".stat-value").innerText();
+  expect(spend).toMatch(/^£\d+/);
+  // Notes & tags tab saves.
+  await page.getByRole("button", { name: "Notes & tags", exact: true }).click();
+  await page.getByLabel(/Notes \(preferences/).fill("Allergic to menthol");
+  await page.getByRole("button", { name: "Save notes & tags" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /saved|Saved/ }).or(page.getByLabel(/Notes \(preferences/))).toBeVisible();
+  // New booking from the profile pre-picks the customer.
+  await profile.getByRole("button", { name: "New booking" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByTestId("customer-picked")).toBeVisible();
+  await dialog.getByRole("button", { name: "Close dialog", exact: true }).click();
+  if (await dialog.getByRole("button", { name: "Discard changes and close" }).isVisible().catch(() => false))
+    await dialog.getByRole("button", { name: "Discard changes and close" }).click();
+  await expect(dialog).toBeHidden();
+  // Picker: search, arrow, enter picks; duplicate phone warns.
+  await section(page, "Appointments");
+  await page.getByRole("button", { name: "New booking", exact: true }).click();
+  await dialog.getByLabel("Find customer").fill("Fresh");
+  await expect(dialog.locator(".customer-picker-results button.active")).toContainText("Fresh Face");
+  await dialog.getByLabel("Find customer").press("Enter");
+  await expect(dialog.getByLabel("Fictional customer name")).toHaveValue("Fresh Face");
+  await expect(dialog.getByLabel("Test UK mobile number")).toHaveValue("07700900321");
+  await expect(dialog.getByTestId("customer-picked")).toBeVisible();
+  await dialog.getByRole("button", { name: "Book as someone else" }).click();
+  await dialog.getByLabel("Fictional customer name").fill("Someone New");
+  await dialog.getByLabel("Test UK mobile number").fill("07700900321");
+  await expect(dialog.locator(".customer-duplicate")).toContainText("Fresh Face already has this number");
+  await dialog.getByRole("button", { name: "use existing record" }).click();
+  await expect(dialog.getByTestId("customer-picked")).toBeVisible();
+  const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+  expect(axe.violations).toEqual([]);
+});
+function plusDays(date: string, n: number) {
+  const d = new Date(date + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}

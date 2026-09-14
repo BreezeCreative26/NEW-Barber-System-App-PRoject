@@ -99,6 +99,7 @@ const mutations = [
   ["POST", "/accept"],
   ["PUT", "/members/:id"],
   ["POST", "/password"],
+  ["POST", "/demo"],
 ];
 test("account mutation inventory enforces origin and anonymous authorization", async () => {
   const source = readFileSync("src/server/accounts.ts", "utf8");
@@ -123,7 +124,7 @@ test("account mutation inventory enforces origin and anonymous authorization", a
         ).status(),
       ).toBe(403);
     }
-    if (!["/login", "/logout", "/accept"].includes(path))
+    if (!["/login", "/logout", "/accept", "/demo"].includes(path))
       expect(
         (
           await anonymous.fetch(

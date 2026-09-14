@@ -297,12 +297,17 @@ test("owner customer directory aggregates visits by phone and scopes barbers", a
   expect(list.customers).toHaveLength(2);
   const first = list.customers.find((x: { phone: string }) => x.phone === "07700900222");
   expect(first.visits).toBe(2);
+  // The customer record keeps the first-seen contact; the later rename stays on the booking snapshot.
   expect(first.email).toBe("online@example.test");
+  expect(first.favourite_service).toBeNull();
+  expect(first.upcoming).toBe(2);
   const search = await (await r.get(base + "/customers?q=second")).json();
   expect(search.customers).toHaveLength(1);
   const history = await (await r.get(base + "/customers/07700900222")).json();
   expect(history.bookings).toHaveLength(2);
-  expect((await r.get(base + "/customers/12345")).status()).toBe(400);
+  expect(history.customer.id).toBe(first.id);
+  expect((await r.get(base + `/customers/${first.id}`)).status()).toBe(200);
+  expect((await r.get(base + "/customers/12345")).status()).toBe(404);
   expect((await r.get(base + "/customers/07700900000")).status()).toBe(404);
 });
 
@@ -425,8 +430,8 @@ test.describe("public booking pages", () => {
     await expect(page.getByRole("heading", { level: 2, name: "Customers" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Online Customer" })).toBeVisible();
     await page.getByRole("button", { name: "Online Customer" }).click();
-    await expect(page.getByRole("heading", { name: /visit history/ })).toBeVisible();
-    await expect(page.locator(".customer-history .channel-badge")).toHaveText("Online");
+    await expect(page.getByRole("heading", { level: 2, name: "Online Customer" })).toBeVisible();
+    await expect(page.locator(".customer-history .history-main small")).toContainText("online");
     await page.setViewportSize({ width: 390, height: 844 });
     const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
     expect(results.violations.map((v) => v.id)).toEqual([]);

@@ -125,6 +125,11 @@ const mutationContracts = [
   ["POST", "/waitlist/:id/status"],
   ["POST", "/series/preview"],
   ["POST", "/series"],
+  ["POST", "/customers"],
+  ["PUT", "/customers/:id"],
+  ["POST", "/customers/:id/merge"],
+  ["POST", "/series/:id/cancel"],
+  ["POST", "/series/:id/reschedule"],
 ] as const;
 test("all registered mutation endpoints enforce origin and session boundaries", async () => {
   const source = readFileSync(
@@ -795,5 +800,110 @@ test("series preview marks conflicts, requires explicit skips, and creation runs
     await r.get(base + `/bookings/range?from=${p.date}&to=${plusDays(p.date, 30)}`)
   ).json();
   expect(range.bookings.filter((b: any) => b.series_id === body.series_id)).toHaveLength(2);
+  await r.dispose();
+});
+
+test("customers: booking creates/links records, CRUD is versioned, filters/sorts work, merge moves visits, barbers scoped", async () => {
+  const r = await owner("Customer records shop");
+  const w = await workspace(r);
+  const first = await create(r, w, 540);
+  expect(first.customer_id).toBeTruthy();
+  // Same phone again reuses the record; a different phone makes a second record.
+  const second = await create(r, w, 660);
+  expect(second.customer_id).toBe(first.customer_id);
+  const other = await r.post(base + "/bookings", { data: { ...payload(w, 840), phone: "07700900777", customer_name: "Second Person" } });
+  expect(other.status(), await other.text()).toBe(201);
+  const list = await (await r.get(base + "/customers")).json();
+  expect(list.customers).toHaveLength(2);
+  const me = list.customers.find((c: any) => c.id === first.customer_id);
+  expect(me.upcoming).toBe(2);
+  expect(me.visits).toBe(2);
+  // Create via API with tags; duplicate phone refused.
+  const created = await r.post(base + "/customers", { data: { name: "Walk In", phone: "07700 900 888", email: "", tags: ["VIP"] } });
+  expect(created.status(), await created.text()).toBe(201);
+  const cust = (await created.json()).customer;
+  expect(cust.phone).toBe("07700900888");
+  expect((await r.post(base + "/customers", { data: { name: "Dup", phone: "07700900888" } })).status()).toBe(409);
+  expect((await r.post(base + "/customers", { data: { name: "Bad", phone: "12345" } })).status()).toBe(400);
+  // Update is versioned and audited.
+  const upd = await r.put(base + `/customers/${cust.id}`, {
+    data: { name: "Walk In", phone: "07700900888", email: "w@example.test", notes: "Likes it short", tags: ["VIP", "Regular"], birthday: "", preferred_staff_id: w.staff[1].id, marketing_opt_in: 1, version: 0 },
+  });
+  expect(upd.status(), await upd.text()).toBe(200);
+  expect((await upd.json()).customer.version).toBe(1);
+  expect((await r.put(base + `/customers/${cust.id}`, { data: { name: "Walk In", phone: "07700900888", version: 0 } })).status()).toBe(409);
+  // Booking against a chosen customer_id links it even with a different typed phone.
+  const linked = await r.post(base + "/bookings", { data: { ...payload(w, 900), phone: "07700900111", customer_name: "Typed Differently", customer_id: cust.id } });
+  expect(linked.status(), await linked.text()).toBe(201);
+  expect((await linked.json()).booking.customer_id).toBe(cust.id);
+  // Profile aggregates.
+  const profile = await (await r.get(base + `/customers/${cust.id}`)).json();
+  expect(profile.customer.upcoming).toBe(1);
+  expect(profile.bookings).toHaveLength(1);
+  expect(JSON.parse(profile.customer.tags)).toEqual(["VIP", "Regular"]);
+  // Filters and sorts.
+  expect((await (await r.get(base + "/customers?filter=upcoming")).json()).customers.length).toBe(3);
+  expect((await (await r.get(base + "/customers?filter=regulars")).json()).customers.length).toBe(0);
+  expect((await (await r.get(base + "/customers?q=VIP")).json()).customers.map((c: any) => c.id)).toEqual([cust.id]);
+  expect((await r.get(base + "/customers?filter=bogus")).status()).toBe(400);
+  const byName = (await (await r.get(base + "/customers?sort=name")).json()).customers.map((c: any) => c.name);
+  expect(byName).toEqual([...byName].sort((a, b) => a.localeCompare(b)));
+  // Merge the second person into the first; visits move, loser resolves to winner.
+  const loser = list.customers.find((c: any) => c.phone === "07700900777");
+  const merged = await r.post(base + `/customers/${loser.id}/merge`, { data: { into: first.customer_id, version: loser.version } });
+  expect(merged.status(), await merged.text()).toBe(200);
+  expect((await merged.json()).moved).toBe(1);
+  const after = await (await r.get(base + `/customers/${first.customer_id}`)).json();
+  expect(after.bookings).toHaveLength(3);
+  expect((await (await r.get(base + `/customers/${loser.id}`)).json()).customer.id).toBe(first.customer_id);
+  expect((await (await r.get(base + "/customers")).json()).customers).toHaveLength(2);
+  expect((await r.post(base + `/customers/${loser.id}/merge`, { data: { into: first.customer_id, version: 1 } })).status()).toBe(409);
+  const audit = (await workspace(r)).audit.map((a) => a.action);
+  for (const action of ["CUSTOMER_CREATED", "CUSTOMER_UPDATED", "CUSTOMER_MERGED", "CUSTOMER_MERGED_AWAY"]) expect(audit).toContain(action);
+  // Another tenant cannot read or book against this customer.
+  const stranger = await owner("Other customers shop");
+  expect((await stranger.get(base + `/customers/${cust.id}`)).status()).toBe(404);
+  const sw = await workspace(stranger);
+  expect((await stranger.post(base + "/bookings", { data: { ...payload(sw, 540), customer_id: cust.id } })).status()).toBe(404);
+  await Promise.all([r.dispose(), stranger.dispose()]);
+});
+
+test("appointment timeline and standing-series cancel/reschedule operate through the same guards", async () => {
+  const r = await owner("Series ops shop");
+  const w = await workspace(r);
+  const p = payload(w, 600);
+  const { request_id, ...rest } = p;
+  const saved = await r.post(base + "/series", { data: { ...rest, interval_weeks: 1, occurrences: 4, skip_dates: [] } });
+  expect(saved.status(), await saved.text()).toBe(201);
+  const body = await saved.json();
+  const [v1, v2, v3, v4] = body.created as StoredBooking[];
+  const tl = await (await r.get(base + `/bookings/${v2.id}/timeline`)).json();
+  expect(tl.booking.id).toBe(v2.id);
+  expect(tl.events.map((e: any) => e.action)).toContain("BOOKING_CREATED");
+  expect(tl.customer.visits).toBe(4);
+  expect(tl.series).toHaveLength(4);
+  // Move v3 onward to 11:00 with the other barber; v1/v2 untouched.
+  const moved = await r.post(base + `/series/${body.series_id}/reschedule`, {
+    data: { staff_id: w.staff[1].id, start_min: 660, reason: "Barber swap", from_booking_id: v3.id },
+  });
+  expect(moved.status(), await moved.text()).toBe(200);
+  const mv = await moved.json();
+  expect(mv.moved.map((b: any) => b.id).sort()).toEqual([v3.id, v4.id].sort());
+  expect(mv.failed).toEqual([]);
+  expect(mv.moved.every((b: any) => b.start_min === 660 && b.staff_id === w.staff[1].id)).toBe(true);
+  expect((await (await r.get(base + `/bookings/${v1.id}`)).json()).booking.start_min).toBe(600);
+  // Cancel from v2 onward; v1 stays confirmed.
+  const cancelled = await r.post(base + `/series/${body.series_id}/cancel`, { data: { reason: "Customer moving away", from_booking_id: v2.id } });
+  expect(cancelled.status(), await cancelled.text()).toBe(200);
+  expect((await cancelled.json()).cancelled).toBe(3);
+  expect((await (await r.get(base + `/bookings/${v1.id}`)).json()).booking.status).toBe("CONFIRMED");
+  expect((await (await r.get(base + `/bookings/${v4.id}`)).json()).booking.status).toBe("CANCELLED");
+  // Nothing left to cancel after the last visit is cancelled too.
+  expect((await r.post(base + `/series/${body.series_id}/cancel`, { data: { reason: "All" } })).status()).toBe(200);
+  expect((await r.post(base + `/series/${body.series_id}/cancel`, { data: { reason: "Again" } })).status()).toBe(404);
+  expect((await r.post(base + `/series/${body.series_id}/cancel`, { data: { reason: "x" } })).status()).toBe(400);
+  const audit = (await workspace(r)).audit.map((a) => a.action);
+  expect(audit).toContain("SERIES_RESCHEDULED");
+  expect(audit).toContain("SERIES_CANCELLED");
   await r.dispose();
 });

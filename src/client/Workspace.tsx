@@ -1941,6 +1941,9 @@ export function Workspace() {
         >
           <details className="panel-card panel-advanced" open>
             <summary>Status with note, edit details, share confirmation</summary>
+            <section className="workspace-booking-detail">
+              <BookingItems items={JSON.parse(editor.item.items_json) as BookingItem[]} />
+            </section>
             <div className="appointment-detail-actions">
               <Button variant="ghost" onClick={() => setEditor({ kind: "contacts", item: editor.item })}>
                 Edit booking details
