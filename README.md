@@ -1,12 +1,14 @@
-# Barbershop OS
+# OLLO
 
-One connected barbershop platform in development: booking, shop operations, customer/barber journeys and eventually shop-owned payments, retention and SaaS administration.
+![OLLO](public/static/brand/ollo-logo.png)
+
+OLLO is one connected barbershop platform in development: booking, shop operations, customer/barber journeys and eventually shop-owned payments, retention and SaaS administration.
 
 ## Current preview
 
 [Open development workspace](https://3000-iz3aw7n21l3edjgvt4bkj-5c13a017.sandbox.novita.ai/workspace) · local http://localhost:3000/workspace
 
-**Local fictional-data workspace, not a production SaaS.** Original matte forest/sage styling and saved data are retained. Existing cookies access the same test shop; new browsers create separate shops. `/preview/admin`, `/preview/book` and `/preview/barber` remain labelled fixture references, not operational customer/staff apps.
+**Local fictional-data workspace, not a production SaaS.** **Brand:** OLLO periwinkle (`#6985e8` mark / `#4a5fd9` accent) on navy ink (`#181b2a`) with a cool canvas; assets in `public/static/brand/` (`ollo-mark.svg`, `ollo-logo.png`, transparent variant). Legacy CSS token names (`--accent`, `--forest`, `--sage`) are kept but now map to the OLLO palette; service/barber calendar colours (sage/sand/blue/clay/plum/slate) and semantic status greens/reds are unchanged. Saved data is retained. Existing cookies access the same test shop; new browsers create separate shops. `/preview/admin`, `/preview/book` and `/preview/barber` remain labelled fixture references, not operational customer/staff apps.
 
 **Demo account (standard test login):** the entry screen offers **Open as owner** / **Open as barber** for the seeded *Demo Barbershop* (`/book/demo`). Fixed credentials: `owner@demo.test` or `jay@demo.test`, password `Demo1234!`. **Rebuild demo** resets it to the deterministic seed (3 barbers with profiles, 8 services, 4 add-ons, ~126 appointments −70…+14 days, standing series, waitlist, leave). API: `POST /api/sandbox/auth/demo {rebuild?, as?: "owner"|"barber"}`.
 

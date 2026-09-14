@@ -1,6 +1,15 @@
 # Barbershop OS — Progress and next-session handoff
 
-## Latest — demo account, origin fix, customers, appointment panel, service & barber studios (2026-09-14)
+## Latest — OLLO rebrand (2026-09-14)
+
+- Logo supplied by the user (calendar-bot mark in periwinkle `#6985e8` on cream, navy `#181b2a` wordmark). Saved to `public/static/brand/` (source PNG, transparent PNG, hand-drawn `ollo-mark.svg` used for favicon, sidebar brand and "Powered by" chips).
+- Palette: `:root` tokens re-pointed (`--accent #4a5fd9`, `--accent-dark #3546b4`, `--ink #181b2a`, `--muted #5b6178`, `--line #e2e4ee`, `--canvas #f5f6fb`, new `--ollo`, `--ollo-soft`, `--cream`). ~370 hard-coded forest/sage hexes were hue-rotated to the brand hue with lightness preserved; over-dark navies lifted into the accent range; hero uses an accent gradient. Enum calendar colours and semantic status tones were protected so bookings still read the same.
+- Brand strings: titles, theme-color, `.ics` PRODID/UID domain, "Booked with OLLO", `Brand` component and public "Powered by OLLO". `localStorage` key `barbershop-os:customer` deliberately kept so returning testers keep saved details.
+- Contrast: eleven small-text-on-blue pairs failed AA after the rotation (in-chair card, on-dark badge, week strip, nav count, method chip); fixed to white / accent-dark. axe clean on entry, calendar (1440/390), service studio, public booking (1440/390) and the preview fixtures.
+- Verification: tsc, build, targeted a11y suites 22/22, preview suite 25/25, **full Playwright 123 passed / 1 skipped / 0 failed**. Evidence `docs/evidence/v5-ollo-{entry,calendar,services,public,calendar-390,public-390}.png`.
+- Why builds feel slow: the Vite build is ~0.7 s; the full browser suite is ~4 min and runs before every commit. Iterating now uses targeted suites, with one full run at the end.
+
+## Earlier — demo account, origin fix, customers, appointment panel, service & barber studios (2026-09-14)
 
 Five requested items plus the login blocker, built as slices 0–4. Everything is local D1, fictional data, nothing live.
 

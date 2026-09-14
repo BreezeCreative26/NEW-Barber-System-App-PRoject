@@ -548,11 +548,11 @@ pub.get("/manage/:token/calendar.ics", async (c) => {
   const body = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Barbershop OS//Local test//EN",
+    "PRODID:-//OLLO//Local test//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     "BEGIN:VEVENT",
-    `UID:${booking.id}@barbershop-os.local`,
+    `UID:${booking.id}@ollo.local`,
     `DTSTAMP:${stamp(Date.now())}`,
     `DTSTART:${stamp(booking.start_at)}`,
     `DTEND:${stamp(booking.end_at)}`,

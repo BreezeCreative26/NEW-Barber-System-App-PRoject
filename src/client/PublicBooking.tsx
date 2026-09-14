@@ -166,7 +166,7 @@ const gcal = (b: { start_at: number; end_at: number; service_name: string; shop:
     text: `${b.service_name} at ${b.shop.name}`,
     dates: `${f(b.start_at)}/${f(b.end_at)}`,
     location: b.shop.address || b.shop.name,
-    details: "Booked with Barbershop OS. Local test booking.",
+    details: "Booked with OLLO. Local test booking.",
   });
   return `https://calendar.google.com/calendar/render?${q}`;
 };
@@ -192,7 +192,8 @@ function ShopHeader({ name, address }: { name: string; address: string }) {
         <span className="powered-by">
           Powered by{" "}
           <strong>
-            barbershop<span>OS</span>
+            <img src="/static/brand/ollo-mark.svg" alt="" width={14} height={14} />
+            OLLO
           </strong>
         </span>
       </div>

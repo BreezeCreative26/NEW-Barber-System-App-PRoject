@@ -121,7 +121,8 @@ export function Book({
           <a href="/preview/admin" className="powered-by">
             Powered by{" "}
             <strong>
-              barbershop<span>OS</span>
+              <img src="/static/brand/ollo-mark.svg" alt="" width={14} height={14} />
+              OLLO
             </strong>
           </a>
         </div>

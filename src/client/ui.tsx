@@ -190,11 +190,9 @@ export function Badge({
 export function Brand({ light = false }: { light?: boolean }) {
   return (
     <span className={`brand ${light ? "light" : ""}`}>
-      <span className="brand-mark">
-        <Icon name="scissors" size={23} />
-      </span>
-      <span>
-        barbershop<span className="brand-os">OS</span>
+      <img className="brand-mark" src="/static/brand/ollo-mark.svg" alt="" width={33} height={33} />
+      <span className="brand-word" aria-label="OLLO">
+        OLLO
       </span>
     </span>
   );
