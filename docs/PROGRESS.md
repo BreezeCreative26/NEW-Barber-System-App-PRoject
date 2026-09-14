@@ -1,6 +1,48 @@
 # Barbershop OS — Progress and next-session handoff
 
-## Latest — week view, standing bookings, insights (2026-09-14)
+## Latest — demo account, origin fix, customers, appointment panel, service & barber studios (2026-09-14)
+
+Five requested items plus the login blocker, built as slices 0–4. Everything is local D1, fictional data, nothing live.
+
+**Slice 0 — login "origin error" (root cause fixed) + standard demo account**
+- Root cause: the sandbox preview proxy terminates HTTPS and forwards plain HTTP without `X-Forwarded-*`, so the browser's `Origin: https://…` never string-matched the worker's `http://…` URL and every mutation (including sign-in) returned 403. `sameOrigin` in `src/server/accounts.ts` now: exact origin → `Sec-Fetch-Site` same-origin/same-site → host-only comparison (`url.host`, `Host`, `X-Forwarded-Host`) → `Referer` host when `Origin` is absent → `ALLOWED_ORIGINS` env allowlist. Foreign origins and missing evidence still 403; a rejected request logs `origin_forbidden` diagnostics. `GET/POST /api/origin-check` echoes what the worker receives. Verified in a real browser through the public preview URL.
+- `src/server/demo.ts`: deterministic seed (fixed RNG) for *Demo Barbershop* (slug `demo`): 3 barbers with title/bio/colour/skills/instagram, 8 services with colour/description/popular, 4 add-ons, per-barber rules, ~126 bookings from −70 to +14 days across every status and both channels, standing series, 2 open waitlist entries, a day off, and a barber account created via a pre-accepted invitation. `POST /api/sandbox/auth/demo {rebuild?, as?: owner|barber}` opens (or rebuilds) it and sets the account cookie. Credentials `owner@demo.test` / `jay@demo.test`, password `Demo1234!`. Entry screen gained an "Open the demo shop" card with Open as owner / Open as barber / Rebuild demo and prefilled sign-in.
+
+**Slice 1 — customers as first-class records**
+- Migration `0009_customers.sql`: `customers` (name, phone unique per shop, email, notes, tags JSON, `merged_into`, version), `bookings.customer_id`, trigger that links a new booking to the customer with the same phone (creating one if needed), indexes.
+- API: `GET /customers` (`q`, `filter` all/new/regulars/lapsed/no_shows/upcoming, `sort` recent/next/spend/visits/name, `limit`), `POST /customers`, `GET /customers/:id` (id or phone; merged → target; stats: visits, completed, no-shows, spend, favourite barber/service, average gap, first/last/next), `PUT /customers/:id` (versioned), `POST /customers/:id/merge {into}` (moves bookings, sets pointer). Barber accounts see only customers they have served. `createBooking` accepts optional `customer_id` (validated in-shop, excluded from the idempotency hash).
+- UI: Customers tab rewritten — directory with filter chips, sort, search, avatar initials; profile with stat cards, favourites, tags/notes editing, contact edit, full history that opens the appointment panel, **Book** button, and Merge. Booking form gained a **customer picker** (search → pick → "Book as someone else" / add new with duplicate-number warning); `customer_id` travels with `/bookings` and `/series`.
+
+**Slice 2 — appointment side panel**
+- `src/client/AppointmentPanel.tsx`: right-hand drawer ≥900px, bottom sheet below; header with customer/service/barber/time/price, status-aware primary actions (check in → start → complete; no-show; reschedule; cancel; book again; edit details; share; open customer), inline note (PATCH details), timeline from `GET /bookings/:id/timeline` (audit-derived), and for standing bookings **Cancel remaining** / **Move remaining** (`POST /series/:id/cancel|reschedule` with optional `from_booking_id`; each occurrence through the shared guards). Dirty/busy switching guard ported from the modal. Legacy controls (items, status form, share) remain under an expandable "More" section so earlier flows and tests still work.
+
+**Slice 3 — Service studio**
+- Migration `0010_catalogue_profiles.sql`: services gain `description, colour, online_bookable, popular, sort_order`; staff gain `title, bio, colour, photo_url, online_visible, skills (JSON), instagram, start_date, sort_order`; colour enum sage/sand/blue/clay/plum/slate.
+- `PUT /service-rules {rules:[…]}`: batch matrix write — rows that equal the catalogue default are deleted, others upserted; tenant-checked staff and service ids; one `SERVICE_RULES_UPDATED` audit row. Public reads filter `online_bookable=1` / `online_visible=1` (shop read and slot assignment); owners are unaffected.
+- `src/client/Studio.tsx` `ServiceStudio`: category groups of colour-coded cards (Popular / In shop only / Inactive; price · minutes · barbers offering · upcoming), search, show-inactive, New service; `ServiceEditor` tabs Details / Barbers & pricing (`RuleMatrix`) / Add-ons. Add-on chips open the existing add-on editor.
+
+**Slice 4 — Barber studio**
+- `BarberStudio`: profile cards (photo or coloured initials, title, skills, today's load, next visit, Hidden online / Inactive), search, show-inactive, Add barber (owner/manager). `BarberEditor` tabs Profile (all new fields, skills tag input with suggestions, colour picker, switches) / Schedule (weekly-hours strip + Edit weekly hours, Days off, Dated hours → existing editors) / Services & pricing (matrix from the barber side) / Performance (7/30/90d from `/insights`) / Upcoming (14 days from `/bookings/range`, opens the panel). Barber accounts read-only.
+- Public `/book/<slug>` shows descriptions, Popular pill, colour thumbs, barber photo/title/bio/skills; ordering popular → sort order.
+- Legacy Team/Services modal editors and `ServiceRulesEditor` removed from Workspace.tsx (dead after the studios).
+
+**Studio safeguards added after the first test pass surfaced gaps**
+- Nested `<label>` around the toggle switches made them unclickable (real bug, also an a11y smell) → switch rows are `<div>`s; the hidden input sits above the track.
+- Leave guard: editors flag `data-dirty`; switching tab or closing with unsaved edits shows *Discard changes and continue* / *Keep editing*.
+- Version conflict (409) shows *Discard edits and load latest*, which re-reads and resets the form.
+- Save-then-failed-read: the write succeeded, so the editor locks its submit, says so, and the record is selected as soon as Retry workspace returns; no second write is offered.
+- Server normalisation (e.g. Instagram `@` stripped) is mirrored back into the form after save so it isn't falsely dirty.
+- axe: `.matrix-default` contrast (#8c988d → #66736a), empty matrix header now has a visually-hidden label.
+
+**Tests** (all run against the PM2 service on :3000)
+- Inventories: `PUT /service-rules`, customers, series ops and `/auth/demo` added to the source-derived mutation lists (they fail if a route is missing).
+- New/changed cases: origin scenarios incl. https-vs-http and `Sec-Fetch-Site`; demo account (one-click owner/barber, fixed creds, idempotent rebuild — now rebuilds first because other suites edit the shared demo shop); entry screen; customers CRUD/filters/merge/scoping; timeline + series cancel/move; appointment panel drawer/sheet; customers tab + picker; **catalogue profiles API** (validation of https photo, handle, colour; persistence; matrix upsert/delete/atomic; cross-tenant 404; validation 400s); **public catalogue hides in-shop services and hidden barbers** while owner booking still works; **studio browser flow** (create service with colour/popular/online-off → matrix from service side → guard → barber profile with skills/photo validation/colour → schedule/services/performance/upcoming tabs → hide online → public page + axe); **barber matrix** multi-row save/revert/guard (replaces the old per-rule modal test). Old tests that drove the modal editors were rewritten against the studios.
+- Final: `tsc` clean; **42 vitest**; D1 invariants PASS; **Playwright 122 passed, 1 skipped, 0 failed** after the demo-rebuild fix (accounts suite 20/20 re-run green).
+- Evidence: `docs/evidence/v4-services-{1440,390}.png`, `v4-service-editor-{1440,390}.png`, `v4-team-{1440,390}.png`, `v4-barber-editor-{1440,390}.png`, `v4-barber-schedule-{1440,390}.png`, `v4-public-services-1440.png`.
+
+**Not done / next**: photo upload (URL only), drag-to-reorder (numeric order fields), customer ratings/reviews, marketing consent and messaging (provider + consent decisions), deposits/payments, per-service buffer (shop-wide 10 min stays), bulk price changes across a category. Migrations next prefix **0011**.
+
+## Earlier — week view, standing bookings, insights (2026-09-14)
 
 - Migration `0008_booking_series.sql`: `bookings.series_id` (immutable via trigger), index `booking_series_lookup` (renamed after a local name clash with the `booking_series` table — fresh DBs run the corrected file cleanly), table `booking_series`.
 - Server: `GET /bookings/range?from&to` (≤31 days, compact columns, LIMIT 2000, barber-scoped), `GET /insights?days=7..365` (one D1 batch), `POST /series/preview` (per-date `availabilityContext` + `slotReason`, honours `skip_dates`) and `POST /series` (inserts `booking_series`, loops shared `createBooking(..., {seriesId})`, 409 if <2 bookable or unresolved conflicts, audits `SERIES_CREATED`). Permissions added for all four.

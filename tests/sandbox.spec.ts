@@ -908,3 +908,108 @@ test("appointment timeline and standing-series cancel/reschedule operate through
   expect(audit).toContain("SERIES_CANCELLED");
   await r.dispose();
 });
+
+test("catalogue profiles: barber/service presentation fields validate, persist, and the rule matrix upserts/deletes atomically across shops", async () => {
+  const r = await owner("Studio API shop");
+  const other = await owner("Studio API other shop");
+  const w = await workspace(r);
+  const jay = w.staff[0];
+  // Barber profile: https-only photo, handle regex, skills cap.
+  const bad = await r.put(base + `/staff/${jay.id}`, {
+    data: { name: jay.name, role: jay.role, active: 1, version: jay.version, photo_url: "http://insecure.example/p.jpg" },
+  });
+  expect(bad.status()).toBe(400);
+  expect(
+    (
+      await r.put(base + `/staff/${jay.id}`, {
+        data: { name: jay.name, role: jay.role, active: 1, version: jay.version, instagram: "not a handle!" },
+      })
+    ).status(),
+  ).toBe(400);
+  expect(
+    (
+      await r.put(base + `/staff/${jay.id}`, {
+        data: { name: jay.name, role: jay.role, active: 1, version: jay.version, colour: "neon" },
+      })
+    ).status(),
+  ).toBe(400);
+  const profile = await r.put(base + `/staff/${jay.id}`, {
+    data: {
+      name: jay.name,
+      role: jay.role,
+      active: 1,
+      version: jay.version,
+      title: "Senior barber",
+      bio: "Fades and beards.",
+      colour: "plum",
+      photo_url: "https://images.example/jay.jpg",
+      online_visible: 0,
+      skills: ["Skin fades", "Beards"],
+      instagram: "@jay.cuts",
+      start_date: "2021-03-01",
+      sort_order: 2,
+    },
+  });
+  expect(profile.status(), await profile.text()).toBe(200);
+  let latest = await workspace(r);
+  const saved = latest.staff.find((s) => s.id === jay.id)!;
+  expect(saved).toMatchObject({ title: "Senior barber", colour: "plum", online_visible: 0, instagram: "jay.cuts", sort_order: 2 });
+  expect(JSON.parse(saved.skills)).toEqual(["Skin fades", "Beards"]);
+  // Service presentation fields.
+  const created = await r.post(base + "/services", {
+    data: {
+      name: "Studio API service",
+      category: "Hair",
+      duration_min: 40,
+      price_pence: 3100,
+      active: 1,
+      description: "Consultation, cut, finish.",
+      colour: "slate",
+      online_bookable: 0,
+      popular: 1,
+      sort_order: 5,
+    },
+  });
+  expect(created.status(), await created.text()).toBe(201);
+  const serviceId = (await created.json()).id;
+  latest = await workspace(r);
+  expect(latest.services.find((s) => s.id === serviceId)).toMatchObject({ description: "Consultation, cut, finish.", colour: "slate", online_bookable: 0, popular: 1, sort_order: 5 });
+  // Matrix: upsert two rows, default row deletes any prior override, foreign ids rejected.
+  const [svcA, svcB] = latest.services;
+  const matrix = await r.put(base + "/service-rules", {
+    data: {
+      rules: [
+        { staff_id: jay.id, service_id: svcA.id, enabled: 1, price_pence: 3300, duration_min: null },
+        { staff_id: jay.id, service_id: svcB.id, enabled: 0, price_pence: null, duration_min: null },
+      ],
+    },
+  });
+  expect(matrix.status(), await matrix.text()).toBe(200);
+  latest = await workspace(r);
+  expect(latest.service_rules.find((x) => x.staff_id === jay.id && x.service_id === svcA.id)).toMatchObject({ enabled: 1, price_pence: 3300, duration_min: null });
+  expect(latest.service_rules.find((x) => x.staff_id === jay.id && x.service_id === svcB.id)).toMatchObject({ enabled: 0 });
+  const reset = await r.put(base + "/service-rules", {
+    data: { rules: [{ staff_id: jay.id, service_id: svcA.id, enabled: 1, price_pence: null, duration_min: null }] },
+  });
+  expect(reset.status()).toBe(200);
+  latest = await workspace(r);
+  expect(latest.service_rules.some((x) => x.staff_id === jay.id && x.service_id === svcA.id)).toBe(false);
+  expect(latest.service_rules.some((x) => x.staff_id === jay.id && x.service_id === svcB.id)).toBe(true);
+  expect(latest.audit.some((a) => a.action === "SERVICE_RULES_UPDATED")).toBe(true);
+  // Cross-tenant: another shop cannot address this shop's barber or service.
+  const foreign = await other.put(base + "/service-rules", {
+    data: { rules: [{ staff_id: jay.id, service_id: svcA.id, enabled: 0, price_pence: null, duration_min: null }] },
+  });
+  expect(foreign.status()).toBe(404);
+  expect((await other.get(base + "/workspace").then((x) => x.json())).service_rules).toHaveLength(0);
+  // Validation: empty list, bad price, duplicate pairs.
+  expect((await r.put(base + "/service-rules", { data: { rules: [] } })).status()).toBe(400);
+  expect(
+    (
+      await r.put(base + "/service-rules", {
+        data: { rules: [{ staff_id: jay.id, service_id: svcA.id, enabled: 1, price_pence: -5, duration_min: null }] },
+      })
+    ).status(),
+  ).toBe(400);
+  await Promise.all([r.dispose(), other.dispose()]);
+});

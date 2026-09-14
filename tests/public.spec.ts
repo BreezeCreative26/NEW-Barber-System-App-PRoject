@@ -662,3 +662,100 @@ test.describe("public booking v2 UI", () => {
     expect(errors).toEqual([]);
   });
 });
+
+test("public catalogue hides in-shop-only services and hidden barbers while owners can still book them", async () => {
+  const on = await owner();
+  const c = await customer();
+  const [jay, marcus] = on.w.staff;
+  const [cut, fade] = on.w.services;
+  // Hide Marcus online and make the fade in-shop only, with presentation fields set.
+  let res = await on.r.put(base + `/staff/${marcus.id}`, {
+    data: {
+      name: marcus.name,
+      role: marcus.role,
+      active: 1,
+      version: marcus.version,
+      online_visible: 0,
+    },
+  });
+  expect(res.status(), await res.text()).toBe(200);
+  res = await on.r.put(base + `/staff/${jay.id}`, {
+    data: {
+      name: jay.name,
+      role: jay.role,
+      active: 1,
+      version: jay.version,
+      title: "Head barber",
+      bio: "Twelve fictional years behind the chair.",
+      skills: ["Skin fades"],
+      colour: "plum",
+    },
+  });
+  expect(res.status(), await res.text()).toBe(200);
+  res = await on.r.put(base + `/services/${fade.id}`, {
+    data: {
+      name: fade.name,
+      category: fade.category,
+      duration_min: fade.duration_min,
+      price_pence: fade.price_pence,
+      active: 1,
+      version: fade.version,
+      online_bookable: 0,
+    },
+  });
+  expect(res.status(), await res.text()).toBe(200);
+  res = await on.r.put(base + `/services/${cut.id}`, {
+    data: {
+      name: cut.name,
+      category: cut.category,
+      duration_min: cut.duration_min,
+      price_pence: cut.price_pence,
+      active: 1,
+      version: cut.version,
+      popular: 1,
+      description: "Our fictional classic.",
+      colour: "clay",
+    },
+  });
+  expect(res.status(), await res.text()).toBe(200);
+  const shop = await (await c.get(`${pub}/shops/${on.slug}`)).json();
+  expect(shop.staff.map((s: { id: string }) => s.id)).toEqual([jay.id]);
+  expect(shop.staff[0]).toMatchObject({ title: "Head barber", colour: "plum" });
+  expect(JSON.parse(shop.staff[0].skills)).toEqual(["Skin fades"]);
+  expect(shop.services.map((s: { id: string }) => s.id)).not.toContain(fade.id);
+  expect(shop.services[0]).toMatchObject({ id: cut.id, popular: 1, description: "Our fictional classic.", colour: "clay" });
+  // Public availability must refuse the in-shop-only service and never assign the hidden barber.
+  const date = futureDate();
+  expect(
+    (await c.get(`${pub}/shops/${on.slug}/availability?date=${date}&service_id=${fade.id}`)).status(),
+  ).toBe(404);
+  const avail = await (
+    await c.get(`${pub}/shops/${on.slug}/availability?date=${date}&service_id=${cut.id}`)
+  ).json();
+  const assigned = new Set(
+    avail.slots.filter((s: { available: boolean }) => s.available).map((s: { staff_id: string }) => s.staff_id),
+  );
+  expect(assigned.has(marcus.id)).toBe(false);
+  expect(assigned.has(jay.id)).toBe(true);
+  // Owner-side booking of the hidden barber + in-shop service still works through the shared guard.
+  const latest: WorkspaceData = await (await on.r.get(base + "/workspace")).json();
+  const ownerBooking = await on.r.post(base + "/bookings", {
+    data: {
+      request_id: crypto.randomUUID(),
+      staff_id: marcus.id,
+      service_id: fade.id,
+      customer_name: "Walk-in Fictional",
+      phone: "07700900222",
+      notes: "",
+      date,
+      start_min: 600,
+      source: "TEST_BOOKING",
+      quote: {
+        service_version: latest.services.find((s) => s.id === fade.id)!.version,
+        shop_version: latest.shop.version,
+      },
+    },
+  });
+  expect(ownerBooking.status(), await ownerBooking.text()).toBe(201);
+  await Promise.all([on.r.dispose(), c.dispose()]);
+});

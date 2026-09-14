@@ -754,3 +754,126 @@ function plusDays(date: string, n: number) {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+
+test("service studio and barber studio: create with presentation flags, matrix from the service side, profile with skills, tabs, and the public page reflects it", async ({ page }) => {
+  test.setTimeout(120000);
+  const origin = "http://localhost:3000";
+  const base = origin + "/api/sandbox";
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: "Open as owner", exact: true }).click();
+  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
+  expect((await page.request.post(base + "/auth/demo", { headers: { Origin: origin }, data: { rebuild: true } })).status()).toBe(201);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
+
+  // ---- Service studio ----
+  await section(page, "Services");
+  const serviceEditor = page.getByTestId("service-editor");
+  await expect(page.getByTestId("service-card").first()).toBeVisible();
+  await page.getByRole("button", { name: "New service", exact: true }).click();
+  await page.getByLabel("Service name").fill("Studio hot towel finish");
+  await serviceEditor.getByLabel("Category", { exact: true }).fill("Grooming");
+  await page.getByLabel("Description (shown to customers online)").fill("Fictional finish with a hot towel.");
+  await page.getByLabel("Duration (minutes)").fill("20");
+  await page.getByLabel("Price (£)", { exact: true }).fill("14");
+  await serviceEditor.getByRole("radio", { name: "Clay" }).check();
+  await page.getByLabel("Popular", { exact: true }).check();
+  await page.getByRole("button", { name: "Create service", exact: true }).click();
+  await expect(serviceEditor.getByRole("status")).toContainText("Service created");
+  await expect(serviceEditor.getByRole("heading", { level: 2 })).toHaveText("Studio hot towel finish");
+  const card = page.getByTestId("service-card").filter({ hasText: "Studio hot towel finish" });
+  await expect(card).toContainText("Popular");
+  await expect(card).toHaveClass(/clay/);
+  // Toggle online off and confirm the badge and persistence after reload.
+  await page.getByLabel("Bookable online", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "Save service", exact: true }).click();
+  await expect(serviceEditor.getByRole("status")).toContainText("Service saved");
+  await expect(card).toContainText("In shop only");
+  // Matrix from the service side: turn one barber off, price another, save once.
+  await serviceEditor.getByRole("button", { name: "Barbers & pricing", exact: true }).click();
+  const w = await (await page.request.get(base + "/workspace")).json();
+  const [a, b] = w.staff.filter((s: { active: number }) => s.active);
+  await page.getByLabel(`${a.name} offers Studio hot towel finish`).uncheck();
+  await page.getByLabel(`${b.name} price for Studio hot towel finish`).fill("16");
+  await expect(page.getByLabel(`${a.name} price for Studio hot towel finish`)).toBeDisabled();
+  await page.getByRole("button", { name: "Save barber rules", exact: true }).click();
+  await expect(serviceEditor.getByRole("status")).toContainText(/\d+ barber rules saved/);
+  await page.reload();
+  await section(page, "Services");
+  await card.click();
+  await serviceEditor.getByRole("button", { name: "Barbers & pricing", exact: true }).click();
+  await expect(page.getByLabel(`${a.name} offers Studio hot towel finish`)).not.toBeChecked();
+  await expect(page.getByLabel(`${b.name} price for Studio hot towel finish`)).toHaveValue("16");
+  // Header summary reflects the matrix.
+  await expect(serviceEditor.getByText(/of \d+ barbers/)).toBeVisible();
+  // Guard: leaving with a dirty matrix requires an explicit choice.
+  await page.getByLabel(`${b.name} price for Studio hot towel finish`).fill("18");
+  await page.getByRole("button", { name: "All services", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("unsaved changes");
+  await page.getByRole("button", { name: "Discard changes and continue", exact: true }).click();
+  await expect(serviceEditor).toHaveCount(0);
+
+  // ---- Barber studio ----
+  await section(page, "Team");
+  const barberEditor = page.getByTestId("barber-editor");
+  await page.getByTestId("team-card").filter({ hasText: b.name }).click();
+  await expect(barberEditor.getByRole("heading", { level: 2 })).toHaveText(b.name);
+  await page.getByLabel("Job title (shown to customers)").fill("Studio test title");
+  await page.getByLabel("Photo URL (https, optional)").fill("http://insecure.example/p.jpg");
+  await page.getByRole("button", { name: "Save profile", exact: true }).click();
+  await expect(barberEditor.getByRole("alert")).toContainText(/https/i);
+  await page.getByLabel("Photo URL (https, optional)").fill("");
+  await page.getByLabel("Add skills").fill("Studio test skill");
+  await page.getByLabel("Add skills").press("Enter");
+  await expect(barberEditor.getByRole("button", { name: "Remove Studio test skill", exact: true })).toBeVisible();
+  // Suggestions hide skills already present, so pick whichever suggestion remains.
+  const suggestion = barberEditor.locator(".tag-suggestions button").first();
+  const suggested = (await suggestion.textContent())!.replace(/^\+\s*/, "").trim();
+  await suggestion.click();
+  await expect(barberEditor.getByRole("button", { name: `Remove ${suggested}`, exact: true })).toBeVisible();
+  await page.getByLabel("Instagram").fill("@studio.test");
+  await barberEditor.getByRole("radio", { name: "Slate" }).check();
+  await page.getByRole("button", { name: "Save profile", exact: true }).click();
+  await expect(barberEditor.getByRole("status")).toContainText("Profile saved");
+  const teamCard = page.getByTestId("team-card").filter({ hasText: b.name });
+  await expect(teamCard).toContainText("Studio test title");
+  let saved = await (await page.request.get(base + "/workspace")).json();
+  let skills: string[] = JSON.parse(saved.staff.find((s: { id: string }) => s.id === b.id).skills);
+  expect(skills).toContain("Studio test skill");
+  expect(skills).toContain(suggested);
+  await page.getByRole("button", { name: `Remove ${suggested}`, exact: true }).click();
+  await page.getByRole("button", { name: "Save profile", exact: true }).click();
+  await expect(barberEditor.getByRole("status")).toContainText("Profile saved");
+  saved = await (await page.request.get(base + "/workspace")).json();
+  skills = JSON.parse(saved.staff.find((s: { id: string }) => s.id === b.id).skills);
+  expect(skills).not.toContain(suggested);
+  expect(skills).toContain("Studio test skill");
+  // Tabs: schedule strip + editors, services matrix from the barber side, performance, upcoming.
+  await barberEditor.getByRole("button", { name: "Schedule", exact: true }).click();
+  await expect(page.getByRole("list", { name: "Weekly hours" })).toBeVisible();
+  await page.getByRole("button", { name: "Edit weekly hours" }).click();
+  await expect(page.getByRole("dialog")).toContainText("weekly hours");
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+  await barberEditor.getByRole("button", { name: "Services & pricing", exact: true }).click();
+  await expect(page.getByLabel(`${b.name} price for Studio hot towel finish`)).toHaveValue("16");
+  await barberEditor.getByRole("button", { name: "Performance", exact: true }).click();
+  await expect(barberEditor.getByRole("group", { name: "Period" }).or(barberEditor.locator(".segmented[aria-label='Period']"))).toBeVisible();
+  await expect(barberEditor.getByText(/completed|visits|no-show/i).first()).toBeVisible();
+  await barberEditor.getByRole("button", { name: "Upcoming", exact: true }).click();
+  await expect(barberEditor.getByRole("list", { name: "Upcoming appointments" })).toBeVisible();
+  // Hide the barber online and check the public page.
+  await barberEditor.getByRole("button", { name: "Profile", exact: true }).click();
+  await page.getByLabel("Show on online booking", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "Save profile", exact: true }).click();
+  await expect(barberEditor.getByRole("status")).toContainText("Profile saved");
+  await expect(teamCard).toContainText("Hidden online");
+
+  // ---- Public page ----
+  const shop = await (await page.request.get(origin + "/api/public/shops/demo")).json();
+  expect(shop.staff.map((s: { id: string }) => s.id)).not.toContain(b.id);
+  expect(shop.services.map((s: { name: string }) => s.name)).not.toContain("Studio hot towel finish");
+  await page.goto("/book/demo");
+  await expect(page.getByText("Studio hot towel finish")).toHaveCount(0);
+  await expect(page.getByText(b.name, { exact: true })).toHaveCount(0);
+  expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations).toEqual([]);
+});

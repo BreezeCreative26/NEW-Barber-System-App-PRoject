@@ -272,6 +272,8 @@ export function ServiceStudio({
 }) {
   const [selected, setSelected] = useState<string | "new" | null>(null);
   const pendingSelect = useRef<string | null>(null);
+  // The record created from the "new" editor keeps that editor instance so its confirmation stays visible.
+  const [born, setBorn] = useState<string | null>(null);
   useEffect(() => {
     const id = pendingSelect.current;
     if (id && w.services.some((s) => s.id === id)) {
@@ -367,7 +369,7 @@ export function ServiceStudio({
       </section>
       {selected && (selected === "new" || selectedService) && (
         <ServiceEditor
-          key={selected}
+          key={selected === born ? "new" : selected}
           w={w}
           api={api}
           service={selectedService}
@@ -375,6 +377,7 @@ export function ServiceStudio({
           onSaved={async (id) => {
             // A failed re-read is surfaced by the workspace shell (Retry workspace); the write itself
             // succeeded, so keep the editor mounted and select the saved record once data arrives.
+            if (id && selected === "new") setBorn(id);
             try {
               const latest = await refresh();
               if (id) setSelected(id);
@@ -471,6 +474,8 @@ function ServiceEditor({ w, api, service, onClose, onSaved }: { w: WorkspaceData
               });
               const latest = await onSaved(service ? service.id : r.id);
               if (!latest) setLocked(true);
+              const fresh = latest?.services.find((x) => x.id === (service ? service.id : r.id));
+              if (fresh) setForm(serviceForm(fresh, fresh.category));
               setState({
                 kind: "ok",
                 text: latest
@@ -597,6 +602,8 @@ export function BarberStudio({
 }) {
   const [selected, setSelected] = useState<string | "new" | null>(null);
   const pendingSelect = useRef<string | null>(null);
+  // The record created from the "new" editor keeps that editor instance so its confirmation stays visible.
+  const [born, setBorn] = useState<string | null>(null);
   useEffect(() => {
     const id = pendingSelect.current;
     if (id && w.staff.some((s) => s.id === id)) {
@@ -674,7 +681,7 @@ export function BarberStudio({
       </section>
       {selected && (selected === "new" || selectedStaff) && (
         <BarberEditor
-          key={selected}
+          key={selected === born ? "new" : selected}
           w={w}
           api={api}
           staff={selectedStaff}
@@ -683,6 +690,7 @@ export function BarberStudio({
           onSaved={async (id) => {
             // A failed re-read is surfaced by the workspace shell (Retry workspace); the write itself
             // succeeded, so keep the editor mounted and select the saved record once data arrives.
+            if (id && selected === "new") setBorn(id);
             try {
               const latest = await refresh();
               if (id) setSelected(id);
@@ -817,6 +825,9 @@ function BarberEditor({
               });
               const latest = await onSaved(staff ? staff.id : r.id);
               if (!latest) setLocked(true);
+              // The server normalises some fields (handle prefix, trimming); mirror the saved record so the form is clean.
+              const fresh = latest?.staff.find((x) => x.id === (staff ? staff.id : r.id));
+              if (fresh) setForm(staffForm(fresh));
               setState({
                 kind: "ok",
                 text: latest

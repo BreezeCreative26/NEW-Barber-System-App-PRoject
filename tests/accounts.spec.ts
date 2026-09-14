@@ -688,7 +688,8 @@ test("same-origin guard accepts forwarded proxy hosts and refuses foreign origin
 test("standard demo account: one-click owner/barber sign-in, fixed credentials, idempotent rebuild", async () => {
   test.setTimeout(90000);
   const owner = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
-  const opened = await owner.post(base + "/auth/demo", { data: {} });
+  // Other suites edit the shared demo shop; start from the deterministic seed so counts are exact.
+  const opened = await owner.post(base + "/auth/demo", { data: { rebuild: true } });
   expect(opened.status(), await opened.text()).toBe(201);
   const body = await opened.json();
   expect(body.email).toBe("owner@demo.test");
