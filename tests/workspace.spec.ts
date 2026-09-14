@@ -235,11 +235,9 @@ test("staff and service edits, inactive filters and reactivation survive refresh
   ]) {
     await section(page, entry.tab);
     await page.getByLabel(entry.search).fill(entry.name);
-    const card = page
-      .getByRole("article")
-      .filter({
-        has: page.getByRole("heading", { name: entry.name, exact: true }),
-      });
+    const card = page.getByRole("article").filter({
+      has: page.getByRole("heading", { name: entry.name, exact: true }),
+    });
     await expect(card).toHaveCount(1);
     await card.getByRole("button", { name: entry.edit, exact: true }).click();
     await page.getByLabel(entry.checkbox, { exact: true }).uncheck();
