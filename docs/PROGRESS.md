@@ -59,9 +59,10 @@ The application is no longer only a design preview. `/workspace` now uses local 
 | --- | --- | --- |
 | Build | Passed, Hono Worker plus React assets | `npm run build` |
 | TypeScript | Passed on latest inspected source | `npm run typecheck` |
+| Stable final source | Passed: source, public assets, tests and migrations had identical SHA-256 aggregate before/after final build and complete regression | Final command exited 0 and printed `VERIFIED: source and tests unchanged throughout final regression.` |
 | Unit/route/domain | 37 passed: 23 preview + 14 local boundary/time/schema tests | `tests/fixtures.test.ts`, `tests/domain.test.ts` |
 | Direct local D1 invariants | Passed independently of API pre-checks | `npm run test:db`, `tests/d1-invariants.mjs` |
-| Full browser/API suite | **47 passed, 0 failed/skipped/flaky** | `test-results/runs/1789388174436-34108/results.json`, start 2026-09-14 12:16:14 UTC, duration 92.24s |
+| Full browser/API suite | **47 passed, 0 failed/skipped/flaky** | `test-results/runs/1789388251487-35388/results.json`, start 2026-09-14 12:17:31 UTC, duration 64.99s |
 | Final focused recheck | **22 workspace/API tests passed**, 0 failed/skipped/flaky; latest source includes staff leave and isolated screenshot paths | `test-results/runs/1789388113442-33159/results.json`, start 2026-09-14 12:15:13 UTC |
 | Mutation endpoint coverage | All **15** POST/PUT/PATCH/DELETE routes covered by source-derived inventory; matching Origin, session and invalid-input checks pass | `tests/sandbox.spec.ts` |
 | Persisted UI workflow | Create staff/service/hours/settings/closure, reload, book, move, check in/start/complete, audit | `tests/workspace.spec.ts` |
