@@ -136,6 +136,7 @@ export type AuditEvent = {
   created_at: number;
 };
 export type WorkspaceData = {
+  account?: import("./accounts").Account | null;
   shop: Shop;
   staff: Staff[];
   services: Service[];

@@ -397,6 +397,171 @@ try {
   console.log(
     "PASS: direct D1 overlap, quote/items, addon/rule eligibility, dated hours, immutable snapshots, rollback, leave/closure and no-show guards.",
   );
+  // Account assertions must abort on the FIRST conflict, not a sentinel's later duplicate.
+  const address = `${crypto.randomUUID()}@example.test`;
+  assert.equal(
+    (
+      await api("/auth/register", "POST", {
+        name: "D1 fictional owner",
+        email: address,
+        password: "Unique local invariant password!",
+      })
+    ).status,
+    201,
+  );
+  const account = (await api("/workspace")).body.account;
+  const oldUser = await db
+    .prepare("SELECT * FROM app_users WHERE id=?")
+    .bind(account.user_id)
+    .first();
+  const oldSessions = await db
+    .prepare(
+      "SELECT * FROM app_sessions WHERE membership_id=? ORDER BY token_hash",
+    )
+    .bind(account.id)
+    .all();
+  const oldAudit = await auditCount();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await assert.rejects(
+      () =>
+        db.batch([
+          db
+            .prepare(
+              "UPDATE app_users SET password_hash='incorrect' WHERE id=? AND password_hash='stale' ",
+            )
+            .bind(account.user_id),
+          db.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
+          db.prepare("DELETE FROM account_assertions"),
+          db
+            .prepare("DELETE FROM app_sessions WHERE membership_id=?")
+            .bind(account.id),
+        ]),
+      /account_changed/,
+    );
+  }
+  assert.deepEqual(
+    await db
+      .prepare("SELECT * FROM app_users WHERE id=?")
+      .bind(account.user_id)
+      .first(),
+    oldUser,
+  );
+  assert.deepEqual(
+    (
+      await db
+        .prepare(
+          "SELECT * FROM app_sessions WHERE membership_id=? ORDER BY token_hash",
+        )
+        .bind(account.id)
+        .all()
+    ).results,
+    oldSessions.results,
+  );
+  assert.equal(await auditCount(), oldAudit);
+  await assert.rejects(
+    () =>
+      db
+        .prepare("UPDATE app_memberships SET role='MANAGER' WHERE id=?")
+        .bind(account.id)
+        .run(),
+    /owner_protected/,
+  );
+  await assert.rejects(
+    () =>
+      db
+        .prepare("DELETE FROM app_memberships WHERE id=?")
+        .bind(account.id)
+        .run(),
+    /owner_protected/,
+  );
+  // Simulate the precise stale read: token A was read, then revoked and replaced by B for SAME email/role/staff.
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync("src/server/accounts.ts", "utf8");
+  const memberSql = source.match(
+    /"(INSERT INTO app_memberships\(id,shop_id,user_id,role,staff_id\) SELECT [^"]+)"/,
+  )[1];
+  const target = `${crypto.randomUUID()}@example.test`;
+  const first = await api("/auth/invites", "POST", {
+    email: target,
+    staff_id: w.staff[0].id,
+    role: "BARBER",
+  });
+  const replacement = await api("/auth/invites", "POST", {
+    email: target,
+    staff_id: w.staff[0].id,
+    role: "BARBER",
+  });
+  assert.equal(first.status, 201);
+  assert.equal(replacement.status, 201);
+  const stale = await db
+    .prepare("SELECT * FROM staff_invitations WHERE id=?")
+    .bind(first.body.id)
+    .first();
+  const userId = crypto.randomUUID(),
+    memberId = crypto.randomUUID();
+  const insertUser = () =>
+    db
+      .prepare(
+        "INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,'Fictional staff','test-only','test-only',?)",
+      )
+      .bind(userId, target, Date.now());
+  await assert.rejects(
+    () =>
+      db.batch([
+        insertUser(),
+        db
+          .prepare(memberSql)
+          .bind(
+            memberId,
+            userId,
+            stale.id,
+            stale.token_hash,
+            target,
+            Date.now(),
+          ),
+        db.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
+        db.prepare("DELETE FROM account_assertions"),
+      ]),
+    /account_changed/,
+  );
+  assert.equal(
+    await db
+      .prepare("SELECT id FROM app_users WHERE id=?")
+      .bind(userId)
+      .first(),
+    null,
+  );
+  assert.equal(
+    await db
+      .prepare("SELECT id FROM app_memberships WHERE id=?")
+      .bind(memberId)
+      .first(),
+    null,
+  );
+  // Expiry also fails closed even when the invite had passed a prior read.
+  await db
+    .prepare("UPDATE staff_invitations SET expires_at=? WHERE id=?")
+    .bind(Date.now() - 1000, replacement.body.id)
+    .run();
+  assert.equal(
+    (
+      await api("/auth/accept", "POST", {
+        token: replacement.body.token,
+        email: target,
+        name: "Fictional staff",
+        password: "Unique local invariant password!",
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (await db.prepare("SELECT COUNT(*) AS n FROM account_assertions").first())
+      .n,
+    0,
+  );
+  console.log(
+    "PASS: direct D1 first/repeated optimistic rollback, owner protection, exact-token stale replacement and expiry guards.",
+  );
 } finally {
   await platform.dispose();
 }

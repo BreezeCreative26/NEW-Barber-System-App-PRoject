@@ -173,7 +173,7 @@ function SaveForm({
   label = "Save changes",
   className = "",
 }: {
-  children: ReactNode;
+  children?: ReactNode;
   onSave: (data: FormData) => Promise<void>;
   label?: string;
   className?: string;
@@ -186,6 +186,12 @@ function SaveForm({
     e.preventDefault();
     if (lock.current) return;
     const form = e.currentTarget;
+    if (
+      form.closest(".account-settings")?.querySelector('form[aria-busy="true"]')
+    ) {
+      setError("Wait for the current account change before starting another.");
+      return;
+    }
     const f = new FormData(form);
     lock.current = true;
     setBusy(true);
@@ -212,7 +218,10 @@ function SaveForm({
     <form
       className={`workspace-form ${className}`}
       onSubmit={submit}
-      onChange={() => setSavedMessage("")}
+      onChange={(e) => {
+        e.currentTarget.dataset.dirty = "true";
+        setSavedMessage("");
+      }}
       aria-busy={busy}
     >
       <fieldset disabled={busy}>
@@ -224,6 +233,411 @@ function SaveForm({
         </div>
       </fieldset>
     </form>
+  );
+}
+function AuthEntry({
+  token = "",
+  claim = false,
+  onDone,
+}: {
+  token?: string;
+  claim?: boolean;
+  onDone: () => Promise<void>;
+}) {
+  return (
+    <section className="workspace-panel account-entry">
+      <Badge>Local test accounts</Badge>
+      <h2>
+        {claim
+          ? "Secure this test shop"
+          : token
+            ? "Accept staff invitation"
+            : "Sign in to your shop"}
+      </h2>
+      <p>
+        {claim
+          ? "Keep this shop, its catalogue and every saved appointment. Creating your owner account retires this shop’s browser-only access."
+          : token
+            ? "Use the email on your invitation. Your owner chooses your shop, staff profile and permissions."
+            : "Return to your existing shop from another browser using your local test account."}
+      </p>
+      <SaveForm
+        label={
+          claim
+            ? "Create owner account"
+            : token
+              ? "Accept invitation"
+              : "Sign in"
+        }
+        onSave={async (f) => {
+          const creating = claim || !!token;
+          await api(
+            `/auth/${claim ? "register" : token ? "accept" : "login"}`,
+            "POST",
+            {
+              email: text(f, "email"),
+              password: text(f, "password"),
+              ...(creating ? { name: text(f, "name") } : {}),
+              ...(token ? { token } : {}),
+            },
+          );
+          await onDone();
+        }}
+      >
+        {(claim || token) && (
+          <Field label="Your name">
+            <input
+              name="name"
+              autoComplete="name"
+              required
+              minLength={2}
+              maxLength={100}
+            />
+          </Field>
+        )}
+        <Field label="Account email">
+          <input
+            name="email"
+            type="email"
+            autoComplete="username"
+            required
+            maxLength={254}
+          />
+        </Field>
+        <Field label="Password">
+          <input
+            name="password"
+            type="password"
+            autoComplete={claim || token ? "new-password" : "current-password"}
+            required
+            minLength={claim || token ? 12 : 1}
+            maxLength={128}
+          />
+        </Field>
+      </SaveForm>
+      <p className="helper">
+        Fictional accounts only. Use a unique test password of at least 12
+        characters. Email verification, password recovery, MFA and customer
+        accounts are not connected.
+      </p>
+    </section>
+  );
+}
+type AccessMember = {
+  id: string;
+  name: string;
+  email: string;
+  staff_id: string | null;
+  role: string;
+  active: number;
+  version: number;
+};
+type StaffInvite = {
+  id: string;
+  staff_id: string;
+  email: string;
+  role: string;
+  expires_at: number;
+  accepted_at: number | null;
+  revoked: number;
+};
+function RoleOptions() {
+  return (
+    <>
+      <option value="BARBER">Barber · assigned appointments</option>
+      <option value="RECEPTION">Reception · all bookings</option>
+      <option value="MANAGER">Manager · shop operations</option>
+    </>
+  );
+}
+function AccountSettings({
+  w,
+  onDone,
+}: {
+  w: WorkspaceData;
+  onDone: () => Promise<void>;
+}) {
+  const [access, setAccess] = useState<{
+    members: AccessMember[];
+    invitations: StaffInvite[];
+  } | null>(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [link, setLink] = useState("");
+  const [revision, setRevision] = useState(0);
+  const account = w.account;
+  const root = useRef<HTMLElement>(null);
+  async function loadAccess() {
+    setAccess(await api("/auth/access"));
+    setError("");
+  }
+  useEffect(() => {
+    if (account?.role === "OWNER")
+      loadAccess().catch((e) => setError(e.message));
+  }, [account?.id]);
+  async function mutate(path: string, method: string, body: unknown) {
+    const result = await api<{ token?: string }>(path, method, body);
+    if (result.token)
+      setLink(`${location.origin}/workspace#invite=${result.token}`);
+    setNotice("Access change saved. No email or message was sent.");
+    try {
+      await loadAccess();
+    } catch {
+      setAccess(null);
+      setError(
+        "Saved, but access could not reload. Refresh access; do not repeat the saved action.",
+      );
+    }
+    return result;
+  }
+  if (!account) return <AuthEntry claim onDone={onDone} />;
+  return (
+    <section className="account-settings" ref={root}>
+      <header className="workspace-panel">
+        <Badge>{account.role} · local test</Badge>
+        <h2>Accounts & permissions</h2>
+        <p>
+          Signed in as <strong>{account.name}</strong> · {account.email}
+        </p>
+        <p>
+          Owners control access. Managers manage operations. Reception handles
+          all bookings. Barbers see and manage only their assigned appointments.
+        </p>
+        <SaveForm
+          label="Sign out"
+          onSave={async () => {
+            const others = [
+              ...(root.current?.querySelectorAll('form[data-dirty="true"]') ||
+                []),
+            ];
+            if (
+              others.length &&
+              !window.confirm("Discard unsaved account changes and sign out?")
+            )
+              return;
+            await api("/auth/logout", "POST", {});
+            await onDone();
+          }}
+        />
+      </header>
+      {notice && (
+        <p className="workspace-success" role="status">
+          {notice}
+        </p>
+      )}
+      <ErrorMessage error={error} />
+      <div className="account-grid">
+        <section className="workspace-panel">
+          <h3>Change password</h3>
+          <p>Changing your password signs out your other sessions.</p>
+          <SaveForm
+            key={revision}
+            label="Update password"
+            onSave={async (f) => {
+              await api("/auth/password", "POST", {
+                current_password: text(f, "current"),
+                password: text(f, "password"),
+              });
+              setNotice(
+                "Password changed. Other sessions have been signed out.",
+              );
+              setRevision((n) => n + 1);
+            }}
+          >
+            <Field label="Current password">
+              <input
+                name="current"
+                type="password"
+                autoComplete="current-password"
+                required
+                maxLength={128}
+              />
+            </Field>
+            <Field label="New password">
+              <input
+                name="password"
+                type="password"
+                autoComplete="new-password"
+                required
+                minLength={12}
+                maxLength={128}
+              />
+            </Field>
+          </SaveForm>
+        </section>
+        {account.role === "OWNER" && (
+          <section className="workspace-panel">
+            <h3>Invite staff</h3>
+            <p>
+              Choose an existing active team profile. Links expire after 48
+              hours and can be accepted once. No email is sent.
+            </p>
+            <SaveForm
+              label="Create invitation"
+              onSave={async (f) => {
+                await mutate("/auth/invites", "POST", {
+                  email: text(f, "email"),
+                  staff_id: text(f, "staff"),
+                  role: text(f, "role"),
+                });
+              }}
+            >
+              <Field label="Staff profile">
+                <select name="staff" required defaultValue="">
+                  <option value="" disabled>
+                    Choose staff profile
+                  </option>
+                  {w.staff
+                    .filter(
+                      (s) =>
+                        s.active &&
+                        !access?.members.some((m) => m.staff_id === s.id),
+                    )
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+              <Field label="Invitation email">
+                <input name="email" type="email" required maxLength={254} />
+              </Field>
+              <Field label="Invitation role">
+                <select name="role" defaultValue="BARBER">
+                  <RoleOptions />
+                </select>
+              </Field>
+            </SaveForm>
+            {link && (
+              <aside className="account-invite-link">
+                <Field label="Staff invitation link">
+                  <textarea
+                    readOnly
+                    value={link}
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                </Field>
+                <p>
+                  Copy now and open in a separate browser/private window. The
+                  token is shown only here; treat it as a secret.
+                </p>
+                <Button variant="ghost" onClick={() => setLink("")}>
+                  Hide invitation link
+                </Button>
+              </aside>
+            )}
+          </section>
+        )}
+      </div>
+      {account.role === "OWNER" && (
+        <section className="workspace-panel">
+          <h3>Team access</h3>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              if (root.current?.querySelector('form[aria-busy="true"]')) return;
+              if (
+                root.current?.querySelector('form[data-dirty="true"]') &&
+                !window.confirm("Discard unsaved access edits and refresh?")
+              )
+                return;
+              loadAccess()
+                .then(() => setRevision((n) => n + 1))
+                .catch((e) => setError(e.message));
+            }}
+          >
+            Refresh access
+          </Button>
+          {!access ? (
+            <p>Access list has not loaded. Use Refresh access.</p>
+          ) : (
+            <>
+              <div className="account-grid">
+                {access.members.map((m) => (
+                  <article
+                    className="account-member"
+                    key={`${m.id}-${m.version}-${revision}`}
+                  >
+                    <h4>{m.name}</h4>
+                    <p>{m.email}</p>
+                    {m.role === "OWNER" ? (
+                      <Badge>Owner · protected</Badge>
+                    ) : (
+                      <SaveForm
+                        label={`Save access for ${m.name}`}
+                        onSave={async (f) => {
+                          await mutate(`/auth/members/${m.id}`, "PUT", {
+                            role: text(f, "role"),
+                            active: Number(text(f, "active")),
+                            version: m.version,
+                          });
+                        }}
+                      >
+                        <Field label={`Role for ${m.name}`}>
+                          <select name="role" defaultValue={m.role}>
+                            <RoleOptions />
+                          </select>
+                        </Field>
+                        <Field label={`Access for ${m.name}`}>
+                          <select name="active" defaultValue={m.active}>
+                            <option value="1">Active</option>
+                            <option value="0">Suspended</option>
+                          </select>
+                        </Field>
+                      </SaveForm>
+                    )}
+                  </article>
+                ))}
+              </div>
+              <h3>Invitations</h3>
+              <p>
+                Latest 100 invitations. Issuing a replacement revokes the
+                previous link for that staff profile.
+              </p>
+              {access.invitations.length === 0 && <p>No invitations yet.</p>}
+              {access.invitations.map((i) => (
+                <article className="account-member" key={i.id}>
+                  <strong>{i.email}</strong>
+                  <p>
+                    {i.role} ·{" "}
+                    {i.accepted_at
+                      ? "Accepted"
+                      : i.revoked
+                        ? "Revoked"
+                        : i.expires_at <= Date.now()
+                          ? "Expired"
+                          : "Pending"}{" "}
+                    · expires {new Date(i.expires_at).toLocaleString("en-GB")}
+                  </p>
+                  {!i.accepted_at &&
+                    !i.revoked &&
+                    i.expires_at > Date.now() && (
+                      <SaveForm
+                        label={`Revoke invitation for ${i.email}`}
+                        onSave={async () => {
+                          await mutate(
+                            `/auth/invites/${i.id}/revoke`,
+                            "POST",
+                            {},
+                          );
+                          setLink("");
+                        }}
+                      />
+                    )}
+                </article>
+              ))}
+            </>
+          )}
+        </section>
+      )}
+      <Notice>
+        Local identity testing only: one shop per account. No customer identity,
+        email verification, recovery or live provider is enabled. Suspending
+        access or changing a role revokes that member’s sessions; deactivating
+        their team profile also blocks access.
+      </Notice>
+    </section>
   );
 }
 type Editor =
@@ -250,6 +664,40 @@ type Editor =
 
 export function Workspace() {
   const [data, setData] = useState<WorkspaceData | null>(null);
+  const [inviteToken, setInviteToken] = useState(
+    () => new URLSearchParams(location.hash.slice(1)).get("invite") || "",
+  );
+  useEffect(() => {
+    if (location.hash.startsWith("#invite="))
+      history.replaceState(null, "", location.pathname);
+  }, []);
+  async function accountChanged() {
+    ++loadSequence.current;
+    setData(null);
+    setEditor(null);
+    setTab("Appointments");
+    setBarber("");
+    setSearch("");
+    setStatusFilter("");
+    setNotice("");
+    setInviteToken("");
+    try {
+      await refresh();
+    } catch {
+      /* Refresh provides honest read recovery; never repeat auth mutation. */
+    }
+  }
+  function canNavigate() {
+    const main = document.getElementById("workspace-main");
+    if (main?.querySelector('form[aria-busy="true"]')) {
+      setNotice("Wait for the current save before changing screens.");
+      return false;
+    }
+    return (
+      !main?.querySelector('form[data-dirty="true"]') ||
+      window.confirm("Discard unsaved changes and leave this screen?")
+    );
+  }
   const [needsSession, setNeedsSession] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -273,6 +721,7 @@ export function Workspace() {
   const [loading, setLoading] = useState(true);
   const [stale, setStale] = useState(false);
   const loadSequence = useRef(0);
+  const identity = useRef("");
   async function refresh() {
     const sequence = ++loadSequence.current;
     setLoading(true);
@@ -301,6 +750,15 @@ export function Workspace() {
       if (sequence === loadSequence.current) {
         queriedDate.current = targetDate;
         setLoadedDate(targetDate);
+        const nextIdentity = `${w.shop.id}:${w.account?.id || "legacy"}:${w.account?.role || ""}`;
+        if (identity.current && identity.current !== nextIdentity) {
+          setEditor(null);
+          setTab("Appointments");
+          setSearch("");
+          setBarber("");
+          setStatusFilter("");
+        }
+        identity.current = nextIdentity;
         setData({ ...w, bookings });
         setNeedsSession(false);
         setError("");
@@ -313,6 +771,7 @@ export function Workspace() {
         if (e instanceof ApiError && e.status === 401) {
           setData(null);
           setEditor(null);
+          setTab("Appointments");
           setNeedsSession(true);
           setError("");
           setNotice(
@@ -527,37 +986,44 @@ export function Workspace() {
               "Settings",
               "Audit",
               "Accounts",
-            ].map((name, i) => (
-              <button
-                key={name}
-                type="button"
-                aria-current={tab === name ? "page" : undefined}
-                onClick={() => {
-                  setTab(name);
-                  setNotice("");
-                  setDirectorySearch("");
-                  setDirectoryStatus("");
-                }}
-              >
-                <Icon
-                  name={
-                    [
-                      "calendar",
-                      "users",
-                      "scissors",
-                      "settings",
-                      "shield",
-                      "user",
-                    ][i]
-                  }
-                />
-                {name}
-              </button>
-            ))}
+            ].map(
+              (name, i) =>
+                (!w?.account ||
+                  ["OWNER", "MANAGER"].includes(w.account.role) ||
+                  ["Appointments", "Accounts"].includes(name)) && (
+                  <button
+                    key={name}
+                    type="button"
+                    aria-current={tab === name ? "page" : undefined}
+                    onClick={() => {
+                      if (name === tab || !canNavigate()) return;
+                      setTab(name);
+                      setNotice("");
+                      setDirectorySearch("");
+                      setDirectoryStatus("");
+                    }}
+                  >
+                    <Icon
+                      name={
+                        [
+                          "calendar",
+                          "users",
+                          "scissors",
+                          "settings",
+                          "shield",
+                          "user",
+                        ][i]
+                      }
+                    />
+                    {name}
+                  </button>
+                ),
+            )}
           </nav>
           <p className="workspace-footnote">
-            Development access belongs to this browser for 7 days. This is not
-            production sign-in.
+            {w?.account
+              ? `${w.account.name} · ${w.account.role.toLowerCase()} · Local test account`
+              : "Browser test access · Claim your shop in Accounts to return from another browser."}
           </p>
           <details className="design-reference-links">
             <summary>Design references · sample only</summary>
@@ -615,7 +1081,10 @@ export function Workspace() {
               {notice}
             </p>
           )}
-          {needsSession && !w && (
+          {(inviteToken || (needsSession && !w)) && (
+            <AuthEntry token={inviteToken} onDone={accountChanged} />
+          )}
+          {needsSession && !w && !inviteToken && (
             <section className="workspace-panel workspace-welcome">
               <Icon name="store" size={40} />
               <h2>Start your test shop</h2>
@@ -627,6 +1096,7 @@ export function Workspace() {
               <SaveForm
                 label="Create test workspace"
                 onSave={async (f) => {
+                  await api("/auth/logout", "POST", {});
                   await api("/session", "POST", { name: text(f, "name") });
                   await refresh();
                 }}
@@ -650,7 +1120,7 @@ export function Workspace() {
           {!w && !needsSession && !error && (
             <p role="status">Loading local workspace…</p>
           )}
-          {w && (
+          {w && !inviteToken && (
             <>
               {w.issues.length > 0 && (
                 <Notice tone="warning">
@@ -1219,44 +1689,7 @@ export function Workspace() {
                 </div>
               )}
               {tab === "Accounts" && (
-                <section className="workspace-panel">
-                  <Badge>Access setup · not yet connected</Badge>
-                  <h2>Accounts & permissions</h2>
-                  <p>
-                    This browser currently has local test-owner access. Staff
-                    profiles and service eligibility are saved, but they are not
-                    sign-in accounts.
-                  </p>
-                  <div className="workspace-card-grid">
-                    {[
-                      {
-                        name: "Shop owner / admin",
-                        detail:
-                          "Planned: secure sign-in, shop setup, invitations, staff permissions and account recovery.",
-                      },
-                      {
-                        name: "Barber / staff",
-                        detail:
-                          "Planned: individual sign-in, assigned timetable, permitted customer details and own earnings.",
-                      },
-                      {
-                        name: "Customer",
-                        detail:
-                          "Planned: sign-up/sign-in or verified guest access, own bookings and secure booking history.",
-                      },
-                    ].map((role) => (
-                      <article key={role.name}>
-                        <h3>{role.name}</h3>
-                        <p>{role.detail}</p>
-                      </article>
-                    ))}
-                  </div>
-                  <Notice>
-                    No passwords are collected by this screen. Real account and
-                    permission flows are the next separate build; hiding buttons
-                    is not authorization.
-                  </Notice>
-                </section>
+                <AccountSettings w={w} onDone={accountChanged} />
               )}
               {tab === "Audit" && (
                 <section className="workspace-panel">

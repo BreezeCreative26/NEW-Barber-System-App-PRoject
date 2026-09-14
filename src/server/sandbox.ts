@@ -44,10 +44,13 @@ import {
   type AuditEvent,
 } from "./domain";
 
-type Env = {
-  Bindings: { DB: D1Database; APP_MODE?: string };
-  Variables: { shopId: string; actor: string };
-};
+import accounts, {
+  ACCOUNT_COOKIE,
+  resolveAccount,
+  readInput,
+  type AppEnv,
+} from "./accounts";
+type Env = AppEnv;
 type Ctx = Context<Env>;
 const sandbox = new Hono<Env>();
 const COOKIE = "barbershop_test_session";
@@ -66,24 +69,11 @@ const fail = (
 ): never => {
   throw new HTTPException(status, { message });
 };
-async function input<T>(c: Ctx, schema: z.ZodType<T>): Promise<T> {
-  const text = await c.req.text();
-  if (text.length > 16384) fail(413, "Request is too large");
-  let body: unknown;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    return fail(400, "Invalid JSON");
-  }
-  const parsed = schema.safeParse(body);
-  if (!parsed.success)
-    return fail(
-      400,
-      parsed.error.issues
-        .map((e) => `${e.path.join(".")}: ${e.message}`)
-        .join("; "),
-    );
-  return parsed.data;
+const input = readInput;
+function scopeStaff(c: Ctx, staffId: string) {
+  const a = c.get("account");
+  if (a?.role === "BARBER" && a.staff_id !== staffId)
+    fail(403, "Assigned barber access only");
 }
 function audit(
   c: Ctx,
@@ -121,6 +111,7 @@ async function readBooking(c: Ctx, bookingId: string) {
     .bind(c.get("shopId"), bookingId)
     .first<StoredBooking>();
   if (!b) return fail(404, "Booking not found");
+  scopeStaff(c, b.staff_id);
   return b;
 }
 async function checkVersionUpdate(
@@ -155,26 +146,58 @@ sandbox.use("*", async (c, next) => {
         403,
       );
   }
+  const accountToken = getCookie(c, ACCOUNT_COOKIE);
+  const account = accountToken ? await resolveAccount(c, accountToken) : null;
+  c.set("account", account);
   const token = getCookie(c, COOKIE);
-  const session = token
-    ? await c.env.DB.prepare(
-        "SELECT shop_id,token_hash FROM sandbox_sessions WHERE token_hash=? AND expires_at>?",
-      )
-        .bind(await hash(token), Date.now())
-        .first<{ shop_id: string; token_hash: string }>()
-    : null;
-  if (session) {
+  const session =
+    !accountToken && token
+      ? await c.env.DB.prepare(
+          "SELECT shop_id,token_hash FROM sandbox_sessions WHERE token_hash=? AND expires_at>? AND NOT EXISTS (SELECT 1 FROM shop_owners o WHERE o.shop_id=sandbox_sessions.shop_id)",
+        )
+          .bind(await hash(token), Date.now())
+          .first<{ shop_id: string; token_hash: string }>()
+      : null;
+  if (account) {
+    c.set("shopId", account.shop_id);
+    c.set("actor", `user:${account.user_id}`);
+  } else if (session) {
     c.set("shopId", session.shop_id);
     c.set("actor", `sandbox-owner:${session.token_hash.slice(0, 12)}`);
   }
-  if (!session && !(c.req.path.endsWith("/session") && c.req.method === "POST"))
+  const path = c.req.path.replace(/^\/api\/sandbox/, ""),
+    method = c.req.method;
+  const publicAuth =
+    method === "POST" &&
+    ["/auth/login", "/auth/accept", "/auth/logout"].includes(path);
+  const bootstrap = path === "/session" && method === "POST" && !accountToken;
+  if (!account && !session && !publicAuth && !bootstrap)
     return c.json(
       {
         error: "session_required",
-        message: "Create a local test workspace in this browser.",
+        message: "Sign in or create a local test workspace.",
       },
       401,
     );
+  if (account && !path.startsWith("/auth/")) {
+    const operational =
+      (method === "GET" &&
+        ["/workspace", "/bookings", "/availability"].includes(path)) ||
+      (method === "GET" && /^\/bookings\/[^/]+$/.test(path)) ||
+      (method === "POST" &&
+        (path === "/bookings" ||
+          /^\/bookings\/[^/]+\/(status|reschedule)$/.test(path))) ||
+      (method === "PATCH" && /^\/bookings\/[^/]+\/details$/.test(path));
+    const setup =
+      (method === "PUT" && path === "/shop") ||
+      (["POST", "PUT", "DELETE"].includes(method) &&
+        /^\/(staff|services|addons|holidays)(\/|$)/.test(path));
+    if (!(
+      operational ||
+      (["OWNER", "MANAGER"].includes(account.role) && setup)
+    ))
+      fail(403, "Your account cannot perform this operation");
+  }
   await next();
 });
 sandbox.onError((err, c) => {
@@ -182,6 +205,9 @@ sandbox.onError((err, c) => {
     return c.json({ error: err.message, message: err.message }, err.status);
   const message = String(err);
   const known = [
+    "account_changed",
+    "invitation_unavailable",
+    "owner_protected",
     "quote_changed",
     "staff_day_off",
     "service_ineligible",
@@ -219,6 +245,8 @@ sandbox.onError((err, c) => {
     500,
   );
 });
+
+sandbox.route("/auth", accounts);
 
 sandbox.post("/session", async (c) => {
   if (c.get("shopId"))
@@ -319,6 +347,9 @@ sandbox.get("/bookings", async (c) => {
     .safeParse(c.req.query());
   if (!parsed.success) return fail(400, "Invalid booking query");
   const q = parsed.data;
+  const account = c.get("account");
+  if (q.staff_id) scopeStaff(c, q.staff_id);
+  if (account?.role === "BARBER") q.staff_id = account.staff_id!;
   const conditions = ["shop_id=?", "date=?"];
   const values: (string | number)[] = [c.get("shopId"), q.date];
   if (q.staff_id) {
@@ -353,38 +384,45 @@ sandbox.get("/bookings", async (c) => {
 sandbox.get("/workspace", async (c) => {
   const sid = c.get("shopId");
   const shop = await readShop(c);
+  const account = c.get("account");
+  const assigned = account?.role === "BARBER" ? account.staff_id : null;
+  const scoped = (sql: string) =>
+    c.env.DB.prepare(sql).bind(sid, assigned, assigned);
   const result = await c.env.DB.batch([
-    c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? ORDER BY name").bind(
-      sid,
+    scoped(
+      "SELECT * FROM staff WHERE shop_id=? AND (? IS NULL OR id=?) ORDER BY name",
     ),
     c.env.DB.prepare(
       "SELECT * FROM services WHERE shop_id=? ORDER BY name",
     ).bind(sid),
-    c.env.DB.prepare(
-      "SELECT * FROM staff_hours WHERE shop_id=? ORDER BY staff_id,weekday",
-    ).bind(sid),
+    scoped(
+      "SELECT * FROM staff_hours WHERE shop_id=? AND (? IS NULL OR staff_id=?) ORDER BY staff_id,weekday",
+    ),
     c.env.DB.prepare(
       "SELECT * FROM holidays WHERE shop_id=? ORDER BY date",
     ).bind(sid),
+    scoped(
+      "SELECT * FROM bookings WHERE shop_id=? AND (? IS NULL OR staff_id=?) ORDER BY start_at DESC LIMIT 500",
+    ),
     c.env.DB.prepare(
-      "SELECT * FROM bookings WHERE shop_id=? ORDER BY start_at DESC LIMIT 500",
-    ).bind(sid),
-    c.env.DB.prepare(
-      "SELECT * FROM audit_events WHERE shop_id=? ORDER BY created_at DESC,rowid DESC LIMIT 200",
-    ).bind(sid),
-    c.env.DB.prepare(
-      "SELECT * FROM staff_days_off WHERE shop_id=? ORDER BY date,staff_id",
-    ).bind(sid),
+      "SELECT * FROM audit_events WHERE shop_id=? AND ?=1 ORDER BY created_at DESC,rowid DESC LIMIT 200",
+    ).bind(
+      sid,
+      !account || ["OWNER", "MANAGER"].includes(account.role) ? 1 : 0,
+    ),
+    scoped(
+      "SELECT * FROM staff_days_off WHERE shop_id=? AND (? IS NULL OR staff_id=?) ORDER BY date,staff_id",
+    ),
     c.env.DB.prepare("SELECT * FROM addons WHERE shop_id=? ORDER BY name").bind(
       sid,
     ),
     c.env.DB.prepare("SELECT * FROM addon_services WHERE shop_id=?").bind(sid),
-    c.env.DB.prepare("SELECT * FROM staff_service_rules WHERE shop_id=?").bind(
-      sid,
+    scoped(
+      "SELECT * FROM staff_service_rules WHERE shop_id=? AND (? IS NULL OR staff_id=?)",
     ),
-    c.env.DB.prepare(
-      "SELECT * FROM staff_schedule_overrides WHERE shop_id=? ORDER BY date",
-    ).bind(sid),
+    scoped(
+      "SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND (? IS NULL OR staff_id=?) ORDER BY date",
+    ),
   ]);
   const staff = result[0].results as Staff[];
   const services = result[1].results as Service[];
@@ -396,9 +434,9 @@ sandbox.get("/workspace", async (c) => {
   const overrides = result[10].results as ScheduleOverride[];
   // Impact warnings must not inherit the display snapshot's 500-record cap.
   const future = await c.env.DB.prepare(
-    "SELECT * FROM bookings WHERE shop_id=? AND start_at>? AND status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') ORDER BY start_at,id",
+    "SELECT * FROM bookings WHERE shop_id=? AND (? IS NULL OR staff_id=?) AND start_at>? AND status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') ORDER BY start_at,id",
   )
-    .bind(sid, Date.now())
+    .bind(sid, assigned, assigned, Date.now())
     .all<StoredBooking>();
   const issues = future.results
     .filter(
@@ -439,6 +477,7 @@ sandbox.get("/workspace", async (c) => {
     });
   return c.json({
     shop,
+    account,
     staff,
     services,
     hours,
@@ -910,6 +949,7 @@ async function availabilityContext(
   serviceId: string,
   date: string,
 ) {
+  scopeStaff(c, staffId);
   const sid = c.get("shopId");
   const shop = await readShop(c);
   const result = await c.env.DB.batch([
@@ -1060,6 +1100,7 @@ sandbox.post("/bookings", async (c) => {
     )
       .bind(sid, b.request_id)
       .first<StoredBooking>();
+    if (existing) scopeStaff(c, existing.staff_id);
     if (existing && existing.request_hash !== requestHash)
       fail(409, "idempotency_payload_changed");
     return existing;
