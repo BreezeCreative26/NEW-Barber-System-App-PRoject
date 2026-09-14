@@ -1,6 +1,14 @@
 # Barbershop OS — Progress and next-session handoff
 
-## Latest — one project, every view; fixture pages removed (2026-09-14)
+## Latest — design system + new shell (2026-09-14)
+
+- **Design system is now code.** `public/static/design.css` holds every token (`:root`) and the shared components from the approved mockups: top bar, icon rail, phone tab bar (+ More sheet), toolbar, wallet hero, KPI and method tiles, transaction row, status pill, block icons, blocked-time fill, card, right drawer. `docs/DESIGN.md` documents tokens, components, screen patterns and the definition of done. React primitives in `ui.tsx`: `TopBar`, `Rail`, `TabBar`, `WalletHero`, `KPI`, `TxRow`, `StatusPill`, `BlockIcons`; 20 new Lucide icons registered.
+- **Shell migrated.** Workspace now renders `TopBar` (brand, search, "Local test data" pill, wallet chip = booked value today, bell = schedule issues, account pill), a 64 px `Rail` on ≥768 (Audit + Accounts pinned bottom, tooltips) and a `TabBar` on phones (Today · Insights · **+** · Customers · More → Team/Services/Settings/Audit/Accounts). Old text sidebar and banner removed. The FAB opens New booking. Top bar never overflows (text truncates/hides; checked at 200 % zoom).
+- **Guardrails (`npm run test:design`, part of `npm test`):** design.css may only use raw colours inside `:root`; no emoji anywhere in `src/`; no stray stylesheets; legacy `style.css` is frozen at its current line count (`tests/design-legacy-cap.txt`) and may only shrink. **Visual baselines (`npm run test:visual`):** owner calendar at 1440/768/390, entry hub, public booking — in `tests/__screenshots__/`; any change fails until refreshed deliberately.
+- Tests: shared `section()` helper (fixture.ts) handles rail vs tab bar vs More sheet and the Today/Appointments alias; accounts nav expectations updated for both layouts. Full gate: tsc, design guardrails PASS, vitest 26, D1 PASS, **Playwright 103 passed / 1 skipped / 0 failed**. Evidence `docs/evidence/v7-shell-{1440,768,390}.png`, `v7-shell-390-more.png`; axe clean, no overflow.
+- Next slice: checkout that records payments (cart → tip → method) and the shop wallet drawer + barber Today/Wallet screens built from these components.
+
+## Earlier — one project, every view; fixture pages removed (2026-09-14)
 
 - Deleted the static design-fixture surfaces: `/preview/admin|book|barber` routes, `src/client/{Admin,Book,Barber}.tsx`, `PreviewBar`/`StateEnvelope`/`Scenario` in ui.tsx, the sample data in `fixtures.ts` (now only `money`/`time`/`datePlus`/`dateLabel`), `tests/preview.spec.ts` and the fixture unit tests. Root `/` now always redirects to `/workspace`; unknown pages 404 with a pointer to `/workspace`, `/book/<shop>`, `/manage/<token>`. Client bundle 749 kB → 645 kB.
 - `main.tsx` is a single router: `/book/:slug` → PublicBooking, `/manage/:token` → ManageBooking, everything else → Workspace.

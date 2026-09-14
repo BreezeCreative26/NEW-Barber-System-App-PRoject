@@ -1,5 +1,6 @@
 import { test, expect, request, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { section } from "./fixture";
 const origin = "http://localhost:3000";
 const base = origin + "/api/sandbox";
 function day(offset = 5) {
@@ -17,12 +18,6 @@ async function enter(page: Page) {
   await expect(
     page.getByRole("heading", { name: "No matching appointments" }),
   ).toBeVisible();
-}
-async function section(page: Page, name: string) {
-  await page
-    .getByRole("navigation", { name: "Workspace sections" })
-    .getByRole("button", { name, exact: true })
-    .click();
 }
 
 test("day reads page deterministic ties, reject invalid queries and isolate tenants beyond the legacy 500 cap", async () => {

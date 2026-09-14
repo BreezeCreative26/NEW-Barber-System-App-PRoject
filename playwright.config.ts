@@ -10,6 +10,8 @@ const runDir = `test-results/runs/${runId}`;
 const workers = Number(process.env.PW_WORKERS || Math.max(2, cpus().length * 2));
 export default defineConfig({
   outputDir: `${runDir}/artifacts`,
+  // Visual baselines live with the tests, one per screen (no platform suffix so the repo has one truth).
+  snapshotPathTemplate: "tests/__screenshots__/{testFileName}/{arg}{ext}",
   testDir: "./tests",
   testMatch: "**/*.spec.ts",
   timeout: 45_000,

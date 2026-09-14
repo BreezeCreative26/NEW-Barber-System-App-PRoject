@@ -20,9 +20,18 @@ export async function openFixtureShop(page: Page, as: "owner" | "barber" = "owne
   return body;
 }
 
+// Phone tab bar labels the calendar "Today"; desktop rail labels it "Appointments".
+const PHONE_ALIAS: Record<string, string> = { Appointments: "Today" };
 export async function section(page: Page, name: string) {
-  await page
-    .getByRole("navigation", { name: "Workspace sections" })
-    .getByRole("button", { name, exact: true })
-    .click();
+  const nav = page.getByRole("navigation", { name: "Workspace sections" });
+  for (const label of [name, PHONE_ALIAS[name]].filter(Boolean) as string[]) {
+    const direct = nav.getByRole("button", { name: label, exact: true });
+    if (await direct.count()) {
+      await direct.click();
+      return;
+    }
+  }
+  // Phone: remaining sections live behind the More sheet.
+  await nav.getByTestId("tab-more").click();
+  await nav.getByRole("menuitem", { name, exact: true }).click();
 }

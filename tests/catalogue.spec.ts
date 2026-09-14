@@ -6,6 +6,7 @@ import {
   type Page,
 } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { section } from "./fixture";
 import type { WorkspaceData, BookingItem } from "../src/server/domain";
 const origin = "http://localhost:3000",
   base = origin + "/api/sandbox";
@@ -393,12 +394,6 @@ async function enter(page: Page) {
   await expect(
     page.getByRole("button", { name: "New booking", exact: true }),
   ).toBeVisible();
-}
-async function section(page: Page, name: string) {
-  await page
-    .getByRole("navigation", { name: "Workspace sections" })
-    .getByRole("button", { name, exact: true })
-    .click();
 }
 async function save(page: Page, name = "Save changes") {
   await page

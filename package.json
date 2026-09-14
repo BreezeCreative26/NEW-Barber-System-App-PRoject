@@ -10,7 +10,9 @@
     "test:e2e": "playwright test",
     "test:area": "playwright test --reporter=line",
     "test:db": "node tests/d1-invariants.mjs",
-    "test": "npm run typecheck && npm run test:unit && npm run test:db && npm run test:e2e",
+    "test:design": "node tests/design-guardrails.mjs",
+    "test:visual": "playwright test tests/visual.spec.ts --reporter=line",
+    "test": "npm run typecheck && npm run test:design && npm run test:unit && npm run test:db && npm run test:e2e",
     "preview": "wrangler pages dev",
     "deploy": "npm run build && wrangler pages deploy",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings"

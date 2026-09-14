@@ -5,6 +5,7 @@ import {
   type APIRequestContext,
 } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { section } from "./fixture";
 import { readFileSync } from "node:fs";
 import type { WorkspaceData } from "../src/server/domain";
 const origin = "http://localhost:3000",
@@ -542,7 +543,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
       page.getByRole("button", { name: "New booking", exact: true }),
     ).toBeVisible();
     const w = await (await page.request.get(base + "/workspace")).json();
-    await page.getByRole("button", { name: "Accounts", exact: true }).click();
+    await section(page, "Accounts");
     await page
       .getByLabel("Your name", { exact: true })
       .fill("Fictional UI Owner");
@@ -554,7 +555,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     await expect(
       page.getByRole("button", { name: "New booking", exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Accounts", exact: true }).click();
+    await section(page, "Accounts");
     await expect(
       page.getByRole("heading", { name: "Team access", exact: true }),
     ).toBeVisible();
@@ -601,11 +602,22 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
       staffPage.getByRole("button", { name: "New booking", exact: true }),
     ).toBeVisible();
     // Barbers see Appointments, their own Insights and Customers, and Accounts only.
-    await expect(
-      staffPage
-        .getByRole("navigation", { name: "Workspace sections" })
-        .getByRole("button"),
-    ).toHaveText(["Appointments", "Insights", "Customers", "Accounts"]);
+    const staffNav = staffPage.getByRole("navigation", { name: "Workspace sections" });
+    const staffLabels = width < 768
+      ? await (async () => {
+          const shown = await staffNav.getByRole("button").allTextContents();
+          if (await staffNav.getByTestId("tab-more").count()) {
+            await staffNav.getByTestId("tab-more").click();
+            const more = await staffNav.getByRole("menuitem").allTextContents();
+            await staffNav.getByTestId("tab-more").click();
+            return [...shown.filter((t) => t && t !== "More"), ...more];
+          }
+          return shown.filter(Boolean);
+        })()
+      : await staffNav.getByRole("button").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") || e.textContent || ""));
+    expect(staffLabels.map((t) => t.trim()).filter(Boolean)).toEqual(
+      width < 768 ? ["Today", "Insights", "Customers", "Accounts"] : ["Appointments", "Insights", "Customers", "Accounts"],
+    );
     const assigned = await (
       await staffPage.request.get(base + "/workspace")
     ).json();
@@ -625,9 +637,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     await expect(
       staffPage.getByRole("button", { name: "New booking", exact: true }),
     ).toBeVisible();
-    await staffPage
-      .getByRole("button", { name: "Accounts", exact: true })
-      .click();
+    await section(staffPage, "Accounts");
     await expect(
       staffPage.getByRole("heading", { name: "Invite staff", exact: true }),
     ).toHaveCount(0);

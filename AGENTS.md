@@ -13,6 +13,7 @@ User direction, 2026-09-14: stop repeated long planning/notes cycles; plan brief
 
 ## Preserve these boundaries
 
+- **Design system:** every UI change follows `docs/DESIGN.md` — compose from `ui.tsx` primitives and `design.css` tokens, Lucide icons only, one primary action per surface, `data-testid` on new controls, phone-first for staff surfaces and desktop-first for owner surfaces. `npm run test:design` and `npm run test:visual` must pass; refresh visual baselines only deliberately. New areas get a static mock in `docs/mockups/` and approval before build.
 - One product UI: original shell, calendar/navigation and the OLLO palette (periwinkle accent, navy ink, cool canvas; tokens in `:root`). When editing a CSS section, swap its hard-coded hexes for tokens as you go. `/workspace` is the app and its entry hub opens every surface (owner, barber, customer booking `/book/<slug>`, customer manage `/manage/<token>`) against the single shared Demo Barbershop. There are no separate fixture/preview pages; do not add any, and do not create a fake customer/staff login.
 - Local D1 and fictional data only. No production deployment, provider activation, charges, messages, bank transfers or public GitHub push. Development preview is not production.
 - Model A: each shop receives haircut money; owners pay barbers externally. Future manual pay-runs calculate/export/record, not hold wallets or initiate barber transfers. SaaS subscription money is separate.

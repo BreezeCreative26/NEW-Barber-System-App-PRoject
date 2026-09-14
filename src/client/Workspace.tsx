@@ -21,7 +21,7 @@ import type {
   Holiday,
   StaffDayOff,
 } from "../server/domain";
-import { Brand, Button, Icon, Modal, Notice, Badge, Avatar } from "./ui";
+import { Brand, Button, Icon, Modal, Notice, Badge, Avatar, TopBar, Rail, TabBar, type NavItem } from "./ui";
 import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, type CalendarDraft, type RangeBooking } from "./Calendar";
@@ -1084,6 +1084,37 @@ export function Workspace() {
   const activeBookings = filteredBookings.filter(
     (b) => !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
+  const manager = !w?.account || ["OWNER", "MANAGER"].includes(w.account.role);
+  const navItems: NavItem[] = [
+    { key: "Appointments", label: "Appointments", icon: "calendar" },
+    { key: "Insights", label: "Insights", icon: "trend" },
+    { key: "Customers", label: "Customers", icon: "contact" },
+    ...(manager
+      ? [
+          { key: "Team", label: "Team", icon: "users" },
+          { key: "Services", label: "Services", icon: "scissors" },
+          { key: "Settings", label: "Settings", icon: "settings" },
+          { key: "Audit", label: "Audit", icon: "shield" },
+        ]
+      : []),
+    { key: "Accounts", label: "Accounts", icon: "userRound" },
+  ];
+  const phoneNav: NavItem[] = [
+    { key: "Appointments", label: "Today", icon: "sun" },
+    { key: "Insights", label: "Insights", icon: "trend" },
+    { key: "Customers", label: "Customers", icon: "contact" },
+  ];
+  const phoneMore = navItems.filter((n) => !phoneNav.some((p) => p.key === n.key));
+  function goTo(name: string) {
+    if (name === tab || !canNavigate()) return;
+    setTab(name);
+    setNotice("");
+    setDirectorySearch("");
+    setDirectoryStatus("");
+  }
+  const todayRows = (w?.bookings || []).filter((b) => b.date === (w?.today || "") && !["CANCELLED", "NO_SHOW"].includes(b.status));
+  const todayTaken = todayRows.reduce((n, b) => n + b.price_pence, 0);
+  const todayVisits = todayRows.length;
   const directoryFilters = (
     <section className="workspace-toolbar" aria-label="Directory filters">
       <Field label={tab === "Team" ? "Search team" : "Search catalogue"}>
@@ -1119,70 +1150,69 @@ export function Workspace() {
       <a className="skip-link" href="#workspace-main">
         Skip to content
       </a>
-      <header className="workspace-banner">
-        <span>
-          <strong>LOCAL TEST WORKSPACE</strong> · Fictional data only
+      <TopBar
+        onSearch={() => {
+          if (!w) return;
+          if (tab !== "Appointments" && !canNavigate()) return;
+          setTab("Appointments");
+          setTimeout(() => (document.querySelector<HTMLInputElement>('[aria-label="Search appointments"]') || document.querySelector<HTMLInputElement>('input[placeholder*="Name, phone"]'))?.focus(), 50);
+        }}
+        wallet={
+          w
+            ? {
+                amount: money(todayTaken),
+                caption: `Booked today · ${todayVisits} visit${todayVisits === 1 ? "" : "s"}`,
+              }
+            : null
+        }
+        onWallet={() => {
+          if (tab !== "Insights" && canNavigate()) setTab("Insights");
+        }}
+        bell={w ? { count: w.issues.length } : null}
+        onBell={() => {
+          if (tab !== "Appointments" && canNavigate()) setTab("Appointments");
+        }}
+        account={
+          w
+            ? {
+                initials: initialsOf(w.account?.name || w.shop.name),
+                name: w.account?.name || w.shop.name,
+                caption: w.account ? `${w.shop.name} · ${w.account.role.toLowerCase()}` : "Browser test access",
+              }
+            : null
+        }
+        onAccount={() => {
+          if (tab !== "Accounts" && canNavigate()) setTab("Accounts");
+        }}
+      >
+        <span className="topbar-env" title="Local test workspace: fictional data only, no live payments or messages">
+          <Icon name="shield" size={14} /> Local test data
         </span>
-        <span>No live payments or messages</span>
-      </header>
+      </TopBar>
       <div className="workspace-layout">
-        <aside className="workspace-sidebar">
-          <Brand light />
-          <p className="workspace-shop">
-            {w?.shop.name || "Build better days."}
-          </p>
-          <nav aria-label="Workspace sections">
-            {[
-              "Appointments",
-              "Insights",
-              "Customers",
-              "Team",
-              "Services",
-              "Settings",
-              "Audit",
-              "Accounts",
-            ].map(
-              (name, i) =>
-                (!w?.account ||
-                  ["OWNER", "MANAGER"].includes(w.account.role) ||
-                  ["Appointments", "Insights", "Customers", "Accounts"].includes(name)) && (
-                  <button
-                    key={name}
-                    type="button"
-                    aria-current={tab === name ? "page" : undefined}
-                    onClick={() => {
-                      if (name === tab || !canNavigate()) return;
-                      setTab(name);
-                      setNotice("");
-                      setDirectorySearch("");
-                      setDirectoryStatus("");
-                    }}
-                  >
-                    <Icon
-                      name={
-                        [
-                          "calendar",
-                          "trend",
-                          "user",
-                          "users",
-                          "scissors",
-                          "settings",
-                          "shield",
-                          "user",
-                        ][i]
-                      }
-                    />
-                    {name}
-                  </button>
-                ),
-            )}
-          </nav>
-          <p className="workspace-footnote">
-            {w?.account
-              ? `${w.account.name} · ${w.account.role.toLowerCase()} · Local test account`
-              : "Browser test access · Claim your shop in Accounts to return from another browser."}
-          </p>
-        </aside>
+        <Rail
+          items={navItems.filter((n) => n.key !== "Audit" && n.key !== "Accounts")}
+          bottom={navItems.filter((n) => n.key === "Audit" || n.key === "Accounts")}
+          current={tab}
+          onSelect={goTo}
+        />
+        <TabBar
+          items={phoneNav}
+          more={phoneMore}
+          current={tab}
+          onSelect={goTo}
+          fab={{
+            label: "Add appointment",
+            disabled: !w || !online,
+            onClick: () => {
+              if (!w) return;
+              if (tab !== "Appointments" && !canNavigate()) return;
+              setTab("Appointments");
+              if (tab === "Appointments" && !stale && !loading) setEditor({ kind: "booking" });
+              else setTimeout(() => document.querySelector<HTMLButtonElement>('[data-testid="new-booking"]')?.click(), 120);
+            },
+          }}
+        />
         <main id="workspace-main" className="workspace-main">
           <header className="workspace-heading">
             <div>
@@ -1403,6 +1433,7 @@ export function Workspace() {
                         <Button
                           disabled={!online || stale || loading}
                           onClick={() => setEditor({ kind: "booking" })}
+                          data-testid="new-booking"
                         >
                           <Icon name="plus" />
                           New booking

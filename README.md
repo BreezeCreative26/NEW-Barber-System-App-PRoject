@@ -14,6 +14,10 @@ OLLO is one connected barbershop platform in development: booking, shop operatio
 
 **Sign-in behind the preview proxy:** the sandbox proxy rewrites the request scheme, so the browser's `Origin` (`https://…`) never matched the worker's view (`http://…`) and every write returned 403 "origin". `sameOrigin` now compares hosts (request host, `Host`, `X-Forwarded-Host`), trusts `Sec-Fetch-Site: same-origin/same-site`, falls back to the `Referer` host when `Origin` is absent, and honours an `ALLOWED_ORIGINS` allowlist; foreign origins still get 403. `GET /api/origin-check` echoes what the worker sees for diagnosis.
 
+## Design system
+
+`docs/DESIGN.md` is the source of truth (tokens, components, screen patterns, definition of done); `public/static/design.css` + `src/client/ui.tsx` implement it; `docs/mockups/` hold the approved reference renders. Enforced by `npm run test:design` (tokens only, no emoji, frozen legacy sheet) and `npm run test:visual` (screenshot baselines). Shell: top bar (search · wallet chip · bell · account), icon rail on desktop, tab bar with centre **+** on phones.
+
 ## Working features
 
 - **Service studio (new):** Services tab is a two-pane studio — searchable category groups of colour-coded service cards (Popular / In shop only / Inactive badges, price · minutes · barbers offering · upcoming count) with an inline editor: Details (name, category, description shown online, duration, price, order, calendar colour, Bookable online / Popular / Active switches), **Barbers & pricing** (one matrix of every active barber: offers on/off, price and duration overrides, Reset, single **Save barber rules** through `PUT /service-rules`), and Add-ons linked to the service. Add-on chips open the existing add-on editor. Non-online services never appear on `/book/<slug>` or in public availability; owners can still book them.

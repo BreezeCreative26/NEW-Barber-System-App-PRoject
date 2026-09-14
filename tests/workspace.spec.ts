@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { openFixtureShop, origin, base } from "./fixture";
+import { openFixtureShop, origin, base, section } from "./fixture";
 test("initial network failure retries in place and unexpected HTML has a useful recovery message", async ({
   page,
 }) => {
@@ -338,12 +338,6 @@ async function enter(page: Page) {
   await expect(
     page.getByRole("heading", { name: "No matching appointments" }),
   ).toBeVisible();
-}
-async function section(page: Page, name: string) {
-  await page
-    .getByRole("navigation", { name: "Workspace sections" })
-    .getByRole("button", { name, exact: true })
-    .click();
 }
 async function save(page: Page) {
   await page
