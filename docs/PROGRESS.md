@@ -1,6 +1,6 @@
 # Barbershop OS — Progress and next-session handoff
 
-Updated 2026-09-14. Current package: **WP-LOCAL-01 — local persistent functionality**. Next: **WP-LOCAL-02 — catalogue completeness and scheduling overrides**.
+Updated 2026-09-14 at verified 12:08 UTC test run. **WP-LOCAL-01 and recovery hardening verified locally.** Next: **WP-LOCAL-02 — catalogue completeness and scheduling overrides**. Current code captured by `732a6ec` auto-backup; handoff updates committed separately.
 
 ## Read this first
 
@@ -22,7 +22,11 @@ The application is no longer only a design preview. `/workspace` now uses local 
 - Check-in -> in service -> completed; cancellation/no-show require reason; no-show grace checked by server. Service completion never implies payment.
 - Append-only attributed audit, optimistic version rejection and no booking deletion.
 - Validated forms, pending states, server error recovery, preserved inputs, mobile layouts and keyboard/focus handling.
-- Subsequent local hardening includes reviewed service/shop quote versions and audited/versioned customer-detail corrections; see current router and tests for the exact contract.
+- Reviewed service/shop quote versions reject stale confirmation; audited/versioned contact and notes corrections retain all commercial snapshots.
+- Appointment status filter; team/catalogue name/category/role search, active/inactive filters, deactivation and reactivation.
+- Initial network/HTML proxy failures offer Retry workspace, without navigation or full reload. Availability has independent retry; draft contact fields survive errors.
+- Save success followed by failed read is labelled saved; retry refresh does not repeat the mutation. Lost booking responses replay the same request key and create only one booking.
+- Stale editor recovery explicitly discards unsaved fields and loads the latest record; no forced page reload. Browser reconnection refreshes workspace data.
 
 ## Architecture and safety evidence
 
@@ -56,13 +60,14 @@ The application is no longer only a design preview. `/workspace` now uses local 
 | TypeScript | Passed on latest inspected source | `npm run typecheck` |
 | Unit/route/domain | 36 passed: 23 preview + 13 local boundary/time/schema tests | `tests/fixtures.test.ts`, `tests/domain.test.ts` |
 | Direct local D1 invariants | Passed independently of API pre-checks | `npm run test:db`, `tests/d1-invariants.mjs` |
-| Full browser/API suite | Latest inspected full report: 38 passed, 0 failed/skipped/flaky | `test-results/runs/1789387470837-20621/results.json`, start 2026-09-14 12:04:30 UTC |
-| Prior full regression | 37 passed before the additional quote/detail test | Full `npm run test` output from this package |
+| Full browser/API suite | **45 passed, 0 failed/skipped/flaky** | `test-results/runs/1789387696509-24664/results.json`, start 2026-09-14 12:08:16 UTC, duration 90.53s |
+| Mutation endpoint coverage | All **13** POST/PUT/PATCH/DELETE routes covered by source-derived inventory; matching Origin, session and invalid-input checks pass | `tests/sandbox.spec.ts` |
 | Persisted UI workflow | Create staff/service/hours/settings/closure, reload, book, move, check in/start/complete, audit | `tests/workspace.spec.ts` |
 | Tenant/API/concurrency | Cross-shop reads/mutations, strict payloads, stale versions, idempotency, rollback, status/no-show, schedule impacts | `tests/sandbox.spec.ts` |
 | Responsive | 320/390/768/1024/1440 widths, all workspace sections, no page overflow | Workspace Playwright cases |
 | Accessibility | Zero violations in tested workspace/booking-dialog axe scans and original preview scans; dialog Escape/focus return passed | Browser suite; not full WCAG certification |
-| Failure recovery | Forced server error keeps service inputs; retry saves; offline notice makes no queued-save claim | Workspace recovery test |
+| Failure recovery | Initial fetch abort, HTML 502, post-save read failure, dropped booking response, availability retry, quote change and stale editor all recover in-page; saved/reload behaviour preserved | `tests/workspace.spec.ts` |
+| Staff/service lifecycle | Create/edit, directory search/status filters, inactive state, reactivation and refresh persistence pass | Workspace lifecycle test |
 | Visual inspection | Desktop and phone workspace plus phone booking dialog inspected; no clipping/overlap found; matte palette retained | `docs/evidence/workspace-1440.png`, `workspace-390.png`, `workspace-booking-390.png` |
 | Dependency audit | Zero reported vulnerabilities in package audit | `npm audit --audit-level=high` |
 | Secret exclusion | `.dev.vars` ignored; local DB/artifacts ignored | `git check-ignore .dev.vars` |
@@ -104,6 +109,7 @@ Continue the same local database and matte UI. Do not rebuild the shell.
 
 ## Explicit limitations / blockers
 
+- Only booking creation has payload-key idempotency. For an interrupted staff/service/closure create response, refresh and inspect records before repeating the create. Do not claim all mutations are retry-idempotent.
 - Test session lasts seven days. No account recovery, logout/session-management UI or automatic old-test-data cleanup. Do not enter real personal data or expose this as commercial authentication.
 - Workspace loads latest 500 bookings/200 audit events; pagination is still needed. Availability uses scoped database records independently of this display cap.
 - London-only schedules; no full multi-zone support. Buffer/grace/deposit/cancellation are provisional local settings; final production policy decisions remain open.

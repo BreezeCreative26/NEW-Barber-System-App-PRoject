@@ -14,6 +14,7 @@ These project instructions establish continuity; they do not override higher-pri
 ## Non-negotiable product decisions
 
 - D-012 controls: keep the current matte colours and rounded components. WP-001-A-R1 recolouring is cancelled. Functionality first; no production deployment or live providers.
+- D-012 controls: preserve the current matte colours; build functionality first, local D1 and fictional test records only. WP-001-A-R1 recolouring is cancelled. No live deployment, messages, payments or bank transfers.
 - Multi-tenant SaaS: public booking, web admin, barber PWA, secure customer access and platform operations.
 - Model A: each shop receives customer money; owner segregates funds and pays barbers outside this app initially.
 - Manual pay-runs calculate/export/record. They do not initiate bank payments. No stored-money wallet or automatic barber Stripe payout claims.
