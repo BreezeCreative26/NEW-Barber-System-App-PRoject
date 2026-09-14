@@ -10,6 +10,15 @@ Version 1.3 · 2026-09-14 · D-014 confirms the original preview's layout, navig
 - Give users one obvious main app entry. Keep any fixture-only scenarios clearly marked and outside ordinary functional navigation. A redirect back to fixture screens alone is not the fix.
 - Compare before/after screenshots with the original design at desktop, tablet and phone sizes; verify both visual continuity and persistence/recovery. Do not claim that visually restoring a calendar connects its data.
 
+## E1 implemented pattern (D-018)
+
+- A single calendar panel groups title/date context, primary booking action, Day/Agenda, date navigation and filters; selected-day search scope is explicit. Keep original matte tokens and shell. Do not propagate into unrelated screens until review.
+- Timetable cell spacing is 44px per 15 minutes, with exact service/buffer geometry and labelled buffer bands. Five-minute events retain a 24px minimum, deliberately larger than their true plotted duration; full details and agenda are available. Do not claim every dense event meets a 44px touch target.
+- Event hierarchy: time/name, service where space permits, textual status (15+ minutes), price (45+ minutes). Full accessible label/details preserve short-event information. Staff colours remain stable under filters; hidden cards never release occupied chair time.
+- Native buttons, not incomplete ARIA grid semantics: one free-slot tab stop per barber, arrows/Home/End for navigation, Enter/Space for activation, ordinary Tab for appointments/exit, Escape returns from the untouched draft. Availability remains server-authoritative.
+- Focus context must not shift a pressed target between pointer-down and click. Slot-origin summary inside the draft is historical context, not a reservation or stale current selection.
+- Five-width automated checks and actual desktop/mobile images are in PROGRESS. Physical device/screen-reader/usability acceptance remains outstanding.
+
 ## 1. Definition of excellent design
 
 The product must feel deliberately composed, calm, fast and trustworthy. Premium means the right information and action at the right moment, readable hierarchy and precise behaviour—not excessive animation, decorative charts or dozens of cards.

@@ -1,8 +1,31 @@
 # Barbershop OS — Progress and next-session handoff
 
-Updated 2026-09-14 for **D-017 — review enhancements to the existing app before further building**. Runtime remains at d6cb261, the connected calendar slice. New feature/account development is paused while the user reviews BUILD_PLAN section 14. It proposes E1 calendar/shell polish, E2 booking/save safety, E3 team/catalogue/schedules, E4 settings/activity/performance and E5 acceptance. No pass is authorized or implemented by this plan. Sections 12/13 remain the broader roadmap, not the immediate build instruction.
+Updated 2026-09-14 for **D-018 — E1 built and verified locally**. The user said “yes build” and asked for coordinated parallel tasks. This supersedes D-017's pause; no planning reset. E1 extends the same original-style persisted `/workspace`, preserving matte colours, records, APIs and all booking guards. No new identity/payment module or production deployment.
 
-Planning-only validation: clean baseline checked, current connected-calendar/agenda evidence re-inspected, existing project plan/decision/handoff updated; runtime sources, schema, tests and feature statuses unchanged. No new regression run, visual fix or deployment claimed. Existing 42-unit/direct-D1/60-browser results below remain the latest application evidence.
+## Latest delivery — E1 calendar controls, cards and keyboard use
+
+- `Workspace.tsx`: consolidated calendar command/date/filter panel, persistent date/view/filter choices, selected-day search/result scope and explicit Clear filters. New booking remains prominent; a timetable-origin summary keeps the initial barber/date/time distinct from current edited form fields.
+- `Calendar.tsx`: 44px 15-minute cells; clearer time/name/service/status hierarchy, stable barber colours when filtering, exact labelled buffer bands even when appointment cards are filtered out, past/break/leave/closure/off-duty presentation. One free-slot tab stop per barber, directional/Home/End navigation, Enter activation, focus restoration and native appointment buttons. Focus movement performs no mutation and cells are never advertised as guaranteed service availability.
+- Scoped CSS retains original matte tokens. Fixed a first-pass focus-message layout shift that consumed pointer clicks; context now sits below the grid and describes the last focused time, not an assertion that an already-saved visit is unreserved. Increased spacing and bottom-aligned buffer labels resolve short-card clipping. Unfocused skip link is clipped to avoid its offscreen appearance in full-page captures; focused skip-link semantics are unchanged.
+- Eight new cases in `tests/calendar.spec.ts`: keyboard traversal over booked/buffer/break time and no extra booking, filter/colour/hidden-occupancy continuity, past/leave/closure presentation, and populated five-width long-name/5/15/30/60-minute calendar/agenda checks. Existing lifecycle, 503-record pagination, recovery and tenant/DB tests retained.
+
+### E1 verification and evidence
+
+- Focused final calendar suite: **14/14 passed**, report `test-results/runs/1789393976709-58771/results.json`.
+- **Final unchanged-source regression:** build → typecheck → **42 unit/route/domain passed** → direct local D1 invariants passed → **68 browser/API passed**, zero failed/skipped/flaky → unchanged before/after source hash → dependency audit (0 reported vulnerabilities) → diff check. Exit 0. Report `test-results/runs/1789394389773-60993/results.json`, started **2026-09-14 13:59:49.778 UTC**, duration **132.329s**. Worker 141.76 kB (42.60 gzip); client JS 513.68 kB (122.08 gzip).
+- Populated layouts tested at **320/390/768/1024/1440px** with automated axe and no document overflow. CSS 200% zoom reflow and reduced-motion preference checked; not physical browser/device certification. Timeline is deliberately horizontally scrollable on phones; agenda/form remain alternatives. Five-minute cards retain 24px minimum, full accessible labels/details and agenda, not all inline metadata.
+- Actual final-source desktop calendar, 320px timetable, 390px agenda and 390px draft screenshots inspected, with earlier connected-calendar/agenda images retained for comparison. Saved E1 evidence: `docs/evidence/e1-calendar-{320,390,768,1024,1440}.png`, `e1-agenda-390.png`, `e1-slot-draft-390.png`. No known text/control overlap in inspected final captures; long timeline names intentionally ellipsize.
+- HTTPS preview independently browser-tested: create isolated fictional workspace → updated controls → New booking/availability → Escape close, zero page errors. URL remains `https://3000-iz3aw7n21l3edjgvt4bkj-5c13a017.sandbox.novita.ai/workspace` (temporary sandbox only).
+- Parallelism actually used: independent inspection tools, full-suite two-worker tests in isolated tenants, and read-only visual/external-preview verification alongside regression. One coordinated source owner; no coding subagents, schema change, migrations, dependency additions, live providers or deployment. No existing user's records were reset.
+- Initial failures were resolved, not omitted: first pointer checks failed due to focus-message movement; first keyboard break test incorrectly assumed a 13:00 break instead of the seeded 12:45. Corrected UI and test fixture expectation before final green runs.
+
+### Next work and remaining gates
+
+Review E1 in the running preview before propagating new presentation patterns. Next enhancement package is **E2: booking/review/detail/reschedule clarity and wider settings/navigation draft protection**, not another E1 planning reset or simultaneous account rewrite. Then E3 team/catalogue/schedules, E4 settings/activity/measured performance, E5 acceptance. Section 13's account/session/permission roadmap remains separate and unimplemented; keep owner capability honestly labelled.
+
+Physical touch/screen-reader/user acceptance, many-barber performance, full week/month and drag/drop remain unproved/unimplemented. Early/backdated completion policy is unchanged and still open. Feature register remains **189 unique requirements: 53 implementing / 136 not_started**, all original 125 C/B/A IDs preserved, no production-verified/accepted rows. E1 concerns A-02/A-12 and existing booking/detail/move/closure/leave/break foundations; these broader requirements are not upgraded merely by local UI regression.
+
+The following sections retain the prior d6cb261 delivery and historical evidence; they are not a second current app or the latest test counts.
 
 ## Read this first
 

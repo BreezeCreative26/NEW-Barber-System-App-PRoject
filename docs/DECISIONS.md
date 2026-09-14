@@ -103,6 +103,15 @@ User asks: “before we build anymore can you give me a comprehsieve plan on how
 
 Provide an existing-app-only enhancement plan covering original-style calendar/navigation, appointment actions, team/catalogue/individual prices, schedules, settings, feedback, accessibility and reliability. Preserve saved data, backend invariants and matte design. BUILD_PLAN section 14 contains proposed E1..E5 passes and acceptance checks. Do not implement them or start authentication/payments/new modules until the user authorizes further building. Planning and document commits are not runtime changes or acceptance of the proposals.
 
+### D-018 — Resume building with coordinated E1 calendar enhancements
+
+User: “yes build, can we have a few tasks running at once or not, we need to build this up so it all interlinks as one ultimate comprehensive platform#”. This supersedes D-017's implementation pause. The stated immediate package is E1: compact calendar controls, clearer cards/slot selection and keyboard/mobile improvements in the existing `/workspace` application.
+
+- Preserve original UI identity, matte colours, persisted APIs/data/guards and Model A; no new major module, production deployment or provider activation.
+- Use independent inspection and verification in parallel. One integration owner controls shared source, bookings, permissions and schema. Do not equate parallel tool calls with multiple coding agents. No coding subagents were launched for E1.
+- Calendar focus is navigation only. Click/Enter opens the existing reviewed draft and authoritative availability; no new holds, payments or client-authoritative booking rules.
+- Stop after E1 for review before propagating its presentation pattern. E2–E5 and the later local account/permission roadmap remain linked follow-ons, not completed or simultaneous work.
+
 ## Proposed architecture decisions
 
 ### D-004 — Modular monolith on Hono / D1 / R2

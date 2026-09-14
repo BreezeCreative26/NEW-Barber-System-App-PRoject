@@ -701,112 +701,144 @@ export function Workspace() {
                       </article>
                     ))}
                   </section>
-                  <section className="workspace-toolbar">
-                    <Field label="Appointment date">
-                      <input
-                        type="date"
-                        value={date}
-                        onChange={(e) => setDate(e.target.value)}
-                      />
-                    </Field>
-                    <Field label="Barber filter">
-                      <select
-                        value={barber}
-                        onChange={(e) => setBarber(e.target.value)}
-                      >
-                        <option value="">All barbers</option>
-                        {w.staff.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Status filter">
-                      <select
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                      >
-                        <option value="">All statuses</option>
-                        {Object.entries(labels).map(([key, label]) => (
-                          <option key={key} value={key}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Search appointments">
-                      <input
-                        placeholder="Name, phone or reference"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                      />
-                    </Field>
-                    <Button
-                      disabled={!online || stale || loading}
-                      onClick={() => setEditor({ kind: "booking" })}
-                    >
-                      <Icon name="plus" />
-                      New booking
-                    </Button>
-                  </section>
-                  <div className="workspace-day">
-                    <Button
-                      variant="ghost"
-                      aria-label="Previous day"
-                      onClick={() => setDate(datePlus(date || w.today, -1))}
-                    >
-                      <Icon name="left" />
-                    </Button>
-                    <strong>
-                      {date
-                        ? new Intl.DateTimeFormat("en-GB", {
-                            dateStyle: "full",
-                          }).format(new Date(date + "T12:00:00Z"))
-                        : "Choose a date"}
-                    </strong>
-                    <Button
-                      variant="ghost"
-                      aria-label="Next day"
-                      onClick={() => setDate(datePlus(date || w.today, 1))}
-                    >
-                      <Icon name="right" />
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={() => setDate(w.today)}
-                    >
-                      Today
-                    </Button>
-                  </div>
                   <section
                     className="calendar-card connected-calendar"
                     aria-label="Appointment calendar"
                   >
-                    <header className="calendar-toolbar">
-                      <div>
+                    <header className="calendar-toolbar calendar-command-bar">
+                      <div className="calendar-date-heading">
                         <h2>Your timetable</h2>
-                        <p>Saved appointments · Europe/London</p>
+                        <p>
+                          {date
+                            ? new Intl.DateTimeFormat("en-GB", {
+                                dateStyle: "full",
+                              }).format(new Date(date + "T12:00:00Z"))
+                            : "Choose a date"}{" "}
+                          · London time
+                        </p>
                       </div>
-                      <div className="segmented" aria-label="Calendar view">
-                        <button
-                          type="button"
-                          aria-pressed={calendarView === "day"}
-                          onClick={() => setCalendarView("day")}
+                      <div className="calendar-primary-actions">
+                        <div className="segmented" aria-label="Calendar view">
+                          <button
+                            type="button"
+                            aria-pressed={calendarView === "day"}
+                            onClick={() => setCalendarView("day")}
+                          >
+                            <Icon name="calendar" size={16} />
+                            Day timetable
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={calendarView === "agenda"}
+                            onClick={() => setCalendarView("agenda")}
+                          >
+                            <Icon name="list" size={16} />
+                            Agenda
+                          </button>
+                        </div>
+                        <Button
+                          disabled={!online || stale || loading}
+                          onClick={() => setEditor({ kind: "booking" })}
                         >
-                          <Icon name="calendar" size={16} />
-                          Day timetable
-                        </button>
-                        <button
-                          type="button"
-                          aria-pressed={calendarView === "agenda"}
-                          onClick={() => setCalendarView("agenda")}
-                        >
-                          <Icon name="list" size={16} />
-                          Agenda
-                        </button>
+                          <Icon name="plus" />
+                          New booking
+                        </Button>
                       </div>
                     </header>
+                    <div className="calendar-controls">
+                      <div className="calendar-date-controls">
+                        <Field label="Appointment date">
+                          <input
+                            type="date"
+                            value={date}
+                            onChange={(e) => {
+                              if (e.target.value) setDate(e.target.value);
+                            }}
+                          />
+                        </Field>
+                        <div className="calendar-day-actions">
+                          <Button
+                            variant="ghost"
+                            aria-label="Previous day"
+                            onClick={() =>
+                              setDate(datePlus(date || w.today, -1))
+                            }
+                          >
+                            <Icon name="left" />
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            onClick={() => setDate(w.today)}
+                          >
+                            Today
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            aria-label="Next day"
+                            onClick={() =>
+                              setDate(datePlus(date || w.today, 1))
+                            }
+                          >
+                            <Icon name="right" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="calendar-filters">
+                        <Field label="Barber filter">
+                          <select
+                            value={barber}
+                            onChange={(e) => setBarber(e.target.value)}
+                          >
+                            <option value="">All barbers</option>
+                            {w.staff.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                        <Field label="Status filter">
+                          <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                          >
+                            <option value="">All statuses</option>
+                            {Object.entries(labels).map(([key, label]) => (
+                              <option key={key} value={key}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                        <Field label="Search appointments">
+                          <input
+                            placeholder="Name, phone or reference"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                    <div className="calendar-filter-summary">
+                      <span>
+                        {dayReady
+                          ? `${filteredBookings.length} matching appointment${filteredBookings.length === 1 ? "" : "s"}`
+                          : "Loading appointments…"}{" "}
+                        · Selected-day search only
+                      </span>
+                      {(barber || statusFilter || search) && (
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setBarber("");
+                            setStatusFilter("");
+                            setSearch("");
+                          }}
+                        >
+                          Clear filters
+                        </Button>
+                      )}
+                    </div>
                     {date && <WeekStrip date={date} onDate={setDate} />}
                     {!dayReady ? (
                       <p role="status" className="calendar-empty">
@@ -2322,6 +2354,22 @@ function BookingForm({
         }
       }}
     >
+      {draft && (
+        <aside
+          className="booking-slot-origin"
+          aria-label="Timetable starting point"
+        >
+          <strong>Started from the timetable</strong>
+          <p>
+            {w.staff.find((s) => s.id === draft.staffId)?.name} · {initialDate}{" "}
+            · {time(draft.start)}
+          </p>
+          <p>
+            This was your starting point, not a reservation. The fields below
+            show your current selection.
+          </p>
+        </aside>
+      )}
       <div onChange={() => setReview(false)}>
         <div className="workspace-form-grid">
           <Field label="Barber">

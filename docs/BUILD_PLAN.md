@@ -1,6 +1,6 @@
 # Barbershop OS — Build plan
 
-Version: 1.4 · Updated: 2026-09-14 · D-012/D-014/D-015: enhance the original interface, connect persisted functionality, retain matte colours, nothing live. Connected original-style day timetable and integrated local setup are now implemented; customer/barber identity and journey consolidation remains incomplete. See section 13 for delivered scope and next account/permission packages. WP-001-A-R1 recolouring remains cancelled. Production SaaS is not complete.
+Version: 1.5 · Updated: 2026-09-14 · D-018 resumes building after D-017's pause. E1 enhances the connected original-style timetable and local setup; see section 14 and PROGRESS for delivery/evidence, then review before E2. D-012/D-014 preserve matte colours, original layout and nothing live. Section 13 retains the later account/permission roadmap; customer/barber identity and operational integration remain incomplete. WP-001-A-R1 recolouring stays cancelled. Production SaaS is not complete.
 
 **Current comprehensive enhancement plan:** [Section 12 — feature-by-feature improvements, delivery order and acceptance](#12-comprehensive-enhancement-and-modernisation-plan). Earlier sections preserve the architecture, Model A, original requirements, milestones and decisions; section 12 makes their next execution concrete rather than restarting the plan.
 
@@ -595,4 +595,15 @@ For every affected screen capture: original and revised view, five-size layout c
 
 Success is improved task completion and fewer mistakes—not more cards or controls. Use a small representative owner/barber usability review, record friction/time/errors and prioritize observed blockers. Any task-time target is provisional until measured; no market-leading performance is asserted.
 
-**Current action: review this plan only. No application changes or new modules until the user authorizes the next build pass.**
+**D-018 supersedes the planning pause above:** the user has authorized building. E1 is implemented in the same connected workspace; current evidence and limitations are recorded in PROGRESS. Review this visible result before extending its patterns to E2. No account/payment/provider work is included in E1.
+
+### E1 delivery — integrated calendar enhancement (2026-09-14)
+
+- Consolidated the separate toolbar/date/view rows into one calendar panel. Retained date picker, Previous/Next/Today, week-date strip, barber/status/search, Day/Agenda and New booking. Added selected-day search scope/result count and Clear filters; date/view changes keep filters until explicitly cleared.
+- Increased timeline cell spacing to 44px per 15 minutes; time/name then service/status hierarchy is now readable on 15/30/60-minute cards. Five-minute visits retain a 24px minimum and full accessible name/details/agenda alternative, rather than falsely claiming physical-duration-sized touch targets. Barber colours no longer change when filtering.
+- Labelled exact buffer bands independently of card filters, and explained free chair time versus service-specific availability. Hidden appointments still block cells. Break/leave/closure/outside/past-time labels describe presentation only; the unchanged server is the authority.
+- One free-slot tab stop per barber; arrows navigate free slots/barbers, Home/End jump within a barber, Enter opens the existing draft, Escape returns focus and Tab exits to appointment buttons. No incomplete ARIA grid or pointer-only feature. Starting barber/date/time is retained in a clearly historical draft summary, distinct from edited selections.
+- Eight additional browser cases cover keyboard traversal and no mutation, filter/colour/occupancy continuity, unavailable states and populated 320/390/768/1024/1440 layouts including 5/15/30/60-minute cards, long names, axe and CSS 200% zoom reflow. Full unchanged-source regression is recorded in PROGRESS.
+- Independent inspections and read-only verification ran in parallel; automated full-suite cases use two workers and isolated fictional tenants. Shared UI edits/builds were coordinated; no schema/API changes, conflicting build during tests, divergent app or coding subagents.
+
+Remaining: E2 workflow/navigation draft safety, E3 directories/schedules, E4 settings/audit/performance and E5 acceptance. Physical touch devices, screen-reader usability and final user acceptance remain outstanding. Agenda/form are still the better narrow-screen alternatives to a horizontally scrolling resource grid. No full week/month, drag/drop, authentication, payments or PWA implied.
