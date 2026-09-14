@@ -261,7 +261,7 @@ export function AppointmentPanel({
           {/* Appointment details */}
           <section className="panel-card" aria-label="Appointment details">
             <div className="panel-barber">
-              <Avatar initials={initials(barber?.name || "?")} colour={["sage", "sand", "blue", "clay"][Math.max(0, w.staff.findIndex((s) => s.id === booking.staff_id)) % 4]} />
+              <Avatar initials={initials(barber?.name || "?")} colour={barber?.colour || "sage"} />
               <div>
                 <strong>{barber?.name || "Unknown barber"}</strong>
                 <small>{barber?.role}</small>

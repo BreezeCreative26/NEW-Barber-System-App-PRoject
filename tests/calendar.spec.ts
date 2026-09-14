@@ -187,49 +187,54 @@ test("timetable click prefills saved booking; reschedule and cancellation update
   ).toBeEnabled();
 });
 
-test("multiple pricing drafts survive individual save and dirty dismissal is explicit", async ({
+test("barber rule matrix: multi-row draft saves together, revert is explicit and leaving with edits is guarded", async ({
   page,
 }) => {
   await enter(page);
   await section(page, "Team");
-  await page
+  const editor = page.getByTestId("barber-editor");
+  await page.getByTestId("team-card").first().click();
+  const barber = (await editor.getByRole("heading", { level: 2 }).textContent())!.trim();
+  await editor
     .getByRole("button", { name: "Services & pricing", exact: true })
-    .first()
     .click();
-  await page.getByLabel("Signature cut price override (£)").fill("33");
-  await page.getByLabel("Skin fade price override (£)").fill("39");
+  await page.getByLabel(`${barber} price for Signature cut`).fill("33");
+  await page.getByLabel(`${barber} price for Skin fade`).fill("39");
+  await page.getByRole("button", { name: "Revert", exact: true }).click();
+  await expect(page.getByLabel(`${barber} price for Skin fade`)).toHaveValue("");
+  await page.getByLabel(`${barber} price for Signature cut`).fill("33");
+  await page.getByLabel(`${barber} price for Skin fade`).fill("39");
   await page
-    .getByRole("button", { name: "Save Signature cut rule", exact: true })
+    .getByRole("button", { name: "Save barber rules", exact: true })
     .click();
-  await expect(
-    page.getByText("This service rule is saved. Other unsaved edits are kept."),
-  ).toBeVisible();
-  await expect(page.getByLabel("Skin fade price override (£)")).toHaveValue(
-    "39",
-  );
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(editor.getByRole("status")).toContainText("saved");
+  await page.reload();
+  await section(page, "Team");
+  await page.getByTestId("team-card").first().click();
+  await editor
+    .getByRole("button", { name: "Services & pricing", exact: true })
+    .click();
+  await expect(page.getByLabel(`${barber} price for Skin fade`)).toHaveValue("39");
+  await expect(page.getByLabel(`${barber} price for Signature cut`)).toHaveValue("33");
+  await page.getByLabel(`${barber} price for Skin fade`).fill("50");
+  await editor.getByRole("button", { name: "Profile", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("unsaved changes");
   await page.getByRole("button", { name: "Keep editing", exact: true }).click();
+  await expect(page.getByLabel(`${barber} price for Skin fade`)).toHaveValue("50");
+  await page.getByRole("button", { name: "All barbers", exact: true }).click();
   await page
-    .getByRole("button", { name: "Save Skin fade rule", exact: true })
+    .getByRole("button", { name: "Discard changes and continue", exact: true })
     .click();
-  await expect(
-    page.getByText("This service rule is saved. Other unsaved edits are kept."),
-  ).toHaveCount(2);
-  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
-  await expect(page.getByRole("dialog")).not.toBeVisible();
-  await page
-    .getByRole("button", { name: "Services & pricing", exact: true })
-    .first()
-    .click();
-  await expect(page.getByLabel("Skin fade price override (£)")).toHaveValue(
-    "39",
-  );
-  await page.getByLabel("Skin fade price override (£)").fill("50");
-  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
-  await page.getByRole("button", { name: "Discard changes and close" }).click();
-  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(editor).toHaveCount(0);
+  const w = await (await page.request.get("/api/sandbox/workspace")).json();
+  const fade = w.services.find((s: { name: string }) => s.name === "Skin fade");
+  const who = w.staff.find((s: { name: string }) => s.name === barber);
+  expect(
+    w.service_rules.find(
+      (r: { service_id: string; staff_id: string }) =>
+        r.service_id === fade.id && r.staff_id === who.id,
+    ).price_pence,
+  ).toBe(3900);
 });
 
 test("incomplete day or workspace responses have recovery without false empty calendar", async ({

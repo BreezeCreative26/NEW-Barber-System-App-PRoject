@@ -21,7 +21,7 @@ type PublicShop = {
     booking_window_days: number;
     version: number;
   };
-  staff: { id: string; name: string; role: string }[];
+  staff: { id: string; name: string; role: string; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[];
   services: {
     id: string;
     name: string;
@@ -29,6 +29,9 @@ type PublicShop = {
     duration_min: number;
     price_pence: number;
     version: number;
+    description?: string;
+    colour?: string;
+    popular?: number;
   }[];
   addons: { id: string; name: string; price_pence: number; duration_min: number }[];
   addon_links: { addon_id: string; service_id: string }[];
@@ -666,12 +669,15 @@ export function PublicBooking({ slug }: { slug: string }) {
                           setSlot(null);
                         }}
                       >
-                        <span className={`service-thumb ${thumbs[i % thumbs.length]}`}>
+                        <span className={`service-thumb ${s.colour || thumbs[i % thumbs.length]}`}>
                           <Icon name="scissors" size={25} />
                         </span>
                         <span className="service-copy">
-                          <strong>{s.name}</strong>
-                          <span>{s.category}</span>
+                          <strong>
+                            {s.name}
+                            {s.popular ? <em className="popular-pill">Popular</em> : null}
+                          </strong>
+                          <span>{s.description || s.category}</span>
                           <small>
                             <Icon name="clock" size={12} />
                             {s.duration_min} min
@@ -783,8 +789,8 @@ export function PublicBooking({ slug }: { slug: string }) {
                           setSlot(null);
                         }}
                       >
-                        <div className={`barber-portrait ${colours[i % colours.length]}`}>
-                          <span>{initials(b.name)}</span>
+                        <div className={`barber-portrait ${b.colour || colours[i % colours.length]}`}>
+                          {b.photo_url ? <img src={b.photo_url} alt="" className="barber-photo" /> : <span>{initials(b.name)}</span>}
                           <Icon name="scissors" size={38} />
                           <span className="portrait-selected">
                             <Icon name={barber === b.id ? "check" : "plus"} size={16} />
@@ -793,7 +799,15 @@ export function PublicBooking({ slug }: { slug: string }) {
                         <span className="barber-choice-name">
                           <strong>{b.name}</strong>
                         </span>
-                        <span className="barber-role">{b.role}</span>
+                        <span className="barber-role">{b.title || b.role}</span>
+                        {b.bio && <span className="barber-bio">{b.bio}</span>}
+                        {b.skills && (JSON.parse(b.skills) as string[]).length > 0 && (
+                          <span className="barber-skills">
+                            {(JSON.parse(b.skills) as string[]).slice(0, 3).map((k) => (
+                              <em key={k}>{k}</em>
+                            ))}
+                          </span>
+                        )}
                         <span className="barber-rate">
                           {money(e.price)}
                           <span>

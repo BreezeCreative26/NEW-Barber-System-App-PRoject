@@ -185,11 +185,7 @@ export function Calendar({
                     .map((n) => n[0])
                     .slice(0, 2)
                     .join("")}
-                  colour={
-                    ["sage", "sand", "blue", "clay"][
-                      w.staff.findIndex((member) => member.id === s.id) % 4
-                    ]
-                  }
+                  colour={s.colour || ["sage", "sand", "blue", "clay"][w.staff.findIndex((member) => member.id === s.id) % 4]}
                 />
                 <div>
                   <strong>{s.name}</strong>
@@ -263,9 +259,7 @@ export function Calendar({
                 enabledSlots.find(
                   (slot) => slot.start === activeSlots[`${date}:${s.id}`],
                 )?.start ?? enabledSlots[0]?.start;
-              const colour = ["sage", "sand", "blue", "clay"][
-                w.staff.findIndex((member) => member.id === s.id) % 4
-              ];
+              const colour = s.colour || ["sage", "sand", "blue", "clay"][w.staff.findIndex((member) => member.id === s.id) % 4];
               return (
                 <div className="barber-column" key={s.id}>
                   {slots.map(({ start, reason, busy }, n) => {
@@ -496,7 +490,7 @@ export function WeekView({
       Math.max(0, h.break_end - h.break_start)
     );
   };
-  const colour = (i: number) => ["sage", "sand", "blue", "clay"][i % 4];
+  const colour = (i: number) => staff[i]?.colour || ["sage", "sand", "blue", "clay"][i % 4];
   return (
     <div className="week-view" aria-busy={loading}>
       <div className="week-view-head">

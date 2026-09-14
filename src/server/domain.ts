@@ -24,6 +24,15 @@ export type Staff = {
   role: string;
   active: number;
   version: number;
+  title: string;
+  bio: string;
+  colour: string;
+  photo_url: string;
+  online_visible: number;
+  skills: string;
+  instagram: string;
+  start_date: string | null;
+  sort_order: number;
 };
 export type Service = {
   id: string;
@@ -34,6 +43,11 @@ export type Service = {
   price_pence: number;
   active: number;
   version: number;
+  description: string;
+  colour: string;
+  online_bookable: number;
+  popular: number;
+  sort_order: number;
 };
 export type Addon = {
   id: string;
@@ -208,12 +222,24 @@ export const customerSchema = z
     version: version.optional(),
   })
   .strict();
+export const colourSchema = z.enum(["sage", "sand", "blue", "clay", "plum", "slate"]);
 export const staffSchema = z
   .object({
     name,
     role: z.string().trim().min(2).max(50),
     active: active.default(1),
     version: version.optional(),
+    title: z.string().trim().max(60).default(""),
+    bio: z.string().trim().max(600).default(""),
+    colour: colourSchema.default("sage"),
+    photo_url: z
+      .union([z.literal(""), z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "Use an https:// image address")])
+      .default(""),
+    online_visible: active.default(1),
+    skills: z.array(z.string().trim().min(1).max(30)).max(12).default([]),
+    instagram: z.string().trim().max(40).regex(/^@?[A-Za-z0-9._]*$/, "Instagram handle only").default(""),
+    start_date: z.union([z.literal(""), dateSchema]).default(""),
+    sort_order: z.number().int().min(0).max(999).default(0),
   })
   .strict();
 export const serviceSchema = z
@@ -224,6 +250,30 @@ export const serviceSchema = z
     price_pence: z.number().int().min(0).max(100000),
     active: active.default(1),
     version: version.optional(),
+    description: z.string().trim().max(400).default(""),
+    colour: colourSchema.default("sage"),
+    online_bookable: active.default(1),
+    popular: active.default(0),
+    sort_order: z.number().int().min(0).max(999).default(0),
+  })
+  .strict();
+// Batch of per-barber rules for one service (or one barber): the service studio matrix.
+export const ruleMatrixSchema = z
+  .object({
+    rules: z
+      .array(
+        z
+          .object({
+            staff_id: z.string().uuid(),
+            service_id: z.string().uuid(),
+            enabled: active,
+            price_pence: z.number().int().min(0).max(100000).nullable().default(null),
+            duration_min: z.number().int().min(5).max(240).nullable().default(null),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(200),
   })
   .strict();
 export const addonSchema = z

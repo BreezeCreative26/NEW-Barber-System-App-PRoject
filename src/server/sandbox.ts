@@ -23,6 +23,7 @@ import {
   onlineBookingSchema,
   seriesSchema,
   customerSchema,
+  ruleMatrixSchema,
   type Customer,
   bookingDetailsSchema,
   dayOffSchema,
@@ -209,7 +210,7 @@ sandbox.use("*", async (c, next) => {
     const setup =
       (method === "PUT" && ["/shop", "/shop/online"].includes(path)) ||
       (["POST", "PUT", "DELETE"].includes(method) &&
-        /^\/(staff|services|addons|holidays)(\/|$)/.test(path));
+        /^\/(staff|services|addons|holidays|service-rules)(\/|$)/.test(path));
     if (!(
       operational ||
       (["OWNER", "MANAGER"].includes(account.role) && setup)
@@ -989,8 +990,8 @@ sandbox.post("/staff", async (c) => {
   const shop = await readShop(c);
   const writes = [
     c.env.DB.prepare(
-      "INSERT INTO staff(id,shop_id,name,role,active) VALUES(?,?,?,?,?)",
-    ).bind(staffId, sid, b.name, b.role, b.active),
+      "INSERT INTO staff(id,shop_id,name,role,active,title,bio,colour,photo_url,online_visible,skills,instagram,start_date,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    ).bind(staffId, sid, b.name, b.role, b.active, b.title, b.bio, b.colour, b.photo_url, b.online_visible, JSON.stringify(b.skills), b.instagram.replace(/^@/, ""), b.start_date || null, b.sort_order),
   ];
   for (let day = 0; day < 7; day++)
     writes.push(
@@ -1017,11 +1018,20 @@ sandbox.put("/staff/:id", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE staff SET name=?,role=?,active=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
+      "UPDATE staff SET name=?,role=?,active=?,title=?,bio=?,colour=?,photo_url=?,online_visible=?,skills=?,instagram=?,start_date=?,sort_order=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
     ).bind(
       b.name,
       b.role,
       b.active,
+      b.title,
+      b.bio,
+      b.colour,
+      b.photo_url,
+      b.online_visible,
+      JSON.stringify(b.skills),
+      b.instagram.replace(/^@/, ""),
+      b.start_date || null,
+      b.sort_order,
       c.get("shopId"),
       c.req.param("id"),
       b.version,
@@ -1138,7 +1148,7 @@ sandbox.post("/services", async (c) => {
   const serviceId = id();
   await c.env.DB.batch([
     c.env.DB.prepare(
-      "INSERT INTO services(id,shop_id,name,category,duration_min,price_pence,active) VALUES(?,?,?,?,?,?,?)",
+      "INSERT INTO services(id,shop_id,name,category,duration_min,price_pence,active,description,colour,online_bookable,popular,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
     ).bind(
       serviceId,
       c.get("shopId"),
@@ -1147,6 +1157,11 @@ sandbox.post("/services", async (c) => {
       b.duration_min,
       b.price_pence,
       b.active,
+      b.description,
+      b.colour,
+      b.online_bookable,
+      b.popular,
+      b.sort_order,
     ),
     audit(c, "service", serviceId, "SERVICE_CREATED"),
   ]);
@@ -1158,13 +1173,18 @@ sandbox.put("/services/:id", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE services SET name=?,category=?,duration_min=?,price_pence=?,active=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
+      "UPDATE services SET name=?,category=?,duration_min=?,price_pence=?,active=?,description=?,colour=?,online_bookable=?,popular=?,sort_order=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
     ).bind(
       b.name,
       b.category,
       b.duration_min,
       b.price_pence,
       b.active,
+      b.description,
+      b.colour,
+      b.online_bookable,
+      b.popular,
+      b.sort_order,
       c.get("shopId"),
       c.req.param("id"),
       b.version,
@@ -1249,6 +1269,33 @@ async function saveAddon(c: Ctx, addonId: string, editing: boolean) {
 }
 sandbox.post("/addons", (c) => saveAddon(c, id(), false));
 sandbox.put("/addons/:id", (c) => saveAddon(c, c.req.param("id"), true));
+// Service studio matrix: save every barber's rule for a service (or every service for a barber) at once.
+// Rules with no override and enabled=1 are removed (back to shop default).
+sandbox.put("/service-rules", async (c) => {
+  const b = await input(c, ruleMatrixSchema);
+  const sid = c.get("shopId");
+  const staffIds = [...new Set(b.rules.map((r) => r.staff_id))];
+  const serviceIds = [...new Set(b.rules.map((r) => r.service_id))];
+  const staffRows = await c.env.DB.prepare(`SELECT id FROM staff WHERE shop_id=? AND id IN (${staffIds.map(() => "?").join(",")})`).bind(sid, ...staffIds).all();
+  if (staffRows.results.length !== staffIds.length) fail(404, "Barber not found");
+  await validateServiceLinks(c, serviceIds);
+  const statements: D1PreparedStatement[] = [];
+  for (const r of b.rules) {
+    const isDefault = r.enabled === 1 && r.price_pence === null && r.duration_min === null;
+    statements.push(
+      isDefault
+        ? c.env.DB.prepare("DELETE FROM staff_service_rules WHERE shop_id=? AND staff_id=? AND service_id=?").bind(sid, r.staff_id, r.service_id)
+        : c.env.DB.prepare(
+            "INSERT INTO staff_service_rules(shop_id,staff_id,service_id,enabled,price_pence,duration_min) VALUES(?,?,?,?,?,?) ON CONFLICT(shop_id,staff_id,service_id) DO UPDATE SET enabled=excluded.enabled,price_pence=excluded.price_pence,duration_min=excluded.duration_min,version=version+1",
+          ).bind(sid, r.staff_id, r.service_id, r.enabled, r.price_pence, r.duration_min),
+    );
+  }
+  const subject = serviceIds.length === 1 ? ["service", serviceIds[0]] : ["staff", staffIds[0]];
+  statements.push(audit(c, subject[0], subject[1], "SERVICE_RULES_UPDATED", `${b.rules.length} barber/service rule(s) saved from the studio.`));
+  await c.env.DB.batch(statements);
+  const rules = await c.env.DB.prepare("SELECT * FROM staff_service_rules WHERE shop_id=?").bind(sid).all();
+  return c.json({ service_rules: rules.results });
+});
 sandbox.put("/staff/:id/services/:serviceId", async (c) => {
   const b = await input(c, serviceRuleSchema),
     sid = c.get("shopId"),

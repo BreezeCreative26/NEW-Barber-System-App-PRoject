@@ -85,19 +85,19 @@ export async function buildDemo(c: Ctx): Promise<Seed> {
   const salt = uid() + uid();
   const encoded = await passwordHash(DEMO_PASSWORD, salt);
   const staff = [
-    { id: uid(), name: "Jay Carter", role: "Senior barber", hours: [1, 2, 3, 4, 5, 6] },
-    { id: uid(), name: "Marcus Reed", role: "Barber", hours: [1, 2, 3, 4, 5] },
-    { id: uid(), name: "Dani Okoro", role: "Barber & beard specialist", hours: [2, 3, 4, 5, 6] },
+    { id: uid(), name: "Jay Carter", role: "Senior barber", hours: [1, 2, 3, 4, 5, 6], colour: "sage", title: "Senior barber & owner's right hand", bio: "Twelve years behind the chair. Precision fades and classic scissor work; loves a proper consultation.", skills: ["Skin fades", "Scissor work", "Kids"], instagram: "jaycuts" },
+    { id: uid(), name: "Marcus Reed", role: "Barber", hours: [1, 2, 3, 4, 5], colour: "sand", title: "Barber", bio: "Fast, tidy and great with regulars who know exactly what they want.", skills: ["Skin fades", "Afro hair"], instagram: "" },
+    { id: uid(), name: "Dani Okoro", role: "Barber & beard specialist", hours: [2, 3, 4, 5, 6], colour: "blue", title: "Beard specialist", bio: "Hot towel shaves, beard sculpting and grey blending. Book the full works for the complete reset.", skills: ["Beards", "Hot towel shaves", "Colour"], instagram: "dani.beards" },
   ];
   const services = [
-    { id: uid(), name: "Signature cut", category: "Hair", duration: 30, price: 2800 },
-    { id: uid(), name: "Skin fade", category: "Hair", duration: 45, price: 3200 },
-    { id: uid(), name: "Scissor cut", category: "Hair", duration: 40, price: 3000 },
-    { id: uid(), name: "Kids cut (under 12)", category: "Hair", duration: 30, price: 1800 },
-    { id: uid(), name: "Beard trim & shape", category: "Beard", duration: 20, price: 1500 },
-    { id: uid(), name: "Hot towel shave", category: "Beard", duration: 30, price: 2500 },
-    { id: uid(), name: "Cut & beard", category: "Combos", duration: 60, price: 4200 },
-    { id: uid(), name: "The full works", category: "Combos", duration: 75, price: 5500 },
+    { id: uid(), name: "Signature cut", category: "Hair", duration: 30, price: 2800, colour: "sage", popular: 1, description: "Consultation, clipper or scissor cut, sharp neckline and a styled finish." },
+    { id: uid(), name: "Skin fade", category: "Hair", duration: 45, price: 3200, colour: "blue", popular: 1, description: "Blended to the skin with a razor edge. Any length on top." },
+    { id: uid(), name: "Scissor cut", category: "Hair", duration: 40, price: 3000, colour: "sand", popular: 0, description: "Scissor-only cut for longer styles and texture." },
+    { id: uid(), name: "Kids cut (under 12)", category: "Hair", duration: 30, price: 1800, colour: "clay", popular: 0, description: "Patient, quick and tidy. Parents welcome to stay." },
+    { id: uid(), name: "Beard trim & shape", category: "Beard", duration: 20, price: 1500, colour: "plum", popular: 0, description: "Shape, line-up and oil finish." },
+    { id: uid(), name: "Hot towel shave", category: "Beard", duration: 30, price: 2500, colour: "slate", popular: 0, description: "Traditional straight-razor shave with hot towels and balm." },
+    { id: uid(), name: "Cut & beard", category: "Combos", duration: 60, price: 4200, colour: "sage", popular: 1, description: "Signature cut plus beard trim & shape." },
+    { id: uid(), name: "The full works", category: "Combos", duration: 75, price: 5500, colour: "blue", popular: 0, description: "Cut, hot towel shave, eyebrow tidy and a head massage." },
   ];
   const addons = [
     { id: uid(), name: "Hot towel finish", duration: 5, price: 500, services: [0, 1, 2, 6] },
@@ -115,7 +115,10 @@ export async function buildDemo(c: Ctx): Promise<Seed> {
     db.prepare("INSERT INTO app_memberships(id,shop_id,user_id,role) VALUES(?,?,?,'OWNER')").bind(ownerMembership, shopId, ownerUser),
   ];
   for (const b of staff) {
-    s.push(db.prepare("INSERT INTO staff(id,shop_id,name,role) VALUES(?,?,?,?)").bind(b.id, shopId, b.name, b.role));
+    s.push(
+      db.prepare("INSERT INTO staff(id,shop_id,name,role,colour,title,bio,skills,instagram,start_date,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+        .bind(b.id, shopId, b.name, b.role, b.colour, b.title, b.bio, JSON.stringify(b.skills), b.instagram, "2024-03-01", staff.indexOf(b)),
+    );
     for (let day = 0; day < 7; day++)
       s.push(
         db.prepare(
@@ -125,8 +128,8 @@ export async function buildDemo(c: Ctx): Promise<Seed> {
   }
   for (const sv of services)
     s.push(
-      db.prepare("INSERT INTO services(id,shop_id,name,category,duration_min,price_pence) VALUES(?,?,?,?,?,?)")
-        .bind(sv.id, shopId, sv.name, sv.category, sv.duration, sv.price),
+      db.prepare("INSERT INTO services(id,shop_id,name,category,duration_min,price_pence,colour,popular,description,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?)")
+        .bind(sv.id, shopId, sv.name, sv.category, sv.duration, sv.price, sv.colour, sv.popular, sv.description, services.indexOf(sv)),
     );
   for (const a of addons) {
     s.push(db.prepare("INSERT INTO addons(id,shop_id,name,duration_min,price_pence) VALUES(?,?,?,?,?)").bind(a.id, shopId, a.name, a.duration, a.price));

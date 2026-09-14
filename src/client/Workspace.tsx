@@ -23,6 +23,7 @@ import type {
 } from "../server/domain";
 import { Brand, Button, Icon, Modal, Notice, Badge, Avatar } from "./ui";
 import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
+import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { money, time, datePlus } from "./fixtures";
 
@@ -698,10 +699,7 @@ function AccountSettings({
   );
 }
 type Editor =
-  | { kind: "staff"; item?: Staff }
-  | { kind: "service"; item?: Service }
   | { kind: "addon"; item?: Addon }
-  | { kind: "serviceRules"; item: Staff }
   | { kind: "overrides"; item: Staff }
   | { kind: "override"; item: Staff; override?: ScheduleOverride }
   | { kind: "removeOverride"; item: ScheduleOverride }
@@ -968,7 +966,7 @@ export function Workspace() {
       setStatusFilter("");
       setSearch("");
     }
-    if (editor?.kind !== "serviceRules") setEditor(null);
+    setEditor(null);
     setNotice("Saved to your local test database.");
     try {
       await refresh();
@@ -986,10 +984,8 @@ export function Workspace() {
     const itemId = current.item.id;
     let replacement: Editor | null = null;
     if (
-      current.kind === "staff" ||
       current.kind === "hours" ||
       current.kind === "daysOff" ||
-      current.kind === "serviceRules" ||
       current.kind === "overrides" ||
       current.kind === "override"
     ) {
@@ -1007,9 +1003,6 @@ export function Workspace() {
             : { ...current, item };
     } else if (current.kind === "addon") {
       const item = latest.addons.find((a) => a.id === itemId);
-      if (item) replacement = { ...current, item };
-    } else if (current.kind === "service") {
-      const item = latest.services.find((s) => s.id === itemId);
       if (item) replacement = { ...current, item };
     } else if (["booking", "detail", "contacts"].includes(current.kind)) {
       const result = await api<{ booking: StoredBooking }>(
@@ -1558,162 +1551,25 @@ export function Workspace() {
                 </>
               )}
               {tab === "Team" && (
-                <>
-                  <div className="workspace-section-heading">
-                    <h2>Your team</h2>
-                    <Button onClick={() => setEditor({ kind: "staff" })}>
-                      <Icon name="plus" />
-                      Add barber
-                    </Button>
-                  </div>
-                  {directoryFilters}
-                  <p className="workspace-footnote">
-                    {visibleStaff.length} of {w.staff.length} staff profiles.
-                    Inactive profiles keep their appointment history.
-                  </p>
-                  {visibleStaff.length === 0 && (
-                    <p>
-                      No matching team members. Clear filters or add a barber.
-                    </p>
-                  )}
-                  <section className="workspace-card-grid">
-                    {visibleStaff.map((s) => (
-                      <article className="workspace-panel" key={s.id}>
-                        <Badge>{s.active ? "Active" : "Inactive"}</Badge>
-                        <h3>{s.name}</h3>
-                        <p>{s.role}</p>
-                        <div className="workspace-actions">
-                          <Button
-                            variant="secondary"
-                            onClick={() =>
-                              setEditor({ kind: "staff", item: s })
-                            }
-                          >
-                            Edit barber
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() =>
-                              setEditor({ kind: "hours", item: s })
-                            }
-                          >
-                            Weekly hours
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() =>
-                              setEditor({ kind: "daysOff", item: s })
-                            }
-                          >
-                            Days off
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() =>
-                              setEditor({ kind: "serviceRules", item: s })
-                            }
-                          >
-                            Services & pricing
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() =>
-                              setEditor({ kind: "overrides", item: s })
-                            }
-                          >
-                            Dated hours
-                          </Button>
-                        </div>
-                      </article>
-                    ))}
-                  </section>
-                </>
+                <BarberStudio
+                  w={w}
+                  api={api}
+                  refresh={refresh}
+                  canEdit={!w.account || ["OWNER", "MANAGER"].includes(w.account.role)}
+                  onHours={(item) => setEditor({ kind: "hours", item })}
+                  onDaysOff={(item) => setEditor({ kind: "daysOff", item })}
+                  onOverrides={(item) => setEditor({ kind: "overrides", item })}
+                  onOpenBooking={(item) => setEditor({ kind: "detail", item })}
+                />
               )}
               {tab === "Services" && (
-                <>
-                  <div className="workspace-section-heading">
-                    <h2>Service catalogue</h2>
-                    <Button onClick={() => setEditor({ kind: "service" })}>
-                      <Icon name="plus" />
-                      Add service
-                    </Button>
-                  </div>
-                  {directoryFilters}
-                  <p className="workspace-footnote">
-                    {visibleServices.length} of {w.services.length} services.
-                  </p>
-                  {visibleServices.length === 0 && (
-                    <p>No matching services. Clear filters or add a service.</p>
-                  )}
-                  <section className="workspace-card-grid">
-                    {visibleServices.map((s) => (
-                      <article className="workspace-panel" key={s.id}>
-                        <Badge>{s.active ? "Available" : "Inactive"}</Badge>
-                        <h3>{s.name}</h3>
-                        <p>
-                          {s.category} · {s.duration_min} minutes
-                        </p>
-                        <strong className="workspace-price">
-                          {money(s.price_pence)}
-                        </strong>
-                        <Button
-                          variant="secondary"
-                          onClick={() =>
-                            setEditor({ kind: "service", item: s })
-                          }
-                        >
-                          Edit service
-                        </Button>
-                      </article>
-                    ))}
-                  </section>
-                  <Notice>
-                    Existing appointments keep their original price, service
-                    name and duration when the catalogue changes.
-                  </Notice>
-                  <section className="workspace-addon-catalogue">
-                    <div className="workspace-section-heading">
-                      <h2>Add-ons</h2>
-                      <Button onClick={() => setEditor({ kind: "addon" })}>
-                        Add add-on
-                      </Button>
-                    </div>
-                    <p>
-                      Optional items add their own price and exact duration.
-                      Choose which services offer each add-on.
-                    </p>
-                    {!w.addons.length && <p>No saved add-ons yet.</p>}
-                    <div className="workspace-card-grid">
-                      {w.addons.map((a) => (
-                        <article className="workspace-panel" key={a.id}>
-                          <Badge>{a.active ? "Available" : "Inactive"}</Badge>
-                          <h3>{a.name}</h3>
-                          <p>
-                            {money(a.price_pence)} · +{a.duration_min} minutes
-                          </p>
-                          <p>
-                            {w.addon_links
-                              .filter((l) => l.addon_id === a.id)
-                              .map(
-                                (l) =>
-                                  w.services.find((s) => s.id === l.service_id)
-                                    ?.name,
-                              )
-                              .join(", ")}
-                          </p>
-                          <Button
-                            variant="secondary"
-                            onClick={() =>
-                              setEditor({ kind: "addon", item: a })
-                            }
-                          >
-                            Edit add-on
-                          </Button>
-                        </article>
-                      ))}
-                    </div>
-                  </section>
-                </>
+                <ServiceStudio
+                  w={w}
+                  api={api}
+                  refresh={refresh}
+                  onAddon={(id) => setEditor({ kind: "addon", item: w.addons.find((a) => a.id === id) })}
+                  onAddAddon={() => setEditor({ kind: "addon" })}
+                />
               )}
               {tab === "Settings" && (
                 <div className="workspace-settings">
@@ -3161,9 +3017,7 @@ function WorkspaceEditor({
       ? e.item
         ? "Edit add-on"
         : "Add add-on"
-      : e.kind === "serviceRules"
-        ? `${e.item.name} · services & pricing`
-        : e.kind === "overrides"
+      : e.kind === "overrides"
           ? `${e.item.name} · dated hours`
           : e.kind === "override"
             ? e.override
@@ -3177,15 +3031,7 @@ function WorkspaceEditor({
                   ? "Remove day off"
                   : e.kind === "contacts"
                     ? "Edit booking details"
-                    : e.kind === "staff"
-                      ? e.item
-                        ? "Edit barber"
-                        : "Add barber"
-                      : e.kind === "service"
-                        ? e.item
-                          ? "Edit service"
-                          : "Add service"
-                        : e.kind === "hours"
+                    : e.kind === "hours"
                           ? `${e.item.name} · weekly hours`
                           : e.kind === "booking"
                             ? e.item
@@ -3209,9 +3055,6 @@ function WorkspaceEditor({
       wide={e.kind === "hours" || e.kind === "booking"}
     >
       {e.kind === "addon" && <AddonEditor addon={e.item} w={w} saved={saved} />}
-      {e.kind === "serviceRules" && (
-        <ServiceRulesEditor staff={e.item} w={w} saved={saved} />
-      )}
       {e.kind === "overrides" && (
         <>
           <Notice>
@@ -3273,121 +3116,6 @@ function WorkspaceEditor({
             Remove dated hours for {e.item.date}? The weekly schedule will apply
             again. Existing bookings and audit records stay saved.
           </p>
-        </SaveForm>
-      )}
-      {e.kind === "staff" && (
-        <SaveForm
-          onSave={(f) =>
-            saved(
-              `/staff${e.item ? "/" + e.item.id : ""}`,
-              e.item ? "PUT" : "POST",
-              {
-                name: text(f, "name"),
-                role: text(f, "role"),
-                active: f.has("active") ? 1 : 0,
-                ...(e.item ? { version: e.item.version } : {}),
-              },
-            )
-          }
-        >
-          <Field label="Barber name">
-            <input
-              name="name"
-              required
-              minLength={2}
-              maxLength={100}
-              defaultValue={e.item?.name}
-            />
-          </Field>
-          <Field label="Role description">
-            <input
-              name="role"
-              required
-              minLength={2}
-              maxLength={50}
-              defaultValue={e.item?.role || "Barber"}
-            />
-          </Field>
-          <label className="workspace-check">
-            <input
-              type="checkbox"
-              name="active"
-              defaultChecked={e.item ? !!e.item.active : true}
-            />
-            Active and bookable
-          </label>
-          <Notice>
-            This is a staff profile, not an invitation or login. Deactivation
-            keeps appointment history.
-          </Notice>
-        </SaveForm>
-      )}
-      {e.kind === "service" && (
-        <SaveForm
-          onSave={(f) =>
-            saved(
-              `/services${e.item ? "/" + e.item.id : ""}`,
-              e.item ? "PUT" : "POST",
-              {
-                name: text(f, "name"),
-                category: text(f, "category"),
-                duration_min: number(f, "duration"),
-                price_pence: Math.round(number(f, "price") * 100),
-                active: f.has("active") ? 1 : 0,
-                ...(e.item ? { version: e.item.version } : {}),
-              },
-            )
-          }
-        >
-          <Field label="Service name">
-            <input
-              name="name"
-              required
-              minLength={2}
-              maxLength={100}
-              defaultValue={e.item?.name}
-            />
-          </Field>
-          <Field label="Category">
-            <input
-              name="category"
-              required
-              minLength={2}
-              maxLength={40}
-              defaultValue={e.item?.category || "Hair"}
-            />
-          </Field>
-          <div className="workspace-form-grid">
-            <Field label="Duration (minutes)">
-              <input
-                name="duration"
-                type="number"
-                min={5}
-                max={240}
-                required
-                defaultValue={e.item?.duration_min || 30}
-              />
-            </Field>
-            <Field label="Price (£)">
-              <input
-                name="price"
-                type="number"
-                min={0}
-                max={1000}
-                step="0.01"
-                required
-                defaultValue={(e.item?.price_pence ?? 2800) / 100}
-              />
-            </Field>
-          </div>
-          <label className="workspace-check">
-            <input
-              type="checkbox"
-              name="active"
-              defaultChecked={e.item ? !!e.item.active : true}
-            />
-            Available for new bookings
-          </label>
         </SaveForm>
       )}
       {e.kind === "hours" && (
@@ -3804,91 +3532,6 @@ function AddonEditor({
         unchanged.
       </Notice>
     </SaveForm>
-  );
-}
-function ServiceRulesEditor({
-  staff,
-  w,
-  saved,
-}: {
-  staff: Staff;
-  w: WorkspaceData;
-  saved: EditorProps["saved"];
-}) {
-  return (
-    <>
-      <Notice>
-        By default this barber offers all services at catalogue prices and
-        durations. Clear an override to inherit the catalogue again. Disabling
-        eligibility flags future appointments; it does not cancel them.
-      </Notice>
-      {w.services.map((s) => {
-        const r = w.service_rules.find(
-          (r) => r.staff_id === staff.id && r.service_id === s.id,
-        );
-        return (
-          <section
-            className="workspace-rule-panel"
-            key={s.id}
-            aria-label={`${s.name} rule`}
-          >
-            <h3>{s.name}</h3>
-            <p>
-              Catalogue: {money(s.price_pence)} · {s.duration_min} minutes
-            </p>
-            <SaveForm
-              label={`Save ${s.name} rule`}
-              onSave={(f) =>
-                saved(`/staff/${staff.id}/services/${s.id}`, "PUT", {
-                  enabled: f.has("enabled") ? 1 : 0,
-                  price_pence:
-                    text(f, "price") === ""
-                      ? null
-                      : Math.round(number(f, "price") * 100),
-                  duration_min:
-                    text(f, "duration") === "" ? null : number(f, "duration"),
-                  version: r?.version ?? 0,
-                })
-              }
-            >
-              <label className="workspace-check">
-                <input
-                  type="checkbox"
-                  name="enabled"
-                  defaultChecked={r ? !!r.enabled : true}
-                />
-                Offers {s.name}
-              </label>
-              <div className="workspace-form-grid">
-                <Field label={`${s.name} price override (£)`}>
-                  <input
-                    name="price"
-                    type="number"
-                    min={0}
-                    max={1000}
-                    step="0.01"
-                    placeholder="Catalogue price"
-                    defaultValue={
-                      r?.price_pence == null ? "" : r.price_pence / 100
-                    }
-                  />
-                </Field>
-                <Field label={`${s.name} duration override`}>
-                  <input
-                    name="duration"
-                    type="number"
-                    min={5}
-                    max={240}
-                    placeholder="Catalogue minutes"
-                    defaultValue={r?.duration_min ?? ""}
-                  />
-                </Field>
-              </div>
-            </SaveForm>
-          </section>
-        );
-      })}
-    </>
   );
 }
 function OverrideEditor({

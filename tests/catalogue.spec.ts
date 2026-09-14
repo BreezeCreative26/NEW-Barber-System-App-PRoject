@@ -428,16 +428,19 @@ test("owner edits add-ons, barber pricing and partial shifts; booking items surv
   await page.getByLabel("Extra minutes").fill("20");
   await save(page);
   await section(page, "Team");
-  const jay = page.getByRole("article").filter({
-    has: page.getByRole("heading", { name: "Jay Carter", exact: true }),
-  });
-  await jay
+  const editor = page.getByTestId("barber-editor");
+  await page.getByTestId("team-card").filter({ hasText: "Jay Carter" }).click();
+  await editor
     .getByRole("button", { name: "Services & pricing", exact: true })
     .click();
-  await page.getByLabel("Signature cut price override (£)").fill("33");
-  await page.getByLabel("Signature cut duration override").fill("25");
-  await save(page, "Save Signature cut rule");
-  await jay.getByRole("button", { name: "Dated hours", exact: true }).click();
+  await page.getByLabel("Jay Carter price for Signature cut").fill("33");
+  await page.getByLabel("Jay Carter duration for Signature cut").fill("25");
+  await page
+    .getByRole("button", { name: "Save barber rules", exact: true })
+    .click();
+  await expect(editor.getByRole("status")).toContainText("saved");
+  await editor.getByRole("button", { name: "Schedule", exact: true }).click();
+  await page.getByRole("button", { name: /^Dated hours/ }).click();
   await page
     .getByRole("button", { name: "Add dated hours", exact: true })
     .click();
@@ -477,11 +480,7 @@ test("owner edits add-ons, barber pricing and partial shifts; booking items surv
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await section(page, "Services");
   await page
-    .getByRole("article")
-    .filter({
-      has: page.getByRole("heading", { name: "Towel ritual", exact: true }),
-    })
-    .getByRole("button", { name: "Edit add-on", exact: true })
+    .getByRole("button", { name: /Towel ritual/ })
     .click();
   await page.getByLabel("Add-on price (£)").fill("9");
   await save(page);
@@ -597,10 +596,12 @@ for (const width of [390, 1440])
     });
     await page.keyboard.press("Escape");
     await section(page, "Team");
-    const card = page.getByRole("article").filter({
-      has: page.getByRole("heading", { name: "Jay Carter", exact: true }),
-    });
-    await card
+    const editor = page.getByTestId("barber-editor");
+    await page
+      .getByTestId("team-card")
+      .filter({ hasText: "Jay Carter" })
+      .click();
+    await editor
       .getByRole("button", { name: "Services & pricing", exact: true })
       .click();
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
@@ -608,10 +609,8 @@ for (const width of [390, 1440])
       path: testInfo.outputPath("barber-rules.png"),
       fullPage: true,
     });
-    await page.keyboard.press("Escape");
-    await card
-      .getByRole("button", { name: "Dated hours", exact: true })
-      .click();
+    await editor.getByRole("button", { name: "Schedule", exact: true }).click();
+    await page.getByRole("button", { name: /^Dated hours/ }).click();
     await page
       .getByRole("button", { name: "Add dated hours", exact: true })
       .click();

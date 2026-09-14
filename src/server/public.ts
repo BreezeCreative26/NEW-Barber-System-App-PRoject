@@ -129,10 +129,10 @@ pub.get("/shops/:slug", async (c) => {
   const sid = shop.id;
   const r = await c.env.DB.batch([
     c.env.DB.prepare(
-      "SELECT id,name,role FROM staff WHERE shop_id=? AND active=1 ORDER BY name",
+      "SELECT id,name,role,title,bio,colour,photo_url,skills,instagram FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name",
     ).bind(sid),
     c.env.DB.prepare(
-      "SELECT id,name,category,duration_min,price_pence,version FROM services WHERE shop_id=? AND active=1 ORDER BY category,name",
+      "SELECT id,name,category,duration_min,price_pence,version,description,colour,popular FROM services WHERE shop_id=? AND active=1 AND online_bookable=1 ORDER BY popular DESC,sort_order,category,name",
     ).bind(sid),
     c.env.DB.prepare(
       "SELECT id,name,price_pence,duration_min FROM addons WHERE shop_id=? AND active=1 ORDER BY name",
@@ -177,8 +177,8 @@ async function rangeContext(
 ) {
   const sid = shop.id;
   const r = await c.env.DB.batch([
-    c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND active=1 ORDER BY name").bind(sid),
-    c.env.DB.prepare("SELECT * FROM services WHERE shop_id=? AND id=? AND active=1").bind(sid, serviceId),
+    c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name").bind(sid),
+    c.env.DB.prepare("SELECT * FROM services WHERE shop_id=? AND id=? AND active=1 AND online_bookable=1").bind(sid, serviceId),
     c.env.DB.prepare("SELECT * FROM staff_hours WHERE shop_id=?").bind(sid),
     c.env.DB.prepare(
       "SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND date BETWEEN ? AND ?",

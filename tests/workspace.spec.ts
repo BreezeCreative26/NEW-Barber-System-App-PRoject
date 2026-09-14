@@ -40,12 +40,14 @@ test("successful save followed by failed read recovers without repeating mutatio
     if (r.url().endsWith("/services") && r.method() === "POST") writes++;
   });
   await section(page, "Services");
-  await page.getByRole("button", { name: "Add service", exact: true }).click();
+  await page.getByRole("button", { name: "New service", exact: true }).click();
   await page.getByLabel("Service name").fill("Saved before network failure");
   await page.route("**/api/sandbox/workspace", (r) => r.abort("failed"));
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(page.getByRole("dialog")).not.toBeVisible();
-  await expect(page.getByRole("alert")).toContainText("Saved successfully");
+  await page.getByRole("button", { name: "Create service", exact: true }).click();
+  await expect(
+    page.getByTestId("service-editor").getByRole("status"),
+  ).toContainText("Service created");
+  await expect(page.getByRole("alert")).toContainText("Unable to reach");
   await page.unroute("**/api/sandbox/workspace");
   await page.getByRole("button", { name: "Retry workspace" }).click();
   await expect(
@@ -184,12 +186,8 @@ test("stale editor can explicitly discard and load latest without page reload", 
   await section(page, "Team");
   const w = await (await page.request.get("/api/sandbox/workspace")).json();
   const s = w.staff[0];
-  await page
-    .getByRole("article")
-    .filter({ has: page.getByRole("heading", { name: s.name, exact: true }) })
-    .getByRole("button", { name: "Edit barber", exact: true })
-    .click();
-  await page.getByLabel("Barber name").fill("Unsaved edit");
+  await page.getByTestId("team-card").filter({ hasText: s.name }).click();
+  await page.getByLabel("Full name").fill("Unsaved edit");
   await page.request.put("/api/sandbox/staff/" + s.id, {
     headers: { Origin: "http://localhost:3000" },
     data: {
@@ -199,16 +197,19 @@ test("stale editor can explicitly discard and load latest without page reload", 
       version: s.version,
     },
   });
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.getByRole("button", { name: "Save profile", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("record changed");
   await page
     .getByRole("button", { name: "Discard edits and load latest" })
     .click();
-  await expect(page.getByLabel("Barber name")).toHaveValue(
+  await expect(page.getByLabel("Full name")).toHaveValue(
     "Changed in another tab",
   );
-  await page.getByLabel("Barber name").fill("Final test name");
-  await save(page);
+  await page.getByLabel("Full name").fill("Final test name");
+  await page.getByRole("button", { name: "Save profile", exact: true }).click();
+  await expect(
+    page.getByTestId("barber-editor").getByRole("status"),
+  ).toContainText("Profile saved");
   await expect(
     page.getByRole("heading", { name: "Final test name" }),
   ).toBeVisible();
@@ -221,41 +222,41 @@ test("staff and service edits, inactive filters and reactivation survive refresh
     {
       tab: "Team",
       name: "Jay Carter",
-      edit: "Edit barber",
+      card: "team-card",
+      editor: "barber-editor",
       checkbox: "Active and bookable",
       search: "Search team",
+      save: "Save profile",
     },
     {
       tab: "Services",
       name: "Signature cut",
-      edit: "Edit service",
-      checkbox: "Available for new bookings",
-      search: "Search catalogue",
+      card: "service-card",
+      editor: "service-editor",
+      checkbox: "Active",
+      search: "Search services",
+      save: "Save service",
     },
   ]) {
     await section(page, entry.tab);
     await page.getByLabel(entry.search).fill(entry.name);
-    const card = page.getByRole("article").filter({
-      has: page.getByRole("heading", { name: entry.name, exact: true }),
-    });
+    const card = page.getByTestId(entry.card).filter({ hasText: entry.name });
     await expect(card).toHaveCount(1);
-    await card.getByRole("button", { name: entry.edit, exact: true }).click();
+    await card.click();
     await page.getByLabel(entry.checkbox, { exact: true }).uncheck();
-    await save(page);
-    await page.getByLabel("Directory status").selectOption("1");
+    await page.getByRole("button", { name: entry.save, exact: true }).click();
+    await expect(page.getByTestId(entry.editor).getByRole("status")).toContainText("saved");
     await expect(card).toHaveCount(0);
-    await page.getByLabel("Directory status").selectOption("0");
+    await page.getByLabel("Show inactive").check();
     await expect(card).toBeVisible();
     await page.getByRole("button", { name: "Refresh", exact: true }).click();
     await expect(card).toContainText("Inactive");
-    await card.getByRole("button", { name: entry.edit, exact: true }).click();
     await page.getByLabel(entry.checkbox, { exact: true }).check();
-    await save(page);
-    await expect(card).toHaveCount(0);
-    await page
-      .getByRole("button", { name: "Clear filters", exact: true })
-      .click();
+    await page.getByRole("button", { name: entry.save, exact: true }).click();
+    await expect(card).not.toContainText("Inactive");
+    await page.getByLabel("Show inactive").uncheck();
     await expect(card).toBeVisible();
+    await page.getByLabel(entry.search).fill("");
   }
 });
 test("dated staff leave survives reload, flags saved appointments and can be removed", async ({
@@ -271,12 +272,13 @@ test("dated staff leave survives reload, flags saved appointments and can be rem
     (s: { id: string }) => s.id === w.bookings[0].staff_id,
   );
   await section(page, "Team");
-  const card = page
-    .getByRole("article")
-    .filter({
-      has: page.getByRole("heading", { name: barber.name, exact: true }),
-    });
-  await card.getByRole("button", { name: "Days off", exact: true }).click();
+  const card = page.getByTestId("team-card").filter({ hasText: barber.name });
+  await card.click();
+  await page
+    .getByTestId("barber-editor")
+    .getByRole("button", { name: "Schedule", exact: true })
+    .click();
+  await page.getByRole("button", { name: /^Days off/ }).click();
   await page.getByLabel("Day off date").fill(date);
   await page.getByLabel("Day off reason").fill("Fictional test leave");
   await page.getByRole("button", { name: "Save day off", exact: true }).click();
@@ -286,7 +288,12 @@ test("dated staff leave survives reload, flags saved appointments and can be rem
   ).toBeVisible();
   await page.reload();
   await section(page, "Team");
-  await card.getByRole("button", { name: "Days off", exact: true }).click();
+  await card.click();
+  await page
+    .getByTestId("barber-editor")
+    .getByRole("button", { name: "Schedule", exact: true })
+    .click();
+  await page.getByRole("button", { name: /^Days off/ }).click();
   await expect(
     page.getByText("Fictional test leave", { exact: true }),
   ).toBeVisible();
@@ -350,22 +357,24 @@ test("saved setup and appointment workflow survives reload, move and completion"
   await enter(page);
   await section(page, "Team");
   await page.getByRole("button", { name: "Add barber", exact: true }).click();
-  await page.getByLabel("Barber name").fill("Casey Test");
-  await save(page);
+  await page.getByLabel("Full name").fill("Casey Test");
+  await page.getByRole("button", { name: "Create barber", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Casey Test" })).toBeVisible();
   await page
-    .getByRole("article")
-    .filter({ has: page.getByRole("heading", { name: "Casey Test" }) })
-    .getByRole("button", { name: "Weekly hours" })
+    .getByTestId("barber-editor")
+    .getByRole("button", { name: "Schedule", exact: true })
     .click();
+  await page.getByRole("button", { name: "Edit weekly hours" }).click();
   await page.getByLabel("Monday break start", { exact: true }).fill("12:00");
   await page.getByLabel("Monday break end", { exact: true }).fill("12:30");
   await save(page);
+  await expect(page.getByRole("list", { name: "Weekly hours" })).toContainText("12:00");
   await section(page, "Services");
-  await page.getByRole("button", { name: "Add service", exact: true }).click();
+  await page.getByRole("button", { name: "New service", exact: true }).click();
   await page.getByLabel("Service name").fill("Test tidy-up");
   await page.getByLabel("Price (£)", { exact: true }).fill("19.50");
-  await save(page);
+  await page.getByRole("button", { name: "Create service", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Test tidy-up" })).toBeVisible();
   await section(page, "Settings");
   await page
     .getByLabel("Shop name", { exact: true })
@@ -449,7 +458,7 @@ test("failed mutation keeps entered form; retry works; offline does not imply sa
 }) => {
   await enter(page);
   await section(page, "Services");
-  await page.getByRole("button", { name: "Add service", exact: true }).click();
+  await page.getByRole("button", { name: "New service", exact: true }).click();
   await page.getByLabel("Service name").fill("Preserved form");
   await page.route("**/api/sandbox/services", (route) =>
     route.fulfill({
@@ -458,13 +467,13 @@ test("failed mutation keeps entered form; retry works; offline does not imply sa
       body: JSON.stringify({ message: "Temporary database test error" }),
     }),
   );
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.getByRole("button", { name: "Create service", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText(
     "Temporary database test error",
   );
   await expect(page.getByLabel("Service name")).toHaveValue("Preserved form");
   await page.unroute("**/api/sandbox/services");
-  await save(page);
+  await page.getByRole("button", { name: "Create service", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Preserved form" }),
   ).toBeVisible();
