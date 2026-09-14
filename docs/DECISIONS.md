@@ -30,6 +30,14 @@ User asked for the most effective build plan, a readable running progress record
 
 The assistant cannot permanently retrain its model. Project documents and session instructions establish repeatable behaviour. Future sessions must read the files and verify the repository; never rely on an assumed hidden memory.
 
+### D-010 — Proceed with a build-ready execution sequence
+
+The user said to start creating the product and requested a concrete build plan. Refine the existing plan into executable work packages rather than restart discovery. The next local implementation package is WP-001-A: three representative screens and shared design foundations.
+
+Reversible engineering defaults: working name Barbershop OS, proposed charcoal/teal direction. These are not final user-approved branding. References can refine the first preview; lack of final branding does not block a local design proof.
+
+This instruction does not settle financial policy, native launch inclusion, provider purchases, production deployment or publication to the public GitHub repository. Obtain those decisions only before dependent work. User review of the actual visual proof still gates broad rollout.
+
 ## Proposed architecture decisions
 
 ### D-004 — Modular monolith on Hono / D1 / R2
@@ -86,7 +94,7 @@ Own-account Cloudflare deployment is recommended for commercial infrastructure c
 
 ## First decisions to request next session
 
-Only ask for O-01 and confirmation of the proposed M1 work package first. Resolve O-02/O-03/O-05 alongside architecture briefing before dependent work. Do not block visual foundations on every later integration choice.
+Proceed with WP-001-A using the reversible working direction under D-010; do not ask for another blanket permission to start the same local design proof. O-01 stays open for visual review and final branding. Resolve O-02/O-03/O-05 before their dependent production-contract work. Do not block visual foundations on later integration choices.
 
 ## Payment reference checked during planning
 

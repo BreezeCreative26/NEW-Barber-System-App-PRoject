@@ -1,6 +1,6 @@
 # Barbershop OS — Build plan
 
-Version: 1.0 · Planning baseline: 2026-09-14 · Status: planning, implementation not started.
+Version: 1.1 · Planning baseline: 2026-09-14 · Status: execution sequence prepared; application implementation not started.
 
 ## 1. Mandate and sources of truth
 
@@ -193,12 +193,67 @@ M9 numbering does not authorize moving original native MVP requirements out of l
 
 ### M1 exact next work package
 
-1. Obtain visual references or approval to propose a direction. No paid image generation without consent.
+1. Begin with the reversible working name Barbershop OS and proposed charcoal/teal direction. References may refine it; do not block the first local design proof on final branding. User visual approval still required before broad rollout. No paid image generation without consent.
 2. Produce a static, clearly labelled reference implementation of three representative screens—not the entire product. Use realistic fixtures, not production claims.
 3. Review desktop admin (1440 px), tablet calendar (1024/768 px), phone customer and barber flows (390 px and 320 px).
 4. Define shared component/interaction contracts and log approval before propagating layouts.
 5. Run isolated allocator and Stripe account-context feasibility spikes. If credentials are unavailable, mark the Stripe spike blocked, not passed.
 6. Turn results into the M2 task list; reject approaches that require major rework later.
+
+### Execution sequence — build-ready work packages (v1.1)
+
+User requested starting the build and a concrete execution plan. Do not produce another planning reset or require a blanket approval to begin the first local work package. This does not approve unresolved financial policy, native scope, paid services, public GitHub publication or production deployment.
+
+| Package | Deliverable the user can inspect | Work included | Exit evidence |
+| --- | --- | --- | --- |
+| WP-001-A | Three-screen local design preview | Admin day calendar; customer service/barber/date selection; barber Today; shared visual components and preview state controls | Actual screenshots at required sizes; UI controls tested; labelled fixtures; no fake auth or payment |
+| WP-001-B | Technical risk results | D1 interval allocation and expired-hold proof; Stripe Model A account-context checklist/proof when credentials available | Concurrency test evidence; explicit provider blockers; no architecture assumption marked proven |
+| WP-002-A | Private shop setup | Auth provider adapter; owner membership; tenant authorization; shop setup; first services and staff; reload persistence | Two-shop isolation tests and working setup flow |
+| WP-002-B | Complete scheduling setup | Service/add-on CRUD; barber coverage/price/duration; weekly shifts; breaks; time off; holiday handling; audit | Validated forms plus API tests; history preserved |
+| WP-003-A | Book without payment in a controlled test workflow | Public catalogue; validated quote; server slot engine; hold; customer details; reference; admin calendar; walk-in | Reservation and DST tests; test workflow explicitly not live checkout |
+| WP-004-A | Real sandbox deposit booking | Shop Stripe onboarding; Payment Element; payment attempts/inbox; confirmation; customer access | Decline/retry/late-success/account-context tests; no real charges |
+| WP-004-B | Complete change-and-notify lifecycle | Reminders/outbox; confirmation delivery; admin cancel/refund/reschedule; customer receipts/history | Provider delivery and retry evidence; no stale reminder or stranded payment |
+| WP-005-A | A functioning barber working day | Queue; check-in; start service; completion; no-show; cash; tips; supported internet reader | End-to-end working-day simulation plus physical-reader evidence for advertised support |
+| WP-005-B | Installable and safely offline PWA | Manifest/icons; install/update UX; restricted cached queue; offline/reauth/logout; supported web push | Real-device capability matrix; offline and cache isolation tests |
+| WP-006-A | Reconciled finances and manual pay-runs | Financial ledger integrated incrementally from WP-004-A; earnings; frozen batches; export; externally paid records; reports | Reconciled figures and duplicate/overlap/correction tests; no bank execution claims |
+| WP-006-B | Reviews and operational recovery | Verified review eligibility; permitted review display; notifications; actionable error inbox | Review and failed-payment/refund/delivery recovery tests |
+| WP-007-A | SaaS commercial controls | Shop subscriptions; trial/grace/entitlements; owner billing; platform console; tenant suspension/support | Billing event lifecycle and server entitlement tests |
+| WP-007-B | Release candidate and pilot | Privacy/accessibility/security review; monitoring; restore drill; one then two independent shop pilots | Gate checklist; resolved blockers; explicit production approval |
+
+These are implementation slices inside the existing milestones, not a deletion of week/month calendar or other original requirements. Use the feature register for all remaining milestone coverage. Native M9 is a separate branch of work if retained for launch; do not imply PWA implements native features.
+
+### First implementation checklist — WP-001-A
+
+Every item below starts unchecked. Completing this design preview does not mark its corresponding production feature verified.
+
+- [ ] E-001 Inspect actual Hono/Vite packages and renderer; add only the React/client build and test dependencies needed while preserving Cloudflare compatibility.
+- [ ] E-002 Create reusable typography/spacing/colour tokens, buttons, inputs, status badges, sheets, alerts, empty states and safe-area layout.
+- [ ] E-003 Provide explicitly labelled `/preview/admin`, `/preview/book` and `/preview/barber` routes. Preview navigation cannot impersonate authenticated roles.
+- [ ] E-004 Admin proof: date navigation, barber filter, calendar event details and create-booking form interaction. Display fixtures honestly; no claim that an appointment has been saved.
+- [ ] E-005 Customer proof: choose service and extras, choose barber, choose date/time, validate contact form and review summary. Stop at a clear sandbox-payment integration boundary; never show paid confirmation.
+- [ ] E-006 Barber proof: chronological fixture queue, appointment detail, contextual action layout and finance breakdown. State previews are labelled examples; no actual charge or manual payment attestation is simulated as real.
+- [ ] E-007 Add deliberate loading, empty, error and offline preview scenarios; each visible control either performs its stated preview action or explains the integration boundary before interaction.
+- [ ] E-008 Verify keyboard navigation, focus return, modal dismissal, disabled reasons, long names, 200% zoom and 320/390/768/1024/1440 px layouts.
+- [ ] E-009 Build and run the local preview using the mandated PM2/port-3000 workflow; inspect actual browser screenshots and console/network output.
+- [ ] E-010 Share a working preview with limitations, update evidence/status and commit. Record visual feedback before expanding the design.
+
+Related feature IDs: A-02/A-03/A-12, C-01/C-03/C-06/C-10/C-11/C-16..C-19, B-09..B-11, X-01..X-04. Their business-function status remains not_started until the actual production-contract implementation starts; preview-only progress belongs to E-001..E-010.
+
+### Build boundaries and required inputs
+
+- Start now without provider credentials: shared design proof, local test scaffolding, D1 feasibility and API/schema contracts.
+- Before WP-002-A: select/configure managed authentication. Do not use a public demo role-switcher as real login.
+- Before booking policy finalization: resolve deposit, commission meaning, exact time/buffer/no-show rules. Show provisional fixture values as examples only.
+- Before WP-004-A: securely configured Stripe sandbox and approved shop account model. Never request secrets in chat.
+- Before WP-004-B: scheduler and controlled notification credentials/recipients.
+- Before WP-005-A reader acceptance: supported physical device and shop-account Terminal proof.
+- Before WP-006-A approval: fee/cash allocation, eligibility cutoffs and external-payment recording policy.
+- Before WP-007-A billing: plans, pricing, limits and subscription grace rules.
+- Before public launch: selected Cloudflare deployment path, domain, operational checks and explicit sign-off. GitHub upload remains blocked until private visibility or explicit public publication is confirmed.
+
+### Delivery rhythm
+
+At the start of each package: state the IDs, deliverable and gate. At the end: report what works, show preview/evidence, list known limitations, update PROGRESS and commit. Keep one package active; run financial architecture work early enough to avoid rewriting already-shipped collections. Do not promise calendar dates until the technical spikes and external setup are measured.
 
 ## 9. Release buckets and scope control
 

@@ -1,10 +1,10 @@
 # Barbershop OS — Progress and next-session handoff
 
-Last updated: 2026-09-14 · Latest work package: WP-000-GH repository connection; sync blocked on visibility confirmation.
+Last updated: 2026-09-14 · Latest work package: WP-000-EXEC execution planning; next implementation: WP-001-A. GitHub sync remains separately blocked on visibility confirmation.
 
 ## Read this first
 
-**Actual product state: Hono starter only.** Application implementation was paused at the user's request before any source changes. `/` renders `Hello!`. No real booking, admin, PWA, database, authentication, subscription, payment or pay-run functionality exists yet.
+**Actual product state: Hono starter only.** User has now requested proceeding with a concrete build sequence. Execution planning is complete; the first implementation package has not started. `/` renders `Hello!`. No real booking, admin, PWA, database, authentication, subscription, payment or pay-run functionality exists yet.
 
 The planning documents are the current deliverable. Their proposed routes and test cases are not claims of completed code.
 
@@ -15,14 +15,14 @@ The planning documents are the current deliverable. Their proposed routes and te
 - App calculates/prepares/exports manual pay-runs and records external payments. No platform wallet or automatic barber bank transfer.
 - Plan first; persistent progress record and strict UI/UX/functionality gates.
 
-See DECISIONS D-001 through D-003 for user-confirmed choices. Visual tokens, auth provider, exact launch/native scope and production deployment path remain unapproved.
+See DECISIONS D-001 through D-003 and D-010 for user instructions. Proceed locally with the reversible working name Barbershop OS and proposed charcoal/teal design proof. Final visual approval, auth provider, exact launch/native scope and production deployment path remain unresolved.
 
 ## Milestone board
 
 | Milestone | State | Gate | Evidence / limitation |
 | --- | --- | --- | --- |
-| M0 Planning | verified | G0 pending user review | Documents and requirement coverage validated; approval still pending |
-| M1 Design proof + spikes | not_started | G1 pending | No UI reference or technical spike completed |
+| M0 Planning | verified | Proceed-to-local-design instruction recorded; launch-scope decisions open | Master plan plus v1.1 execution sequence; not blanket approval of all policies |
+| M1 Design proof + spikes | not_started | G1 pending | WP-001-A queued; no UI reference or technical spike completed |
 | M2 Tenant setup | not_started | G2 pending | No auth/database configured |
 | M3 Booking core | not_started | G3 pending | No allocator or booking flow |
 | M4 Collections + communication | not_started | G4 pending | No credentials/integrations |
@@ -36,7 +36,7 @@ See DECISIONS D-001 through D-003 for user-confirmed choices. Visual tokens, aut
 
 All 189 tracked application requirements are `not_started`. Validation confirms C-01..C-46, B-01..B-32 and A-01..A-47: all 125 original features. The additional 64 S/AC/X/N/R/I rows track SaaS, acceptance, quality, notifications, roadmap and integration requirements. Treatment flags are not completion flags.
 
-## Current work package: WP-000
+## Completed planning baseline: WP-000
 
 Goal: create a reusable, coherent source of truth before coding.
 
@@ -75,24 +75,24 @@ Acceptance: documents agree on Model A and current state, original IDs preserved
 
 GitHub sync is blocked on private/public confirmation; this does not block approved local design work.
 
-Immediate next step needs a product name/reference direction or approval for the proposed premium utilitarian direction. No later provider credential blocks writing the design proof.
+No provider credential or final-branding decision blocks WP-001-A. Use the reversible working direction, show an honest preview and obtain visual feedback before broad rollout. Avoid another planning/reset permission loop.
 
 Before dependent implementation: native launch scope, deposit policy, commission meaning, fee/cash allocation, auth provider, Stripe shop-account/Terminal proof and privacy/retention policies. Full list: DECISIONS O-01..O-17.
 
 There are no unreported build/test failures: application build/tests have not been attempted in this planning work package.
 
-## Next work package: WP-001 (proposed; not started)
+## Next implementation package: WP-001-A (queued; not started)
 
-**M1 reference design and architecture proof.**
+**M1: build the first browser-viewable reference design.** Follow E-001..E-010 in BUILD_PLAN; all are currently unchecked.
 
-1. Read AGENTS, this file and decisions; verify actual repository.
-2. Ask for product name and 2–3 references, or confirm the proposed direction. Confirm whether user wants M1 to proceed.
-3. Design only three representative screens first: admin day calendar, customer slot selection, barber Today queue.
-4. Define shared tokens, components and full control/state inventories; use explicitly labelled fixture data in the design proof.
-5. Implement browser-viewable reference compositions within the Hono-compatible stack and review 320/390/768/1024/1440 px as applicable.
-6. Run scheduling feasibility spike on actual local D1, including overlapping exact durations and expiry; record test evidence.
-7. Prepare Stripe Model A proof checklist. Execute only with configured sandbox credentials; otherwise record blocked integration spike.
-8. Record visual feedback and approved direction before spreading patterns; update next M2 task list.
+1. Read AGENTS, this file, DECISIONS, DESIGN_SYSTEM and QUALITY_GATES; inspect the actual starter.
+2. Start the local reference build using working name Barbershop OS and proposed charcoal/teal tokens. Do not request the same general start approval again.
+3. Implement three explicitly labelled preview routes: `/preview/admin`, `/preview/book`, `/preview/barber`.
+4. Wire navigation, date/barber filters, appointment detail, booking selections and form validation. Show explicit boundaries for unimplemented persistence/auth/payment; no fake provider success.
+5. Verify keyboard and mobile behaviour; build and start via PM2 on port 3000; inspect actual screenshots and console output.
+6. Share the working design preview and record user feedback before broader UI rollout. This preview does not complete production booking/auth/payment features.
+7. Next package WP-001-B proves D1 interval allocation and Stripe Model A feasibility; absent provider credentials are a named blocker only for the dependent integration.
+8. Continue with WP-002-A tenant/auth/shop setup once required architecture decisions are resolved; full ordered packages now appear in BUILD_PLAN v1.1.
 
 Do not jump straight to all screens, pretend a demo session is production auth, enable live financial actions or deploy without the appropriate approval.
 
@@ -116,6 +116,16 @@ Do not jump straight to all screens, pretend a demo session is production auth, 
 - Detected empty public repository; stopped before push or visibility changes.
 - Recorded connection in README and this progress file. Application code and feature statuses unchanged.
 - No build or application tests needed for this documentation-only connection check. Next action is visibility confirmation, then safe normal push and remote commit verification.
+
+### 2026-09-14 — WP-000-EXEC build-ready planning
+
+- User requested starting creation and a concrete build plan now.
+- Kept the master plan and 189-feature register intact; added 13 ordered implementation packages and 10 first-build checklist items in BUILD_PLAN v1.1.
+- Recorded D-010 so final branding and GitHub privacy do not unnecessarily block local work. Financial policy and production permissions remain explicit decisions.
+- Validation passed via Python CSV/Markdown/checklist audit: 13 unique ordered packages, 10 unchecked first-build tasks, 189 requirements preserved, local links valid and application source unchanged. `git diff --check` passed.
+- No application implementation, application tests, screenshots, provider calls or deployment performed in this planning work package.
+- Work-package commit subject: `docs: define executable build sequence and first implementation checklist`.
+- Next action is WP-001-A implementation, not another master-plan rewrite.
 
 ## Update template for subsequent sessions
 

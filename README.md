@@ -53,7 +53,7 @@ All `/app/*`, `/book/*`, `/barber/*`, `/platform/*` and API paths in the plan ar
 4. Update feature statuses and evidence; record blockers and next step.
 5. Commit the work. Never describe a design preview as a completed production feature.
 
-Next proposed milestone: M1, three reference screens (admin calendar, customer slot selection, barber queue), design review and scheduling/payment feasibility spikes.
+Next implementation: **WP-001-A**, three reference screens (admin calendar, customer slot selection, barber queue) and reusable design foundations. BUILD_PLAN v1.1 contains 13 ordered implementation packages and the first 10-item build checklist. Use the reversible working name Barbershop OS and proposed charcoal/teal direction; final visual approval follows the preview. No further blanket start approval or provider credentials are needed for this local design proof.
 
 ## Development and deployment
 
@@ -70,4 +70,4 @@ Next proposed milestone: M1, three reference screens (admin calendar, customer s
 
 ## Not implemented / next steps
 
-Every application feature is not started. Immediate next step is review of the planning baseline and visual direction. Provider choice, commission/fee/cash rules, deposit policy and native launch scope must be resolved before their dependent milestones. Track precise questions in DECISIONS rather than inventing defaults.
+Every application feature is not started. The build-ready execution sequence is recorded; immediate next step is WP-001-A implementation, not another planning reset. Provider choice, commission/fee/cash rules, deposit policy and native launch scope must be resolved before their dependent milestones. Track precise questions in DECISIONS rather than inventing defaults.
