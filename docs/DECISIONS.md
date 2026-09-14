@@ -97,6 +97,12 @@ This delivery connects the original-style admin day timetable to persisted booki
 
 Account sign-in/permissions are not implemented by an Accounts overview. BUILD_PLAN section 13 defines next WP-LOCAL-04 owner/session, staff/invite/permission, customer-ownership and account-settings slices. A sandbox-only real test-identity adapter may support local development while production managed identity remains gated; no fake UI login or Genspark preview mock identity may authorize application records. The proposed fine-grained role matrix and production provider/policy choices still require validation during implementation.
 
+### D-017 — Pause further building; plan enhancements to what exists
+
+User asks: “before we build anymore can you give me a comprehsieve plan on how we can enhance whats already there”. This pauses the immediate account/feature build sequence from D-016 for review, without cancelling the roadmap.
+
+Provide an existing-app-only enhancement plan covering original-style calendar/navigation, appointment actions, team/catalogue/individual prices, schedules, settings, feedback, accessibility and reliability. Preserve saved data, backend invariants and matte design. BUILD_PLAN section 14 contains proposed E1..E5 passes and acceptance checks. Do not implement them or start authentication/payments/new modules until the user authorizes further building. Planning and document commits are not runtime changes or acceptance of the proposals.
+
 ## Proposed architecture decisions
 
 ### D-004 — Modular monolith on Hono / D1 / R2

@@ -1,6 +1,8 @@
 # Barbershop OS — Progress and next-session handoff
 
-Updated 2026-09-14 after **implementing the connected calendar slice of WP-LOCAL-03A**, continuing from a725561. The running `/workspace` now includes an original-style timetable and all existing persisted setup/booking controls. See current delivery below. Customer/admin/staff sign-in and memberships are NOT implemented; next requested build is WP-LOCAL-04 test accounts/permissions. Remaining 03A search/audit/scale work is tracked, not silently marked complete.
+Updated 2026-09-14 for **D-017 — review enhancements to the existing app before further building**. Runtime remains at d6cb261, the connected calendar slice. New feature/account development is paused while the user reviews BUILD_PLAN section 14. It proposes E1 calendar/shell polish, E2 booking/save safety, E3 team/catalogue/schedules, E4 settings/activity/performance and E5 acceptance. No pass is authorized or implemented by this plan. Sections 12/13 remain the broader roadmap, not the immediate build instruction.
+
+Planning-only validation: clean baseline checked, current connected-calendar/agenda evidence re-inspected, existing project plan/decision/handoff updated; runtime sources, schema, tests and feature statuses unchanged. No new regression run, visual fix or deployment claimed. Existing 42-unit/direct-D1/60-browser results below remain the latest application evidence.
 
 ## Read this first
 
