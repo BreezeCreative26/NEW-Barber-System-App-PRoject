@@ -210,7 +210,9 @@ User requested starting the build and a concrete execution plan. Do not produce 
 | WP-001-A-R1 | Cancelled by D-012 | Keep the current matte forest/sage palette | Do not execute recolouring |
 | WP-LOCAL-01 | Persisted local shop and appointment workflow | Browser-owned test sessions; local D1; staff/services/settings/hours/closures; availability; bookings; status and reschedule; audit | Domain, direct-D1, API isolation/concurrency and browser tests; no production identity or provider calls |
 | WP-LOCAL-02 | Verified local catalogue and dated-hours slice | Add-on/service links, immutable booking items, barber coverage/price/duration rules, dated replacement shifts/breaks | 42 unit/route tests, direct D1 guards, 54 browser/API tests; clean migrations and unchanged-source full regression |
-| WP-LOCAL-03 | Next: paginated booking queries and connected test surfaces | Tenant-scoped date/filter/cursor booking reads; remove display cap; connect customer/barber test UIs to authoritative shared APIs | More than 500 records still query correctly; cross-shop pagination and complete browser booking/day workflows |
+| WP-LOCAL-03A | Next: complete booking reads and safe interaction recovery | Fix audit AUD-01/02/03/05: server filters/cursors, independent impact/summary queries, draft-safe saves/dismissal and workspace render recovery | >500 records, deterministic tie ordering, cross-shop denial, complete impact warnings, preserved drafts and recoverable render faults |
+| WP-LOCAL-03B | Connected customer/barber test journeys | Shared catalogue/quote/availability, minimal projections and explicit local test grants; customer → owner → assigned barber workflow | No owner-wide records exposed to role-specific screens; complete persisted journey, reload/conflict/recovery tests; production identity still gated |
+| WP-LOCAL-03C | Checkout reservation proof | Expiring server holds and atomic reclamation across booking channels; delayed/duplicate confirmation handling | Concurrent acquisition/reclamation, expiry boundaries, lost-response recovery; no provider activation |
 | WP-001-B | Technical risk results | D1 interval allocation and expired-hold proof; Stripe Model A account-context checklist/proof when credentials available | Concurrency test evidence; explicit provider blockers; no architecture assumption marked proven |
 | WP-002-A | Private shop setup | Auth provider adapter; owner membership; tenant authorization; shop setup; first services and staff; reload persistence | Two-shop isolation tests and working setup flow |
 | WP-002-B | Complete scheduling setup | Service/add-on CRUD; barber coverage/price/duration; weekly shifts; breaks; time off; holiday handling; audit | Validated forms plus API tests; history preserved |
@@ -245,7 +247,7 @@ Related feature IDs: A-02/A-03/A-12, C-01/C-03/C-06/C-10/C-11/C-16..C-19, B-09..
 
 ### Current functionality-first sequence (D-012)
 
-1. **WP-LOCAL-01 — Local persisted foundation, now implemented.** Retain the matte appearance. `/workspace` connects local D1 setup, weekly schedules, closures, appointments, audited transitions and conflict-safe rescheduling. These are test-owner capabilities, not production roles. Full-day staff leave is now persisted with availability and write-time guards. WP-LOCAL-02 now adds persisted add-ons/item snapshots, barber eligibility/price/duration rules and dated replacement shifts/breaks. Next remove booking display limits and connect customer/barber test surfaces to the shared APIs.
+1. **WP-LOCAL-01 — Local persisted foundation, now implemented.** Retain the matte appearance. `/workspace` connects local D1 setup, weekly schedules, closures, appointments, audited transitions and conflict-safe rescheduling. These are test-owner capabilities, not production roles. Full-day staff leave is now persisted with availability and write-time guards. WP-LOCAL-02 now adds persisted add-ons/item snapshots, barber eligibility/price/duration rules and dated replacement shifts/breaks. The whole-app audit reproduced incomplete lists/impact warnings and unsafe dirty-form dismissal. Next WP-LOCAL-03A fixes these and workspace render recovery, followed by connected customer/barber test surfaces and a separate hold/expiry proof.
 2. **WP-001-B — Prove data safety.** Implement/test an atomic D1 allocation spike including intervals, buffers, expiry and simultaneous requests. Define tenant-aware schema and payment account-context contracts; do not mistake fixture helpers for real availability. Stripe execution waits only on Stripe credentials.
 3. **WP-002-A/B — Complete setup and production identity separately.** Basic saved shop/staff/services/hours screens exist in WP-LOCAL-01. Full-day leave, add-ons, staff service rules and dated partial-day shifts are implemented/tested locally. These do not satisfy production identity or all public-interface acceptance conditions. Managed authentication, memberships, MFA and invitation lifecycle remain explicit production gates; provider selection does not block local functional work.
 4. **WP-003-A — Real booking lifecycle.** Replace fixture catalogue/slots with tenant-scoped APIs, hold and booking allocation; connect customer selection and admin calendar. Add conflict feedback and atomic walk-in/reschedule operations. Pass concurrency and timezone tests before adding payments.
@@ -254,6 +256,54 @@ Related feature IDs: A-02/A-03/A-12, C-01/C-03/C-06/C-10/C-11/C-16..C-19, B-09..
 7. **WP-007-A/B — Commercial SaaS launch.** Subscription lifecycle, server entitlements, platform operations, monitoring, restore test and two-tenant pilot.
 
 Do not ask whether to redesign or restart architecture. The user has cancelled recolouring and requested functional build-out with nothing live. Ask only blocking provider/policy decisions at the point they matter. Preserve original release-scope flags and keep all local examples clearly separated from production capabilities.
+
+### Whole-app audit priorities — 2026-09-14
+
+This refines the existing execution order; it is not a planning restart or approval to expand launch scope. Detailed reproductions AUD-01 through AUD-05 and inspected gaps AUD-06 through AUD-08 are in PROGRESS. Runtime baseline is c1350a4; all findings remain open until a tested implementation closes them.
+
+**Recommended build order:**
+
+1. **Reliability before more screens (WP-LOCAL-03A).** Complete server-side booking queries, summaries/impact warnings and audit pagination; safe drafts and workspace render recovery. Integrate modest module extraction with these changes, not a rewrite.
+2. **One connected working day (WP-LOCAL-03B).** Public-style test booking → persisted owner calendar/day view → assigned-barber queue → visit completion. Use least-data projections and explicit test grants. Define real membership/permission/customer-grant contracts alongside this work so test owner access never becomes production role authorization by accident.
+3. **Reservation and policy proof (WP-LOCAL-03C / WP-001-B).** Holds, expiry, races and failed/late confirmation. Agree O-09 lifecycle timing/booking horizon and privileged correction rules. Resolve deposit/commission/fee/cash policy before money code. Preserve same-booking snapshot defaults unless explicitly changed.
+4. **Payment and accounting lifecycle together (WP-004-A/B).** Once separately authorized/configured, shop-account test-mode charges, verified webhook inbox, ledger postings, refunds and reconciliation; durable notification outbox with a reliable scheduler. Design receipt/balance/earnings models at first collection, not after checkout is finished. Until provider activation is approved, use clearly labelled contract/fault tests, never claim integration success.
+5. **Daily close and transparent owner-paid earnings (WP-005/006).** Cash recipient, tips, remaining balance, receipts, reconciled close-of-day and frozen manual pay-runs. Trace each amount back to visits/collections/reversals. Owner-attested external payment remains distinct from bank confirmation.
+6. **Safe PWA and commercial operations (WP-005-B / WP-007).** Restricted cache/install/update/device proof; production identity/MFA/revocation complete before real access; tenant subscriptions/entitlements/support, exports/retention, observability and restore. Run a whole-shop simulation before any explicitly approved pilot, then prove second-tenant isolation. No launch from passing local UI tests alone.
+
+Production identity, privacy, migrations and observability are cross-cutting work, not cleanup left until launch. Provider decisions should not block the allowed local slices. Week/month calendar, remaining original features and native decisions retain their register scope.
+
+#### Market gaps to validate, not silently add
+
+Official vendor pages inspected on 2026-09-14:
+
+- [SQUIRE Wait List](https://getsquire.com/features/wait-list): advertises automatic opening notifications and first-confirmed booking.
+- [Booksy features](https://biz.booksy.com/features): advertises automated waitlists, booking lead-time rules, family/friend appointments, client histories, reminders, reporting and calendar/client import.
+- [Fresha scheduling](https://www.fresha.com/for-business/features/scheduling): advertises waitlist matching, resource scheduling, group appointments, deposits, client profiles and team scheduling.
+
+These are vendor claims and feature descriptions, not independently tested quality, country/plan eligibility, pricing or market-share evidence. Do not copy vendor payout assumptions into Model A. We have not established that Barbershop OS beats these products.
+
+| Candidate | Why it matters | Dependency / approval boundary |
+| --- | --- | --- |
+| P-01 Cancellation waitlist and fair offer expiry | Recover unused chair time; conspicuous omission from the current feature register | Hold allocator + durable notifications + customer consent; distinct from the unresolved in-shop queue display. Define who receives offers and how one winner is allocated. |
+| P-02 Rebook last visit / repeat-visit convenience | Reduce friction for regular haircut customers | Stable customer identity and current-price review; recurring series needs its own conflict/cancellation rules, not blind duplication. |
+| P-03 Assisted migration/onboarding | Shops need to bring clients, future appointments and opening balances without duplicates | Validated import preview, dry-run, per-row errors, deduplication and rollback strategy; never guess historical consent/payment outcomes. |
+| P-04 Family/dependent booking | Parent/contact may book several people sharing a phone | Model booker separately from service recipient; consent/access/privacy rules and explicit scope approval. |
+| P-05 Operational exception centre | Owners need to act on failures, not hunt through screens | Extend existing planned S-14: affected appointments, failed delivery/refund, unbalanced close, restricted payment account; action owner, status and retry history. |
+| P-06 Cash close and clear earnings statements | Strong fit for Model A and owner trust | Extend planned cash/ledger/report coverage with counted cash versus expected, variance reasons, fee/refund adjustments and external-payment attestation. |
+
+P-01..P-04 are proposals outside the existing register, not new accepted requirements. P-05/P-06 sharpen planned capabilities, not delivered features. Keep the 189 rows unchanged until scope decisions are recorded. Prefer validated barber needs over broad salon inventory, multi-location, automated payouts or AI features that conflict with existing boundaries.
+
+#### Measure quality instead of claiming “best”
+
+Proposed acceptance targets (not measured achievements or approved SLAs):
+
+- Test with at least five representative owners/barbers and five customers; target >=90% unassisted success on core booking/visit/close tasks. Observe failures and time-on-task; do not treat a tiny sample as market proof.
+- Mobile booking target under 90 seconds excluding payment authentication; returning-client rebooking under 30 seconds; basic walk-in under 30 seconds. Use the same tasks/data/device conditions when comparing alternatives.
+- Core Web Vitals targets at the 75th percentile on supported mobile devices: LCP <=2.5s, INP <=200ms, CLS <=0.1. Define API p95/load budgets with measured D1 data and expected shop concurrency before setting an SLA.
+- Demonstrate complete daily views and issue queries at 10,000 appointments per test shop and multiple tenants; test stable pagination under ties and inserts. Passing a 503-row reproduction is not a capacity benchmark.
+- Zero accepted overlap/duplicate-collection/duplicate-earnings-allocation outcomes across the agreed adversarial tests; every amount reconciles and every failed operation has recoverable state. This is a test acceptance condition, not a promise that software can never fail.
+- Manual screen-reader/keyboard/zoom checks plus Safari/Firefox/Chromium and physical iOS/Android PWA/shared-device testing. Automated axe and Chromium alone are insufficient.
+- Define recovery-point/recovery-time objectives with the owner; pass an isolated restore drill including relationships and financial totals before pilot. Establish error/outbox/webhook alerts, PII scrubbing, provider-cost/usage visibility and incident ownership.
 
 ### Build boundaries and required inputs
 
