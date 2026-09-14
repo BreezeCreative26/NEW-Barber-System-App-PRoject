@@ -22,6 +22,8 @@ import {
   publicBookingSchema,
   onlineBookingSchema,
   seriesSchema,
+  customerSchema,
+  type Customer,
   bookingDetailsSchema,
   dayOffSchema,
   type StaffDayOff,
@@ -189,9 +191,14 @@ sandbox.use("*", async (c, next) => {
           path,
         )) ||
       (method === "GET" && /^\/customers\/[^/]+$/.test(path)) ||
+      (method === "POST" && path === "/customers") ||
+      (method === "PUT" && /^\/customers\/[^/]+$/.test(path)) ||
+      (method === "POST" && /^\/customers\/[^/]+\/merge$/.test(path)) ||
       (method === "GET" && path === "/waitlist") ||
       (method === "GET" && ["/bookings/range", "/insights"].includes(path)) ||
       (method === "POST" && ["/series/preview", "/series"].includes(path)) ||
+      (method === "POST" && /^\/series\/[^/]+\/(cancel|reschedule)$/.test(path)) ||
+      (method === "GET" && /^\/bookings\/[^/]+\/timeline$/.test(path)) ||
       (method === "POST" && /^\/bookings\/[^/]+\/manage-link$/.test(path)) ||
       (method === "POST" && /^\/waitlist\/[^/]+\/status$/.test(path)) ||
       (method === "GET" && /^\/bookings\/[^/]+$/.test(path)) ||
@@ -731,46 +738,194 @@ sandbox.put("/shop/online", async (c) => {
   return c.json({ shop: await readShop(c) });
 });
 // Customer directory derived from saved visits: grouped by normalised mobile number.
+// ---- Customers: editable profile rows plus SQL-derived visit statistics ----
+const customerStats = `
+  COUNT(b.id) AS visits,
+  SUM(CASE WHEN b.status='COMPLETED' THEN 1 ELSE 0 END) AS completed,
+  SUM(CASE WHEN b.status='NO_SHOW' THEN 1 ELSE 0 END) AS no_shows,
+  SUM(CASE WHEN b.status='CANCELLED' THEN 1 ELSE 0 END) AS cancelled,
+  SUM(CASE WHEN b.status='COMPLETED' THEN b.price_pence ELSE 0 END) AS completed_value_pence,
+  MIN(CASE WHEN b.status<>'CANCELLED' THEN b.start_at END) AS first_visit_at,
+  MAX(CASE WHEN b.status='COMPLETED' THEN b.start_at END) AS last_visit_at,
+  MIN(CASE WHEN b.start_at>? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') THEN b.start_at END) AS next_visit_at,
+  SUM(CASE WHEN b.start_at>? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') THEN 1 ELSE 0 END) AS upcoming`;
+function customerScope(c: Ctx) {
+  const a = c.get("account");
+  return a?.role === "BARBER" ? a.staff_id : null;
+}
+async function readCustomer(c: Ctx, id: string) {
+  const row = await c.env.DB.prepare("SELECT * FROM customers WHERE shop_id=? AND id=?")
+    .bind(c.get("shopId"), id)
+    .first<Customer>();
+  if (!row) return fail(404, "Customer not found");
+  return row;
+}
 sandbox.get("/customers", async (c) => {
   const parsed = z
     .object({
       q: z.string().trim().max(100).default(""),
       limit: z.coerce.number().int().min(1).max(200).default(100),
+      filter: z.enum(["all", "new", "regulars", "lapsed", "no_shows", "upcoming"]).default("all"),
+      sort: z.enum(["recent", "spend", "visits", "name", "next"]).default("recent"),
     })
     .safeParse(c.req.query());
   if (!parsed.success) fail(400, "Invalid customer query");
-  const { q, limit } = parsed.data!;
-  const a = c.get("account");
-  const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const { q, limit, filter, sort } = parsed.data!;
+  const assigned = customerScope(c);
+  const now = Date.now();
+  const having = {
+    all: "1",
+    new: "first_visit_at >= ?",
+    regulars: "completed >= 4",
+    lapsed: "completed >= 1 AND last_visit_at < ? AND upcoming = 0",
+    no_shows: "no_shows >= 2",
+    upcoming: "upcoming >= 1",
+  }[filter];
+  const order = {
+    recent: "COALESCE(last_visit_at, c.created_at) DESC",
+    spend: "completed_value_pence DESC, visits DESC",
+    visits: "visits DESC, completed_value_pence DESC",
+    name: "c.name COLLATE NOCASE ASC",
+    next: "CASE WHEN next_visit_at IS NULL THEN 1 ELSE 0 END, next_visit_at ASC",
+  }[sort];
+  const binds: unknown[] = [now, now, assigned, assigned, c.get("shopId"), q, q, q, q, q];
+  if (filter === "new") binds.push(now - 30 * 86400000);
+  if (filter === "lapsed") binds.push(now - 60 * 86400000);
+  binds.push(limit);
   const rows = await c.env.DB.prepare(
-    `SELECT phone, MAX(customer_name) AS customer_name, MAX(CASE WHEN email<>'' THEN email END) AS email,
-      COUNT(*) AS visits,
-      SUM(CASE WHEN status='COMPLETED' THEN 1 ELSE 0 END) AS completed,
-      SUM(CASE WHEN status='NO_SHOW' THEN 1 ELSE 0 END) AS no_shows,
-      SUM(CASE WHEN status='CANCELLED' THEN 1 ELSE 0 END) AS cancelled,
-      SUM(CASE WHEN status='COMPLETED' THEN price_pence ELSE 0 END) AS completed_value_pence,
-      MIN(start_at) AS first_visit_at, MAX(start_at) AS last_visit_at,
-      MAX(CASE WHEN start_at>? AND status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') THEN start_at END) AS next_visit_at
-     FROM bookings WHERE shop_id=? AND (? IS NULL OR staff_id=?)
-     AND (?='' OR customer_name LIKE '%'||?||'%' COLLATE NOCASE OR phone LIKE '%'||?||'%' OR email LIKE '%'||?||'%' COLLATE NOCASE)
-     GROUP BY phone ORDER BY last_visit_at DESC LIMIT ?`,
+    `SELECT c.id, c.name, c.phone, c.email, c.tags, c.notes, c.preferred_staff_id, c.birthday, c.marketing_opt_in, c.version, c.created_at, ${customerStats},
+      (SELECT b2.staff_id FROM bookings b2 WHERE b2.shop_id=c.shop_id AND b2.customer_id=c.id AND b2.status='COMPLETED' GROUP BY b2.staff_id ORDER BY COUNT(*) DESC, MAX(b2.start_at) DESC LIMIT 1) AS favourite_staff_id,
+      (SELECT b3.service_name FROM bookings b3 WHERE b3.shop_id=c.shop_id AND b3.customer_id=c.id AND b3.status='COMPLETED' GROUP BY b3.service_name ORDER BY COUNT(*) DESC, MAX(b3.start_at) DESC LIMIT 1) AS favourite_service
+     FROM customers c
+     LEFT JOIN bookings b ON b.shop_id=c.shop_id AND b.customer_id=c.id AND (? IS NULL OR b.staff_id=?)
+     WHERE c.shop_id=? AND c.merged_into IS NULL
+     AND (?='' OR c.name LIKE '%'||?||'%' COLLATE NOCASE OR c.phone LIKE '%'||?||'%' OR c.email LIKE '%'||?||'%' COLLATE NOCASE OR c.tags LIKE '%'||?||'%' COLLATE NOCASE)
+     GROUP BY c.id HAVING ${having} ORDER BY ${order} LIMIT ?`,
   )
-    .bind(Date.now(), c.get("shopId"), assigned, assigned, q, q, q, q, limit)
+    .bind(...binds)
     .all();
-  return c.json({ customers: rows.results, limit });
+  // Barbers only see customers they have actually served.
+  const results = assigned ? rows.results.filter((r) => (r as { visits: number }).visits > 0) : rows.results;
+  return c.json({ customers: results, limit });
 });
-sandbox.get("/customers/:phone", async (c) => {
-  const phone = c.req.param("phone").replace(/[\s()-]/g, "");
-  if (!/^(?:\+44|0)7\d{9}$/.test(phone)) fail(400, "Invalid mobile number");
-  const a = c.get("account");
-  const assigned = a?.role === "BARBER" ? a.staff_id : null;
-  const rows = await c.env.DB.prepare(
-    "SELECT * FROM bookings WHERE shop_id=? AND phone=? AND (? IS NULL OR staff_id=?) ORDER BY start_at DESC LIMIT 200",
+sandbox.post("/customers", async (c) => {
+  const b = await input(c, customerSchema);
+  const existing = await c.env.DB.prepare("SELECT id, merged_into FROM customers WHERE shop_id=? AND phone=?")
+    .bind(c.get("shopId"), b.phone)
+    .first<{ id: string; merged_into: string | null }>();
+  if (existing) fail(409, "A customer with this mobile number already exists");
+  const now = Date.now();
+  const customerId = id();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      "INSERT INTO customers(id,shop_id,name,phone,email,notes,tags,birthday,preferred_staff_id,marketing_opt_in,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+    ).bind(customerId, c.get("shopId"), b.name, b.phone, b.email, b.notes, JSON.stringify(b.tags), b.birthday || null, b.preferred_staff_id || null, b.marketing_opt_in, now, now),
+    audit(c, "customer", customerId, "CUSTOMER_CREATED", "Customer record added."),
+  ]);
+  return c.json({ customer: await readCustomer(c, customerId) }, 201);
+});
+sandbox.get("/customers/:id", async (c) => {
+  const param = c.req.param("id");
+  const assigned = customerScope(c);
+  const now = Date.now();
+  // Accept a phone number for older links; canonical id otherwise.
+  const byPhone = /^(?:\+44|0)7\d{9}$/.test(param.replace(/[\s()-]/g, ""));
+  const cust = await c.env.DB.prepare(
+    `SELECT * FROM customers WHERE shop_id=? AND ${byPhone ? "phone" : "id"}=?`,
   )
-    .bind(c.get("shopId"), phone, assigned, assigned)
-    .all<StoredBooking>();
-  if (!rows.results.length) fail(404, "No visits for this customer");
-  return c.json({ phone, bookings: rows.results });
+    .bind(c.get("shopId"), byPhone ? param.replace(/[\s()-]/g, "") : param)
+    .first<Customer>();
+  if (!cust) return fail(404, "Customer not found");
+  const target = cust.merged_into ?? cust.id;
+  const [profile, bookings, byBarber, byService] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT c.*, ${customerStats},
+        AVG(CASE WHEN b.status='COMPLETED' THEN b.price_pence END) AS avg_spend_pence
+       FROM customers c LEFT JOIN bookings b ON b.shop_id=c.shop_id AND b.customer_id=c.id AND (? IS NULL OR b.staff_id=?)
+       WHERE c.shop_id=? AND c.id=? GROUP BY c.id`,
+    ).bind(now, now, assigned, assigned, c.get("shopId"), target).first<Customer & Record<string, number | null>>(),
+    c.env.DB.prepare(
+      "SELECT * FROM bookings WHERE shop_id=? AND customer_id=? AND (? IS NULL OR staff_id=?) ORDER BY start_at DESC LIMIT 200",
+    ).bind(c.get("shopId"), target, assigned, assigned).all<StoredBooking>(),
+    c.env.DB.prepare(
+      "SELECT b.staff_id, s.name, COUNT(*) AS n, MAX(b.start_at) AS last_at FROM bookings b JOIN staff s ON s.shop_id=b.shop_id AND s.id=b.staff_id WHERE b.shop_id=? AND b.customer_id=? AND b.status='COMPLETED' GROUP BY b.staff_id ORDER BY n DESC, last_at DESC",
+    ).bind(c.get("shopId"), target).all(),
+    c.env.DB.prepare(
+      "SELECT service_name AS name, COUNT(*) AS n, MAX(start_at) AS last_at FROM bookings WHERE shop_id=? AND customer_id=? AND status='COMPLETED' GROUP BY service_name ORDER BY n DESC, last_at DESC LIMIT 5",
+    ).bind(c.get("shopId"), target).all(),
+  ]);
+  if (!profile) return fail(404, "Customer not found");
+  if (assigned && !bookings.results.length) return fail(404, "Customer not found");
+  // Average gap between completed visits, in days.
+  const completed = bookings.results.filter((b) => b.status === "COMPLETED").map((b) => b.start_at).sort((a, b) => a - b);
+  const gaps = completed.slice(1).map((t, i) => (t - completed[i]) / 86400000);
+  const avg_gap_days = gaps.length ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length) : null;
+  // Preferred time of day from completed visits.
+  const parts = { morning: 0, afternoon: 0, evening: 0 };
+  for (const b of bookings.results) if (b.status === "COMPLETED") parts[b.start_min < 720 ? "morning" : b.start_min < 1020 ? "afternoon" : "evening"]++;
+  const preferred_daypart = completed.length ? (Object.entries(parts).sort((a, b) => b[1] - a[1])[0][0]) : null;
+  return c.json({
+    customer: profile,
+    bookings: bookings.results,
+    barbers: byBarber.results,
+    services: byService.results,
+    avg_gap_days,
+    preferred_daypart,
+    favourite_staff_id: (byBarber.results[0] as { staff_id?: string } | undefined)?.staff_id ?? null,
+    favourite_service: (byService.results[0] as { name?: string } | undefined)?.name ?? null,
+  });
+});
+sandbox.put("/customers/:id", async (c) => {
+  const b = await input(c, customerSchema);
+  if (b.version === undefined) fail(400, "version is required");
+  const current = await readCustomer(c, c.req.param("id"));
+  if (current.merged_into) fail(409, "This customer was merged into another record");
+  const clash = await c.env.DB.prepare("SELECT id FROM customers WHERE shop_id=? AND phone=? AND id<>?")
+    .bind(c.get("shopId"), b.phone, current.id)
+    .first();
+  if (clash) fail(409, "Another customer already uses this mobile number");
+  const changes: string[] = [];
+  if (current.name !== b.name) changes.push("name");
+  if (current.phone !== b.phone) changes.push("phone");
+  if (current.email !== b.email) changes.push("email");
+  if (current.notes !== b.notes) changes.push("notes");
+  if (current.tags !== JSON.stringify(b.tags)) changes.push("tags");
+  if ((current.birthday || "") !== b.birthday) changes.push("birthday");
+  if ((current.preferred_staff_id || "") !== b.preferred_staff_id) changes.push("preferred barber");
+  if (current.marketing_opt_in !== b.marketing_opt_in) changes.push("marketing preference");
+  await checkVersionUpdate(
+    c,
+    c.env.DB.prepare(
+      "UPDATE customers SET name=?,phone=?,email=?,notes=?,tags=?,birthday=?,preferred_staff_id=?,marketing_opt_in=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
+    ).bind(b.name, b.phone, b.email, b.notes, JSON.stringify(b.tags), b.birthday || null, b.preferred_staff_id || null, b.marketing_opt_in, Date.now(), c.get("shopId"), current.id, b.version),
+    audit(c, "customer", current.id, "CUSTOMER_UPDATED", changes.length ? `Changed ${changes.join(", ")}.` : "No field changes.", true),
+  );
+  return c.json({ customer: await readCustomer(c, current.id) });
+});
+// Merge duplicate records: every booking of the loser moves to the winner; the loser
+// row stays (pointing at the winner) so old links keep resolving.
+sandbox.post("/customers/:id/merge", async (c) => {
+  const a = c.get("account");
+  if (a && !["OWNER", "MANAGER"].includes(a.role)) fail(403, "Owner or manager required");
+  const b = await input(c, z.object({ into: z.string().min(32).max(36), version: z.number().int().min(0) }).strict());
+  const loser = await readCustomer(c, c.req.param("id"));
+  const winner = await readCustomer(c, b.into);
+  if (loser.id === winner.id) fail(400, "Choose a different customer to merge into");
+  if (loser.merged_into || winner.merged_into) fail(409, "One of these records was already merged");
+  if (loser.version !== b.version) fail(409, "record_changed");
+  const moved = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM bookings WHERE shop_id=? AND customer_id=?")
+    .bind(c.get("shopId"), loser.id)
+    .first<{ n: number }>();
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE bookings SET customer_id=? WHERE shop_id=? AND customer_id=?").bind(winner.id, c.get("shopId"), loser.id),
+    c.env.DB.prepare("UPDATE customers SET merged_into=?, version=version+1, updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(winner.id, Date.now(), c.get("shopId"), loser.id, b.version),
+    c.env.DB.prepare(
+      "UPDATE customers SET email=CASE WHEN email='' THEN ? ELSE email END, notes=CASE WHEN ?<>'' AND notes NOT LIKE '%'||?||'%' THEN TRIM(notes||CHAR(10)||?) ELSE notes END, version=version+1, updated_at=? WHERE shop_id=? AND id=?",
+    ).bind(loser.email, loser.notes, loser.notes, loser.notes, Date.now(), c.get("shopId"), winner.id),
+    audit(c, "customer", winner.id, "CUSTOMER_MERGED", `Merged ${loser.name} (${loser.phone}) into this record; ${moved?.n ?? 0} visits moved.`),
+    audit(c, "customer", loser.id, "CUSTOMER_MERGED_AWAY", `Merged into ${winner.name} (${winner.phone}).`),
+  ]);
+  return c.json({ customer: await readCustomer(c, winner.id), moved: moved?.n ?? 0 });
 });
 // Waitlist: open requests for full days, scoped like bookings.
 sandbox.get("/waitlist", async (c) => {
@@ -1395,7 +1550,7 @@ export async function createBooking(
   options: { minStart?: number; maxDate?: string; seriesId?: string | null } = {},
 ) {
   // Preserve request hashes for pre-add-on bookings with the same normalized payload.
-  const { addon_ids, email, ...originalPayload } = b;
+  const { addon_ids, email, customer_id, ...originalPayload } = b as typeof b & { customer_id?: string };
   const requestHash = await hash(
     JSON.stringify({
       ...originalPayload,
@@ -1417,6 +1572,17 @@ export async function createBooking(
   };
   const existing = await replay();
   if (existing) return { booking: existing, replayed: true };
+  // A chosen customer record must be this shop's and not merged away; its current phone wins.
+  let customerId: string | null = null;
+  if (customer_id) {
+    const cust = await c.env.DB.prepare(
+      "SELECT id, merged_into FROM customers WHERE shop_id=? AND id=?",
+    )
+      .bind(sid, customer_id)
+      .first<{ id: string; merged_into: string | null }>();
+    if (!cust) return fail(404, "Customer not found");
+    customerId = cust.merged_into ?? cust.id;
+  }
   const data = await availabilityContext(c, b.staff_id, b.service_id, b.date);
   if (!data.service.active) fail(409, "service_unavailable");
   if (
@@ -1451,8 +1617,8 @@ export async function createBooking(
   const now = Date.now();
   const bookingId = id();
   const statement = c.env.DB.prepare(
-    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id)
-  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
+    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id)
+  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
   ).bind(
     bookingId,
     sid,
@@ -1481,6 +1647,7 @@ export async function createBooking(
     channel,
     email,
     options.seriesId ?? null,
+    customerId,
     sid,
   );
   try {
@@ -1614,5 +1781,116 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     audit(c, "booking", b.id, "RESCHEDULED", body.reason, true),
   );
   return c.json({ booking: await readBooking(c, b.id) });
+});
+// ---- Appointment panel: per-booking timeline and standing-series operations ----
+sandbox.get("/bookings/:id/timeline", async (c) => {
+  const b = await readBooking(c, c.req.param("id"));
+  const [events, customer, series] = await Promise.all([
+    c.env.DB.prepare(
+      "SELECT id,action,actor,reason,created_at FROM audit_events WHERE shop_id=? AND entity_type='booking' AND entity_id=? ORDER BY created_at ASC, id ASC LIMIT 100",
+    ).bind(c.get("shopId"), b.id).all(),
+    b.customer_id
+      ? c.env.DB.prepare(
+          `SELECT c.id, c.name, c.phone, c.email, c.tags, c.notes, c.preferred_staff_id, c.version,
+            COUNT(x.id) AS visits,
+            SUM(CASE WHEN x.status='COMPLETED' THEN 1 ELSE 0 END) AS completed,
+            SUM(CASE WHEN x.status='NO_SHOW' THEN 1 ELSE 0 END) AS no_shows,
+            SUM(CASE WHEN x.status='COMPLETED' THEN x.price_pence ELSE 0 END) AS completed_value_pence,
+            MAX(CASE WHEN x.status='COMPLETED' AND x.id<>? THEN x.start_at END) AS last_visit_at
+           FROM customers c LEFT JOIN bookings x ON x.shop_id=c.shop_id AND x.customer_id=c.id
+           WHERE c.shop_id=? AND c.id=? GROUP BY c.id`,
+        ).bind(b.id, c.get("shopId"), b.customer_id).first()
+      : Promise.resolve(null),
+    b.series_id
+      ? c.env.DB.prepare(
+          "SELECT id,date,start_min,status,version FROM bookings WHERE shop_id=? AND series_id=? ORDER BY start_at",
+        ).bind(c.get("shopId"), b.series_id).all()
+      : Promise.resolve(null),
+  ]);
+  return c.json({
+    booking: b,
+    events: events.results,
+    customer,
+    series: series?.results ?? [],
+  });
+});
+// Cancel every remaining (future, confirmed) visit in a standing series.
+sandbox.post("/series/:id/cancel", async (c) => {
+  const body = await input(c, z.object({ reason: z.string().trim().min(3).max(300), from_booking_id: z.string().uuid().optional() }).strict());
+  const seriesId = c.req.param("id");
+  const rows = await c.env.DB.prepare(
+    "SELECT id,staff_id,status,start_at,version FROM bookings WHERE shop_id=? AND series_id=? AND status='CONFIRMED' ORDER BY start_at",
+  ).bind(c.get("shopId"), seriesId).all<{ id: string; staff_id: string; status: string; start_at: number; version: number }>();
+  if (!rows.results.length) fail(404, "No remaining visits in this series");
+  for (const r of rows.results) scopeStaff(c, r.staff_id);
+  let targets = rows.results;
+  if (body.from_booking_id) {
+    const pivot = rows.results.find((r) => r.id === body.from_booking_id);
+    if (!pivot) fail(404, "Booking is not part of this series");
+    targets = rows.results.filter((r) => r.start_at >= pivot!.start_at);
+  }
+  const now = Date.now();
+  const statements: D1PreparedStatement[] = [];
+  for (const t of targets) {
+    statements.push(
+      c.env.DB.prepare("UPDATE bookings SET status='CANCELLED',version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=? AND status='CONFIRMED'").bind(now, c.get("shopId"), t.id, t.version),
+      audit(c, "booking", t.id, "STATUS_CANCELLED", `${body.reason} (whole series)`, true),
+    );
+  }
+  statements.push(audit(c, "series", seriesId, "SERIES_CANCELLED", `${targets.length} remaining visits cancelled: ${body.reason}`));
+  const result = await c.env.DB.batch(statements);
+  const cancelled = result.filter((r, i) => i % 2 === 0 && i < targets.length * 2 && r.meta.changes).length;
+  return c.json({ series_id: seriesId, cancelled, remaining: targets.length - cancelled });
+});
+// Move every remaining visit in a series to a new weekly time (same weekday offset kept).
+sandbox.post("/series/:id/reschedule", async (c) => {
+  const body = await input(
+    c,
+    z.object({
+      staff_id: z.string().uuid(),
+      start_min: z.number().int().min(0).max(1425).refine((v) => v % 15 === 0, "Choose a 15-minute start"),
+      day_shift: z.number().int().min(-6).max(6).default(0),
+      reason: z.string().trim().min(3).max(300),
+      from_booking_id: z.string().uuid().optional(),
+    }).strict(),
+  );
+  const seriesId = c.req.param("id");
+  const rows = await c.env.DB.prepare(
+    "SELECT * FROM bookings WHERE shop_id=? AND series_id=? AND status='CONFIRMED' ORDER BY start_at",
+  ).bind(c.get("shopId"), seriesId).all<StoredBooking>();
+  if (!rows.results.length) fail(404, "No remaining visits in this series");
+  for (const r of rows.results) scopeStaff(c, r.staff_id);
+  let targets = rows.results;
+  if (body.from_booking_id) {
+    const pivot = rows.results.find((r) => r.id === body.from_booking_id);
+    if (!pivot) fail(404, "Booking is not part of this series");
+    targets = rows.results.filter((r) => r.start_at >= pivot!.start_at);
+  }
+  const moved: StoredBooking[] = [];
+  const failed: { id: string; date: string; reason: string }[] = [];
+  for (const b of targets) {
+    const d = new Date(`${b.date}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + body.day_shift);
+    const date = d.toISOString().slice(0, 10);
+    try {
+      const data = await availabilityContext(c, body.staff_id, b.service_id, date);
+      if (data.rule?.enabled === 0) throw new Error("service_ineligible");
+      const reason = slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, date, body.start_min, b.duration_min, Date.now(), b.id, data.daysOff);
+      if (reason) throw new Error(reason);
+      const start = localInstant(date, body.start_min, data.shop.timezone)!;
+      await checkVersionUpdate(
+        c,
+        c.env.DB.prepare(
+          "UPDATE bookings SET staff_id=?,date=?,start_min=?,start_at=?,end_at=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
+        ).bind(body.staff_id, date, body.start_min, start, start + b.duration_min * 60000, Date.now(), c.get("shopId"), b.id, b.version),
+        audit(c, "booking", b.id, "RESCHEDULED", `${body.reason} (whole series)`, true),
+      );
+      moved.push(await readBooking(c, b.id));
+    } catch (err) {
+      failed.push({ id: b.id, date, reason: err instanceof HTTPException ? err.message : String(err).replace(/^Error: /, "").slice(0, 80) });
+    }
+  }
+  await c.env.DB.batch([audit(c, "series", seriesId, "SERIES_RESCHEDULED", `${moved.length} moved, ${failed.length} kept in place: ${body.reason}`)]);
+  return c.json({ series_id: seriesId, moved, failed });
 });
 export default sandbox;

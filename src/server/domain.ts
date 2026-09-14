@@ -103,6 +103,7 @@ export type StaffDayOff = {
   created_at: number;
 };
 export type StoredBooking = {
+  customer_id: string | null;
   id: string;
   shop_id: string;
   sequence: number;
@@ -172,6 +173,41 @@ export const dateSchema = z
     const d = new Date(`${s}T12:00:00Z`);
     return !Number.isNaN(d.valueOf()) && d.toISOString().slice(0, 10) === s;
   }, "Invalid calendar date");
+export const phoneSchema = z
+  .string()
+  .transform((s) => s.replace(/[\s()-]/g, ""))
+  .refine((s) => /^(?:\+44|0)7\d{9}$/.test(s), "Enter a valid UK mobile number");
+export type Customer = {
+  id: string;
+  shop_id: string;
+  name: string;
+  phone: string;
+  email: string;
+  notes: string;
+  tags: string;
+  birthday: string | null;
+  preferred_staff_id: string | null;
+  marketing_opt_in: number;
+  merged_into: string | null;
+  version: number;
+  created_at: number;
+  updated_at: number;
+};
+export const customerSchema = z
+  .object({
+    name,
+    phone: phoneSchema,
+    email: z.union([z.literal(""), z.string().trim().email().max(254)]).default(""),
+    notes: z.string().trim().max(1000).default(""),
+    tags: z.array(z.string().trim().min(1).max(24)).max(12).default([]),
+    birthday: z
+      .union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)])
+      .default(""),
+    preferred_staff_id: z.union([z.literal(""), z.string().uuid()]).default(""),
+    marketing_opt_in: active.default(0),
+    version: version.optional(),
+  })
+  .strict();
 export const staffSchema = z
   .object({
     name,
@@ -340,6 +376,7 @@ export const bookingSchema = z
       .refine((v) => v % 15 === 0, "Choose a 15-minute start"),
     source: z.enum(["TEST_BOOKING", "WALK_IN"]),
     addon_ids: addonIdsSchema.default([]),
+    customer_id: z.string().regex(/^[0-9a-f-]{32,36}$/).optional(),
     quote: z
       .object({ service_version: version, shop_version: version })
       .strict(),

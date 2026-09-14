@@ -21,7 +21,8 @@ import type {
   Holiday,
   StaffDayOff,
 } from "../server/domain";
-import { Brand, Button, Icon, Modal, Notice, Badge } from "./ui";
+import { Brand, Button, Icon, Modal, Notice, Badge, Avatar } from "./ui";
+import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { Calendar, WeekStrip, WeekView, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { money, time, datePlus } from "./fixtures";
 
@@ -715,6 +716,8 @@ type Editor =
       waitlist?: WaitlistEntry;
     }
   | { kind: "detail"; item: StoredBooking }
+  | { kind: "seriesMove"; item: StoredBooking }
+  | { kind: "share"; item: StoredBooking }
   | { kind: "contacts"; item: StoredBooking }
   | { kind: "holiday" }
   | { kind: "removeHoliday"; item: Holiday };
@@ -896,6 +899,52 @@ export function Workspace() {
           ? e.message
           : "Could not open appointment. Retry workspace.",
       );
+    }
+  }
+  // Appointment side panel: timeline read + lightweight actions that keep the panel open.
+  const [timeline, setTimeline] = useState<Timeline | null>(null);
+  const [timelineError, setTimelineError] = useState("");
+  const [panelBusy, setPanelBusy] = useState("");
+  const [panelError, setPanelError] = useState("");
+  const [customerId, setCustomerId] = useState<string | null>(null);
+  const panelBooking = editor?.kind === "detail" ? editor.item : null;
+  useEffect(() => {
+    if (!panelBooking) {
+      setTimeline(null);
+      setTimelineError("");
+      setPanelError("");
+      return;
+    }
+    let cancelled = false;
+    setTimelineError("");
+    api<Timeline>(`/bookings/${panelBooking.id}/timeline`)
+      .then((t) => !cancelled && setTimeline(t))
+      .catch((e) => !cancelled && setTimelineError(e instanceof Error ? e.message : "Could not load history."));
+    return () => {
+      cancelled = true;
+    };
+  }, [panelBooking?.id, panelBooking?.version]);
+  async function panelAction(label: string, run: () => Promise<{ booking?: StoredBooking } | void | unknown>) {
+    setPanelBusy(label);
+    setPanelError("");
+    try {
+      const result = (await run()) as { booking?: StoredBooking } | undefined;
+      const fresh = result?.booking ?? (panelBooking ? (await api<{ booking: StoredBooking }>(`/bookings/${panelBooking.id}`)).booking : null);
+      setNotice("Saved to your local test database.");
+      await refresh().catch(() =>
+        setError("Saved successfully, but the updated view could not load. Use Retry workspace below; do not repeat the saved action."),
+      );
+      if (fresh) setEditor({ kind: "detail", item: fresh });
+    } catch (e) {
+      setPanelError(e instanceof Error ? e.message : "Could not save.");
+      if (e instanceof ApiError && e.status === 409 && panelBooking) {
+        // Someone else changed this visit: reload it so the next action uses the current version.
+        api<{ booking: StoredBooking }>(`/bookings/${panelBooking.id}`)
+          .then((r) => setEditor({ kind: "detail", item: r.booking }))
+          .catch(() => {});
+      }
+    } finally {
+      setPanelBusy("");
     }
   }
   async function saved(path: string, method: string, body?: unknown) {
@@ -1812,6 +1861,9 @@ export function Workspace() {
                 <CustomersPanel
                   w={w}
                   onOpen={(b) => setEditor({ kind: "detail", item: b })}
+                  selectedId={customerId}
+                  onSelect={setCustomerId}
+                  onBook={(prefill) => setEditor({ kind: "booking", rebook: prefill })}
                 />
               )}
               {tab === "Accounts" && (
@@ -1843,7 +1895,63 @@ export function Workspace() {
           )}
         </main>
       </div>
-      {w && editor && (
+      {w && editor?.kind === "detail" && (
+        <AppointmentPanel
+          booking={editor.item}
+          w={w}
+          timeline={timeline}
+          timelineError={timelineError}
+          busy={panelBusy}
+          error={panelError}
+          onClose={() => setEditor(null)}
+          onStatus={(status, reason) =>
+            panelAction(status, () =>
+              api(`/bookings/${editor.item.id}/status`, "POST", { status, reason, version: editor.item.version }),
+            )
+          }
+          onMove={() => setEditor({ kind: "booking", item: editor.item })}
+          onRebook={() => setEditor({ kind: "booking", rebook: editor.item })}
+          onEdit={() => setEditor({ kind: "contacts", item: editor.item })}
+          onShare={() => setEditor({ kind: "share", item: editor.item })}
+          onCustomer={(id) => {
+            setEditor(null);
+            setCustomerId(id);
+            setTab("Customers");
+          }}
+          onSeriesCancel={(reason, fromThis) =>
+            panelAction("series", () =>
+              api(`/series/${editor.item.series_id}/cancel`, "POST", {
+                reason,
+                ...(fromThis ? { from_booking_id: editor.item.id } : {}),
+              }),
+            )
+          }
+          onSeriesMove={() => setEditor({ kind: "seriesMove", item: editor.item })}
+          onNote={(note) =>
+            panelAction("note", () =>
+              api(`/bookings/${editor.item.id}/details`, "PATCH", {
+                customer_name: editor.item.customer_name,
+                phone: editor.item.phone,
+                notes: note,
+                reason: "Note updated from appointment panel",
+                version: editor.item.version,
+              }),
+            )
+          }
+        >
+          <details className="panel-card panel-advanced" open>
+            <summary>Status with note, edit details, share confirmation</summary>
+            <div className="appointment-detail-actions">
+              <Button variant="ghost" onClick={() => setEditor({ kind: "contacts", item: editor.item })}>
+                Edit booking details
+              </Button>
+            </div>
+            <StatusForm booking={editor.item} w={w} saved={saved} />
+            <ShareBooking booking={editor.item} w={w} />
+          </details>
+        </AppointmentPanel>
+      )}
+      {w && editor && editor.kind !== "detail" && (
         <WorkspaceEditor
           key={
             editor.kind +
@@ -2408,166 +2516,542 @@ function OnlineBookingPanel({
   );
 }
 type CustomerRow = {
+  id: string;
+  name: string;
   phone: string;
-  customer_name: string;
-  email: string | null;
+  email: string;
+  tags: string;
+  notes: string;
+  preferred_staff_id: string | null;
+  birthday: string | null;
+  marketing_opt_in: number;
+  version: number;
+  created_at: number;
   visits: number;
   completed: number;
   no_shows: number;
   cancelled: number;
   completed_value_pence: number;
-  first_visit_at: number;
-  last_visit_at: number;
+  first_visit_at: number | null;
+  last_visit_at: number | null;
   next_visit_at: number | null;
+  upcoming: number;
+  favourite_staff_id: string | null;
+  favourite_service: string | null;
 };
+type CustomerProfile = {
+  customer: CustomerRow & { avg_spend_pence: number | null };
+  bookings: StoredBooking[];
+  barbers: { staff_id: string; name: string; n: number; last_at: number }[];
+  services: { name: string; n: number; last_at: number }[];
+  avg_gap_days: number | null;
+  preferred_daypart: string | null;
+  favourite_staff_id: string | null;
+  favourite_service: string | null;
+};
+const customerFilters: [string, string][] = [
+  ["all", "All"],
+  ["upcoming", "Upcoming"],
+  ["regulars", "Regulars"],
+  ["new", "New (30d)"],
+  ["lapsed", "Lapsed 60d+"],
+  ["no_shows", "No-shows 2+"],
+];
+const shortDate = (ms: number | null) =>
+  ms ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "Europe/London" }).format(new Date(ms)) : "—";
+const initialsOf = (name: string) => name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 function CustomersPanel({
   w,
   onOpen,
+  selectedId,
+  onSelect,
+  onBook,
 }: {
   w: WorkspaceData;
   onOpen: (b: StoredBooking) => void;
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  onBook: (prefill: StoredBooking) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [sort, setSort] = useState("recent");
   const [rows, setRows] = useState<CustomerRow[] | null>(null);
   const [error, setError] = useState("");
-  const [selected, setSelected] = useState<{
-    phone: string;
-    bookings: StoredBooking[];
-  } | null>(null);
-  const [historyError, setHistoryError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [profile, setProfile] = useState<CustomerProfile | null>(null);
+  const [profileError, setProfileError] = useState("");
+  const [profileTab, setProfileTab] = useState<"history" | "details" | "notes">("history");
+  const [reload, setReload] = useState(0);
   const sequence = useRef(0);
+  const canEdit = !w.account || ["OWNER", "MANAGER", "RECEPTION"].includes(w.account.role);
+  const canMerge = !w.account || ["OWNER", "MANAGER"].includes(w.account.role);
   useEffect(() => {
     const id = ++sequence.current;
     const handle = window.setTimeout(() => {
       api<{ customers: CustomerRow[] }>(
-        `/customers?q=${encodeURIComponent(query.trim())}`,
+        `/customers?${new URLSearchParams({ q: query.trim(), filter, sort, limit: "200" })}`,
       )
         .then((r) => id === sequence.current && (setRows(r.customers), setError("")))
-        .catch(
-          (e) =>
-            id === sequence.current &&
-            setError(e instanceof Error ? e.message : "Could not load customers."),
-        );
-    }, 250);
+        .catch((e) => id === sequence.current && setError(e instanceof Error ? e.message : "Could not load customers."));
+    }, 200);
     return () => window.clearTimeout(handle);
-  }, [query, w.bookings.length, w.now]);
-  async function open(phone: string) {
-    setHistoryError("");
-    try {
-      setSelected(await api(`/customers/${encodeURIComponent(phone)}`));
-    } catch (e) {
-      setHistoryError(e instanceof Error ? e.message : "Could not load history.");
+  }, [query, filter, sort, w.bookings.length, w.now, reload]);
+  useEffect(() => {
+    if (!selectedId) {
+      setProfile(null);
+      return;
     }
+    let cancelled = false;
+    setProfileError("");
+    api<CustomerProfile>(`/customers/${encodeURIComponent(selectedId)}`)
+      .then((p) => !cancelled && setProfile(p))
+      .catch((e) => !cancelled && setProfileError(e instanceof Error ? e.message : "Could not load this customer."));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, w.bookings.length, w.now, reload]);
+  const staffName = (id: string | null | undefined) => w.staff.find((s) => s.id === id)?.name || "—";
+  const totals = rows
+    ? {
+        n: rows.length,
+        spend: rows.reduce((n, r) => n + (r.completed_value_pence || 0), 0),
+        upcoming: rows.reduce((n, r) => n + (r.upcoming || 0), 0),
+        noShows: rows.filter((r) => r.no_shows >= 2).length,
+      }
+    : null;
+  function prefillFrom(c: CustomerRow, last?: StoredBooking): StoredBooking {
+    const fav = c.favourite_staff_id || c.preferred_staff_id || last?.staff_id || "";
+    const service = last ? w.services.find((s) => s.id === last.service_id) : w.services.find((s) => s.name === c.favourite_service);
+    return {
+      ...(last || ({} as StoredBooking)),
+      id: last?.id || "",
+      customer_id: c.id,
+      customer_name: c.name,
+      phone: c.phone,
+      email: c.email,
+      staff_id: fav,
+      service_id: service?.id || last?.service_id || "",
+      service_name: service?.name || last?.service_name || "",
+      price_pence: last?.price_pence || service?.price_pence || 0,
+      date: last?.date || w.today,
+    } as StoredBooking;
   }
-  const fmt = (ms: number | null) =>
-    ms ? new Date(ms).toLocaleDateString("en-GB", { timeZone: "Europe/London" }) : "—";
   return (
-    <div className="workspace-settings">
-      <section className="workspace-panel" aria-labelledby="customers-heading">
+    <div className={`customers-layout ${selectedId ? "has-profile" : ""}`}>
+      <section className="workspace-panel customers-directory" aria-labelledby="customers-heading">
         <div className="workspace-section-heading">
-          <h2 id="customers-heading">Customers</h2>
-          <small>{rows ? `${rows.length} shown` : "Loading…"}</small>
+          <div>
+            <h2 id="customers-heading">Customers</h2>
+            <p className="workspace-footnote">
+              {totals ? `${totals.n} shown · ${money(totals.spend)} completed · ${totals.upcoming} upcoming` : "Loading…"}
+              {w.account?.role === "BARBER" ? " · your customers only" : ""}
+            </p>
+          </div>
+          {canEdit && (
+            <Button onClick={() => setAdding(true)}>
+              <Icon name="plus" size={16} /> Add customer
+            </Button>
+          )}
         </div>
-        <p>
-          Built from saved visits and grouped by mobile number. Names and
-          emails come from each customer’s latest booking. No marketing or
-          messaging is connected.
-        </p>
-        <Field label="Search customers">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Name, mobile or email"
-          />
-        </Field>
+        <div className="customers-toolbar">
+          <label className="customers-search">
+            <Icon name="search" size={16} />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name, mobile, email or tag"
+              aria-label="Search customers"
+            />
+          </label>
+          <label className="customers-sort">
+            <span>Sort</span>
+            <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort customers">
+              <option value="recent">Last visit</option>
+              <option value="next">Next visit</option>
+              <option value="spend">Spend</option>
+              <option value="visits">Visits</option>
+              <option value="name">Name</option>
+            </select>
+          </label>
+        </div>
+        <div className="segmented customers-filters" aria-label="Customer filter">
+          {customerFilters.map(([key, label]) => (
+            <button type="button" key={key} aria-pressed={filter === key} onClick={() => setFilter(key)}>
+              {label}
+            </button>
+          ))}
+        </div>
         <ErrorMessage error={error} />
-        {rows && rows.length === 0 && (
-          <div className="workspace-empty">
-            <Icon name="user" size={34} />
-            <h3>No customers yet</h3>
-            <p>Customers appear here after their first saved booking.</p>
-          </div>
+        {adding && (
+          <CustomerForm
+            w={w}
+            onDone={(c) => {
+              setAdding(false);
+              setReload((n) => n + 1);
+              if (c) onSelect(c.id);
+            }}
+          />
         )}
+        {rows && rows.length === 0 && <p className="workspace-footnote">No customers match.</p>}
         {rows && rows.length > 0 && (
-          <table className="customer-table">
-            <thead>
-              <tr>
-                <th scope="col">Customer</th>
-                <th scope="col">Visits</th>
-                <th scope="col">Completed</th>
-                <th scope="col">No-shows</th>
-                <th scope="col">Completed value</th>
-                <th scope="col">Last visit</th>
-                <th scope="col">Next visit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.phone}>
-                  <td className="customer-name">
-                    <button
-                      className="workspace-text-button"
-                      onClick={() => open(r.phone)}
-                      aria-expanded={selected?.phone === r.phone}
-                    >
-                      {r.customer_name}
-                    </button>
-                    <br />
+          <ul className="customer-list" data-testid="customer-list">
+            {rows.map((c, i) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  className={`customer-row ${c.id === selectedId ? "selected" : ""}`}
+                  onClick={() => {
+                    onSelect(c.id);
+                    setProfileTab("history");
+                  }}
+                  aria-current={c.id === selectedId ? "true" : undefined}
+                >
+                  <Avatar initials={initialsOf(c.name)} colour={["sage", "sand", "blue", "clay"][i % 4]} />
+                  <div className="customer-row-main">
+                    <strong>{c.name}</strong>
                     <small>
-                      {r.phone}
-                      {r.email ? ` · ${r.email}` : ""}
+                      {c.phone}
+                      {c.favourite_staff_id ? ` · ${staffName(c.favourite_staff_id)}` : ""}
                     </small>
-                  </td>
-                  <td className="num" data-label="Visits">{r.visits}</td>
-                  <td className="num" data-label="Completed">{r.completed}</td>
-                  <td className="num" data-label="No-shows">{r.no_shows}</td>
-                  <td className="num" data-label="Completed value">
-                    {money(r.completed_value_pence)}
-                  </td>
-                  <td data-label="Last visit">{fmt(r.last_visit_at)}</td>
-                  <td data-label="Next visit">{fmt(r.next_visit_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    {(JSON.parse(c.tags || "[]") as string[]).length > 0 && (
+                      <span className="panel-tags">
+                        {(JSON.parse(c.tags) as string[]).slice(0, 3).map((t) => (
+                          <span className="tag" key={t}>{t}</span>
+                        ))}
+                      </span>
+                    )}
+                  </div>
+                  <dl className="customer-row-stats">
+                    <div><dt>Visits</dt><dd>{c.completed}</dd></div>
+                    <div><dt>Spend</dt><dd>{money(c.completed_value_pence || 0)}</dd></div>
+                    <div><dt>Last</dt><dd>{shortDate(c.last_visit_at)}</dd></div>
+                    <div><dt>Next</dt><dd className={c.next_visit_at ? "good" : ""}>{shortDate(c.next_visit_at)}</dd></div>
+                  </dl>
+                  {c.no_shows >= 2 && <span className="tag warn" title="Two or more no-shows">{c.no_shows} no-shows</span>}
+                  <Icon name="right" size={16} className="customer-row-chevron" />
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
-      <section className="workspace-panel" aria-labelledby="history-heading">
-        <h2 id="history-heading">
-          {selected
-            ? `${selected.bookings[0]?.customer_name} · visit history`
-            : "Visit history"}
-        </h2>
-        <ErrorMessage error={historyError} />
-        {!selected && <p>Select a customer to see every saved visit.</p>}
-        {selected && (
-          <div className="customer-history">
-            {selected.bookings.map((b) => (
-              <article key={b.id}>
-                <strong>{b.date}</strong>
-                <span>
-                  {time(b.start_min)} · {b.service_name} ·{" "}
-                  {w.staff.find((s) => s.id === b.staff_id)?.name || "Barber"} ·{" "}
-                  {money(b.price_pence)}
-                  {b.channel === "ONLINE" && (
-                    <>
-                      {" "}
-                      <span className="channel-badge online">Online</span>
-                    </>
+      {selectedId && (
+        <section className="workspace-panel customer-profile" aria-labelledby="customer-profile-heading" data-testid="customer-profile">
+          <button type="button" className="panel-inline customer-back" onClick={() => onSelect(null)}>
+            <Icon name="left" size={14} /> All customers
+          </button>
+          <ErrorMessage error={profileError} />
+          {!profile && !profileError && <p className="workspace-footnote">Loading customer…</p>}
+          {profile && (
+            <>
+              <header className="customer-profile-head">
+                <Avatar initials={initialsOf(profile.customer.name)} colour="sage" size="large" />
+                <div>
+                  <h2 id="customer-profile-heading">{profile.customer.name}</h2>
+                  <p>
+                    <a href={`tel:${profile.customer.phone}`}>{profile.customer.phone}</a>
+                    {profile.customer.email ? ` · ${profile.customer.email}` : ""}
+                    {" · "}customer since {shortDate(profile.customer.first_visit_at || profile.customer.created_at)}
+                  </p>
+                  <div className="panel-tags">
+                    {(JSON.parse(profile.customer.tags || "[]") as string[]).map((t) => (
+                      <span className="tag" key={t}>{t}</span>
+                    ))}
+                    {profile.customer.no_shows >= 2 && <span className="tag warn">{profile.customer.no_shows} no-shows</span>}
+                    {profile.customer.completed >= 4 && <span className="tag good">Regular</span>}
+                  </div>
+                </div>
+                <div className="customer-profile-actions">
+                  <Button onClick={() => onBook(prefillFrom(profile.customer, profile.bookings.find((b) => b.status === "COMPLETED")))}>
+                    <Icon name="plus" size={16} /> New booking
+                  </Button>
+                </div>
+              </header>
+              <div className="stats-grid customer-stat-grid">
+                <article className="stat-card">
+                  <div className="stat-label">Lifetime spend <Icon name="wallet" /></div>
+                  <div className="stat-value">{money(profile.customer.completed_value_pence || 0)}</div>
+                  <div className="stat-foot">{profile.customer.avg_spend_pence ? `${money(Math.round(profile.customer.avg_spend_pence))} average` : "No completed visits"}</div>
+                </article>
+                <article className="stat-card">
+                  <div className="stat-label">Visits <Icon name="calendarCheck" /></div>
+                  <div className="stat-value">{profile.customer.completed}</div>
+                  <div className="stat-foot">{profile.customer.upcoming} upcoming · {profile.customer.cancelled} cancelled</div>
+                </article>
+                <article className="stat-card">
+                  <div className="stat-label">Reliability <Icon name="shield" /></div>
+                  <div className="stat-value">
+                    {profile.customer.visits ? `${Math.round(((profile.customer.visits - profile.customer.no_shows) / profile.customer.visits) * 100)}%` : "—"}
+                  </div>
+                  <div className="stat-foot">{profile.customer.no_shows} no-show{profile.customer.no_shows === 1 ? "" : "s"}</div>
+                </article>
+                <article className="stat-card">
+                  <div className="stat-label">Rhythm <Icon name="clock" /></div>
+                  <div className="stat-value">{profile.avg_gap_days ? `${profile.avg_gap_days}d` : "—"}</div>
+                  <div className="stat-foot">
+                    {profile.avg_gap_days ? "between visits" : "needs 2+ visits"}
+                    {profile.preferred_daypart ? ` · ${profile.preferred_daypart}s` : ""}
+                  </div>
+                </article>
+              </div>
+              <div className="customer-favourites">
+                <div>
+                  <span className="eyebrow">Favourite barber</span>
+                  <strong>{profile.favourite_staff_id ? staffName(profile.favourite_staff_id) : "Not yet"}</strong>
+                  {profile.customer.preferred_staff_id && profile.customer.preferred_staff_id !== profile.favourite_staff_id && (
+                    <small>Prefers {staffName(profile.customer.preferred_staff_id)}</small>
                   )}
-                </span>
-                <button
-                  className="workspace-text-button"
-                  onClick={() => onOpen(b)}
-                >
-                  {labels[b.status]} · Open
-                </button>
-              </article>
-            ))}
+                </div>
+                <div>
+                  <span className="eyebrow">Usual service</span>
+                  <strong>{profile.favourite_service || "Not yet"}</strong>
+                  {profile.services[1] && <small>also {profile.services[1].name}</small>}
+                </div>
+                <div>
+                  <span className="eyebrow">Next visit</span>
+                  <strong>{shortDate(profile.customer.next_visit_at)}</strong>
+                  {profile.customer.next_visit_at && (
+                    <small>{profile.bookings.find((b) => b.start_at === profile.customer.next_visit_at)?.service_name}</small>
+                  )}
+                </div>
+              </div>
+              <div className="segmented" aria-label="Customer sections">
+                <button type="button" aria-pressed={profileTab === "history"} onClick={() => setProfileTab("history")}>History</button>
+                <button type="button" aria-pressed={profileTab === "notes"} onClick={() => setProfileTab("notes")}>Notes & tags</button>
+                <button type="button" aria-pressed={profileTab === "details"} onClick={() => setProfileTab("details")}>Details</button>
+              </div>
+              {profileTab === "history" && (
+                <ol className="customer-history" aria-label="Visit history">
+                  {profile.bookings.map((b) => (
+                    <li key={b.id} className={b.status.toLowerCase()}>
+                      <button type="button" onClick={() => onOpen(b)}>
+                        <span className="history-date">
+                          <strong>{b.date.slice(8)}</strong>
+                          <small>{new Intl.DateTimeFormat("en-GB", { month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(b.date + "T12:00:00Z"))}</small>
+                        </span>
+                        <span className="history-main">
+                          <strong>
+                            {b.service_name}
+                            {b.series_id ? " ↻" : ""}
+                          </strong>
+                          <small>
+                            {time(b.start_min)} · {staffName(b.staff_id)}
+                            {b.channel === "ONLINE" ? " · online" : ""}
+                          </small>
+                        </span>
+                        <span className="history-side">
+                          <Badge tone={b.status === "COMPLETED" ? "done" : b.status === "CANCELLED" ? "cancelled" : b.status === "NO_SHOW" ? "noshow" : "confirmed"}>{labels[b.status]}</Badge>
+                          <strong>{money(b.price_pence)}</strong>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {!profile.bookings.length && <li className="workspace-footnote">No visits yet.</li>}
+                </ol>
+              )}
+              {profileTab === "notes" && (
+                <CustomerForm
+                  w={w}
+                  customer={profile.customer}
+                  mode="notes"
+                  readOnly={!canEdit}
+                  onDone={() => setReload((n) => n + 1)}
+                />
+              )}
+              {profileTab === "details" && (
+                <>
+                  <CustomerForm
+                    w={w}
+                    customer={profile.customer}
+                    mode="details"
+                    readOnly={!canEdit}
+                    onDone={() => setReload((n) => n + 1)}
+                  />
+                  {canMerge && rows && rows.length > 1 && (
+                    <MergeCustomer
+                      customer={profile.customer}
+                      candidates={rows.filter((r) => r.id !== profile.customer.id)}
+                      onDone={(winner) => {
+                        setReload((n) => n + 1);
+                        onSelect(winner);
+                      }}
+                    />
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
+function CustomerForm({
+  w,
+  customer,
+  mode = "details",
+  readOnly = false,
+  onDone,
+}: {
+  w: WorkspaceData;
+  customer?: CustomerRow;
+  mode?: "details" | "notes";
+  readOnly?: boolean;
+  onDone: (c?: CustomerRow) => void;
+}) {
+  const [tags, setTags] = useState<string[]>(customer ? (JSON.parse(customer.tags || "[]") as string[]) : []);
+  const [tagInput, setTagInput] = useState("");
+  const suggestions = ["VIP", "Regular", "New", "Student", "Family", "Sensitive scalp", "Beard client", "Prefers quiet"].filter((t) => !tags.includes(t));
+  function addTag(raw: string) {
+    const t = raw.trim().slice(0, 24);
+    if (t && !tags.includes(t) && tags.length < 12) setTags([...tags, t]);
+    setTagInput("");
+  }
+  const notesOnly = mode === "notes";
+  return (
+    <SaveForm
+      className={`customer-form ${notesOnly ? "notes" : ""}`}
+      label={customer ? (notesOnly ? "Save notes & tags" : "Save customer") : "Add customer"}
+      onSave={async (f) => {
+        if (readOnly) throw new Error("Your account can view but not edit customers.");
+        const body = {
+          name: customer && notesOnly ? customer.name : text(f, "name"),
+          phone: customer && notesOnly ? customer.phone : text(f, "phone"),
+          email: customer && notesOnly ? customer.email : text(f, "email"),
+          notes: notesOnly || !customer ? text(f, "notes") : customer.notes,
+          tags: notesOnly || !customer ? tags : (JSON.parse(customer.tags || "[]") as string[]),
+          birthday: customer && notesOnly ? customer.birthday || "" : text(f, "birthday"),
+          preferred_staff_id: customer && notesOnly ? customer.preferred_staff_id || "" : text(f, "preferred_staff_id"),
+          marketing_opt_in: customer && notesOnly ? customer.marketing_opt_in : f.get("marketing_opt_in") ? 1 : 0,
+          ...(customer ? { version: customer.version } : {}),
+        };
+        const r = await api<{ customer: CustomerRow }>(customer ? `/customers/${customer.id}` : "/customers", customer ? "PUT" : "POST", body);
+        onDone(r.customer);
+      }}
+    >
+      <fieldset disabled={readOnly} className="customer-fieldset">
+        {!notesOnly && (
+          <div className="workspace-form-grid">
+            <Field label="Full name">
+              <input name="name" required minLength={2} maxLength={100} defaultValue={customer?.name} autoComplete="off" />
+            </Field>
+            <Field label="Mobile number">
+              <input name="phone" type="tel" required defaultValue={customer?.phone} placeholder="07700 900123" autoComplete="off" />
+            </Field>
+            <Field label="Email (optional)">
+              <input name="email" type="email" maxLength={254} defaultValue={customer?.email} autoComplete="off" />
+            </Field>
+            <Field label="Birthday (optional)">
+              <input name="birthday" type="date" defaultValue={customer?.birthday || ""} />
+            </Field>
+            <Field label="Preferred barber">
+              <select name="preferred_staff_id" defaultValue={customer?.preferred_staff_id || ""}>
+                <option value="">No preference</option>
+                {w.staff.filter((s) => s.active).map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </Field>
+            <label className="customer-check">
+              <input type="checkbox" name="marketing_opt_in" defaultChecked={!!customer?.marketing_opt_in} />
+              Happy to receive shop news (record only; nothing is sent)
+            </label>
           </div>
         )}
-      </section>
-    </div>
+        {(notesOnly || !customer) && (
+          <>
+            <Field label="Notes (preferences, allergies, how they like it)">
+              <textarea name="notes" maxLength={1000} rows={4} defaultValue={customer?.notes} />
+            </Field>
+            <div className="tag-editor">
+              <span className="field-label">Tags</span>
+              <div className="panel-tags editable">
+                {tags.map((t) => (
+                  <span className="tag" key={t}>
+                    {t}
+                    {!readOnly && (
+                      <button type="button" aria-label={`Remove tag ${t}`} onClick={() => setTags(tags.filter((x) => x !== t))}>×</button>
+                    )}
+                  </span>
+                ))}
+                {!readOnly && (
+                  <input
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === ",") {
+                        e.preventDefault();
+                        addTag(tagInput);
+                      }
+                    }}
+                    onBlur={() => tagInput && addTag(tagInput)}
+                    placeholder={tags.length ? "Add tag" : "Add a tag and press Enter"}
+                    aria-label="Add tag"
+                    maxLength={24}
+                  />
+                )}
+              </div>
+              {!readOnly && suggestions.length > 0 && (
+                <div className="tag-suggestions">
+                  {suggestions.slice(0, 6).map((t) => (
+                    <button type="button" key={t} onClick={() => addTag(t)}>+ {t}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </fieldset>
+      {readOnly && <p className="workspace-footnote">View only for your role.</p>}
+    </SaveForm>
+  );
+}
+function MergeCustomer({
+  customer,
+  candidates,
+  onDone,
+}: {
+  customer: CustomerRow;
+  candidates: CustomerRow[];
+  onDone: (winnerId: string) => void;
+}) {
+  const [into, setInto] = useState("");
+  const [open, setOpen] = useState(false);
+  if (!open)
+    return (
+      <p className="customer-merge-hint">
+        Duplicate record?{" "}
+        <button type="button" className="panel-inline" onClick={() => setOpen(true)}>
+          Merge into another customer
+        </button>
+      </p>
+    );
+  return (
+    <SaveForm
+      className="customer-merge"
+      label="Merge records"
+      onSave={async () => {
+        if (!into) throw new Error("Choose the customer to keep.");
+        await api(`/customers/${customer.id}/merge`, "POST", { into, version: customer.version });
+        onDone(into);
+      }}
+    >
+      <Notice tone="warning">
+        Every visit of <strong>{customer.name}</strong> moves to the chosen record. This record is kept as a
+        pointer so old links still work. Cannot be undone.
+      </Notice>
+      <Field label="Keep this customer">
+        <select value={into} onChange={(e) => setInto(e.target.value)} required>
+          <option value="">Choose…</option>
+          {candidates.map((c) => (
+            <option key={c.id} value={c.id}>{c.name} · {c.phone}</option>
+          ))}
+        </select>
+      </Field>
+      <Button variant="ghost" type="button" onClick={() => setOpen(false)}>Cancel</Button>
+    </SaveForm>
   );
 }
 function BookingList({
@@ -2706,6 +3190,10 @@ function WorkspaceEditor({
                               : "New test booking"
                             : e.kind === "detail"
                               ? reference(e.item)
+                              : e.kind === "share"
+                                ? `Share ${reference(e.item)}`
+                                : e.kind === "seriesMove"
+                                  ? "Move standing booking"
                               : e.kind === "holiday"
                                 ? "Add shop closure"
                                 : "Remove shop closure";
@@ -3055,6 +3543,15 @@ function WorkspaceEditor({
           saved={saved}
         />
       )}
+      {e.kind === "share" && (
+        <div className="share-editor">
+          <p className="workspace-footnote">
+            {e.item.customer_name} · {e.item.date} at {time(e.item.start_min)} · {e.item.service_name}
+          </p>
+          <ShareBooking booking={e.item} w={w} />
+        </div>
+      )}
+      {e.kind === "seriesMove" && <SeriesMoveForm booking={e.item} w={w} saved={saved} />}
       {e.kind === "contacts" && (
         <SaveForm
           onSave={(f) =>
@@ -3499,6 +3996,78 @@ function BookingItems({ items }: { items: BookingItem[] }) {
   );
 }
 
+function SeriesMoveForm({
+  booking: b,
+  w,
+  saved,
+}: {
+  booking: StoredBooking;
+  w: WorkspaceData;
+  saved: EditorProps["saved"];
+}) {
+  const [staff, setStaff] = useState(b.staff_id);
+  const [start, setStart] = useState(b.start_min);
+  const [shift, setShift] = useState(0);
+  const [scope, setScope] = useState<"this" | "all">("this");
+  const [result, setResult] = useState<{ moved: StoredBooking[]; failed: { date: string; reason: string }[] } | null>(null);
+  const times = Array.from({ length: (w.shop.closes - w.shop.opens) / 15 }, (_, i) => w.shop.opens + i * 15);
+  return (
+    <SaveForm
+      label="Move remaining visits"
+      onSave={async (f) => {
+        const r = (await saved(`/series/${b.series_id}/reschedule`, "POST", {
+          staff_id: staff,
+          start_min: start,
+          day_shift: shift,
+          reason: text(f, "reason"),
+          ...(scope === "this" ? { from_booking_id: b.id } : {}),
+        })) as unknown as { moved: StoredBooking[]; failed: { date: string; reason: string }[] };
+        setResult(r);
+      }}
+    >
+      <Notice>
+        Every remaining confirmed visit in this standing booking is moved to the new weekly time. Visits
+        that do not fit (day off, clash, closed) are left where they are and listed afterwards.
+      </Notice>
+      <div className="panel-radio">
+        <label><input type="radio" checked={scope === "this"} onChange={() => setScope("this")} /> This visit and later</label>
+        <label><input type="radio" checked={scope === "all"} onChange={() => setScope("all")} /> All remaining visits</label>
+      </div>
+      <div className="workspace-form-grid">
+        <Field label="Barber">
+          <select value={staff} onChange={(e) => setStaff(e.target.value)}>
+            {w.staff.filter((s) => s.active).map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="New start time">
+          <select value={start} onChange={(e) => setStart(Number(e.target.value))}>
+            {times.map((t) => (
+              <option key={t} value={t}>{time(t)}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Shift weekday">
+          <select value={shift} onChange={(e) => setShift(Number(e.target.value))}>
+            {[-3, -2, -1, 0, 1, 2, 3].map((d) => (
+              <option key={d} value={d}>{d === 0 ? "Same weekday" : `${d > 0 ? "+" : ""}${d} day${Math.abs(d) === 1 ? "" : "s"}`}</option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <Field label="Reason">
+        <textarea name="reason" required minLength={3} maxLength={300} />
+      </Field>
+      {result && (
+        <p role="status" className="series-result">
+          {result.moved.length} moved{result.failed.length ? `, ${result.failed.length} kept in place (${result.failed.map((f) => `${f.date}: ${f.reason}`).join("; ")})` : ""}.
+        </p>
+      )}
+    </SaveForm>
+  );
+}
+
 function StatusForm({
   booking: b,
   w,
@@ -3575,6 +4144,156 @@ type Slots = {
   deposit_policy_pence: number;
   quote: { service_version: number; shop_version: number };
 };
+type PickedCustomer = { id: string | null; name: string; phone: string; favourite_staff_id?: string | null; email?: string };
+// Search-or-add customer control for the booking form. Hidden inputs keep the existing
+// FormData contract (customer_name / phone) so the save path is unchanged.
+function CustomerPicker({
+  w,
+  initial,
+  onChange,
+}: {
+  w: WorkspaceData;
+  initial: PickedCustomer | null;
+  onChange: (c: PickedCustomer | null) => void;
+}) {
+  const [pickedId, setPickedId] = useState<string | null>(initial?.id ?? null);
+  const [pickedFav, setPickedFav] = useState<string | null | undefined>(initial?.favourite_staff_id);
+  const [name, setName] = useState(initial?.name || "");
+  const [phone, setPhone] = useState(initial?.phone || "");
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<CustomerRow[] | null>(null);
+  const [active, setActive] = useState(0);
+  const [duplicate, setDuplicate] = useState<CustomerRow | null>(null);
+  const seq = useRef(0);
+  const open = query.trim().length > 0;
+  useEffect(() => {
+    if (!open) {
+      setResults(null);
+      return;
+    }
+    const id = ++seq.current;
+    const handle = window.setTimeout(() => {
+      api<{ customers: CustomerRow[] }>(`/customers?${new URLSearchParams({ q: query.trim(), limit: "8" })}`)
+        .then((r) => id === seq.current && (setResults(r.customers), setActive(0)))
+        .catch(() => id === seq.current && setResults([]));
+    }, 180);
+    return () => window.clearTimeout(handle);
+  }, [query, open]);
+  // Warn when a typed mobile already belongs to a record that was not picked.
+  useEffect(() => {
+    const digits = phone.replace(/[\s()-]/g, "");
+    if (pickedId || !/^(?:\+44|0)7\d{9}$/.test(digits)) {
+      setDuplicate(null);
+      return;
+    }
+    const id = ++seq.current + 100000;
+    api<{ customers: CustomerRow[] }>(`/customers?${new URLSearchParams({ q: digits, limit: "1" })}`)
+      .then((r) => setDuplicate(r.customers.find((c) => c.phone === digits) || null))
+      .catch(() => {});
+    return () => void id;
+  }, [phone, pickedId]);
+  useEffect(() => {
+    onChange(name.trim() && phone.trim() ? { id: pickedId, name, phone, favourite_staff_id: pickedFav } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickedId, name, phone]);
+  const staffName = (id: string | null | undefined) => w.staff.find((s) => s.id === id)?.name;
+  function choose(c: CustomerRow) {
+    setPickedId(c.id);
+    setPickedFav(c.favourite_staff_id || c.preferred_staff_id);
+    setName(c.name);
+    setPhone(c.phone);
+    setQuery("");
+  }
+  return (
+    <div className="customer-picker" data-testid="customer-picker">
+      <label className="customers-search">
+        <Icon name="search" size={16} />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Find an existing customer by name, mobile or email"
+          aria-label="Find customer"
+          aria-describedby="customer-picker-hint"
+          autoComplete="off"
+          onKeyDown={(e) => {
+            if (!results?.length) return;
+            if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => Math.min(results.length - 1, a + 1)); }
+            if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(0, a - 1)); }
+            if (e.key === "Enter") { e.preventDefault(); choose(results[active]); }
+            if (e.key === "Escape") setQuery("");
+          }}
+        />
+      </label>
+      <p id="customer-picker-hint" className="visually-hidden">
+        Use the arrow keys and Enter to choose a match, or type a new customer below.
+      </p>
+      {open && (
+        <ul className="customer-picker-results" aria-label="Matching customers">
+          {results === null && <li className="workspace-footnote">Searching…</li>}
+          {results?.map((c, i) => (
+            <li key={c.id}>
+              <button type="button" className={i === active ? "active" : ""} aria-current={i === active ? "true" : undefined} onMouseEnter={() => setActive(i)} onClick={() => choose(c)}>
+                <Avatar initials={initialsOf(c.name)} colour={["sage", "sand", "blue", "clay"][i % 4]} />
+                <span className="customer-picker-main">
+                  <strong>{c.name}</strong>
+                  <small>
+                    {c.phone} · {c.completed} visit{c.completed === 1 ? "" : "s"}
+                    {c.favourite_staff_id && staffName(c.favourite_staff_id) ? ` · ${staffName(c.favourite_staff_id)}` : ""}
+                    {c.favourite_service ? ` · ${c.favourite_service}` : ""}
+                  </small>
+                </span>
+                <small className="customer-picker-side">{c.last_visit_at ? `last ${shortDate(c.last_visit_at)}` : c.next_visit_at ? `next ${shortDate(c.next_visit_at)}` : "no visits"}</small>
+              </button>
+            </li>
+          ))}
+          {results && results.length === 0 && <li className="workspace-footnote">No matching customers — fill in the details below to add them.</li>}
+        </ul>
+      )}
+      {pickedId && (
+        <p className="customer-picked-note" data-testid="customer-picked" role="status">
+          <Icon name="check" size={14} /> Existing customer{pickedFav && staffName(pickedFav) ? ` · usually ${staffName(pickedFav)}` : ""}.{" "}
+          <button type="button" className="panel-inline" onClick={() => { setPickedId(null); setPickedFav(null); }}>
+            Book as someone else
+          </button>
+        </p>
+      )}
+      <div className="workspace-form-grid">
+        <Field label="Fictional customer name">
+          <input
+            name="customer_name"
+            value={name}
+            onChange={(e) => { setName(e.target.value); if (pickedId) setPickedId(null); }}
+            required
+            minLength={2}
+            maxLength={100}
+            autoComplete="off"
+          />
+        </Field>
+        <Field label="Test UK mobile number">
+          <input
+            name="phone"
+            value={phone}
+            onChange={(e) => { setPhone(e.target.value); if (pickedId) setPickedId(null); }}
+            type="tel"
+            required
+            placeholder="07700 900123"
+            autoComplete="off"
+          />
+        </Field>
+      </div>
+      {duplicate && (
+        <p className="customer-duplicate" role="status">
+          <Icon name="help" size={14} /> {duplicate.name} already has this number ·{" "}
+          <button type="button" className="panel-inline" onClick={() => choose(duplicate)}>
+            use existing record
+          </button>
+        </p>
+      )}
+      {!pickedId && <p className="workspace-footnote">New names are saved as a customer record with the booking.</p>}
+    </div>
+  );
+}
 function BookingForm({
   w,
   initialDate,
@@ -3665,6 +4384,9 @@ function BookingForm({
     failed: { date: string; reason: string }[];
   } | null>(null);
   const seriesOn = repeat && !b;
+  const [pickedCustomer, setPickedCustomer] = useState<PickedCustomer | null>(
+    rebook?.customer_id ? { id: rebook.customer_id, name: rebook.customer_name, phone: rebook.phone } : null,
+  );
   function seriesBody(f: FormData) {
     return {
       staff_id: staff,
@@ -3677,6 +4399,7 @@ function BookingForm({
       source: text(f, "source"),
       quote: slots?.quote,
       addon_ids: addonIds,
+      ...(pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),
       interval_weeks: intervalWeeks,
       occurrences,
       skip_dates: skipDates,
@@ -3800,6 +4523,7 @@ function BookingForm({
               source: text(f, "source"),
               quote: slots.quote,
               addon_ids: addonIds,
+              ...(pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),
             };
         const serial = JSON.stringify(payload);
         if (request.current.payload !== serial)
@@ -4108,24 +4832,20 @@ function BookingForm({
           </h3>
           {!b && (
             <>
-              <Field label="Fictional customer name">
-                <input
-                  name="customer_name"
-                  defaultValue={rebook?.customer_name}
-                  required
-                  minLength={2}
-                  maxLength={100}
-                />
-              </Field>
-              <Field label="Test UK mobile number">
-                <input
-                  name="phone"
-                  defaultValue={rebook?.phone}
-                  type="tel"
-                  required
-                  placeholder="07700 900123"
-                />
-              </Field>
+              <CustomerPicker
+                w={w}
+                initial={
+                  rebook
+                    ? { id: rebook.customer_id || null, name: rebook.customer_name, phone: rebook.phone }
+                    : null
+                }
+                onChange={(c) => {
+                  setPickedCustomer(c);
+                  // A returning customer brings their favourite barber/service when nothing was chosen yet.
+                  if (c?.favourite_staff_id && !draft && !rebook && w.staff.some((s) => s.id === c.favourite_staff_id && s.active))
+                    setStaff(c.favourite_staff_id);
+                }}
+              />
               <Field label="Booking source">
                 <select name="source">
                   <option value="TEST_BOOKING">Test booking</option>
