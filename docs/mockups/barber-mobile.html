@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OLLO — barber mobile mockup</title>
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+:root{--canvas:#f5f6fb;--surface:#fff;--ink:#181b2a;--muted:#5b6178;--line:#e2e4ee;--accent:#4a5fd9;--accent-dark:#3546b4;--ollo:#6985e8;--soft:#e6ebfb;--good:#2c5a3e;--good-bg:#e9f1e9;font-family:Inter,system-ui,sans-serif;font-size:14px;color:var(--ink)}
+*{box-sizing:border-box}body{margin:0;background:#dfe2ee;display:flex;gap:40px;padding:30px;justify-content:center}
+svg{width:18px;height:18px;stroke-width:1.8}
+.phone{width:390px;height:844px;background:var(--canvas);border-radius:38px;overflow:hidden;position:relative;box-shadow:0 20px 60px #181b2a33;display:flex;flex-direction:column}
+.status{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;font-size:13px;font-weight:600}
+.top{display:flex;align-items:center;justify-content:space-between;padding:6px 18px 10px}
+.top .me{display:flex;align-items:center;gap:10px}
+.top .av{width:38px;height:38px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px}
+.top b{display:block;font-size:15px}.top small{color:var(--muted);font-size:12px}
+.top .acts{display:flex;gap:6px}
+.iconbtn{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--surface);border:1px solid var(--line);position:relative}
+.iconbtn .count{position:absolute;top:-4px;right:-4px;background:var(--accent);color:#fff;font-size:10px;font-weight:700;border-radius:999px;padding:1px 5px;line-height:14px}
+.scroll{flex:1;overflow:hidden;padding:0 16px 90px;display:flex;flex-direction:column;gap:12px}
+.wallet{background:linear-gradient(135deg,#3546b4,#4a5fd9 70%,#5a70e0);color:#fff;border-radius:18px;padding:16px 16px 14px}
+.wallet .lab{font-size:12px;opacity:.85;display:flex;align-items:center;justify-content:space-between}
+.wallet .lab span{display:flex;align-items:center;gap:6px}
+.wallet .lab .pill{background:#ffffff26;border-radius:999px;padding:2px 8px;font-size:11px}
+.wallet .amt{font-size:32px;font-weight:800;letter-spacing:-.5px;margin:6px 0 10px}
+.wallet .row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px}
+.wallet .row b{display:block;font-size:14px}.wallet .row span{opacity:.85}
+.wallet .bar{margin-top:12px;height:6px;border-radius:3px;background:#ffffff33;position:relative}
+.wallet .bar::after{content:"";position:absolute;left:0;top:0;bottom:0;width:68%;border-radius:3px;background:#fff}
+.wallet .goal{display:flex;justify-content:space-between;font-size:11px;opacity:.85;margin-top:5px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px}
+.card h3{margin:0 0 10px;font-size:13px;display:flex;align-items:center;justify-content:space-between}
+.card h3 small{color:var(--muted);font-weight:500}
+.next{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center}
+.next .t{font-size:26px;font-weight:800;letter-spacing:-.5px;line-height:1}
+.next .t small{display:block;font-size:12px;color:var(--muted);font-weight:500;margin-top:3px}
+.next .who b{display:block;font-size:15px}.next .who small{color:var(--muted);font-size:12px;display:flex;align-items:center;gap:6px}
+.next .who small svg{width:12px;height:12px}
+.next .cta{grid-column:1/3;display:flex;gap:8px;margin-top:6px}
+.btn{height:42px;border:1px solid var(--line);border-radius:11px;background:var(--surface);padding:0 14px;display:inline-flex;align-items:center;justify-content:center;gap:7px;font:inherit;font-weight:600;font-size:13px;flex:1}
+.btn.primary{background:var(--accent);color:#fff;border-color:transparent}
+.day{display:flex;flex-direction:column;gap:6px}
+.ap{display:grid;grid-template-columns:46px 1fr auto;gap:10px;align-items:center;padding:9px 8px;border-radius:12px;border-left:4px solid}
+.ap:nth-child(odd){background:var(--canvas)}
+.ap .tm{font-weight:700;font-size:13px}.ap .tm small{display:block;font-weight:500;color:var(--muted);font-size:11px}
+.ap b{font-size:13px;display:block}.ap small{color:var(--muted);font-size:11px;display:flex;gap:6px;align-items:center}
+.ap small svg{width:12px;height:12px}
+.ap .st{font-size:11px;padding:3px 8px;border-radius:999px;background:var(--good-bg);color:var(--good);font-weight:600;white-space:nowrap}
+.ap .st.now{background:var(--soft);color:var(--accent-dark)}
+.ap .st.paid{background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.tabbar{position:absolute;left:0;right:0;bottom:0;height:78px;background:var(--surface);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);padding:8px 8px 18px}
+.tabbar a{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10.5px;color:var(--muted);font-weight:500;justify-content:center}
+.tabbar a.on{color:var(--accent-dark)}
+.tabbar a.on svg{stroke-width:2.2}
+.tabbar a.fab{color:#fff}
+.tabbar a.fab span{width:48px;height:48px;border-radius:50%;background:var(--accent);display:grid;place-items:center;margin-top:-26px;box-shadow:0 6px 16px #4a5fd955}
+/* wallet screen */
+.tabs{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px}
+.tabs span{flex:1;text-align:center;padding:8px 0;font-size:13px;color:var(--muted);border-radius:9px}
+.tabs span.on{background:var(--soft);color:var(--accent-dark);font-weight:600}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px}
+.kpi small{color:var(--muted);font-size:11px;display:flex;align-items:center;gap:5px}
+.kpi small svg{width:13px;height:13px}
+.kpi b{display:block;font-size:20px;margin-top:4px}
+.kpi .d{font-size:11px;color:var(--good);margin-top:2px}
+.tx{display:grid;grid-template-columns:34px 1fr auto;gap:10px;align-items:center;padding:9px 4px}
+.tx+.tx{border-top:1px solid var(--line)}
+.tx .ic{width:34px;height:34px;border-radius:10px;background:var(--soft);color:var(--accent-dark);display:grid;place-items:center}
+.tx .ic svg{width:15px;height:15px}
+.tx b{font-size:13px;display:block}.tx small{color:var(--muted);font-size:11px}
+.tx .amt{font-weight:700;font-size:13px;text-align:right}.tx .amt small{display:block;font-weight:600;color:var(--good)}
+.payrun{display:flex;align-items:center;gap:12px}
+.payrun .ic{width:40px;height:40px;border-radius:12px;background:var(--good-bg);color:var(--good);display:grid;place-items:center}
+.payrun b{display:block;font-size:14px}.payrun small{color:var(--muted);font-size:12px}
+.payrun .amt{margin-left:auto;font-weight:800;font-size:18px}
+.label{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:4px 2px 0}
+</style></head><body>
+
+<!-- Screen 1: Today -->
+<div class="phone" id="today">
+  <div class="status"><span>09:41</span><span style="display:flex;gap:5px;align-items:center"><i data-lucide="signal" style="width:14px;height:14px"></i><i data-lucide="wifi" style="width:14px;height:14px"></i><i data-lucide="battery-full" style="width:16px;height:16px"></i></span></div>
+  <div class="top">
+    <div class="me"><div class="av">JC</div><div><b>Morning, Jay</b><small>Demo Barbershop · Mon 14 Sept</small></div></div>
+    <div class="acts"><a class="iconbtn"><i data-lucide="bell"></i><span class="count">3</span></a><a class="iconbtn"><i data-lucide="search"></i></a></div>
+  </div>
+  <div class="scroll">
+    <div class="wallet">
+      <div class="lab"><span><i data-lucide="wallet" style="width:14px;height:14px"></i>My wallet · today</span><span class="pill">Week £1,164</span></div>
+      <div class="amt">£296.00</div>
+      <div class="row"><div><b>£268</b><span>Services · 9</span></div><div><b>£28</b><span>Tips</span></div><div><b>£70</b><span>Booked, unpaid</span></div></div>
+      <div class="bar"></div>
+      <div class="goal"><span>68% of your usual Monday</span><span>£435</span></div>
+    </div>
+    <div class="card">
+      <h3>Up next <small>in 19 min</small></h3>
+      <div class="next">
+        <div class="t">10:00<small>Skin fade · 45 min</small></div>
+        <div class="who"><b>Tom Kerr</b><small><i data-lucide="cloud"></i>Booked online · 4th visit<br></small><small><i data-lucide="message-square-text"></i>Prefers number 2 on the sides</small></div>
+        <div class="cta"><button class="btn"><i data-lucide="phone"></i>Call</button><button class="btn primary"><i data-lucide="log-in"></i>Check in</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Today <small>9 visits · 13:00 lunch</small></h3>
+      <div class="day">
+        <div class="ap" style="border-left-color:#4a5fd9"><div class="tm">09:00<small>30m</small></div><div><b>Ada Lovelace</b><small>Signature cut · £28 <i data-lucide="heart"></i><i data-lucide="repeat"></i></small></div><span class="st paid">Paid</span></div>
+        <div class="ap" style="border-left-color:#8bb4ae"><div class="tm">10:00<small>45m</small></div><div><b>Tom Kerr</b><small>Skin fade · £32 <i data-lucide="cloud"></i></small></div><span class="st now">Next</span></div>
+        <div class="ap" style="border-left-color:#4a5fd9"><div class="tm">11:00<small>30m</small></div><div><b>Sam Adeyemi</b><small>Signature cut · £28</small></div><span class="st">Booked</span></div>
+        <div class="ap" style="border-left-color:#4a5fd9"><div class="tm">12:00<small>30m</small></div><div><b>Kofi Mensah</b><small>Signature cut · £28 <i data-lucide="heart"></i></small></div><span class="st">Booked</span></div>
+        <div class="ap" style="border-left-color:#aab0c8;background:repeating-linear-gradient(135deg,#eef0f6 0 6px,#f5f6fb 6px 12px)"><div class="tm">13:00<small>30m</small></div><div><b>Lunch</b><small>Blocked time</small></div><span></span></div>
+        <div class="ap" style="border-left-color:#4a5fd9"><div class="tm">14:00<small>60m</small></div><div><b>Priya Nair</b><small>Cut &amp; beard · £42 <i data-lucide="cloud"></i></small></div><span class="st">Booked</span></div>
+      </div>
+    </div>
+  </div>
+  <nav class="tabbar">
+    <a class="on"><i data-lucide="sun"></i>Today</a>
+    <a><i data-lucide="calendar-days"></i>Diary</a>
+    <a class="fab"><span><i data-lucide="plus" style="color:#fff;width:22px;height:22px"></i></span></a>
+    <a><i data-lucide="wallet"></i>Wallet</a>
+    <a><i data-lucide="user-round"></i>Me</a>
+  </nav>
+</div>
+
+<!-- Screen 2: Wallet -->
+<div class="phone" id="wallet">
+  <div class="status"><span>09:41</span><span style="display:flex;gap:5px;align-items:center"><i data-lucide="signal" style="width:14px;height:14px"></i><i data-lucide="wifi" style="width:14px;height:14px"></i><i data-lucide="battery-full" style="width:16px;height:16px"></i></span></div>
+  <div class="top">
+    <div class="me"><div><b style="font-size:22px">My wallet</b><small>Jay Carter · Demo Barbershop</small></div></div>
+    <div class="acts"><a class="iconbtn"><i data-lucide="download"></i></a></div>
+  </div>
+  <div class="scroll">
+    <div class="tabs"><span>Today</span><span class="on">This week</span><span>Month</span><span>All</span></div>
+    <div class="wallet">
+      <div class="lab"><span><i data-lucide="wallet" style="width:14px;height:14px"></i>Earned · Mon 8 – Sun 14 Sept</span><span class="pill">60% commission</span></div>
+      <div class="amt">£1,164.00</div>
+      <div class="row"><div><b>£1,940</b><span>Taken · 41 visits</span></div><div><b>£186</b><span>Tips (100% yours)</span></div><div><b>£40</b><span>Cash owed to shop</span></div></div>
+    </div>
+    <div class="card payrun">
+      <span class="ic"><i data-lucide="calendar-check"></i></span>
+      <div><b>Next pay-run · Fri 18 Sept</b><small>Shop pays you. Week to date, minus cash you’ve kept.</small></div>
+      <div class="amt">£1,124</div>
+    </div>
+    <div class="split">
+      <div class="kpi"><small><i data-lucide="credit-card"></i>Card</small><b>£1,204</b><div class="d">62% of takings</div></div>
+      <div class="kpi"><small><i data-lucide="banknote"></i>Cash</small><b>£596</b><div class="d">£40 still with you</div></div>
+      <div class="kpi"><small><i data-lucide="star"></i>Avg tip</small><b>£4.54</b><div class="d">on 41 visits</div></div>
+      <div class="kpi"><small><i data-lucide="users"></i>New customers</small><b>6</b><div class="d">3 rebooked</div></div>
+    </div>
+    <div class="label">Today</div>
+    <div class="card" style="padding:4px 12px">
+      <div class="tx"><span class="ic"><i data-lucide="banknote"></i></span><div><b>Tom Kerr · Skin fade</b><small>Cash · 10:47</small></div><div class="amt">£32.00</div></div>
+      <div class="tx"><span class="ic"><i data-lucide="credit-card"></i></span><div><b>Ada Lovelace · Signature cut</b><small>Card · 09:31</small></div><div class="amt">£28.00<small>+£5 tip</small></div></div>
+    </div>
+    <div class="label">Yesterday</div>
+    <div class="card" style="padding:4px 12px">
+      <div class="tx"><span class="ic"><i data-lucide="credit-card"></i></span><div><b>Ibrahim Osei · Cut &amp; beard</b><small>Card · 17:12</small></div><div class="amt">£42.00<small>+£6 tip</small></div></div>
+      <div class="tx"><span class="ic"><i data-lucide="gift"></i></span><div><b>Zara Malik · Signature cut</b><small>Voucher · 15:40</small></div><div class="amt">£28.00</div></div>
+    </div>
+  </div>
+  <nav class="tabbar">
+    <a><i data-lucide="sun"></i>Today</a>
+    <a><i data-lucide="calendar-days"></i>Diary</a>
+    <a class="fab"><span><i data-lucide="plus" style="color:#fff;width:22px;height:22px"></i></span></a>
+    <a class="on"><i data-lucide="wallet"></i>Wallet</a>
+    <a><i data-lucide="user-round"></i>Me</a>
+  </nav>
+</div>
+
+<script>lucide.createIcons()</script>
+</body></html>
