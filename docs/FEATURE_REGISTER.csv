@@ -1,0 +1,190 @@
+id,area,feature,original_scope,milestone,status,treatment,acceptance,decision
+C-01,customer,Browse services,MVP,M3,not_started,retained,Show active service price duration deposit and 56px thumbnail,D-001
+C-02,customer,Barber price override,MVP,M3,not_started,retained,Apply eligible barber price and explain override chip,D-001
+C-03,customer,Add-ons,MVP,M3,not_started,retained,Separate summary rows and revalidate price duration and slot,O-09
+C-04,customer,Search services barbers and add-ons,MVP,M3,not_started,retained,Shop-scoped server prefix search on name and category,D-001
+C-05,customer,Popular filter,MVP,M3,not_started,retained,Filter uses service popular flag and supports empty state,D-001
+C-06,customer,Active barbers,MVP,M3,not_started,retained,Only eligible active staff can be selected,D-001
+C-07,customer,Availability badges,MVP,M3,not_started,retained,Badges come from authoritative availability and show freshness,D-001
+C-08,customer,Rating role and next slot,MVP,M3,not_started,retained,Show real rating or no-reviews state and computed next slot,D-001
+C-09,customer,Un-onboarded barber warning,MVP,M4,not_started,adapted,Shop payment readiness gates checkout not externally paid barber KYC,D-002
+C-10,customer,Seven-day date strip,MVP,M3,not_started,retained,Mon-Sun strip has accessible selected date and correct slot counts,D-001
+C-11,customer,Fifteen-minute slot grid,MVP,M3,not_started,retained,Three-column eligible start grid reflects exact occupancy and past slots,O-09
+C-12,customer,Conflict detection,MVP,M3,not_started,retained,Selection feedback plus atomic submit returns 409 slot_taken,D-004
+C-13,customer,Ten-minute buffer,MVP,M3,not_started,retained,Every booking channel enforces buffer including duration overrides,O-09
+C-14,customer,Shop timezone display,MVP,M3,not_started,adapted,Shop IANA timezone governs web and native display with DST tests,D-008
+C-15,customer,Today tomorrow and daypart filters,MVP,M3,not_started,retained,Filters update slots without silently changing selected appointment,D-001
+C-16,customer,Customer name,MVP,M3,not_started,retained,Trimmed name requires at least two characters with inline error,D-001
+C-17,customer,UK phone,MVP,M3,not_started,retained,Normalize valid UK numbers without using phone as proof of identity,O-07
+C-18,customer,Optional email,MVP,M4,not_started,retained,Validate when supplied and apply agreed fallback delivery policy,O-15
+C-19,customer,Booking notes,MVP,M3,not_started,retained,Enforce 500-character limit and role-limited sensitive note access,O-10
+C-20,customer,Save-card consent,MVP,M4,not_started,retained,Explicit versioned opt-in separate from off-session consent,O-06
+C-21,customer,Native Stripe PaymentSheet,MVP,M9,not_started,scope_decision,Native account-context checkout tested on actual target devices,O-02
+C-22,customer,Web Stripe Payment Element,MVP,M4,not_started,retained,Server creates shop-context payment and client cannot dictate amount,O-06
+C-23,customer,Deposit-only charge,MVP,M4,not_started,policy_decision,Charge agreed fixed or overridden deposit and show remaining balance,O-05
+C-24,customer,Saved card checkout,MVP,M4,not_started,retained,Only authenticated authorized customer accesses shop-context saved methods,O-06
+C-25,customer,Cancellation reminder banner,MVP,M3,not_started,retained,Visible policy and exact cutoff before payment,O-09
+C-26,customer,Submit idempotency,MVP,M4,not_started,retained,Attempt key is scoped and payload-bound with safe replay,D-004
+C-27,customer,Ten-minute checkout hold,MVP,M3,not_started,retained,Server-issued expiry and atomic reclamation with late-success recovery,D-004
+C-28,customer,Payment retry preserves form,MVP,M4,not_started,retained,Decline dismissal and reload recovery cannot duplicate an attempt,D-005
+C-29,customer,Sequential booking reference,MVP,M3,not_started,retained,Atomic unique shop sequence BRB-NNNN is not an access credential,D-001
+C-30,customer,Confirmation SMS and email,MVP,M4,not_started,retained,Verified payment outcome creates durable deduplicated delivery jobs,O-15
+C-31,customer,Opt-in push confirmation,MVP,M5,not_started,adapted,Web push supported-device path with fallback and separate Expo implementation,D-008
+C-32,customer,Add to calendar,MVP,M4,not_started,retained,Timezone-correct ICS and Google link without private access-token leakage,D-001
+C-33,customer,Manage booking shortcut,MVP,M4,not_started,scope_decision,MVP secure details and contact-shop action unless self-service scope approved,O-02
+C-34,customer,Copy reference,MVP,M4,not_started,adapted,Web Clipboard with fallback and accessible copied feedback,D-008
+C-35,customer,Upcoming bookings,MVP,M4,not_started,retained,Verified customer sees only own upcoming appointments and balances,O-07
+C-36,customer,Past bookings,MVP,M6,not_started,retained,Show actual receipt service price and review eligibility,D-001
+C-37,customer,Cancelled bookings,MVP,M4,not_started,retained,Show permitted reason and truthful refund status,D-005
+C-38,customer,Self-service reschedule,v1.5,LATER,not_started,deferred,Policy boundary and atomic move retain payment allocation,D-006
+C-39,customer,Early cancellation refund,v1.5,LATER,not_started,deferred,Authorized cancellation requests full eligible deposit refund,O-09
+C-40,customer,Late cancellation,v1.5,LATER,not_started,deferred,Explicit forfeiture warning and exact policy cutoff,O-09
+C-41,customer,Post-visit review,MVP,M6,not_started,retained,One eligible review per completed booking with 1-5 validation,O-17
+C-42,customer,No-show off-session consent,v1.5,LATER,not_started,deferred,Separate consent and SCA recovery before any charge,O-06
+C-43,customer,Loyalty points,v1.5,LATER,not_started,deferred,Auditable earn redeem and reversal policy before launch,D-001
+C-44,customer,Membership tiers,v1.5,LATER,not_started,deferred,Customer membership separate from SaaS shop subscription,D-001
+C-45,customer,Gift cards,v1.5,LATER,not_started,deferred,Liability redemption refund and expiry rules explicitly designed,D-001
+C-46,customer,Favourite barber,v1.5,LATER,not_started,deferred,Verified customer preference and inactive-barber fallback,D-001
+B-01,barber,Staff invite SMS,MVP,M2,not_started,retained,Hashed single-use expiring token with send-rate protection,O-07
+B-02,barber,Phone OTP and PIN,MVP,M2,not_started,adapted,Verified identity and managed session with PIN only as local convenience,O-07
+B-03,barber,Stripe Express onboarding,MVP,M4,not_started,superseded,Not required for externally bank-paid barber under Model A,D-002
+B-04,barber,Avatar role and commission,MVP,M2,not_started,retained,Owner-controlled fields and unambiguous shop-share meaning,O-03
+B-05,barber,Own weekly hours editor,v1.5,LATER,not_started,deferred,Admin-only MVP and role-approved staff editing later,D-001
+B-06,barber,Own time-off overrides,v1.5,LATER,not_started,deferred,Admin-managed MVP and conflict-impact review later,D-001
+B-07,barber,Own service coverage and rates,v1.5,LATER,not_started,deferred,Admin-managed MVP and eligible staff editing later,D-001
+B-08,barber,Today KPI strip,MVP,M5,not_started,retained,Expected figures labelled separately from collected earnings,D-005
+B-09,barber,Chronological queue,MVP,M5,not_started,retained,Shop-local chronological order and accessible appointment details,D-001
+B-10,barber,Status pills,MVP,M5,not_started,adapted,Appointment state separate from walk-in source and payment state,D-005
+B-11,barber,Client detail and history,MVP,M5,not_started,retained,Assigned-barber permissions restrict notes and history,O-10
+B-12,barber,Add walk-in,MVP,M3,not_started,retained,Atomic conflict-safe reservation without online deposit,D-004
+B-13,barber,Check-in,MVP,M5,not_started,retained,Explicit permitted transition with timestamp actor and audit,D-005
+B-14,barber,Mark no-show,MVP,M5,not_started,retained,Grace-window check and confirmation without second deposit charge,O-09
+B-15,barber,Refresh queue,MVP,M5,not_started,retained,Button and supported pull gesture show loading freshness and errors,D-008
+B-16,barber,Offline queue cache,MVP,M5,not_started,retained,Previously synced restricted records available with stale indicator and logout clearing,D-008
+B-17,barber,Remaining amount entry,MVP,M5,not_started,retained,Server balance reflects all prior collections and authorized adjustments,O-17
+B-18,barber,Tip chips and custom tip,MVP,M5,not_started,retained,No 10 15 20 percent and custom options exclude tips from commission,O-04
+B-19,barber,Terminal reader pairing,MVP,M5,not_started,adapted,WisePOS E internet server-driven flow with supported status and recovery,D-008
+B-20,barber,Phone Tap-to-Pay,MVP,M9,not_started,scope_decision,Native approved-device and country flow with real hardware evidence,O-02
+B-21,barber,Manual capture and cancel,MVP,M5,not_started,adapted,Cancel uncaptured authorization only and refund captured charges correctly,O-06
+B-22,barber,Cash fallback,MVP,M5,not_started,retained,Audit actual recipient and cash collection without Stripe balance inflation,O-04
+B-23,barber,Split cash and card,v1.5,LATER,not_started,deferred,Independent tender states and recovery rather than fictional atomic external captures,D-005
+B-24,barber,Receipt and delivery,MVP,M5,not_started,retained,Accurate tender breakdown and retryable channel delivery,D-002
+B-25,barber,Payout history,MVP,M6,not_started,adapted,Own external-payment records labelled owner-recorded not bank-confirmed,D-002
+B-26,barber,Expected next payout,MVP,M6,not_started,adapted,Unallocated eligible earnings estimate separate from bank availability,D-002
+B-27,barber,Standard or instant payout,v1.5,LATER,not_started,superseded,No barber Stripe payout toggle in manual Model A,D-002
+B-28,barber,Bank account display,MVP,M6,not_started,policy_decision,Secure recipient workflow or no bank data collection in initial export,O-14
+B-29,barber,Tax-year earnings CSV,v1.5,LATER,not_started,deferred,Accurate financial-year export without tax-advice claims,D-002
+B-30,barber,Ninety-day rating,MVP,M6,not_started,retained,Real eligible review aggregation with sample count and empty state,O-17
+B-31,barber,Review notification,MVP,M6,not_started,adapted,Web push or email with Expo delivery only for native clients,D-008
+B-32,barber,Single public review reply,v1.5,LATER,not_started,deferred,Authorized reply with safe rendering and moderation policy,O-17
+A-01,admin,Overview KPIs,MVP,M6,not_started,retained,Revenue occupancy and no-show denominators are documented and traceable,D-002
+A-02,admin,Day resource calendar,MVP,M3,not_started,retained,Create by pointer or keyboard and validate exact resource allocation,D-004
+A-03,admin,Booking detail and ledger,MVP,M4,not_started,retained,Role-aware detail with financial and audit history,D-005
+A-04,admin,Walk-in registration,MVP,M3,not_started,retained,Same validation and allocator as every other booking channel,D-004
+A-05,admin,Cancel refund override reason,MVP,M4,not_started,retained,Reason required and refund outcome tracked separately from cancellation,D-005
+A-06,admin,Reschedule on behalf,MVP,M4,not_started,policy_decision,Confirm move and price impact before atomic allocation change,D-006
+A-07,admin,No-show flag,MVP,M5,not_started,retained,Forfeiture is accounting treatment not another Stripe charge,O-09
+A-08,admin,Complete booking,MVP,M5,not_started,adapted,Completion separate from payment and manual-settlement eligibility,D-005
+A-09,admin,Audit log,MVP,M2,not_started,retained,Append-only attributable admin actions with reason where required,D-001
+A-10,admin,Shop-wide search,MVP,M6,not_started,retained,Shop-scoped bookings clients and barbers without private data leakage,D-001
+A-11,admin,Week and month calendar,MVP,M3,not_started,retained,Usable responsive views and approved resource-calendar licensing,O-16
+A-12,admin,Per-barber calendar filter,MVP,M3,not_started,retained,Filter preserves date and accessible selected state,D-001
+A-13,admin,Shop holidays,MVP,M2,not_started,retained,Closure suppresses new slots and flags affected appointments,D-004
+A-14,admin,Barber day off,MVP,M2,not_started,retained,Full-day override with existing-booking impact review,D-004
+A-15,admin,Lunch breaks,MVP,M2,not_started,retained,Per-weekday valid intervals enforced by slot engine,D-004
+A-16,admin,Blackout windows,v1.5,LATER,not_started,deferred,Explicit booking cutoff distinct from shift end,O-09
+A-17,admin,Service categories,MVP,M2,not_started,retained,Create edit categorize and deactivate with history preserved,D-001
+A-18,admin,Default price and duration,MVP,M2,not_started,retained,Validated values with immutable existing-booking snapshots,D-004
+A-19,admin,Barber overrides,MVP,M2,not_started,retained,Price and duration overrides used by quote and allocator,D-004
+A-20,admin,Service eligibility toggles,MVP,M2,not_started,retained,Disabled coverage blocks selection without losing history,D-001
+A-21,admin,Add-on catalogue,MVP,M2,not_started,retained,Price eligibility and optional duration explicitly stored,O-09
+A-22,admin,Service deposit policy,MVP,M2,not_started,policy_decision,Policy validation consistent with chosen fixed or override model,O-05
+A-23,admin,Staff directory,MVP,M2,not_started,retained,Roles hours shares and active invited suspended statuses,D-001
+A-24,admin,Invite staff,MVP,M2,not_started,retained,Audited resend revoke expire and claim workflows,O-07
+A-25,admin,Stripe onboarding status,MVP,M4,not_started,adapted,Shop payment capability and requirements not mandatory barber KYC,D-002
+A-26,admin,Deactivate staff,MVP,M2,not_started,retained,Preserve history revoke access and surface future-booking conflicts,D-001
+A-27,admin,Commission percentage,MVP,M2,not_started,adapted,Snapshot explicit shop-share rule for manual entitlement calculation,O-03
+A-28,admin,Staff hours editor,MVP,M2,not_started,retained,Weekly template plus dated overrides with validation,D-004
+A-29,admin,Client CRM and merge,v1.5,LATER,not_started,deferred,Stable customer IDs and audited duplicate merge without assuming phone uniqueness,O-07
+A-30,admin,Private client notes,MVP,M2,not_started,retained,Least-privilege access retention and sensitive-data policy,O-10
+A-31,admin,Pay-run calculation,MVP,M6,not_started,adapted,Service entitlement plus tips less prior allocations with deposit counted once,D-002
+A-32,admin,Idempotent pay-run execution,MVP,M6,not_started,adapted,Frozen batch approval and external-payment recording with no bank initiation,D-002
+A-33,admin,Barber standard or instant payout,MVP,M6,not_started,superseded,Replace automated barber payout with explicit manual bank workflow,D-002
+A-34,admin,Full or partial refund,MVP,M4,not_started,retained,Shop-account authorized refund with safe retries and ledger reversal,O-06
+A-35,admin,Refund policy enforcement,MVP,M4,not_started,retained,Server policy cutoff and audited owner override,O-09
+A-36,admin,Revenue reports,MVP,M6,not_started,retained,Separate earned collected refunded and cash metrics by period and barber,D-002
+A-37,admin,No-show reports,MVP,M6,not_started,retained,Document denominator and group by barber and weekday,D-001
+A-38,admin,Service mix reports,MVP,M6,not_started,retained,Historical snapshot grouping and reconciled amounts,D-004
+A-39,admin,Accounting CSV,MVP,M6,not_started,retained,Authorized tenant export with formula-injection protection and exact totals,D-002
+A-40,admin,Quarterly tax-ready summary,v1.5,LATER,not_started,deferred,Reconciled earnings export with no unsupported compliance claim,D-002
+A-41,admin,Shop profile,MVP,M2,not_started,retained,Name address timezone hours and validated logo upload,D-001
+A-42,admin,Cancellation window,MVP,M2,not_started,retained,Versioned policy default 24h with exact boundary tests,O-09
+A-43,admin,Default deposit,MVP,M2,not_started,policy_decision,Default and service override semantics consistent with checkout,O-05
+A-44,admin,Notification preferences,MVP,M4,not_started,retained,Shop channel settings respect consent and essential transaction policy,O-15
+A-45,admin,Stripe connection,MVP,M4,not_started,adapted,Each shop connects its own account with capability verification,D-002
+A-46,admin,Branding overrides,v1.5,LATER,not_started,deferred,Validated logo and accessible primary teal-token customization,D-007
+A-47,admin,Admin two-factor authentication,MVP,M2,not_started,retained,Managed MFA setup enforcement recovery and sensitive-action reauthentication,O-07
+S-01,saas,Shop signup and setup,ADDED,M2,not_started,added,Isolated shop workspace created transactionally with owner membership,D-001
+S-02,saas,Tenant isolation,ADDED,M2,not_started,added,Two-tenant negative tests cover every private entity mutation job cache and export,D-001
+S-03,saas,Users memberships and permissions,ADDED,M2,not_started,added,Managed sessions and server-verified roles with revocation,O-07
+S-04,saas,SaaS subscription billing,ADDED,M7,not_started,added,Platform subscription money separate from shop haircut money,D-002
+S-05,saas,Plan entitlements and trials,ADDED,M7,not_started,added,Verified billing lifecycle enforces features and grace rules server-side,O-11
+S-06,saas,Shop billing portal,ADDED,M7,not_started,added,Authorized shop owner can manage own subscription and invoices,O-11
+S-07,saas,Platform owner console,ADDED,M7,not_started,added,Privileged tenant operations audited without implicit access to client notes,D-001
+S-08,saas,Shop slug booking links,ADDED,M3,not_started,added,Unique public slug with only public catalogue data exposed,D-001
+S-09,saas,PWA install and update,ADDED,M5,not_started,added,Manifest icons standalone routes and safe version-update experience,D-008
+S-10,saas,Offline privacy and logout,ADDED,M5,not_started,added,Restricted cached data purged on logout membership switch and retention expiry,D-008
+S-11,saas,Shop financial dashboard,ADDED,M6,not_started,added,Show financial components without calling them a stored-money wallet,D-002
+S-12,saas,Manual bank pay-run,ADDED,M6,not_started,added,Freeze approve export and record external payments without initiating transfers,D-002
+S-13,saas,Recipient and payment-reference handling,ADDED,M6,not_started,added,Explicit manual payment date amount reference and privacy-safe recipient data,O-14
+S-14,saas,Operational issue inbox,ADDED,M6,not_started,added,Surface orphaned payments refund failures notification failures and restricted shops,D-005
+S-15,saas,Data export and retention,ADDED,M7,not_started,added,Authorized portable export and documented minimization and erasure procedure,O-10
+S-16,saas,Provider usage and subscription limits,ADDED,M7,not_started,added,Track notification consumption and approved overage behaviour,O-11
+S-17,saas,Production restore and monitoring,ADDED,M7,not_started,added,Restore drill and actionable alerts with defined recovery targets,D-004
+S-18,saas,Support and access revocation,ADDED,M7,not_started,added,Logged support actions and immediate server-side revoked-session rejection,O-07
+S-19,saas,Custom shop domains,v1.5,LATER,not_started,scope_decision,Domain verification routing TLS and tenant-confusion tests,O-12
+S-20,saas,Start service action,ADDED,M5,not_started,added,Explicit IN_SERVICE transition with actor timestamp and permitted controls,D-005
+AC-01,acceptance,Same-slot concurrency,MVP,M3,not_started,retained,Two clients within 50ms yield one reservation and one 409 slot_taken,D-004
+AC-02,acceptance,Refund after reschedule,MVP,M4,not_started,retained,No dangling payment allocations or missing financial history,D-006
+AC-03,acceptance,Repeat pay-run,MVP,M6,not_started,adapted,Same frozen batch totals and no duplicate manual payment records within or beyond 24h,D-002
+AC-04,acceptance,Barber delisted before confirmation,MVP,M4,not_started,retained,Prevent unsafe confirmation and surface paid-booking resolution issue,D-005
+AC-05,acceptance,No booking deletion,MVP,M2,not_started,retained,State transitions and full audit with privacy-safe retention policy,O-10
+AC-06,acceptance,Trusted money outcomes,MVP,M4,not_started,adapted,Provider outcomes verified server-side and manual cash or bank records explicitly audited,D-005
+AC-07,acceptance,Offline 24h booking navigation,MVP,M5,not_started,adapted,Previously downloaded last-24h queue navigates offline with stale and access controls,D-008
+X-01,quality,All screen state envelopes,MVP,M1,not_started,added,Loading empty offline error forbidden pending success and retry designed per screen,D-007
+X-02,quality,Interaction inventory,ADDED,M1,not_started,added,Every visible control maps to behaviour permission feedback persistence and test,D-003
+X-03,quality,Keyboard and screen reader,ADDED,M1,not_started,added,WCAG 2.2 AA target with focus labels errors contrast and alternative calendar controls,D-007
+X-04,quality,Responsive placement,ADDED,M1,not_started,added,320 390 768 1024 and 1440 widths checked with long content and touch controls,D-007
+X-05,quality,DST and policy boundaries,ADDED,M3,not_started,added,London DST gap fold exact 24h cutoff and buffer boundaries tested,O-09
+X-06,quality,Hold abuse and rate limits,ADDED,M3,not_started,added,Bound outstanding holds and protect OTP invite and booking endpoints,D-004
+X-07,quality,Webhook replay and reordering,ADDED,M4,not_started,added,Signature event-account scope deduplication durable inbox and reconciliation tested,O-06
+X-08,quality,Outbox retries and dead letters,ADDED,M4,not_started,added,Delivery failures retry safely and create actionable exhausted-job issues,O-15
+X-09,quality,Ledger invariants,ADDED,M6,not_started,added,Balanced integer-pence postings and exact rounding reconcile cash card refunds and tips,D-002
+X-10,quality,Overlapping pay-run approvals,ADDED,M6,not_started,added,Unique earning allocation excludes already allocated entitlements under concurrent approval,D-002
+X-11,quality,Upload validation and storage permissions,ADDED,M2,not_started,added,Validate type size and tenant keys with safe signed access where needed,D-001
+X-12,quality,Security and sensitive data checks,ADDED,M7,not_started,added,No cross-tenant leaks XSS CSRF exposed secrets or private analytics capture,O-10
+X-13,quality,Performance budgets,ADDED,M1,not_started,added,Measure LCP INP CLS payload and API timing without claiming unmeasured success,D-007
+X-14,quality,Pending charge and late success,ADDED,M4,not_started,added,Timeout cannot duplicate payment and lost reservation enters recovery not overbooking,D-005
+X-15,quality,Versioned policies,ADDED,M3,not_started,added,Booking snapshots preserve prices shares cancellation and consent versions,O-03
+X-16,quality,Financial export safety,ADDED,M6,not_started,added,CSV formula escaping authorization and row-to-ledger totals tested,D-002
+N-01,notifications,Booking confirmed,MVP,M4,not_started,adapted,SMS email and opted-in supported push with deduplicated outbox,O-15
+N-02,notifications,Twenty-four-hour reminder,MVP,M4,not_started,retained,Scheduled SMS and push invalidated on cancel or reschedule with short-notice rule,O-15
+N-03,notifications,Admin reschedule notice,MVP,M4,not_started,retained,SMS and email show new date timezone and permitted booking access,O-15
+N-04,notifications,Admin cancellation notice,MVP,M4,not_started,retained,SMS and email accurately distinguish requested and completed refund,O-15
+N-05,notifications,No-show notice,v1.5,LATER,not_started,deferred,Consent-aware policy explanation without false new-charge implication,O-15
+N-06,notifications,Review posted,MVP,M6,not_started,adapted,Email and supported web push with native Expo path separate,D-008
+N-07,notifications,Payout succeeded,MVP,M6,not_started,adapted,Notify barber that owner recorded external payment not that bank confirmed receipt,D-002
+N-08,notifications,Daily admin digest,v1.5,LATER,not_started,deferred,Shop-local 22h digest with retry and suppression rules,O-15
+N-09,notifications,Marketing campaigns,v2,LATER,not_started,deferred,Consent subscription and opt-out handling distinct from transactional notices,O-10
+N-10,notifications,Instant payout failed,MVP,M6,not_started,superseded,No automatic barber Instant Payout under Model A,D-002
+R-01,roadmap,Sales dashboard charts,v1.5,LATER,not_started,deferred,Clarify distinction from MVP revenue reports before chart scope,D-001
+R-02,roadmap,Multi-stop alerts,v1.5,LATER,not_started,scope_decision,Original roadmap term undefined and needs user requirement,O-15
+R-03,roadmap,Two-way calendar sync,v1.5,LATER,not_started,scope_decision,New roadmap item needs provider conflict privacy and source-of-truth rules,D-004
+R-04,roadmap,In-shop queue display,v2,LATER,not_started,scope_decision,Conflicts with original out-of-scope list and requires explicit approval,O-13
+R-05,roadmap,Multi-location management,v2,LATER,not_started,scope_decision,Not implied by independent SaaS tenants and conflicts with exclusions,O-13
+R-06,roadmap,Retail product add-ons,v2,LATER,not_started,deferred,Inventory tax returns and loyalty boundary need new specification,D-001
+R-07,roadmap,Accounting and marketing marketplace,v2,LATER,not_started,deferred,QuickBooks Xero Mailchimp API integrations distinct from current CSV exports,D-001
+I-01,integration,Maps links,MVP,M4,not_started,retained,Apple and Google maps links use shop public address without private identifiers,D-001
+I-02,integration,Analytics,MVP,M7,not_started,policy_decision,Choose PostHog or Plausible with consent region and private-screen exclusions,O-10
+I-03,integration,Error tracking,MVP,M7,not_started,retained,Sentry or approved equivalent scrubs PII and uploads permitted source maps,D-004
+I-04,integration,Photo and logo storage,MVP,M2,not_started,adapted,Use Cloudflare R2 with controlled public and private access,D-004
