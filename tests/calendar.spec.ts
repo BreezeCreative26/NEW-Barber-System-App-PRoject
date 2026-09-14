@@ -863,3 +863,106 @@ for (const width of [390, 1440])
       await context.close();
     }
   });
+
+test("week view shows the seven-day load per barber, drills into a day, and opens a booking", async ({
+  page,
+}) => {
+  await enter(page);
+  const bookings = await populateCalendar(page);
+  const date = bookings[0].date;
+  await page.getByRole("button", { name: "Week", exact: true }).click();
+  const week = page.locator(".week-view");
+  await expect(week).toBeVisible();
+  await expect(week).toHaveAttribute("aria-busy", "false");
+  await expect(page.getByText(/^Week of /)).toBeVisible();
+  // Seven day heads, every card present, each barber row counts its own visits.
+  await expect(week.locator(".week-day-head")).toHaveCount(7);
+  await expect(week.locator(".week-card")).toHaveCount(4);
+  await expect(week.locator(".week-row").first()).toContainText("2 this week");
+  await expect(week.locator(".week-row").nth(1)).toContainText("2 this week");
+  // The chosen day head announces its load and links to the timetable.
+  const head = week.locator(".week-day-head.chosen");
+  await expect(head).toHaveAttribute("aria-label", /4 appointments, \d+% booked/);
+  // Opening a card opens the same appointment dialog as the day view.
+  await week.locator(".week-card").first().click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("5 minute fictional client");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  // Clicking a different day switches to that day's timetable.
+  const nextHead = week.locator(".week-day-head:not(.chosen)").first();
+  const label = (await nextHead.getAttribute("aria-label")) || "";
+  await nextHead.click();
+  await expect(page.getByRole("button", { name: "Day timetable", exact: true })).toHaveAttribute("aria-pressed", "true");
+  expect(label).toContain("Open day timetable");
+  expect(await page.getByLabel("Appointment date", { exact: true }).inputValue()).not.toBe(date);
+  // Accessibility of the week view at desktop width.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("button", { name: "Week", exact: true }).click();
+  await expect(week).toHaveAttribute("aria-busy", "false");
+  const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+  expect(axe.violations).toEqual([]);
+});
+
+test("standing booking: repeat controls preview every date, conflicts must be skipped, and one confirm saves the series", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  await enter(page);
+  const headers = { Origin: origin };
+  const w = await (await page.request.get(base + "/workspace")).json();
+  const start = day(8);
+  const conflict = new Date(start + "T12:00:00Z");
+  conflict.setUTCDate(conflict.getUTCDate() + 14);
+  const blocked = conflict.toISOString().slice(0, 10);
+  const leave = await page.request.post(base + `/staff/${w.staff[0].id}/days-off`, {
+    headers,
+    data: { date: blocked, reason: "Fictional leave" },
+  });
+  expect(leave.status()).toBe(201);
+  await page.getByRole("button", { name: "New booking", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Barber").selectOption(w.staff[0].id);
+  await dialog.getByLabel("Booking date").fill(start);
+  const timeSelect = dialog.getByLabel("Available start time");
+  await expect(timeSelect.locator("option[value='600']")).toBeEnabled();
+  await timeSelect.selectOption("600");
+  await dialog.getByLabel("Fictional customer name").fill("Standing Regular");
+  await dialog.getByLabel("Test UK mobile number").fill("07700900555");
+  // Repeat controls are only offered for a new booking.
+  const repeat = dialog.getByLabel("Repeat this appointment at the same time");
+  await repeat.check();
+  await dialog.getByLabel("Every").selectOption("2");
+  await dialog.getByLabel("Visits").fill("3");
+  await dialog.getByRole("button", { name: "Review appointment" }).click();
+  const preview = dialog.getByTestId("series-preview");
+  await expect(preview).toBeVisible();
+  await expect(preview.locator("li")).toHaveCount(3);
+  await expect(preview).toContainText("2 of 3 dates bookable");
+  await expect(preview.locator("li.is-blocked")).toHaveCount(1);
+  await expect(preview.locator("li.is-blocked")).toContainText(blocked);
+  // Confirming with an unresolved conflict is refused client-side; nothing is written.
+  await dialog.getByRole("button", { name: /^Confirm standing booking \(2 dates\)/ }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Skip the 1 unavailable date");
+  expect((await (await page.request.get(base + "/workspace")).json()).bookings).toHaveLength(0);
+  await dialog.getByLabel(`Skip ${blocked}`).check();
+  await expect(preview.locator("li.is-skipped")).toHaveCount(1);
+  await dialog.getByRole("button", { name: /^Confirm standing booking \(2 dates\)/ }).click();
+  // Saved: two appointments share a series id and the calendar shows the first one.
+  await expect(page.getByText("Saved to your local test database.")).toBeVisible();
+  const last = new Date(start + "T12:00:00Z");
+  last.setUTCDate(last.getUTCDate() + 28);
+  const range = await (
+    await page.request.get(base + `/bookings/range?from=${start}&to=${last.toISOString().slice(0, 10)}`)
+  ).json();
+  const series = range.bookings.filter((b: any) => b.series_id);
+  expect(series).toHaveLength(2);
+  expect(new Set(series.map((b: any) => b.series_id)).size).toBe(1);
+  expect(series.map((b: any) => b.date)).not.toContain(blocked);
+  await expect(page.locator(".calendar-event")).toHaveCount(1);
+  // Rescheduling an existing visit never shows repeat controls.
+  await page.locator(".calendar-event").first().click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByRole("dialog").getByTestId("series-options")).toHaveCount(0);
+});

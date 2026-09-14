@@ -22,7 +22,7 @@ import type {
   StaffDayOff,
 } from "../server/domain";
 import { Brand, Button, Icon, Modal, Notice, Badge } from "./ui";
-import { Calendar, WeekStrip, type CalendarDraft } from "./Calendar";
+import { Calendar, WeekStrip, WeekView, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { money, time, datePlus } from "./fixtures";
 
 const reference = (b: StoredBooking) =>
@@ -715,6 +715,23 @@ export function Workspace() {
   const [calendarView, setCalendarView] = useState(() =>
     window.matchMedia("(max-width: 740px)").matches ? "agenda" : "day",
   );
+  const [week, setWeek] = useState<{ key: string; bookings: RangeBooking[] } | null>(null);
+  const [weekLoading, setWeekLoading] = useState(false);
+  const weekKey = date
+    ? datePlus(date, -((new Date(date + "T12:00:00Z").getUTCDay() + 6) % 7))
+    : "";
+  useEffect(() => {
+    if (!data || calendarView !== "week" || !weekKey) return;
+    let cancelled = false;
+    setWeekLoading(true);
+    api<{ bookings: RangeBooking[] }>(`/bookings/range?from=${weekKey}&to=${datePlus(weekKey, 6)}`)
+      .then((r) => !cancelled && setWeek({ key: weekKey, bookings: r.bookings }))
+      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Could not load the week."))
+      .finally(() => !cancelled && setWeekLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [calendarView, weekKey, data?.now, data?.bookings.length]);
   const [search, setSearch] = useState("");
   const [barber, setBarber] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -833,15 +850,17 @@ export function Workspace() {
         "The workspace needs a fresh read before saving. Close this dialog and use Retry workspace; no page reload is needed.",
         409,
       );
-    const result = await api<{ booking?: StoredBooking }>(path, method, body);
+    const result = await api<{ booking?: StoredBooking; created?: StoredBooking[] }>(path, method, body);
+    const landed =
+      path === "/series" ? result.created?.[0] : result.booking;
     if (
-      result.booking &&
-      (path === "/bookings" || path.endsWith("/reschedule"))
+      landed &&
+      (path === "/bookings" || path === "/series" || path.endsWith("/reschedule"))
     ) {
       // Show the actual saved destination, including a new visit on another date.
-      dateRef.current = result.booking.date;
-      queriedDate.current = result.booking.date;
-      setDate(result.booking.date);
+      dateRef.current = landed.date;
+      queriedDate.current = landed.date;
+      setDate(landed.date);
       setBarber("");
       setStatusFilter("");
       setSearch("");
@@ -985,6 +1004,7 @@ export function Workspace() {
           <nav aria-label="Workspace sections">
             {[
               "Appointments",
+              "Insights",
               "Customers",
               "Team",
               "Services",
@@ -995,7 +1015,7 @@ export function Workspace() {
               (name, i) =>
                 (!w?.account ||
                   ["OWNER", "MANAGER"].includes(w.account.role) ||
-                  ["Appointments", "Customers", "Accounts"].includes(name)) && (
+                  ["Appointments", "Insights", "Customers", "Accounts"].includes(name)) && (
                   <button
                     key={name}
                     type="button"
@@ -1012,6 +1032,7 @@ export function Workspace() {
                       name={
                         [
                           "calendar",
+                          "trend",
                           "user",
                           "users",
                           "scissors",
@@ -1215,11 +1236,13 @@ export function Workspace() {
                       <div className="calendar-date-heading">
                         <h2>Your timetable</h2>
                         <p>
-                          {date
-                            ? new Intl.DateTimeFormat("en-GB", {
-                                dateStyle: "full",
-                              }).format(new Date(date + "T12:00:00Z"))
-                            : "Choose a date"}{" "}
+                          {!date
+                            ? "Choose a date"
+                            : calendarView === "week"
+                              ? `Week of ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" }).format(new Date(weekKey + "T12:00:00Z"))} – ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" }).format(new Date(datePlus(weekKey, 6) + "T12:00:00Z"))}`
+                              : new Intl.DateTimeFormat("en-GB", {
+                                  dateStyle: "full",
+                                }).format(new Date(date + "T12:00:00Z"))}{" "}
                           · London time
                         </p>
                       </div>
@@ -1232,6 +1255,14 @@ export function Workspace() {
                           >
                             <Icon name="calendar" size={16} />
                             Day timetable
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={calendarView === "week"}
+                            onClick={() => setCalendarView("week")}
+                          >
+                            <Icon name="dashboard" size={16} />
+                            Week
                           </button>
                           <button
                             type="button"
@@ -1345,8 +1376,21 @@ export function Workspace() {
                         </Button>
                       )}
                     </div>
-                    {date && <WeekStrip date={date} onDate={setDate} />}
-                    {!dayReady ? (
+                    {date && calendarView !== "week" && <WeekStrip date={date} onDate={setDate} />}
+                    {calendarView === "week" && date ? (
+                      <WeekView
+                        w={w}
+                        date={date}
+                        barber={barber}
+                        bookings={week?.key === weekKey ? week.bookings : null}
+                        loading={weekLoading}
+                        onDay={(d) => {
+                          setDate(d);
+                          setCalendarView("day");
+                        }}
+                        onOpen={openBooking}
+                      />
+                    ) : !dayReady ? (
                       <p role="status" className="calendar-empty">
                         {error
                           ? "Calendar unavailable. Use Retry workspace above."
@@ -1706,6 +1750,7 @@ export function Workspace() {
                   </section>
                 </div>
               )}
+              {tab === "Insights" && <InsightsPanel w={w} />}
               {tab === "Customers" && (
                 <CustomersPanel
                   w={w}
@@ -1770,6 +1815,223 @@ export function Workspace() {
   );
 }
 
+
+type Insights = {
+  from: string;
+  to: string;
+  days: number;
+  by_status: { status: string; channel: string; n: number; value: number }[];
+  services: { name: string; n: number; completed_value: number }[];
+  barbers: { staff_id: string; name: string; n: number; minutes: number; completed_value: number; no_shows: number }[];
+  hours: { hour: number; n: number }[];
+  weekdays: { weekday: number; n: number }[];
+  daily: { date: string; n: number; completed_value: number }[];
+  customers: { customers: number; new_customers: number | null };
+  upcoming: { n: number; value: number | null };
+  waitlist_open: number;
+};
+function Bars({
+  rows,
+  max,
+  label,
+}: {
+  rows: { key: string; label: string; value: number; sub?: string }[];
+  max?: number;
+  label: string;
+}) {
+  const top = max ?? Math.max(1, ...rows.map((r) => r.value));
+  return (
+    <ul className="insight-bars" aria-label={label}>
+      {rows.map((r) => (
+        <li key={r.key}>
+          <span className="insight-bar-label">{r.label}</span>
+          <span className="insight-bar-track" aria-hidden="true">
+            <span className="insight-bar-fill" style={{ width: `${Math.round((r.value / top) * 100)}%` }} />
+          </span>
+          <span className="insight-bar-value">
+            {r.value}
+            {r.sub && <small> {r.sub}</small>}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+function InsightsPanel({ w }: { w: WorkspaceData }) {
+  const [days, setDays] = useState(30);
+  const [data, setData] = useState<Insights | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    setData(null);
+    api<Insights>(`/insights?days=${days}`)
+      .then((r) => !cancelled && (setData(r), setError("")))
+      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Could not load insights."));
+    return () => {
+      cancelled = true;
+    };
+  }, [days, w.now]);
+  const sum = (f: (r: Insights["by_status"][number]) => boolean) =>
+    (data?.by_status || []).filter(f).reduce((n, r) => n + r.n, 0);
+  const value = (f: (r: Insights["by_status"][number]) => boolean) =>
+    (data?.by_status || []).filter(f).reduce((n, r) => n + (r.value || 0), 0);
+  const total = sum(() => true);
+  const completed = sum((r) => r.status === "COMPLETED");
+  const noShows = sum((r) => r.status === "NO_SHOW");
+  const cancelled = sum((r) => r.status === "CANCELLED");
+  const online = sum((r) => r.channel === "ONLINE" && !["CANCELLED", "NO_SHOW"].includes(r.status));
+  const kept = total - cancelled;
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const cards = data
+    ? [
+        { label: "Appointments", value: String(kept), foot: `${cancelled} cancelled · last ${days} days`, icon: "calendarCheck" },
+        { label: "Completed value", value: money(value((r) => r.status === "COMPLETED")), foot: `${completed} completed · booked price, not payments`, icon: "wallet" },
+        { label: "No-show rate", value: kept ? `${Math.round((noShows / kept) * 100)}%` : "—", foot: `${noShows} no-shows of ${kept}`, icon: "user" },
+        { label: "Booked online", value: kept ? `${Math.round((online / kept) * 100)}%` : "—", foot: `${online} of ${kept} came through your booking page`, icon: "trend" },
+        { label: "Customers seen", value: String(data.customers.customers), foot: `${data.customers.new_customers ?? 0} new in this period`, icon: "users" },
+        { label: "Upcoming", value: String(data.upcoming.n), foot: `${money(data.upcoming.value || 0)} booked ahead · ${data.waitlist_open} on waitlist`, icon: "calendar" },
+      ]
+    : [];
+  const peakHour = data?.hours.length ? data.hours.reduce((a, b) => (b.n > a.n ? b : a)) : null;
+  return (
+    <div className="workspace-settings insights">
+      <section className="workspace-panel">
+        <div className="workspace-section-heading">
+          <div>
+            <h2>Shop insights</h2>
+            <p className="workspace-footnote">
+              {data ? `${data.from} to ${data.to}` : "Loading…"} · saved appointment records only; value is booked service
+              price, not collected payment.
+            </p>
+          </div>
+          <div className="segmented" aria-label="Period">
+            {[7, 30, 90, 365].map((n) => (
+              <button type="button" key={n} aria-pressed={days === n} onClick={() => setDays(n)}>
+                {n === 365 ? "Year" : `${n}d`}
+              </button>
+            ))}
+          </div>
+        </div>
+        <ErrorMessage error={error} />
+        <div className="stats-grid connected-stats insight-cards">
+          {(cards.length ? cards : Array.from({ length: 6 }, (_, i) => ({ label: "…", value: "—", foot: "", icon: "loader", key: i }))).map((c, i) => (
+            <article className="stat-card" key={i}>
+              <div className="stat-label">
+                {c.label}
+                <Icon name={c.icon} />
+              </div>
+              <div className="stat-value">{c.value}</div>
+              <div className="stat-foot">{c.foot}</div>
+            </article>
+          ))}
+        </div>
+      </section>
+      {data && (
+        <>
+          <section className="workspace-panel">
+            <h2>Busiest times</h2>
+            <p className="workspace-footnote">
+              {peakHour ? `Peak hour ${String(peakHour.hour).padStart(2, "0")}:00 with ${peakHour.n} starts.` : "No appointments in this period."}
+            </p>
+            <div className="insight-grid">
+              <div>
+                <h3>By hour</h3>
+                <Bars
+                  label="Appointments by start hour"
+                  rows={Array.from({ length: Math.ceil(w.shop.closes / 60) - Math.floor(w.shop.opens / 60) }, (_, i) => {
+                    const hour = Math.floor(w.shop.opens / 60) + i;
+                    return { key: String(hour), label: `${String(hour).padStart(2, "0")}:00`, value: data.hours.find((h) => h.hour === hour)?.n || 0 };
+                  })}
+                />
+              </div>
+              <div>
+                <h3>By weekday</h3>
+                <Bars
+                  label="Appointments by weekday"
+                  rows={[1, 2, 3, 4, 5, 6, 0].map((d) => ({ key: String(d), label: dayNames[d], value: data.weekdays.find((x) => x.weekday === d)?.n || 0 }))}
+                />
+              </div>
+            </div>
+          </section>
+          <section className="workspace-panel">
+            <h2>Services and barbers</h2>
+            <div className="insight-grid">
+              <div>
+                <h3>Most booked services</h3>
+                {data.services.length ? (
+                  <Bars
+                    label="Services by bookings"
+                    rows={data.services.map((s) => ({ key: s.name, label: s.name, value: s.n, sub: money(s.completed_value) }))}
+                  />
+                ) : (
+                  <p className="workspace-footnote">No services booked yet.</p>
+                )}
+              </div>
+              <div>
+                <h3>Barbers</h3>
+                {data.barbers.length ? (
+                  <table className="customer-table insight-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Barber</th>
+                        <th scope="col">Visits</th>
+                        <th scope="col">Hours</th>
+                        <th scope="col">Completed</th>
+                        <th scope="col">No-shows</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.barbers.map((b) => (
+                        <tr key={b.staff_id}>
+                          <td className="customer-name">{b.name}</td>
+                          <td className="num" data-label="Visits">{b.n}</td>
+                          <td className="num" data-label="Hours">{(b.minutes / 60).toFixed(1)}</td>
+                          <td className="num" data-label="Completed">{money(b.completed_value)}</td>
+                          <td className="num" data-label="No-shows">{b.no_shows}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="workspace-footnote">No barber activity yet.</p>
+                )}
+              </div>
+            </div>
+          </section>
+          <section className="workspace-panel">
+            <h2>Daily trend</h2>
+            {data.daily.length ? (
+              <div className="insight-trend" role="img" aria-label={`Appointments per day over ${days} days`}>
+                {(() => {
+                  const start = new Date(`${data.from}T12:00:00Z`);
+                  const cells: { date: string; n: number; value: number }[] = [];
+                  for (let i = 0; i < data.days; i++) {
+                    const d = new Date(start);
+                    d.setUTCDate(d.getUTCDate() + i);
+                    const key = d.toISOString().slice(0, 10);
+                    const row = data.daily.find((x) => x.date === key);
+                    cells.push({ date: key, n: row?.n || 0, value: row?.completed_value || 0 });
+                  }
+                  const max = Math.max(1, ...cells.map((c) => c.n));
+                  return cells.map((c) => (
+                    <span
+                      key={c.date}
+                      className="insight-trend-bar"
+                      style={{ height: `${Math.max(4, Math.round((c.n / max) * 100))}%` }}
+                      title={`${c.date}: ${c.n} appointments, ${money(c.value)} completed`}
+                    />
+                  ));
+                })()}
+              </div>
+            ) : (
+              <p className="workspace-footnote">No appointments in this period.</p>
+            )}
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
 
 type WaitlistEntry = {
   id: string;
@@ -3332,6 +3594,37 @@ function BookingForm({
   const [review, setReview] = useState(false);
   const request = useRef({ payload: "", key: crypto.randomUUID() });
   const draftPending = useRef(draft?.start);
+  // Standing bookings: repeat every N weeks; the server previews each date before anything is written.
+  const [repeat, setRepeat] = useState(false);
+  const [intervalWeeks, setIntervalWeeks] = useState(2);
+  const [occurrences, setOccurrences] = useState(6);
+  const [skipDates, setSkipDates] = useState<string[]>([]);
+  const [seriesPreview, setSeriesPreview] = useState<{
+    dates: { date: string; reason: string | null; skipped: boolean }[];
+    bookable: number;
+  } | null>(null);
+  const [seriesResult, setSeriesResult] = useState<{
+    created: number;
+    failed: { date: string; reason: string }[];
+  } | null>(null);
+  const seriesOn = repeat && !b;
+  function seriesBody(f: FormData) {
+    return {
+      staff_id: staff,
+      service_id: service,
+      date,
+      start_min: Number(start),
+      customer_name: text(f, "customer_name"),
+      phone: text(f, "phone"),
+      notes: text(f, "notes"),
+      source: text(f, "source"),
+      quote: slots?.quote,
+      addon_ids: addonIds,
+      interval_weeks: intervalWeeks,
+      occurrences,
+      skip_dates: skipDates,
+    };
+  }
   useEffect(() => {
     if (review) {
       reviewRef.current?.focus();
@@ -3381,7 +3674,9 @@ function BookingForm({
         review
           ? b
             ? "Confirm reschedule"
-            : "Confirm test booking"
+            : seriesOn
+              ? `Confirm standing booking (${seriesPreview?.bookable ?? 0} dates)`
+              : "Confirm test booking"
           : "Review appointment"
       }
       onSave={async (f) => {
@@ -3391,7 +3686,42 @@ function BookingForm({
             name: b?.customer_name || text(f, "customer_name"),
             phone: b?.phone || text(f, "phone"),
           });
+          if (seriesOn) {
+            const preview = await api<NonNullable<typeof seriesPreview>>(
+              "/series/preview",
+              "POST",
+              seriesBody(f),
+            );
+            setSeriesPreview(preview);
+          }
           setReview(true);
+          return;
+        }
+        if (seriesOn) {
+          const body = seriesBody(f);
+          const unresolved = seriesPreview?.dates.filter((d) => d.reason && !d.skipped) || [];
+          if (unresolved.length)
+            throw new Error(
+              `Skip the ${unresolved.length} unavailable date${unresolved.length === 1 ? "" : "s"} before saving.`,
+            );
+          try {
+            const result = await saved("/series", "POST", body);
+            const r = result as unknown as {
+              created: StoredBooking[];
+              failed: { date: string; reason: string }[];
+            };
+            setSeriesResult({ created: r.created.length, failed: r.failed });
+            if (waitlist && r.created[0])
+              api(`/waitlist/${waitlist.id}/status`, "POST", {
+                status: "BOOKED",
+                booking_id: r.created[0].id,
+                version: waitlist.version,
+              }).catch(() => {});
+          } catch (e) {
+            setReview(false);
+            if (e instanceof ApiError && e.status === 409) setRefresh((n) => n + 1);
+            throw e;
+          }
           return;
         }
         const payload = b
@@ -3748,6 +4078,62 @@ function BookingForm({
               <Field label="Test notes">
                 <textarea name="notes" maxLength={500} />
               </Field>
+              <fieldset className="series-options" data-testid="series-options">
+                <legend>
+                  <Icon name="repeat" /> Standing booking
+                </legend>
+                <label className="series-toggle">
+                  <input
+                    type="checkbox"
+                    checked={repeat}
+                    onChange={(e) => {
+                      setRepeat(e.target.checked);
+                      setSkipDates([]);
+                      setSeriesPreview(null);
+                    }}
+                  />
+                  Repeat this appointment at the same time
+                </label>
+                {repeat && (
+                  <div className="series-controls">
+                    <Field label="Every">
+                      <select
+                        value={intervalWeeks}
+                        onChange={(e) => {
+                          setIntervalWeeks(Number(e.target.value));
+                          setSkipDates([]);
+                        }}
+                        aria-describedby="series-hint"
+                      >
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => (
+                          <option key={n} value={n}>
+                            {n === 1 ? "week" : `${n} weeks`}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Visits">
+                      <input
+                        type="number"
+                        min={2}
+                        max={26}
+                        value={occurrences}
+                        onChange={(e) => {
+                          setOccurrences(
+                            Math.min(26, Math.max(2, Number(e.target.value) || 2)),
+                          );
+                          setSkipDates([]);
+                        }}
+                      />
+                    </Field>
+                    <p id="series-hint" className="workspace-footnote">
+                      Up to 26 visits, every 1–12 weeks. Each date is checked
+                      against the roster and time off before anything is saved;
+                      you can skip individual dates on the review step.
+                    </p>
+                  </div>
+                )}
+              </fieldset>
             </>
           )}
           {b && (
@@ -3796,6 +4182,62 @@ function BookingForm({
               {w.staff.find((s) => s.id === staff)?.name} ·{" "}
               {slots?.service_name} · {money(slots?.price_pence || 0)}
             </p>
+            {seriesOn && seriesPreview && (
+              <div className="series-preview" data-testid="series-preview">
+                <p>
+                  <strong>
+                    Standing booking · every{" "}
+                    {intervalWeeks === 1 ? "week" : `${intervalWeeks} weeks`} ·{" "}
+                    {seriesPreview.bookable} of {seriesPreview.dates.length} dates
+                    bookable
+                  </strong>
+                </p>
+                <ul className="series-dates">
+                  {seriesPreview.dates.map((d) => (
+                    <li
+                      key={d.date}
+                      className={
+                        d.skipped ? "is-skipped" : d.reason ? "is-blocked" : "is-free"
+                      }
+                    >
+                      <span className="series-date">{d.date}</span>
+                      <span className="series-reason">
+                        {d.skipped ? "Skipped" : d.reason || "Available"}
+                      </span>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={d.skipped}
+                          aria-label={`Skip ${d.date}`}
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? [...skipDates, d.date]
+                              : skipDates.filter((x) => x !== d.date);
+                            setSkipDates(next);
+                            setSeriesPreview({
+                              dates: seriesPreview.dates.map((x) =>
+                                x.date === d.date ? { ...x, skipped: e.target.checked } : x,
+                              ),
+                              bookable: seriesPreview.dates.filter(
+                                (x) =>
+                                  !(x.date === d.date ? e.target.checked : x.skipped) &&
+                                  !x.reason,
+                              ).length,
+                            });
+                          }}
+                        />
+                        Skip
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+                <p className="workspace-footnote">
+                  Unavailable dates must be skipped before saving. Every visit is
+                  saved as its own appointment under one series and can be moved
+                  or cancelled individually later.
+                </p>
+              </div>
+            )}
             Confirm below to save in local D1. Availability is checked again
             atomically; no hold, payment or notification is created.
           </Notice>
@@ -3812,6 +4254,15 @@ function BookingForm({
             Edit selections
           </Button>
         </section>
+      )}
+      {seriesResult && (
+        <p role="status" className="series-result">
+          Standing booking saved: {seriesResult.created} appointments created
+          {seriesResult.failed.length
+            ? `, ${seriesResult.failed.length} failed (${seriesResult.failed.map((f) => `${f.date}: ${f.reason}`).join("; ")})`
+            : ""}
+          .
+        </p>
       )}
       <p className="workspace-footnote">
         Local test workflow only. Times are Europe/London. Data is saved only

@@ -530,3 +530,59 @@ for (const width of [320, 390, 768, 1024, 1440])
     ).toBeFocused();
     await context.close();
   });
+
+test("insights tab renders period-scoped aggregates from saved records at desktop and phone widths", async ({
+  page,
+}) => {
+  await enter(page);
+  const origin = "http://localhost:3000";
+  const base = origin + "/api/sandbox";
+  const w = await (await page.request.get(base + "/workspace")).json();
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + 4);
+  if (d.getUTCDay() === 0) d.setUTCDate(d.getUTCDate() + 1);
+  const date = d.toISOString().slice(0, 10);
+  const service = w.services.find((s: any) => s.duration_min === 30);
+  for (const start of [540, 600]) {
+    const res = await page.request.post(base + "/bookings", {
+      headers: { Origin: origin },
+      data: {
+        request_id: crypto.randomUUID(),
+        staff_id: w.staff[0].id,
+        service_id: service.id,
+        date,
+        start_min: start,
+        customer_name: "Insight Client",
+        phone: "07700900321",
+        source: "TEST_BOOKING",
+        quote: { service_version: service.version, shop_version: w.shop.version },
+      },
+    });
+    expect(res.status(), await res.text()).toBe(201);
+  }
+  await section(page, "Insights");
+  await expect(page.getByRole("heading", { name: "Shop insights" })).toBeVisible();
+  const period = page.getByRole("group", { name: "Period" }).or(page.locator('.segmented[aria-label="Period"]'));
+  await expect(period.getByRole("button", { name: "30d" })).toHaveAttribute("aria-pressed", "true");
+  // Future test bookings count as upcoming value, not as period activity.
+  const upcoming = page.locator(".stat-card", { hasText: "Upcoming" });
+  await expect(upcoming.locator(".stat-value")).toHaveText("2");
+  await expect(upcoming.locator(".stat-foot")).toContainText("booked ahead");
+  await expect(page.locator(".stat-card", { hasText: "Appointments" }).first().locator(".stat-value")).toHaveText("0");
+  await expect(page.getByRole("heading", { name: "Busiest times" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Appointments by weekday" }).locator("li")).toHaveCount(7);
+  // Switching the period re-reads and keeps the pressed state in sync.
+  await period.getByRole("button", { name: "Year" }).click();
+  await expect(period.getByRole("button", { name: "Year" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText(/saved appointment records only/)).toBeVisible();
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.getByRole("heading", { name: "Shop insights" })).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+      `no horizontal overflow at ${width}`,
+    ).toBe(true);
+    const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+    expect(axe.violations, `axe at ${width}`).toEqual([]);
+  }
+});

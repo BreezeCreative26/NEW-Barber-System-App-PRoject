@@ -1,5 +1,15 @@
 # Barbershop OS — Progress and next-session handoff
 
+## Latest — week view, standing bookings, insights (2026-09-14)
+
+- Migration `0008_booking_series.sql`: `bookings.series_id` (immutable via trigger), index `booking_series_lookup` (renamed after a local name clash with the `booking_series` table — fresh DBs run the corrected file cleanly), table `booking_series`.
+- Server: `GET /bookings/range?from&to` (≤31 days, compact columns, LIMIT 2000, barber-scoped), `GET /insights?days=7..365` (one D1 batch), `POST /series/preview` (per-date `availabilityContext` + `slotReason`, honours `skip_dates`) and `POST /series` (inserts `booking_series`, loops shared `createBooking(..., {seriesId})`, 409 if <2 bookable or unresolved conflicts, audits `SERIES_CREATED`). Permissions added for all four.
+- Client: `WeekView` in Calendar.tsx (Monday-start heads with count·load% bar, per-barber rows, ↻/online markers, hatched days off, `role="group"` cells); Workspace gains a Week segmented button + range fetch, an Insights nav item/`InsightsPanel` (period segmented, 6 stat cards, hour/weekday/services bars, barbers table, daily trend), and BookingForm gains Standing-booking controls, a review-step date list with Skip toggles, client-side refusal until conflicts are skipped, and a created/failed status line. `saved()` lands on the first created series date. New `repeat` icon.
+- CSS appended: `.week-*`, `.insight-*`, `.series-*` with ≤740px horizontal-scroll week grid; contrast fixes for closed/off cells after axe flagged `#9aa69c`.
+- Tests: mutation inventory now lists `/series/preview` and `/series`; barber nav expectation includes Insights; new API cases (range bounds/scoping/shape, insights validation/tenant scoping, series preview→refuse→skip→create→re-preview→validation→audit) and browser cases (week view drill-down/dialog/axe, standing-booking flow, insights tab at 1440/390/320 with axe). Final run: typecheck, 42 unit, D1 invariants PASS, **114 browser/API passed**, zero flaky.
+- Evidence: `docs/evidence/v3-week-{1440,390}.png`, `v3-insights-{1440,390}.png`, `v3-series-{1440,390}.png` (axe clean on all six).
+- Next: cancel/move a whole series from the detail dialog (currently per-visit only); series visibility in the customer directory; deposits/payments once a provider is chosen; messaging after provider + consent decisions.
+
 ## Latest — booking v2: first-available, soonest, waitlist, share by hand (2026-09-14)
 
 - Public booking rebuilt on a shared `rangeContext`/`slotFor` evaluator: `staff_id=any` returns per-slot barber assignment (least-loaded eligible barber, name tie-break), `/next` returns the soonest bookable slot per day across the window, `/days` supports any-barber and returns a price range. UI adds a "First available" barber card, a Soonest chip strip that jumps date+time, open/low/full indicators on the date strip, Morning/Afternoon/Evening grouped times with counts, barber initials on any-barber slots, skeleton loading and on-device contact memory (localStorage, never sent).

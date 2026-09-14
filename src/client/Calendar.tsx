@@ -436,3 +436,172 @@ export function WeekStrip({
     </div>
   );
 }
+
+// Week overview: one column per day, one row per barber, cards sized by duration.
+// Read-only planning view; clicking a day opens the day timetable.
+export type RangeBooking = Pick<
+  StoredBooking,
+  | "id"
+  | "staff_id"
+  | "customer_name"
+  | "service_name"
+  | "date"
+  | "start_min"
+  | "duration_min"
+  | "price_pence"
+  | "status"
+  | "channel"
+> & { series_id: string | null };
+export function WeekView({
+  w,
+  date,
+  barber,
+  bookings,
+  loading,
+  onDay,
+  onOpen,
+}: {
+  w: WorkspaceData;
+  date: string;
+  barber: string;
+  bookings: RangeBooking[] | null;
+  loading: boolean;
+  onDay: (date: string) => void;
+  onOpen: (id: string) => void;
+}) {
+  const monday = datePlus(
+    date,
+    -((new Date(date + "T12:00:00Z").getUTCDay() + 6) % 7),
+  );
+  const days = Array.from({ length: 7 }, (_, i) => datePlus(monday, i));
+  const staff = w.staff.filter((s) => s.active && (!barber || s.id === barber));
+  const closedDays = JSON.parse(w.shop.closed_days) as number[];
+  const active = (b: RangeBooking) =>
+    !["CANCELLED", "NO_SHOW"].includes(b.status);
+  const rostered = (staffId: string, d: string) => {
+    const weekday = new Date(d + "T12:00:00Z").getUTCDay();
+    if (closedDays.includes(weekday) || w.holidays.some((h) => h.date === d))
+      return 0;
+    if (w.days_off.some((x) => x.staff_id === staffId && x.date === d)) return 0;
+    const override = w.schedule_overrides.find(
+      (o) => o.staff_id === staffId && o.date === d,
+    );
+    const h =
+      override ??
+      w.hours.find((x) => x.staff_id === staffId && x.weekday === weekday);
+    if (!h?.enabled) return 0;
+    return (
+      Math.min(h.ends, w.shop.closes) -
+      Math.max(h.starts, w.shop.opens) -
+      Math.max(0, h.break_end - h.break_start)
+    );
+  };
+  const colour = (i: number) => ["sage", "sand", "blue", "clay"][i % 4];
+  return (
+    <div className="week-view" aria-busy={loading}>
+      <div className="week-view-head">
+        <span className="week-view-corner" aria-hidden="true" />
+        {days.map((d) => {
+          const dayBookings = (bookings || []).filter(
+            (b) => b.date === d && active(b),
+          );
+          const booked = dayBookings.reduce((n, b) => n + b.duration_min, 0);
+          const open = staff.reduce((n, s) => n + rostered(s.id, d), 0);
+          const pct = open ? Math.min(100, Math.round((booked / open) * 100)) : 0;
+          const isToday = d === w.today;
+          return (
+            <button
+              type="button"
+              key={d}
+              className={`week-day-head ${d === date ? "chosen" : ""} ${open ? "" : "closed"}`}
+              onClick={() => onDay(d)}
+              aria-label={`${new Intl.DateTimeFormat("en-GB", { dateStyle: "full" }).format(new Date(d + "T12:00:00Z"))}, ${
+                open ? `${dayBookings.length} appointments, ${pct}% booked` : "closed"
+              }. Open day timetable.`}
+            >
+              <span>
+                {isToday
+                  ? "Today"
+                  : new Intl.DateTimeFormat("en-GB", { weekday: "short" }).format(
+                      new Date(d + "T12:00:00Z"),
+                    )}
+              </span>
+              <strong>{d.slice(-2)}</strong>
+              <small>
+                {open ? `${dayBookings.length} · ${pct}%` : "Closed"}
+              </small>
+              <i
+                className="week-load"
+                style={{ "--load": `${pct}%` } as CSSProperties}
+                aria-hidden="true"
+              />
+            </button>
+          );
+        })}
+      </div>
+      {staff.map((s, i) => (
+        <div className="week-row" key={s.id}>
+          <div className="week-row-label">
+            <Avatar
+              initials={s.name
+                .split(" ")
+                .map((p) => p[0])
+                .join("")
+                .slice(0, 2)}
+              colour={colour(i)}
+            />
+            <div>
+              <strong>{s.name}</strong>
+              <small>
+                {(bookings || []).filter(
+                  (b) => b.staff_id === s.id && active(b) && days.includes(b.date),
+                ).length}{" "}
+                this week
+              </small>
+            </div>
+          </div>
+          {days.map((d) => {
+            const cell = (bookings || [])
+              .filter((b) => b.staff_id === s.id && b.date === d && active(b))
+              .sort((a, b) => a.start_min - b.start_min);
+            const off = rostered(s.id, d) === 0;
+            return (
+              <div
+                className={`week-cell ${off ? "off" : ""}`}
+                key={d}
+                role="group"
+                aria-label={`${s.name}, ${d}${off ? ", not working" : ""}`}
+              >
+                {off && !cell.length && <span className="week-off">—</span>}
+                {cell.map((b) => (
+                  <button
+                    type="button"
+                    className={`week-card ${colour(i)} ${b.status === "COMPLETED" ? "done" : ""}`}
+                    key={b.id}
+                    style={{ "--span": Math.max(1, Math.round(b.duration_min / 15)) } as CSSProperties}
+                    onClick={() => onOpen(b.id)}
+                    title={`${time(b.start_min)} ${b.customer_name} · ${b.service_name} · ${money(b.price_pence)}`}
+                  >
+                    <strong>{time(b.start_min)}</strong>
+                    <span>{b.customer_name}</span>
+                    <small>
+                      {b.service_name}
+                      {b.series_id ? " ↻" : ""}
+                      {b.channel === "ONLINE" ? " · online" : ""}
+                    </small>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+      {!staff.length && (
+        <p className="calendar-empty">No active barbers match this filter.</p>
+      )}
+      {bookings && bookings.length === 0 && staff.length > 0 && (
+        <p className="calendar-footnote">No appointments saved for this week yet.</p>
+      )}
+    </div>
+  );
+}

@@ -123,6 +123,8 @@ const mutationContracts = [
   ["POST", "/bookings/:id/reschedule"],
   ["POST", "/bookings/:id/manage-link"],
   ["POST", "/waitlist/:id/status"],
+  ["POST", "/series/preview"],
+  ["POST", "/series"],
 ] as const;
 test("all registered mutation endpoints enforce origin and session boundaries", async () => {
   const source = readFileSync(
@@ -666,5 +668,132 @@ test("weekly hours, holidays, shop settings and deactivation flag affected booki
   };
   expect((await r.put(base + "/shop", { data: settings })).status()).toBe(200);
   expect((await workspace(r)).shop.name).toBe(settings.name);
+  await r.dispose();
+});
+
+// ---- Week range read, insights aggregates and standing (series) bookings ----
+function plusDays(date: string, n: number) {
+  const d = new Date(date + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+test("bookings/range is bounded to 31 days, tenant scoped and carries series_id", async () => {
+  const r = await owner("Range shop");
+  const other = await owner("Other range shop");
+  const w = await workspace(r);
+  const first = await create(r, w, 540);
+  const from = first.date;
+  const bad = await r.get(base + `/bookings/range?from=${from}&to=${plusDays(from, 40)}`);
+  expect(bad.status()).toBe(400);
+  const reversed = await r.get(base + `/bookings/range?from=${plusDays(from, 3)}&to=${from}`);
+  expect(reversed.status()).toBe(400);
+  const ok = await r.get(base + `/bookings/range?from=${from}&to=${plusDays(from, 6)}`);
+  expect(ok.status()).toBe(200);
+  const rows = (await ok.json()).bookings as any[];
+  expect(rows.map((b) => b.id)).toContain(first.id);
+  const row = rows.find((b) => b.id === first.id);
+  expect(row.series_id).toBeNull();
+  expect(row).not.toHaveProperty("phone");
+  // Another tenant reading the same window sees nothing from this shop.
+  const foreign = await other.get(base + `/bookings/range?from=${from}&to=${plusDays(from, 6)}`);
+  expect(((await foreign.json()).bookings as any[]).map((b) => b.id)).not.toContain(first.id);
+  await Promise.all([r.dispose(), other.dispose()]);
+});
+
+test("insights aggregates count only this shop's saved records and validate the period", async () => {
+  const r = await owner("Insights shop");
+  const other = await owner("Insights bystander");
+  const w = await workspace(r);
+  await create(r, w, 540);
+  await create(r, w, 600);
+  await create(other, await workspace(other), 540);
+  expect((await r.get(base + "/insights?days=3")).status()).toBe(400);
+  expect((await r.get(base + "/insights?days=400")).status()).toBe(400);
+  // Bookings created by the test are in the future, so the trailing window excludes them...
+  const trailing = await (await r.get(base + "/insights?days=30")).json();
+  expect(trailing.days).toBe(30);
+  expect(trailing.upcoming.n).toBe(2);
+  expect(trailing.by_status.reduce((n: number, s: any) => n + s.n, 0)).toBe(0);
+  // ...while the other tenant's upcoming count is its own.
+  const bystander = await (await other.get(base + "/insights?days=30")).json();
+  expect(bystander.upcoming.n).toBe(1);
+  expect(Array.isArray(trailing.hours)).toBe(true);
+  expect(Array.isArray(trailing.daily)).toBe(true);
+  await Promise.all([r.dispose(), other.dispose()]);
+});
+
+test("series preview marks conflicts, requires explicit skips, and creation runs every occurrence through booking guards", async () => {
+  const r = await owner("Series shop");
+  const w = await workspace(r);
+  const p = payload(w, 600);
+  const seriesBody = {
+    ...p,
+    request_id: undefined,
+    interval_weeks: 2,
+    occurrences: 4,
+    skip_dates: [] as string[],
+  };
+  delete (seriesBody as any).request_id;
+  // Block the third occurrence with a day off so the preview must show a conflict.
+  const blocked = plusDays(p.date, 28);
+  expect(
+    (
+      await r.post(base + `/staff/${p.staff_id}/days-off`, {
+        data: { date: blocked, reason: "Fictional leave" },
+      })
+    ).status(),
+  ).toBe(201);
+  const preview = await r.post(base + "/series/preview", { data: seriesBody });
+  expect(preview.status(), await preview.text()).toBe(200);
+  const pv = await preview.json();
+  expect(pv.dates).toHaveLength(4);
+  expect(pv.dates.map((d: any) => d.date)).toEqual([
+    p.date,
+    plusDays(p.date, 14),
+    blocked,
+    plusDays(p.date, 42),
+  ]);
+  expect(pv.dates[2].reason).toBeTruthy();
+  expect(pv.bookable).toBe(3);
+  // Saving with an unresolved conflict is refused; nothing is written.
+  const refused = await r.post(base + "/series", { data: seriesBody });
+  expect(refused.status()).toBe(409);
+  expect((await workspace(r)).bookings).toHaveLength(0);
+  // Skipping the conflict lets the rest save under one series id.
+  const saved = await r.post(base + "/series", {
+    data: { ...seriesBody, skip_dates: [blocked] },
+  });
+  expect(saved.status(), await saved.text()).toBe(201);
+  const body = await saved.json();
+  expect(body.created).toHaveLength(3);
+  expect(body.failed).toEqual([]);
+  expect(new Set(body.created.map((b: any) => b.series_id)).size).toBe(1);
+  expect(body.created[0].series_id).toBe(body.series_id);
+  // Fewer than two bookable dates is rejected up front.
+  const tooFew = await r.post(base + "/series", {
+    data: { ...seriesBody, occurrences: 2, skip_dates: [plusDays(p.date, 14)] },
+  });
+  expect(tooFew.status()).toBe(409);
+  // Re-previewing the same series now reports every kept date as taken.
+  const again = await (await r.post(base + "/series/preview", { data: seriesBody })).json();
+  expect(again.dates.filter((d: any) => d.reason).length).toBe(4);
+  // Shape validation: unknown keys and out-of-range cadence are rejected.
+  expect(
+    (await r.post(base + "/series", { data: { ...seriesBody, interval_weeks: 0 } })).status(),
+  ).toBe(400);
+  expect(
+    (await r.post(base + "/series", { data: { ...seriesBody, occurrences: 27 } })).status(),
+  ).toBe(400);
+  expect(
+    (await r.post(base + "/series", { data: { ...seriesBody, extra: 1 } })).status(),
+  ).toBe(400);
+  // Audit trail and range read agree.
+  const after = await workspace(r);
+  expect(after.audit.filter((a) => a.action === "SERIES_CREATED")).toHaveLength(1);
+  expect(after.audit.filter((a) => a.action === "BOOKING_CREATED").length).toBeGreaterThanOrEqual(3);
+  const range = await (
+    await r.get(base + `/bookings/range?from=${p.date}&to=${plusDays(p.date, 30)}`)
+  ).json();
+  expect(range.bookings.filter((b: any) => b.series_id === body.series_id)).toHaveLength(2);
   await r.dispose();
 });

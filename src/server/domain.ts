@@ -127,6 +127,7 @@ export type StoredBooking = {
   source: string;
   channel: "OWNER" | "ONLINE";
   email: string;
+  series_id: string | null;
   status: string;
   version: number;
   created_at: number;
@@ -370,6 +371,14 @@ export const publicBookingSchema = z
     quote: z
       .object({ service_version: version, shop_version: version })
       .strict(),
+  })
+  .strict();
+export const seriesSchema = bookingSchema
+  .omit({ request_id: true })
+  .extend({
+    interval_weeks: z.number().int().min(1).max(12),
+    occurrences: z.number().int().min(2).max(26),
+    skip_dates: z.array(dateSchema).max(26).default([]),
   })
   .strict();
 export const bookingDetailsSchema = z

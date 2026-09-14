@@ -10,6 +10,9 @@ One connected barbershop platform in development: booking, shop operations, cust
 
 ## Working features
 
+- **Week view (new):** Appointments → Week shows Monday–Sunday with per-day appointment count and chair-load %, one row per active barber, colour-coded cards (↻ marks a standing booking, "online" marks web bookings) and hatched cells for days off. Click a day head to drill into that day's timetable; click a card to open the appointment. Reads `/bookings/range` (≤31 days, barber-scoped for barber accounts).
+- **Standing bookings (new):** in New booking tick "Repeat this appointment at the same time", choose every 1–12 weeks and 2–26 visits. Review shows every date with Available / reason; unavailable dates must be ticked "Skip" before "Confirm standing booking (N dates)". Each visit is saved as its own appointment through the same D1 guards under one `series_id`; the result reports created/failed and the calendar lands on the first visit. Repeat controls never appear on reschedules.
+- **Insights (new):** period-scoped (7d/30d/90d/Year) cards — appointments, completed value, no-show rate, booked online, customers seen/new, upcoming value + open waitlist — plus busiest hour/weekday bars, top services, per-barber table and a daily trend. Saved appointment records only; value is booked service price, not collected payment. Barbers see their own figures only.
 - **Online booking (new):** Settings → Online booking sets a public address (`/book/<slug>`), an on/off switch, minimum notice and booking window. Customers pick service → barber → real date/time → details → review → confirm using the shop's live catalogue, barber rules, hours, leave, closures and the same D1 collision/quote guards as the owner. Bookings arrive tagged **Online** in the timetable, day stats and detail view.
 - **Smarter time finding (new):** "First available" barber option shows every open time across eligible barbers and assigns the least-booked one per slot; a **Soonest** strip jumps straight to the next 4 bookable days; the date strip shows open/low/full indicators; times are grouped Morning/Afternoon/Evening with counts; skeleton loading; details remembered on-device for repeat customers.
 - **Waitlist (new):** fully booked days offer "Join the waitlist" (name, mobile, preferred part of day; upserts per phone/date/service). Owners see a Waitlist panel above the timetable, "Book them in" prefills the booking form and links the entry as BOOKED on save; "Close" dismisses.
@@ -54,6 +57,9 @@ Next connected work: wider settings/navigation draft protection, then local acco
 | `/api/public/shops/:slug/bookings` | POST idempotent online booking (`request_id`), returns `manage_token` once; throttled per shop/IP and per phone |
 | `/api/public/manage/:token` | GET view; `/availability`, POST `/cancel`, `/reschedule` (versioned); `/calendar.ics` |
 | `/api/sandbox/shop/online` | PUT slug/online flag/lead time/window (owner/manager) |
+| `/api/sandbox/bookings/range` | GET `from`/`to` (≤31 days) compact bookings incl. `series_id`; barber-scoped |
+| `/api/sandbox/insights` | GET `days` 7–365 aggregates (status/channel, services, barbers, hours, weekdays, daily, customers, upcoming, open waitlist) |
+| `/api/sandbox/series/preview`, `/series` | POST dry-run per-date availability with `skip_dates`; POST creates a `booking_series` and every occurrence through `createBooking` (409 if <2 bookable or unresolved conflicts) |
 | `/api/sandbox/customers`, `/customers/:phone` | GET grouped directory (`q`, `limit`) and per-customer history |
 | `/preview/admin`, `/preview/book`, `/preview/barber` | Fixture references |
 | `/api/health` | Mode/persistence capability, `livePayments:false` |
@@ -74,7 +80,7 @@ D1 persists shops, hashed sandbox sessions, staff/catalogue/add-ons/rules, hours
 
 Tenant scope is server-derived from a seven-day capability cookie (HttpOnly/Secure/SameSite=Strict), not production identity. API requires local `APP_MODE=sandbox`, D1 and matching mutation Origin. D1 transactions guard overlap, schedule/eligibility/quote and history. Only booking creation has request-key replay; inspect other interrupted writes before repeating. No real personal data, offline write queue or lost-cookie recovery.
 
-Seven migrations now exist, including both distinct `0002_*` files; `0005_local_accounts` and `0006_public_booking` (shop slug/online flags, booking `channel`/`email`, `booking_manage_tokens`) and `0007_waitlist` (`waitlist_entries`). Next prefix 0008. For fresh local start: build, then `pm2 start ecosystem.config.cjs` after freeing port 3000. Run `npm test` against the service; never build/migrate during tests. Keep `.dev.vars` and local data ignored.
+Eight migrations now exist, including both distinct `0002_*` files; `0005_local_accounts`, `0006_public_booking` (shop slug/online flags, booking `channel`/`email`, `booking_manage_tokens`), `0007_waitlist` (`waitlist_entries`) and `0008_booking_series` (`bookings.series_id` + immutable trigger, `booking_series_lookup` index, `booking_series` table). Next prefix 0009. For fresh local start: build, then `pm2 start ecosystem.config.cjs` after freeing port 3000. Run `npm test` against the service; never build/migrate during tests. Keep `.dev.vars` and local data ignored.
 
 **Nothing live:** no deployment/provider activation/charges/messages/transfers/public GitHub push. Model A remains: each shop receives haircut money; owners pay barbers externally. Future manual pay-runs calculate/export/record, not hold a wallet or initiate barber transfers. SaaS subscription money is separate.
 

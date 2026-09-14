@@ -21,6 +21,7 @@ import {
   bookingSchema,
   publicBookingSchema,
   onlineBookingSchema,
+  seriesSchema,
   bookingDetailsSchema,
   dayOffSchema,
   type StaffDayOff,
@@ -189,6 +190,8 @@ sandbox.use("*", async (c, next) => {
         )) ||
       (method === "GET" && /^\/customers\/[^/]+$/.test(path)) ||
       (method === "GET" && path === "/waitlist") ||
+      (method === "GET" && ["/bookings/range", "/insights"].includes(path)) ||
+      (method === "POST" && ["/series/preview", "/series"].includes(path)) ||
       (method === "POST" && /^\/bookings\/[^/]+\/manage-link$/.test(path)) ||
       (method === "POST" && /^\/waitlist\/[^/]+\/status$/.test(path)) ||
       (method === "GET" && /^\/bookings\/[^/]+$/.test(path)) ||
@@ -331,6 +334,163 @@ sandbox.post("/session", async (c) => {
   return c.json({ shop_id: shopId, mode: "sandbox" }, 201);
 });
 
+// Range read for week view: compact rows for up to 31 days, barber-scoped.
+sandbox.get("/bookings/range", async (c) => {
+  const p = z
+    .object({ from: dateSchema, to: dateSchema })
+    .refine((q) => q.to >= q.from, "to must be on or after from")
+    .safeParse(c.req.query());
+  if (!p.success) fail(400, "Supply a valid from and to date");
+  const { from, to } = p.data!;
+  const span = (Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86400000;
+  if (span > 31) fail(400, "Range is limited to 31 days");
+  const a = c.get("account");
+  const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const rows = await c.env.DB.prepare(
+    "SELECT id,staff_id,service_id,customer_name,service_name,date,start_min,start_at,end_at,duration_min,price_pence,status,channel,source,series_id FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND (? IS NULL OR staff_id=?) ORDER BY date,start_at,id LIMIT 2000",
+  )
+    .bind(c.get("shopId"), from, to, assigned, assigned)
+    .all();
+  return c.json({ from, to, bookings: rows.results, truncated: rows.results.length >= 2000 });
+});
+// Insights: aggregates computed from saved records only. Not payment or accounting data.
+sandbox.get("/insights", async (c) => {
+  const p = z.object({ days: z.coerce.number().int().min(7).max(365).default(30) }).safeParse(c.req.query());
+  if (!p.success) fail(400, "Invalid insights query");
+  const days = p.data!.days;
+  const shop = await readShop(c);
+  const a = c.get("account");
+  const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const today = shopToday(shop.timezone);
+  const d = new Date(`${today}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - (days - 1));
+  const from = d.toISOString().slice(0, 10);
+  const sid = c.get("shopId");
+  const r = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `SELECT status, channel, COUNT(*) AS n, SUM(price_pence) AS value FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND (? IS NULL OR staff_id=?) GROUP BY status, channel`,
+    ).bind(sid, from, today, assigned, assigned),
+    c.env.DB.prepare(
+      `SELECT service_name AS name, COUNT(*) AS n, SUM(CASE WHEN status='COMPLETED' THEN price_pence ELSE 0 END) AS completed_value FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR staff_id=?) GROUP BY service_name ORDER BY n DESC LIMIT 8`,
+    ).bind(sid, from, today, assigned, assigned),
+    c.env.DB.prepare(
+      `SELECT b.staff_id, s.name, COUNT(*) AS n, SUM(b.duration_min) AS minutes, SUM(CASE WHEN b.status='COMPLETED' THEN b.price_pence ELSE 0 END) AS completed_value, SUM(CASE WHEN b.status='NO_SHOW' THEN 1 ELSE 0 END) AS no_shows FROM bookings b JOIN staff s ON s.shop_id=b.shop_id AND s.id=b.staff_id WHERE b.shop_id=? AND b.date BETWEEN ? AND ? AND b.status NOT IN ('CANCELLED') AND (? IS NULL OR b.staff_id=?) GROUP BY b.staff_id ORDER BY n DESC`,
+    ).bind(sid, from, today, assigned, assigned),
+    c.env.DB.prepare(
+      `SELECT (start_min/60) AS hour, COUNT(*) AS n FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR staff_id=?) GROUP BY hour ORDER BY hour`,
+    ).bind(sid, from, today, assigned, assigned),
+    c.env.DB.prepare(
+      `SELECT CAST(strftime('%w',date) AS INTEGER) AS weekday, COUNT(*) AS n FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR staff_id=?) GROUP BY weekday`,
+    ).bind(sid, from, today, assigned, assigned),
+    c.env.DB.prepare(
+      `SELECT date, COUNT(*) AS n, SUM(CASE WHEN status='COMPLETED' THEN price_pence ELSE 0 END) AS completed_value FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR staff_id=?) GROUP BY date ORDER BY date`,
+    ).bind(sid, from, today, assigned, assigned),
+    c.env.DB.prepare(
+      `SELECT COUNT(DISTINCT phone) AS customers, SUM(CASE WHEN first_seen>=? THEN 1 ELSE 0 END) AS new_customers FROM (SELECT phone, MIN(date) AS first_seen FROM bookings WHERE shop_id=? AND status NOT IN ('CANCELLED') AND (? IS NULL OR staff_id=?) GROUP BY phone) WHERE phone IN (SELECT phone FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ?)`,
+    ).bind(from, sid, assigned, assigned, sid, from, today),
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS n, SUM(price_pence) AS value FROM bookings WHERE shop_id=? AND date>? AND status IN ('CONFIRMED','CHECKED_IN') AND (? IS NULL OR staff_id=?)`,
+    ).bind(sid, today, assigned, assigned),
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM waitlist_entries WHERE shop_id=? AND status='OPEN' AND date>=?`,
+    ).bind(sid, today),
+  ]);
+  return c.json({
+    from,
+    to: today,
+    days,
+    by_status: r[0].results,
+    services: r[1].results,
+    barbers: r[2].results,
+    hours: r[3].results,
+    weekdays: r[4].results,
+    daily: r[5].results,
+    customers: r[6].results[0],
+    upcoming: r[7].results[0],
+    waitlist_open: (r[8].results[0] as { n: number }).n,
+    note: "Saved appointment records only. Value is booked service price, not collected payment.",
+  });
+});
+// Standing bookings: preview every date with the same guards, then create in one pass.
+async function seriesDates(b: z.infer<typeof seriesSchema>) {
+  const dates: string[] = [];
+  for (let i = 0; i < b.occurrences; i++) {
+    const d = new Date(`${b.date}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + i * 7 * b.interval_weeks);
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  return dates;
+}
+async function seriesPreview(c: Ctx, b: z.infer<typeof seriesSchema>) {
+  const dates = await seriesDates(b);
+  const out: { date: string; reason: string; skipped: boolean }[] = [];
+  for (const date of dates) {
+    if (b.skip_dates.includes(date)) {
+      out.push({ date, reason: "", skipped: true });
+      continue;
+    }
+    const data = await availabilityContext(c, b.staff_id, b.service_id, date);
+    const quote = calculateQuote(data.service, data.rule, data.addons, data.links, b.addon_ids);
+    const reason = slotReason(
+      data.shop,
+      data.staff,
+      data.hours,
+      data.holidays,
+      data.bookings,
+      date,
+      b.start_min,
+      quote.duration_min,
+      Date.now(),
+      undefined,
+      data.daysOff,
+    );
+    out.push({ date, reason, skipped: false });
+  }
+  return out;
+}
+sandbox.post("/series/preview", async (c) => {
+  const b = await input(c, seriesSchema);
+  const preview = await seriesPreview(c, b);
+  return c.json({
+    dates: preview,
+    bookable: preview.filter((p) => !p.skipped && !p.reason).length,
+  });
+});
+sandbox.post("/series", async (c) => {
+  const b = await input(c, seriesSchema);
+  const preview = await seriesPreview(c, b);
+  const targets = preview.filter((p) => !p.skipped && !p.reason);
+  if (targets.length < 2) fail(409, "A series needs at least two bookable dates. Skip or move the conflicts first.");
+  if (preview.some((p) => !p.skipped && p.reason))
+    fail(409, "Some dates are unavailable. Skip them explicitly before saving the series.");
+  const seriesId = id();
+  await c.env.DB.prepare(
+    "INSERT INTO booking_series(id,shop_id,staff_id,service_id,customer_name,phone,interval_weeks,start_date,start_min,occurrences,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+  )
+    .bind(seriesId, c.get("shopId"), b.staff_id, b.service_id, b.customer_name, b.phone, b.interval_weeks, b.date, b.start_min, b.occurrences, Date.now())
+    .run();
+  const created: StoredBooking[] = [];
+  const failed: { date: string; reason: string }[] = [];
+  const { interval_weeks, occurrences, skip_dates, ...single } = b;
+  for (const t of targets) {
+    try {
+      const result = await createBooking(
+        c,
+        { ...single, email: "", date: t.date, request_id: id() },
+        "OWNER",
+        { seriesId },
+      );
+      created.push(result.booking);
+    } catch (err) {
+      // A concurrent booking may have taken one date; report it, keep the rest.
+      failed.push({ date: t.date, reason: err instanceof HTTPException ? err.message : String(err).slice(0, 60) });
+    }
+  }
+  await c.env.DB.batch([
+    audit(c, "series", seriesId, "SERIES_CREATED", `${created.length} standing appointments every ${b.interval_weeks} week(s); ${failed.length} failed.`),
+  ]);
+  return c.json({ series_id: seriesId, created, failed }, 201);
+});
 // Complete, tenant-scoped day reads. The legacy workspace snapshot is not a calendar data source.
 sandbox.get("/bookings", async (c) => {
   const parsed = z
@@ -1232,7 +1392,7 @@ export async function createBooking(
     source: "TEST_BOOKING" | "WALK_IN";
   },
   channel: "OWNER" | "ONLINE",
-  options: { minStart?: number; maxDate?: string } = {},
+  options: { minStart?: number; maxDate?: string; seriesId?: string | null } = {},
 ) {
   // Preserve request hashes for pre-add-on bookings with the same normalized payload.
   const { addon_ids, email, ...originalPayload } = b;
@@ -1291,8 +1451,8 @@ export async function createBooking(
   const now = Date.now();
   const bookingId = id();
   const statement = c.env.DB.prepare(
-    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email)
-  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
+    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id)
+  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
   ).bind(
     bookingId,
     sid,
@@ -1320,6 +1480,7 @@ export async function createBooking(
     JSON.stringify(quote.items),
     channel,
     email,
+    options.seriesId ?? null,
     sid,
   );
   try {
