@@ -165,115 +165,171 @@ pub.get("/shops/:slug", async (c) => {
   });
 });
 
+
+// Load everything needed to evaluate slots for one or more barbers over a date range in one batch.
+async function rangeContext(
+  c: Ctx,
+  shop: Shop,
+  staffIds: string[] | null,
+  serviceId: string,
+  from: string,
+  to: string,
+  addonIds: string[],
+) {
+  const sid = shop.id;
+  const r = await c.env.DB.batch([
+    c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND active=1 ORDER BY name").bind(sid),
+    c.env.DB.prepare("SELECT * FROM services WHERE shop_id=? AND id=? AND active=1").bind(sid, serviceId),
+    c.env.DB.prepare("SELECT * FROM staff_hours WHERE shop_id=?").bind(sid),
+    c.env.DB.prepare(
+      "SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND date BETWEEN ? AND ?",
+    ).bind(sid, from, to),
+    c.env.DB.prepare("SELECT * FROM holidays WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, from, to),
+    c.env.DB.prepare("SELECT * FROM staff_days_off WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, from, to),
+    c.env.DB.prepare(
+      "SELECT id,staff_id,start_at,end_at,buffer_min,status FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE','COMPLETED')",
+    ).bind(sid, from, to),
+    c.env.DB.prepare("SELECT * FROM staff_service_rules WHERE shop_id=? AND service_id=?").bind(sid, serviceId),
+    c.env.DB.prepare("SELECT * FROM addons WHERE shop_id=?").bind(sid),
+    c.env.DB.prepare("SELECT * FROM addon_services WHERE shop_id=? AND service_id=?").bind(sid, serviceId),
+  ]);
+  const service = r[1].results[0] as Service | undefined;
+  if (!service) fail(404, "Service is not available");
+  const rules = r[7].results as StaffServiceRule[];
+  const staff = (r[0].results as Staff[]).filter(
+    (s) =>
+      (!staffIds || staffIds.includes(s.id)) &&
+      rules.find((x) => x.staff_id === s.id)?.enabled !== 0,
+  );
+  if (!staff.length) fail(staffIds ? 404 : 409, staffIds ? "Barber is not available" : "service_ineligible");
+  const quotes = new Map(
+    staff.map((s) => [
+      s.id,
+      calculateQuote(
+        service!,
+        rules.find((x) => x.staff_id === s.id) ?? null,
+        r[8].results as Addon[],
+        r[9].results as AddonLink[],
+        addonIds,
+      ),
+    ]),
+  );
+  return {
+    service: service!,
+    staff,
+    quotes,
+    hours: r[2].results as Hours[],
+    overrides: r[3].results as ScheduleOverride[],
+    holidays: r[4].results as Holiday[],
+    daysOff: r[5].results as StaffDayOff[],
+    bookings: r[6].results as StoredBooking[],
+  };
+}
+type Range = Awaited<ReturnType<typeof rangeContext>>;
+function slotFor(shop: Shop, ctx: Range, staff: Staff, date: string, minute: number, minStart: number) {
+  const h = effectiveHours(
+    ctx.hours.find((x) => x.staff_id === staff.id && x.weekday === weekday(date)) ?? null,
+    ctx.overrides.find((o) => o.staff_id === staff.id && o.date === date) ?? null,
+  );
+  return slotReason(
+    shop,
+    staff,
+    h,
+    ctx.holidays,
+    ctx.bookings,
+    date,
+    minute,
+    ctx.quotes.get(staff.id)!.duration_min,
+    minStart,
+    undefined,
+    ctx.daysOff,
+  );
+}
+const closedReasons = ["Shop closed", "Barber off duty", "Barber has a day off"];
+const staffQuery = z
+  .string()
+  .default("any")
+  .transform((s) => (s === "any" || s === "" ? null : s))
+  .refine((s) => s === null || z.string().uuid().safeParse(s).success, "Invalid staff_id");
+const addonQuery = z
+  .string()
+  .default("")
+  .transform((s) => (s ? s.split(",") : []))
+  .pipe(addonIdsSchema);
 // Fourteen-day availability summary so the date strip shows real open counts.
 pub.get("/shops/:slug/days", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug"));
   const p = z
     .object({
-      staff_id: z.string().uuid(),
+      staff_id: staffQuery,
       service_id: z.string().uuid(),
       from: dateSchema.optional(),
-      addon_ids: z
-        .string()
-        .default("")
-        .transform((s) => (s ? s.split(",") : []))
-        .pipe(addonIdsSchema),
+      addon_ids: addonQuery,
     })
     .safeParse(c.req.query());
-  if (!p.success) fail(400, "Supply a valid staff_id and service_id");
+  if (!p.success) fail(400, "Supply a valid service_id");
   const q = p.data!;
   const { today, minStart, maxDate } = limits(shop);
   const from = q.from && q.from > today ? q.from : today;
   const to = datePlus(from, 13);
-  const sid = shop.id;
-  const r = await c.env.DB.batch([
-    c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND id=? AND active=1").bind(
-      sid,
-      q.staff_id,
-    ),
-    c.env.DB.prepare("SELECT * FROM services WHERE shop_id=? AND id=? AND active=1").bind(
-      sid,
-      q.service_id,
-    ),
-    c.env.DB.prepare("SELECT * FROM staff_hours WHERE shop_id=? AND staff_id=?").bind(
-      sid,
-      q.staff_id,
-    ),
-    c.env.DB.prepare(
-      "SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?",
-    ).bind(sid, q.staff_id, from, to),
-    c.env.DB.prepare(
-      "SELECT * FROM holidays WHERE shop_id=? AND date BETWEEN ? AND ?",
-    ).bind(sid, from, to),
-    c.env.DB.prepare(
-      "SELECT * FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?",
-    ).bind(sid, q.staff_id, from, to),
-    c.env.DB.prepare(
-      "SELECT id,staff_id,start_at,end_at,buffer_min,status FROM bookings WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE','COMPLETED')",
-    ).bind(sid, q.staff_id, from, to),
-    c.env.DB.prepare(
-      "SELECT * FROM staff_service_rules WHERE shop_id=? AND staff_id=? AND service_id=?",
-    ).bind(sid, q.staff_id, q.service_id),
-    c.env.DB.prepare("SELECT * FROM addons WHERE shop_id=?").bind(sid),
-    c.env.DB.prepare(
-      "SELECT * FROM addon_services WHERE shop_id=? AND service_id=?",
-    ).bind(sid, q.service_id),
-  ]);
-  const staff = r[0].results[0] as Staff | undefined;
-  const service = r[1].results[0] as Service | undefined;
-  if (!staff || !service) fail(404, "Barber or service is not available");
-  const rule = (r[7].results[0] as StaffServiceRule) ?? null;
-  if (rule?.enabled === 0) fail(409, "service_ineligible");
-  const quote = calculateQuote(
-    service!,
-    rule,
-    r[8].results as Addon[],
-    r[9].results as AddonLink[],
-    q.addon_ids,
-  );
-  const hours = r[2].results as Hours[];
-  const overrides = r[3].results as ScheduleOverride[];
-  const holidays = r[4].results as Holiday[];
-  const daysOff = r[5].results as StaffDayOff[];
-  const bookings = r[6].results as StoredBooking[];
-  const days = Array.from({ length: 14 }, (_, i) => datePlus(from, i)).map(
-    (date) => {
-      if (date > maxDate) return { date, available: 0, closed: false, beyond: true };
-      const h = effectiveHours(
-        hours.find((x) => x.weekday === weekday(date)) ?? null,
-        overrides.find((o) => o.date === date) ?? null,
-      );
-      let available = 0;
-      let closed = true;
+  const ctx = await rangeContext(c, shop, q.staff_id ? [q.staff_id] : null, q.service_id, from, to, q.addon_ids);
+  const days = Array.from({ length: 14 }, (_, i) => datePlus(from, i)).map((date) => {
+    if (date > maxDate) return { date, available: 0, closed: false, beyond: true };
+    const open = new Set<number>();
+    let closed = true;
+    for (const staff of ctx.staff)
       for (let m = shop.opens; m < shop.closes; m += 15) {
-        const reason = slotReason(
-          shop,
-          staff!,
-          h,
-          holidays,
-          bookings,
-          date,
-          m,
-          quote.duration_min,
-          minStart,
-          undefined,
-          daysOff,
-        );
-        if (!reason) available++;
-        if (!["Shop closed", "Barber off duty", "Barber has a day off"].includes(reason))
-          closed = false;
+        const reason = slotFor(shop, ctx, staff, date, m, minStart);
+        if (!reason) open.add(m);
+        if (!closedReasons.includes(reason)) closed = false;
       }
-      return { date, available, closed, beyond: false };
-    },
-  );
+    return { date, available: open.size, closed, beyond: false };
+  });
+  const durations = [...ctx.quotes.values()].map((q) => q.duration_min);
+  const prices = [...ctx.quotes.values()].map((q) => q.price_pence);
   return c.json({
     from,
     to,
     max_date: maxDate,
-    duration_min: quote.duration_min,
-    price_pence: quote.price_pence,
+    duration_min: Math.min(...durations),
+    price_pence: Math.min(...prices),
+    price_to_pence: Math.max(...prices),
     days,
   });
+});
+
+// Next open times across the booking window: for one barber or any eligible barber.
+pub.get("/shops/:slug/next", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug"));
+  const p = z
+    .object({
+      staff_id: staffQuery,
+      service_id: z.string().uuid(),
+      addon_ids: addonQuery,
+      limit: z.coerce.number().int().min(1).max(12).default(6),
+    })
+    .safeParse(c.req.query());
+  if (!p.success) fail(400, "Supply a valid service_id");
+  const q = p.data!;
+  const { today, minStart, maxDate } = limits(shop);
+  const ctx = await rangeContext(c, shop, q.staff_id ? [q.staff_id] : null, q.service_id, today, maxDate, q.addon_ids);
+  const results: { date: string; start_min: number; staff_id: string; staff_name: string; price_pence: number; duration_min: number }[] = [];
+  const seenDays = new Set<string>();
+  for (let date = today; date <= maxDate && results.length < q.limit; date = datePlus(date, 1)) {
+    let firstOnDay: (typeof results)[number] | null = null;
+    for (let m = shop.opens; m < shop.closes && !firstOnDay; m += 15)
+      for (const staff of ctx.staff)
+        if (!slotFor(shop, ctx, staff, date, m, minStart)) {
+          const quote = ctx.quotes.get(staff.id)!;
+          firstOnDay = { date, start_min: m, staff_id: staff.id, staff_name: staff.name, price_pence: quote.price_pence, duration_min: quote.duration_min };
+          break;
+        }
+    if (firstOnDay && !seenDays.has(date)) {
+      seenDays.add(date);
+      results.push(firstOnDay);
+    }
+  }
+  return c.json({ next: results, max_date: maxDate });
 });
 
 pub.get("/shops/:slug/availability", async (c) => {
@@ -281,65 +337,104 @@ pub.get("/shops/:slug/availability", async (c) => {
   const p = z
     .object({
       date: dateSchema,
-      staff_id: z.string().uuid(),
+      staff_id: staffQuery,
       service_id: z.string().uuid(),
-      addon_ids: z
-        .string()
-        .default("")
-        .transform((s) => (s ? s.split(",") : []))
-        .pipe(addonIdsSchema),
+      addon_ids: addonQuery,
     })
     .safeParse(c.req.query());
-  if (!p.success) fail(400, "Supply a valid date, staff_id and service_id");
+  if (!p.success) fail(400, "Supply a valid date and service_id");
   const q = p.data!;
   const { today, minStart, maxDate } = limits(shop);
   if (q.date < today || q.date > maxDate) fail(409, "outside_booking_window");
-  const data = await availabilityContext(c, q.staff_id, q.service_id, q.date);
-  if (!data.staff.active || !data.service.active) fail(409, "service_unavailable");
-  if (data.rule?.enabled === 0) fail(409, "service_ineligible");
-  const quote = calculateQuote(
-    data.service,
-    data.rule,
-    data.addons,
-    data.links,
-    q.addon_ids,
-  );
+  const ctx = await rangeContext(c, shop, q.staff_id ? [q.staff_id] : null, q.service_id, q.date, q.date, q.addon_ids);
+  // Any-barber: each open slot is assigned to the least-booked eligible barber so demand spreads.
+  const load = new Map(ctx.staff.map((s) => [s.id, ctx.bookings.filter((b) => b.staff_id === s.id).length]));
   const slots = Array.from({ length: 96 }, (_, i) => i * 15)
     .filter((n) => n >= shop.opens && n < shop.closes)
     .map((start_min) => {
-      const reason = slotReason(
-        data.shop,
-        data.staff,
-        data.hours,
-        data.holidays,
-        data.bookings,
-        q.date,
-        start_min,
-        quote.duration_min,
-        minStart,
-        undefined,
-        data.daysOff,
-      );
+      const open = ctx.staff
+        .filter((s) => !slotFor(shop, ctx, s, q.date, start_min, minStart))
+        .sort((a, b) => load.get(a.id)! - load.get(b.id)! || a.name.localeCompare(b.name));
+      if (open.length) {
+        const chosen = open[0];
+        return {
+          start_min,
+          available: true,
+          reason: "",
+          staff_id: chosen.id,
+          staff_name: chosen.name,
+          barbers: open.length,
+          price_pence: ctx.quotes.get(chosen.id)!.price_pence,
+          duration_min: ctx.quotes.get(chosen.id)!.duration_min,
+        };
+      }
+      const reasons = ctx.staff.map((s) => slotFor(shop, ctx, s, q.date, start_min, minStart));
+      const reason = reasons.find((r) => !closedReasons.includes(r) && r !== "Slot taken") || reasons[0];
       // Customers see whether a time is open, never who holds it.
-      return {
-        start_min,
-        available: !reason,
-        reason: reason === "Slot taken" ? "Unavailable" : reason,
-      };
+      return { start_min, available: false, reason: reason === "Slot taken" ? "Unavailable" : reason, barbers: 0 };
     });
+  const primary = ctx.staff[0];
+  const quote = ctx.quotes.get(primary.id)!;
+  const single = ctx.staff.length === 1;
+  const rule = single ? await c.env.DB.prepare(
+    "SELECT price_pence,duration_min FROM staff_service_rules WHERE shop_id=? AND staff_id=? AND service_id=?",
+  ).bind(shop.id, primary.id, q.service_id).first<{ price_pence: number | null; duration_min: number | null }>() : null;
   return c.json({
     slots,
+    any_barber: !q.staff_id,
     duration_min: quote.duration_min,
     price_pence: quote.price_pence,
     items: quote.items,
-    overridden: data.rule?.price_pence != null || data.rule?.duration_min != null,
+    overridden: !!rule && (rule.price_pence != null || rule.duration_min != null),
     deposit_policy_pence: Math.min(shop.deposit_pence, quote.price_pence),
     cancel_hours: shop.cancel_hours,
     timezone: shop.timezone,
-    quote: { service_version: data.service.version, shop_version: shop.version },
+    quote: { service_version: ctx.service.version, shop_version: shop.version },
     holds: false,
     mode: "sandbox",
   });
+});
+
+// Waitlist: recorded for the owner when a date is full. No hold, no message.
+pub.post("/shops/:slug/waitlist", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug"));
+  const b = await readInput(
+    c,
+    z
+      .object({
+        staff_id: z.string().uuid().nullable().default(null),
+        service_id: z.string().uuid(),
+        customer_name: z.string().trim().min(2).max(100),
+        phone: publicBookingSchema.shape.phone,
+        email: publicBookingSchema.shape.email,
+        date: dateSchema,
+        daypart: z.enum(["ANY", "MORNING", "AFTERNOON", "EVENING"]).default("ANY"),
+        notes: z.string().trim().max(300).default(""),
+      })
+      .strict(),
+  );
+  await throttle(c, "waitlist", `${shop.id}:${b.phone}`, 10);
+  const { today, maxDate } = limits(shop);
+  if (b.date < today || b.date > maxDate) fail(409, "outside_booking_window");
+  const service = await c.env.DB.prepare("SELECT id FROM services WHERE shop_id=? AND id=? AND active=1")
+    .bind(shop.id, b.service_id)
+    .first();
+  if (!service) fail(404, "Service is not available");
+  if (b.staff_id) {
+    const staff = await c.env.DB.prepare("SELECT id FROM staff WHERE shop_id=? AND id=? AND active=1")
+      .bind(shop.id, b.staff_id)
+      .first();
+    if (!staff) fail(404, "Barber is not available");
+  }
+  const id = uid(),
+    now = Date.now();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,daypart,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shop_id,date,phone,service_id) DO UPDATE SET staff_id=excluded.staff_id,daypart=excluded.daypart,notes=excluded.notes,customer_name=excluded.customer_name,email=excluded.email,status='OPEN',version=version+1,updated_at=excluded.updated_at",
+    ).bind(id, shop.id, b.staff_id, b.service_id, b.customer_name, b.phone, b.email, b.date, b.daypart, b.notes, now, now),
+    audit(c, "waitlist", id, "WAITLIST_JOINED", `Customer asked to be contacted for ${b.date} (${b.daypart.toLowerCase()}). No message sent.`),
+  ]);
+  return c.json({ ok: true, date: b.date, daypart: b.daypart }, 201);
 });
 
 async function issueManageToken(c: Ctx, booking: StoredBooking) {

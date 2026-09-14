@@ -188,6 +188,9 @@ sandbox.use("*", async (c, next) => {
           path,
         )) ||
       (method === "GET" && /^\/customers\/[^/]+$/.test(path)) ||
+      (method === "GET" && path === "/waitlist") ||
+      (method === "POST" && /^\/bookings\/[^/]+\/manage-link$/.test(path)) ||
+      (method === "POST" && /^\/waitlist\/[^/]+\/status$/.test(path)) ||
       (method === "GET" && /^\/bookings\/[^/]+$/.test(path)) ||
       (method === "POST" &&
         (path === "/bookings" ||
@@ -608,6 +611,61 @@ sandbox.get("/customers/:phone", async (c) => {
     .all<StoredBooking>();
   if (!rows.results.length) fail(404, "No visits for this customer");
   return c.json({ phone, bookings: rows.results });
+});
+// Waitlist: open requests for full days, scoped like bookings.
+sandbox.get("/waitlist", async (c) => {
+  const p = z
+    .object({
+      status: z.enum(["OPEN", "BOOKED", "CLOSED"]).default("OPEN"),
+      from: dateSchema.optional(),
+    })
+    .safeParse(c.req.query());
+  if (!p.success) fail(400, "Invalid waitlist query");
+  const a = c.get("account");
+  const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const rows = await c.env.DB.prepare(
+    "SELECT w.*, s.name AS service_name, st.name AS staff_name FROM waitlist_entries w JOIN services s ON s.shop_id=w.shop_id AND s.id=w.service_id LEFT JOIN staff st ON st.shop_id=w.shop_id AND st.id=w.staff_id WHERE w.shop_id=? AND w.status=? AND (? IS NULL OR w.staff_id=? OR w.staff_id IS NULL) AND (? IS NULL OR w.date>=?) ORDER BY w.date, w.created_at LIMIT 200",
+  )
+    .bind(c.get("shopId"), p.data!.status, assigned, assigned, p.data!.from ?? null, p.data!.from ?? null)
+    .all();
+  return c.json({ waitlist: rows.results });
+});
+sandbox.post("/waitlist/:id/status", async (c) => {
+  const b = await input(
+    c,
+    z
+      .object({
+        status: z.enum(["BOOKED", "CLOSED", "OPEN"]),
+        booking_id: z.string().uuid().optional(),
+        version: z.number().int().min(0),
+      })
+      .strict(),
+  );
+  await checkVersionUpdate(
+    c,
+    c.env.DB.prepare(
+      "UPDATE waitlist_entries SET status=?,booking_id=COALESCE(?,booking_id),version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
+    ).bind(b.status, b.booking_id ?? null, Date.now(), c.get("shopId"), c.req.param("id"), b.version),
+    audit(c, "waitlist", c.req.param("id"), `WAITLIST_${b.status}`, b.booking_id ? `Linked to booking ${b.booking_id}.` : "", true),
+  );
+  return c.json({ ok: true });
+});
+// Owner retrieves or creates the customer's manage link so it can be shared by hand.
+sandbox.post("/bookings/:id/manage-link", async (c) => {
+  await input(c, z.object({}).strict());
+  const b = await readBooking(c, c.req.param("id"));
+  const shop = await readShop(c);
+  if (!shop.slug) fail(409, "Set a public address in Settings → Online booking first");
+  const raw = crypto.randomUUID() + crypto.randomUUID();
+  // Rotate: one live link per booking. The previous link stops working.
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM booking_manage_tokens WHERE booking_id=?").bind(b.id),
+    c.env.DB.prepare(
+      "INSERT INTO booking_manage_tokens(token_hash,shop_id,booking_id,created_at) VALUES(?,?,?,?)",
+    ).bind(await hash(raw), b.shop_id, b.id, Date.now()),
+    audit(c, "booking", b.id, "MANAGE_LINK_ISSUED", "Owner generated a customer manage link; previous link revoked. No message sent."),
+  ]);
+  return c.json({ token: raw, path: `/manage/${raw}` }, 201);
 });
 sandbox.post("/staff", async (c) => {
   const b = await input(c, staffSchema);

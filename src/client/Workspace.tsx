@@ -176,7 +176,7 @@ function SaveForm({
   className = "",
 }: {
   children?: ReactNode;
-  onSave: (data: FormData) => Promise<void>;
+  onSave: (data: FormData) => Promise<unknown>;
   label?: string;
   className?: string;
 }) {
@@ -658,6 +658,7 @@ type Editor =
       item?: StoredBooking;
       draft?: CalendarDraft;
       rebook?: StoredBooking;
+      waitlist?: WaitlistEntry;
     }
   | { kind: "detail"; item: StoredBooking }
   | { kind: "contacts"; item: StoredBooking }
@@ -854,6 +855,7 @@ export function Workspace() {
         "Saved successfully, but the updated view could not load. Use Retry workspace below; do not repeat the saved action.",
       );
     }
+    return result;
   }
   async function reloadEditor() {
     const current = editor;
@@ -1146,6 +1148,7 @@ export function Workspace() {
               )}
               {tab === "Appointments" && (
                 <>
+                  <WaitlistPanel w={w} date={date} onBook={(entry) => setEditor({ kind: "booking", waitlist: entry })} />
                   <section
                     className="stats-grid connected-stats"
                     aria-label="Selected day statistics"
@@ -1166,12 +1169,22 @@ export function Workspace() {
                         foot: "Not collected · excludes cancelled / no-show",
                       },
                       {
-                        label: "Completed visits",
-                        value: activeBookings.filter(
-                          (b) => b.status === "COMPLETED",
-                        ).length,
+                        label: "Chair time booked",
+                        value: (() => {
+                          const booked = activeBookings.reduce((n, b) => n + b.duration_min, 0);
+                          const open = w.staff
+                            .filter((s) => s.active && (!barber || s.id === barber))
+                            .reduce((n, s) => {
+                              const h = w.hours.find(
+                                (x) => x.staff_id === s.id && x.weekday === new Date(`${date}T12:00:00Z`).getUTCDay(),
+                              );
+                              if (!h?.enabled) return n;
+                              return n + (Math.min(h.ends, w.shop.closes) - Math.max(h.starts, w.shop.opens)) - Math.max(0, h.break_end - h.break_start);
+                            }, 0);
+                          return open ? `${Math.min(100, Math.round((booked / open) * 100))}%` : "—";
+                        })(),
                         icon: "checks",
-                        foot: "Service status, not payment",
+                        foot: `${activeBookings.filter((b) => b.status === "COMPLETED").length} completed · of rostered hours`,
                       },
                       {
                         label: "Booked online",
@@ -1758,6 +1771,190 @@ export function Workspace() {
 }
 
 
+type WaitlistEntry = {
+  id: string;
+  staff_id: string | null;
+  service_id: string;
+  customer_name: string;
+  phone: string;
+  email: string;
+  date: string;
+  daypart: string;
+  notes: string;
+  status: string;
+  version: number;
+  created_at: number;
+  service_name: string;
+  staff_name: string | null;
+};
+function WaitlistPanel({
+  w,
+  date,
+  onBook,
+}: {
+  w: WorkspaceData;
+  date: string;
+  onBook: (entry: WaitlistEntry) => void;
+}) {
+  const [rows, setRows] = useState<WaitlistEntry[] | null>(null);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const load = () =>
+    api<{ waitlist: WaitlistEntry[] }>(`/waitlist?from=${w.today}`)
+      .then((r) => {
+        setRows(r.waitlist);
+        setError("");
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load waitlist."));
+  useEffect(() => {
+    load();
+  }, [w.now, w.bookings.length]);
+  async function close(entry: WaitlistEntry) {
+    setBusyId(entry.id);
+    try {
+      await api(`/waitlist/${entry.id}/status`, "POST", { status: "CLOSED", version: entry.version });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update.");
+    } finally {
+      setBusyId("");
+    }
+  }
+  if (!rows || rows.length === 0) return null;
+  const today = rows.filter((r) => r.date === date);
+  const shown = expanded ? rows : today.length ? today : rows.slice(0, 3);
+  const part: Record<string, string> = { ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" };
+  return (
+    <section className="waitlist-panel" aria-labelledby="waitlist-panel-heading">
+      <header>
+        <div>
+          <h2 id="waitlist-panel-heading">
+            <Icon name="bell" /> Waitlist
+            <span className="nav-count">{rows.length}</span>
+          </h2>
+          <p>
+            {today.length
+              ? `${today.length} customer${today.length === 1 ? "" : "s"} waiting for ${date === w.today ? "today" : "this day"}. Book them into a free slot or close the request.`
+              : "Customers who asked to be contacted when a full day opens up. Nothing is reserved until you book them."}
+          </p>
+        </div>
+        {rows.length > shown.length || expanded ? (
+          <Button variant="ghost" onClick={() => setExpanded((v) => !v)}>
+            {expanded ? "Show fewer" : `Show all ${rows.length}`}
+          </Button>
+        ) : null}
+      </header>
+      <ErrorMessage error={error} />
+      <ul>
+        {shown.map((r) => (
+          <li key={r.id}>
+            <div>
+              <strong>{r.customer_name}</strong>
+              <small>
+                {r.phone}
+                {r.email ? ` · ${r.email}` : ""}
+              </small>
+            </div>
+            <div>
+              <span>{r.service_name}</span>
+              <small>
+                {r.staff_name || "Any barber"} · {part[r.daypart]}
+              </small>
+            </div>
+            <div>
+              <span>{new Date(`${r.date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" })}</span>
+              <small>asked {new Date(r.created_at).toLocaleDateString("en-GB")}</small>
+            </div>
+            <div className="waitlist-row-actions">
+              <Button onClick={() => onBook(r)} disabled={busyId === r.id}>
+                Book them in
+              </Button>
+              <Button variant="ghost" onClick={() => close(r)} disabled={busyId === r.id}>
+                {busyId === r.id ? "…" : "Close"}
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+function ShareBooking({ booking, w }: { booking: StoredBooking; w: WorkspaceData }) {
+  const [link, setLink] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState("");
+  const staff = w.staff.find((s) => s.id === booking.staff_id)?.name;
+  const when = `${new Date(`${booking.date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" })} at ${time(booking.start_min)}`;
+  const message = `Hi ${booking.customer_name.split(" ")[0]}, your ${booking.service_name}${staff ? ` with ${staff}` : ""} at ${w.shop.name} is booked for ${when} (ref ${reference(booking)}).${link ? ` Need to change it? ${link}` : ""}`;
+  async function generate() {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await api<{ path: string }>(`/bookings/${booking.id}/manage-link`, "POST", {});
+      setLink(`${location.origin}${r.path}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create link.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function copy(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(`${label} copied.`);
+    } catch {
+      setCopied("Copy unavailable here; select the text instead.");
+    }
+  }
+  if (["CANCELLED", "NO_SHOW", "COMPLETED"].includes(booking.status)) return null;
+  return (
+    <details className="share-booking">
+      <summary>
+        <Icon name="message" /> Share confirmation with customer
+      </summary>
+      <p>
+        Nothing is sent automatically. Generate a private manage link, then copy the message into your own SMS or
+        WhatsApp. Generating a new link revokes any earlier one.
+      </p>
+      <div className="online-link-row">
+        {link ? <code>{link}</code> : <small>No manage link generated in this session.</small>}
+        <Button variant="secondary" onClick={generate} disabled={busy || !w.shop.slug}>
+          {busy ? "Creating…" : link ? "Regenerate link" : "Create manage link"}
+        </Button>
+        {link && (
+          <Button variant="ghost" onClick={() => copy(link, "Link")}>
+            Copy link
+          </Button>
+        )}
+      </div>
+      {!w.shop.slug && (
+        <p className="workspace-footnote">Set a public address in Settings → Online booking to enable manage links.</p>
+      )}
+      <ErrorMessage error={error} />
+      <textarea className="share-message" readOnly value={message} rows={4} aria-label="Confirmation message" />
+      <div className="workspace-save-actions">
+        <Button variant="ghost" onClick={() => copy(message, "Message")}>
+          Copy message
+        </Button>
+        <a className="button secondary" href={`sms:${booking.phone}?&body=${encodeURIComponent(message)}`}>
+          Open in SMS
+        </a>
+        <a
+          className="button secondary"
+          href={`https://wa.me/${booking.phone.replace(/^0/, "44").replace(/^\+/, "")}?text=${encodeURIComponent(message)}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open in WhatsApp
+        </a>
+      </div>
+      {copied && <p role="status">{copied}</p>}
+    </details>
+  );
+}
+
 function OnlineBookingPanel({
   w,
   saved,
@@ -2112,7 +2309,7 @@ type EditorProps = {
   w: WorkspaceData;
   date: string;
   onClose: () => void;
-  saved: (path: string, method: string, body?: unknown) => Promise<void>;
+  saved: (path: string, method: string, body?: unknown) => Promise<{ booking?: StoredBooking } | void>;
   onMove: (b: StoredBooking) => void;
   onRebook: (b: StoredBooking) => void;
   onEdit: (b: StoredBooking) => void;
@@ -2531,10 +2728,11 @@ function WorkspaceEditor({
       {e.kind === "booking" && (
         <BookingForm
           w={w}
-          initialDate={date}
+          initialDate={e.waitlist?.date || date}
           booking={e.item}
           draft={e.draft}
           rebook={e.rebook}
+          waitlist={e.waitlist}
           saved={saved}
         />
       )}
@@ -2638,6 +2836,7 @@ function WorkspaceEditor({
               Edit booking details
             </Button>
           </div>
+          <ShareBooking booking={e.item} w={w} />
           <ErrorMessage error={transitionError} />
           {nextAction && (
             <section className="dialog-close-warning" role="alert">
@@ -3062,19 +3261,33 @@ function BookingForm({
   initialDate,
   booking: b,
   draft,
-  rebook,
+  rebook: rebookInput,
+  waitlist,
   saved,
 }: {
   w: WorkspaceData;
   initialDate: string;
   draft?: CalendarDraft;
   rebook?: StoredBooking;
+  waitlist?: WaitlistEntry;
   booking?: StoredBooking;
   saved: EditorProps["saved"];
 }) {
+  // A waitlist entry prefills like a rebooking: customer, service and preferred barber.
+  const rebook = rebookInput || (waitlist
+    ? ({
+        customer_name: waitlist.customer_name,
+        phone: waitlist.phone,
+        staff_id: waitlist.staff_id || "",
+        service_id: waitlist.service_id,
+        service_name: waitlist.service_name,
+        date: waitlist.date,
+        price_pence: 0,
+      } as unknown as StoredBooking)
+    : undefined);
   const rebookBase = rebook && rebook.date > w.today ? rebook.date : w.today;
   const [date, setDate] = useState(
-    b?.date || (rebook ? datePlus(rebookBase, 21) : initialDate),
+    b?.date || (waitlist ? waitlist.date : rebook ? datePlus(rebookBase, 21) : initialDate),
   );
   const reviewRef = useRef<HTMLElement>(null);
   const [reviewContact, setReviewContact] = useState({ name: "", phone: "" });
@@ -3205,11 +3418,18 @@ function BookingForm({
         if (request.current.payload !== serial)
           request.current = { payload: serial, key: crypto.randomUUID() };
         try {
-          await saved(
+          const result = await saved(
             b ? `/bookings/${b.id}/reschedule` : "/bookings",
             "POST",
             b ? payload : { ...payload, request_id: request.current.key },
           );
+          // Link the waitlist request to the saved visit; a failure here never undoes the booking.
+          if (waitlist && result?.booking)
+            api(`/waitlist/${waitlist.id}/status`, "POST", {
+              status: "BOOKED",
+              booking_id: result.booking.id,
+              version: waitlist.version,
+            }).catch(() => {});
         } catch (e) {
           setReview(false);
           if (e instanceof ApiError && e.status === 409) {
@@ -3219,7 +3439,26 @@ function BookingForm({
         }
       }}
     >
-      {rebook && (
+      {waitlist && (
+        <aside className="booking-slot-origin" aria-label="Waitlist request">
+          <strong>
+            <Icon name="bell" /> From the waitlist · {waitlist.customer_name}
+          </strong>
+          <p>
+            Asked for {waitlist.service_name} on {waitlist.date}
+            {waitlist.staff_name ? ` with ${waitlist.staff_name}` : " with any barber"} ·{" "}
+            {({ ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" } as Record<string, string>)[waitlist.daypart]}.
+          </p>
+          <p>
+            Pick a free time below. Saving books the customer and marks this waitlist request as booked.
+            {!waitlist.staff_id && " Choose whichever barber has space."}
+          </p>
+          {(!staff || !service) && (
+            <p>Choose an active, eligible barber and service.</p>
+          )}
+        </aside>
+      )}
+      {rebook && !waitlist && (
         <aside className="booking-slot-origin" aria-label="Previous visit">
           <strong>Book again · {reference(rebook)}</strong>
           <p>
@@ -3374,7 +3613,7 @@ function BookingForm({
             </fieldset>
           )}
           <h4>Choose your date</h4>
-          {rebook && (
+          {rebook && !waitlist && (
             <div
               className="booking-date-shortcuts"
               aria-label="Rebooking date shortcuts"

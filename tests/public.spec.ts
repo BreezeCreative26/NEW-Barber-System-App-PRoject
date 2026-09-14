@@ -353,7 +353,7 @@ test.describe("public booking pages", () => {
     await expect(link).toBeVisible();
     const href = await link.getAttribute("href");
     expect(href).toMatch(/^\/manage\/[a-f0-9-]{72}$/);
-    await expect(page.getByRole("link", { name: "Add to calendar" })).toHaveAttribute(
+    await expect(page.getByRole("link", { name: "Apple / Outlook (.ics)" })).toHaveAttribute(
       "href",
       /calendar\.ics$/,
     );
@@ -438,6 +438,7 @@ test.describe("public booking pages", () => {
 // Executable inventory of public write routes: origin, throttling key and validation.
 const publicMutations = [
   ["POST", "/shops/:slug/bookings"],
+  ["POST", "/shops/:slug/waitlist"],
   ["POST", "/manage/:token/cancel"],
   ["POST", "/manage/:token/reschedule"],
 ] as const;
@@ -460,4 +461,199 @@ test("all public mutation endpoints enforce origin and validate input", async ()
   // Public routes never accept a browser session cookie as authority: owner cookie adds nothing.
   const { r } = await owner();
   expect((await r.get(`${pub}/manage/${"t".repeat(72)}`)).status()).toBe(404);
+});
+
+test("any-barber availability assigns the least-loaded eligible barber and /next finds soonest slots", async () => {
+  const { r, w, slug } = await owner();
+  const c = await customer();
+  const date = futureDate();
+  const service = w.services[0].id;
+  // Give barber 0 two bookings so barber 1 should win ties at open slots.
+  expect((await bookOnline(c, slug, w, date, 600)).res.status()).toBe(201);
+  expect((await bookOnline(c, slug, w, date, 840, { phone: "07700 900001" })).res.status()).toBe(201);
+  const any = await (
+    await c.get(`${pub}/shops/${slug}/availability?date=${date}&staff_id=any&service_id=${service}`)
+  ).json();
+  expect(any.any_barber).toBe(true);
+  const open = any.slots.filter((s: { available: boolean }) => s.available);
+  expect(open.length).toBeGreaterThan(0);
+  // 10:00 is taken for barber 0 but still open for barber 1.
+  const ten = any.slots.find((s: { start_min: number }) => s.start_min === 600);
+  expect(ten.available).toBe(true);
+  expect(ten.staff_id).toBe(w.staff[1].id);
+  expect(open[0].staff_id).toBe(w.staff[1].id);
+  expect(open.every((s: { barbers: number }) => s.barbers >= 1)).toBe(true);
+  // Disabling the service for barber 1 removes them from any-barber results.
+  const rule = await r.put(base + `/staff/${w.staff[1].id}/services/${service}`, {
+    data: { enabled: 0, price_pence: null, duration_min: null, version: 0 },
+  });
+  expect(rule.status(), await rule.text()).toBe(200);
+  const only = await (
+    await c.get(`${pub}/shops/${slug}/availability?date=${date}&staff_id=any&service_id=${service}`)
+  ).json();
+  expect(only.slots.filter((s: { available: boolean }) => s.available).every((s: { staff_id: string }) => s.staff_id === w.staff[0].id)).toBe(true);
+  expect(only.slots.find((s: { start_min: number }) => s.start_min === 600).available).toBe(false);
+  const next = await (await c.get(`${pub}/shops/${slug}/next?staff_id=any&service_id=${service}&limit=3`)).json();
+  expect(next.next.length).toBeGreaterThan(0);
+  expect(next.next.length).toBeLessThanOrEqual(3);
+  for (const n of next.next) {
+    expect(n.staff_id).toBe(w.staff[0].id);
+    expect(n.date >= w.today).toBe(true);
+  }
+  // Each /next entry is a real bookable slot.
+  const first = next.next[0];
+  const check = await (
+    await c.get(`${pub}/shops/${slug}/availability?date=${first.date}&staff_id=${first.staff_id}&service_id=${service}`)
+  ).json();
+  expect(check.slots.find((s: { start_min: number }) => s.start_min === first.start_min).available).toBe(true);
+  const days = await (await c.get(`${pub}/shops/${slug}/days?staff_id=any&service_id=${service}`)).json();
+  expect(days.days).toHaveLength(14);
+  expect(days.price_to_pence).toBeGreaterThanOrEqual(days.price_pence);
+});
+
+test("waitlist: customer joins a full day, owner sees, books and links the entry", async () => {
+  const { r, w, slug } = await owner();
+  const c = await customer();
+  const date = futureDate();
+  const service = w.services[0].id;
+  const join = await c.post(`${pub}/shops/${slug}/waitlist`, {
+    data: {
+      staff_id: null,
+      service_id: service,
+      customer_name: "Waiting Wanda",
+      phone: "07700 900555",
+      email: "",
+      date,
+      daypart: "AFTERNOON",
+      notes: "",
+    },
+  });
+  expect(join.status(), await join.text()).toBe(201);
+  // Same phone/date/service upserts instead of duplicating.
+  const again = await c.post(`${pub}/shops/${slug}/waitlist`, {
+    data: { staff_id: w.staff[0].id, service_id: service, customer_name: "Waiting Wanda", phone: "07700900555", email: "w@example.test", date, daypart: "MORNING", notes: "" },
+  });
+  expect(again.status()).toBe(201);
+  const bad = await c.post(`${pub}/shops/${slug}/waitlist`, {
+    data: { staff_id: null, service_id: service, customer_name: "X", phone: "123", email: "", date, daypart: "ANY", notes: "" },
+  });
+  expect(bad.status()).toBe(400);
+  const far = await c.post(`${pub}/shops/${slug}/waitlist`, {
+    data: { staff_id: null, service_id: service, customer_name: "Far Away", phone: "07700900556", email: "", date: futureDate(90), daypart: "ANY", notes: "" },
+  });
+  expect(far.status()).toBe(409);
+  const list = await (await r.get(base + "/waitlist")).json();
+  expect(list.waitlist).toHaveLength(1);
+  const entry = list.waitlist[0];
+  expect(entry.daypart).toBe("MORNING");
+  expect(entry.staff_name).toBe(w.staff[0].name);
+  expect(entry.email).toBe("w@example.test");
+  // Owner books them and links.
+  const booked = await bookOnline(c, slug, w, date, 600, { customer_name: "Waiting Wanda", phone: "07700900555" });
+  expect(booked.res.status()).toBe(201);
+  const bookingId = (await booked.res.json()).booking.id;
+  const stale = await r.post(base + `/waitlist/${entry.id}/status`, { data: { status: "BOOKED", booking_id: bookingId, version: 99 } });
+  expect(stale.status()).toBe(409);
+  const link = await r.post(base + `/waitlist/${entry.id}/status`, { data: { status: "BOOKED", booking_id: bookingId, version: entry.version } });
+  expect(link.status()).toBe(200);
+  expect((await (await r.get(base + "/waitlist")).json()).waitlist).toHaveLength(0);
+  const bookedList = await (await r.get(base + "/waitlist?status=BOOKED")).json();
+  expect(bookedList.waitlist[0].booking_id).toBe(bookingId);
+  // Other shops cannot see or touch it.
+  const other = await owner();
+  expect((await (await other.r.get(base + "/waitlist?status=BOOKED")).json()).waitlist).toHaveLength(0);
+  expect((await other.r.post(base + `/waitlist/${entry.id}/status`, { data: { status: "CLOSED", version: entry.version + 1 } })).status()).toBe(409);
+});
+
+test("owner manage-link issue rotates tokens and audits", async () => {
+  const { r, w, slug } = await owner();
+  const c = await customer();
+  const date = futureDate();
+  const { res } = await bookOnline(c, slug, w, date, 600);
+  const first = (await res.json()).manage_token;
+  expect((await c.get(`${pub}/manage/${first}`)).status()).toBe(200);
+  const bookingId = (await (await r.get(base + `/bookings?date=${date}`)).json()).bookings[0].id;
+  const issued = await r.post(base + `/bookings/${bookingId}/manage-link`, { data: {} });
+  expect(issued.status(), await issued.text()).toBe(201);
+  const { token, path } = await issued.json();
+  expect(path).toBe(`/manage/${token}`);
+  expect((await c.get(`${pub}/manage/${token}`)).status()).toBe(200);
+  // Old customer link is revoked.
+  expect((await c.get(`${pub}/manage/${first}`)).status()).toBe(404);
+  const ws: WorkspaceData = await (await r.get(base + "/workspace")).json();
+  expect(ws.audit.map((a) => a.action)).toContain("MANAGE_LINK_ISSUED");
+  // Shops without a slug cannot issue links; other shops cannot issue for this booking.
+  const bare = await owner(false);
+  expect((await bare.r.post(base + `/bookings/${bookingId}/manage-link`, { data: {} })).status()).toBe(404);
+});
+
+test.describe("public booking v2 UI", () => {
+  test("first-available barber, soonest chip and waitlist flow in the browser", async ({ page }) => {
+    const { r, w, slug } = await owner();
+    const c = await customer();
+    const full = futureDate(9);
+    // Make the day full for the 60-minute service: barber 1 off, barber 0 booked solid.
+    await r.post(base + `/staff/${w.staff[1].id}/days-off`, { data: { date: full, reason: "Training" } });
+    const big = w.services.find((s) => s.duration_min === 60)!;
+    for (const [i, m] of [540, 615, 690, 840, 915, 990].entries()) {
+      const av = await (await c.get(`${pub}/shops/${slug}/availability?date=${full}&staff_id=${w.staff[0].id}&service_id=${big.id}`)).json();
+      const res = await c.post(`${pub}/shops/${slug}/bookings`, {
+        data: { request_id: crypto.randomUUID(), staff_id: w.staff[0].id, service_id: big.id, customer_name: "Filler " + m, phone: "0770090060" + i, email: "", date: full, start_min: m, quote: av.quote },
+      });
+      expect(res.status(), await res.text()).toBe(201);
+    }
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.goto(`/book/${slug}`);
+    await page.getByRole("button", { name: new RegExp(big.name) }).click();
+    await page.getByRole("button", { name: "Choose your barber", exact: true }).click();
+    await expect(page.getByRole("button", { name: /First available/ })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Find a time", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Soonest open times" })).toBeVisible();
+    const label = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Europe/London" }).format(new Date(`${full}T12:00:00Z`));
+    for (let i = 0; i < 3; i++) {
+      if (await page.getByRole("button", { name: new RegExp(`^${label},`) }).count()) break;
+      await page.getByRole("button", { name: "Next week" }).click();
+    }
+    await expect(page.getByRole("button", { name: new RegExp(`^${label}, fully booked`) })).toBeVisible();
+    await page.getByRole("button", { name: new RegExp(`^${label},`) }).click();
+    await expect(page.getByRole("heading", { name: "This day is fully booked" })).toBeVisible();
+    await page.getByRole("button", { name: "Join the waitlist" }).click();
+    await page.getByLabel("Your name").fill("Waiting Wanda");
+    await page.getByLabel("Mobile number").fill("07700900555");
+    await page.getByRole("group", { name: "Preferred part of the day" }).getByRole("button", { name: "Afternoon" }).click();
+    await page.getByRole("button", { name: "Ask the shop to contact me" }).click();
+    await expect(page.getByText("You’re on the list.")).toBeVisible();
+    const list = await (await r.get(base + "/waitlist")).json();
+    expect(list.waitlist).toHaveLength(1);
+    expect(list.waitlist[0].daypart).toBe("AFTERNOON");
+    expect(list.waitlist[0].staff_id).toBeNull();
+    // Soonest chip jumps to a bookable slot with an assigned barber; details are remembered from the waitlist form.
+    await page.getByRole("region", { name: "Soonest open times" }).getByRole("button").first().click();
+    await expect(page.locator(".slot-note")).toContainText("is free at");
+    await page.getByRole("button", { name: "Your details", exact: true }).click();
+    await expect(page.getByLabel("Your name")).toHaveValue("Waiting Wanda");
+    await page.getByRole("button", { name: "Review booking" }).click();
+    await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
+    await page.getByRole("button", { name: "Confirm booking" }).click();
+    await expect(page.locator(".public-reference")).toHaveText(/^BRB-\d{4}$/);
+    await expect(page.getByRole("link", { name: "Google Calendar" })).toHaveAttribute("href", /calendar\.google\.com/);
+    // Owner: waitlist panel shows the entry; "Book them in" prefills the form; share panel creates a link.
+    const state = await r.storageState();
+    await page.context().addCookies(state.cookies);
+    await page.goto("/workspace");
+    await expect(page.getByRole("heading", { name: /Waitlist/ })).toBeVisible();
+    await page.getByRole("button", { name: "Book them in" }).click();
+    await expect(page.getByRole("complementary", { name: "Waitlist request" })).toContainText("Waiting Wanda");
+    await expect(page.getByLabel("Fictional customer name")).toHaveValue("Waiting Wanda");
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Customers", exact: true }).click();
+    await page.getByRole("button", { name: "Waiting Wanda" }).click();
+    await page.locator(".customer-history").getByRole("button").first().click();
+    await page.getByText("Share confirmation with customer").click();
+    await page.getByRole("button", { name: "Create manage link" }).click();
+    await expect(page.locator(".share-booking code")).toContainText("/manage/");
+    await expect(page.getByLabel("Confirmation message")).toHaveValue(/Need to change it\?/);
+    expect(errors).toEqual([]);
+  });
 });

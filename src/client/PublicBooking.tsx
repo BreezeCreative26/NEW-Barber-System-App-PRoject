@@ -43,13 +43,23 @@ type PublicShop = {
   today: string;
   max_date: string;
 };
-type Slot = { start_min: number; available: boolean; reason: string };
+type Slot = {
+  start_min: number;
+  available: boolean;
+  reason: string;
+  staff_id?: string;
+  staff_name?: string;
+  barbers?: number;
+  price_pence?: number;
+  duration_min?: number;
+};
 type Availability = {
   slots: Slot[];
   duration_min: number;
   price_pence: number;
   items: BookingItem[];
   overridden: boolean;
+  any_barber?: boolean;
   deposit_policy_pence: number;
   cancel_hours: number;
   quote: { service_version: number; shop_version: number };
@@ -62,6 +72,7 @@ type CustomerBooking = {
   date: string;
   start_min: number;
   start_at: number;
+  end_at: number;
   duration_min: number;
   service_name: string;
   items: BookingItem[];
@@ -145,6 +156,19 @@ const thumbs = ["", "fade", "beard", "combo", "junior"];
 const phoneOk = (s: string) => /^(?:\+44|0)7\d{9}$/.test(s.replace(/[\s()-]/g, ""));
 const emailOk = (s: string) => !s || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 
+const gcal = (b: { start_at: number; end_at: number; service_name: string; shop: { name: string; address: string } }) => {
+  const f = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const q = new URLSearchParams({
+    action: "TEMPLATE",
+    text: `${b.service_name} at ${b.shop.name}`,
+    dates: `${f(b.start_at)}/${f(b.end_at)}`,
+    location: b.shop.address || b.shop.name,
+    details: "Booked with Barbershop OS. Local test booking.",
+  });
+  return `https://calendar.google.com/calendar/render?${q}`;
+};
+const mapsUrl = (address: string) =>
+  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 function ShopHeader({ name, address }: { name: string; address: string }) {
   return (
     <header className="shop-header">
@@ -184,6 +208,15 @@ function TestBanner() {
 }
 
 const steps = ["Service", "Barber", "Date & time", "Your details", "Review"];
+type NextSlot = {
+  date: string;
+  start_min: number;
+  staff_id: string;
+  staff_name: string;
+  price_pence: number;
+  duration_min: number;
+};
+const ANY = "any";
 export function PublicBooking({ slug }: { slug: string }) {
   const [shop, setShop] = useState<PublicShop | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -196,14 +229,18 @@ export function PublicBooking({ slug }: { slug: string }) {
   const [from, setFrom] = useState("");
   const [date, setDate] = useState("");
   const [days, setDays] = useState<DaySummary[] | null>(null);
+  const [next, setNext] = useState<NextSlot[] | null>(null);
   const [availability, setAvailability] = useState<Availability | null>(null);
   const [slotError, setSlotError] = useState("");
   const [slot, setSlot] = useState<number | null>(null);
+  const [assigned, setAssigned] = useState<{ id: string; name: string } | null>(null);
   const [daypart, setDaypart] = useState("All times");
   const [details, setDetails] = useState({ name: "", phone: "", email: "", notes: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [waitlist, setWaitlist] = useState<"idle" | "open" | "done">("idle");
+  const [waitDaypart, setWaitDaypart] = useState("ANY");
   const [confirmed, setConfirmed] = useState<{
     booking: CustomerBooking;
     manage_token: string | null;
@@ -218,6 +255,7 @@ export function PublicBooking({ slug }: { slug: string }) {
       setFrom((f) => f || s.today);
       setDate((d) => d || s.today);
       setService((v) => v || s.services[0]?.id || "");
+      setBarber((b) => b || (s.staff.length > 1 ? ANY : s.staff[0]?.id || ""));
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Could not load this shop.");
     }
@@ -225,14 +263,26 @@ export function PublicBooking({ slug }: { slug: string }) {
   useEffect(() => {
     load();
   }, [slug]);
+  useEffect(() => {
+    // Remember contact details on this device only; nothing is sent anywhere.
+    try {
+      const saved = localStorage.getItem("barbershop-os:customer");
+      if (saved) setDetails((d) => ({ ...d, ...JSON.parse(saved), notes: "" }));
+    } catch {
+      /* private mode */
+    }
+  }, []);
   const eligible = (staffId: string, serviceId: string) =>
     !shop?.service_rules.some(
       (r) => r.staff_id === staffId && r.service_id === serviceId && !r.enabled,
     );
   const barbers = shop?.staff.filter((s) => eligible(s.id, service)) || [];
   useEffect(() => {
-    if (shop && barber && !eligible(barber, service)) setBarber("");
+    if (!shop) return;
+    if (barber && barber !== ANY && !eligible(barber, service)) setBarber(barbers.length > 1 ? ANY : barbers[0]?.id || "");
+    if (barber === ANY && barbers.length === 1) setBarber(barbers[0].id);
   }, [service, shop]);
+  const anyBarber = barber === ANY;
   const chosenService = shop?.services.find((s) => s.id === service);
   const chosenBarber = shop?.staff.find((b) => b.id === barber);
   const serviceAddons =
@@ -258,13 +308,23 @@ export function PublicBooking({ slug }: { slug: string }) {
       overridden: rule?.price_pence != null || rule?.duration_min != null,
     };
   };
+  const anyEstimate = () => {
+    const list = barbers.map((b) => estimate(b.id));
+    if (!list.length) return { price: 0, priceTo: 0, duration: 0 };
+    return {
+      price: Math.min(...list.map((e) => e.price)),
+      priceTo: Math.max(...list.map((e) => e.price)),
+      duration: Math.min(...list.map((e) => e.duration)),
+    };
+  };
+  const addonQuery = extraIds.length ? `&addon_ids=${[...extraIds].sort().join(",")}` : "";
   const quoteKey = `${barber}|${service}|${[...extraIds].sort().join(",")}`;
   useEffect(() => {
     if (!shop || !barber || !service || step !== 2) return;
     let cancelled = false;
     setDays(null);
     api<{ days: DaySummary[] }>(
-      `/shops/${encodeURIComponent(slug)}/days?staff_id=${barber}&service_id=${service}&from=${from}${extraIds.length ? `&addon_ids=${[...extraIds].sort().join(",")}` : ""}`,
+      `/shops/${encodeURIComponent(slug)}/days?staff_id=${barber}&service_id=${service}&from=${from}${addonQuery}`,
     )
       .then((r) => !cancelled && setDays(r.days))
       .catch(() => !cancelled && setDays([]));
@@ -273,19 +333,35 @@ export function PublicBooking({ slug }: { slug: string }) {
     };
   }, [quoteKey, from, step, shop]);
   useEffect(() => {
+    if (!shop || !barber || !service || step !== 2) return;
+    let cancelled = false;
+    setNext(null);
+    api<{ next: NextSlot[] }>(
+      `/shops/${encodeURIComponent(slug)}/next?staff_id=${barber}&service_id=${service}&limit=4${addonQuery}`,
+    )
+      .then((r) => !cancelled && setNext(r.next))
+      .catch(() => !cancelled && setNext([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [quoteKey, step, shop]);
+  useEffect(() => {
     if (!shop || !barber || !service || !date || step !== 2) return;
     let cancelled = false;
     setAvailability(null);
     setSlotError("");
+    setWaitlist("idle");
     api<Availability>(
-      `/shops/${encodeURIComponent(slug)}/availability?date=${date}&staff_id=${barber}&service_id=${service}${extraIds.length ? `&addon_ids=${[...extraIds].sort().join(",")}` : ""}`,
+      `/shops/${encodeURIComponent(slug)}/availability?date=${date}&staff_id=${barber}&service_id=${service}${addonQuery}`,
     )
       .then((r) => {
         if (cancelled) return;
         setAvailability(r);
-        setSlot((s) =>
-          s !== null && r.slots.some((x) => x.start_min === s && x.available) ? s : null,
-        );
+        setSlot((s) => {
+          const keep = s !== null ? r.slots.find((x) => x.start_min === s && x.available) : null;
+          setAssigned(keep?.staff_id ? { id: keep.staff_id, name: keep.staff_name! } : null);
+          return keep ? s : null;
+        });
       })
       .catch((e) => {
         if (cancelled) return;
@@ -304,6 +380,16 @@ export function PublicBooking({ slug }: { slug: string }) {
       heading.current?.scrollIntoView({ behavior: "instant", block: "start" });
     });
   };
+  const pickSlot = (s: Slot) => {
+    setSlot(s.start_min);
+    setAssigned(s.staff_id ? { id: s.staff_id, name: s.staff_name! } : null);
+  };
+  const jumpTo = (n: NextSlot) => {
+    setFrom(n.date < from || n.date > datePlus(from, 6) ? n.date : from);
+    setDate(n.date);
+    setSlot(n.start_min);
+    setAssigned({ id: n.staff_id, name: n.staff_name });
+  };
   const submitDetails = (e: FormEvent) => {
     e.preventDefault();
     const next: Record<string, string> = {};
@@ -317,10 +403,12 @@ export function PublicBooking({ slug }: { slug: string }) {
       );
     else go(4);
   };
+  const bookingStaff = anyBarber ? assigned?.id || "" : barber;
+  const bookingStaffName = anyBarber ? assigned?.name : chosenBarber?.name;
   async function confirm() {
-    if (!availability || slot === null || busy) return;
+    if (!availability || slot === null || busy || !bookingStaff) return;
     const payload = {
-      staff_id: barber,
+      staff_id: bookingStaff,
       service_id: service,
       customer_name: details.name.trim(),
       phone: details.phone,
@@ -343,6 +431,14 @@ export function PublicBooking({ slug }: { slug: string }) {
         "POST",
         { request_id: request.current.key, ...payload },
       );
+      try {
+        localStorage.setItem(
+          "barbershop-os:customer",
+          JSON.stringify({ name: details.name.trim(), phone: details.phone, email: details.email.trim() }),
+        );
+      } catch {
+        /* ignore */
+      }
       setConfirmed(r);
     } catch (e) {
       const err = e as ApiError;
@@ -351,6 +447,37 @@ export function PublicBooking({ slug }: { slug: string }) {
         setSlot(null);
         go(2);
       }
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function joinWaitlist(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const name = String(f.get("name") || "").trim(),
+      phone = String(f.get("phone") || "");
+    const nextErrors: Record<string, string> = {};
+    if (name.length < 2) nextErrors.wname = "Enter your name";
+    if (!phoneOk(phone)) nextErrors.wphone = "Enter a valid UK mobile number";
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
+    setBusy(true);
+    setSaveError("");
+    try {
+      await api(`/shops/${encodeURIComponent(slug)}/waitlist`, "POST", {
+        staff_id: anyBarber ? null : barber,
+        service_id: service,
+        customer_name: name,
+        phone,
+        email: String(f.get("email") || "").trim(),
+        date,
+        daypart: waitDaypart,
+        notes: "",
+      });
+      setDetails((d) => ({ ...d, name, phone }));
+      setWaitlist("done");
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Could not join the waitlist.");
     } finally {
       setBusy(false);
     }
@@ -391,20 +518,28 @@ export function PublicBooking({ slug }: { slug: string }) {
       (category === "All services" || s.category === category) &&
       `${s.name} ${s.category}`.toLowerCase().includes(query.toLowerCase()),
   );
-  const est = estimate(barber);
-  const price = availability?.price_pence ?? est.price;
-  const duration = availability?.duration_min ?? est.duration;
+  const est = anyBarber ? { ...anyEstimate(), overridden: false } : { ...estimate(barber), priceTo: estimate(barber).price };
+  const chosenSlot = availability?.slots.find((x) => x.start_min === slot && x.available);
+  const price = chosenSlot?.price_pence ?? (anyBarber ? est.price : availability?.price_pence ?? est.price);
+  const priceTo = chosenSlot?.price_pence ?? (anyBarber ? est.priceTo : price);
+  const duration = chosenSlot?.duration_min ?? availability?.duration_min ?? est.duration;
   const deposit = Math.min(shop.shop.deposit_pence, price);
-  const shownSlots = (availability?.slots || []).filter(
-    (s) =>
-      daypart === "All times" ||
-      (daypart === "Morning" && s.start_min < 720) ||
-      (daypart === "Afternoon" && s.start_min >= 720 && s.start_min < 1020) ||
-      (daypart === "Evening" && s.start_min >= 1020),
-  );
-  const openCount = availability?.slots.filter((s) => s.available).length ?? 0;
+  const priceLabel = price === priceTo ? money(price) : `${money(price)}–${money(priceTo)}`;
+  const openSlots = (availability?.slots || []).filter((s) => s.available);
+  const inDaypart = (m: number, part: string) =>
+    part === "All times" ||
+    (part === "Morning" && m < 720) ||
+    (part === "Afternoon" && m >= 720 && m < 1020) ||
+    (part === "Evening" && m >= 1020);
+  const groups = (["Morning", "Afternoon", "Evening"] as const)
+    .filter((g) => daypart === "All times" || daypart === g)
+    .map((g) => ({ label: g, slots: openSlots.filter((s) => inDaypart(s.start_min, g)) }))
+    .filter((g) => g.slots.length);
+  const openCount = openSlots.length;
   const weekDays = Array.from({ length: 7 }, (_, i) => datePlus(from, i));
   const dayInfo = (d: string) => days?.find((x) => x.date === d);
+  const dayFull = !!availability && openCount === 0 && !!dayInfo(date) && !dayInfo(date)!.closed;
+  const nextElsewhere = next?.filter((n) => n.date !== date) || [];
   return (
     <div className="booking-app">
       <TestBanner />
@@ -432,6 +567,28 @@ export function PublicBooking({ slug }: { slug: string }) {
                 <Icon name="clock" size={16} />
                 {time(shop.shop.opens)}–{time(shop.shop.closes)} · {shop.shop.timezone}
               </span>
+              {shop.shop.address && (
+                <a
+                  className="hero-link"
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.shop.address)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Icon name="pin" size={16} />
+                  Directions
+                </a>
+              )}
+            </div>
+          </div>
+          <div className="hero-art" aria-hidden="true">
+            <div className="art-orbit orbit-one" />
+            <div className="art-orbit orbit-two" />
+            <div className="art-orbit orbit-three" />
+            <div className="hero-seal">
+              <span>BOOK IN SECONDS</span>
+              <strong>{initials(shop.shop.name)}</strong>
+              <div className="seal-rule" />
+              <span>{shop.shop.name.toUpperCase().slice(0, 24)}</span>
             </div>
           </div>
         </section>
@@ -470,7 +627,7 @@ export function PublicBooking({ slug }: { slug: string }) {
                   {
                     [
                       "Pick your service and any extras.",
-                      "Only barbers who offer this service are shown.",
+                      "Choose a barber, or let us find the first free chair.",
                       `Times are shown in ${shop.shop.timezone}. Online bookings need at least ${shop.shop.lead_time_min} minutes’ notice.`,
                       "Use fictional details for this local test. Nothing is sent.",
                       "Review your visit. Confirming saves it to the shop’s diary; no payment is taken.",
@@ -489,13 +646,15 @@ export function PublicBooking({ slug }: { slug: string }) {
                       onChange={(e) => setQuery(e.target.value)}
                     />
                   </label>
-                  <div className="filter-chips" aria-label="Service categories">
-                    {categories.map((c) => (
-                      <button key={c} aria-pressed={category === c} onClick={() => setCategory(c)}>
-                        {c}
-                      </button>
-                    ))}
-                  </div>
+                  {categories.length > 2 && (
+                    <div className="filter-chips" role="group" aria-label="Service categories">
+                      {categories.map((c) => (
+                        <button key={c} aria-pressed={category === c} onClick={() => setCategory(c)}>
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="service-cards" role="group" aria-label="Choose a service">
                     {shownServices.map((s, i) => (
                       <button
@@ -579,6 +738,39 @@ export function PublicBooking({ slug }: { slug: string }) {
               )}
               {step === 1 && (
                 <div className="barber-choices" role="group" aria-label="Choose your barber">
+                  {barbers.length > 1 && (
+                    <button
+                      className={`barber-choice any-barber ${anyBarber ? "chosen" : ""}`}
+                      aria-pressed={anyBarber}
+                      onClick={() => {
+                        setBarber(ANY);
+                        setSlot(null);
+                      }}
+                    >
+                      <div className="barber-portrait forest">
+                        <span className="any-mark">
+                          <Icon name="sparkles" size={30} />
+                        </span>
+                        <span className="portrait-selected">
+                          <Icon name={anyBarber ? "check" : "plus"} size={16} />
+                        </span>
+                      </div>
+                      <span className="barber-choice-name">
+                        <strong>First available</strong>
+                      </span>
+                      <span className="barber-role">Any of {barbers.length} barbers</span>
+                      <span className="barber-description">
+                        See every open time. We’ll assign whoever is free.
+                      </span>
+                      <span className="barber-rate">
+                        {(() => {
+                          const e = anyEstimate();
+                          return e.price === e.priceTo ? money(e.price) : `${money(e.price)}–${money(e.priceTo)}`;
+                        })()}
+                        <span>Most choice · from {anyEstimate().duration} min</span>
+                      </span>
+                    </button>
+                  )}
                   {barbers.map((b, i) => {
                     const e = estimate(b.id);
                     return (
@@ -621,6 +813,33 @@ export function PublicBooking({ slug }: { slug: string }) {
               )}
               {step === 2 && (
                 <>
+                  {next && nextElsewhere.length > 0 && (
+                    <section className="next-available" aria-label="Soonest open times">
+                      <span className="eyebrow">SOONEST</span>
+                      <div className="next-chips">
+                        {next.slice(0, 4).map((n) => (
+                          <button
+                            key={`${n.date}-${n.start_min}`}
+                            className={`next-chip ${slot === n.start_min && date === n.date ? "chosen" : ""}`}
+                            onClick={() => jumpTo(n)}
+                            aria-pressed={slot === n.start_min && date === n.date}
+                          >
+                            <strong>
+                              {n.date === shop.today
+                                ? "Today"
+                                : n.date === datePlus(shop.today, 1)
+                                  ? "Tomorrow"
+                                  : dateLabel(n.date, { weekday: "short", day: "numeric", month: "short" })}
+                            </strong>
+                            <span>
+                              {time(n.start_min)}
+                              {anyBarber ? ` · ${n.staff_name.split(" ")[0]}` : ""}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
                   <div className="booking-date-toolbar">
                     <h3>{dateLabel(from, { month: "long", year: "numeric" })}</h3>
                     <div className="small-toggles">
@@ -643,11 +862,13 @@ export function PublicBooking({ slug }: { slug: string }) {
                   <div className="booking-dates" aria-label="Choose date">
                     {weekDays.map((d) => {
                       const info = dayInfo(d);
-                      const disabled = d > shop.max_date || (info ? info.available === 0 : false);
+                      const beyond = d > shop.max_date;
+                      const disabled = beyond || (info ? info.closed : false);
+                      const level = !info || beyond ? "" : info.closed ? "closed" : info.available === 0 ? "full" : info.available < 6 ? "low" : "open";
                       return (
                         <button
                           key={d}
-                          className={date === d ? "chosen" : ""}
+                          className={`${date === d ? "chosen" : ""} ${level}`}
                           disabled={disabled}
                           onClick={() => {
                             setDate(d);
@@ -655,15 +876,15 @@ export function PublicBooking({ slug }: { slug: string }) {
                           }}
                           aria-pressed={date === d}
                           aria-label={`${dateLabel(d)}, ${
-                            !info ? "checking" : info.closed ? "closed" : `${info.available} times`
+                            !info ? "checking" : beyond ? "not yet open" : info.closed ? "closed" : info.available === 0 ? "fully booked" : `${info.available} times`
                           }`}
                         >
-                          <span>{dateLabel(d, { weekday: "short" })}</span>
+                          <span>{d === shop.today ? "Today" : dateLabel(d, { weekday: "short" })}</span>
                           <strong>{dateLabel(d, { day: "2-digit" })}</strong>
                           <small>
                             {!info
                               ? "…"
-                              : d > shop.max_date
+                              : beyond
                                 ? "Not yet"
                                 : info.closed
                                   ? "Closed"
@@ -676,13 +897,13 @@ export function PublicBooking({ slug }: { slug: string }) {
                     })}
                   </div>
                   <div className="slot-heading">
-                    <h3>Pick your time</h3>
+                    <h3>{dateLabel(date, { weekday: "long", day: "numeric", month: "long" })}</h3>
                     <span>
                       <span className="available-dot" />
                       {availability ? `${openCount} available` : "Checking…"}
                     </span>
                   </div>
-                  <div className="filter-chips dayparts">
+                  <div className="filter-chips dayparts" role="group" aria-label="Part of the day">
                     {["All times", "Morning", "Afternoon", "Evening"].map((d) => (
                       <button key={d} aria-pressed={daypart === d} onClick={() => setDaypart(d)}>
                         {d}
@@ -695,34 +916,116 @@ export function PublicBooking({ slug }: { slug: string }) {
                     </Notice>
                   )}
                   <div
-                    className="time-slots"
+                    className="time-groups"
                     role="group"
                     aria-label="Choose an appointment time"
                     aria-busy={!availability && !slotError}
                   >
-                    {shownSlots.map((s) => (
-                      <button
-                        key={s.start_min}
-                        disabled={!s.available}
-                        title={s.available ? `${duration}-minute appointment` : s.reason}
-                        aria-label={`${time(s.start_min)}${s.available ? ", available" : `, ${s.reason}`}`}
-                        aria-pressed={slot === s.start_min}
-                        onClick={() => setSlot(s.start_min)}
-                        className={slot === s.start_min ? "chosen" : ""}
-                      >
-                        {time(s.start_min)}
-                        {slot === s.start_min && <Icon name="check" size={14} />}
-                      </button>
+                    {!availability && !slotError && <div className="time-slots skeleton-slots" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <span key={i} />)}</div>}
+                    {groups.map((g) => (
+                      <div className="time-group" key={g.label}>
+                        <h4>
+                          {g.label} <small>{g.slots.length}</small>
+                        </h4>
+                        <div className="time-slots">
+                          {g.slots.map((s) => (
+                            <button
+                              key={s.start_min}
+                              title={`${s.duration_min ?? duration}-minute appointment${anyBarber && s.staff_name ? ` with ${s.staff_name}` : ""}`}
+                              aria-label={`${time(s.start_min)}, available${anyBarber && s.staff_name ? ` with ${s.staff_name}` : ""}`}
+                              aria-pressed={slot === s.start_min}
+                              onClick={() => pickSlot(s)}
+                              className={slot === s.start_min ? "chosen" : ""}
+                            >
+                              {time(s.start_min)}
+                              {anyBarber && s.staff_name && <small>{s.staff_name.split(" ")[0]}</small>}
+                              {slot === s.start_min && <Icon name="check" size={14} />}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
-                  {availability && !openCount && (
-                    <Notice icon="calendar" tone="warning">
-                      No times left on this date. Try another day.
+                  {availability && openCount > 0 && groups.length === 0 && (
+                    <Notice icon="clock">No {daypart.toLowerCase()} times left on this day. Try another part of the day.</Notice>
+                  )}
+                  {dayFull && waitlist !== "done" && (
+                    <section className="waitlist-card" aria-labelledby="waitlist-heading">
+                      <div>
+                        <h4 id="waitlist-heading">This day is fully booked</h4>
+                        <p>
+                          {nextElsewhere.length
+                            ? `Pick a soonest time above, or ask the shop to contact you if a space opens on ${dateLabel(date, { weekday: "long", day: "numeric", month: "long" })}.`
+                            : "Ask the shop to contact you if a space opens."}
+                        </p>
+                      </div>
+                      {waitlist === "idle" ? (
+                        <Button variant="secondary" onClick={() => setWaitlist("open")}>
+                          <Icon name="bell" /> Join the waitlist
+                        </Button>
+                      ) : (
+                        <form className="waitlist-form" onSubmit={joinWaitlist} noValidate>
+                          <div className="customer-fields compact">
+                            <label>
+                              <span id="waitlist-name">Your name</span>
+                              <input name="name" aria-labelledby="waitlist-name" defaultValue={details.name} required aria-invalid={!!errors.wname} />
+                              {errors.wname && <span className="field-error">{errors.wname}</span>}
+                            </label>
+                            <label>
+                              <span id="waitlist-phone">Mobile number</span>
+                              <input name="phone" type="tel" aria-labelledby="waitlist-phone" defaultValue={details.phone} required aria-invalid={!!errors.wphone} />
+                              {errors.wphone && <span className="field-error">{errors.wphone}</span>}
+                            </label>
+                            <label>
+                              <span id="waitlist-email">Email (optional)</span>
+                              <input name="email" type="email" aria-labelledby="waitlist-email" defaultValue={details.email} />
+                            </label>
+                          </div>
+                          <div className="filter-chips" role="group" aria-label="Preferred part of the day">
+                            {[
+                              ["ANY", "Any time"],
+                              ["MORNING", "Morning"],
+                              ["AFTERNOON", "Afternoon"],
+                              ["EVENING", "Evening"],
+                            ].map(([v, l]) => (
+                              <button type="button" key={v} aria-pressed={waitDaypart === v} onClick={() => setWaitDaypart(v)}>
+                                {l}
+                              </button>
+                            ))}
+                          </div>
+                          {saveError && (
+                            <p className="workspace-error" role="alert">
+                              {saveError}
+                            </p>
+                          )}
+                          <div className="waitlist-actions">
+                            <Button type="button" variant="ghost" onClick={() => setWaitlist("idle")} disabled={busy}>
+                              Not now
+                            </Button>
+                            <Button type="submit" disabled={busy}>
+                              {busy ? "Saving…" : "Ask the shop to contact me"}
+                            </Button>
+                          </div>
+                        </form>
+                      )}
+                    </section>
+                  )}
+                  {waitlist === "done" && (
+                    <Notice icon="check">
+                      <strong>You’re on the list.</strong> The shop can see your request for{" "}
+                      {dateLabel(date, { weekday: "long", day: "numeric", month: "long" })} and will contact you by hand if a
+                      space opens. Nothing is reserved yet.
                     </Notice>
                   )}
                   <p className="slot-note">
                     <Icon name="clock" size={14} />
                     {duration} minutes, with a 10-minute buffer between visits.
+                    {anyBarber && assigned && slot !== null && (
+                      <>
+                        {" "}
+                        · <strong>{assigned.name}</strong> is free at {time(slot)}.
+                      </>
+                    )}
                   </p>
                 </>
               )}
@@ -776,12 +1079,12 @@ export function PublicBooking({ slug }: { slug: string }) {
                     </label>
                   </div>
                   <Notice icon="shield">
-                    Your details are saved with this booking only so the shop can find your visit.
-                    Use fictional details in this local test.
+                    Your details are saved with this booking only so the shop can find your visit, and remembered on this
+                    device to speed up next time. Use fictional details in this local test.
                   </Notice>
                 </form>
               )}
-              {step === 4 && chosenBarber && (
+              {step === 4 && (
                 <>
                   <div className="review-appointment">
                     <div className="review-icon">
@@ -794,9 +1097,15 @@ export function PublicBooking({ slug }: { slug: string }) {
                       {shop.shop.timezone}
                     </p>
                     <div className="review-barber">
-                      <Avatar initials={initials(chosenBarber.name)} />
+                      {bookingStaffName && <Avatar initials={initials(bookingStaffName)} />}
                       <span>
-                        {chosenService?.name} with <strong>{chosenBarber.name.split(" ")[0]}</strong>
+                        {chosenService?.name}
+                        {bookingStaffName && (
+                          <>
+                            {" "}
+                            with <strong>{bookingStaffName.split(" ")[0]}</strong>
+                          </>
+                        )}
                       </span>
                     </div>
                   </div>
@@ -828,7 +1137,7 @@ export function PublicBooking({ slug }: { slug: string }) {
                   )}
                 </>
               )}
-              {saveError && step !== 4 && (
+              {saveError && step !== 4 && waitlist !== "open" && (
                 <p className="workspace-error" role="alert">
                   {saveError}
                 </p>
@@ -836,7 +1145,7 @@ export function PublicBooking({ slug }: { slug: string }) {
               <footer className="booking-actions">
                 {step === 0 && (
                   <span className="mobile-checkout-total">
-                    <strong>{money(price)}</strong>
+                    <strong>{priceLabel}</strong>
                     <small>Total</small>
                   </span>
                 )}
@@ -851,21 +1160,22 @@ export function PublicBooking({ slug }: { slug: string }) {
                   </span>
                 )}
                 {step === 3 ? (
-                  <Button type="submit" form="customer-details">
+                  <Button key="submit-details" type="submit" form="customer-details">
                     Review booking
                     <Icon name="arrowRight" />
                   </Button>
                 ) : step === 4 ? (
-                  <Button onClick={confirm} disabled={busy || slot === null || !availability} aria-busy={busy}>
+                  <Button key="confirm" onClick={confirm} disabled={busy || slot === null || !availability || !bookingStaff} aria-busy={busy}>
                     {busy ? "Confirming…" : "Confirm booking"}
                     <Icon name="check" />
                   </Button>
                 ) : (
                   <Button
+                    key={`next-${step}`}
                     disabled={
                       (step === 0 && !service) ||
                       (step === 1 && !barber) ||
-                      (step === 2 && (slot === null || !availability))
+                      (step === 2 && (slot === null || !availability || !bookingStaff))
                     }
                     onClick={() => go(step + 1)}
                   >
@@ -895,20 +1205,20 @@ export function PublicBooking({ slug }: { slug: string }) {
                   <div>
                     <strong>{chosenService.name}</strong>
                     <span>
-                      {(availability?.items[0]?.duration_min ?? chosenService.duration_min)} minutes
-                      {(availability?.overridden ?? est.overridden) && chosenBarber
+                      {(chosenSlot?.duration_min ?? availability?.items[0]?.duration_min ?? chosenService.duration_min) -
+                        serviceAddons.filter((a) => extraIds.includes(a.id)).reduce((n, a) => n + a.duration_min, 0)}{" "}
+                      minutes
+                      {!anyBarber && (availability?.overridden ?? est.overridden) && chosenBarber
                         ? ` · ${chosenBarber.name.split(" ")[0]}’s rate`
                         : ""}
                     </span>
                   </div>
                   <strong>
-                    {money(
-                      availability?.items[0]?.price_pence ??
-                        shop.service_rules.find(
-                          (r) => r.staff_id === barber && r.service_id === service,
-                        )?.price_pence ??
-                        chosenService.price_pence,
-                    )}
+                    {(() => {
+                      const extras = serviceAddons.filter((a) => extraIds.includes(a.id)).reduce((n, a) => n + a.price_pence, 0);
+                      const base = price - extras, baseTo = priceTo - extras;
+                      return base === baseTo ? money(base) : `${money(base)}–${money(baseTo)}`;
+                    })()}
                   </strong>
                 </div>
               )}
@@ -926,7 +1236,13 @@ export function PublicBooking({ slug }: { slug: string }) {
               <div className="summary-appointment">
                 <p>
                   <Icon name="user" />
-                  <span>{chosenBarber ? chosenBarber.name : "Choose your barber"}</span>
+                  <span>
+                    {bookingStaffName
+                      ? bookingStaffName
+                      : anyBarber
+                        ? "First available barber"
+                        : "Choose your barber"}
+                  </span>
                 </p>
                 <p>
                   <Icon name="calendar" />
@@ -944,7 +1260,7 @@ export function PublicBooking({ slug }: { slug: string }) {
               <div className="summary-price">
                 <p>
                   <span>Total</span>
-                  <strong>{money(price)}</strong>
+                  <strong>{priceLabel}</strong>
                 </p>
                 <p className="deposit-line">
                   <span>
@@ -954,7 +1270,7 @@ export function PublicBooking({ slug }: { slug: string }) {
                 </p>
                 <p className="remaining-line">
                   <span>Pay in the shop</span>
-                  <strong>{money(price)}</strong>
+                  <strong>{priceLabel}</strong>
                 </p>
               </div>
               <div className="cancellation-note">
@@ -1063,12 +1379,30 @@ function ConfirmationCard({
         </Notice>
       )}
       {copied && <p role="status">{copied}</p>}
-      <footer className="booking-actions">
+      <div className="confirmation-actions">
+        <a className="action-tile" href={gcal(booking)} target="_blank" rel="noreferrer">
+          <Icon name="calendar" /> <span>Google Calendar</span>
+        </a>
         {token && (
-          <a className="button secondary" href={`/api/public/manage/${token}/calendar.ics`}>
-            <Icon name="calendar" /> Add to calendar
+          <a className="action-tile" href={`/api/public/manage/${token}/calendar.ics`}>
+            <Icon name="arrowDown" /> <span>Apple / Outlook (.ics)</span>
           </a>
         )}
+        {booking.shop.address && (
+          <a className="action-tile" href={mapsUrl(booking.shop.address)} target="_blank" rel="noreferrer">
+            <Icon name="pin" /> <span>Directions</span>
+          </a>
+        )}
+        {link && (
+          <a
+            className="action-tile"
+            href={`sms:?&body=${encodeURIComponent(`${booking.service_name} at ${booking.shop.name}, ${dateLabel(booking.date, { weekday: "short", day: "numeric", month: "short" })} ${time(booking.start_min)}. Manage: ${link}`)}`}
+          >
+            <Icon name="message" /> <span>Text myself the link</span>
+          </a>
+        )}
+      </div>
+      <footer className="booking-actions">
         <a className="button primary" href={`/book/${slug}`}>
           Book another visit
         </a>
@@ -1245,10 +1579,22 @@ export function ManageBooking({ token }: { token: string }) {
                   still possible online but the shop will see them as late.
                 </Notice>
               )}
+              {booking.status === "CONFIRMED" && (
+                <div className="confirmation-actions">
+                  <a className="action-tile" href={gcal(booking)} target="_blank" rel="noreferrer">
+                    <Icon name="calendar" /> <span>Google Calendar</span>
+                  </a>
+                  <a className="action-tile" href={`/api/public/manage/${token}/calendar.ics`}>
+                    <Icon name="arrowDown" /> <span>Apple / Outlook (.ics)</span>
+                  </a>
+                  {booking.shop.address && (
+                    <a className="action-tile" href={mapsUrl(booking.shop.address)} target="_blank" rel="noreferrer">
+                      <Icon name="pin" /> <span>Directions</span>
+                    </a>
+                  )}
+                </div>
+              )}
               <footer className="booking-actions">
-                <a className="button secondary" href={`/api/public/manage/${token}/calendar.ics`}>
-                  <Icon name="calendar" /> Add to calendar
-                </a>
                 {booking.can_manage && (
                   <>
                     <Button variant="secondary" onClick={() => setMode("move")}>
