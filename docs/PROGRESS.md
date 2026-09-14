@@ -1,6 +1,13 @@
 # Barbershop OS — Progress and next-session handoff
 
-## Latest — faster build loop (2026-09-14)
+## Latest — one project, every view; fixture pages removed (2026-09-14)
+
+- Deleted the static design-fixture surfaces: `/preview/admin|book|barber` routes, `src/client/{Admin,Book,Barber}.tsx`, `PreviewBar`/`StateEnvelope`/`Scenario` in ui.tsx, the sample data in `fixtures.ts` (now only `money`/`time`/`datePlus`/`dateLabel`), `tests/preview.spec.ts` and the fixture unit tests. Root `/` now always redirects to `/workspace`; unknown pages 404 with a pointer to `/workspace`, `/book/<shop>`, `/manage/<token>`. Client bundle 749 kB → 645 kB.
+- `main.tsx` is a single router: `/book/:slug` → PublicBooking, `/manage/:token` → ManageBooking, everything else → Workspace.
+- Entry screen is now a **project hub** for the one shared Demo Barbershop: four rows — Owner/admin (Open as owner), Barber (Open as barber), Customer booking (opens `/book/demo`), Customer manage link (reached via an appointment's Share) — plus Rebuild demo data and the credentials. "Start a blank test shop" is folded into a collapsed `<details>` for tests/edge cases. Sidebar "Design references" links removed.
+- Tests: `enter()` helpers expand the collapsed blank-shop card; entry-screen test asserts the four hub rows, `/preview/*` 404s and root redirect; unit test rewritten for the new route boundaries (26 vitest). Full gate: tsc, vitest 26, D1 invariants PASS, **Playwright 98 passed / 1 skipped / 0 failed** (25 fixture-page tests removed). Evidence `docs/evidence/v6-entry-{1440,390}.png`, axe clean, no overflow.
+
+## Earlier — faster build loop (2026-09-14)
 
 - **Working rule (AGENTS.md):** fast loop / slow gate. Iterate with `npm run test:area -- tests/<file>.spec.ts [-g name]`; run the full `npm test` gate once per task before the commit; batch screenshots/docs at handoff.
 - **Playwright:** workers now `max(2, 2×CPU)` (override with `PW_WORKERS`), `fullyParallel`. Full suite 4.0 min → 3.6 min on this 2-core box; the wrangler dev worker is the bottleneck, so more workers give diminishing returns. Affected-file runs are ~1–1.5 min.

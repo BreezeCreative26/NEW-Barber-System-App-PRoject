@@ -257,22 +257,56 @@ function DemoEntry({ onDone }: { onDone: () => Promise<void> }) {
   }
   return (
     <section className="workspace-panel demo-entry" aria-labelledby="demo-heading">
-      <Badge>Standard demo</Badge>
+      <Badge>One project · every view</Badge>
       <h2 id="demo-heading">Open the demo shop</h2>
       <p>
-        <strong>Demo Barbershop</strong> — 3 barbers, 8 services, 4 add-ons, ~120 fictional
-        appointments over the past 10 weeks and next fortnight, a standing booking, a waitlist and
-        online booking at <code>/book/demo</code>. Same data every time you rebuild.
+        <strong>Demo Barbershop</strong> is the single shared project. Every page of OLLO runs
+        against it — the owner workspace, the barber's own view, the customer booking page and the
+        customer's manage link — so you always see the same data from each side. Rebuild resets it
+        to the seed (3 barbers, 8 services, ~120 fictional appointments, a standing booking, a
+        waitlist).
       </p>
+      <ul className="demo-surfaces" aria-label="Pages in this project">
+        <li>
+          <span className="demo-surface-icon"><Icon name="store" /></span>
+          <div>
+            <strong>Owner / admin</strong>
+            <small>Calendar, customers, team, services, insights, settings, audit</small>
+          </div>
+          <Button onClick={() => open("owner")} disabled={!!busy} data-testid="open-owner">
+            {busy === "owner" ? "Opening…" : "Open as owner"}
+          </Button>
+        </li>
+        <li>
+          <span className="demo-surface-icon"><Icon name="scissors" /></span>
+          <div>
+            <strong>Barber</strong>
+            <small>Jay Carter's scoped view: own day, own customers, own profile</small>
+          </div>
+          <Button variant="secondary" onClick={() => open("barber")} disabled={!!busy} data-testid="open-barber">
+            {busy === "barber" ? "Opening…" : "Open as barber"}
+          </Button>
+        </li>
+        <li>
+          <span className="demo-surface-icon"><Icon name="calendar" /></span>
+          <div>
+            <strong>Customer booking</strong>
+            <small>Public page at <code>/book/demo</code> — pick service, barber, time</small>
+          </div>
+          <a className="button secondary" href="/book/demo" target="_blank" rel="noreferrer" data-testid="open-customer">
+            Open booking page
+          </a>
+        </li>
+        <li>
+          <span className="demo-surface-icon"><Icon name="user" /></span>
+          <div>
+            <strong>Customer manage link</strong>
+            <small>Open any appointment → Share → the <code>/manage/…</code> link a customer receives</small>
+          </div>
+          <span className="demo-surface-note">via an appointment</span>
+        </li>
+      </ul>
       <div className="demo-actions">
-        <Button onClick={() => open("owner")} disabled={!!busy}>
-          <Icon name="store" />
-          {busy === "owner" ? "Opening…" : "Open as owner"}
-        </Button>
-        <Button variant="secondary" onClick={() => open("barber")} disabled={!!busy}>
-          <Icon name="scissors" />
-          {busy === "barber" ? "Opening…" : "Open as barber (Jay)"}
-        </Button>
         <Button variant="ghost" onClick={() => open("owner", true)} disabled={!!busy}>
           <Icon name="refresh" />
           {busy === "owner-rebuild" ? "Rebuilding…" : "Rebuild demo data"}
@@ -280,7 +314,7 @@ function DemoEntry({ onDone }: { onDone: () => Promise<void> }) {
       </div>
       <ErrorMessage error={error} />
       <p className="helper">
-        Sign in later from any browser with <code>{DEMO.email}</code> / <code>{DEMO.password}</code>
+        Sign in from any browser with <code>{DEMO.email}</code> / <code>{DEMO.password}</code>
         {" "}(barber: <code>{DEMO.barber}</code>). Fictional data only; no payments or messages.
       </p>
     </section>
@@ -1148,12 +1182,6 @@ export function Workspace() {
               ? `${w.account.name} · ${w.account.role.toLowerCase()} · Local test account`
               : "Browser test access · Claim your shop in Accounts to return from another browser."}
           </p>
-          <details className="design-reference-links">
-            <summary>Design references · sample only</summary>
-            <a href="/preview/admin">Original admin reference</a>
-            <a href="/preview/book">Customer design reference</a>
-            <a href="/preview/barber">Barber design reference</a>
-          </details>
         </aside>
         <main id="workspace-main" className="workspace-main">
           <header className="workspace-heading">
@@ -1211,13 +1239,13 @@ export function Workspace() {
             <AuthEntry token={inviteToken} onDone={accountChanged} />
           )}
           {needsSession && !w && !inviteToken && (
-            <section className="workspace-panel workspace-welcome">
-              <Icon name="store" size={40} />
-              <h2>Start your test shop</h2>
+            <details className="workspace-panel workspace-welcome">
+              <summary>
+                <Icon name="store" size={18} /> Need an empty shop instead? Start a blank test shop
+              </summary>
               <p>
-                Create an isolated local database workspace with two example
-                barbers and three editable services. Bookings start empty. Use
-                fictional names and numbers only.
+                Creates a separate, isolated shop with two example barbers and three editable
+                services and no bookings. Use fictional names and numbers only.
               </p>
               <SaveForm
                 label="Create test workspace"
@@ -1241,7 +1269,7 @@ export function Workspace() {
                 Keep this browser’s cookies to return to your saved test data.
                 No production account, subscription or payment is created.
               </p>
-            </section>
+            </details>
           )}
           {!w && !needsSession && !error && (
             <p role="status">Loading local workspace…</p>

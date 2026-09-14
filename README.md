@@ -8,7 +8,7 @@ OLLO is one connected barbershop platform in development: booking, shop operatio
 
 [Open development workspace](https://3000-iz3aw7n21l3edjgvt4bkj-5c13a017.sandbox.novita.ai/workspace) · local http://localhost:3000/workspace
 
-**Local fictional-data workspace, not a production SaaS.** **Brand:** OLLO periwinkle (`#6985e8` mark / `#4a5fd9` accent) on navy ink (`#181b2a`) with a cool canvas; assets in `public/static/brand/` (`ollo-mark.svg`, `ollo-logo.png`, transparent variant). Legacy CSS token names (`--accent`, `--forest`, `--sage`) are kept but now map to the OLLO palette; service/barber calendar colours (sage/sand/blue/clay/plum/slate) and semantic status greens/reds are unchanged. Saved data is retained. Existing cookies access the same test shop; new browsers create separate shops. `/preview/admin`, `/preview/book` and `/preview/barber` remain labelled fixture references, not operational customer/staff apps.
+**Local fictional-data workspace, not a production SaaS.** **Brand:** OLLO periwinkle (`#6985e8` mark / `#4a5fd9` accent) on navy ink (`#181b2a`) with a cool canvas; assets in `public/static/brand/` (`ollo-mark.svg`, `ollo-logo.png`, transparent variant). Legacy CSS token names (`--accent`, `--forest`, `--sage`) are kept but now map to the OLLO palette; service/barber calendar colours (sage/sand/blue/clay/plum/slate) and semantic status greens/reds are unchanged. Saved data is retained. **One project, every view:** the entry screen at `/workspace` is a hub for the single shared *Demo Barbershop* — Owner/admin, Barber (Jay's scoped view), Customer booking (`/book/demo`) and the customer manage link — all running against the same saved data. The old static `/preview/*` fixture pages have been removed. A blank isolated test shop is still available behind "Start a blank test shop".
 
 **Demo account (standard test login):** the entry screen offers **Open as owner** / **Open as barber** for the seeded *Demo Barbershop* (`/book/demo`). Fixed credentials: `owner@demo.test` or `jay@demo.test`, password `Demo1234!`. **Rebuild demo** resets it to the deterministic seed (3 barbers with profiles, 8 services, 4 add-ons, ~126 appointments −70…+14 days, standing series, waitlist, leave). API: `POST /api/sandbox/auth/demo {rebuild?, as?: "owner"|"barber"}`.
 
@@ -57,7 +57,7 @@ Next connected work: wider settings/navigation draft protection, then local acco
 
 | Path | Purpose |
 | --- | --- |
-| `/`, `/workspace` | Main local owner-test app; root redirects here in sandbox mode |
+| `/`, `/workspace` | The app. Root always redirects here; the entry hub opens the demo shop as owner or barber and links to the customer pages |
 | `/book/:slug` | Public customer booking for a shop with online booking enabled |
 | `/manage/:token` | Customer self-service: view, move, cancel, calendar export |
 | `/api/public/shops/:slug` | GET public catalogue, active barbers, rules, hours, window |
@@ -79,7 +79,6 @@ Next connected work: wider settings/navigation draft protection, then local acco
 | `/api/sandbox/bookings/:id/timeline` | GET audit-derived timeline for one visit |
 | `/api/sandbox/series/:id/cancel`, `/series/:id/reschedule` | POST remaining occurrences (optional `from_booking_id`), each through the shared guards |
 | `/api/sandbox/service-rules` | PUT `{rules:[{staff_id,service_id,enabled,price_pence\|null,duration_min\|null}]}` — batch matrix; default rows delete the override, others upsert; one audit entry |
-| `/preview/admin`, `/preview/book`, `/preview/barber` | Fixture references |
 | `/api/health` | Mode/persistence capability, `livePayments:false` |
 | `/api/sandbox/session` | POST creates/reuses isolated browser-owned shop |
 | `/api/sandbox/workspace` | GET setup, legacy capped snapshot, audit and independent impact warnings |

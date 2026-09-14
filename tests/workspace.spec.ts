@@ -28,7 +28,7 @@ test("initial network failure retries in place and unexpected HTML has a useful 
   await expect(page.getByRole("alert")).toContainText("unexpected response");
   await page.unroute("**/api/sandbox/workspace");
   await page.getByRole("button", { name: "Retry workspace" }).click();
-  await expect(page.getByLabel("Test shop name")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Open the demo shop" })).toBeVisible();
   expect(documentLoads).toHaveLength(1);
 });
 
@@ -330,6 +330,7 @@ function future() {
 }
 async function enter(page: Page) {
   await page.goto("/workspace");
+  await page.getByText("Start a blank test shop").click();
   await page.getByLabel("Test shop name").fill("Matte workflow test");
   await page
     .getByRole("button", { name: "Create test workspace", exact: true })

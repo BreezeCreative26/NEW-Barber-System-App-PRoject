@@ -7534,3 +7534,22 @@ label.customers-sort { flex-direction: row; }
 .studio-status { display: grid; gap: 8px; }
 .studio-status p { margin: 0; }
 .studio-status .panel-actions-row { margin: 0; }
+
+/* ---------- Entry: one project, every surface ---------- */
+.demo-surfaces { list-style: none; margin: 14px 0 6px; padding: 0; display: grid; gap: 8px; }
+.demo-surfaces li { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.demo-surfaces li > div { display: grid; gap: 2px; min-width: 0; }
+.demo-surfaces strong { font-size: 14px; }
+.demo-surfaces small { color: var(--muted); font-size: 12px; }
+.demo-surface-icon { width: 36px; height: 36px; border-radius: 10px; background: var(--ollo-soft); color: var(--accent-dark); display: grid; place-items: center; }
+.demo-surface-note { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.demo-surfaces .button { white-space: nowrap; text-decoration: none; }
+@media (max-width: 600px) {
+  .demo-surfaces li { grid-template-columns: 36px minmax(0, 1fr); }
+  .demo-surfaces li > .button, .demo-surfaces li > .demo-surface-note { grid-column: 2; justify-self: start; }
+}
+details.workspace-welcome { padding: 14px 18px; }
+details.workspace-welcome > summary { cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; list-style: none; }
+details.workspace-welcome > summary::-webkit-details-marker { display: none; }
+details.workspace-welcome[open] > summary { margin-bottom: 10px; }
+details.workspace-welcome > svg { display: none; }

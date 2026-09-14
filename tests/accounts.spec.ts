@@ -534,6 +534,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
       height: width === 844 ? 390 : width === 1024 ? 600 : 900,
     });
     await page.goto(origin + "/workspace");
+    await page.getByText("Start a blank test shop").click();
     await page
       .getByRole("button", { name: "Create test workspace", exact: true })
       .click();
@@ -753,9 +754,22 @@ test("standard demo account: one-click owner/barber sign-in, fixed credentials, 
   await Promise.all([owner.dispose(), fresh.dispose(), barber.dispose()]);
 });
 
-test("entry screen offers the demo shop and opens it in the browser", async ({ page }) => {
+test("entry screen is the single project hub: owner, barber, customer booking, manage link; blank shop is secondary", async ({ page }) => {
   await page.goto("/workspace");
   await expect(page.getByRole("heading", { name: "Open the demo shop" })).toBeVisible();
+  const hub = page.getByRole("list", { name: "Pages in this project" });
+  await expect(hub.getByRole("listitem")).toHaveCount(4);
+  await expect(hub).toContainText("Owner / admin");
+  await expect(hub).toContainText("Barber");
+  await expect(hub).toContainText("Customer booking");
+  await expect(hub).toContainText("Customer manage link");
+  await expect(page.getByTestId("open-customer")).toHaveAttribute("href", "/book/demo");
+  // No fixture preview pages any more.
+  for (const p of ["/preview/admin", "/preview/book", "/preview/barber"])
+    expect((await page.request.get(p)).status()).toBe(404);
+  expect((await page.request.get("/", { maxRedirects: 0 })).headers()["location"]).toBe("/workspace");
+  // The blank-shop path is folded away until asked for.
+  await expect(page.getByRole("button", { name: "Create test workspace", exact: true })).not.toBeVisible();
   await expect(page.getByLabel("Account email")).toHaveValue("owner@demo.test");
   await page.getByRole("button", { name: "Open as owner", exact: true }).click();
   await expect(page.getByText("Demo Barbershop").first()).toBeVisible();

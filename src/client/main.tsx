@@ -1,17 +1,10 @@
-import { Component, useEffect, useState, type ReactNode } from "react";
+import { Component, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./fonts.css";
-import { Admin } from "./Admin";
-import { Book } from "./Book";
-import { Barber } from "./Barber";
 import { Workspace } from "./Workspace";
 import { PublicBooking, ManageBooking } from "./PublicBooking";
-import { PreviewBar, Notice, type Scenario } from "./ui";
 
-class PreviewErrorBoundary extends Component<
-  { children: ReactNode; workspace?: boolean },
-  { failed: boolean }
-> {
+class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
@@ -19,18 +12,13 @@ class PreviewErrorBoundary extends Component<
   render() {
     return this.state.failed ? (
       <main className="state-card">
-        <h1>
-          {this.props.workspace
-            ? "The workspace could not display this view"
-            : "The preview needs a fresh start"}
-        </h1>
+        <h1>The workspace could not display this view</h1>
         <p>
-          {this.props.workspace
-            ? "Reload to check your saved records. If a save was in progress, inspect its result before repeating it. No live payments are enabled."
-            : "No bookings or payments have been made. Reload to restore the example screens."}
+          Reload to check your saved records. If a save was in progress, inspect its result before
+          repeating it. No live payments are enabled.
         </p>
         <a className="button primary" href={location.pathname}>
-          {this.props.workspace ? "Reload workspace" : "Reload preview"}
+          Reload workspace
         </a>
       </main>
     ) : (
@@ -38,61 +26,15 @@ class PreviewErrorBoundary extends Component<
     );
   }
 }
-function App() {
-  const [scenario, setScenario] = useState<Scenario>("normal");
-  const [online, setOnline] = useState(navigator.onLine);
-  const surface = location.pathname.split("/")[2] || "admin";
-  useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
-    window.addEventListener("online", update);
-    window.addEventListener("offline", update);
-    return () => {
-      window.removeEventListener("online", update);
-      window.removeEventListener("offline", update);
-    };
-  }, []);
-  return (
-    <>
-      <PreviewBar
-        surface={surface}
-        scenario={scenario}
-        onScenario={setScenario}
-      />
-      {!online && (
-        <div className="actual-offline">
-          <Notice icon="offline" tone="warning">
-            Your device is offline. Only the already loaded design preview is
-            available; no live actions or saved queue are connected.
-          </Notice>
-        </div>
-      )}
-      <PreviewErrorBoundary>
-        {surface === "book" ? (
-          <Book scenario={scenario} setScenario={setScenario} />
-        ) : surface === "barber" ? (
-          <Barber scenario={scenario} setScenario={setScenario} />
-        ) : (
-          <Admin scenario={scenario} setScenario={setScenario} />
-        )}
-      </PreviewErrorBoundary>
-    </>
-  );
-}
 const [, area, param] = location.pathname.split("/");
 createRoot(document.getElementById("root")!).render(
-  location.pathname === "/workspace" ? (
-    <PreviewErrorBoundary workspace>
-      <Workspace />
-    </PreviewErrorBoundary>
-  ) : area === "book" && param ? (
-    <PreviewErrorBoundary workspace>
+  <AppErrorBoundary>
+    {area === "book" && param ? (
       <PublicBooking slug={decodeURIComponent(param)} />
-    </PreviewErrorBoundary>
-  ) : area === "manage" && param ? (
-    <PreviewErrorBoundary workspace>
+    ) : area === "manage" && param ? (
       <ManageBooking token={param} />
-    </PreviewErrorBoundary>
-  ) : (
-    <App />
-  ),
+    ) : (
+      <Workspace />
+    )}
+  </AppErrorBoundary>,
 );

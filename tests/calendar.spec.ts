@@ -10,6 +10,7 @@ function day(offset = 5) {
 }
 async function enter(page: Page) {
   await page.goto("/workspace");
+  await page.getByText("Start a blank test shop").click();
   await page
     .getByRole("button", { name: "Create test workspace", exact: true })
     .click();

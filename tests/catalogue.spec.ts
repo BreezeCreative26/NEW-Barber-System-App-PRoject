@@ -386,6 +386,7 @@ test("dated partial shifts replace weekly hours, keep closure precedence, flag b
 
 async function enter(page: Page) {
   await page.goto("/workspace");
+  await page.getByText("Start a blank test shop").click();
   await page
     .getByRole("button", { name: "Create test workspace", exact: true })
     .click();
