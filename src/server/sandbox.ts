@@ -19,6 +19,8 @@ import {
   type ScheduleOverride,
   type BookingItem,
   bookingSchema,
+  publicBookingSchema,
+  onlineBookingSchema,
   bookingDetailsSchema,
   dayOffSchema,
   type StaffDayOff,
@@ -63,8 +65,8 @@ const hash = async (text: string) =>
   )
     .map((v) => v.toString(16).padStart(2, "0"))
     .join("");
-const fail = (
-  status: 400 | 401 | 403 | 404 | 409 | 413,
+export const fail = (
+  status: 400 | 401 | 403 | 404 | 409 | 413 | 429,
   message: string,
 ): never => {
   throw new HTTPException(status, { message });
@@ -75,7 +77,7 @@ function scopeStaff(c: Ctx, staffId: string) {
   if (a?.role === "BARBER" && a.staff_id !== staffId)
     fail(403, "Assigned barber access only");
 }
-function audit(
+export function audit(
   c: Ctx,
   entity: string,
   entityId: string,
@@ -97,14 +99,14 @@ function audit(
     Date.now(),
   );
 }
-async function readShop(c: Ctx) {
+export async function readShop(c: Ctx) {
   const shop = await c.env.DB.prepare("SELECT * FROM shops WHERE id=?")
     .bind(c.get("shopId"))
     .first<Shop>();
   if (!shop) return fail(404, "Workspace not found");
   return shop;
 }
-async function readBooking(c: Ctx, bookingId: string) {
+export async function readBooking(c: Ctx, bookingId: string) {
   const b = await c.env.DB.prepare(
     "SELECT * FROM bookings WHERE shop_id=? AND id=?",
   )
@@ -114,7 +116,7 @@ async function readBooking(c: Ctx, bookingId: string) {
   scopeStaff(c, b.staff_id);
   return b;
 }
-async function checkVersionUpdate(
+export async function checkVersionUpdate(
   c: Ctx,
   update: D1PreparedStatement,
   event: D1PreparedStatement,
@@ -182,14 +184,17 @@ sandbox.use("*", async (c, next) => {
   if (account && !path.startsWith("/auth/")) {
     const operational =
       (method === "GET" &&
-        ["/workspace", "/bookings", "/availability"].includes(path)) ||
+        ["/workspace", "/bookings", "/availability", "/customers"].includes(
+          path,
+        )) ||
+      (method === "GET" && /^\/customers\/[^/]+$/.test(path)) ||
       (method === "GET" && /^\/bookings\/[^/]+$/.test(path)) ||
       (method === "POST" &&
         (path === "/bookings" ||
           /^\/bookings\/[^/]+\/(status|reschedule)$/.test(path))) ||
       (method === "PATCH" && /^\/bookings\/[^/]+\/details$/.test(path));
     const setup =
-      (method === "PUT" && path === "/shop") ||
+      (method === "PUT" && ["/shop", "/shop/online"].includes(path)) ||
       (["POST", "PUT", "DELETE"].includes(method) &&
         /^\/(staff|services|addons|holidays)(\/|$)/.test(path));
     if (!(
@@ -200,7 +205,7 @@ sandbox.use("*", async (c, next) => {
   }
   await next();
 });
-sandbox.onError((err, c) => {
+export function handleError(err: Error, c: Ctx) {
   if (err instanceof HTTPException)
     return c.json({ error: err.message, message: err.message }, err.status);
   const message = String(err);
@@ -219,6 +224,9 @@ sandbox.onError((err, c) => {
     "service_changed",
     "shop_closed",
     "outside_hours",
+    "outside_booking_window",
+    "no_show_grace_not_elapsed",
+    "invalid_transition",
   ];
   const code = known.find((s) => message.includes(s));
   if (code) return c.json({ error: code, message: code }, 409);
@@ -244,7 +252,8 @@ sandbox.onError((err, c) => {
     },
     500,
   );
-});
+}
+sandbox.onError(handleError);
 
 sandbox.route("/auth", accounts);
 
@@ -526,6 +535,80 @@ sandbox.put("/shop", async (c) => {
   return c.json({ ok: true });
 });
 
+// Online booking settings: public address, on/off switch, lead time and window.
+sandbox.put("/shop/online", async (c) => {
+  const b = await input(c, onlineBookingSchema);
+  try {
+    await checkVersionUpdate(
+      c,
+      c.env.DB.prepare(
+        "UPDATE shops SET slug=?,online_booking=?,lead_time_min=?,booking_window_days=?,version=version+1 WHERE id=? AND version=?",
+      ).bind(
+        b.slug,
+        b.online_booking,
+        b.lead_time_min,
+        b.booking_window_days,
+        c.get("shopId"),
+        b.version,
+      ),
+      audit(
+        c,
+        "shop",
+        c.get("shopId"),
+        b.online_booking ? "ONLINE_BOOKING_ENABLED" : "ONLINE_BOOKING_DISABLED",
+        `Public address /book/${b.slug}; lead time ${b.lead_time_min} min; window ${b.booking_window_days} days.`,
+        true,
+      ),
+    );
+  } catch (err) {
+    if (String(err).includes("shops_slug") || String(err).includes("UNIQUE"))
+      fail(409, "slug_taken");
+    throw err;
+  }
+  return c.json({ shop: await readShop(c) });
+});
+// Customer directory derived from saved visits: grouped by normalised mobile number.
+sandbox.get("/customers", async (c) => {
+  const parsed = z
+    .object({
+      q: z.string().trim().max(100).default(""),
+      limit: z.coerce.number().int().min(1).max(200).default(100),
+    })
+    .safeParse(c.req.query());
+  if (!parsed.success) fail(400, "Invalid customer query");
+  const { q, limit } = parsed.data!;
+  const a = c.get("account");
+  const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const rows = await c.env.DB.prepare(
+    `SELECT phone, MAX(customer_name) AS customer_name, MAX(CASE WHEN email<>'' THEN email END) AS email,
+      COUNT(*) AS visits,
+      SUM(CASE WHEN status='COMPLETED' THEN 1 ELSE 0 END) AS completed,
+      SUM(CASE WHEN status='NO_SHOW' THEN 1 ELSE 0 END) AS no_shows,
+      SUM(CASE WHEN status='CANCELLED' THEN 1 ELSE 0 END) AS cancelled,
+      SUM(CASE WHEN status='COMPLETED' THEN price_pence ELSE 0 END) AS completed_value_pence,
+      MIN(start_at) AS first_visit_at, MAX(start_at) AS last_visit_at,
+      MAX(CASE WHEN start_at>? AND status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') THEN start_at END) AS next_visit_at
+     FROM bookings WHERE shop_id=? AND (? IS NULL OR staff_id=?)
+     AND (?='' OR customer_name LIKE '%'||?||'%' COLLATE NOCASE OR phone LIKE '%'||?||'%' OR email LIKE '%'||?||'%' COLLATE NOCASE)
+     GROUP BY phone ORDER BY last_visit_at DESC LIMIT ?`,
+  )
+    .bind(Date.now(), c.get("shopId"), assigned, assigned, q, q, q, q, limit)
+    .all();
+  return c.json({ customers: rows.results, limit });
+});
+sandbox.get("/customers/:phone", async (c) => {
+  const phone = c.req.param("phone").replace(/[\s()-]/g, "");
+  if (!/^(?:\+44|0)7\d{9}$/.test(phone)) fail(400, "Invalid mobile number");
+  const a = c.get("account");
+  const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const rows = await c.env.DB.prepare(
+    "SELECT * FROM bookings WHERE shop_id=? AND phone=? AND (? IS NULL OR staff_id=?) ORDER BY start_at DESC LIMIT 200",
+  )
+    .bind(c.get("shopId"), phone, assigned, assigned)
+    .all<StoredBooking>();
+  if (!rows.results.length) fail(404, "No visits for this customer");
+  return c.json({ phone, bookings: rows.results });
+});
 sandbox.post("/staff", async (c) => {
   const b = await input(c, staffSchema);
   const sid = c.get("shopId");
@@ -943,7 +1026,7 @@ sandbox.delete("/holidays/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-async function availabilityContext(
+export async function availabilityContext(
   c: Ctx,
   staffId: string,
   serviceId: string,
@@ -1084,14 +1167,23 @@ sandbox.get("/availability", async (c) => {
     mode: "sandbox",
   });
 });
-sandbox.post("/bookings", async (c) => {
-  const b = await input(c, bookingSchema);
+// Shared by owner and public booking: identical quote, availability and D1 guards.
+export async function createBooking(
+  c: Ctx,
+  b: z.infer<typeof publicBookingSchema> & {
+    source: "TEST_BOOKING" | "WALK_IN";
+  },
+  channel: "OWNER" | "ONLINE",
+  options: { minStart?: number; maxDate?: string } = {},
+) {
   // Preserve request hashes for pre-add-on bookings with the same normalized payload.
-  const { addon_ids, ...originalPayload } = b;
+  const { addon_ids, email, ...originalPayload } = b;
   const requestHash = await hash(
-    JSON.stringify(
-      addon_ids.length ? { ...originalPayload, addon_ids } : originalPayload,
-    ),
+    JSON.stringify({
+      ...originalPayload,
+      ...(addon_ids.length ? { addon_ids } : {}),
+      ...(email ? { email } : {}),
+    }),
   );
   const sid = c.get("shopId");
   const replay = async () => {
@@ -1106,7 +1198,7 @@ sandbox.post("/bookings", async (c) => {
     return existing;
   };
   const existing = await replay();
-  if (existing) return c.json({ booking: existing, replayed: true });
+  if (existing) return { booking: existing, replayed: true };
   const data = await availabilityContext(c, b.staff_id, b.service_id, b.date);
   if (!data.service.active) fail(409, "service_unavailable");
   if (
@@ -1121,6 +1213,8 @@ sandbox.post("/bookings", async (c) => {
     data.links,
     b.addon_ids,
   );
+  if (options.maxDate && b.date > options.maxDate)
+    fail(409, "outside_booking_window");
   const reason = slotReason(
     data.shop,
     data.staff,
@@ -1130,7 +1224,7 @@ sandbox.post("/bookings", async (c) => {
     b.date,
     b.start_min,
     quote.duration_min,
-    Date.now(),
+    options.minStart ?? Date.now(),
     undefined,
     data.daysOff,
   );
@@ -1139,8 +1233,8 @@ sandbox.post("/bookings", async (c) => {
   const now = Date.now();
   const bookingId = id();
   const statement = c.env.DB.prepare(
-    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json)
-  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
+    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email)
+  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
   ).bind(
     bookingId,
     sid,
@@ -1166,6 +1260,8 @@ sandbox.post("/bookings", async (c) => {
     b.quote.service_version,
     b.quote.shop_version,
     JSON.stringify(quote.items),
+    channel,
+    email,
     sid,
   );
   try {
@@ -1176,18 +1272,22 @@ sandbox.post("/bookings", async (c) => {
         "booking",
         bookingId,
         "BOOKING_CREATED",
-        "Test appointment saved. No deposit or payment collected.",
+        channel === "ONLINE"
+          ? "Customer booked online. No deposit or payment collected; no message sent."
+          : "Test appointment saved. No deposit or payment collected.",
       ),
     ]);
   } catch (err) {
     const previous = await replay();
-    if (previous) return c.json({ booking: previous, replayed: true });
+    if (previous) return { booking: previous, replayed: true };
     throw err;
   }
-  return c.json(
-    { booking: await readBooking(c, bookingId), replayed: false },
-    201,
-  );
+  return { booking: await readBooking(c, bookingId), replayed: false };
+}
+sandbox.post("/bookings", async (c) => {
+  const b = await input(c, bookingSchema);
+  const result = await createBooking(c, { ...b, email: "" }, "OWNER");
+  return c.json(result, result.replayed ? 200 : 201);
 });
 sandbox.get("/bookings/:id", async (c) =>
   c.json({ booking: await readBooking(c, c.req.param("id")) }),

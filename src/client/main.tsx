@@ -5,6 +5,7 @@ import { Admin } from "./Admin";
 import { Book } from "./Book";
 import { Barber } from "./Barber";
 import { Workspace } from "./Workspace";
+import { PublicBooking, ManageBooking } from "./PublicBooking";
 import { PreviewBar, Notice, type Scenario } from "./ui";
 
 class PreviewErrorBoundary extends Component<
@@ -77,10 +78,19 @@ function App() {
     </>
   );
 }
+const [, area, param] = location.pathname.split("/");
 createRoot(document.getElementById("root")!).render(
   location.pathname === "/workspace" ? (
     <PreviewErrorBoundary workspace>
       <Workspace />
+    </PreviewErrorBoundary>
+  ) : area === "book" && param ? (
+    <PreviewErrorBoundary workspace>
+      <PublicBooking slug={decodeURIComponent(param)} />
+    </PreviewErrorBoundary>
+  ) : area === "manage" && param ? (
+    <PreviewErrorBoundary workspace>
+      <ManageBooking token={param} />
     </PreviewErrorBoundary>
   ) : (
     <App />

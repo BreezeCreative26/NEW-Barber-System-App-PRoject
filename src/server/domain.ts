@@ -11,6 +11,10 @@ export type Shop = {
   deposit_pence: number;
   cancel_hours: number;
   no_show_grace: number;
+  slug: string | null;
+  online_booking: number;
+  lead_time_min: number;
+  booking_window_days: number;
   version: number;
 };
 export type Staff = {
@@ -121,6 +125,8 @@ export type StoredBooking = {
   deposit_policy_pence: number;
   cancel_hours_snapshot: number;
   source: string;
+  channel: "OWNER" | "ONLINE";
+  email: string;
   status: string;
   version: number;
   created_at: number;
@@ -220,6 +226,35 @@ export const shopSchema = z
   })
   .strict()
   .refine((s) => s.closes > s.opens, "Closing time must be after opening time");
+export const slugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, "Use at least 3 characters")
+  .max(40)
+  .regex(
+    /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/,
+    "Use lowercase letters, numbers and single hyphens",
+  )
+  .refine(
+    (s) => !["api", "static", "workspace", "preview", "manage", "book"].includes(s),
+    "This address is reserved",
+  );
+export const onlineBookingSchema = z
+  .object({
+    slug: slugSchema,
+    online_booking: active,
+    lead_time_min: z.number().int().min(0).max(10080),
+    booking_window_days: z.number().int().min(1).max(365),
+    version,
+  })
+  .strict();
+export const emailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(254)
+  .refine((s) => s === "" || z.string().email().safeParse(s).success, "Enter a valid email address");
 export const hoursRowSchema = z
   .object({
     weekday: z.number().int().min(0).max(6),
@@ -303,6 +338,34 @@ export const bookingSchema = z
       .max(1425)
       .refine((v) => v % 15 === 0, "Choose a 15-minute start"),
     source: z.enum(["TEST_BOOKING", "WALK_IN"]),
+    addon_ids: addonIdsSchema.default([]),
+    quote: z
+      .object({ service_version: version, shop_version: version })
+      .strict(),
+  })
+  .strict();
+export const publicBookingSchema = z
+  .object({
+    request_id: z.string().uuid(),
+    staff_id: z.string().uuid(),
+    service_id: z.string().uuid(),
+    customer_name: name,
+    phone: z
+      .string()
+      .transform((s) => s.replace(/[\s()-]/g, ""))
+      .refine(
+        (s) => /^(?:\+44|0)7\d{9}$/.test(s),
+        "Enter a valid UK mobile number",
+      ),
+    email: emailSchema.default(""),
+    notes: z.string().trim().max(500).default(""),
+    date: dateSchema,
+    start_min: z
+      .number()
+      .int()
+      .min(0)
+      .max(1425)
+      .refine((v) => v % 15 === 0, "Choose a 15-minute start"),
     addon_ids: addonIdsSchema.default([]),
     quote: z
       .object({ service_version: version, shop_version: version })

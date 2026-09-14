@@ -5879,3 +5879,177 @@ input[aria-invalid="true"] {
     scroll-behavior: auto !important;
   }
 }
+
+/* Public online booking and customer manage pages */
+.public-banner {
+  flex-wrap: wrap;
+}
+.public-hero .hero-copy {
+  max-width: 640px;
+}
+.public-confirmation {
+  max-width: 720px;
+  margin: 0 auto;
+  display: grid;
+  gap: 18px;
+}
+.public-confirmation .review-appointment h1 {
+  font-size: 25px;
+  font-weight: 560;
+  margin-bottom: 6px;
+}
+.public-reference {
+  font-size: 22px;
+  letter-spacing: 0.06em;
+  display: block;
+  margin: 4px 0 8px;
+}
+.public-manage-link {
+  display: block;
+  word-break: break-all;
+  font-size: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f1f4ed;
+  border: 1px dashed #c7d3bf;
+  color: var(--forest);
+  margin-top: 8px;
+}
+.public-confirmation .booking-actions {
+  flex-wrap: wrap;
+}
+.public-confirmation .booking-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+.public-confirmation .summary-addon {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+.booking-flow .workspace-error {
+  margin-top: 12px;
+}
+.booking-dates button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.time-slots[aria-busy="true"]:empty {
+  min-height: 88px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #eef2ea 25%, #f6f8f3 50%, #eef2ea 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .time-slots[aria-busy="true"]:empty {
+    animation: none;
+  }
+}
+/* Owner workspace: online booking panel, channel badges, customer directory */
+.online-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 0 14px;
+}
+.online-link-row code {
+  font-size: 12px;
+  padding: 6px 10px;
+  background: #f1f4ed;
+  border-radius: 6px;
+  word-break: break-all;
+}
+.channel-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #e5eee0;
+  color: var(--forest);
+}
+.channel-badge.online {
+  background: #dfeaf5;
+  color: #204a6b;
+}
+.customer-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.customer-table th,
+.customer-table td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.customer-table th {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.customer-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.customer-table .workspace-text-button {
+  font-weight: 600;
+}
+@media (max-width: 740px) {
+  .customer-table thead {
+    display: none;
+  }
+  .customer-table tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .customer-table td {
+    border: 0;
+    padding: 0;
+  }
+  .customer-table td.num {
+    text-align: left;
+  }
+  .customer-table td[data-label]::before {
+    content: attr(data-label) " ";
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    display: block;
+  }
+  .customer-table td.customer-name {
+    grid-column: 1 / -1;
+  }
+}
+.customer-history {
+  display: grid;
+  gap: 8px;
+}
+.customer-history article {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}

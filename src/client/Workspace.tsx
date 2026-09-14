@@ -93,6 +93,8 @@ async function api<T>(
           "That time was just booked. Choose another available time; your customer details have been kept.",
         session_required:
           "This browser’s test session is missing or expired. Close this dialog and refresh workspace access.",
+        slug_taken:
+          "Another shop already uses this public address. Choose a different one.",
       };
       throw new ApiError(
         friendly[result.error] ||
@@ -981,6 +983,7 @@ export function Workspace() {
           <nav aria-label="Workspace sections">
             {[
               "Appointments",
+              "Customers",
               "Team",
               "Services",
               "Settings",
@@ -990,7 +993,7 @@ export function Workspace() {
               (name, i) =>
                 (!w?.account ||
                   ["OWNER", "MANAGER"].includes(w.account.role) ||
-                  ["Appointments", "Accounts"].includes(name)) && (
+                  ["Appointments", "Customers", "Accounts"].includes(name)) && (
                   <button
                     key={name}
                     type="button"
@@ -1007,6 +1010,7 @@ export function Workspace() {
                       name={
                         [
                           "calendar",
+                          "user",
                           "users",
                           "scissors",
                           "settings",
@@ -1170,12 +1174,12 @@ export function Workspace() {
                         foot: "Service status, not payment",
                       },
                       {
-                        label: "Walk-ins",
+                        label: "Booked online",
                         value: filteredBookings.filter(
-                          (b) => b.source === "WALK_IN",
+                          (b) => b.channel === "ONLINE",
                         ).length,
                         icon: "user",
-                        foot: "Included in appointments",
+                        foot: `${filteredBookings.filter((b) => b.source === "WALK_IN").length} walk-ins · included above`,
                       },
                     ].map((s) => (
                       <article className="stat-card" key={s.label}>
@@ -1656,6 +1660,7 @@ export function Workspace() {
                       </Field>
                     </SaveForm>
                   </section>
+                  <OnlineBookingPanel w={w} saved={saved} />
                   <section className="workspace-panel">
                     <div className="workspace-section-heading">
                       <h2>Shop closures</h2>
@@ -1687,6 +1692,12 @@ export function Workspace() {
                     </Notice>
                   </section>
                 </div>
+              )}
+              {tab === "Customers" && (
+                <CustomersPanel
+                  w={w}
+                  onOpen={(b) => setEditor({ kind: "detail", item: b })}
+                />
               )}
               {tab === "Accounts" && (
                 <AccountSettings w={w} onDone={accountChanged} />
@@ -1746,6 +1757,303 @@ export function Workspace() {
   );
 }
 
+
+function OnlineBookingPanel({
+  w,
+  saved,
+}: {
+  w: WorkspaceData;
+  saved: EditorProps["saved"];
+}) {
+  const suggested =
+    w.shop.slug ||
+    w.shop.name
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) ||
+    "my-shop";
+  const [slug, setSlug] = useState(suggested);
+  const [copied, setCopied] = useState("");
+  const link = `${location.origin}/book/${w.shop.slug || slug}`;
+  const readOnly = !!w.account && !["OWNER", "MANAGER"].includes(w.account.role);
+  return (
+    <section className="workspace-panel" aria-labelledby="online-booking-heading">
+      <div className="workspace-section-heading">
+        <h2 id="online-booking-heading">Online booking</h2>
+        <Badge tone={w.shop.online_booking ? "" : "warning"}>
+          {w.shop.online_booking ? "Customers can book" : "Off"}
+        </Badge>
+      </div>
+      <p>
+        Customers book from a public page using your live services, barbers,
+        hours and prices. Every online booking follows the same availability
+        and collision guards as this workspace. No payment or message is sent.
+      </p>
+      <div className="online-link-row">
+        <code data-testid="online-link">{link}</code>
+        {w.shop.slug && w.shop.online_booking ? (
+          <>
+            <a
+              className="button secondary"
+              href={link}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open booking page
+            </a>
+            <Button
+              variant="ghost"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(link);
+                  setCopied("Link copied.");
+                } catch {
+                  setCopied("Copy unavailable; select the link text instead.");
+                }
+              }}
+            >
+              Copy link
+            </Button>
+          </>
+        ) : (
+          <small>Save with online booking switched on to activate this address.</small>
+        )}
+      </div>
+      {copied && <p role="status">{copied}</p>}
+      {!readOnly && (
+        <SaveForm
+          key={w.shop.version}
+          label="Save online booking"
+          onSave={(f) =>
+            saved("/shop/online", "PUT", {
+              slug: text(f, "slug"),
+              online_booking: f.get("online_booking") ? 1 : 0,
+              lead_time_min: number(f, "lead_time_min"),
+              booking_window_days: number(f, "booking_window_days"),
+              version: w.shop.version,
+            })
+          }
+        >
+          <Field label="Public address (letters, numbers, hyphens)">
+            <input
+              name="slug"
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              required
+              minLength={3}
+              maxLength={40}
+              pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?"
+              autoCapitalize="off"
+              spellCheck={false}
+            />
+          </Field>
+          <label className="workspace-check">
+            <input
+              type="checkbox"
+              name="online_booking"
+              defaultChecked={!!w.shop.online_booking}
+            />
+            Allow customers to book online
+          </label>
+          <div className="workspace-form-grid">
+            <Field label="Minimum notice (minutes)">
+              <input
+                type="number"
+                name="lead_time_min"
+                min={0}
+                max={10080}
+                step={15}
+                required
+                defaultValue={w.shop.lead_time_min}
+              />
+            </Field>
+            <Field label="Book up to (days ahead)">
+              <input
+                type="number"
+                name="booking_window_days"
+                min={1}
+                max={365}
+                required
+                defaultValue={w.shop.booking_window_days}
+              />
+            </Field>
+          </div>
+          <p className="workspace-footnote">
+            Customers can move or cancel online while the visit is further away
+            than the minimum notice. Changes inside your {w.shop.cancel_hours}
+            -hour cancellation policy are recorded as late. Switching online
+            booking off keeps existing bookings and manage links.
+          </p>
+        </SaveForm>
+      )}
+    </section>
+  );
+}
+type CustomerRow = {
+  phone: string;
+  customer_name: string;
+  email: string | null;
+  visits: number;
+  completed: number;
+  no_shows: number;
+  cancelled: number;
+  completed_value_pence: number;
+  first_visit_at: number;
+  last_visit_at: number;
+  next_visit_at: number | null;
+};
+function CustomersPanel({
+  w,
+  onOpen,
+}: {
+  w: WorkspaceData;
+  onOpen: (b: StoredBooking) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [rows, setRows] = useState<CustomerRow[] | null>(null);
+  const [error, setError] = useState("");
+  const [selected, setSelected] = useState<{
+    phone: string;
+    bookings: StoredBooking[];
+  } | null>(null);
+  const [historyError, setHistoryError] = useState("");
+  const sequence = useRef(0);
+  useEffect(() => {
+    const id = ++sequence.current;
+    const handle = window.setTimeout(() => {
+      api<{ customers: CustomerRow[] }>(
+        `/customers?q=${encodeURIComponent(query.trim())}`,
+      )
+        .then((r) => id === sequence.current && (setRows(r.customers), setError("")))
+        .catch(
+          (e) =>
+            id === sequence.current &&
+            setError(e instanceof Error ? e.message : "Could not load customers."),
+        );
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [query, w.bookings.length, w.now]);
+  async function open(phone: string) {
+    setHistoryError("");
+    try {
+      setSelected(await api(`/customers/${encodeURIComponent(phone)}`));
+    } catch (e) {
+      setHistoryError(e instanceof Error ? e.message : "Could not load history.");
+    }
+  }
+  const fmt = (ms: number | null) =>
+    ms ? new Date(ms).toLocaleDateString("en-GB", { timeZone: "Europe/London" }) : "—";
+  return (
+    <div className="workspace-settings">
+      <section className="workspace-panel" aria-labelledby="customers-heading">
+        <div className="workspace-section-heading">
+          <h2 id="customers-heading">Customers</h2>
+          <small>{rows ? `${rows.length} shown` : "Loading…"}</small>
+        </div>
+        <p>
+          Built from saved visits and grouped by mobile number. Names and
+          emails come from each customer’s latest booking. No marketing or
+          messaging is connected.
+        </p>
+        <Field label="Search customers">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Name, mobile or email"
+          />
+        </Field>
+        <ErrorMessage error={error} />
+        {rows && rows.length === 0 && (
+          <div className="workspace-empty">
+            <Icon name="user" size={34} />
+            <h3>No customers yet</h3>
+            <p>Customers appear here after their first saved booking.</p>
+          </div>
+        )}
+        {rows && rows.length > 0 && (
+          <table className="customer-table">
+            <thead>
+              <tr>
+                <th scope="col">Customer</th>
+                <th scope="col">Visits</th>
+                <th scope="col">Completed</th>
+                <th scope="col">No-shows</th>
+                <th scope="col">Completed value</th>
+                <th scope="col">Last visit</th>
+                <th scope="col">Next visit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.phone}>
+                  <td className="customer-name">
+                    <button
+                      className="workspace-text-button"
+                      onClick={() => open(r.phone)}
+                      aria-expanded={selected?.phone === r.phone}
+                    >
+                      {r.customer_name}
+                    </button>
+                    <br />
+                    <small>
+                      {r.phone}
+                      {r.email ? ` · ${r.email}` : ""}
+                    </small>
+                  </td>
+                  <td className="num" data-label="Visits">{r.visits}</td>
+                  <td className="num" data-label="Completed">{r.completed}</td>
+                  <td className="num" data-label="No-shows">{r.no_shows}</td>
+                  <td className="num" data-label="Completed value">
+                    {money(r.completed_value_pence)}
+                  </td>
+                  <td data-label="Last visit">{fmt(r.last_visit_at)}</td>
+                  <td data-label="Next visit">{fmt(r.next_visit_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+      <section className="workspace-panel" aria-labelledby="history-heading">
+        <h2 id="history-heading">
+          {selected
+            ? `${selected.bookings[0]?.customer_name} · visit history`
+            : "Visit history"}
+        </h2>
+        <ErrorMessage error={historyError} />
+        {!selected && <p>Select a customer to see every saved visit.</p>}
+        {selected && (
+          <div className="customer-history">
+            {selected.bookings.map((b) => (
+              <article key={b.id}>
+                <strong>{b.date}</strong>
+                <span>
+                  {time(b.start_min)} · {b.service_name} ·{" "}
+                  {w.staff.find((s) => s.id === b.staff_id)?.name || "Barber"} ·{" "}
+                  {money(b.price_pence)}
+                  {b.channel === "ONLINE" && (
+                    <>
+                      {" "}
+                      <span className="channel-badge online">Online</span>
+                    </>
+                  )}
+                </span>
+                <button
+                  className="workspace-text-button"
+                  onClick={() => onOpen(b)}
+                >
+                  {labels[b.status]} · Open
+                </button>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
 function BookingList({
   bookings,
   w,
@@ -1775,6 +2083,12 @@ function BookingList({
             </small>
             <small>
               {reference(b)} · {money(b.price_pence)}
+              {b.channel === "ONLINE" && (
+                <>
+                  {" "}
+                  <span className="channel-badge online">Online</span>
+                </>
+              )}
             </small>
           </span>
           <Badge tone={b.status === "CANCELLED" ? "warning" : ""}>
@@ -2288,8 +2602,14 @@ function WorkspaceEditor({
               {money(e.item.price_pence)}
             </p>
             <p>
-              {e.item.source === "WALK_IN" ? "Walk-in" : "Test booking"} ·{" "}
-              {e.item.notes || "No notes"}
+              {e.item.channel === "ONLINE" ? (
+                <span className="channel-badge online">Booked online</span>
+              ) : e.item.source === "WALK_IN" ? (
+                "Walk-in"
+              ) : (
+                "Test booking"
+              )}
+              {e.item.email && <> · {e.item.email}</>} · {e.item.notes || "No notes"}
             </p>
             <Notice>
               Service snapshot retained. Deposit policy:{" "}
