@@ -4,6 +4,7 @@ import "./fonts.css";
 import { Admin } from "./Admin";
 import { Book } from "./Book";
 import { Barber } from "./Barber";
+import { Workspace } from "./Workspace";
 import { PreviewBar, Notice, type Scenario } from "./ui";
 
 class PreviewErrorBoundary extends Component<
@@ -71,4 +72,6 @@ function App() {
     </>
   );
 }
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  location.pathname === "/workspace" ? <Workspace /> : <App />,
+);

@@ -1,4 +1,416 @@
-/* Barbershop OS / WP-001-A. Shared preview tokens, not final approved branding. */
+/* Barbershop OS. D-012: preserve the existing matte palette. */
+/* Functional workspace: scoped layout additions, shared colours unchanged. */
+.workspace-banner {
+  background: var(--forest);
+  color: #fff;
+  padding: 10px 24px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+.workspace-layout {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  min-height: calc(100vh - 40px);
+}
+.workspace-sidebar {
+  padding: 32px 22px;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+}
+.workspace-shop {
+  margin-top: 24px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.workspace-sidebar nav {
+  display: grid;
+  gap: 8px;
+  margin: 28px 0 40px;
+}
+.workspace-sidebar nav button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  border-radius: 12px;
+  padding: 13px;
+  text-align: left;
+}
+.workspace-sidebar nav button[aria-current] {
+  background: var(--sage);
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+.workspace-sidebar > a {
+  text-decoration: underline;
+  font-size: 12px;
+}
+.workspace-main {
+  padding: 36px clamp(16px, 3vw, 48px);
+  min-width: 0;
+  max-width: 1600px;
+  width: 100%;
+}
+.workspace-heading,
+.workspace-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.workspace-heading p {
+  color: var(--muted);
+  margin: 8px 0;
+}
+.workspace-panel {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  padding: 24px;
+  min-width: 0;
+}
+.workspace-welcome {
+  max-width: 600px;
+  margin: 24px auto;
+}
+.workspace-welcome > svg {
+  color: var(--accent);
+  margin-bottom: 20px;
+}
+.workspace-form fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.workspace-form > fieldset {
+  display: grid;
+  gap: 16px;
+}
+.workspace-form > fieldset > .button {
+  justify-self: start;
+  margin-top: 4px;
+}
+.workspace-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.workspace-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 0;
+}
+.workspace-field input,
+.workspace-field select,
+.workspace-field textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  min-height: 44px;
+  font-weight: 400;
+}
+.workspace-field textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+.workspace-check,
+.workspace-checks label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+}
+.workspace-form .workspace-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+.workspace-checks legend {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.workspace input[type="checkbox"],
+.workspace-form input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+.workspace-form .workspace-hours {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+}
+.workspace-hours legend {
+  font-weight: 600;
+  padding: 0 6px;
+}
+.workspace-hours .workspace-form-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.workspace-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-end;
+}
+.workspace-toolbar .workspace-field {
+  flex: 1;
+  min-width: 150px;
+  margin: 0;
+}
+.workspace-toolbar > .button {
+  min-height: 44px;
+}
+.workspace-day {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 22px 0;
+}
+.workspace-day > strong {
+  flex: 1;
+}
+.workspace-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+  margin-bottom: 24px;
+}
+.workspace-card-grid h3 {
+  margin-top: 18px;
+  overflow-wrap: anywhere;
+}
+.workspace-price {
+  display: block;
+  font-size: 26px;
+  margin: 18px 0;
+}
+.workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.workspace-empty {
+  text-align: center;
+  padding: 48px 12px;
+  color: var(--muted);
+}
+.workspace-empty h2 {
+  color: var(--ink);
+  margin: 18px 0 8px;
+}
+.workspace-booking-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 18px;
+  padding: 20px 0;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+}
+.workspace-booking-row:hover {
+  background: var(--canvas);
+}
+.workspace-booking-row > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.workspace-booking-row small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.workspace-booking-time {
+  min-width: 60px;
+  font-weight: 600;
+}
+.workspace-footnote {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 20px 0 0;
+}
+.workspace-sidebar .workspace-footnote {
+  margin-bottom: 20px;
+}
+.workspace-settings {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+.workspace-closure {
+  border-top: 1px solid var(--line);
+  padding: 16px 0;
+}
+.workspace-audit {
+  list-style: none;
+  padding: 0;
+}
+.workspace-audit li {
+  border-top: 1px solid var(--line);
+  padding: 18px 0;
+  overflow-wrap: anywhere;
+}
+.workspace-audit time {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 6px 0;
+}
+.workspace-audit p {
+  margin: 8px 0;
+}
+.workspace-success {
+  padding: 12px 16px;
+  background: var(--sage);
+  color: var(--accent-dark);
+  border-radius: 10px;
+}
+.workspace-error {
+  color: #9c302d;
+  background: #fdf1ef;
+  border-radius: 10px;
+  padding: 12px 16px;
+  overflow-wrap: anywhere;
+}
+.workspace-text-button {
+  border: 0;
+  background: none;
+  text-decoration: underline;
+  color: var(--accent-dark);
+  padding: 4px;
+}
+.workspace-booking-detail {
+  margin-bottom: 20px;
+}
+.workspace-booking-detail h3 {
+  font-size: 22px;
+  margin-top: 14px;
+}
+.workspace-booking-detail + .button {
+  margin-bottom: 20px;
+}
+.workspace-quote {
+  background: var(--sage);
+  border-radius: 12px;
+  padding: 16px;
+  color: var(--accent-dark);
+}
+.workspace-main > .notice {
+  margin-bottom: 20px;
+}
+@media (max-width: 1024px) {
+  .workspace-layout {
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+  .workspace-sidebar {
+    padding: 26px 14px;
+  }
+  .workspace-settings {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 767px) {
+  .workspace-banner {
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 16px;
+  }
+  .workspace-layout {
+    display: block;
+  }
+  .workspace-sidebar {
+    padding: 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .workspace-sidebar nav {
+    display: flex;
+    overflow-x: auto;
+    margin: 16px 0 0;
+    gap: 4px;
+    padding-bottom: 4px;
+  }
+  .workspace-sidebar nav button {
+    white-space: nowrap;
+    flex-shrink: 0;
+    gap: 6px;
+    padding: 10px;
+    font-size: 13px;
+  }
+  .workspace-sidebar .workspace-shop,
+  .workspace-sidebar .workspace-footnote,
+  .workspace-sidebar > a {
+    display: none;
+  }
+  .workspace-main {
+    padding: 24px 16px;
+  }
+  .workspace-heading {
+    align-items: flex-start;
+  }
+  .workspace-heading h1 {
+    font-size: 27px;
+  }
+  .workspace-heading .eyebrow {
+    font-size: 9px;
+  }
+  .workspace-heading > .button {
+    padding: 10px;
+  }
+  .workspace-heading > .button svg {
+    display: none;
+  }
+  .workspace-panel {
+    padding: 16px;
+  }
+  .workspace-card-grid {
+    grid-template-columns: 1fr;
+  }
+  .workspace-hours .workspace-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .workspace-booking-row {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .workspace-booking-row > .badge {
+    margin-left: 70px;
+  }
+  .workspace-booking-row > svg {
+    display: none;
+  }
+  .workspace-booking-row > span:nth-child(2) {
+    flex-basis: calc(100% - 80px);
+  }
+  .workspace-section-heading {
+    gap: 10px;
+  }
+  .workspace-section-heading h2 {
+    font-size: 18px;
+  }
+  .workspace-day strong {
+    font-size: 12px;
+  }
+}
+
 :root {
   --canvas: #f6f7f5;
   --surface: #fff;

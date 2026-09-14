@@ -217,7 +217,9 @@ export function Modal({
   children,
   onClose,
   wide = false,
+  context = "DESIGN PREVIEW",
 }: {
+  context?: string;
   title: string;
   children: ReactNode;
   onClose: () => void;
@@ -268,7 +270,7 @@ export function Modal({
       <div className="modal-inner">
         <header className="modal-header">
           <div>
-            <span className="eyebrow">DESIGN PREVIEW</span>
+            <span className="eyebrow">{context}</span>
             <h2 id="dialog-title">{title}</h2>
           </div>
           <IconButton name="close" label="Close dialog" onClick={onClose} />

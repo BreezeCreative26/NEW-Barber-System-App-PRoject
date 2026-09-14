@@ -1,6 +1,6 @@
 # Barbershop OS — Build plan
 
-Version: 1.2 · Updated: 2026-09-14 · Status: initial interactive preview implemented and tested; modern neutral/teal refinement planned under D-011. No live business backend yet.
+Version: 1.3 · Updated: 2026-09-14 · D-012: keep current matte colours, functionality first, nothing live. Local D1 workspace/setup/booking slice implemented; see PROGRESS for tested scope. WP-001-A-R1 recolouring is cancelled. Production SaaS is not complete.
 
 ## 1. Mandate and sources of truth
 
@@ -66,7 +66,7 @@ PWA: web manifest, suitable icons, service worker, update experience, restricted
 - Server scheduling and reliable delivery via separately configured Cloudflare scheduled Workers/Queues or an approved external scheduler. Do not rely on site visits to send reminders.
 - Sentry/structured logs without customer notes, payment secrets or invitation tokens.
 
-Development tools and React/test dependencies are not installed yet; inspect the actual package versions before adding anything. Runtime code uses Cloudflare-compatible Web APIs; development scripts may use Node.
+React, TypeScript, Zod, Vitest, Playwright, axe and Wrangler dependencies are installed. Inspect actual versions before adding packages. Runtime code uses Cloudflare-compatible Web APIs; development scripts may use Node. D-012 permits browser-owned capability sessions for isolated local testing only; managed identity remains mandatory before real private shop data.
 
 ### Deployment boundary
 
@@ -126,7 +126,7 @@ Avoid designing payment records around exactly two PaymentIntent columns; allow 
 
 1. Calculate availability from shop hours, closures, eligible staff, staff shifts/breaks, overrides, service/add-on durations, existing appointments, holds and the buffer.
 2. UI displays starts on a 15-minute grid. Resource occupancy must cover exact duration plus buffer; grid starts alone are not collision protection.
-3. Prove an atomic D1 reservation algorithm before UI calendars depend on it. Candidate: unique barber/time-unit claims for the full interval, acquired with booking/hold writes in a transactionally atomic D1 batch. Define time precision and query/parameter limits in the spike.
+3. The local slice uses SQLite BEFORE INSERT/UPDATE overlap triggers inside the booking write transaction, plus D1 batches for audit consistency. Direct-D1 and simultaneous HTTP tests prove exact interval/buffer rejection for appointments. This replaces the earlier time-unit-claim candidate for this slice; checkout holds and expired-hold reclamation are still unimplemented.
 4. Check on selection for feedback; enforce again atomically on hold acquisition/submission. Conflicting request receives `409 slot_taken`.
 5. Use server-issued expiring holds and server time. Release expired claims transactionally during acquisition as well as scheduled cleanup; correctness cannot depend on cleanup timing.
 6. Changing service, barber, add-ons or duration invalidates and rechecks the selected slot.
@@ -207,7 +207,8 @@ User requested starting the build and a concrete execution plan. Do not produce 
 | Package | Deliverable the user can inspect | Work included | Exit evidence |
 | --- | --- | --- | --- |
 | WP-001-A | Three-screen local design preview | Admin day calendar; customer service/barber/date selection; barber Today; shared visual components and preview state controls | Actual screenshots at required sizes; UI controls tested; labelled fixtures; no fake auth or payment |
-| WP-001-A-R1 | Modern neutral/teal refinement | D-011: neutral/charcoal foundation; teal secondary accent; rounded geometry; readable type; simplify legacy styling without breaking interactions | Before/after screenshots; full regression and contrast checks; focused user feedback |
+| WP-001-A-R1 | Cancelled by D-012 | Keep the current matte forest/sage palette | Do not execute recolouring |
+| WP-LOCAL-01 | Persisted local shop and appointment workflow | Browser-owned test sessions; local D1; staff/services/settings/hours/closures; availability; bookings; status and reschedule; audit | Domain, direct-D1, API isolation/concurrency and browser tests; no production identity or provider calls |
 | WP-001-B | Technical risk results | D1 interval allocation and expired-hold proof; Stripe Model A account-context checklist/proof when credentials available | Concurrency test evidence; explicit provider blockers; no architecture assumption marked proven |
 | WP-002-A | Private shop setup | Auth provider adapter; owner membership; tenant authorization; shop setup; first services and staff; reload persistence | Two-shop isolation tests and working setup flow |
 | WP-002-B | Complete scheduling setup | Service/add-on CRUD; barber coverage/price/duration; weekly shifts; breaks; time off; holiday handling; audit | Validated forms plus API tests; history preserved |
@@ -240,22 +241,22 @@ Evidence for the initial preview is recorded in PROGRESS. Checked items refer to
 
 Related feature IDs: A-02/A-03/A-12, C-01/C-03/C-06/C-10/C-11/C-16..C-19, B-09..B-11, X-01..X-04. Their business-function status remains not_started until the actual production-contract implementation starts; preview-only progress belongs to E-001..E-010.
 
-### Immediate next sequence after user design feedback
+### Current functionality-first sequence (D-012)
 
-1. **WP-001-A-R1 — Refine the existing theme, do not rewrite screens.** Centralize neutral/charcoal/teal tokens, consistent 12/16/20 px radii, readable text and restrained visual decoration. Keep mobile agenda and fixed booking actions. Re-run tests and inspect all three surfaces. This is the next implementation task; no provider credentials needed.
+1. **WP-LOCAL-01 — Local persisted foundation, now implemented.** Retain the matte appearance. `/workspace` connects local D1 setup, weekly schedules, closures, appointments, audited transitions and conflict-safe rescheduling. These are test-owner capabilities, not production roles. Next extend this slice with add-on catalogue/items, barber eligibility/overrides and dated time off before connecting public customer and assigned-barber surfaces.
 2. **WP-001-B — Prove data safety.** Implement/test an atomic D1 allocation spike including intervals, buffers, expiry and simultaneous requests. Define tenant-aware schema and payment account-context contracts; do not mistake fixture helpers for real availability. Stripe execution waits only on Stripe credentials.
-3. **WP-002-A/B — First persistent vertical slice: create shop -> create staff/service -> set hours -> reload and verify isolation.** Add selected managed authentication, server roles, migrations, validation, D1 persistence and audit. A provider choice is needed here; do not fake sign-in. Add real Team, Services and Settings screens using the refined components.
+3. **WP-002-A/B — Complete setup and production identity separately.** Basic saved shop/staff/services/hours screens exist in WP-LOCAL-01. Complete add-ons, staff coverage/overrides and dated time off locally. Managed authentication, memberships, MFA and invitation lifecycle remain explicit production gates; provider selection does not block local functional work.
 4. **WP-003-A — Real booking lifecycle.** Replace fixture catalogue/slots with tenant-scoped APIs, hold and booking allocation; connect customer selection and admin calendar. Add conflict feedback and atomic walk-in/reschedule operations. Pass concurrency and timezone tests before adding payments.
 5. **WP-004-A/B — Shop-owned payments and delivery.** Connect shop Stripe accounts, deposits/refunds, verified webhooks and ledger postings; then durable notifications/reminders and secure customer booking access. No live mode without explicit readiness/sign-off.
 6. **WP-005-A/B and WP-006-A/B — Working day, PWA and finances.** Persist visit transitions, cash/card/tips and receipts; implement actual installation/offline-cache rules; reconcile manual pay-runs and reports. Never present offline-state examples or a tip calculator as real operational persistence.
 7. **WP-007-A/B — Commercial SaaS launch.** Subscription lifecycle, server entitlements, platform operations, monitoring, restore test and two-tenant pilot.
 
-Do not ask whether to keep redesigning or start a different architecture: the user has requested this refinement and build-out. Ask only specific blocking provider/policy decisions at the point they matter. Preserve all original release-scope flags, including unresolved native launch scope.
+Do not ask whether to redesign or restart architecture. The user has cancelled recolouring and requested functional build-out with nothing live. Ask only blocking provider/policy decisions at the point they matter. Preserve original release-scope flags and keep all local examples clearly separated from production capabilities.
 
 ### Build boundaries and required inputs
 
-- Start now without provider credentials: shared design proof, local test scaffolding, D1 feasibility and API/schema contracts.
-- Before WP-002-A: select/configure managed authentication. Do not use a public demo role-switcher as real login.
+- Continue without provider credentials: local persisted vertical slices and tested database invariants, retaining current matte styling.
+- Before production identity in WP-002-A: select/configure managed authentication. Browser-owned sandbox capabilities are not real login or staff roles; APP_MODE is enabled only in ignored local .dev.vars.
 - Before booking policy finalization: resolve deposit, commission meaning, exact time/buffer/no-show rules. Show provisional fixture values as examples only.
 - Before WP-004-A: securely configured Stripe sandbox and approved shop account model. Never request secrets in chat.
 - Before WP-004-B: scheduler and controlled notification credentials/recipients.

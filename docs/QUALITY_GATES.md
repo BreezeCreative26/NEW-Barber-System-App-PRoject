@@ -1,6 +1,6 @@
 # Barbershop OS — Quality gates and evidence
 
-Version 1.1 · 2026-09-14. The production acceptance catalogue below remains planned unless PROGRESS links actual evidence. A separate initial-preview suite now exists (23 unit/route tests and 25 browser tests); passing it does not prove production D1, identity, payments or PWA acceptance. The forthcoming D-011 theme revision must rerun its own regression/contrast checks.
+Version 1.2 · 2026-09-14. D-012 cancels recolouring and prioritizes local persisted functionality. Current evidence includes 36 unit/route/domain tests, direct local D1 invariant checks and 38 full browser/API cases. See PROGRESS for exact reports. The production acceptance catalogue remains incomplete: local workspace tests do not prove managed identity, checkout holds, payments, notifications or PWA acceptance.
 
 ## 1. Status vocabulary
 
@@ -196,6 +196,6 @@ After a bug: reproduce, add regression test, fix root cause, re-run neighbouring
 
 ## 9. Automation roadmap
 
-M1 now has `npm run typecheck`, `npm run test:unit`, `npm run test:e2e` and combined `npm run test`, with Vitest/Playwright/axe configuration. Browser tests require the PM2 preview service. Formatting uses installed Prettier. Production D1/API integration suites, dedicated lint/CI setup and provider/device checks still need implementation. Keep secrets in deployment secret stores or ignored local vars; test configurations use clearly isolated sandbox accounts.
+Automation includes `typecheck`, `test:unit`, `test:db`, `test:e2e` and combined `test`. Local D1/API tests now prove appointment conflicts, snapshot/audit guards, transaction rollback, tenant-negative operations, versions and replay. Browser tests require PM2 and local migrations. Playwright artifacts use a unique run directory to prevent concurrent cleanup collisions; do not launch overlapping tests unnecessarily. Dedicated lint/CI and production identity/provider/device tests remain to implement. Secrets stay in ignored local vars or deployment secret stores; all current test data is fictional.
 
 Per work package: affected fast tests plus a browser smoke pass. Per milestone: full relevant suite, screenshot review, tenant-negative tests and recorded gate decision. Before production: clean build, smoke checks on final URL, backups/restore proof, external integration checks and owner approval.

@@ -40,13 +40,19 @@ This instruction does not settle financial policy, native launch inclusion, prov
 
 ### D-011 — Modern neutral visuals with teal as secondary colour
 
-User explicitly requested modern, clean visuals, teal as the secondary colour and rounded edges. This supersedes the green/sage-dominated appearance of the first preview and refines D-007.
+Historical request, now superseded by D-012: user requested modern, clean visuals, teal as the secondary colour and rounded edges. The proposed recolouring below was never applied and must not be executed.
 
 - Neutral white/cool-grey surfaces and charcoal establish the foundation; teal provides selected/focus/navigation accents rather than overwhelming large surfaces.
 - Consistent rounded cards, inputs, buttons and dialogs; restrained elevation, clean typography and generous but purposeful spacing.
 - Proposed implementation teal is #0F766E with pale teal #E6F4F1. Exact swatches and revised screens remain subject to visual review; do not call them separately approved.
 - Next work is a focused shared-theme refinement WP-001-A-R1, preserving working flows and tests, followed by technical proof and persistent tenant setup.
 - This planning update does not itself change the running CSS. Current screenshot/test evidence belongs to the initial preview, not the proposed refinement.
+
+### D-012 — Keep the current matte colours; functionality first; nothing live
+
+Latest user instruction supersedes D-011's planned recolouring: retain the existing matte palette and rounded components. Cancel the WP-001-A-R1 visual redesign. Prioritize actual persistence and functional workflows, not more mock screens.
+
+Development remains sandbox-only: local D1, fictional test data, no production deployment, live provider credentials, real charges/messages or bank transfers. First functional slice: isolated browser-owned test workspace, saved shop/staff/services/hours, conflict-safe booking creation/rescheduling and audited status transitions. Development workspace access is explicitly not production customer/staff identity; it must fail closed unless a local-only sandbox flag is configured. Production authentication and external integrations remain separate gates.
 
 ## Proposed architecture decisions
 
@@ -68,7 +74,7 @@ Proposed: atomic move of the reservation with an appended event, retaining payme
 
 ### D-007 — Premium utilitarian visual direction
 
-Initial proposal: warm neutrals and restrained teal. The first implementation leaned forest green/sage. D-011 now governs the next pass: clean modern neutral/charcoal foundations, teal secondary accent and consistent rounded geometry. Precise typography and useful density remain required; final revised screens await user review.
+Initial proposal: warm neutrals and restrained teal. The implementation uses matte forest green/sage. D-012 now governs: preserve that existing palette and rounded geometry while building actual functionality. D-011 recolouring is cancelled.
 
 ### D-008 — Web-first release sequence and native scope
 
@@ -84,7 +90,7 @@ Own-account Cloudflare deployment is recommended for commercial infrastructure c
 
 | ID | Question / proposed default | Needed before | Owner / effect |
 | --- | --- | --- | --- |
-| O-01 | Working name remains Barbershop OS; D-011 confirms modern/teal/rounded direction. Final product name and revised screen review remain open; references optional | M1 visual approval | User; final branding and screen acceptance |
+| O-01 | Working name remains Barbershop OS; D-012 confirms keeping current matte colours. Final product name remains open; references optional | M1 visual approval | User; final branding and screen acceptance |
 | O-02 | Native customer/barber features launch-blocking or explicitly deferred? Proposed web/PWA pilot first | G0 release scope | User; original C-21/B-20 and native push/clipboard |
 | O-03 | Shop share or barber share meaning of commission? Proposed explicit shop share in basis points | M2 schema | User; every earnings formula |
 | O-04 | Who absorbs card fees and who physically receives cash? | M4–M6 money implementation | User/accountant; entitlement adjustments |
@@ -104,7 +110,7 @@ Own-account Cloudflare deployment is recommended for commercial infrastructure c
 
 ## First decisions to request next session
 
-WP-001-A initial preview is built and tested. Next apply WP-001-A-R1 under D-011, without asking the user to repeat the modern/teal direction. O-01 stays open only for final branding and revised visual review. Resolve O-02/O-03/O-05 and O-07 before dependent native/policy/auth work; do not restart planning or block the theme pass on provider credentials.
+WP-001-A initial preview is built and tested. D-012 cancels WP-001-A-R1: keep current matte colours and implement the local persistent functionality slice now. O-01 stays open only for final branding and revised visual review. Resolve O-02/O-03/O-05 and O-07 before dependent native/policy/auth work; do not restart planning or block local functional development on provider credentials.
 
 ## Payment reference checked during planning
 

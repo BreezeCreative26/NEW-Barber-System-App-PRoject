@@ -1,34 +1,17 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "hono-cf-pages-template",
+  "name": "barbershop-os-local",
   "compatibility_date": "2026-09-08",
   "pages_build_output_dir": "./dist",
-  "compatibility_flags": [
-    "nodejs_compat"
-  ]
-  // "vars": {
-  //   "MY_VAR": "my-variable"
-  // },
-  // "kv_namespaces": [
-  //   {
-  //     "binding": "MY_KV_NAMESPACE",
-  //     "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  //   }
-  // ],
-  // "r2_buckets": [
-  //   {
-  //     "binding": "MY_BUCKET",
-  //     "bucket_name": "my-bucket"
-  //   }
-  // ],
-  // "d1_databases": [
-  //   {
-  //     "binding": "MY_DB",
-  //     "database_name": "my-database",
-  //     "database_id": ""
-  //   }
-  // ],
-  // "ai": {
-  //   "binding": "AI"
-  // }
+  "compatibility_flags": ["nodejs_compat"],
+  // Local development placeholder only. No production database provisioned.
+  // APP_MODE=sandbox belongs exclusively in ignored .dev.vars.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "barbershop-os-local",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "migrations",
+    },
+  ],
 }

@@ -1,6 +1,6 @@
 # Barbershop OS — UI/UX design contract
 
-Version 1.1 · 2026-09-14 · User direction confirmed in D-011: clean modern visuals, teal secondary accent and rounded edges. Revised tokens and compositions await implementation/review; existing screenshots show the earlier green/sage preview.
+Version 1.2 · 2026-09-14 · D-012 is controlling: keep the existing matte forest/sage colours and rounded components. D-011 recolouring and WP-001-A-R1 are cancelled. Build functional workflows using current tokens; do not restart visual design.
 
 ## 1. Definition of excellent design
 
@@ -15,13 +15,13 @@ A beautiful nonfunctional screen fails. A working screen with unusable placement
 
 The assistant cannot permanently retrain itself. These files are the repeatable project method: read, design, implement, inspect, test and record. Never claim that a skill, a design approval or a test has occurred when it has not.
 
-## 2. Visual direction: clean modern product, teal secondary accent
+## 2. Visual direction: preserve the current matte appearance
 
-The user has specified the direction. Do not ask them to repeat it or block work on references. Keep a predominantly neutral visual foundation, charcoal primary hierarchy and teal as a secondary brand accent. Teal is not a mandate to paint every card or large background green. Do not clone a competitor's branding or import unlicensed imagery.
+The user explicitly likes the existing matte colours. Keep the forest/sage/teal treatment, calm hierarchy, rounded controls and existing preview styling. Functional screens reuse the same CSS variables. Add scoped layout rules where needed, not a global recolouring.
 
-Implementation target: contemporary, restrained SaaS interface with a mobile-app feel—not rustic, vintage or sage-dominated. Replace the current forest/sage/olive-heavy colour treatment through semantic tokens. Reduce decorative stamp artwork and serif-led hero styling; preserve useful screen structure and all working interactions.
+Current runtime tokens in `public/static/style.css`: canvas `#f6f7f5`, surface `#fff`, ink `#192723`, muted `#627068`, line `#e0e6e1`, accent `#12694f`, accent-dark `#0c503b`, sage `#e9f1e9`, forest `#173c31`, base radius `12px`.
 
-### Proposed tokens
+### Archived D-011 proposal — superseded, do not implement
 
 | Token | Initial proposal | Usage |
 | --- | --- | --- |
@@ -41,7 +41,7 @@ Implementation target: contemporary, restrained SaaS interface with a mobile-app
 | danger | `#B42335` | Errors and destructive controls |
 | focus | `#0F766E` | Teal focus ring with contrasting offset |
 
-Exact hex values are proposed implementation tokens, not separately user-approved swatches. Measure all rendered combinations before acceptance. Neutral/charcoal is the foundation; teal is the single secondary brand colour. Primary-action hierarchy may use charcoal or a deliberate teal emphasis, but ordinary secondary buttons remain neutral/outlined—brand colour and button priority are different concepts. Semantic warning/error colours are permitted. Shop branding must not break contrast.
+The table above is historical only. D-012 preserves the actual runtime tokens listed above it. Continue checking contrast for new components. Semantic warning/error colours remain permitted; shop branding must never break contrast.
 
 ### Typography
 
@@ -107,9 +107,11 @@ Exact hex values are proposed implementation tokens, not separately user-approve
 
 Visually differentiate platform context from shop context. Show current access scope and require explicit audited entry into support actions. A shop-switcher is not authorization.
 
-## 4. Next refinement pass: WP-001-A-R1
+## 4. Cancelled refinement: WP-001-A-R1
 
-Do not rebuild the three routes. Refine the shared visual layer, then resume backend work.
+**Do not execute the historical checklist below.** D-012 cancels this pass. Current work is local persisted functionality; original preview routes remain intact. New workspace screenshots are `docs/evidence/workspace-*.png` and `workspace-booking-*.png`.
+
+Historical D-011 checklist (superseded):
 
 1. Consolidate hard-coded green/olive/beige colours into the neutral/charcoal/teal semantic tokens above.
 2. Rework the dark forest sidebar and large green hero/current-chair surfaces into neutral/charcoal foundations with controlled teal highlights; use whitespace and hierarchy rather than colour volume.

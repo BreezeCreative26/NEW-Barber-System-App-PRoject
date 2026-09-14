@@ -13,6 +13,7 @@ These project instructions establish continuity; they do not override higher-pri
 
 ## Non-negotiable product decisions
 
+- D-012 controls: keep the current matte colours and rounded components. WP-001-A-R1 recolouring is cancelled. Functionality first; no production deployment or live providers.
 - Multi-tenant SaaS: public booking, web admin, barber PWA, secure customer access and platform operations.
 - Model A: each shop receives customer money; owner segregates funds and pays barbers outside this app initially.
 - Manual pay-runs calculate/export/record. They do not initiate bank payments. No stored-money wallet or automatic barber Stripe payout claims.
@@ -28,7 +29,7 @@ These project instructions establish continuity; they do not override higher-pri
 - Shared pricing, availability, authorization and financial rules; no duplicated client-authoritative logic.
 - Tenant and role authorization must be server-side for every private record/action.
 - Price snapshots, integer-pence ledger postings, atomic reservations, idempotent mutations and immutable audit are first-class requirements.
-- Use mock data only in tests or clearly labelled design previews. Keep live integrations gated until configured and tested.
+- Use fictional data only in tests, labelled previews and the local D1 test workspace. Browser-owned sandbox capability sessions are not production identity. APP_MODE=sandbox belongs only in ignored local .dev.vars; endpoints fail closed without it. Keep live integrations gated until configured and tested.
 - Secrets stay in secure configuration, never frontend bundles, source control, logs or planning documents.
 - Do not deploy, enable live charging, send real bulk notifications or buy resources without appropriate authorization and routing.
 
@@ -54,4 +55,4 @@ These project instructions establish continuity; they do not override higher-pri
 
 ## Current baseline reminder
 
-At creation of this playbook (2026-09-14), only planning documents and the starter exist. `/` renders Hello. No SaaS, PWA, database binding, auth or payment integration has been implemented. Read PROGRESS for subsequent changes.
+Current baseline (2026-09-14): three fixture-based `/preview/*` screens remain intact. `/workspace` now persists test shop/staff/services/hours/closures/bookings in local D1, with audit and conflict-safe booking actions. Production identity, public booking integration, payments, notifications, PWA and finance remain incomplete. Read PROGRESS for exact evidence and next slice; never return to a starter-only or recolouring plan.

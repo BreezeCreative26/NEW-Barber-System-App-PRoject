@@ -5,9 +5,11 @@
     "dev": "vite",
     "build": "vite build && vite build --config vite.client.config.ts",
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run tests/fixtures.test.ts",
+    "test:unit": "vitest run",
+    "db:migrate:local": "wrangler d1 migrations apply barbershop-os-local --local",
     "test:e2e": "playwright test",
-    "test": "npm run typecheck && npm run test:unit && npm run test:e2e",
+    "test:db": "node tests/d1-invariants.mjs",
+    "test": "npm run typecheck && npm run test:unit && npm run test:db && npm run test:e2e",
     "preview": "wrangler pages dev",
     "deploy": "npm run build && wrangler pages deploy",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings"
@@ -17,10 +19,12 @@
     "hono": "^4.13.7",
     "lucide-react": "^1.46.0",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
+    "@cloudflare/workers-types": "^5.20260914.1",
     "@hono/vite-build": "^1.11.1",
     "@hono/vite-dev-server": "^0.26.1",
     "@playwright/test": "^1.63.0",

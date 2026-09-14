@@ -1,80 +1,96 @@
 # Barbershop OS
 
-Multi-tenant barbershop SaaS in development: public booking, web administration, barber PWA, shop-owned payments and manual barber pay-runs.
+Multi-tenant barbershop SaaS in development: customer booking, shop administration, barber PWA, shop-owned payments and manual pay-runs.
 
 ## Current status
 
-**Interactive design preview implemented; live business backend not yet built.** React interfaces run through the existing Hono/Cloudflare-compatible application. All people, appointments, prices and availability are fictional fixtures.
+**Functionality-first local development, not a live SaaS.** D-012 keeps the existing matte forest/sage palette and rounded components. The planned recolouring is cancelled.
 
-Working preview interactions:
-- Admin day/agenda calendar, date/barber filters, search, appointment detail, sample team/service panels and validated booking-draft review.
-- Customer service/add-on/barber/time selection, quote updates, details validation, review/edit flow and explicit payment boundary.
-- Barber queue filters/details, sample earnings/profile and tip/tender calculator.
-- Shared responsive components, mobile agenda, fixed mobile booking action, dialogs/focus handling and loading/empty/error/offline examples.
+`/workspace` now saves fictional test records in local Cloudflare D1:
+- Browser-owned isolated test shop, with an editable example catalogue and empty appointment list.
+- Shop profile, opening times, closed weekdays and provisional deposit/cancellation/no-show settings.
+- Staff creation/editing/deactivation, weekly hours and lunch breaks.
+- Services, categories, integer-pence prices, durations and active status.
+- Dated shop closures and warnings for affected future appointments.
+- Server availability, reviewed test bookings and walk-ins, per-shop references and idempotent submission.
+- Booking detail, rescheduling, cancellation, check-in, start service, completion and grace-checked no-show actions.
+- Append-only attributed audit; existing service/price/duration snapshots preserved.
+- Responsive day list, search/filter, form validation, failure recovery and explicit offline limitations.
 
-No real login, tenant database, saved booking, reservation, payment, notification, pay-run or installed/offline PWA exists. Forms remain only in temporary page state and do not send customer data.
+The original `/preview/*` screens remain fixture-based and separate. Their customer checkout and barber finance controls are **not** connected to this database.
 
-## Latest design direction and next step
+## Not implemented yet
 
-The user requested **clean modern visuals, teal as the secondary colour and rounded edges**. This is recorded in decision D-011 and DESIGN_SYSTEM v1.1.
+Production authentication/memberships/MFA, public customer booking integration and portal, complete staff-specific service coverage/overrides/add-ons, dated staff time off, checkout holds, Stripe, real notifications, ledger/cash/tips/refunds, reports/pay-runs, subscriptions/platform console and installable/offline PWA remain incomplete or unimplemented. No financial operation is performed by completing a service.
 
-Next: **WP-001-A-R1**, a focused refinement of the existing shared styles: neutral/charcoal foundation, secondary teal accents, consistent radii, readable type and less green/sage/vintage decoration. The new styling is planned, not yet applied to the running preview. After that: D1 scheduling proof, managed authentication and persistent shop/team/services/hours, then the real booking lifecycle.
+Next slice: persisted add-ons and booking items, barber service eligibility/price/duration overrides, dated staff time off, then connect the customer and barber interfaces to shared tested APIs. Do not restart planning or redesign.
 
-## Preview URLs and routes
+## Routes
 
-Temporary sandbox base: https://3000-iz3aw7n21l3edjgvt4bkj-5c13a017.sandbox.novita.ai
+Local entry: `http://localhost:3000/workspace` (the project development Preview uses the same service).
 
-| URI | Current behaviour |
+Production URL: **none — not deployed**. The sandbox's temporary Preview is a development service, not a production release.
+
+| URI | Behaviour |
 | --- | --- |
-| `/` | Redirect to admin preview |
-| `/preview/admin` | Interactive sample calendar and admin forms |
-| `/preview/book` | Five-step customer booking design preview |
-| `/preview/barber` | Sample queue, earnings, profile and payment calculator |
-| `/api/health` | Explicit design-preview/persistence/payment capability flags |
+| `/` | Redirect to `/workspace` with local sandbox flag; otherwise `/preview/admin` |
+| `/workspace` | Persisted local test workspace |
+| `/preview/admin` | Original fixture calendar and admin design preview |
+| `/preview/book` | Original customer design preview; no saved checkout |
+| `/preview/barber` | Original barber design preview; no payment execution |
+| `/api/health` | Mode, local persistence capability and `livePayments:false` |
+| `POST /api/sandbox/session` | Create/reuse this browser's isolated test workspace |
+| `GET /api/sandbox/workspace` | Current shop, staff, services, hours, closures, latest 500 bookings and 200 audit events |
+| `PUT /api/sandbox/shop` | Versioned shop settings |
+| `POST /api/sandbox/staff`, `PUT /api/sandbox/staff/:id` | Staff create/edit/deactivate |
+| `PUT /api/sandbox/staff/:id/hours` | Versioned seven-day schedule |
+| `POST /api/sandbox/services`, `PUT /api/sandbox/services/:id` | Service create/edit/deactivate |
+| `POST /api/sandbox/holidays`, `DELETE /api/sandbox/holidays/:id` | Dated closures |
+| `GET /api/sandbox/availability` | `date`, `staff_id`, `service_id`, optional `booking_id`; no checkout hold |
+| `POST /api/sandbox/bookings`, `GET /api/sandbox/bookings/:id` | Save/replay and read a tenant-scoped test booking |
+| `PATCH /api/sandbox/bookings/:id/details` | Versioned customer-detail/notes correction with audit reason |
+| `POST /api/sandbox/bookings/:id/reschedule` | Versioned atomic move, reason required |
+| `POST /api/sandbox/bookings/:id/status` | Validated, audited lifecycle transition |
 
-Production `/app/*`, `/book/*`, `/barber/*`, `/platform/*` and business API routes remain planned. A temporary preview URL is not a production deployment.
+## Data and access boundaries
+
+All authoritative test records use local D1; migrations are in `migrations/`. Main entities: shops, sandbox_sessions, staff, staff_hours, services, holidays, bookings and audit_events. Composite tenant foreign keys, interval-overlap triggers, snapshot guards and D1 transactions protect writes. Availability feedback alone is not the reservation lock.
+
+Random session capabilities are hashed in D1 and supplied using an HttpOnly, Secure, SameSite=Strict browser cookie. They expire after seven days. **This is local test ownership, not verified production customer/staff identity.** The server derives shop scope from the capability, never a supplied shop ID. Mutations require matching Origin. Every sandbox endpoint fails closed without both a DB binding and `APP_MODE=sandbox`.
+
+`.dev.vars` and `.wrangler/` are ignored. The Wrangler database ID is a local placeholder, not a provisioned production resource. No real customer information belongs in this environment. There is no offline write queue or recovery/account transfer after losing the test cookie.
+
+London timezone only in this slice. DST gaps/folds are rejected rather than guessed. Fifteen-minute starts, exact service duration and ten-minute buffer apply. Some policy values are provisional test settings, not approved production financial terms.
+
+Model A remains unchanged: each shop ultimately receives its own supported Stripe payments; owners segregate funds and pay barbers externally. The app will calculate/export/record manual pay-runs, not initiate bank transfers or hold a wallet. SaaS subscriptions are separate.
+
+## Local setup and verification
+
+Project `/home/user/webapp`, branch `main`.
+
+1. In an ignored `.dev.vars`, set `APP_MODE="sandbox"` for local development only.
+2. Run `npm run db:migrate:local` (never `--remote` for this work).
+3. Stop any existing port-3000/PM2 instance, run `npm run build`, then `pm2 start ecosystem.config.cjs`.
+4. Check `curl http://localhost:3000/api/health`.
+5. Open `/workspace`, create a test shop, edit setup and book using fictional details. Confirm, reload, and inspect Audit.
+6. Run `npm run test` with the local service running. Tests create additional isolated fictional workspaces.
+
+Scripts: `build`, `typecheck`, `db:migrate:local`, `test:unit`, `test:db`, `test:e2e`, `test`. `test:db` uses actual local Wrangler D1 and deliberately bypasses API pre-checks to exercise database triggers. Playwright needs Chromium and system dependencies. Service name remains `barbershop-preview` for continuity.
+
+See [progress](docs/PROGRESS.md) for exact latest results, evidence and limitations. Automated accessibility checks are not full WCAG or real-device certification.
 
 ## Project playbook
 
-| Document | Purpose |
-| --- | --- |
-| [Session instructions](AGENTS.md) | Read/update procedure every work session |
-| [Build plan](docs/BUILD_PLAN.md) | Architecture, milestones and ordered work packages |
-| [Progress](docs/PROGRESS.md) | Actual state, evidence, blockers and precise next task |
-| [Decisions](docs/DECISIONS.md) | Confirmed choices and unresolved policies |
-| [Feature register](docs/FEATURE_REGISTER.csv) | 125 original feature IDs plus 64 supplemental requirements |
-| [UI/UX contract](docs/DESIGN_SYSTEM.md) | Modern neutral/teal direction, layouts and interaction standards |
-| [Quality gates](docs/QUALITY_GATES.md) | Definition of done and production acceptance catalogue |
+- [Session instructions](AGENTS.md)
+- [Master build plan](docs/BUILD_PLAN.md)
+- [Progress / next-session handoff](docs/PROGRESS.md)
+- [Decisions](docs/DECISIONS.md)
+- [189-row feature register](docs/FEATURE_REGISTER.csv)
+- [Matte design and interaction standards](docs/DESIGN_SYSTEM.md)
+- [Quality gates](docs/QUALITY_GATES.md)
 
-## Data and money boundaries
+## Publication and deployment
 
-Current fixtures and pure preview helpers live in `src/client/fixtures.ts`; there is no database binding or migration yet. Future authoritative data uses tenant-scoped D1; assets use R2. Managed identity and server-side permissions must precede real private shop data.
+Nothing is deployed to production; no live Stripe, messaging or banking credentials are configured. Do not invoke deploy or provision live resources.
 
-Under Model A, each shop receives customer payments through its own supported Stripe account configuration. The owner segregates money and pays barbers outside the app. The app will calculate entitlements, prepare frozen manual pay-runs and record owner-attested external payments; it will not hold a wallet, initiate bank payments or imply bank-confirmed settlement. SaaS subscription billing is separate.
-
-## Development and tests
-
-Project: `/home/user/webapp`, branch `main`.
-
-```sh
-cd /home/user/webapp
-npm run build
-# Stop any existing port-3000 service before starting/restarting.
-pm2 start ecosystem.config.cjs
-curl http://localhost:3000/api/health
-npm run test
-```
-
-The service must be running for browser tests. For a fresh test environment, install Playwright Chromium and its system dependencies. Service name: `barbershop-preview`. Do not run multiple PM2 instances on port 3000.
-
-Available scripts: `build`, `typecheck`, `test:unit`, `test:e2e`, `test`. The build emits the Hono Worker and bundled React assets, including a licensed self-hosted Inter font. No frontend tokens/provider secrets are used.
-
-Evidence: 23 unit/route tests passed (rechecked during latest planning update); last recorded Playwright run has 25 passed and 0 failures. Checks cover five viewport widths, selected axe scans, keyboard flow, form recovery and honest no-payment boundaries. These do not certify production security, D1 concurrency, real devices, PWA installation or payment integration. See PROGRESS for evidence scope and screenshots.
-
-## GitHub and deployment
-
-Selected repository: https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject
-
-Connection verified previously; publication paused because the repository was public. No push without private visibility or explicit public-publishing consent. Local code baseline is preserved in commit `2eebb48` and subsequent documentation commits.
-
-Production is not deployed. Confirm Cloudflare ownership/deployment path and provision auth, storage, scheduler and provider configuration before production. Never run the generic deploy script without appropriate preparation and approval.
+Selected GitHub repository: https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject. Previously public/empty; no push or visibility change authorized. Recheck visibility and obtain publication consent before syncing. Local work is versioned without publishing to that repository.

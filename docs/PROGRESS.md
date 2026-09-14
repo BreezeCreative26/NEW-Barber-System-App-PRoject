@@ -1,132 +1,124 @@
 # Barbershop OS — Progress and next-session handoff
 
-Last updated: 2026-09-14 · Current code baseline: `2eebb48` · Next implementation: **WP-001-A-R1 modern neutral/teal refinement**.
+Updated 2026-09-14. Current package: **WP-LOCAL-01 — local persistent functionality**. Next: **WP-LOCAL-02 — catalogue completeness and scheduling overrides**.
 
 ## Read this first
 
-**Actual state: three interactive React/Hono design-preview experiences are built and tested.** The old starter-only status was stale after the preceding implementation session and is corrected here.
+**D-012 controls: keep the current matte colours and rounded components. Cancel WP-001-A-R1 recolouring. Functionality first; nothing live.** Do not restart design/discovery. No production deployment, live payments, real messages, bank transfers or public GitHub push has occurred.
 
-- `/preview/admin`: responsive day/agenda calendar, date navigation, barber filter, appointment search/details, sample team/service panels and validated booking-draft review.
-- `/preview/book`: service/extras/barber selection, sample dates/times, quote updates, contact validation, review/edit flow and explicit unconnected-payment boundary.
-- `/preview/barber`: queue filters/details, earnings/profile examples, remaining-balance/tip calculator, cash/card explanation and walk-in draft preview.
-- All people, amounts and availability are fictional fixtures. Forms use temporary page state, with no persistent records or live money movement.
-- Shared loading/empty/error/offline examples, actual browser connectivity notice, keyboard focus handling and responsive layouts exist.
-- `/` redirects to `/preview/admin`; `/api/health` explicitly reports preview mode, no live payments and no persistence.
-- No production authentication, D1 business schema, atomic reservation engine, Stripe integration, real notifications, SaaS subscriptions, installable/offline PWA or bank payment execution exists.
+The application is no longer only a design preview. `/workspace` now uses local D1 for saved test shop setup and appointment operations. This is a narrow functional slice, **not all 189 requirements or a production-ready SaaS**. The existing `/preview/admin`, `/preview/book` and `/preview/barber` remain separate fixture-only experiences.
 
-The user's latest direction is **modern, clean, teal as the secondary colour, rounded edges**. It is recorded in D-011 and DESIGN_SYSTEM v1.1. **That visual refinement is planned, not applied to the running CSS yet.** Do not claim existing screenshots show the new theme.
+## What actually works locally
 
-## Confirmed product decisions
+- Isolated browser-owned test workspace creation: two editable example barbers, three services, weekly schedules, no seeded appointments/payments.
+- Shop name/address, Europe/London timezone, opening/closing hours, closed weekdays, provisional deposit/cancellation/no-show settings.
+- Staff creation/editing/deactivation, active status, seven-day schedules and valid lunch breaks.
+- Service creation/editing/deactivation, category, integer-pence price and exact duration.
+- Dated shop closures, removal with audit retained, future-appointment impact warnings after closure/hours/deactivation changes.
+- Server-calculated availability: active staff/service, shop hours, staff hours, breaks, holidays, elapsed time, existing booking intervals and ten-minute buffer.
+- Reviewed test bookings and walk-ins persisted in D1; shop-specific sequential references; payload-bound request-key replay.
+- Day appointment list with date navigation, staff filter, name/phone/reference search and detail.
+- Same-identity reschedule with reason, preserving original appointment on conflict and commercial snapshots on success.
+- Check-in -> in service -> completed; cancellation/no-show require reason; no-show grace checked by server. Service completion never implies payment.
+- Append-only attributed audit, optimistic version rejection and no booking deletion.
+- Validated forms, pending states, server error recovery, preserved inputs, mobile layouts and keyboard/focus handling.
+- Subsequent local hardening includes reviewed service/shop quote versions and audited/versioned customer-detail corrections; see current router and tests for the exact contract.
 
-- Multi-tenant SaaS: public booking, web admin, barber PWA and platform-owner operations.
-- Model A: each shop collects its customer money; the owner segregates funds and makes barber bank payments externally.
-- Future app calculates/prepares/exports manual pay-runs and records owner-attested external payments; no platform wallet or automatic barber bank transfers.
-- D-011 design direction supersedes the initial forest/sage-dominated appearance. Neutral/charcoal foundation, secondary teal accents, consistent rounding and readable type.
-- No repeated discovery/reset: refine existing screens, prove data invariants, then build persistent vertical slices.
+## Architecture and safety evidence
 
-Final branding, exact token swatches, financial policy, native launch scope, auth provider and production deployment path are still explicit decisions. Do not block the immediate theme refinement on those later integrations.
+- `src/server/domain.ts`: strict Zod schemas, types, London wall-time conversion, DST gap/fold rejection, slot evaluation.
+- `src/server/sandbox.ts`: session boundary, tenant-scoped APIs, transactional mutations, idempotency, snapshots and audit.
+- `migrations/`: foundation, immutable snapshot protection and quote-version guards. All applied locally; no production resources created. Inspect migration filenames before adding the next one (two existing files share the 0002 prefix and have distinct tracked names).
+- Interval locking is enforced by SQLite BEFORE INSERT/UPDATE triggers inside the same write transaction, not an application SELECT followed by an unprotected INSERT.
+- Direct-D1 tests deliberately bypass API availability checks: conflicting insert rejected, conflicting move and preceding audit rolled back, holiday revalidated, snapshot/history edits rejected.
+- Eight simultaneous overlapping requests yielded one saved booking and seven conflicts. Concurrent identical request replay yielded one record. Cross-shop entity operations are denied.
+- Customer financial fields are server-derived. Staff/service changes never rewrite booking price/name/duration snapshots. Reviewed quote version changes require a refreshed review.
+- Browser capability is random; only SHA-256 hash is stored in D1. Cookie is HttpOnly, Secure, SameSite=Strict, seven-day lifetime. Secure session creation was also checked through the existing HTTPS development proxy.
+- Server resolves shop/actor from the session; client-supplied tenant/price fields are rejected. Matching Origin required for mutations.
+- All functional endpoints fail closed without both local `APP_MODE=sandbox` and D1 binding. Flag is only in ignored `.dev.vars`, never production vars.
+- These capabilities are **test workspace ownership, not managed identity, production staff roles or customer verification**.
 
-## Milestone board
+## Routes and service
 
-| Milestone | State | Gate / evidence |
+- Local service: `http://localhost:3000`, PM2 name `barbershop-preview`, configuration `ecosystem.config.cjs`.
+- `/` redirects to `/workspace` when sandbox mode is enabled; otherwise retains `/preview/admin` redirect.
+- `/workspace`: local persisted test workflow.
+- `/api/sandbox/*`: session, shop, staff, services, weekly hours, holidays, availability, bookings, detail correction, reschedule and status APIs. README lists entry contracts; current schemas are authoritative.
+- `/api/health`: local mode returns `mode:local-sandbox`, `persistence:true`, `livePayments:false`.
+- `/preview/*`: original fixture experiences unchanged in function and palette. No customer checkout or barber finance integration is implied.
+- The existing temporary sandbox Preview continues to serve development code. **No production URL or deployment exists.**
+
+## Latest verification
+
+| Check | Result / scope | Evidence |
 | --- | --- | --- |
-| M0 Planning | verified | Master plan and all 125 original feature IDs preserved |
-| M1 Design proof + spikes | in_progress | Initial interactive preview tested; R1 design revision requested; D1/Stripe spikes not done |
-| M2 Tenant setup | not_started | Auth, memberships, isolation and persistent setup not implemented |
-| M3 Booking core | not_started | Fixture slot helper is not a server reservation engine |
-| M4 Collections + communication | not_started | No configured providers or real payment/delivery outcomes |
-| M5 Daily operations + PWA | not_started | Existing queue is a preview, not a synced operational PWA |
-| M6 Finance + reports | not_started | Calculator/earnings fixtures do not equal a ledger or pay-run system |
-| M7 SaaS readiness | not_started | No billing, platform console, monitoring or restore drill |
-| M8 Pilot + release | not_started | No production deployment |
-| M9 Native if launch scope | not_started | Launch inclusion unresolved; web/PWA does not implement native Tap-to-Pay |
+| Build | Passed, Hono Worker plus React assets | `npm run build` |
+| TypeScript | Passed on latest inspected source | `npm run typecheck` |
+| Unit/route/domain | 36 passed: 23 preview + 13 local boundary/time/schema tests | `tests/fixtures.test.ts`, `tests/domain.test.ts` |
+| Direct local D1 invariants | Passed independently of API pre-checks | `npm run test:db`, `tests/d1-invariants.mjs` |
+| Full browser/API suite | Latest inspected full report: 38 passed, 0 failed/skipped/flaky | `test-results/runs/1789387470837-20621/results.json`, start 2026-09-14 12:04:30 UTC |
+| Prior full regression | 37 passed before the additional quote/detail test | Full `npm run test` output from this package |
+| Persisted UI workflow | Create staff/service/hours/settings/closure, reload, book, move, check in/start/complete, audit | `tests/workspace.spec.ts` |
+| Tenant/API/concurrency | Cross-shop reads/mutations, strict payloads, stale versions, idempotency, rollback, status/no-show, schedule impacts | `tests/sandbox.spec.ts` |
+| Responsive | 320/390/768/1024/1440 widths, all workspace sections, no page overflow | Workspace Playwright cases |
+| Accessibility | Zero violations in tested workspace/booking-dialog axe scans and original preview scans; dialog Escape/focus return passed | Browser suite; not full WCAG certification |
+| Failure recovery | Forced server error keeps service inputs; retry saves; offline notice makes no queued-save claim | Workspace recovery test |
+| Visual inspection | Desktop and phone workspace plus phone booking dialog inspected; no clipping/overlap found; matte palette retained | `docs/evidence/workspace-1440.png`, `workspace-390.png`, `workspace-booking-390.png` |
+| Dependency audit | Zero reported vulnerabilities in package audit | `npm audit --audit-level=high` |
+| Secret exclusion | `.dev.vars` ignored; local DB/artifacts ignored | `git check-ignore .dev.vars` |
 
-## Feature tracking
+Resolved during this package: stable form labels needed for exact accessible selection; forced Secure cookie for HTTPS development proxy; overlapping Playwright runs initially collided on artifact cleanup (ENOENT). Current Playwright config isolates run output under `test-results/runs/<run-id>/`; that infrastructure failure was not a saved-workflow failure. Never run overlapping suites against a shared artifact path.
 
-189 requirements remain in FEATURE_REGISTER, including all 125 original C/B/A IDs. Production-contract statuses remain `not_started`; preview work is tracked separately by E-001..E-010 and the WP-001-A evidence. Do not mark a production feature complete because its preview screen exists.
+New screenshots: `docs/evidence/workspace-{320,390,768,1024,1440}.png` and `workspace-booking-{320,390,768,1024,1440}.png`. Old preview evidence remains historical; no recolouring was applied.
 
-Initial work package:
-- E-001..E-007 and E-009 implemented with preview evidence.
-- E-008: keyboard/focus, long-name form case and five viewport widths checked; 200%-equivalent reflow checked, not a full physical-device/actual browser-zoom acceptance pass.
-- E-010: working service and evidence exist; user supplied design feedback, so final visual acceptance remains pending R1.
+## Feature/milestone tracking
 
-## Preview service
+All 189 rows and 125 original C/B/A IDs remain. 47 touched requirements are marked `implementing`, not production `verified`/`accepted`. This records shared local building blocks, not complete customer/barber/owner authorization or every original acceptance condition.
 
-- Base URL: https://3000-iz3aw7n21l3edjgvt4bkj-5c13a017.sandbox.novita.ai
-- Admin: `/preview/admin`; booking: `/preview/book`; barber: `/preview/barber`.
-- PM2 service: `barbershop-preview`, port 3000, configuration `ecosystem.config.cjs`.
-- `curl http://localhost:3000/api/health` passed during this status reconciliation.
-- This is a temporary sandbox preview, not production. If the sandbox resumes without its service, follow the mandated clean-port/build/PM2/health sequence before sharing a refreshed URL.
+Touched groups: C-06/C-11..C-14/C-16/C-17/C-19/C-26/C-29; B-09/B-10/B-12..B-15; A-02..A-09/A-12/A-13/A-15/A-17/A-18/A-23/A-26/A-28/A-41..A-43; S-01/S-02/S-20; AC-01/AC-05; X-01..X-05/X-12/X-15.
 
-## Verification evidence
-
-| Check | Result | Evidence / scope |
+| Milestone | State | Remaining gate |
 | --- | --- | --- |
-| TypeScript | passed | `npm run typecheck`; re-run this session |
-| Unit/route helpers | 23 passed | `npm run test:unit`; re-run this session; `tests/fixtures.test.ts` |
-| Browser suite | 25 passed; 0 failed/skipped/flaky | Last recorded run 2026-09-14 11:24 UTC; `tests/preview.spec.ts`, local `test-results/results.json` stats verified this session |
-| Responsive layouts | passed automated overflow checks | 320, 390, 768, 1024, 1440 px across all three surfaces |
-| Accessibility | zero violations in tested axe scans | Default 390/1440 layouts plus selected forms/dialogs/booking states; not full WCAG certification |
-| Keyboard | passed tested focus cases | Dialog trap/return, mobile menu trap/Escape, validation focus |
-| No fake mutations | passed preview assertions | Customer and admin form tests assert no non-GET requests; no booking/payment APIs connected |
-| Build | passed in implementation session | Hono Worker + Vite client assets; source unchanged in this planning/refinement-record session |
-| Dependency audit | zero vulnerabilities in preceding implementation check | `npm audit --audit-level=high`; not an independent security review |
-| Public console | no messages in preceding check | PlaywrightConsoleCapture on admin preview |
-| Current service | passed | Local health returns `{status: ok, mode: design-preview, livePayments: false, persistence: false}` |
+| M0 Planning | verified | Existing feature register/playbook preserved |
+| M1 Design + spikes | in_progress | Matte direction retained; local appointment concurrency proven; hold/provider proof still open |
+| M2 Tenant setup | in_progress | Local setup persists; managed identities/memberships/MFA/invites and complete catalogue still missing |
+| M3 Booking core | in_progress | Local booking/atomic move works; public workflow, add-ons/overrides, holds still missing |
+| M4 Collections/communication | not_started | No Stripe/messages/customer verified access |
+| M5 Daily operations/PWA | in_progress | Local service transitions work; barber role scope, payments and actual PWA missing |
+| M6 Finance/reports | not_started | No ledger, pay-runs, reports or reviews |
+| M7 SaaS readiness | not_started | No subscriptions/platform console/restore/monitoring |
+| M8 Pilot/release | not_started | Explicitly no live release |
+| M9 Native | not_started | Scope unresolved; PWA is not native Tap-to-Pay |
 
-Final baseline screenshots: `docs/evidence/admin-1440.png`, `admin-390.png`, `book-1440.png`, `book-390.png`, `barber-1440.png`, `barber-390.png`, remaining size-suffixed files, `booking-times-desktop.png`, `booking-times-mobile.png`, `payment-preview-mobile.png`.
+## Exact next work package: WP-LOCAL-02
 
-Earlier generically named `*-desktop.png`, `*-mobile.png` and `initial-axe.json` are initial-pass evidence with defects subsequently addressed, not the final baseline or the new teal refinement.
+Continue the same local database and matte UI. Do not rebuild the shell.
 
-Issues fixed during implementation: font import/build mismatch, browser system dependencies, secondary-text contrast, mobile calendar default changed to agenda, fixed mobile booking action, time indicator behind cards, modal keyboard loop and stable form labels. No unresolved failure remains in the recorded 23/25 preview suites.
+1. Add persisted add-on catalogue, service/add-on eligibility and immutable booking-item snapshots.
+2. Add barber/service coverage, price/duration overrides and server quote recomputation; recheck availability whenever total duration changes.
+3. Add dated staff day-off/time overrides with affected-booking review, alongside weekly hours.
+4. Expand tests: 25-minute services, varying add-on durations, coverage disabled between review and write, dated overrides, stale quotes and cross-shop references.
+5. Improve saved booking views/pagination and operational form coverage, then connect customer/barber interfaces to the shared authoritative APIs without pretending test sessions are production roles.
+6. Implement checkout holds and expiry only as a deliberate next allocator extension, with late-confirmation tests. Current availability truthfully reports `holds:false`.
+7. Update this log, feature register and evidence after each tested slice; commit incrementally.
 
-## Next implementation: WP-001-A-R1
+## Explicit limitations / blockers
 
-This is a bounded refinement, not another design restart. Detailed checklist is in DESIGN_SYSTEM v1.1.
+- Test session lasts seven days. No account recovery, logout/session-management UI or automatic old-test-data cleanup. Do not enter real personal data or expose this as commercial authentication.
+- Workspace loads latest 500 bookings/200 audit events; pagination is still needed. Availability uses scoped database records independently of this display cap.
+- London-only schedules; no full multi-zone support. Buffer/grace/deposit/cancellation are provisional local settings; final production policy decisions remain open.
+- No role-separated staff/customer/private-note authorization, production abuse controls or verified customer history.
+- No financial ledger/cash/tips/refunds/receipts, pay-runs or implied bank execution. Model A remains shop collection plus owner-paid external transfers.
+- No real notification providers, subscriptions, platform console, uploads/R2, installed PWA/service worker, offline writes or safe offline private cache.
+- No hold/expiry, public booking slug, add-on/override/time-off completeness or full calendar week/month.
+- Production auth/provider/policy choices gate their dependent work only; they do not block the next local slice.
 
-1. Read current source and semantic styles; preserve all working components/routes.
-2. Replace forest/sage/olive-heavy palette with neutral backgrounds, charcoal hierarchy and secondary teal. Proposed teal `#0F766E`, light accent `#E6F4F1`; exact swatches need visual evaluation.
-3. Consolidate colours and radii into tokens: proposed controls 12 px, cards 16 px, dialogs 20 px. Keep calendar events appropriately compact.
-4. Increase undersized useful text, simplify vintage/stamp-style decoration, maintain mobile agenda and fixed action bar.
-5. Re-run build, type/unit/browser/axe checks and inspect revised screenshots at all five sizes. Existing baseline tests are not proof the new CSS passes.
-6. Share the updated preview and request focused visual feedback. Do not claim the requested new styling is applied before these changes exist.
+## GitHub / continuity
 
-Then proceed: WP-001-B D1 concurrency/account-context proof -> WP-002-A/B secure persistent shop/team/services/hours -> WP-003-A real booking lifecycle -> WP-004 collections/notifications -> operations/PWA/finances -> SaaS billing/pilot.
+Selected repository: https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject. Last checked public/empty. No push or visibility change. Recheck and obtain private/public publication consent before syncing. Keep local and genspark history; do not overwrite another session's changes.
 
-## Specific future blockers
+Earlier commits: `ff7c504` planning, `26a7790` publication pause, `858cf6f` execution sequence, `2eebb48` implemented previews, `ba94463` D-011 proposal. D-012 now supersedes the recolouring proposal. This package continues, rather than restarts, that work.
 
-- Auth provider choice/configuration before private tenant accounts.
-- Deposit/commission/fee/cash/time-policy decisions before production money and scheduling contracts.
-- Stripe sandbox account/context proof before real payment integration; messaging and scheduler credentials before live delivery tests.
-- Reader/physical devices before advertising hardware or offline/native support.
-- Native launch scope remains unresolved; do not silently remove it from original MVP tags.
-- None of these blocks the next shared-theme refinement.
+## Required next-session start
 
-## GitHub
-
-- Selected repository: https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject
-- Connection and push permission previously verified; last checked visibility was public and empty.
-- No GitHub push or visibility change performed. Wait for private visibility or explicit public-publishing consent; recheck before syncing.
-- Local code was preserved by commit `2eebb48` (platform auto-backup). Preserve the genspark remote; do not publish commercially sensitive code by assumption.
-
-## Session history
-
-### 2026-09-14 — WP-000 planning baseline
-
-Created AGENTS, architecture, decisions, feature register, design/QA standards and handoff. Validated 189 unique requirements with all original IDs. Commit `ff7c504`.
-
-### 2026-09-14 — GitHub / execution preparation
-
-Verified connected repository but paused publication due to public visibility. Added 13 implementation packages and first-build checklist. Commits `26a7790`, `858cf6f`. Subsequent D-011 refinement adds a bounded revision package, not a scope reset.
-
-### 2026-09-14 — WP-001-A implementation
-
-Built the React/Hono preview and shared components. Added Vitest, Playwright, axe and screenshots; corrected failed build/a11y/interaction checks until 23 unit and 25 browser tests passed. Started PM2 preview, checked public console and service health. No live financial/data integrations. Code captured by auto-backup commit `2eebb48`; progress reconciliation was interrupted and completed in the following session.
-
-### 2026-09-14 — D-011 design feedback / next-build plan
-
-User requested modern, clean, teal-secondary visuals and rounded edges, plus the next build plan. Updated DESIGN_SYSTEM, DECISIONS and BUILD_PLAN; reconciled stale starter-only progress/README against existing code and passing evidence. Re-ran typecheck and 23 unit tests, inspected the existing 25-pass browser report and service health. No runtime CSS/source changes in this session; WP-001-A-R1 remains the next implementation.
-
-## Required session handoff
-
-Record work-package and feature IDs, actual working behaviour, files changed, tests/evidence, remaining blockers, user decisions and exact next step. Never equate planned CSS with delivered styling or a fixture screen with real persistence.
+Read AGENTS, this file, DECISIONS and current schemas/tests. Verify git state and any running builds/tests before launching another runner. Preserve interrupted/concurrent work. State the narrow package, implement one vertical slice, run functional and visual checks, and update evidence honestly. Nothing live unless the user explicitly changes that instruction.
