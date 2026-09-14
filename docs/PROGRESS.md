@@ -1,135 +1,102 @@
 # Barbershop OS — Progress and next-session handoff
 
-Updated 2026-09-14 after the final 12:16 UTC full-suite verification. **WP-LOCAL-01, network recovery, and full-day staff leave verified locally.** Next: **WP-LOCAL-02 — add-ons, service coverage and partial-day scheduling overrides**. See the latest git log for code/checkpoint commits; preserve all ongoing work.
+Updated 2026-09-14 after the 12:36 UTC final regression. **WP-LOCAL-02 is implemented and verified locally**, continuing directly from `c8abf5c`. Next: **WP-LOCAL-03 — paginated booking reads and connected customer/barber test interfaces**.
 
 ## Read this first
 
-**D-012 controls: keep the current matte colours and rounded components. Cancel WP-001-A-R1 recolouring. Functionality first; nothing live.** Do not restart design/discovery. No production deployment, live payments, real messages, bank transfers or public GitHub push has occurred.
+**D-012/D-013 control: keep the existing matte forest/sage colours, build functionality, nothing live.** No restart, production deployment, provider activation, real messages/charges/transfers or public GitHub push. This is not the completed 189-feature commercial SaaS.
 
-The application is no longer only a design preview. `/workspace` now uses local D1 for saved test shop setup and appointment operations. This is a narrow functional slice, **not all 189 requirements or a production-ready SaaS**. The existing `/preview/admin`, `/preview/book` and `/preview/barber` remain separate fixture-only experiences.
+`/workspace` is the authoritative local D1 test application. `/preview/admin`, `/preview/book` and `/preview/barber` remain separate fixture-only experiences, preserved by regression tests. Browser-owned sandbox capabilities are not verified production identity or staff/customer roles.
 
-## What actually works locally
+## Completed local functionality
 
-- Isolated browser-owned test workspace creation: two editable example barbers, three services, weekly schedules, no seeded appointments/payments.
-- Shop name/address, Europe/London timezone, opening/closing hours, closed weekdays, provisional deposit/cancellation/no-show settings.
-- Staff creation/editing/deactivation/reactivation, active status, seven-day schedules and valid lunch breaks.
-- Dated full-day staff leave persists, blocks availability/booking/moves, flags impacted appointments, and can be removed with audit retained. Other barbers remain available. Partial-day overrides are not implemented.
-- Service creation/editing/deactivation, category, integer-pence price and exact duration.
-- Dated shop closures, removal with audit retained, future-appointment impact warnings after closure/hours/deactivation changes.
-- Server-calculated availability: active staff/service, shop hours, staff hours, breaks, holidays, elapsed time, existing booking intervals and ten-minute buffer.
-- Reviewed test bookings and walk-ins persisted in D1; shop-specific sequential references; payload-bound request-key replay.
-- Day appointment list with date navigation, staff filter, name/phone/reference search and detail.
-- Same-identity reschedule with reason, preserving original appointment on conflict and commercial snapshots on success.
-- Check-in -> in service -> completed; cancellation/no-show require reason; no-show grace checked by server. Service completion never implies payment.
-- Append-only attributed audit, optimistic version rejection and no booking deletion.
-- Validated forms, pending states, server error recovery, preserved inputs, mobile layouts and keyboard/focus handling.
-- Reviewed service/shop quote versions reject stale confirmation; audited/versioned contact and notes corrections retain all commercial snapshots.
-- Appointment status filter; team/catalogue name/category/role search, active/inactive filters, deactivation and reactivation.
-- Initial network/HTML proxy failures offer Retry workspace, without navigation or full reload. Availability has independent retry; draft contact fields survive errors.
-- Save success followed by failed read is labelled saved; retry refresh does not repeat the mutation. Lost booking responses replay the same request key and create only one booking.
-- Stale editor recovery explicitly discards unsaved fields and loads the latest record; no forced page reload. Browser reconnection refreshes workspace data.
+### Existing foundation preserved
 
-## Architecture and safety evidence
+- Isolated browser-owned shop with editable example staff/services and no seeded bookings/payments.
+- Shop settings, open/closed weekdays, weekly staff hours/breaks, full-day leave and shop holidays.
+- Staff/service create/edit/deactivate/reactivate, search, active/inactive filters and affected-appointment warnings.
+- Server availability, reviewed/idempotent bookings and walk-ins, per-shop references, day list, search/barber/status filters.
+- Versioned contact/notes corrections, same-reference reschedule, check-in/in-service/completed, cancellation and grace-checked no-show. Service completion does not imply payment.
+- Append-only attributable audit; optimistic conflict rejection; booking deletion forbidden.
+- Network/HTML proxy failures retry in-page. Save success followed by failed read does not repeat the mutation. Lost booking responses replay safely. Stale editors can explicitly discard/load current records.
 
-- `src/server/domain.ts`: strict Zod schemas, types, London wall-time conversion, DST gap/fold rejection, slot evaluation.
-- `src/server/sandbox.ts`: session boundary, tenant-scoped APIs, transactional mutations, idempotency, snapshots and audit.
-- `migrations/`: foundation, immutable snapshot protection and quote-version guards. All applied locally; no production resources created. Inspect migration filenames before adding the next one (two existing files share the 0002 prefix and have distinct tracked names).
-- Interval locking is enforced by SQLite BEFORE INSERT/UPDATE triggers inside the same write transaction, not an application SELECT followed by an unprotected INSERT.
-- Direct-D1 tests deliberately bypass API availability checks: conflicting insert rejected, conflicting move and preceding audit rolled back, holiday revalidated, snapshot/history edits rejected.
-- Eight simultaneous overlapping requests yielded one saved booking and seven conflicts. Concurrent identical request replay yielded one record. Cross-shop entity operations are denied.
-- Customer financial fields are server-derived. Staff/service changes never rewrite booking price/name/duration snapshots. Reviewed quote version changes require a refreshed review.
-- Browser capability is random; only SHA-256 hash is stored in D1. Cookie is HttpOnly, Secure, SameSite=Strict, seven-day lifetime. Secure session creation was also checked through the existing HTTPS development proxy.
-- Server resolves shop/actor from the session; client-supplied tenant/price fields are rejected. Matching Origin required for mutations.
-- All functional endpoints fail closed without both local `APP_MODE=sandbox` and D1 binding. Flag is only in ignored `.dev.vars`, never production vars.
-- These capabilities are **test workspace ownership, not managed identity, production staff roles or customer verification**.
+### WP-LOCAL-02 delivered in this session
 
-## Routes and service
+1. **Persisted add-ons and service links:** create/edit/deactivate; integer-pence price, 0–120 extra minutes, explicit eligible services. New records do not disappear on reload.
+2. **Barber/service rules:** enable/disable eligibility and price/duration overrides. Missing rules inherit catalogue behaviour; null restores defaults, zero price is valid. Disabled coverage blocks new selection/bookings/moves and flags affected future appointments.
+3. **Itemized authoritative booking quotes:** service line plus up to ten unique add-ons; exact durations are summed rather than rounded to the start grid. Changing selections clears stale times without losing contact fields. Server quote versions require review after catalogue/rule edits.
+4. **Immutable booking-item snapshots:** `bookings.items_json` persists service/add-on names, prices and durations in the same row/write as the interval allocation. Legacy bookings are backfilled to one service line. Catalogue edits, add-on withdrawal and rescheduling never reprice saved history.
+5. **Partial-day dated hours:** create/edit/remove a dated replacement shift and break. Weekly hours are replaced, not intersected; shop hours/closures and full-day leave still win. Changes flag impacted appointments; deletion restores weekly hours without deleting bookings.
+6. **Admin controls and booking integration:** Services → Add-ons; Team → Services & pricing / Dated hours; New booking → Optional add-ons; saved details show original item lines. Service rules save individually, one section at a time.
 
-- Local service: `http://localhost:3000`, PM2 name `barbershop-preview`, configuration `ecosystem.config.cjs`.
-- `/` redirects to `/workspace` when sandbox mode is enabled; otherwise retains `/preview/admin` redirect.
-- `/workspace`: local persisted test workflow.
-- `/api/sandbox/*`: session, shop, staff, services, weekly hours, holidays, availability, bookings, detail correction, reschedule and status APIs. README lists entry contracts; current schemas are authoritative.
-- `/api/health`: local mode returns `mode:local-sandbox`, `persistence:true`, `livePayments:false`.
-- `/preview/*`: original fixture experiences unchanged in function and palette. No customer checkout or barber finance integration is implied.
-- The existing temporary sandbox Preview continues to serve development code. **No production URL or deployment exists.**
+## Data, safety and migration contract
 
-## Latest verification
+- Hono/React/D1 architecture retained; no new runtime dependency or framework replacement.
+- `src/server/domain.ts`: strict schemas, `calculateQuote`, `effectiveHours`, London/DST conversion, interval checks and shared types.
+- `src/server/sandbox.ts`: existing cookie/Origin/session boundary reused for all new routes. Tenant IDs/prices/totals cannot be supplied as authority. All functional routes require local `APP_MODE=sandbox` plus a DB binding.
+- New tables: `addons`, `addon_services`, `staff_service_rules`, `staff_schedule_overrides`; existing shop/staff/schedule/booking/audit tables retained.
+- `0004_catalogue_and_dated_hours.sql` is applied locally. The working database was retained. A separate empty local database successfully applied the entire five-file migration chain.
+- Earlier files include two distinctly named `0002_*` migrations; do not rename already-applied files. Next migration number is `0005`.
+- Add-on/link/rule edits increment `shops.version` in the same transaction. Existing service/shop quote-version checks therefore reject stale review state; no client-authoritative amount was introduced.
+- SQLite triggers validate current item sums/pricing/eligibility, dated shifts, leave/closures and interval collisions inside the write. Separate availability reads are feedback, not locks. Snapshot JSON cannot be updated afterward.
+- Booking replay hashes omit empty default add-on selections to preserve the earlier normalized payload contract. Only booking creation has request-key idempotency; inspect refreshed records before repeating other interrupted creates.
+- No external API calls, production resources or credentials were added. `.dev.vars`, `.wrangler/` and test-results stay ignored.
 
-| Check | Result / scope | Evidence |
-| --- | --- | --- |
-| Build | Passed, Hono Worker plus React assets | `npm run build` |
-| TypeScript | Passed on latest inspected source | `npm run typecheck` |
-| Stable final source | Passed: source, public assets, tests and migrations had identical SHA-256 aggregate before/after final build and complete regression | Final command exited 0 and printed `VERIFIED: source and tests unchanged throughout final regression.` |
-| Unit/route/domain | 37 passed: 23 preview + 14 local boundary/time/schema tests | `tests/fixtures.test.ts`, `tests/domain.test.ts` |
-| Direct local D1 invariants | Passed independently of API pre-checks | `npm run test:db`, `tests/d1-invariants.mjs` |
-| Full browser/API suite | **47 passed, 0 failed/skipped/flaky** | `test-results/runs/1789388251487-35388/results.json`, start 2026-09-14 12:17:31 UTC, duration 64.99s |
-| Final focused recheck | **22 workspace/API tests passed**, 0 failed/skipped/flaky; latest source includes staff leave and isolated screenshot paths | `test-results/runs/1789388113442-33159/results.json`, start 2026-09-14 12:15:13 UTC |
-| Mutation endpoint coverage | All **15** POST/PUT/PATCH/DELETE routes covered by source-derived inventory; matching Origin, session and invalid-input checks pass | `tests/sandbox.spec.ts` |
-| Persisted UI workflow | Create staff/service/hours/settings/closure, reload, book, move, check in/start/complete, audit | `tests/workspace.spec.ts` |
-| Tenant/API/concurrency | Cross-shop reads/mutations, strict payloads, stale versions, idempotency, rollback, status/no-show, schedule impacts | `tests/sandbox.spec.ts` |
-| Responsive | 320/390/768/1024/1440 widths, all workspace sections, no page overflow | Workspace Playwright cases |
-| Accessibility | Zero violations in tested workspace/booking-dialog axe scans and original preview scans; dialog Escape/focus return passed | Browser suite; not full WCAG certification |
-| Failure recovery | Initial fetch abort, HTML 502, post-save read failure, dropped booking response, availability retry, quote change and stale editor all recover in-page; saved/reload behaviour preserved | `tests/workspace.spec.ts` |
-| Staff/service lifecycle | Create/edit, directory search/status filters, inactive state, reactivation and refresh persistence pass | Workspace lifecycle test |
-| Visual inspection | Desktop and phone workspace plus phone booking dialog inspected; no clipping/overlap found; matte palette retained | `docs/evidence/workspace-1440.png`, `workspace-390.png`, `workspace-booking-390.png` |
-| Dependency audit | Zero reported vulnerabilities in package audit | `npm audit --audit-level=high` |
-| Secret exclusion | `.dev.vars` ignored; local DB/artifacts ignored | `git check-ignore .dev.vars` |
-| Mobile save actions | Review/save action remains within the viewport at all five widths; form contents scroll | Workspace bounding-box assertions and screenshots |
-| Migration bootstrap | Foundation, snapshot and quote guards applied successfully to a separate empty local DB; staff-leave migration applied to working local DB before final suite | Wrangler local migration checks; no remote operations |
+## Latest verification — conclusive result
 
-Resolved during this package: stable form labels needed for exact accessible selection; forced Secure cookie for HTTPS development proxy; overlapping Playwright runs initially collided on artifact cleanup (ENOENT). Current Playwright config isolates run output under `test-results/runs/<run-id>/`; that infrastructure failure was not a saved-workflow failure. Never run overlapping suites against a shared artifact path. Workspace screenshots now also use each test's outputPath rather than concurrent writes to the same evidence PNG. A subsequent transient 500/trace stream failure occurred while another build and schema extension were active; local migrations are now applied and both full/focused suites passed afterward. Do not rebuild/migrate during a test run.
+Final command: build → typecheck → unit tests → direct D1 invariants → complete Playwright suite → unchanged-source hash check → dependency audit → diff check. Exit code **0**.
 
-New screenshots: `docs/evidence/workspace-{320,390,768,1024,1440}.png` and `workspace-booking-{320,390,768,1024,1440}.png`. Old preview evidence remains historical; no recolouring was applied.
+| Check | Result / evidence |
+| --- | --- |
+| Build / TypeScript | Passed |
+| Unit/route/domain | **42 passed**: 23 preview and 19 domain/boundary tests |
+| Direct local D1 | Passed raw-write overlap, quote/item totals, add-on/rule eligibility, partial-day shift, immutable history, batch rollback, leave/closure and no-show checks |
+| Full browser/API suite | **54 passed; 0 failed/skipped/flaky**, `test-results/runs/1789389389665-42361/results.json`; start 2026-09-14 12:36:29 UTC; 80.44 seconds |
+| Stable source | Source/assets/tests/migrations had identical aggregate SHA-256 before/after final build and full regression; command printed `VERIFIED: final source remained unchanged through full regression.` |
+| Mutation coverage | All **21** POST/PUT/PATCH/DELETE routes included in source-derived inventory; Origin/session/invalid-input checks passed |
+| Catalogue persistence / history | Add-ons, service links, overrides, rules, booking items and edits survive reads/reloads; old itemized commercial values retained |
+| Conflicts | Six simultaneous aggregate-duration bookings: one winner, five conflicts; buffer boundary, stale quote, disabled coverage, reschedule rejection/rollback and partial-day limits tested |
+| Recovery regression | Existing initial-load/proxy/read-after-save/lost-booking-response/stale-editor tests passed; new add-on slot/price conflict recovery preserves contact fields |
+| Accessibility/layout | Existing five viewport regressions passed; new forms passed axe scans at 390/1440 px. New mobile add-on/rules and desktop dated-hours screenshots inspected: readable/no clipping or overlap |
+| Migration bootstrap | All five migrations passed on separate empty local DB; no remote operations |
+| Dependency audit | Zero reported vulnerabilities |
+| Secret exclusion | Local vars, databases and generated traces ignored |
 
-## Feature/milestone tracking
+New tests: `tests/catalogue.spec.ts` (7 API/browser/visual cases); expanded `tests/domain.test.ts`, `tests/d1-invariants.mjs` and mutation inventory in `tests/sandbox.spec.ts`. Original preview and saved/reload workflows remain covered.
 
-All 189 rows and 125 original C/B/A IDs remain. 47 touched requirements are marked `implementing`, not production `verified`/`accepted`. This records shared local building blocks, not complete customer/barber/owner authorization or every original acceptance condition.
+Resolved test issues, not hidden failures:
+- A raw stale-quote test also had an active closure and depended on SQLite trigger ordering. The test now removes the closure before isolating quote rejection; both guards still have independent assertions.
+- Playwright's option-enabled matcher reported an explicitly disabled native `<option>` as enabled. The test now asserts its actual DOM `disabled` property; server conflict checks remain independently tested.
 
-Touched groups: C-06/C-11..C-14/C-16/C-17/C-19/C-26/C-29; B-09/B-10/B-12..B-15; A-02..A-09/A-12/A-13/A-15/A-17/A-18/A-23/A-26/A-28/A-41..A-43; S-01/S-02/S-20; AC-01/AC-05; X-01..X-05/X-12/X-15.
+Screenshots committed under `docs/evidence/catalogue-{addon-form,barber-rules,dated-hours}-{390,1440}.png`. Per-run screenshots/traces remain isolated under test-results. Do not build/migrate or reuse artifact run IDs during a running suite. Automated axe/Chromium checks are not real-device or full WCAG certification.
 
-| Milestone | State | Remaining gate |
-| --- | --- | --- |
-| M0 Planning | verified | Existing feature register/playbook preserved |
-| M1 Design + spikes | in_progress | Matte direction retained; local appointment concurrency proven; hold/provider proof still open |
-| M2 Tenant setup | in_progress | Local setup persists; managed identities/memberships/MFA/invites and complete catalogue still missing |
-| M3 Booking core | in_progress | Local booking/atomic move works; public workflow, add-ons/overrides, holds still missing |
-| M4 Collections/communication | not_started | No Stripe/messages/customer verified access |
-| M5 Daily operations/PWA | in_progress | Local service transitions work; barber role scope, payments and actual PWA missing |
-| M6 Finance/reports | not_started | No ledger, pay-runs, reports or reviews |
-| M7 SaaS readiness | not_started | No subscriptions/platform console/restore/monitoring |
-| M8 Pilot/release | not_started | Explicitly no live release |
-| M9 Native | not_started | Scope unresolved; PWA is not native Tap-to-Pay |
+## Feature and milestone tracking
 
-## Exact next work package: WP-LOCAL-02
+All **189 rows and 125 original C/B/A IDs remain intact**. **53 rows are `implementing`**, not production `verified`/`accepted`; 136 remain `not_started`. Current additions: C-02/C-03/A-19/A-20/A-21, with shared availability/buffer/A-28 work extended. A-14 now correctly reflects previously implemented local full-day leave. Native/v1.5 scope is not silently changed; B-06/B-07 remain deferred role-specific work.
 
-Continue the same local database and matte UI. Do not rebuild the shell.
+M1/M2/M3/M5 are in progress: local persistence, catalogue, allocator and service transitions have evidence, but production identity, public/customer/barber integration, holds, payments and PWA gates remain incomplete. M4/M6/M7/M8/M9 are not delivered by this slice.
 
-1. Add persisted add-on catalogue, service/add-on eligibility and immutable booking-item snapshots.
-2. Add barber/service coverage, price/duration overrides and server quote recomputation; recheck availability whenever total duration changes.
-3. Full-day staff leave is now implemented and verified. Extend to partial-day time overrides with affected-booking review, alongside weekly hours.
-4. Expand tests: 25-minute services, varying add-on durations, coverage disabled between review and write, dated overrides, stale quotes and cross-shop references.
-5. Improve saved booking views/pagination and operational form coverage, then connect customer/barber interfaces to the shared authoritative APIs without pretending test sessions are production roles.
-6. Implement checkout holds and expiry only as a deliberate next allocator extension, with late-confirmation tests. Current availability truthfully reports `holds:false`.
-7. Update this log, feature register and evidence after each tested slice; commit incrementally.
+## Exact next work package: WP-LOCAL-03
 
-## Explicit limitations / blockers
+1. Add tenant-scoped server date/status/barber/search/cursor booking queries and matching admin pagination. Prove correctness beyond 500 records; separate dashboard summaries/issues from a limited list.
+2. Connect customer and assigned-barber **test** interfaces to shared catalogue/quote/availability/booking APIs while maintaining honest test-ownership labels. Do not repurpose fixture previews as authenticated roles.
+3. Add deliberately designed checkout holds/expiry with concurrent, expiration and late-confirmation tests before any payment-dependent flow.
+4. Production identity, memberships/invites/MFA and customer verification remain explicit provider/design gates. Keep provider activation and deployment paused.
+5. Continue persistent handoffs and focused/full tests; do not reset planning or recolour the app.
 
-- Only booking creation has payload-key idempotency. For an interrupted staff/service/closure create response, refresh and inspect records before repeating the create. Do not claim all mutations are retry-idempotent.
-- Test session lasts seven days. No account recovery, logout/session-management UI or automatic old-test-data cleanup. Do not enter real personal data or expose this as commercial authentication.
-- Workspace loads latest 500 bookings/200 audit events; pagination is still needed. Availability uses scoped database records independently of this display cap.
-- London-only schedules; no full multi-zone support. Buffer/grace/deposit/cancellation are provisional local settings; final production policy decisions remain open.
-- No role-separated staff/customer/private-note authorization, production abuse controls or verified customer history.
-- No financial ledger/cash/tips/refunds/receipts, pay-runs or implied bank execution. Model A remains shop collection plus owner-paid external transfers.
-- No real notification providers, subscriptions, platform console, uploads/R2, installed PWA/service worker, offline writes or safe offline private cache.
-- No hold/expiry, public booking slug, add-on/price-duration override completeness, partial-day overrides or full calendar week/month.
-- Production auth/provider/policy choices gate their dependent work only; they do not block the next local slice.
+## Limits and operations
 
-## GitHub / continuity
+- London timezone; exact duration + ten-minute buffer; one dated shift/break per barber/date. Multiple split shifts, overnight work and arbitrary multi-zone support are not implemented.
+- Add-ons/service rules are owner-test controls, not production staff self-management. Rules save per service. Deleted dated overrides retain audit, not a restorable version-history UI.
+- Workspace still loads latest 500 bookings and 200 audit events. Availability reads authoritative scoped database records independently, but display/issue pagination is next.
+- Seven-day capability session, no account recovery/logout management or automatic old-test cleanup. Use fictional records only; no private offline cache/write queue.
+- No customer portal, public shop routing, financial ledger/cash/tips/refunds/receipts/pay-runs, reviews, messaging, subscriptions/platform console or installed/offline PWA.
+- Model A unchanged: shop receives customer money; owners segregate and pay barbers externally. No wallet, bank transfer execution or live payment claims.
 
-Selected repository: https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject. Last checked public/empty. No push or visibility change. Recheck and obtain private/public publication consent before syncing. Keep local and genspark history; do not overwrite another session's changes.
+## Service and continuity
 
-Earlier commits: `ff7c504` planning, `26a7790` publication pause, `858cf6f` execution sequence, `2eebb48` implemented previews, `ba94463` D-011 proposal. D-012 now supersedes the recolouring proposal. This package continues, rather than restarts, that work.
+PM2 `barbershop-preview`, port 3000, `http://localhost:3000/workspace`; health reports local-sandbox/persistence true/livePayments false. Temporary development Preview only; no production URL.
 
-## Required next-session start
+Selected GitHub repository remains https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject, previously public/empty. No push or visibility change authorized/performed. Recheck and obtain publication consent before syncing. Preserve local/genspark history.
 
-Read AGENTS, this file, DECISIONS and current schemas/tests. Verify git state and any running builds/tests before launching another runner. Preserve interrupted/concurrent work. State the narrow package, implement one vertical slice, run functional and visual checks, and update evidence honestly. Nothing live unless the user explicitly changes that instruction.
+Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git status. Continue from this tested slice. No production action unless the user explicitly changes the instruction.

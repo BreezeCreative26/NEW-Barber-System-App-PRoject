@@ -188,7 +188,10 @@ try {
     200,
   );
   // Closure is checked again inside INSERT even if an earlier availability read was valid.
-  await api("/holidays", "POST", { date, label: "Write-time closure test" });
+  const closure = await api("/holidays", "POST", {
+    date,
+    label: "Write-time closure test",
+  });
   const later = {
     ...duplicate,
     id: crypto.randomUUID(),
@@ -241,6 +244,11 @@ try {
     (await api(`/bookings/${past.id}`)).body.booking.status,
     "NO_SHOW",
   );
+  // Isolate quote validation from closure validation; SQLite trigger order is not a contract.
+  assert.equal(
+    (await api(`/holidays/${closure.body.id}`, "DELETE")).status,
+    200,
+  );
   // Bypass the API after a quote change: the database itself must still reject it.
   await db
     .prepare("UPDATE services SET version=version+1 WHERE id=? AND shop_id=?")
@@ -256,8 +264,138 @@ try {
         .run(),
     /quote_changed/,
   );
+  // Exercise catalogue and dated-hour guards through raw D1 writes, not API pre-checks.
+  const addonResponse = await api("/addons", "POST", {
+    name: "Invariant towel",
+    price_pence: 650,
+    duration_min: 20,
+    active: 1,
+    service_ids: [b.service_id],
+  });
+  assert.equal(addonResponse.status, 201);
+  const addonId = addonResponse.body.id,
+    secondStaff = w.staff[1].id;
+  assert.equal(
+    (
+      await api(`/staff/${secondStaff}/services/${b.service_id}`, "PUT", {
+        enabled: 1,
+        price_pence: 3300,
+        duration_min: 25,
+        version: 0,
+      })
+    ).status,
+    200,
+  );
+  const q = (
+    await api(
+      "/availability?" +
+        new URLSearchParams({
+          date,
+          staff_id: secondStaff,
+          service_id: b.service_id,
+          addon_ids: addonId,
+        }),
+    )
+  ).body;
+  const combined = await api("/bookings", "POST", {
+    ...body,
+    request_id: crypto.randomUUID(),
+    staff_id: secondStaff,
+    addon_ids: [addonId],
+    quote: q.quote,
+  });
+  assert.equal(combined.status, 201);
+  const itemBooking = combined.body.booking;
+  const candidate = {
+    ...itemBooking,
+    id: crypto.randomUUID(),
+    request_id: crypto.randomUUID(),
+    sequence: 10010,
+    start_min: 630,
+    start_at: itemBooking.start_at + 90 * 60000,
+    end_at: itemBooking.end_at + 90 * 60000,
+  };
+  const rawInsert = (value) =>
+    db
+      .prepare(
+        `INSERT INTO bookings (${Object.keys(value).join(",")}) VALUES (${Object.keys(
+          value,
+        )
+          .map(() => "?")
+          .join(",")})`,
+      )
+      .bind(...Object.values(value))
+      .run();
+  await assert.rejects(
+    () => rawInsert({ ...candidate, price_pence: 1 }),
+    /invalid_booking_items/,
+  );
+  await assert.rejects(
+    () =>
+      db
+        .prepare("UPDATE bookings SET items_json='[]' WHERE id=?")
+        .bind(itemBooking.id)
+        .run(),
+    /booking_snapshot_immutable/,
+  );
+  await db
+    .prepare("UPDATE addons SET price_pence=999 WHERE shop_id=? AND id=?")
+    .bind(w.shop.id, addonId)
+    .run();
+  await assert.rejects(() => rawInsert(candidate), /addon_unavailable/);
+  await db
+    .prepare("UPDATE addons SET price_pence=650 WHERE shop_id=? AND id=?")
+    .bind(w.shop.id, addonId)
+    .run();
+  const override = await api(`/staff/${secondStaff}/overrides`, "POST", {
+    date,
+    enabled: 1,
+    starts: 720,
+    ends: 1020,
+    break_start: 720,
+    break_end: 720,
+    reason: "Raw write partial shift test",
+  });
+  assert.equal(override.status, 201);
+  await assert.rejects(() => rawInsert(candidate), /outside_hours/);
+  await assert.rejects(
+    () =>
+      db
+        .prepare(
+          "UPDATE bookings SET start_min=?,start_at=?,end_at=? WHERE id=?",
+        )
+        .bind(
+          candidate.start_min,
+          candidate.start_at,
+          candidate.end_at,
+          itemBooking.id,
+        )
+        .run(),
+    /outside_hours/,
+  );
+  assert.equal(
+    (await api(`/staff/${secondStaff}/overrides/${override.body.id}`, "DELETE"))
+      .status,
+    200,
+  );
+  await db
+    .prepare(
+      "UPDATE staff_service_rules SET enabled=0 WHERE shop_id=? AND staff_id=? AND service_id=?",
+    )
+    .bind(w.shop.id, secondStaff, b.service_id)
+    .run();
+  await assert.rejects(() => rawInsert(candidate), /service_ineligible/);
+  assert.equal(
+    (
+      await db
+        .prepare("SELECT start_min FROM bookings WHERE id=?")
+        .bind(itemBooking.id)
+        .first()
+    ).start_min,
+    540,
+  );
   console.log(
-    "PASS: direct D1 overlap/quote rejection, immutable snapshots/history, atomic batch rollback, write-time closure and elapsed no-show grace.",
+    "PASS: direct D1 overlap, quote/items, addon/rule eligibility, dated hours, immutable snapshots, rollback, leave/closure and no-show guards.",
   );
 } finally {
   await platform.dispose();

@@ -1,7 +1,7 @@
 id,area,feature,original_scope,milestone,status,treatment,acceptance,decision
 C-01,customer,Browse services,MVP,M3,not_started,retained,Show active service price duration deposit and 56px thumbnail,D-001
-C-02,customer,Barber price override,MVP,M3,not_started,retained,Apply eligible barber price and explain override chip,D-001
-C-03,customer,Add-ons,MVP,M3,not_started,retained,Separate summary rows and revalidate price duration and slot,O-09
+C-02,customer,Barber price override,MVP,M3,implementing,retained,Apply eligible barber price and explain override chip,D-001
+C-03,customer,Add-ons,MVP,M3,implementing,retained,Separate summary rows and revalidate price duration and slot,O-09
 C-04,customer,Search services barbers and add-ons,MVP,M3,not_started,retained,Shop-scoped server prefix search on name and category,D-001
 C-05,customer,Popular filter,MVP,M3,not_started,retained,Filter uses service popular flag and supports empty state,D-001
 C-06,customer,Active barbers,MVP,M3,implementing,retained,Only eligible active staff can be selected,D-001
@@ -90,14 +90,14 @@ A-10,admin,Shop-wide search,MVP,M6,not_started,retained,Shop-scoped bookings cli
 A-11,admin,Week and month calendar,MVP,M3,not_started,retained,Usable responsive views and approved resource-calendar licensing,O-16
 A-12,admin,Per-barber calendar filter,MVP,M3,implementing,retained,Filter preserves date and accessible selected state,D-001
 A-13,admin,Shop holidays,MVP,M2,implementing,retained,Closure suppresses new slots and flags affected appointments,D-004
-A-14,admin,Barber day off,MVP,M2,not_started,retained,Full-day override with existing-booking impact review,D-004
+A-14,admin,Barber day off,MVP,M2,implementing,retained,Full-day override with existing-booking impact review,D-004
 A-15,admin,Lunch breaks,MVP,M2,implementing,retained,Per-weekday valid intervals enforced by slot engine,D-004
 A-16,admin,Blackout windows,v1.5,LATER,not_started,deferred,Explicit booking cutoff distinct from shift end,O-09
 A-17,admin,Service categories,MVP,M2,implementing,retained,Create edit categorize and deactivate with history preserved,D-001
 A-18,admin,Default price and duration,MVP,M2,implementing,retained,Validated values with immutable existing-booking snapshots,D-004
-A-19,admin,Barber overrides,MVP,M2,not_started,retained,Price and duration overrides used by quote and allocator,D-004
-A-20,admin,Service eligibility toggles,MVP,M2,not_started,retained,Disabled coverage blocks selection without losing history,D-001
-A-21,admin,Add-on catalogue,MVP,M2,not_started,retained,Price eligibility and optional duration explicitly stored,O-09
+A-19,admin,Barber overrides,MVP,M2,implementing,retained,Price and duration overrides used by quote and allocator,D-004
+A-20,admin,Service eligibility toggles,MVP,M2,implementing,retained,Disabled coverage blocks selection without losing history,D-001
+A-21,admin,Add-on catalogue,MVP,M2,implementing,retained,Price eligibility and optional duration explicitly stored,O-09
 A-22,admin,Service deposit policy,MVP,M2,not_started,policy_decision,Policy validation consistent with chosen fixed or override model,O-05
 A-23,admin,Staff directory,MVP,M2,implementing,retained,Roles hours shares and active invited suspended statuses,D-001
 A-24,admin,Invite staff,MVP,M2,not_started,retained,Audited resend revoke expire and claim workflows,O-07

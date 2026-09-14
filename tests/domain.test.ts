@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import app from "../src/index";
 import {
+  calculateQuote,
+  effectiveHours,
+  addonSchema,
+  overrideSchema,
+  type Service,
+  type StaffServiceRule,
+  type ScheduleOverride,
   bookingSchema,
   dateSchema,
   hoursSchema,
@@ -12,6 +19,117 @@ import {
   type Hours,
   type StoredBooking,
 } from "../src/server/domain";
+
+describe("authoritative catalogue items and dated hours", () => {
+  const service = {
+    id: "service",
+    shop_id: "shop",
+    name: "Cut",
+    price_pence: 2800,
+    duration_min: 30,
+    active: 1,
+  } as Service;
+  const rule = {
+    shop_id: "shop",
+    staff_id: "staff",
+    service_id: "service",
+    enabled: 1,
+    price_pence: 0,
+    duration_min: 25,
+    version: 1,
+  } as StaffServiceRule;
+  const a = {
+    id: "addon",
+    shop_id: "shop",
+    name: "Detail work",
+    price_pence: 650,
+    duration_min: 7,
+    active: 1,
+    version: 0,
+  };
+  const links = [{ shop_id: "shop", addon_id: a.id, service_id: service.id }];
+  it("preserves zero override prices and exact non-grid duration sums", () => {
+    const q = calculateQuote(service, rule, [a], links, [a.id]);
+    expect(q.price_pence).toBe(650);
+    expect(q.duration_min).toBe(32);
+    expect(q.items).toHaveLength(2);
+  });
+  it("rejects duplicate, inactive and unlinked add-ons", () => {
+    expect(() =>
+      calculateQuote(service, null, [a], links, [a.id, a.id]),
+    ).toThrow("addon_unavailable");
+    expect(() =>
+      calculateQuote(service, null, [{ ...a, active: 0 }], links, [a.id]),
+    ).toThrow("addon_unavailable");
+    expect(() => calculateQuote(service, null, [a], [], [a.id])).toThrow(
+      "addon_unavailable",
+    );
+  });
+  it("rejects disabled service eligibility and restores catalogue defaults with nulls", () => {
+    expect(() =>
+      calculateQuote(service, { ...rule, enabled: 0 }, [], [], []),
+    ).toThrow("service_ineligible");
+    expect(
+      calculateQuote(
+        service,
+        { ...rule, price_pence: null, duration_min: null },
+        [],
+        [],
+        [],
+      ).price_pence,
+    ).toBe(2800);
+  });
+  it("a dated shift replaces rather than intersects weekly shift and break", () => {
+    const h = {
+      starts: 540,
+      ends: 1080,
+      enabled: 0,
+      break_start: 765,
+      break_end: 810,
+    } as Hours;
+    const o = {
+      date: "2026-10-12",
+      starts: 600,
+      ends: 1020,
+      enabled: 1,
+      break_start: 720,
+      break_end: 750,
+    } as ScheduleOverride;
+    expect(effectiveHours(h, o)).toMatchObject({
+      starts: 600,
+      ends: 1020,
+      enabled: 1,
+      break_start: 720,
+      break_end: 750,
+      weekday: 1,
+    });
+    expect(effectiveHours(h, null)).toBe(h);
+  });
+  it("validates exact add-on bounds and dated shift ordering", () => {
+    const input = {
+      name: "Towel",
+      price_pence: 0,
+      duration_min: 0,
+      active: 1,
+      service_ids: [crypto.randomUUID()],
+    };
+    expect(addonSchema.safeParse(input).success).toBe(true);
+    expect(addonSchema.safeParse({ ...input, service_ids: [] }).success).toBe(
+      false,
+    );
+    expect(
+      overrideSchema.safeParse({
+        date: "2026-10-12",
+        enabled: 1,
+        starts: 600,
+        ends: 660,
+        break_start: 630,
+        break_end: 700,
+        reason: "Invalid break",
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe("local sandbox boundary", () => {
   it.each([

@@ -10,6 +10,9 @@ import {
   type ReactNode,
 } from "react";
 import type {
+  Addon,
+  ScheduleOverride,
+  BookingItem,
   WorkspaceData,
   Staff,
   Service,
@@ -79,6 +82,10 @@ async function api<T>(
       const friendly: Record<string, string> = {
         record_changed:
           "This record changed in another view. Discard edits and load the latest record before trying again.",
+        addon_unavailable:
+          "An add-on is no longer available for this service. Remove it or refresh the workspace, then review again.",
+        service_ineligible:
+          "This barber does not offer the selected service. Choose another service or barber.",
         quote_changed:
           "The service or shop policy changed. Review the refreshed price and time before confirming again.",
         slot_taken:
@@ -181,6 +188,11 @@ function SaveForm({
 type Editor =
   | { kind: "staff"; item?: Staff }
   | { kind: "service"; item?: Service }
+  | { kind: "addon"; item?: Addon }
+  | { kind: "serviceRules"; item: Staff }
+  | { kind: "overrides"; item: Staff }
+  | { kind: "override"; item: Staff; override?: ScheduleOverride }
+  | { kind: "removeOverride"; item: ScheduleOverride }
   | { kind: "hours"; item: Staff }
   | { kind: "daysOff"; item: Staff }
   | { kind: "removeDayOff"; item: StaffDayOff }
@@ -289,9 +301,25 @@ export function Workspace() {
     if (
       current.kind === "staff" ||
       current.kind === "hours" ||
-      current.kind === "daysOff"
+      current.kind === "daysOff" ||
+      current.kind === "serviceRules" ||
+      current.kind === "overrides" ||
+      current.kind === "override"
     ) {
       const item = latest.staff.find((s) => s.id === itemId);
+      if (item)
+        replacement =
+          current.kind === "override"
+            ? {
+                ...current,
+                item,
+                override: latest.schedule_overrides.find(
+                  (o) => o.id === current.override?.id,
+                ),
+              }
+            : { ...current, item };
+    } else if (current.kind === "addon") {
+      const item = latest.addons.find((a) => a.id === itemId);
       if (item) replacement = { ...current, item };
     } else if (current.kind === "service") {
       const item = latest.services.find((s) => s.id === itemId);
@@ -661,6 +689,22 @@ export function Workspace() {
                           >
                             Days off
                           </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={() =>
+                              setEditor({ kind: "serviceRules", item: s })
+                            }
+                          >
+                            Services & pricing
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={() =>
+                              setEditor({ kind: "overrides", item: s })
+                            }
+                          >
+                            Dated hours
+                          </Button>
                         </div>
                       </article>
                     ))}
@@ -709,6 +753,48 @@ export function Workspace() {
                     Existing appointments keep their original price, service
                     name and duration when the catalogue changes.
                   </Notice>
+                  <section className="workspace-addon-catalogue">
+                    <div className="workspace-section-heading">
+                      <h2>Add-ons</h2>
+                      <Button onClick={() => setEditor({ kind: "addon" })}>
+                        Add add-on
+                      </Button>
+                    </div>
+                    <p>
+                      Optional items add their own price and exact duration.
+                      Choose which services offer each add-on.
+                    </p>
+                    {!w.addons.length && <p>No saved add-ons yet.</p>}
+                    <div className="workspace-card-grid">
+                      {w.addons.map((a) => (
+                        <article className="workspace-panel" key={a.id}>
+                          <Badge>{a.active ? "Available" : "Inactive"}</Badge>
+                          <h3>{a.name}</h3>
+                          <p>
+                            {money(a.price_pence)} · +{a.duration_min} minutes
+                          </p>
+                          <p>
+                            {w.addon_links
+                              .filter((l) => l.addon_id === a.id)
+                              .map(
+                                (l) =>
+                                  w.services.find((s) => s.id === l.service_id)
+                                    ?.name,
+                              )
+                              .join(", ")}
+                          </p>
+                          <Button
+                            variant="secondary"
+                            onClick={() =>
+                              setEditor({ kind: "addon", item: a })
+                            }
+                          >
+                            Edit add-on
+                          </Button>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
                 </>
               )}
               {tab === "Settings" && (
@@ -893,6 +979,12 @@ export function Workspace() {
           onEdit={(item) => setEditor({ kind: "contacts", item })}
           reloadEditor={reloadEditor}
           onRemoveDayOff={(item) => setEditor({ kind: "removeDayOff", item })}
+          onEditOverride={(item, override) =>
+            setEditor({ kind: "override", item, override })
+          }
+          onRemoveOverride={(item) =>
+            setEditor({ kind: "removeOverride", item })
+          }
         />
       )}
     </div>
@@ -956,6 +1048,8 @@ type EditorProps = {
   onEdit: (b: StoredBooking) => void;
   reloadEditor: () => Promise<void>;
   onRemoveDayOff: (item: StaffDayOff) => void;
+  onEditOverride: (item: Staff, override?: ScheduleOverride) => void;
+  onRemoveOverride: (item: ScheduleOverride) => void;
 };
 function WorkspaceEditor({
   editor: e,
@@ -967,35 +1061,51 @@ function WorkspaceEditor({
   onEdit,
   reloadEditor,
   onRemoveDayOff,
+  onEditOverride,
+  onRemoveOverride,
 }: EditorProps) {
   const [reloadError, setReloadError] = useState("");
   const [reloading, setReloading] = useState(false);
   const title =
-    e.kind === "daysOff"
-      ? `${e.item.name} · days off`
-      : e.kind === "removeDayOff"
-        ? "Remove day off"
-        : e.kind === "contacts"
-          ? "Edit booking details"
-          : e.kind === "staff"
-            ? e.item
-              ? "Edit barber"
-              : "Add barber"
-            : e.kind === "service"
-              ? e.item
-                ? "Edit service"
-                : "Add service"
-              : e.kind === "hours"
-                ? `${e.item.name} · weekly hours`
-                : e.kind === "booking"
-                  ? e.item
-                    ? "Reschedule appointment"
-                    : "New test booking"
-                  : e.kind === "detail"
-                    ? reference(e.item)
-                    : e.kind === "holiday"
-                      ? "Add shop closure"
-                      : "Remove shop closure";
+    e.kind === "addon"
+      ? e.item
+        ? "Edit add-on"
+        : "Add add-on"
+      : e.kind === "serviceRules"
+        ? `${e.item.name} · services & pricing`
+        : e.kind === "overrides"
+          ? `${e.item.name} · dated hours`
+          : e.kind === "override"
+            ? e.override
+              ? "Edit dated hours"
+              : "Add dated hours"
+            : e.kind === "removeOverride"
+              ? "Remove dated hours"
+              : e.kind === "daysOff"
+                ? `${e.item.name} · days off`
+                : e.kind === "removeDayOff"
+                  ? "Remove day off"
+                  : e.kind === "contacts"
+                    ? "Edit booking details"
+                    : e.kind === "staff"
+                      ? e.item
+                        ? "Edit barber"
+                        : "Add barber"
+                      : e.kind === "service"
+                        ? e.item
+                          ? "Edit service"
+                          : "Add service"
+                        : e.kind === "hours"
+                          ? `${e.item.name} · weekly hours`
+                          : e.kind === "booking"
+                            ? e.item
+                              ? "Reschedule appointment"
+                              : "New test booking"
+                            : e.kind === "detail"
+                              ? reference(e.item)
+                              : e.kind === "holiday"
+                                ? "Add shop closure"
+                                : "Remove shop closure";
   return (
     <Modal
       title={title}
@@ -1003,6 +1113,73 @@ function WorkspaceEditor({
       context="LOCAL DATABASE · TEST DATA ONLY"
       wide={e.kind === "hours"}
     >
+      {e.kind === "addon" && <AddonEditor addon={e.item} w={w} saved={saved} />}
+      {e.kind === "serviceRules" && (
+        <ServiceRulesEditor staff={e.item} w={w} saved={saved} />
+      )}
+      {e.kind === "overrides" && (
+        <>
+          <Notice>
+            Dated hours replace one day's weekly shift and break. Shop closures
+            and full-day leave still take priority. Existing bookings are
+            flagged, never automatically cancelled.
+          </Notice>
+          <Button onClick={() => onEditOverride(e.item)}>
+            Add dated hours
+          </Button>
+          <section className="workspace-day-off-list">
+            {!w.schedule_overrides.some((o) => o.staff_id === e.item.id) && (
+              <p>No dated hours yet.</p>
+            )}
+            {w.schedule_overrides
+              .filter((o) => o.staff_id === e.item.id)
+              .map((o) => (
+                <article className="workspace-closure" key={o.id}>
+                  <h3>{o.date}</h3>
+                  <p>
+                    {o.enabled
+                      ? `${clock(o.starts)}–${clock(o.ends)}`
+                      : "Off duty"}{" "}
+                    · {o.reason}
+                  </p>
+                  <div className="workspace-actions">
+                    <Button
+                      variant="secondary"
+                      onClick={() => onEditOverride(e.item, o)}
+                    >
+                      Edit {o.date}
+                    </Button>
+                    <Button variant="ghost" onClick={() => onRemoveOverride(o)}>
+                      Remove {o.date}
+                    </Button>
+                  </div>
+                </article>
+              ))}
+          </section>
+        </>
+      )}
+      {e.kind === "override" && (
+        <OverrideEditor
+          staff={e.item}
+          override={e.override}
+          date={date}
+          w={w}
+          saved={saved}
+        />
+      )}
+      {e.kind === "removeOverride" && (
+        <SaveForm
+          label="Confirm removal"
+          onSave={() =>
+            saved(`/staff/${e.item.staff_id}/overrides/${e.item.id}`, "DELETE")
+          }
+        >
+          <p>
+            Remove dated hours for {e.item.date}? The weekly schedule will apply
+            again. Existing bookings and audit records stay saved.
+          </p>
+        </SaveForm>
+      )}
       {e.kind === "staff" && (
         <SaveForm
           onSave={(f) =>
@@ -1315,6 +1492,9 @@ function WorkspaceEditor({
       {e.kind === "detail" && (
         <>
           <section className="workspace-booking-detail">
+            <BookingItems
+              items={JSON.parse(e.item.items_json) as BookingItem[]}
+            />
             <Badge>{labels[e.item.status]}</Badge>
             <h3>{e.item.customer_name}</h3>
             <p>{e.item.phone}</p>
@@ -1379,6 +1559,288 @@ function WorkspaceEditor({
         </footer>
       )}
     </Modal>
+  );
+}
+
+function AddonEditor({
+  addon: a,
+  w,
+  saved,
+}: {
+  addon?: Addon;
+  w: WorkspaceData;
+  saved: EditorProps["saved"];
+}) {
+  return (
+    <SaveForm
+      onSave={(f) =>
+        saved(`/addons${a ? "/" + a.id : ""}`, a ? "PUT" : "POST", {
+          name: text(f, "name"),
+          price_pence: Math.round(number(f, "price") * 100),
+          duration_min: number(f, "duration"),
+          active: f.has("active") ? 1 : 0,
+          service_ids: f.getAll("service_ids").map(String),
+          ...(a ? { version: a.version } : {}),
+        })
+      }
+    >
+      <Field label="Add-on name">
+        <input
+          name="name"
+          required
+          minLength={2}
+          maxLength={100}
+          defaultValue={a?.name}
+        />
+      </Field>
+      <div className="workspace-form-grid">
+        <Field label="Add-on price (£)">
+          <input
+            name="price"
+            type="number"
+            min={0}
+            max={1000}
+            step="0.01"
+            required
+            defaultValue={(a?.price_pence ?? 500) / 100}
+          />
+        </Field>
+        <Field label="Extra minutes">
+          <input
+            name="duration"
+            type="number"
+            min={0}
+            max={120}
+            required
+            defaultValue={a?.duration_min ?? 10}
+          />
+        </Field>
+      </div>
+      <label className="workspace-check">
+        <input
+          type="checkbox"
+          name="active"
+          defaultChecked={a ? !!a.active : true}
+        />
+        Available for selection
+      </label>
+      <fieldset className="workspace-checks">
+        <legend>Offered with services (choose at least one)</legend>
+        {w.services.map((s) => (
+          <label key={s.id}>
+            <input
+              type="checkbox"
+              name="service_ids"
+              value={s.id}
+              defaultChecked={
+                !a ||
+                w.addon_links.some(
+                  (l) => l.addon_id === a.id && l.service_id === s.id,
+                )
+              }
+            />
+            {s.name}
+            {s.active ? "" : " (inactive)"}
+          </label>
+        ))}
+      </fieldset>
+      <Notice>
+        Changes apply to new bookings. Saved appointment items and totals remain
+        unchanged.
+      </Notice>
+    </SaveForm>
+  );
+}
+function ServiceRulesEditor({
+  staff,
+  w,
+  saved,
+}: {
+  staff: Staff;
+  w: WorkspaceData;
+  saved: EditorProps["saved"];
+}) {
+  return (
+    <>
+      <Notice>
+        By default this barber offers all services at catalogue prices and
+        durations. Clear an override to inherit the catalogue again. Disabling
+        eligibility flags future appointments; it does not cancel them.
+      </Notice>
+      {w.services.map((s) => {
+        const r = w.service_rules.find(
+          (r) => r.staff_id === staff.id && r.service_id === s.id,
+        );
+        return (
+          <section
+            className="workspace-rule-panel"
+            key={s.id}
+            aria-label={`${s.name} rule`}
+          >
+            <h3>{s.name}</h3>
+            <p>
+              Catalogue: {money(s.price_pence)} · {s.duration_min} minutes
+            </p>
+            <SaveForm
+              label={`Save ${s.name} rule`}
+              onSave={(f) =>
+                saved(`/staff/${staff.id}/services/${s.id}`, "PUT", {
+                  enabled: f.has("enabled") ? 1 : 0,
+                  price_pence:
+                    text(f, "price") === ""
+                      ? null
+                      : Math.round(number(f, "price") * 100),
+                  duration_min:
+                    text(f, "duration") === "" ? null : number(f, "duration"),
+                  version: r?.version ?? 0,
+                })
+              }
+            >
+              <label className="workspace-check">
+                <input
+                  type="checkbox"
+                  name="enabled"
+                  defaultChecked={r ? !!r.enabled : true}
+                />
+                Offers {s.name}
+              </label>
+              <div className="workspace-form-grid">
+                <Field label={`${s.name} price override (£)`}>
+                  <input
+                    name="price"
+                    type="number"
+                    min={0}
+                    max={1000}
+                    step="0.01"
+                    placeholder="Catalogue price"
+                    defaultValue={
+                      r?.price_pence == null ? "" : r.price_pence / 100
+                    }
+                  />
+                </Field>
+                <Field label={`${s.name} duration override`}>
+                  <input
+                    name="duration"
+                    type="number"
+                    min={5}
+                    max={240}
+                    placeholder="Catalogue minutes"
+                    defaultValue={r?.duration_min ?? ""}
+                  />
+                </Field>
+              </div>
+            </SaveForm>
+          </section>
+        );
+      })}
+    </>
+  );
+}
+function OverrideEditor({
+  staff,
+  override: o,
+  date,
+  w,
+  saved,
+}: {
+  staff: Staff;
+  override?: ScheduleOverride;
+  date: string;
+  w: WorkspaceData;
+  saved: EditorProps["saved"];
+}) {
+  const base =
+    o ??
+    w.hours.find(
+      (h) =>
+        h.staff_id === staff.id &&
+        h.weekday === new Date(date + "T12:00:00Z").getUTCDay(),
+    )!;
+  return (
+    <SaveForm
+      onSave={(f) =>
+        saved(
+          `/staff/${staff.id}/overrides${o ? "/" + o.id : ""}`,
+          o ? "PUT" : "POST",
+          {
+            date: text(f, "date"),
+            enabled: f.has("enabled") ? 1 : 0,
+            starts: minute(text(f, "starts")),
+            ends: minute(text(f, "ends")),
+            break_start: minute(text(f, "break_start")),
+            break_end: minute(text(f, "break_end")),
+            reason: text(f, "reason"),
+            ...(o ? { version: o.version } : {}),
+          },
+        )
+      }
+    >
+      <Field label="Override date">
+        <input
+          name="date"
+          type="date"
+          required
+          defaultValue={o?.date ?? date}
+        />
+      </Field>
+      <label className="workspace-check">
+        <input
+          name="enabled"
+          type="checkbox"
+          defaultChecked={o ? !!o.enabled : true}
+        />
+        Working on this date
+      </label>
+      <div className="workspace-form-grid">
+        {(["starts", "ends", "break_start", "break_end"] as const).map(
+          (key, i) => (
+            <Field
+              key={key}
+              label={
+                ["Shift start", "Shift end", "Break start", "Break end"][i]
+              }
+            >
+              <input
+                name={key}
+                type="time"
+                required
+                defaultValue={clock(base[key])}
+              />
+            </Field>
+          ),
+        )}
+      </div>
+      <Field label="Override reason">
+        <input
+          name="reason"
+          required
+          minLength={3}
+          maxLength={100}
+          defaultValue={o?.reason}
+        />
+      </Field>
+      <Notice>
+        This replaces the weekly shift and break for this date. Equal break
+        times mean no break. Shop limits and full-day leave still apply.
+      </Notice>
+    </SaveForm>
+  );
+}
+function BookingItems({ items }: { items: BookingItem[] }) {
+  return (
+    <ul className="workspace-quote-items">
+      {items.map((i) => (
+        <li key={i.id}>
+          <span>
+            {i.name}
+            {i.kind === "ADDON" ? " (add-on)" : ""}
+          </span>
+          <span>
+            {money(i.price_pence)} · {i.duration_min} min
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -1448,6 +1910,8 @@ function StatusForm({
 }
 
 type Slots = {
+  items: BookingItem[];
+  overridden: boolean;
   service_name: string;
   cancel_hours: number;
   slots: { start_min: number; reason: string }[];
@@ -1474,6 +1938,7 @@ function BookingForm({
   const [service, setService] = useState(
     b?.service_id || w.services.find((s) => s.active)?.id || "",
   );
+  const [addonIds, setAddonIds] = useState<string[]>([]);
   const [start, setStart] = useState("");
   const [slots, setSlots] = useState<Slots | null>(null);
   const [error, setError] = useState("");
@@ -1491,7 +1956,7 @@ function BookingForm({
       return;
     }
     api<Slots>(
-      `/availability?${new URLSearchParams({ date, staff_id: staff, service_id: service, ...(b ? { booking_id: b.id } : {}) })}`,
+      `/availability?${new URLSearchParams({ date, staff_id: staff, service_id: service, addon_ids: addonIds.join(","), ...(b ? { booking_id: b.id } : {}) })}`,
     )
       .then((s) => {
         if (current) setSlots(s);
@@ -1502,7 +1967,7 @@ function BookingForm({
     return () => {
       current = false;
     };
-  }, [date, staff, service, refresh, b?.id]);
+  }, [date, staff, service, addonIds, refresh, b?.id]);
   return (
     <SaveForm
       label={
@@ -1536,6 +2001,7 @@ function BookingForm({
               notes: text(f, "notes"),
               source: text(f, "source"),
               quote: slots.quote,
+              addon_ids: addonIds,
             };
         const serial = JSON.stringify(payload);
         if (request.current.payload !== serial)
@@ -1577,7 +2043,10 @@ function BookingForm({
           <Field label="Service">
             <select
               value={service}
-              onChange={(e) => setService(e.target.value)}
+              onChange={(e) => {
+                setService(e.target.value);
+                setAddonIds([]);
+              }}
               disabled={!!b}
               required
             >
@@ -1585,13 +2054,68 @@ function BookingForm({
               {w.services
                 .filter((s) => s.active || s.id === b?.service_id)
                 .map((s) => (
-                  <option key={s.id} value={s.id}>
+                  <option
+                    key={s.id}
+                    value={s.id}
+                    disabled={w.service_rules.some(
+                      (r) =>
+                        r.staff_id === staff &&
+                        r.service_id === s.id &&
+                        !r.enabled,
+                    )}
+                  >
                     {s.name}
+                    {w.service_rules.some(
+                      (r) =>
+                        r.staff_id === staff &&
+                        r.service_id === s.id &&
+                        !r.enabled,
+                    )
+                      ? " (not offered)"
+                      : ""}
                   </option>
                 ))}
             </select>
           </Field>
         </div>
+        {!b && (
+          <fieldset className="workspace-addon-options">
+            <legend>Optional add-ons</legend>
+            {w.addons
+              .filter(
+                (a) =>
+                  (a.active &&
+                    w.addon_links.some(
+                      (l) => l.addon_id === a.id && l.service_id === service,
+                    )) ||
+                  addonIds.includes(a.id),
+              )
+              .map((a) => (
+                <label className="workspace-check" key={a.id}>
+                  <input
+                    type="checkbox"
+                    checked={addonIds.includes(a.id)}
+                    onChange={(e) =>
+                      setAddonIds((ids) =>
+                        e.target.checked
+                          ? [...ids, a.id]
+                          : ids.filter((id) => id !== a.id),
+                      )
+                    }
+                  />
+                  {a.name} · {money(a.price_pence)} · +{a.duration_min} min
+                  {a.active ? "" : " (unavailable)"}
+                </label>
+              ))}
+            {!w.addons.some(
+              (a) =>
+                a.active &&
+                w.addon_links.some(
+                  (l) => l.addon_id === a.id && l.service_id === service,
+                ),
+            ) && <p>No add-ons offered with this service.</p>}
+          </fieldset>
+        )}
         <Field label="Booking date">
           <input
             type="date"
@@ -1633,6 +2157,10 @@ function BookingForm({
                 No available times. Try another day or barber, or review weekly
                 hours.
               </Notice>
+            )}
+            <BookingItems items={slots.items} />
+            {slots.overridden && (
+              <Badge>Barber-specific price / duration</Badge>
             )}
             <p className="workspace-quote">
               <strong>{money(slots.price_pence)}</strong> · {slots.duration_min}{" "}
@@ -1683,6 +2211,7 @@ function BookingForm({
           <strong>
             Ready to save: {date} at {time(Number(start))}.
           </strong>
+          <BookingItems items={slots?.items || []} />
           <p>
             {w.staff.find((s) => s.id === staff)?.name} · {slots?.service_name}{" "}
             · {money(slots?.price_pence || 0)}

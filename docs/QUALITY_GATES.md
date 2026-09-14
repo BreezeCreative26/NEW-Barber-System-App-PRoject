@@ -1,6 +1,6 @@
 # Barbershop OS — Quality gates and evidence
 
-Version 1.2 · 2026-09-14. D-012 cancels recolouring and prioritizes local persisted functionality. Current evidence includes 37 unit/route/domain tests, direct local D1 invariant checks and 47 full browser/API cases, all passing in the final recovery/leave verification. Browser coverage includes initial network failure, HTML proxy errors, post-save read failure, interrupted booking-response replay, stale quotes/editors, staff leave and visible mobile submit actions. See PROGRESS for exact reports. The production acceptance catalogue remains incomplete: local workspace tests do not prove managed identity, checkout holds, payments, notifications or PWA acceptance.
+Version 1.3 · 2026-09-14. D-012/D-013 retain the matte styling and local-only development. Current evidence: 42 unit/route/domain tests, direct local D1 invariants and 54 browser/API cases, all passing in the unchanged-source final regression. All 21 mutation routes have Origin/session/invalid-input coverage. New tests cover add-on/service links, exact aggregate durations, price/duration overrides, disabled coverage, dated replacement shifts, snapshot preservation and selection/conflict recovery alongside the complete earlier regression. The full migration chain also passed on an empty local D1 database. See PROGRESS for exact report and screenshots. The production acceptance catalogue remains incomplete: local workspace tests do not prove managed identity, checkout holds, payments, notifications or PWA acceptance.
 
 ## 1. Status vocabulary
 

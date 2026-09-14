@@ -54,6 +54,18 @@ Latest user instruction supersedes D-011's planned recolouring: retain the exist
 
 Development remains sandbox-only: local D1, fictional test data, no production deployment, live provider credentials, real charges/messages or bank transfers. First functional slice: isolated browser-owned test workspace, saved shop/staff/services/hours, conflict-safe booking creation/rescheduling and audited status transitions. Development workspace access is explicitly not production customer/staff identity; it must fail closed unless a local-only sandbox flag is configured. Production authentication and external integrations remain separate gates.
 
+### D-013 — Local catalogue and dated-hours slice (2026-09-14)
+
+User requested continuing from `c8abf5c` with persisted add-ons, barber-specific eligibility/pricing and partial-day overrides, reusing existing auth/availability and running full regression. No restart or deployment.
+
+Implemented engineering defaults for this test slice (not final commercial policy):
+- An absent barber/service rule inherits availability, price and duration from the catalogue. Explicit disabled coverage blocks new bookings and moves; null price/duration restores catalogue defaults. Zero is a valid price override.
+- Add-ons are linked explicitly to one or more services, can be deactivated, have integer-pence prices and 0–120 extra minutes. Up to ten unique add-ons per booking; durations are summed exactly, not rounded to the 15-minute start grid.
+- A booking stores an immutable `items_json` array (service line plus add-on lines) atomically with its interval. Legacy bookings are backfilled to one service line. Existing item names/prices/durations remain unchanged on catalogue edits and reschedules, including a move to a different eligible barber.
+- Add-on/link and barber-rule mutations increment the shop version in the same transaction. The existing service/shop quote-version contract therefore rejects stale reviews without adding client-authoritative totals. D1 triggers recheck item totals, current eligibility/pricing and schedule state at write time.
+- A dated hours record replaces the weekly shift and single break for that date. Shop opening limits/closures and full-day leave still win. Changes flag affected bookings, never silently cancel them. Restoring weekly hours means deleting the override with audit retained.
+- Rules save individually per service. Test ownership is unchanged; production roles, holds, checkout, public booking and provider activation remain separate work.
+
 ## Proposed architecture decisions
 
 ### D-004 — Modular monolith on Hono / D1 / R2

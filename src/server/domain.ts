@@ -31,6 +31,49 @@ export type Service = {
   active: number;
   version: number;
 };
+export type Addon = {
+  id: string;
+  shop_id: string;
+  name: string;
+  price_pence: number;
+  duration_min: number;
+  active: number;
+  version: number;
+};
+export type AddonLink = {
+  shop_id: string;
+  addon_id: string;
+  service_id: string;
+};
+export type StaffServiceRule = {
+  shop_id: string;
+  staff_id: string;
+  service_id: string;
+  enabled: number;
+  price_pence: number | null;
+  duration_min: number | null;
+  version: number;
+};
+export type ScheduleOverride = {
+  id: string;
+  shop_id: string;
+  staff_id: string;
+  date: string;
+  enabled: number;
+  starts: number;
+  ends: number;
+  break_start: number;
+  break_end: number;
+  reason: string;
+  version: number;
+};
+export type BookingItem = {
+  kind: "SERVICE" | "ADDON";
+  id: string;
+  name: string;
+  price_pence: number;
+  duration_min: number;
+};
 export type Hours = {
   shop_id: string;
   staff_id: string;
@@ -73,6 +116,7 @@ export type StoredBooking = {
   duration_min: number;
   buffer_min: number;
   service_name: string;
+  items_json: string;
   price_pence: number;
   deposit_policy_pence: number;
   cancel_hours_snapshot: number;
@@ -95,6 +139,10 @@ export type WorkspaceData = {
   shop: Shop;
   staff: Staff[];
   services: Service[];
+  addons: Addon[];
+  addon_links: AddonLink[];
+  service_rules: StaffServiceRule[];
+  schedule_overrides: ScheduleOverride[];
   hours: Hours[];
   holidays: Holiday[];
   days_off: StaffDayOff[];
@@ -132,6 +180,28 @@ export const serviceSchema = z
     price_pence: z.number().int().min(0).max(100000),
     active: active.default(1),
     version: version.optional(),
+  })
+  .strict();
+export const addonSchema = z
+  .object({
+    name,
+    price_pence: z.number().int().min(0).max(100000),
+    duration_min: z.number().int().min(0).max(120),
+    active: active.default(1),
+    service_ids: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(100)
+      .refine((a) => new Set(a).size === a.length, "Duplicate services"),
+    version: version.optional(),
+  })
+  .strict();
+export const serviceRuleSchema = z
+  .object({
+    enabled: active,
+    price_pence: z.number().int().min(0).max(100000).nullable(),
+    duration_min: z.number().int().min(5).max(240).nullable(),
+    version,
   })
   .strict();
 export const shopSchema = z
@@ -179,6 +249,31 @@ export const hoursSchema = z
       ),
   })
   .strict();
+export const overrideSchema = z
+  .object({
+    date: dateSchema,
+    enabled: active,
+    starts: z.number().int().min(0).max(1439),
+    ends: z.number().int().min(1).max(1440),
+    break_start: z.number().int().min(0).max(1440),
+    break_end: z.number().int().min(0).max(1440),
+    reason: z.string().trim().min(3).max(100),
+    version: version.optional(),
+  })
+  .strict()
+  .refine(
+    (h) =>
+      h.ends > h.starts &&
+      h.break_start >= h.starts &&
+      h.break_end >= h.break_start &&
+      h.break_end <= h.ends,
+    "Shift and break times must be ordered and within the shift",
+  );
+export const addonIdsSchema = z
+  .array(z.string().uuid())
+  .max(10)
+  .refine((ids) => new Set(ids).size === ids.length, "Choose each add-on once")
+  .transform((ids) => [...ids].sort());
 export const holidaySchema = z
   .object({ date: dateSchema, label: z.string().trim().min(2).max(100) })
   .strict();
@@ -207,6 +302,7 @@ export const bookingSchema = z
       .max(1425)
       .refine((v) => v % 15 === 0, "Choose a 15-minute start"),
     source: z.enum(["TEST_BOOKING", "WALK_IN"]),
+    addon_ids: addonIdsSchema.default([]),
     quote: z
       .object({ service_version: version, shop_version: version })
       .strict(),
@@ -248,6 +344,62 @@ export const statusSchema = z
     version,
   })
   .strict();
+
+// A dated override replaces that day's weekly shift/break; shop closures and full-day leave still win.
+export function effectiveHours(
+  weekly: Hours | null,
+  override: ScheduleOverride | null,
+): Hours | null {
+  return override ? { ...override, weekday: weekday(override.date) } : weekly;
+}
+export function calculateQuote(
+  service: Service,
+  rule: StaffServiceRule | null,
+  addons: Addon[],
+  links: AddonLink[],
+  ids: string[],
+) {
+  if (!service.active) throw new Error("service_unavailable");
+  if (rule?.enabled === 0) throw new Error("service_ineligible");
+  if (new Set(ids).size !== ids.length || ids.length > 10)
+    throw new Error("addon_unavailable");
+  const items: BookingItem[] = [
+    {
+      kind: "SERVICE",
+      id: service.id,
+      name: service.name,
+      price_pence: rule?.price_pence ?? service.price_pence,
+      duration_min: rule?.duration_min ?? service.duration_min,
+    },
+  ];
+  for (const id of [...ids].sort()) {
+    const a = addons.find(
+      (a) => a.id === id && a.shop_id === service.shop_id && a.active,
+    );
+    if (
+      !a ||
+      !links.some(
+        (l) =>
+          l.shop_id === service.shop_id &&
+          l.addon_id === id &&
+          l.service_id === service.id,
+      )
+    )
+      throw new Error("addon_unavailable");
+    items.push({
+      kind: "ADDON",
+      id: a.id,
+      name: a.name,
+      price_pence: a.price_pence,
+      duration_min: a.duration_min,
+    });
+  }
+  return {
+    items,
+    price_pence: items.reduce((n, i) => n + i.price_pence, 0),
+    duration_min: items.reduce((n, i) => n + i.duration_min, 0),
+  };
+}
 
 export const ref = (b: Pick<StoredBooking, "sequence">) =>
   `BRB-${String(b.sequence).padStart(4, "0")}`;

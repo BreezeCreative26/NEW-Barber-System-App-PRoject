@@ -7,6 +7,17 @@ import type {
 } from "@cloudflare/workers-types";
 import { z } from "zod";
 import {
+  addonSchema,
+  serviceRuleSchema,
+  overrideSchema,
+  addonIdsSchema,
+  effectiveHours,
+  calculateQuote,
+  type Addon,
+  type AddonLink,
+  type StaffServiceRule,
+  type ScheduleOverride,
+  type BookingItem,
   bookingSchema,
   bookingDetailsSchema,
   dayOffSchema,
@@ -81,11 +92,12 @@ function audit(
   action: string,
   reason = "",
   conditional = false,
+  eventId = id(),
 ): D1PreparedStatement {
   return c.env.DB.prepare(
     `INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) SELECT ?,?,?,?,?,?,?,? ${conditional ? "WHERE changes() > 0" : ""}`,
   ).bind(
-    id(),
+    eventId,
     c.get("shopId"),
     entity,
     entityId,
@@ -172,6 +184,10 @@ sandbox.onError((err, c) => {
   const known = [
     "quote_changed",
     "staff_day_off",
+    "service_ineligible",
+    "addon_unavailable",
+    "invalid_booking_items",
+    "service_unavailable",
     "slot_taken",
     "barber_unavailable",
     "service_changed",
@@ -300,6 +316,16 @@ sandbox.get("/workspace", async (c) => {
     c.env.DB.prepare(
       "SELECT * FROM staff_days_off WHERE shop_id=? ORDER BY date,staff_id",
     ).bind(sid),
+    c.env.DB.prepare("SELECT * FROM addons WHERE shop_id=? ORDER BY name").bind(
+      sid,
+    ),
+    c.env.DB.prepare("SELECT * FROM addon_services WHERE shop_id=?").bind(sid),
+    c.env.DB.prepare("SELECT * FROM staff_service_rules WHERE shop_id=?").bind(
+      sid,
+    ),
+    c.env.DB.prepare(
+      "SELECT * FROM staff_schedule_overrides WHERE shop_id=? ORDER BY date",
+    ).bind(sid),
   ]);
   const staff = result[0].results as Staff[];
   const services = result[1].results as Service[];
@@ -307,6 +333,8 @@ sandbox.get("/workspace", async (c) => {
   const holidays = result[3].results as Holiday[];
   const bookings = result[4].results as StoredBooking[];
   const daysOff = result[6].results as StaffDayOff[];
+  const rules = result[9].results as StaffServiceRule[];
+  const overrides = result[10].results as ScheduleOverride[];
   const issues = bookings
     .filter(
       (b) =>
@@ -314,21 +342,34 @@ sandbox.get("/workspace", async (c) => {
         !["CANCELLED", "NO_SHOW", "COMPLETED"].includes(b.status),
     )
     .flatMap((b) => {
-      const reason = slotReason(
-        shop,
-        staff.find((s) => s.id === b.staff_id) ?? null,
-        hours.find(
-          (h) => h.staff_id === b.staff_id && h.weekday === weekday(b.date),
-        ) ?? null,
-        holidays,
-        [],
-        b.date,
-        b.start_min,
-        b.duration_min,
-        Date.now(),
-        undefined,
-        daysOff,
-      );
+      const reason = rules.some(
+        (r) =>
+          r.staff_id === b.staff_id &&
+          r.service_id === b.service_id &&
+          !r.enabled,
+      )
+        ? "Barber no longer offers this service"
+        : slotReason(
+            shop,
+            staff.find((s) => s.id === b.staff_id) ?? null,
+            effectiveHours(
+              hours.find(
+                (h) =>
+                  h.staff_id === b.staff_id && h.weekday === weekday(b.date),
+              ) ?? null,
+              overrides.find(
+                (o) => o.staff_id === b.staff_id && o.date === b.date,
+              ) ?? null,
+            ),
+            holidays,
+            [],
+            b.date,
+            b.start_min,
+            b.duration_min,
+            Date.now(),
+            undefined,
+            daysOff,
+          );
       return reason ? [{ booking_id: b.id, ref: ref(b), reason }] : [];
     });
   return c.json({
@@ -340,6 +381,10 @@ sandbox.get("/workspace", async (c) => {
     bookings,
     audit: result[5].results as AuditEvent[],
     days_off: daysOff,
+    addons: result[7].results as Addon[],
+    addon_links: result[8].results as AddonLink[],
+    service_rules: rules,
+    schedule_overrides: overrides,
     today: shopToday(shop.timezone),
     now: Date.now(),
     mode: "sandbox",
@@ -575,6 +620,195 @@ sandbox.put("/services/:id", async (c) => {
   );
   return c.json({ ok: true });
 });
+async function requireStaff(c: Ctx, staffId: string) {
+  if (
+    !(await c.env.DB.prepare("SELECT id FROM staff WHERE shop_id=? AND id=?")
+      .bind(c.get("shopId"), staffId)
+      .first())
+  )
+    fail(404, "Barber not found");
+}
+async function validateServiceLinks(c: Ctx, ids: string[]) {
+  const found = await c.env.DB.prepare(
+    `SELECT id FROM services WHERE shop_id=? AND id IN (${ids.map(() => "?").join(",")})`,
+  )
+    .bind(c.get("shopId"), ...ids)
+    .all();
+  if (found.results.length !== ids.length)
+    fail(404, "Service not found in this workspace");
+}
+async function saveAddon(c: Ctx, addonId: string, editing: boolean) {
+  const b = await input(c, addonSchema);
+  if (editing && b.version === undefined) fail(400, "version is required");
+  await validateServiceLinks(c, b.service_ids);
+  const sid = c.get("shopId"),
+    marker = id();
+  const writes = [
+    editing
+      ? c.env.DB.prepare(
+          "UPDATE addons SET name=?,price_pence=?,duration_min=?,active=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
+        ).bind(
+          b.name,
+          b.price_pence,
+          b.duration_min,
+          b.active,
+          sid,
+          addonId,
+          b.version!,
+        )
+      : c.env.DB.prepare(
+          "INSERT INTO addons(id,shop_id,name,price_pence,duration_min,active) VALUES(?,?,?,?,?,?)",
+        ).bind(addonId, sid, b.name, b.price_pence, b.duration_min, b.active),
+    audit(
+      c,
+      "addon",
+      addonId,
+      editing ? "ADDON_UPDATED" : "ADDON_CREATED",
+      "Existing booking items are unchanged.",
+      true,
+      marker,
+    ),
+    c.env.DB.prepare(
+      "DELETE FROM addon_services WHERE shop_id=? AND addon_id=? AND EXISTS(SELECT 1 FROM audit_events WHERE id=? AND shop_id=?)",
+    ).bind(sid, addonId, marker, sid),
+  ];
+  for (const serviceId of b.service_ids)
+    writes.push(
+      c.env.DB.prepare(
+        "INSERT INTO addon_services(shop_id,addon_id,service_id) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM audit_events WHERE id=? AND shop_id=?)",
+      ).bind(sid, addonId, serviceId, marker, sid),
+    );
+  writes.push(
+    c.env.DB.prepare(
+      "UPDATE shops SET version=version+1 WHERE id=? AND EXISTS(SELECT 1 FROM audit_events WHERE id=? AND shop_id=?)",
+    ).bind(sid, marker, sid),
+  );
+  const result = await c.env.DB.batch(writes);
+  if (!result[0].meta.changes) fail(409, "record_changed");
+  return c.json({ id: addonId }, editing ? 200 : 201);
+}
+sandbox.post("/addons", (c) => saveAddon(c, id(), false));
+sandbox.put("/addons/:id", (c) => saveAddon(c, c.req.param("id"), true));
+sandbox.put("/staff/:id/services/:serviceId", async (c) => {
+  const b = await input(c, serviceRuleSchema),
+    sid = c.get("shopId"),
+    staffId = c.req.param("id"),
+    serviceId = c.req.param("serviceId");
+  await requireStaff(c, staffId);
+  await validateServiceLinks(c, [serviceId]);
+  const statement =
+    b.version === 0
+      ? c.env.DB.prepare(
+          "INSERT INTO staff_service_rules(shop_id,staff_id,service_id,enabled,price_pence,duration_min) VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING",
+        ).bind(
+          sid,
+          staffId,
+          serviceId,
+          b.enabled,
+          b.price_pence,
+          b.duration_min,
+        )
+      : c.env.DB.prepare(
+          "UPDATE staff_service_rules SET enabled=?,price_pence=?,duration_min=?,version=version+1 WHERE shop_id=? AND staff_id=? AND service_id=? AND version=?",
+        ).bind(
+          b.enabled,
+          b.price_pence,
+          b.duration_min,
+          sid,
+          staffId,
+          serviceId,
+          b.version,
+        );
+  const result = await c.env.DB.batch([
+    statement,
+    audit(
+      c,
+      "staff_service",
+      staffId + ":" + serviceId,
+      "SERVICE_RULE_UPDATED",
+      "Eligibility and overrides updated; existing commercial snapshots retained.",
+      true,
+    ),
+    c.env.DB.prepare(
+      "UPDATE shops SET version=version+1 WHERE id=? AND changes()>0",
+    ).bind(sid),
+  ]);
+  if (!result[0].meta.changes) fail(409, "record_changed");
+  return c.json({ ok: true });
+});
+async function saveOverride(c: Ctx, overrideId: string, editing: boolean) {
+  const b = await input(c, overrideSchema);
+  if (editing && b.version === undefined) fail(400, "version is required");
+  const sid = c.get("shopId"),
+    staffId = c.req.param("id")!;
+  await requireStaff(c, staffId);
+  const write = editing
+    ? c.env.DB.prepare(
+        "UPDATE staff_schedule_overrides SET date=?,enabled=?,starts=?,ends=?,break_start=?,break_end=?,reason=?,version=version+1 WHERE shop_id=? AND staff_id=? AND id=? AND version=?",
+      ).bind(
+        b.date,
+        b.enabled,
+        b.starts,
+        b.ends,
+        b.break_start,
+        b.break_end,
+        b.reason,
+        sid,
+        staffId,
+        overrideId,
+        b.version!,
+      )
+    : c.env.DB.prepare(
+        "INSERT INTO staff_schedule_overrides(id,shop_id,staff_id,date,enabled,starts,ends,break_start,break_end,reason) VALUES(?,?,?,?,?,?,?,?,?,?)",
+      ).bind(
+        overrideId,
+        sid,
+        staffId,
+        b.date,
+        b.enabled,
+        b.starts,
+        b.ends,
+        b.break_start,
+        b.break_end,
+        b.reason,
+      );
+  await checkVersionUpdate(
+    c,
+    write,
+    audit(
+      c,
+      "schedule_override",
+      overrideId,
+      editing ? "DATED_HOURS_UPDATED" : "DATED_HOURS_CREATED",
+      `${b.date}: ${b.reason}. Review existing appointments.`,
+      true,
+    ),
+  );
+  return c.json({ id: overrideId }, editing ? 200 : 201);
+}
+sandbox.post("/staff/:id/overrides", (c) => saveOverride(c, id(), false));
+sandbox.put("/staff/:id/overrides/:overrideId", (c) =>
+  saveOverride(c, c.req.param("overrideId"), true),
+);
+sandbox.delete("/staff/:id/overrides/:overrideId", async (c) => {
+  const overrideId = c.req.param("overrideId");
+  const result = await c.env.DB.batch([
+    c.env.DB.prepare(
+      "DELETE FROM staff_schedule_overrides WHERE shop_id=? AND staff_id=? AND id=?",
+    ).bind(c.get("shopId"), c.req.param("id"), overrideId),
+    audit(
+      c,
+      "schedule_override",
+      overrideId,
+      "DATED_HOURS_REMOVED",
+      "Weekly hours apply again; existing appointments retained.",
+      true,
+    ),
+  ]);
+  if (!result[0].meta.changes) fail(404, "Dated hours not found");
+  return c.json({ ok: true });
+});
+
 sandbox.post("/holidays", async (c) => {
   const b = await input(c, holidaySchema);
   const holidayId = id();
@@ -635,6 +869,16 @@ async function availabilityContext(
     c.env.DB.prepare(
       "SELECT * FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date=?",
     ).bind(sid, staffId, date),
+    c.env.DB.prepare(
+      "SELECT * FROM staff_service_rules WHERE shop_id=? AND staff_id=? AND service_id=?",
+    ).bind(sid, staffId, serviceId),
+    c.env.DB.prepare("SELECT * FROM addons WHERE shop_id=?").bind(sid),
+    c.env.DB.prepare(
+      "SELECT * FROM addon_services WHERE shop_id=? AND service_id=?",
+    ).bind(sid, serviceId),
+    c.env.DB.prepare(
+      "SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND staff_id=? AND date=?",
+    ).bind(sid, staffId, date),
   ]);
   const staff = result[0].results[0] as Staff | undefined;
   const service = result[1].results[0] as Service | undefined;
@@ -644,7 +888,13 @@ async function availabilityContext(
     shop,
     staff: staff!,
     service: service!,
-    hours: (result[2].results[0] as Hours) ?? null,
+    hours: effectiveHours(
+      (result[2].results[0] as Hours) ?? null,
+      (result[9].results[0] as ScheduleOverride) ?? null,
+    ),
+    rule: (result[6].results[0] as StaffServiceRule) ?? null,
+    addons: result[7].results as Addon[],
+    links: result[8].results as AddonLink[],
     holidays: result[3].results as Holiday[],
     bookings: result[4].results as StoredBooking[],
     daysOff: result[5].results as StaffDayOff[],
@@ -657,6 +907,11 @@ sandbox.get("/availability", async (c) => {
       staff_id: z.string().uuid(),
       service_id: z.string().uuid(),
       booking_id: z.string().uuid().optional(),
+      addon_ids: z
+        .string()
+        .default("")
+        .transform((s) => (s ? s.split(",") : []))
+        .pipe(addonIdsSchema),
     })
     .safeParse(c.req.query());
   if (!parsed.success)
@@ -666,7 +921,21 @@ sandbox.get("/availability", async (c) => {
   const booking = p.booking_id ? await readBooking(c, p.booking_id) : null;
   if (booking && booking.service_id !== p.service_id)
     fail(400, "Rescheduling must use the original service");
-  const duration = booking?.duration_min ?? data.service.duration_min;
+  if (data.rule?.enabled === 0) fail(409, "service_ineligible");
+  const quote = booking
+    ? {
+        items: JSON.parse(booking.items_json) as BookingItem[],
+        price_pence: booking.price_pence,
+        duration_min: booking.duration_min,
+      }
+    : calculateQuote(
+        data.service,
+        data.rule,
+        data.addons,
+        data.links,
+        p.addon_ids,
+      );
+  const duration = quote.duration_min;
   const slots = Array.from({ length: 96 }, (_, i) => i * 15)
     .filter((n) => n >= data.shop.opens && n < data.shop.closes)
     .map((start_min) => ({
@@ -691,11 +960,15 @@ sandbox.get("/availability", async (c) => {
   return c.json({
     slots,
     duration_min: duration,
-    price_pence: booking?.price_pence ?? data.service.price_pence,
+    price_pence: quote.price_pence,
+    items: quote.items,
+    overridden:
+      !booking &&
+      (data.rule?.price_pence != null || data.rule?.duration_min != null),
     service_name: booking?.service_name ?? data.service.name,
     deposit_policy_pence:
       booking?.deposit_policy_pence ??
-      Math.min(data.shop.deposit_pence, data.service.price_pence),
+      Math.min(data.shop.deposit_pence, quote.price_pence),
     cancel_hours: booking?.cancel_hours_snapshot ?? data.shop.cancel_hours,
     timezone: data.shop.timezone,
     quote: {
@@ -708,7 +981,13 @@ sandbox.get("/availability", async (c) => {
 });
 sandbox.post("/bookings", async (c) => {
   const b = await input(c, bookingSchema);
-  const requestHash = await hash(JSON.stringify(b));
+  // Preserve request hashes for pre-add-on bookings with the same normalized payload.
+  const { addon_ids, ...originalPayload } = b;
+  const requestHash = await hash(
+    JSON.stringify(
+      addon_ids.length ? { ...originalPayload, addon_ids } : originalPayload,
+    ),
+  );
   const sid = c.get("shopId");
   const replay = async () => {
     const existing = await c.env.DB.prepare(
@@ -729,6 +1008,13 @@ sandbox.post("/bookings", async (c) => {
     b.quote.shop_version !== data.shop.version
   )
     fail(409, "quote_changed");
+  const quote = calculateQuote(
+    data.service,
+    data.rule,
+    data.addons,
+    data.links,
+    b.addon_ids,
+  );
   const reason = slotReason(
     data.shop,
     data.staff,
@@ -737,7 +1023,7 @@ sandbox.post("/bookings", async (c) => {
     data.bookings,
     b.date,
     b.start_min,
-    data.service.duration_min,
+    quote.duration_min,
     Date.now(),
     undefined,
     data.daysOff,
@@ -747,8 +1033,8 @@ sandbox.post("/bookings", async (c) => {
   const now = Date.now();
   const bookingId = id();
   const statement = c.env.DB.prepare(
-    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version)
-  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
+    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json)
+  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
   ).bind(
     bookingId,
     sid,
@@ -762,17 +1048,18 @@ sandbox.post("/bookings", async (c) => {
     b.date,
     b.start_min,
     start,
-    start + data.service.duration_min * 60000,
-    data.service.duration_min,
+    start + quote.duration_min * 60000,
+    quote.duration_min,
     data.service.name,
-    data.service.price_pence,
-    Math.min(data.shop.deposit_pence, data.service.price_pence),
+    quote.price_pence,
+    Math.min(data.shop.deposit_pence, quote.price_pence),
     data.shop.cancel_hours,
     b.source,
     now,
     now,
     b.quote.service_version,
     b.quote.shop_version,
+    JSON.stringify(quote.items),
     sid,
   );
   try {
@@ -868,6 +1155,7 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     b.service_id,
     body.date,
   );
+  if (data.rule?.enabled === 0) fail(409, "service_ineligible");
   const reason = slotReason(
     data.shop,
     data.staff,

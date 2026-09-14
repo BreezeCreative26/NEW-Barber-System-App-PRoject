@@ -425,6 +425,43 @@
   }
 }
 
+.workspace-addon-catalogue {
+  margin-top: 28px;
+}
+.workspace-rule-panel {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.workspace-quote-items {
+  list-style: none;
+  padding: 0;
+  margin: 14px 0;
+}
+.workspace-quote-items li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.workspace-quote-items li span:last-child {
+  white-space: nowrap;
+}
+.workspace-form .workspace-addon-options {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  margin: 12px 0;
+}
+.workspace-addon-options legend {
+  font-weight: 600;
+  padding: 0 6px;
+}
+.workspace-addon-options p {
+  margin: 6px 0;
+  color: var(--muted);
+}
 :root {
   --canvas: #f6f7f5;
   --surface: #fff;
