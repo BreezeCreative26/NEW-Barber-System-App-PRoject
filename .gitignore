@@ -29,5 +29,17 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# tests and local artifacts
+test-results/
+playwright-report/
+coverage/
+*.tar.gz
+*.zip
+
+# local secrets
+.env.*
+.dev.vars.*
+!.env.example
+
 # misc
 .DS_Store

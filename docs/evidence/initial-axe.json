@@ -1,0 +1,3588 @@
+[
+  {
+    "route": "admin",
+    "violations": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "tags": [
+          "cat.color",
+          "wcag2aa",
+          "wcag143",
+          "TTv5",
+          "TT13.c",
+          "EN-301-549",
+          "EN-9.1.4.3",
+          "ACT",
+          "RGAAv4",
+          "RGAA-3.2.1"
+        ],
+        "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "helpUrl": "https://dequeuniversity.com/rules/axe/4.13/color-contrast?application=playwright",
+        "nodes": [
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#748177",
+                  "bgColor": "#fcfdfc",
+                  "contrastRatio": 3.99,
+                  "fontSize": "8.3pt (11px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<header class=\"workspace-header\">",
+                    "target": [
+                      ".workspace-header"
+                    ]
+                  },
+                  {
+                    "html": "<html lang=\"en\">",
+                    "target": [
+                      "html"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.99 (foreground color: #748177, background color: #fcfdfc, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"header-breadcrumb\">",
+            "target": [
+              ".header-breadcrumb"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.99 (foreground color: #748177, background color: #fcfdfc, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#778179",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 4.03,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<article class=\"stat-card\">",
+                    "target": [
+                      "article:nth-child(1)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.03 (foreground color: #778179, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<div class=\"stat-foot\"><span class=\"stat-detail\">4 completed</span>Across 4 barbers</div>",
+            "target": [
+              "article:nth-child(1) > .stat-foot"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.03 (foreground color: #778179, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#778179",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 4.03,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<article class=\"stat-card\">",
+                    "target": [
+                      "article:nth-child(2)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.03 (foreground color: #778179, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<div class=\"stat-foot\">Sample values · not collected</div>",
+            "target": [
+              "article:nth-child(2) > .stat-foot"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.03 (foreground color: #778179, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#778179",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 4.03,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<article class=\"stat-card\">",
+                    "target": [
+                      "article:nth-child(3)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.03 (foreground color: #778179, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<div class=\"stat-foot\">Service time ÷ staffed time</div>",
+            "target": [
+              "article:nth-child(3) > .stat-foot"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.03 (foreground color: #778179, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#778179",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 4.03,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<article class=\"stat-card\">",
+                    "target": [
+                      "article:nth-child(4)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.03 (foreground color: #778179, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<div class=\"stat-foot\">Included in appointments</div>",
+            "target": [
+              "article:nth-child(4) > .stat-foot"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.03 (foreground color: #778179, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#6f7b71",
+                  "bgColor": "#f1f3ef",
+                  "contrastRatio": 3.96,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"segmented\" aria-label=\"Calendar view\">",
+                    "target": [
+                      ".segmented"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.96 (foreground color: #6f7b71, background color: #f1f3ef, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<button aria-pressed=\"false\">",
+            "target": [
+              ".segmented > button:nth-child(2)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.96 (foreground color: #6f7b71, background color: #f1f3ef, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#6e7d72",
+                  "bgColor": "#fbfcfa",
+                  "contrastRatio": 4.21,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"week-strip\" aria-label=\"Sample week dates\">",
+                    "target": [
+                      ".week-strip"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.21 (foreground color: #6e7d72, background color: #fbfcfa, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Tue</span>",
+            "target": [
+              "button[aria-label=\"Tuesday 15 September\"] > span:nth-child(1)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.21 (foreground color: #6e7d72, background color: #fbfcfa, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#6e7d72",
+                  "bgColor": "#fbfcfa",
+                  "contrastRatio": 4.21,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"week-strip\" aria-label=\"Sample week dates\">",
+                    "target": [
+                      ".week-strip"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.21 (foreground color: #6e7d72, background color: #fbfcfa, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Wed</span>",
+            "target": [
+              "button[aria-label=\"Wednesday 16 September\"] > span:nth-child(1)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.21 (foreground color: #6e7d72, background color: #fbfcfa, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#6e7d72",
+                  "bgColor": "#fbfcfa",
+                  "contrastRatio": 4.21,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"week-strip\" aria-label=\"Sample week dates\">",
+                    "target": [
+                      ".week-strip"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.21 (foreground color: #6e7d72, background color: #fbfcfa, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Thu</span>",
+            "target": [
+              "button[aria-label=\"Thursday 17 September\"] > span:nth-child(1)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.21 (foreground color: #6e7d72, background color: #fbfcfa, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#6e7d72",
+                  "bgColor": "#fbfcfa",
+                  "contrastRatio": 4.21,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"week-strip\" aria-label=\"Sample week dates\">",
+                    "target": [
+                      ".week-strip"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.21 (foreground color: #6e7d72, background color: #fbfcfa, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Fri</span>",
+            "target": [
+              "button[aria-label=\"Friday 18 September\"] > span:nth-child(1)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.21 (foreground color: #6e7d72, background color: #fbfcfa, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#6e7d72",
+                  "bgColor": "#fbfcfa",
+                  "contrastRatio": 4.21,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"week-strip\" aria-label=\"Sample week dates\">",
+                    "target": [
+                      ".week-strip"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.21 (foreground color: #6e7d72, background color: #fbfcfa, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Sat</span>",
+            "target": [
+              "button[aria-label=\"Saturday 19 September\"] > span:nth-child(1)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.21 (foreground color: #6e7d72, background color: #fbfcfa, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#6e7d72",
+                  "bgColor": "#fbfcfa",
+                  "contrastRatio": 4.21,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"week-strip\" aria-label=\"Sample week dates\">",
+                    "target": [
+                      ".week-strip"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.21 (foreground color: #6e7d72, background color: #fbfcfa, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Sun</span>",
+            "target": [
+              "button[aria-label=\"Sunday 20 September\"] > span:nth-child(1)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.21 (foreground color: #6e7d72, background color: #fbfcfa, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8a958c",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.1,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"calendar-staff-header\">",
+                    "target": [
+                      ".calendar-staff-header"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.1 (foreground color: #8a958c, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>UTC+1</span>",
+            "target": [
+              ".timezone-label > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.1 (foreground color: #8a958c, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#79877b",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.77,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"calendar-staff-header\">",
+                    "target": [
+                      ".calendar-staff-header"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.77 (foreground color: #79877b, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>5 appointments</span>",
+            "target": [
+              ".staff-column-heading:nth-child(2) > div > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.77 (foreground color: #79877b, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#79877b",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.77,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"calendar-staff-header\">",
+                    "target": [
+                      ".calendar-staff-header"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.77 (foreground color: #79877b, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>5 appointments</span>",
+            "target": [
+              ".staff-column-heading:nth-child(3) > div > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.77 (foreground color: #79877b, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#79877b",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.77,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"calendar-staff-header\">",
+                    "target": [
+                      ".calendar-staff-header"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.77 (foreground color: #79877b, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>4 appointments</span>",
+            "target": [
+              ".staff-column-heading:nth-child(4) > div > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.77 (foreground color: #79877b, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#79877b",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.77,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"calendar-staff-header\">",
+                    "target": [
+                      ".calendar-staff-header"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.77 (foreground color: #79877b, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>4 appointments</span>",
+            "target": [
+              ".staff-column-heading:nth-child(5) > div > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.77 (foreground color: #79877b, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#809083",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.36,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<span style=\"top: 0px;\">09:00</span>",
+                    "target": [
+                      ".time-gutter > span:nth-child(1)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span style=\"top: 0px;\">09:00</span>",
+            "target": [
+              ".time-gutter > span:nth-child(1)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#809083",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.36,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<span style=\"top: 88px;\">10:00</span>",
+                    "target": [
+                      ".time-gutter > span:nth-child(2)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span style=\"top: 88px;\">10:00</span>",
+            "target": [
+              ".time-gutter > span:nth-child(2)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#809083",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.36,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<span style=\"top: 176px;\">11:00</span>",
+                    "target": [
+                      ".time-gutter > span:nth-child(3)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span style=\"top: 176px;\">11:00</span>",
+            "target": [
+              ".time-gutter > span:nth-child(3)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#809083",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.36,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<span style=\"top: 264px;\">12:00</span>",
+                    "target": [
+                      ".time-gutter > span:nth-child(4)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span style=\"top: 264px;\">12:00</span>",
+            "target": [
+              ".time-gutter > span:nth-child(4)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#809083",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.36,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<span style=\"top: 352px;\">13:00</span>",
+                    "target": [
+                      ".time-gutter > span:nth-child(5)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span style=\"top: 352px;\">13:00</span>",
+            "target": [
+              ".time-gutter > span:nth-child(5)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#809083",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.36,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<span style=\"top: 440px;\">14:00</span>",
+                    "target": [
+                      ".time-gutter > span:nth-child(6)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span style=\"top: 440px;\">14:00</span>",
+            "target": [
+              ".time-gutter > span:nth-child(6)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#809083",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.36,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<span style=\"top: 528px;\">15:00</span>",
+                    "target": [
+                      ".time-gutter > span:nth-child(7)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span style=\"top: 528px;\">15:00</span>",
+            "target": [
+              ".time-gutter > span:nth-child(7)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.36 (foreground color: #809083, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7a8878",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 3.4,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sage finished\" aria-label=\"Oliver Wilson, Skin fade, 09:00, Completed\" style=\"top: 0px; height: 63px;\">",
+                    "target": [
+                      ".finished.sage.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.4 (foreground color: #7a8878, background color: #f3f5ef, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<strong>Oliver Wilson</strong>",
+            "target": [
+              ".finished.sage.calendar-event > .event-top > strong"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.4 (foreground color: #7a8878, background color: #f3f5ef, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#929e90",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 2.54,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sage finished\" aria-label=\"Oliver Wilson, Skin fade, 09:00, Completed\" style=\"top: 0px; height: 63px;\">",
+                    "target": [
+                      ".finished.sage.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 2.54 (foreground color: #929e90, background color: #f3f5ef, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Skin fade</span>",
+            "target": [
+              ".finished.sage.calendar-event > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.54 (foreground color: #929e90, background color: #f3f5ef, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8c988a",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 2.74,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sage finished\" aria-label=\"Oliver Wilson, Skin fade, 09:00, Completed\" style=\"top: 0px; height: 63px;\">",
+                    "target": [
+                      ".finished.sage.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 2.74 (foreground color: #8c988a, background color: #f3f5ef, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-time\">09:00 – 09:45<span>£35</span></span>",
+            "target": [
+              ".finished.sage.calendar-event > .event-time"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.74 (foreground color: #8c988a, background color: #f3f5ef, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8c988a",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 2.74,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sage finished\" aria-label=\"Oliver Wilson, Skin fade, 09:00, Completed\" style=\"top: 0px; height: 63px;\">",
+                    "target": [
+                      ".finished.sage.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 2.74 (foreground color: #8c988a, background color: #f3f5ef, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>£35</span>",
+            "target": [
+              ".finished.sage.calendar-event > .event-time > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.74 (foreground color: #8c988a, background color: #f3f5ef, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#567863",
+                  "bgColor": "#eaf2e8",
+                  "contrastRatio": 4.3,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sage \" aria-label=\"Daniel Thompson, Cut & beard, 10:10, In chair\" style=\"top: 102.667px; height: 85px;\">",
+                    "target": [
+                      ".sage.calendar-event:nth-child(3)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.3 (foreground color: #567863, background color: #eaf2e8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Cut &amp; beard</span>",
+            "target": [
+              ".sage.calendar-event:nth-child(3) > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.3 (foreground color: #567863, background color: #eaf2e8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#567863",
+                  "bgColor": "#eaf2e8",
+                  "contrastRatio": 4.3,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sage \" aria-label=\"James Anderson, Signature cut, 11:30, Confirmed\" style=\"top: 220px; height: 41px;\"><div class=\"event-top\"><strong>James Anderson</strong></div><span class=\"event-sub\">Signature cut</span></button>",
+                    "target": [
+                      ".sage.calendar-event:nth-child(4)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.3 (foreground color: #567863, background color: #eaf2e8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Signature cut</span>",
+            "target": [
+              ".sage.calendar-event:nth-child(4) > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.3 (foreground color: #567863, background color: #eaf2e8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#567863",
+                  "bgColor": "#eaf2e8",
+                  "contrastRatio": 4.3,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sage \" aria-label=\"Ethan Parker, Skin fade, 14:00, Confirmed\" style=\"top: 440px; height: 63px;\"><div class=\"event-top\"><strong>Ethan Parker</strong></div><span class=\"event-sub\">Skin fade</span><span class=\"event-time\">14:00 – 14:45<span>£35</span></span></button>",
+                    "target": [
+                      ".sage.calendar-event:nth-child(5)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.3 (foreground color: #567863, background color: #eaf2e8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Skin fade</span>",
+            "target": [
+              ".sage.calendar-event:nth-child(5) > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.3 (foreground color: #567863, background color: #eaf2e8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7a8878",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 3.4,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sand finished\" aria-label=\"Noah Davies, Signature cut, 09:15, Completed\" style=\"top: 22px; height: 41px;\">",
+                    "target": [
+                      ".finished.sand.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.4 (foreground color: #7a8878, background color: #f3f5ef, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<strong>Noah Davies</strong>",
+            "target": [
+              ".finished.sand.calendar-event > .event-top > strong"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.4 (foreground color: #7a8878, background color: #f3f5ef, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#929e90",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 2.54,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sand finished\" aria-label=\"Noah Davies, Signature cut, 09:15, Completed\" style=\"top: 22px; height: 41px;\">",
+                    "target": [
+                      ".finished.sand.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 2.54 (foreground color: #929e90, background color: #f3f5ef, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Signature cut</span>",
+            "target": [
+              ".finished.sand.calendar-event > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.54 (foreground color: #929e90, background color: #f3f5ef, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#917e55",
+                  "bgColor": "#f6f0df",
+                  "contrastRatio": 3.46,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sand \" aria-label=\"Alex Morgan, Skin fade, 10:45, Checked in\" style=\"top: 154px; height: 63px;\"><div class=\"event-top\"><strong>Alex Morgan</strong></div><span class=\"event-sub\">Skin fade</span><span class=\"event-time\">10:45 – 11:30<span>£32</span></span></button>",
+                    "target": [
+                      ".sand.calendar-event:nth-child(3)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.46 (foreground color: #917e55, background color: #f6f0df, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Skin fade</span>",
+            "target": [
+              ".sand.calendar-event:nth-child(3) > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.46 (foreground color: #917e55, background color: #f6f0df, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8b764c",
+                  "bgColor": "#f6f0df",
+                  "contrastRatio": 3.84,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sand \" aria-label=\"Alex Morgan, Skin fade, 10:45, Checked in\" style=\"top: 154px; height: 63px;\"><div class=\"event-top\"><strong>Alex Morgan</strong></div><span class=\"event-sub\">Skin fade</span><span class=\"event-time\">10:45 – 11:30<span>£32</span></span></button>",
+                    "target": [
+                      ".sand.calendar-event:nth-child(3)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.84 (foreground color: #8b764c, background color: #f6f0df, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-time\">10:45 – 11:30<span>£32</span></span>",
+            "target": [
+              ".sand.calendar-event:nth-child(3) > .event-time"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.84 (foreground color: #8b764c, background color: #f6f0df, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8b764c",
+                  "bgColor": "#f6f0df",
+                  "contrastRatio": 3.84,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sand \" aria-label=\"Alex Morgan, Skin fade, 10:45, Checked in\" style=\"top: 154px; height: 63px;\"><div class=\"event-top\"><strong>Alex Morgan</strong></div><span class=\"event-sub\">Skin fade</span><span class=\"event-time\">10:45 – 11:30<span>£32</span></span></button>",
+                    "target": [
+                      ".sand.calendar-event:nth-child(3)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.84 (foreground color: #8b764c, background color: #f6f0df, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>£32</span>",
+            "target": [
+              ".sand.calendar-event:nth-child(3) > .event-time > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.84 (foreground color: #8b764c, background color: #f6f0df, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#917e55",
+                  "bgColor": "#f6f0df",
+                  "contrastRatio": 3.46,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sand \" aria-label=\"Leo Mitchell, Beard sculpt, 12:00, Confirmed\" style=\"top: 264px; height: 33.6667px;\"><div class=\"event-top\"><strong>Leo Mitchell</strong></div><span class=\"event-sub\">Beard sculpt</span></button>",
+                    "target": [
+                      ".sand.calendar-event:nth-child(4)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.46 (foreground color: #917e55, background color: #f6f0df, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Beard sculpt</span>",
+            "target": [
+              ".sand.calendar-event:nth-child(4) > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.46 (foreground color: #917e55, background color: #f6f0df, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#917e55",
+                  "bgColor": "#f6f0df",
+                  "contrastRatio": 3.46,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sand \" aria-label=\"Finn Roberts, Cut & beard, 13:45, Confirmed\" style=\"top: 418px; height: 85px;\">",
+                    "target": [
+                      ".sand.calendar-event:nth-child(5)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.46 (foreground color: #917e55, background color: #f6f0df, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Cut &amp; beard</span>",
+            "target": [
+              ".sand.calendar-event:nth-child(5) > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.46 (foreground color: #917e55, background color: #f6f0df, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8b764c",
+                  "bgColor": "#f6f0df",
+                  "contrastRatio": 3.84,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sand \" aria-label=\"Finn Roberts, Cut & beard, 13:45, Confirmed\" style=\"top: 418px; height: 85px;\">",
+                    "target": [
+                      ".sand.calendar-event:nth-child(5)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.84 (foreground color: #8b764c, background color: #f6f0df, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-time\">13:45 – 14:45<span>£42</span></span>",
+            "target": [
+              ".sand.calendar-event:nth-child(5) > .event-time"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.84 (foreground color: #8b764c, background color: #f6f0df, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8b764c",
+                  "bgColor": "#f6f0df",
+                  "contrastRatio": 3.84,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event sand \" aria-label=\"Finn Roberts, Cut & beard, 13:45, Confirmed\" style=\"top: 418px; height: 85px;\">",
+                    "target": [
+                      ".sand.calendar-event:nth-child(5)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.84 (foreground color: #8b764c, background color: #f6f0df, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>£42</span>",
+            "target": [
+              ".sand.calendar-event:nth-child(5) > .event-time > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.84 (foreground color: #8b764c, background color: #f6f0df, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7a8878",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 3.4,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event blue finished\" aria-label=\"Charlie Edwards, Cut & beard, 09:00, Completed\" style=\"top: 0px; height: 85px;\">",
+                    "target": [
+                      ".finished.blue.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.4 (foreground color: #7a8878, background color: #f3f5ef, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<strong>Charlie Edwards</strong>",
+            "target": [
+              ".finished.blue.calendar-event > .event-top > strong"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.4 (foreground color: #7a8878, background color: #f3f5ef, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#929e90",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 2.54,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event blue finished\" aria-label=\"Charlie Edwards, Cut & beard, 09:00, Completed\" style=\"top: 0px; height: 85px;\">",
+                    "target": [
+                      ".finished.blue.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 2.54 (foreground color: #929e90, background color: #f3f5ef, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Cut &amp; beard</span>",
+            "target": [
+              ".finished.blue.calendar-event > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.54 (foreground color: #929e90, background color: #f3f5ef, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8c988a",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 2.74,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event blue finished\" aria-label=\"Charlie Edwards, Cut & beard, 09:00, Completed\" style=\"top: 0px; height: 85px;\">",
+                    "target": [
+                      ".finished.blue.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 2.74 (foreground color: #8c988a, background color: #f3f5ef, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-time\">09:00 – 10:00<span>£42</span></span>",
+            "target": [
+              ".finished.blue.calendar-event > .event-time"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.74 (foreground color: #8c988a, background color: #f3f5ef, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8c988a",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 2.74,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event blue finished\" aria-label=\"Charlie Edwards, Cut & beard, 09:00, Completed\" style=\"top: 0px; height: 85px;\">",
+                    "target": [
+                      ".finished.blue.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 2.74 (foreground color: #8c988a, background color: #f3f5ef, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>£42</span>",
+            "target": [
+              ".finished.blue.calendar-event > .event-time > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.74 (foreground color: #8c988a, background color: #f3f5ef, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#60827f",
+                  "bgColor": "#eaf3f0",
+                  "contrastRatio": 3.71,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event blue \" aria-label=\"Oscar Bennett, Signature cut, 10:30, In chair\" style=\"top: 132px; height: 41px;\"><div class=\"event-top\"><strong>Oscar Bennett</strong><span class=\"chair-dot\"></span></div><span class=\"event-sub\">Signature cut</span></button>",
+                    "target": [
+                      ".blue.calendar-event:nth-child(3)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.71 (foreground color: #60827f, background color: #eaf3f0, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Signature cut</span>",
+            "target": [
+              ".blue.calendar-event:nth-child(3) > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.71 (foreground color: #60827f, background color: #eaf3f0, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#60827f",
+                  "bgColor": "#eaf3f0",
+                  "contrastRatio": 3.71,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event blue \" aria-label=\"George Turner, Skin fade, 11:45, Confirmed\" style=\"top: 242px; height: 63px;\"><div class=\"event-top\"><strong>George Turner</strong></div><span class=\"event-sub\">Skin fade</span><span class=\"event-time\">11:45 – 12:30<span>£32</span></span></button>",
+                    "target": [
+                      ".blue.calendar-event:nth-child(4)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.71 (foreground color: #60827f, background color: #eaf3f0, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Skin fade</span>",
+            "target": [
+              ".blue.calendar-event:nth-child(4) > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.71 (foreground color: #60827f, background color: #eaf3f0, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#577b78",
+                  "bgColor": "#eaf3f0",
+                  "contrastRatio": 4.11,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event blue \" aria-label=\"George Turner, Skin fade, 11:45, Confirmed\" style=\"top: 242px; height: 63px;\"><div class=\"event-top\"><strong>George Turner</strong></div><span class=\"event-sub\">Skin fade</span><span class=\"event-time\">11:45 – 12:30<span>£32</span></span></button>",
+                    "target": [
+                      ".blue.calendar-event:nth-child(4)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.11 (foreground color: #577b78, background color: #eaf3f0, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-time\">11:45 – 12:30<span>£32</span></span>",
+            "target": [
+              ".blue.calendar-event:nth-child(4) > .event-time"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.11 (foreground color: #577b78, background color: #eaf3f0, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#577b78",
+                  "bgColor": "#eaf3f0",
+                  "contrastRatio": 4.11,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event blue \" aria-label=\"George Turner, Skin fade, 11:45, Confirmed\" style=\"top: 242px; height: 63px;\"><div class=\"event-top\"><strong>George Turner</strong></div><span class=\"event-sub\">Skin fade</span><span class=\"event-time\">11:45 – 12:30<span>£32</span></span></button>",
+                    "target": [
+                      ".blue.calendar-event:nth-child(4)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.11 (foreground color: #577b78, background color: #eaf3f0, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>£32</span>",
+            "target": [
+              ".blue.calendar-event:nth-child(4) > .event-time > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.11 (foreground color: #577b78, background color: #eaf3f0, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#60827f",
+                  "bgColor": "#eaf3f0",
+                  "contrastRatio": 3.71,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event blue \" aria-label=\"Henry Phillips, Signature cut, 14:30, Confirmed\" style=\"top: 484px; height: 41px;\"><div class=\"event-top\"><strong>Henry Phillips</strong></div><span class=\"event-sub\">Signature cut</span></button>",
+                    "target": [
+                      ".blue.calendar-event:nth-child(5)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.71 (foreground color: #60827f, background color: #eaf3f0, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Signature cut</span>",
+            "target": [
+              ".blue.calendar-event:nth-child(5) > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.71 (foreground color: #60827f, background color: #eaf3f0, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7a8878",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 3.4,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event clay finished\" aria-label=\"Freddie Clarke, Skin fade, 09:30, Completed\" style=\"top: 44px; height: 63px;\">",
+                    "target": [
+                      ".finished.clay.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.4 (foreground color: #7a8878, background color: #f3f5ef, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<strong>Freddie Clarke</strong>",
+            "target": [
+              ".finished.clay.calendar-event > .event-top > strong"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.4 (foreground color: #7a8878, background color: #f3f5ef, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#929e90",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 2.54,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event clay finished\" aria-label=\"Freddie Clarke, Skin fade, 09:30, Completed\" style=\"top: 44px; height: 63px;\">",
+                    "target": [
+                      ".finished.clay.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 2.54 (foreground color: #929e90, background color: #f3f5ef, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Skin fade</span>",
+            "target": [
+              ".finished.clay.calendar-event > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.54 (foreground color: #929e90, background color: #f3f5ef, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8c988a",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 2.74,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event clay finished\" aria-label=\"Freddie Clarke, Skin fade, 09:30, Completed\" style=\"top: 44px; height: 63px;\">",
+                    "target": [
+                      ".finished.clay.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 2.74 (foreground color: #8c988a, background color: #f3f5ef, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-time\">09:30 – 10:15<span>£32</span></span>",
+            "target": [
+              ".finished.clay.calendar-event > .event-time"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.74 (foreground color: #8c988a, background color: #f3f5ef, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8c988a",
+                  "bgColor": "#f3f5ef",
+                  "contrastRatio": 2.74,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event clay finished\" aria-label=\"Freddie Clarke, Skin fade, 09:30, Completed\" style=\"top: 44px; height: 63px;\">",
+                    "target": [
+                      ".finished.clay.calendar-event"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 2.74 (foreground color: #8c988a, background color: #f3f5ef, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>£32</span>",
+            "target": [
+              ".finished.clay.calendar-event > .event-time > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.74 (foreground color: #8c988a, background color: #f3f5ef, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#937563",
+                  "bgColor": "#f5ede5",
+                  "contrastRatio": 3.65,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event clay \" aria-label=\"Arthur Lewis, Beard sculpt, 11:00, Confirmed\" style=\"top: 176px; height: 33.6667px;\"><div class=\"event-top\"><strong>Arthur Lewis</strong></div><span class=\"event-sub\">Beard sculpt</span></button>",
+                    "target": [
+                      ".clay.calendar-event:nth-child(3)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.65 (foreground color: #937563, background color: #f5ede5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Beard sculpt</span>",
+            "target": [
+              ".clay.calendar-event:nth-child(3) > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.65 (foreground color: #937563, background color: #f5ede5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#937563",
+                  "bgColor": "#f5ede5",
+                  "contrastRatio": 3.65,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"calendar-event clay \" aria-label=\"Jack Walker, Signature cut, 12:15, Confirmed\" style=\"top: 286px; height: 41px;\"><div class=\"event-top\"><strong>Jack Walker</strong></div><span class=\"event-sub\">Signature cut</span></button>",
+                    "target": [
+                      ".clay.calendar-event:nth-child(4)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.65 (foreground color: #937563, background color: #f5ede5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"event-sub\">Signature cut</span>",
+            "target": [
+              ".clay.calendar-event:nth-child(4) > .event-sub"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.65 (foreground color: #937563, background color: #f5ede5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#788579",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.86,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<section class=\"calendar-card\" aria-label=\"Appointment calendar\">",
+                    "target": [
+                      ".calendar-card"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.86 (foreground color: #788579, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span><i class=\"legend-dot\"></i>Confirmed</span>",
+            "target": [
+              ".calendar-footer > span:nth-child(1)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.86 (foreground color: #788579, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#788579",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.86,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<section class=\"calendar-card\" aria-label=\"Appointment calendar\">",
+                    "target": [
+                      ".calendar-card"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.86 (foreground color: #788579, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span><i class=\"legend-dot active\"></i>In chair</span>",
+            "target": [
+              ".calendar-footer > span:nth-child(2)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.86 (foreground color: #788579, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#788579",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.86,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<section class=\"calendar-card\" aria-label=\"Appointment calendar\">",
+                    "target": [
+                      ".calendar-card"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.86 (foreground color: #788579, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>",
+            "target": [
+              ".calendar-footer > span:nth-child(3)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.86 (foreground color: #788579, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#788579",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.86,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<section class=\"calendar-card\" aria-label=\"Appointment calendar\">",
+                    "target": [
+                      ".calendar-card"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.86 (foreground color: #788579, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"calendar-footnote\">Fictional schedule · Europe/London · 10-minute buffer</span>",
+            "target": [
+              ".calendar-footnote"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.86 (foreground color: #788579, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#889188",
+                  "bgColor": "#f6f7f5",
+                  "contrastRatio": 3.02,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<html lang=\"en\">",
+                    "target": [
+                      "html"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.02 (foreground color: #889188, background color: #f6f7f5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>",
+            "target": [
+              ".workspace-footnote > span:nth-child(1)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.02 (foreground color: #889188, background color: #f6f7f5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#889188",
+                  "bgColor": "#f6f7f5",
+                  "contrastRatio": 3.02,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<html lang=\"en\">",
+                    "target": [
+                      "html"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.02 (foreground color: #889188, background color: #f6f7f5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>North &amp; Co. is a fictional demo shop.</span>",
+            "target": [
+              ".workspace-footnote > span:nth-child(2)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.02 (foreground color: #889188, background color: #f6f7f5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "route": "book",
+    "violations": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "tags": [
+          "cat.color",
+          "wcag2aa",
+          "wcag143",
+          "TTv5",
+          "TT13.c",
+          "EN-301-549",
+          "EN-9.1.4.3",
+          "ACT",
+          "RGAAv4",
+          "RGAA-3.2.1"
+        ],
+        "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "helpUrl": "https://dequeuniversity.com/rules/axe/4.13/color-contrast?application=playwright",
+        "nodes": [
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7c8578",
+                  "bgColor": "#fafbf8",
+                  "contrastRatio": 3.68,
+                  "fontSize": "5.3pt (7px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"booking-app\">",
+                    "target": [
+                      ".booking-app"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.68 (foreground color: #7c8578, background color: #fafbf8, font size: 5.3pt (7px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>BARBERS OF ANCOATS</span>",
+            "target": [
+              ".shop-brand > div > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.68 (foreground color: #7c8578, background color: #fafbf8, font size: 5.3pt (7px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#74806f",
+                  "bgColor": "#fafbf8",
+                  "contrastRatio": 3.99,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"booking-app\">",
+                    "target": [
+                      ".booking-app"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.99 (foreground color: #74806f, background color: #fafbf8, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"eyebrow\">STEP 01 OF 05</span>",
+            "target": [
+              ".step-heading > .eyebrow"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.99 (foreground color: #74806f, background color: #fafbf8, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#5c724a",
+                  "bgColor": "#e5eddb",
+                  "contrastRatio": 4.41,
+                  "fontSize": "4.5pt (6px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<span class=\"popular-tag\">POPULAR</span>",
+                    "target": [
+                      ".chosen > .service-copy > strong > .popular-tag"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.41 (foreground color: #5c724a, background color: #e5eddb, font size: 4.5pt (6px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"popular-tag\">POPULAR</span>",
+            "target": [
+              ".chosen > .service-copy > strong > .popular-tag"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.41 (foreground color: #5c724a, background color: #e5eddb, font size: 4.5pt (6px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#788471",
+                  "bgColor": "#f3f7ee",
+                  "contrastRatio": 3.62,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"service-choice chosen\" aria-pressed=\"true\">",
+                    "target": [
+                      ".chosen"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.62 (foreground color: #788471, background color: #f3f7ee, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>A considered cut, styled your way.</span>",
+            "target": [
+              ".chosen > .service-copy > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.62 (foreground color: #788471, background color: #f3f7ee, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7e8b77",
+                  "bgColor": "#f3f7ee",
+                  "contrastRatio": 3.3,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"service-choice chosen\" aria-pressed=\"true\">",
+                    "target": [
+                      ".chosen"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.3 (foreground color: #7e8b77, background color: #f3f7ee, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<small>",
+            "target": [
+              ".chosen > .service-copy > small"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.3 (foreground color: #7e8b77, background color: #f3f7ee, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#5c724a",
+                  "bgColor": "#e5eddb",
+                  "contrastRatio": 4.41,
+                  "fontSize": "4.5pt (6px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<span class=\"popular-tag\">POPULAR</span>",
+                    "target": [
+                      ".service-choice:nth-child(2) > .service-copy > strong > .popular-tag"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.41 (foreground color: #5c724a, background color: #e5eddb, font size: 4.5pt (6px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"popular-tag\">POPULAR</span>",
+            "target": [
+              ".service-choice:nth-child(2) > .service-copy > strong > .popular-tag"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.41 (foreground color: #5c724a, background color: #e5eddb, font size: 4.5pt (6px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#788471",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.93,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"service-choice \" aria-pressed=\"false\">",
+                    "target": [
+                      ".service-choice:nth-child(2)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.93 (foreground color: #788471, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Seamless detail. A seriously fresh finish.</span>",
+            "target": [
+              ".service-choice:nth-child(2) > .service-copy > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.93 (foreground color: #788471, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7e8b77",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.59,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"service-choice \" aria-pressed=\"false\">",
+                    "target": [
+                      ".service-choice:nth-child(2)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.59 (foreground color: #7e8b77, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<small>",
+            "target": [
+              ".service-choice:nth-child(2) > .service-copy > small"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.59 (foreground color: #7e8b77, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#788471",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.93,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"service-choice \" aria-pressed=\"false\">",
+                    "target": [
+                      ".service-choice:nth-child(3)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.93 (foreground color: #788471, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Shape, define and finish with care.</span>",
+            "target": [
+              ".service-choice:nth-child(3) > .service-copy > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.93 (foreground color: #788471, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7e8b77",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.59,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"service-choice \" aria-pressed=\"false\">",
+                    "target": [
+                      ".service-choice:nth-child(3)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.59 (foreground color: #7e8b77, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<small>",
+            "target": [
+              ".service-choice:nth-child(3) > .service-copy > small"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.59 (foreground color: #7e8b77, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#5c724a",
+                  "bgColor": "#e5eddb",
+                  "contrastRatio": 4.41,
+                  "fontSize": "4.5pt (6px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<span class=\"popular-tag\">POPULAR</span>",
+                    "target": [
+                      ".service-choice:nth-child(4) > .service-copy > strong > .popular-tag"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.41 (foreground color: #5c724a, background color: #e5eddb, font size: 4.5pt (6px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"popular-tag\">POPULAR</span>",
+            "target": [
+              ".service-choice:nth-child(4) > .service-copy > strong > .popular-tag"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.41 (foreground color: #5c724a, background color: #e5eddb, font size: 4.5pt (6px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#788471",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.93,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"service-choice \" aria-pressed=\"false\">",
+                    "target": [
+                      ".service-choice:nth-child(4)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.93 (foreground color: #788471, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>The complete refresh, from top to bottom.</span>",
+            "target": [
+              ".service-choice:nth-child(4) > .service-copy > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.93 (foreground color: #788471, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7e8b77",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.59,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"service-choice \" aria-pressed=\"false\">",
+                    "target": [
+                      ".service-choice:nth-child(4)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.59 (foreground color: #7e8b77, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<small>",
+            "target": [
+              ".service-choice:nth-child(4) > .service-copy > small"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.59 (foreground color: #7e8b77, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#788471",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.93,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"service-choice \" aria-pressed=\"false\">",
+                    "target": [
+                      ".service-choice:nth-child(5)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.93 (foreground color: #788471, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>A little style for the next generation.</span>",
+            "target": [
+              ".service-choice:nth-child(5) > .service-copy > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.93 (foreground color: #788471, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7e8b77",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.59,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"service-choice \" aria-pressed=\"false\">",
+                    "target": [
+                      ".service-choice:nth-child(5)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.59 (foreground color: #7e8b77, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<small>",
+            "target": [
+              ".service-choice:nth-child(5) > .service-copy > small"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.59 (foreground color: #7e8b77, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#84907c",
+                  "bgColor": "#fafbf8",
+                  "contrastRatio": 3.22,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"booking-app\">",
+                    "target": [
+                      ".booking-app"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.22 (foreground color: #84907c, background color: #fafbf8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Optional extras</span>",
+            "target": [
+              ".addon-heading > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.22 (foreground color: #84907c, background color: #fafbf8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#849078",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.36,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<label class=\"addon-choice \"><input type=\"checkbox\" style=\"\"><span><strong>Hot towel finish</strong><small>+10 minutes of you-time</small></span><strong>+£4</strong></label>",
+                    "target": [
+                      ".addon-choice:nth-child(1)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.36 (foreground color: #849078, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<small>+10 minutes of you-time</small>",
+            "target": [
+              ".addon-choice:nth-child(1) > span > small"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.36 (foreground color: #849078, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#849078",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.36,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<label class=\"addon-choice \"><input type=\"checkbox\" style=\"\"><span><strong>Scalp massage</strong><small>+10 minutes of you-time</small></span><strong>+£6</strong></label>",
+                    "target": [
+                      ".addon-choice:nth-child(2)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.36 (foreground color: #849078, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<small>+10 minutes of you-time</small>",
+            "target": [
+              ".addon-choice:nth-child(2) > span > small"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.36 (foreground color: #849078, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7b8b70",
+                  "bgColor": "#fafbf8",
+                  "contrastRatio": 3.5,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"booking-app\">",
+                    "target": [
+                      ".booking-app"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.5 (foreground color: #7b8b70, background color: #fafbf8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"secure-note\">",
+            "target": [
+              ".secure-note"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.5 (foreground color: #7b8b70, background color: #fafbf8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#84907b",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.35,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<aside class=\"booking-summary\" aria-label=\"Your visit summary\">",
+                    "target": [
+                      "aside"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.35 (foreground color: #84907b, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>North &amp; Co. · Ancoats</span>",
+            "target": [
+              ".summary-shop > div > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.35 (foreground color: #84907b, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7c8973",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.69,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<aside class=\"booking-summary\" aria-label=\"Your visit summary\">",
+                    "target": [
+                      "aside"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.69 (foreground color: #7c8973, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>30 minutes</span>",
+            "target": [
+              ".summary-service > div > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.69 (foreground color: #7c8973, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#637b52",
+                  "bgColor": "#edf3e7",
+                  "contrastRatio": 4.14,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<p class=\"deposit-line\"><span>Deposit due today<small>Example policy</small></span><strong>£5</strong></p>",
+                    "target": [
+                      ".deposit-line"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 4.14 (foreground color: #637b52, background color: #edf3e7, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<small>Example policy</small>",
+            "target": [
+              ".deposit-line > span > small"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 4.14 (foreground color: #637b52, background color: #edf3e7, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7b8872",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.74,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<aside class=\"booking-summary\" aria-label=\"Your visit summary\">",
+                    "target": [
+                      "aside"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.74 (foreground color: #7b8872, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Remaining in the shop</span>",
+            "target": [
+              ".remaining-line > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.74 (foreground color: #7b8872, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7b8872",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.74,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<aside class=\"booking-summary\" aria-label=\"Your visit summary\">",
+                    "target": [
+                      "aside"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.74 (foreground color: #7b8872, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<strong>£23</strong>",
+            "target": [
+              ".remaining-line > strong"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.74 (foreground color: #7b8872, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#79856c",
+                  "bgColor": "#f8f9f5",
+                  "contrastRatio": 3.68,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"cancellation-note\">",
+                    "target": [
+                      ".cancellation-note"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.68 (foreground color: #79856c, background color: #f8f9f5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<p><strong>Plans change. We get it.</strong>Example policy: cancel at least 24 hours ahead for a deposit refund. Contact the shop to make a change.</p>",
+            "target": [
+              ".cancellation-note > p"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.68 (foreground color: #79856c, background color: #f8f9f5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7c8971",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.7,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<aside class=\"booking-summary\" aria-label=\"Your visit summary\">",
+                    "target": [
+                      "aside"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.7 (foreground color: #7c8971, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<div class=\"preview-summary-note\">",
+            "target": [
+              ".preview-summary-note"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.7 (foreground color: #7c8971, background color: #ffffff, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#86917b",
+                  "bgColor": "#fafbf8",
+                  "contrastRatio": 3.18,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"booking-app\">",
+                    "target": [
+                      ".booking-app"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.18 (foreground color: #86917b, background color: #fafbf8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Good hair. Good company.</span>",
+            "target": [
+              ".booking-footer > span:nth-child(2)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.18 (foreground color: #86917b, background color: #fafbf8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#86917b",
+                  "bgColor": "#fafbf8",
+                  "contrastRatio": 3.18,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"booking-app\">",
+                    "target": [
+                      ".booking-app"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.18 (foreground color: #86917b, background color: #fafbf8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Fictional shop · Design preview</span>",
+            "target": [
+              ".booking-footer > span:nth-child(3)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.18 (foreground color: #86917b, background color: #fafbf8, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "route": "barber",
+    "violations": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "tags": [
+          "cat.color",
+          "wcag2aa",
+          "wcag143",
+          "TTv5",
+          "TT13.c",
+          "EN-301-549",
+          "EN-9.1.4.3",
+          "ACT",
+          "RGAAv4",
+          "RGAA-3.2.1"
+        ],
+        "description": "Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "helpUrl": "https://dequeuniversity.com/rules/axe/4.13/color-contrast?application=playwright",
+        "nodes": [
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#84917f",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.31,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<section class=\"barber-stats\" aria-label=\"Your sample day\">",
+                    "target": [
+                      ".barber-stats"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.31 (foreground color: #84917f, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<small>on your chair</small>",
+            "target": [
+              "article:nth-child(1) > strong > small"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.31 (foreground color: #84917f, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#84917f",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.31,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<section class=\"barber-stats\" aria-label=\"Your sample day\">",
+                    "target": [
+                      ".barber-stats"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.31 (foreground color: #84917f, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<small>sample, not collected</small>",
+            "target": [
+              "article:nth-child(2) > strong > small"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.31 (foreground color: #84917f, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#84917f",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.31,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<section class=\"barber-stats\" aria-label=\"Your sample day\">",
+                    "target": [
+                      ".barber-stats"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.31 (foreground color: #84917f, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<small>in this fixture</small>",
+            "target": [
+              "article:nth-child(3) > strong > small"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.31 (foreground color: #84917f, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8b9683",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.09,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"queue-row\">",
+                    "target": [
+                      ".queue-row:nth-child(1)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.09 (foreground color: #8b9683, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>30 min</span>",
+            "target": [
+              ".queue-row:nth-child(1) > .queue-time > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.09 (foreground color: #8b9683, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#87917e",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.29,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"queue-row\">",
+                    "target": [
+                      ".queue-row:nth-child(1)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.29 (foreground color: #87917e, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Signature cut</span>",
+            "target": [
+              ".queue-row:nth-child(1) > .queue-customer > span:nth-child(2)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.29 (foreground color: #87917e, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8b9683",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.09,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"queue-row\">",
+                    "target": [
+                      ".queue-row:nth-child(2)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.09 (foreground color: #8b9683, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>45 min</span>",
+            "target": [
+              ".queue-row:nth-child(2) > .queue-time > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.09 (foreground color: #8b9683, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#87917e",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.29,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"queue-row\">",
+                    "target": [
+                      ".queue-row:nth-child(2)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.29 (foreground color: #87917e, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Skin fade</span>",
+            "target": [
+              ".queue-row:nth-child(2) > .queue-customer > span:nth-child(2)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.29 (foreground color: #87917e, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8b9683",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.09,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"queue-row\">",
+                    "target": [
+                      ".queue-row:nth-child(3)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.09 (foreground color: #8b9683, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>30 min</span>",
+            "target": [
+              ".queue-row:nth-child(3) > .queue-time > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.09 (foreground color: #8b9683, background color: #ffffff, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#87917e",
+                  "bgColor": "#ffffff",
+                  "contrastRatio": 3.29,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<button class=\"queue-row\">",
+                    "target": [
+                      ".queue-row:nth-child(3)"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.29 (foreground color: #87917e, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Signature cut</span>",
+            "target": [
+              ".queue-row:nth-child(3) > .queue-customer > span:nth-child(2)"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.29 (foreground color: #87917e, background color: #ffffff, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#7c8162",
+                  "bgColor": "#eeeede",
+                  "contrastRatio": 3.46,
+                  "fontSize": "6.0pt (8px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<section class=\"day-note\">",
+                    "target": [
+                      ".day-note"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.46 (foreground color: #7c8162, background color: #eeeede, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"eyebrow\">A MOMENT TO RESET</span>",
+            "target": [
+              ".day-note > .eyebrow"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.46 (foreground color: #7c8162, background color: #eeeede, font size: 6.0pt (8px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#768361",
+                  "bgColor": "#eeeede",
+                  "contrastRatio": 3.45,
+                  "fontSize": "8.3pt (11px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<section class=\"day-note\">",
+                    "target": [
+                      ".day-note"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.45 (foreground color: #768361, background color: #eeeede, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<p>12:45 – 13:30</p>",
+            "target": [
+              ".day-note > p"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.45 (foreground color: #768361, background color: #eeeede, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#858a6e",
+                  "bgColor": "#eeeede",
+                  "contrastRatio": 3.05,
+                  "fontSize": "7.5pt (10px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<section class=\"day-note\">",
+                    "target": [
+                      ".day-note"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.05 (foreground color: #858a6e, background color: #eeeede, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span class=\"muted\">A little breathing room between great haircuts.</span>",
+            "target": [
+              ".muted"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.05 (foreground color: #858a6e, background color: #eeeede, font size: 7.5pt (10px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#87917e",
+                  "bgColor": "#f7f8f5",
+                  "contrastRatio": 3.08,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"barber-app\">",
+                    "target": [
+                      ".barber-app"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 3.08 (foreground color: #87917e, background color: #f7f8f5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<div class=\"sample-sync\">",
+            "target": [
+              ".sample-sync"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 3.08 (foreground color: #87917e, background color: #f7f8f5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "any": [
+              {
+                "id": "color-contrast",
+                "data": {
+                  "fgColor": "#8a9583",
+                  "bgColor": "#f7f8f5",
+                  "contrastRatio": 2.93,
+                  "fontSize": "6.8pt (9px)",
+                  "fontWeight": "normal",
+                  "messageKey": null,
+                  "expectedContrastRatio": "4.5:1"
+                },
+                "relatedNodes": [
+                  {
+                    "html": "<div class=\"barber-app\">",
+                    "target": [
+                      ".barber-app"
+                    ]
+                  }
+                ],
+                "impact": "serious",
+                "message": "Element has insufficient color contrast of 2.93 (foreground color: #8a9583, background color: #f7f8f5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+              }
+            ],
+            "all": [],
+            "none": [],
+            "impact": "serious",
+            "html": "<span>Sample workspace. Your real day comes next.</span>",
+            "target": [
+              "footer > span"
+            ],
+            "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.93 (foreground color: #8a9583, background color: #f7f8f5, font size: 6.8pt (9px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ]
+      }
+    ]
+  }
+]
