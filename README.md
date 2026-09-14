@@ -1,73 +1,80 @@
 # Barbershop OS
 
-Multi-tenant barbershop SaaS planned for Cloudflare: public booking, web administration, barber PWA, shop-owned payments and manual barber pay-runs.
+Multi-tenant barbershop SaaS in development: public booking, web administration, barber PWA, shop-owned payments and manual barber pay-runs.
 
 ## Current status
 
-**Planning baseline only.** The application remains the Hono starter. `/` renders `Hello!`. No business feature, authentication, PWA, database binding, Stripe integration or production deployment is implemented yet. No application tests or visual reviews are claimed.
+**Interactive design preview implemented; live business backend not yet built.** React interfaces run through the existing Hono/Cloudflare-compatible application. All people, appointments, prices and availability are fictional fixtures.
 
-The user requested a persistent build plan before implementation. Start with [Progress and handoff](docs/PROGRESS.md).
+Working preview interactions:
+- Admin day/agenda calendar, date/barber filters, search, appointment detail, sample team/service panels and validated booking-draft review.
+- Customer service/add-on/barber/time selection, quote updates, details validation, review/edit flow and explicit payment boundary.
+- Barber queue filters/details, sample earnings/profile and tip/tender calculator.
+- Shared responsive components, mobile agenda, fixed mobile booking action, dialogs/focus handling and loading/empty/error/offline examples.
+
+No real login, tenant database, saved booking, reservation, payment, notification, pay-run or installed/offline PWA exists. Forms remain only in temporary page state and do not send customer data.
+
+## Latest design direction and next step
+
+The user requested **clean modern visuals, teal as the secondary colour and rounded edges**. This is recorded in decision D-011 and DESIGN_SYSTEM v1.1.
+
+Next: **WP-001-A-R1**, a focused refinement of the existing shared styles: neutral/charcoal foundation, secondary teal accents, consistent radii, readable type and less green/sage/vintage decoration. The new styling is planned, not yet applied to the running preview. After that: D1 scheduling proof, managed authentication and persistent shop/team/services/hours, then the real booking lifecycle.
+
+## Preview URLs and routes
+
+Temporary sandbox base: https://3000-iz3aw7n21l3edjgvt4bkj-5c13a017.sandbox.novita.ai
+
+| URI | Current behaviour |
+| --- | --- |
+| `/` | Redirect to admin preview |
+| `/preview/admin` | Interactive sample calendar and admin forms |
+| `/preview/book` | Five-step customer booking design preview |
+| `/preview/barber` | Sample queue, earnings, profile and payment calculator |
+| `/api/health` | Explicit design-preview/persistence/payment capability flags |
+
+Production `/app/*`, `/book/*`, `/barber/*`, `/platform/*` and business API routes remain planned. A temporary preview URL is not a production deployment.
 
 ## Project playbook
 
 | Document | Purpose |
 | --- | --- |
 | [Session instructions](AGENTS.md) | Read/update procedure every work session |
-| [Build plan](docs/BUILD_PLAN.md) | Architecture, screens, domain model, milestones and dependencies |
-| [Progress](docs/PROGRESS.md) | Actual state, gate board, evidence, blockers and exact next work |
-| [Decisions](docs/DECISIONS.md) | User-confirmed Model A and SaaS scope; open questions |
-| [Feature register](docs/FEATURE_REGISTER.csv) | All 125 original C/B/A IDs plus SaaS and cross-cutting requirements |
-| [UI/UX contract](docs/DESIGN_SYSTEM.md) | Proposed tokens, layouts, responsive rules and control behaviours |
-| [Quality gates](docs/QUALITY_GATES.md) | Definition of done, test catalogue and evidence requirements |
+| [Build plan](docs/BUILD_PLAN.md) | Architecture, milestones and ordered work packages |
+| [Progress](docs/PROGRESS.md) | Actual state, evidence, blockers and precise next task |
+| [Decisions](docs/DECISIONS.md) | Confirmed choices and unresolved policies |
+| [Feature register](docs/FEATURE_REGISTER.csv) | 125 original feature IDs plus 64 supplemental requirements |
+| [UI/UX contract](docs/DESIGN_SYSTEM.md) | Modern neutral/teal direction, layouts and interaction standards |
+| [Quality gates](docs/QUALITY_GATES.md) | Definition of done and production acceptance catalogue |
 
-## Confirmed money model
+## Data and money boundaries
 
-Each shop receives its customers' payments into its own Stripe account under the final supported account configuration. The owner segregates money and pays barbers through their bank outside the app initially.
+Current fixtures and pure preview helpers live in `src/client/fixtures.ts`; there is no database binding or migration yet. Future authoritative data uses tenant-scoped D1; assets use R2. Managed identity and server-side permissions must precede real private shop data.
 
-The app will calculate entitlement, prepare a frozen manual pay-run, export a statement and record externally made payments. It will not hold a shop wallet, initiate barber bank payments, or label an owner-attested payment as bank-confirmed. SaaS subscription billing is separate.
+Under Model A, each shop receives customer payments through its own supported Stripe account configuration. The owner segregates money and pays barbers outside the app. The app will calculate entitlements, prepare frozen manual pay-runs and record owner-attested external payments; it will not hold a wallet, initiate bank payments or imply bank-confirmed settlement. SaaS subscription billing is separate.
 
-## Intended architecture
+## Development and tests
 
-- Existing Hono + TypeScript Cloudflare scaffold; React/Vite interactive web frontend proposed.
-- D1 authoritative shop-scoped relational data; R2 uploads.
-- Managed identity and server-enforced tenant/role permissions.
-- Stripe shop payments and separate Stripe Billing for SaaS.
-- Twilio, Resend and supported web push; separately configured server scheduling/retries.
-- Expo native delivery only according to the explicit launch-scope decision; PWA is not native Tap-to-Pay.
+Project: `/home/user/webapp`, branch `main`.
 
-Storage services, provider credentials and production configuration are not provisioned. Proposed data model is in BUILD_PLAN; no migrations exist yet.
+```sh
+cd /home/user/webapp
+npm run build
+# Stop any existing port-3000 service before starting/restarting.
+pm2 start ecosystem.config.cjs
+curl http://localhost:3000/api/health
+npm run test
+```
 
-## Existing functional entry points
+The service must be running for browser tests. For a fresh test environment, install Playwright Chromium and its system dependencies. Service name: `barbershop-preview`. Do not run multiple PM2 instances on port 3000.
 
-| URI | Current behaviour |
-| --- | --- |
-| `/` | Starter `Hello!` page |
+Available scripts: `build`, `typecheck`, `test:unit`, `test:e2e`, `test`. The build emits the Hono Worker and bundled React assets, including a licensed self-hosted Inter font. No frontend tokens/provider secrets are used.
 
-All `/app/*`, `/book/*`, `/barber/*`, `/platform/*` and API paths in the plan are proposed, not currently functional.
+Evidence: 23 unit/route tests passed (rechecked during latest planning update); last recorded Playwright run has 25 passed and 0 failures. Checks cover five viewport widths, selected axe scans, keyboard flow, form recovery and honest no-payment boundaries. These do not certify production security, D1 concurrency, real devices, PWA installation or payment integration. See PROGRESS for evidence scope and screenshots.
 
-## Using the plan
+## GitHub and deployment
 
-1. Read PROGRESS and DECISIONS.
-2. Review the current milestone and related feature IDs.
-3. Implement one approved work package with tests and visual inspection.
-4. Update feature statuses and evidence; record blockers and next step.
-5. Commit the work. Never describe a design preview as a completed production feature.
+Selected repository: https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject
 
-Next implementation: **WP-001-A**, three reference screens (admin calendar, customer slot selection, barber queue) and reusable design foundations. BUILD_PLAN v1.1 contains 13 ordered implementation packages and the first 10-item build checklist. Use the reversible working name Barbershop OS and proposed charcoal/teal direction; final visual approval follows the preview. No further blanket start approval or provider credentials are needed for this local design proof.
+Connection verified previously; publication paused because the repository was public. No push without private visibility or explicit public-publishing consent. Local code baseline is preserved in commit `2eebb48` and subsequent documentation commits.
 
-## Development and deployment
-
-- Project location: `/home/user/webapp`.
-- Branch: `main`.
-- Selected GitHub repository: https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject
-- GitHub connection verified with push access. Repository was empty and public when checked; upload is paused until the user confirms visibility. No project files have been pushed to GitHub yet.
-- Existing build command: `npm run build` (not run as part of planning-only work).
-- Future sandbox preview: build, then PM2-managed Wrangler on port 3000 after a PM2 configuration is created.
-- Production URL: none.
-- Preview URL: none started in this planning session.
-- Deployment status: not deployed. Confirm own-account vs managed deployment before deployment tooling; scheduling/queues are separate infrastructure requirements.
-- Do not run the starter deploy script without explicit deployment preparation and authorization.
-
-## Not implemented / next steps
-
-Every application feature is not started. The build-ready execution sequence is recorded; immediate next step is WP-001-A implementation, not another planning reset. Provider choice, commission/fee/cash rules, deposit policy and native launch scope must be resolved before their dependent milestones. Track precise questions in DECISIONS rather than inventing defaults.
+Production is not deployed. Confirm Cloudflare ownership/deployment path and provision auth, storage, scheduler and provider configuration before production. Never run the generic deploy script without appropriate preparation and approval.

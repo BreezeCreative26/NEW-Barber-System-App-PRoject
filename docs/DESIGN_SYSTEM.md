@@ -1,6 +1,6 @@
 # Barbershop OS — UI/UX design contract
 
-Version 1.0 · 2026-09-14 · Direction proposed, not yet visually approved.
+Version 1.1 · 2026-09-14 · User direction confirmed in D-011: clean modern visuals, teal secondary accent and rounded edges. Revised tokens and compositions await implementation/review; existing screenshots show the earlier green/sage preview.
 
 ## 1. Definition of excellent design
 
@@ -15,37 +15,40 @@ A beautiful nonfunctional screen fails. A working screen with unusable placement
 
 The assistant cannot permanently retrain itself. These files are the repeatable project method: read, design, implement, inspect, test and record. Never claim that a skill, a design approval or a test has occurred when it has not.
 
-## 2. Visual proposal: premium utilitarian
+## 2. Visual direction: clean modern product, teal secondary accent
 
-Request 2–3 references from the user or approval to explore this direction. Do not clone a competitor's branding or import unlicensed imagery.
+The user has specified the direction. Do not ask them to repeat it or block work on references. Keep a predominantly neutral visual foundation, charcoal primary hierarchy and teal as a secondary brand accent. Teal is not a mandate to paint every card or large background green. Do not clone a competitor's branding or import unlicensed imagery.
+
+Implementation target: contemporary, restrained SaaS interface with a mobile-app feel—not rustic, vintage or sage-dominated. Replace the current forest/sage/olive-heavy colour treatment through semantic tokens. Reduce decorative stamp artwork and serif-led hero styling; preserve useful screen structure and all working interactions.
 
 ### Proposed tokens
 
 | Token | Initial proposal | Usage |
 | --- | --- | --- |
-| canvas | `#F6F7F5` | Main application background |
+| canvas | `#F7F9FC` | Clean cool-neutral application background |
 | surface | `#FFFFFF` | Forms, content surfaces, overlays |
-| surface-subtle | `#EEF2EF` | Grouping and low emphasis |
-| text-primary | `#192723` | Headings and primary content |
-| text-secondary | `#52645C` | Descriptions and secondary labels |
-| border | `#DCE4DE` | Nonessential separators; not sole control boundary |
-| control-border | `#7D8F85` | Input boundary where contrast requires it |
-| accent | `#12694F` | Primary actions and selected states |
-| accent-hover | `#0C503B` | Hover/pressed action |
-| accent-soft | `#E6F1EB` | Selected backgrounds with dark text |
+| surface-subtle | `#F0F3F6` | Neutral grouping and low emphasis |
+| text-primary | `#182230` | Charcoal headings and primary content |
+| text-secondary | `#5D6878` | Readable neutral descriptions and labels |
+| border | `#E4E7EC` | Nonessential separators; not sole control boundary |
+| control-border | `#8793A2` | Input boundary where contrast requires it |
+| action-primary | `#182230` | Strong default primary button on neutral layouts |
+| accent | `#0F766E` | Secondary teal brand accent: active navigation, selected dates, links and focused details |
+| accent-hover | `#115E59` | Teal hover/pressed state |
+| accent-soft | `#E6F4F1` | Pale teal selected backgrounds, used sparingly |
 | warning-text | `#855400` | Warning text; validate chosen background |
 | warning-bg | `#FFF3D7` | Pending/offline warning surface |
 | danger | `#B42335` | Errors and destructive controls |
-| focus | `#12694F` | Visible focus ring with contrasting offset |
+| focus | `#0F766E` | Teal focus ring with contrasting offset |
 
-These are starting values. Measure rendered foreground/background contrast before approval. One primary brand accent; semantic warning/error colours are permitted. Shop branding must not break contrast.
+Exact hex values are proposed implementation tokens, not separately user-approved swatches. Measure all rendered combinations before acceptance. Neutral/charcoal is the foundation; teal is the single secondary brand colour. Primary-action hierarchy may use charcoal or a deliberate teal emphasis, but ordinary secondary buttons remain neutral/outlined—brand colour and button priority are different concepts. Semantic warning/error colours are permitted. Shop branding must not break contrast.
 
 ### Typography
 
 - Proposed licensed sans-serif: self-hosted Inter Variable, with system sans fallback. Confirm font licensing and include only required weights.
 - Display heading: 30–32 px desktop / 26–28 px mobile, restrained tracking.
 - Section heading: 20–22 px. Body/input: 16 px mobile, 14–16 px dense desktop contexts.
-- Supporting labels: 12–13 px only where still readable; never core appointment/financial values.
+- Supporting labels: 12–13 px minimum target for useful product text; never rely on the earlier preview's 6–10 px metadata for essential information. Body/actions generally 14–16 px. Core appointment/financial values must remain comfortably readable on phone and tablet.
 - Body line-height approximately 1.45–1.6; short headings approximately 1.2–1.3.
 - Tabular numerals for prices, dates, times and balances. Currency and decimals align in finance tables.
 - Dates read `Mon, 14 Sep`; times respect shop locale but display explicit shop timezone where ambiguity matters.
@@ -55,7 +58,7 @@ These are starting values. Measure rendered foreground/background contrast befor
 
 - Base spacing scale: 4 / 8 / 12 / 16 / 24 / 32 / 40 / 48 px.
 - Inputs and primary buttons: generally 44–48 px tall. Touch areas target at least 44 x 44 px; never rely on a 16 px icon's pixels as its whole hit area.
-- Cards and dialogs: 12–16 px radius. Buttons: 8–10 px. Pills only for statuses/chips, not every element.
+- Consistent proposed radii: buttons/inputs 12 px; cards 16 px; dialogs and large sheets 20 px. Status chips may be fully rounded. Keep calendar events compact with a smaller documented radius; do not make every control a pill.
 - Shadows indicate elevation only: overlays, floating controls and sticky edges. Prefer borders and spacing for ordinary hierarchy.
 - Use a consistent 20–24 px outline icon set with matching stroke. Icons supplement text; icon-only controls need accessible names and tooltips where appropriate.
 - Avoid emoji UI, unrelated hero photography in admin, animated revenue counters and gradient decoration without a task purpose.
@@ -104,7 +107,20 @@ These are starting values. Measure rendered foreground/background contrast befor
 
 Visually differentiate platform context from shop context. Show current access scope and require explicit audited entry into support actions. A shop-switcher is not authorization.
 
-## 4. Design before broad implementation
+## 4. Next refinement pass: WP-001-A-R1
+
+Do not rebuild the three routes. Refine the shared visual layer, then resume backend work.
+
+1. Consolidate hard-coded green/olive/beige colours into the neutral/charcoal/teal semantic tokens above.
+2. Rework the dark forest sidebar and large green hero/current-chair surfaces into neutral/charcoal foundations with controlled teal highlights; use whitespace and hierarchy rather than colour volume.
+3. Apply the radius scale consistently to cards, forms, controls, menus and dialogs; use soft elevation only where needed.
+4. Increase undersized text and touch targets; check calendar density without hiding key information.
+5. Simplify decorative shop seal/hero treatments for a modern product aesthetic. No new external imagery is required.
+6. Preserve all implemented filters, forms, keyboard handling, responsive agenda and fixed mobile booking action.
+7. Capture before/after screens on all three surfaces and run the complete existing regression suite plus contrast checks. Existing passing tests do not automatically certify the revised theme.
+8. Obtain focused visual feedback, then proceed to scheduling/auth/persistence; avoid open-ended cosmetic iteration.
+
+### Design before broad implementation
 
 M1 proves three representative screens: customer slot selection, admin day calendar, barber queue. Use realistic content: long names, different durations, no availability, payments pending and offline state.
 

@@ -1,6 +1,6 @@
 # Barbershop OS — Quality gates and evidence
 
-Version 1.0 · 2026-09-14. All application tests below are planned, not executed. Planning-file validation is distinct from application verification.
+Version 1.1 · 2026-09-14. The production acceptance catalogue below remains planned unless PROGRESS links actual evidence. A separate initial-preview suite now exists (23 unit/route tests and 25 browser tests); passing it does not prove production D1, identity, payments or PWA acceptance. The forthcoming D-011 theme revision must rerun its own regression/contrast checks.
 
 ## 1. Status vocabulary
 
@@ -196,6 +196,6 @@ After a bug: reproduce, add regression test, fix root cause, re-run neighbouring
 
 ## 9. Automation roadmap
 
-M1/M2 adds runnable typecheck/lint/unit/API/browser scripts and CI using actual available packages. The current starter has no such scripts; do not invoke planned commands as though they already exist. Keep secrets in deployment secret stores or ignored local vars; test configurations use clearly isolated sandbox accounts.
+M1 now has `npm run typecheck`, `npm run test:unit`, `npm run test:e2e` and combined `npm run test`, with Vitest/Playwright/axe configuration. Browser tests require the PM2 preview service. Formatting uses installed Prettier. Production D1/API integration suites, dedicated lint/CI setup and provider/device checks still need implementation. Keep secrets in deployment secret stores or ignored local vars; test configurations use clearly isolated sandbox accounts.
 
 Per work package: affected fast tests plus a browser smoke pass. Per milestone: full relevant suite, screenshot review, tenant-negative tests and recorded gate decision. Before production: clean build, smoke checks on final URL, backups/restore proof, external integration checks and owner approval.

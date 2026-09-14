@@ -38,11 +38,21 @@ Reversible engineering defaults: working name Barbershop OS, proposed charcoal/t
 
 This instruction does not settle financial policy, native launch inclusion, provider purchases, production deployment or publication to the public GitHub repository. Obtain those decisions only before dependent work. User review of the actual visual proof still gates broad rollout.
 
+### D-011 — Modern neutral visuals with teal as secondary colour
+
+User explicitly requested modern, clean visuals, teal as the secondary colour and rounded edges. This supersedes the green/sage-dominated appearance of the first preview and refines D-007.
+
+- Neutral white/cool-grey surfaces and charcoal establish the foundation; teal provides selected/focus/navigation accents rather than overwhelming large surfaces.
+- Consistent rounded cards, inputs, buttons and dialogs; restrained elevation, clean typography and generous but purposeful spacing.
+- Proposed implementation teal is #0F766E with pale teal #E6F4F1. Exact swatches and revised screens remain subject to visual review; do not call them separately approved.
+- Next work is a focused shared-theme refinement WP-001-A-R1, preserving working flows and tests, followed by technical proof and persistent tenant setup.
+- This planning update does not itself change the running CSS. Current screenshot/test evidence belongs to the initial preview, not the proposed refinement.
+
 ## Proposed architecture decisions
 
 ### D-004 — Modular monolith on Hono / D1 / R2
 
-Proposed: React/Vite frontend over current Hono scaffold, Cloudflare D1 and R2, managed authentication, explicit provider integrations. Shared API for all clients. Current repository is an unmodified Hono starter, not a functioning SaaS.
+Proposed: React/Vite frontend over current Hono scaffold, Cloudflare D1 and R2, managed authentication, explicit provider integrations. Shared API for all clients. Current repository has a tested React/Hono design preview; it is not yet a persistent or authenticated SaaS.
 
 Validate atomic scheduling in D1 before UI dependency. Use a tenant routing abstraction to preserve future partitioning options without premature per-tenant infrastructure.
 
@@ -58,7 +68,7 @@ Proposed: atomic move of the reservation with an appended event, retaining payme
 
 ### D-007 — Premium utilitarian visual direction
 
-Proposed: warm neutral surfaces, charcoal type, restrained deep teal accent, precise typography, generous task-focused layouts, compact useful data density. No decorative dashboard clutter. Final tokens and examples await M1 user review. Do not claim approved visual design yet.
+Initial proposal: warm neutrals and restrained teal. The first implementation leaned forest green/sage. D-011 now governs the next pass: clean modern neutral/charcoal foundations, teal secondary accent and consistent rounded geometry. Precise typography and useful density remain required; final revised screens await user review.
 
 ### D-008 — Web-first release sequence and native scope
 
@@ -74,7 +84,7 @@ Own-account Cloudflare deployment is recommended for commercial infrastructure c
 
 | ID | Question / proposed default | Needed before | Owner / effect |
 | --- | --- | --- | --- |
-| O-01 | Product name and 2–3 visual references; otherwise approve D-007 as proposal direction | M1 visual approval | User; branding and style |
+| O-01 | Working name remains Barbershop OS; D-011 confirms modern/teal/rounded direction. Final product name and revised screen review remain open; references optional | M1 visual approval | User; final branding and screen acceptance |
 | O-02 | Native customer/barber features launch-blocking or explicitly deferred? Proposed web/PWA pilot first | G0 release scope | User; original C-21/B-20 and native push/clipboard |
 | O-03 | Shop share or barber share meaning of commission? Proposed explicit shop share in basis points | M2 schema | User; every earnings formula |
 | O-04 | Who absorbs card fees and who physically receives cash? | M4–M6 money implementation | User/accountant; entitlement adjustments |
@@ -94,7 +104,7 @@ Own-account Cloudflare deployment is recommended for commercial infrastructure c
 
 ## First decisions to request next session
 
-Proceed with WP-001-A using the reversible working direction under D-010; do not ask for another blanket permission to start the same local design proof. O-01 stays open for visual review and final branding. Resolve O-02/O-03/O-05 before their dependent production-contract work. Do not block visual foundations on later integration choices.
+WP-001-A initial preview is built and tested. Next apply WP-001-A-R1 under D-011, without asking the user to repeat the modern/teal direction. O-01 stays open only for final branding and revised visual review. Resolve O-02/O-03/O-05 and O-07 before dependent native/policy/auth work; do not restart planning or block the theme pass on provider credentials.
 
 ## Payment reference checked during planning
 

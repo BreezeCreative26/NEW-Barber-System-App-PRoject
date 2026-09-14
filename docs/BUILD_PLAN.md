@@ -1,6 +1,6 @@
 # Barbershop OS — Build plan
 
-Version: 1.1 · Planning baseline: 2026-09-14 · Status: execution sequence prepared; application implementation not started.
+Version: 1.2 · Updated: 2026-09-14 · Status: initial interactive preview implemented and tested; modern neutral/teal refinement planned under D-011. No live business backend yet.
 
 ## 1. Mandate and sources of truth
 
@@ -191,7 +191,7 @@ Estimates are intentionally not fixed until architecture spikes and launch scope
 
 M9 numbering does not authorize moving original native MVP requirements out of launch. G0 must resolve whether native is launch-blocking. Likewise full month/week calendar, instant payouts and self-service controls keep their original tags with explicit adaptations/conflicts in the register.
 
-### M1 exact next work package
+### M1 initial work package (implemented as preview; not final visual acceptance)
 
 1. Begin with the reversible working name Barbershop OS and proposed charcoal/teal direction. References may refine it; do not block the first local design proof on final branding. User visual approval still required before broad rollout. No paid image generation without consent.
 2. Produce a static, clearly labelled reference implementation of three representative screens—not the entire product. Use realistic fixtures, not production claims.
@@ -200,13 +200,14 @@ M9 numbering does not authorize moving original native MVP requirements out of l
 5. Run isolated allocator and Stripe account-context feasibility spikes. If credentials are unavailable, mark the Stripe spike blocked, not passed.
 6. Turn results into the M2 task list; reject approaches that require major rework later.
 
-### Execution sequence — build-ready work packages (v1.1)
+### Execution sequence — build-ready work packages (v1.2)
 
 User requested starting the build and a concrete execution plan. Do not produce another planning reset or require a blanket approval to begin the first local work package. This does not approve unresolved financial policy, native scope, paid services, public GitHub publication or production deployment.
 
 | Package | Deliverable the user can inspect | Work included | Exit evidence |
 | --- | --- | --- | --- |
 | WP-001-A | Three-screen local design preview | Admin day calendar; customer service/barber/date selection; barber Today; shared visual components and preview state controls | Actual screenshots at required sizes; UI controls tested; labelled fixtures; no fake auth or payment |
+| WP-001-A-R1 | Modern neutral/teal refinement | D-011: neutral/charcoal foundation; teal secondary accent; rounded geometry; readable type; simplify legacy styling without breaking interactions | Before/after screenshots; full regression and contrast checks; focused user feedback |
 | WP-001-B | Technical risk results | D1 interval allocation and expired-hold proof; Stripe Model A account-context checklist/proof when credentials available | Concurrency test evidence; explicit provider blockers; no architecture assumption marked proven |
 | WP-002-A | Private shop setup | Auth provider adapter; owner membership; tenant authorization; shop setup; first services and staff; reload persistence | Two-shop isolation tests and working setup flow |
 | WP-002-B | Complete scheduling setup | Service/add-on CRUD; barber coverage/price/duration; weekly shifts; breaks; time off; holiday handling; audit | Validated forms plus API tests; history preserved |
@@ -224,20 +225,32 @@ These are implementation slices inside the existing milestones, not a deletion o
 
 ### First implementation checklist — WP-001-A
 
-Every item below starts unchecked. Completing this design preview does not mark its corresponding production feature verified.
+Evidence for the initial preview is recorded in PROGRESS. Checked items refer to the first working implementation, not the D-011 theme refinement or production features. Browser zoom-equivalent reflow was tested; full actual-zoom/device acceptance remains separate.
 
-- [ ] E-001 Inspect actual Hono/Vite packages and renderer; add only the React/client build and test dependencies needed while preserving Cloudflare compatibility.
-- [ ] E-002 Create reusable typography/spacing/colour tokens, buttons, inputs, status badges, sheets, alerts, empty states and safe-area layout.
-- [ ] E-003 Provide explicitly labelled `/preview/admin`, `/preview/book` and `/preview/barber` routes. Preview navigation cannot impersonate authenticated roles.
-- [ ] E-004 Admin proof: date navigation, barber filter, calendar event details and create-booking form interaction. Display fixtures honestly; no claim that an appointment has been saved.
-- [ ] E-005 Customer proof: choose service and extras, choose barber, choose date/time, validate contact form and review summary. Stop at a clear sandbox-payment integration boundary; never show paid confirmation.
-- [ ] E-006 Barber proof: chronological fixture queue, appointment detail, contextual action layout and finance breakdown. State previews are labelled examples; no actual charge or manual payment attestation is simulated as real.
-- [ ] E-007 Add deliberate loading, empty, error and offline preview scenarios; each visible control either performs its stated preview action or explains the integration boundary before interaction.
+- [x] E-001 Inspect actual Hono/Vite packages and renderer; add only the React/client build and test dependencies needed while preserving Cloudflare compatibility.
+- [x] E-002 Create reusable typography/spacing/colour tokens, buttons, inputs, status badges, sheets, alerts, empty states and safe-area layout.
+- [x] E-003 Provide explicitly labelled `/preview/admin`, `/preview/book` and `/preview/barber` routes. Preview navigation cannot impersonate authenticated roles.
+- [x] E-004 Admin proof: date navigation, barber filter, calendar event details and create-booking form interaction. Display fixtures honestly; no claim that an appointment has been saved.
+- [x] E-005 Customer proof: choose service and extras, choose barber, choose date/time, validate contact form and review summary. Stop at a clear sandbox-payment integration boundary; never show paid confirmation.
+- [x] E-006 Barber proof: chronological fixture queue, appointment detail, contextual action layout and finance breakdown. State previews are labelled examples; no actual charge or manual payment attestation is simulated as real.
+- [x] E-007 Add deliberate loading, empty, error and offline preview scenarios; each visible control either performs its stated preview action or explains the integration boundary before interaction.
 - [ ] E-008 Verify keyboard navigation, focus return, modal dismissal, disabled reasons, long names, 200% zoom and 320/390/768/1024/1440 px layouts.
-- [ ] E-009 Build and run the local preview using the mandated PM2/port-3000 workflow; inspect actual browser screenshots and console/network output.
+- [x] E-009 Build and run the local preview using the mandated PM2/port-3000 workflow; inspect actual browser screenshots and console/network output.
 - [ ] E-010 Share a working preview with limitations, update evidence/status and commit. Record visual feedback before expanding the design.
 
 Related feature IDs: A-02/A-03/A-12, C-01/C-03/C-06/C-10/C-11/C-16..C-19, B-09..B-11, X-01..X-04. Their business-function status remains not_started until the actual production-contract implementation starts; preview-only progress belongs to E-001..E-010.
+
+### Immediate next sequence after user design feedback
+
+1. **WP-001-A-R1 — Refine the existing theme, do not rewrite screens.** Centralize neutral/charcoal/teal tokens, consistent 12/16/20 px radii, readable text and restrained visual decoration. Keep mobile agenda and fixed booking actions. Re-run tests and inspect all three surfaces. This is the next implementation task; no provider credentials needed.
+2. **WP-001-B — Prove data safety.** Implement/test an atomic D1 allocation spike including intervals, buffers, expiry and simultaneous requests. Define tenant-aware schema and payment account-context contracts; do not mistake fixture helpers for real availability. Stripe execution waits only on Stripe credentials.
+3. **WP-002-A/B — First persistent vertical slice: create shop -> create staff/service -> set hours -> reload and verify isolation.** Add selected managed authentication, server roles, migrations, validation, D1 persistence and audit. A provider choice is needed here; do not fake sign-in. Add real Team, Services and Settings screens using the refined components.
+4. **WP-003-A — Real booking lifecycle.** Replace fixture catalogue/slots with tenant-scoped APIs, hold and booking allocation; connect customer selection and admin calendar. Add conflict feedback and atomic walk-in/reschedule operations. Pass concurrency and timezone tests before adding payments.
+5. **WP-004-A/B — Shop-owned payments and delivery.** Connect shop Stripe accounts, deposits/refunds, verified webhooks and ledger postings; then durable notifications/reminders and secure customer booking access. No live mode without explicit readiness/sign-off.
+6. **WP-005-A/B and WP-006-A/B — Working day, PWA and finances.** Persist visit transitions, cash/card/tips and receipts; implement actual installation/offline-cache rules; reconcile manual pay-runs and reports. Never present offline-state examples or a tip calculator as real operational persistence.
+7. **WP-007-A/B — Commercial SaaS launch.** Subscription lifecycle, server entitlements, platform operations, monitoring, restore test and two-tenant pilot.
+
+Do not ask whether to keep redesigning or start a different architecture: the user has requested this refinement and build-out. Ask only specific blocking provider/policy decisions at the point they matter. Preserve all original release-scope flags, including unresolved native launch scope.
 
 ### Build boundaries and required inputs
 
