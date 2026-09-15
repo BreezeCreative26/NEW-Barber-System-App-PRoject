@@ -56,12 +56,12 @@ Optional, phone-first, no passwords: **one-time code by SMS or email**. Accounts
 
 **Privacy:** a customer only ever sees their own rows for the shop they're on; a shop never sees another shop's history. Delete/export my data from the profile.
 
-## 3. Booking flow improvements (Next)
+## 3. Booking flow improvements (Partly live)
 
-- **Remember me** — details pre-filled from account or last booking (cookie), "not you?" to clear.
-- **Any barber** — pick a service and time first; assign the free barber (already supported in waitlist, extend to booking).
-- **Book for someone else** — kids/partner: name on the visit, contact stays the account holder.
-- **Group booking** — two services back-to-back or two chairs at once (father + son).
+- ~~**Remember me**~~ — shipped with accounts (signed-in prefill + device memory).
+- ~~**Any barber**~~ — shipped: "Any barber, see all times" jumps from the service step straight to every open time; each slot shows who is free.
+- ~~**Book for someone else**~~ — shipped: "This visit is for someone else" on the details step; `attendee_name` on the visit, contact and customer record stay the booker's; shown on confirmation, manage link, /me, calendar and appointment panel.
+- ~~**Group booking**~~ — shipped: 2–4 people on one day, **together** (distinct barbers, same start) or **back to back** (one barber, consecutive); each visit its own row under every guard, shared `group_id`, partial failures reported.
 - **Deposit step** — shown when policy > £0; collects card via Stripe Checkout (Later, provider).
 - **Confirmation** — page + email/SMS with manage link; add to Apple/Google calendar.
 - **Reminders** — 24h and 2h before, with confirm/reschedule/cancel links (Later, provider). Queue table built now; sends stubbed.
@@ -97,7 +97,7 @@ After a completed visit the customer gets a "How was it?" link (from the reminde
 
 1. ~~**Shop home page + editor + admin links**~~ — shipped (`/<slug>`, Settings → Shop page).
 2. ~~**Customer accounts (OTP, sandbox-shown codes) + /me area + remember-me in booking.**~~ — shipped (`/<slug>/me`).
-3. **Booking flow: any barber, book for someone else, group.**
+3. ~~**Booking flow: any barber, book for someone else, group.**~~ — shipped.
 4. **Reminder queue + review flow (sends stubbed until provider).**
 5. Provider decisions → SMS/email live, Stripe deposits, loyalty, vouchers, uploads.
 

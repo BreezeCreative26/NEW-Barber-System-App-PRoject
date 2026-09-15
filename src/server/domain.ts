@@ -201,6 +201,8 @@ export type StoredBooking = {
   channel: "OWNER" | "ONLINE";
   email: string;
   series_id: string | null;
+  attendee_name: string;
+  group_id: string | null;
   status: string;
   version: number;
   created_at: number;
@@ -570,6 +572,8 @@ export const publicBookingSchema = z
     staff_id: z.string().uuid(),
     service_id: z.string().uuid(),
     customer_name: name,
+    // Booking for someone else: who sits in the chair. Contact stays the booker's.
+    attendee_name: z.union([z.literal(""), name]).default(""),
     phone: z
       .string()
       .transform((s) => s.replace(/[\s()-]/g, ""))
@@ -590,6 +594,34 @@ export const publicBookingSchema = z
     quote: z
       .object({ service_version: version, shop_version: version })
       .strict(),
+  })
+  .strict();
+// Group booking: 2-4 visits saved together for one booker on one day. Each member picks a
+// service, optional barber and start; "together" (same start, different barbers) or
+// "back to back" (same barber, consecutive) are just particular shapes of this list.
+export const groupBookingSchema = z
+  .object({
+    request_id: z.string().uuid(),
+    customer_name: name,
+    phone: publicBookingSchema.shape.phone,
+    email: publicBookingSchema.shape.email,
+    notes: z.string().trim().max(500).default(""),
+    date: dateSchema,
+    members: z
+      .array(
+        z
+          .object({
+            attendee_name: z.union([z.literal(""), name]).default(""),
+            staff_id: z.string().uuid(),
+            service_id: z.string().uuid(),
+            addon_ids: addonIdsSchema.default([]),
+            start_min: z.number().int().min(0).max(1425).refine((v) => v % 15 === 0),
+            quote: z.object({ service_version: version, shop_version: version }).strict(),
+          })
+          .strict(),
+      )
+      .min(2)
+      .max(4),
   })
   .strict();
 export const seriesSchema = bookingSchema

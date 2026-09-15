@@ -227,10 +227,15 @@ export function AppointmentPanel({
                 <Icon name="repeat" size={12} /> Standing
               </span>
             )}
+            {booking.group_id && (
+              <span className="channel-badge series" title="Part of a group booking" data-testid="group-badge">
+                <Icon name="users" size={12} /> Group
+              </span>
+            )}
           </div>
           <div className="panel-title-line">
             <h2 id="panel-title">
-              {time(booking.start_min)} · {booking.customer_name}
+              {time(booking.start_min)} · {booking.attendee_name || booking.customer_name}
             </h2>
             <IconButton name="close" label="Close appointment panel" onClick={onClose} />
           </div>
@@ -246,6 +251,11 @@ export function AppointmentPanel({
               <Avatar initials={initials(booking.customer_name)} colour="sage" />
               <div className="panel-customer-name">
                 <strong>{customer?.name || booking.customer_name}</strong>
+                {booking.attendee_name && (
+                  <span className="panel-attendee" data-testid="panel-attendee">
+                    <Icon name="userRound" size={12} /> Booked for <strong>{booking.attendee_name}</strong>
+                  </span>
+                )}
                 <a href={`tel:${booking.phone}`} className="panel-phone">
                   <Icon name="phone" size={13} /> {booking.phone}
                 </a>

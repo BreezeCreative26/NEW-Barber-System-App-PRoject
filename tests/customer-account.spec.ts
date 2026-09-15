@@ -179,8 +179,11 @@ test("browser: sign in on /<slug>/me, see usual and visits, rebook the usual wit
   expect(a11y.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
 
   // Move the first manageable visit via the dialog.
-  const before = await page.getByTestId("upcoming-list").locator("li").first().textContent();
-  await page.getByTestId("move-visit").first().click();
+  // The first row may be inside the lead time (no Move button); act on the first movable one.
+  const firstRow = page.getByTestId("upcoming-list").locator("li").filter({ has: page.getByTestId("move-visit") }).first();
+  const reference = (await firstRow.textContent())!.match(/BRB-\d{4}/)![0];
+  const beforeWhen = await firstRow.locator(".ca-visit-when").textContent();
+  await firstRow.getByTestId("move-visit").click();
   const dialog = page.getByRole("dialog", { name: "Move your visit" });
   await expect(dialog).toBeVisible();
   // Walk forward until a day has a free slot.
@@ -190,10 +193,24 @@ test("browser: sign in on /<slug>/me, see usual and visits, rebook the usual wit
     await expect(dialog.getByRole("group", { name: "Choose a time" })).not.toHaveAttribute("aria-busy", "true");
     if (await dialog.getByTestId("move-slot").count()) break;
   }
-  await dialog.getByTestId("move-slot").first().click();
+  // Pick a slot that differs from the current time so the row visibly changes.
+  const currentTime = beforeWhen!.match(/\d{2}:\d{2}/)![0];
+  const slots = dialog.getByTestId("move-slot");
+  const n = await slots.count();
+  let picked = false;
+  for (let i = 0; i < n; i++) {
+    if ((await slots.nth(i).textContent()) !== currentTime) {
+      await slots.nth(i).click();
+      picked = true;
+      break;
+    }
+  }
+  expect(picked).toBe(true);
   await dialog.getByTestId("confirm-move").click();
   await expect(page.getByRole("status")).toContainText("Your visit has moved");
-  await expect(page.getByTestId("upcoming-list").locator("li").first()).not.toHaveText(before!);
+  const movedRow = page.getByTestId("upcoming-list").locator("li").filter({ hasText: reference });
+  await expect(movedRow).toHaveCount(1);
+  await expect(movedRow.locator(".ca-visit-when")).not.toHaveText(beforeWhen!);
 
   // Profile edit round-trips.
   await page.getByTestId("tab-profile").click();

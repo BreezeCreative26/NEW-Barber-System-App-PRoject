@@ -1651,19 +1651,21 @@ sandbox.get("/availability", async (c) => {
 // Shared by owner and public booking: identical quote, availability and D1 guards.
 export async function createBooking(
   c: Ctx,
-  b: z.infer<typeof publicBookingSchema> & {
+  b: Omit<z.infer<typeof publicBookingSchema>, "attendee_name"> & {
     source: "TEST_BOOKING" | "WALK_IN";
+    attendee_name?: string;
   },
   channel: "OWNER" | "ONLINE",
-  options: { minStart?: number; maxDate?: string; seriesId?: string | null } = {},
+  options: { minStart?: number; maxDate?: string; seriesId?: string | null; groupId?: string | null } = {},
 ) {
   // Preserve request hashes for pre-add-on bookings with the same normalized payload.
-  const { addon_ids, email, customer_id, ...originalPayload } = b as typeof b & { customer_id?: string };
+  const { addon_ids, email, customer_id, attendee_name, ...originalPayload } = b as typeof b & { customer_id?: string; attendee_name?: string };
   const requestHash = await hash(
     JSON.stringify({
       ...originalPayload,
       ...(addon_ids.length ? { addon_ids } : {}),
       ...(email ? { email } : {}),
+      ...(attendee_name ? { attendee_name } : {}),
     }),
   );
   const sid = c.get("shopId");
@@ -1725,8 +1727,8 @@ export async function createBooking(
   const now = Date.now();
   const bookingId = id();
   const statement = c.env.DB.prepare(
-    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id)
-  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
+    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id)
+  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
   ).bind(
     bookingId,
     sid,
@@ -1756,6 +1758,8 @@ export async function createBooking(
     email,
     options.seriesId ?? null,
     customerId,
+    attendee_name || "",
+    options.groupId ?? null,
     sid,
   );
   try {

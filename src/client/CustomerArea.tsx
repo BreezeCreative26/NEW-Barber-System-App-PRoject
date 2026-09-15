@@ -8,7 +8,7 @@ import { dateLabel, datePlus, money, time } from "./fixtures";
 type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; notes: string; version: number; member_since: number };
 type Visit = {
   id: string; reference: string; status: string; date: string; start_min: number; start_at: number; duration_min: number; service_name: string; service_id: string; staff_id: string; staff_name: string | null;
-  price_pence: number; cancel_hours: number; version: number; can_manage: boolean; late_change: boolean; series_id: string | null; items: { id: string; name: string; price_pence: number }[];
+  price_pence: number; cancel_hours: number; version: number; can_manage: boolean; late_change: boolean; series_id: string | null; attendee_name?: string; group_id?: string | null; items: { id: string; name: string; price_pence: number }[];
 };
 type Me = {
   shop: { name: string; slug: string; address: string; timezone: string; cancel_hours: number; lead_time_min: number; today: string };
@@ -307,9 +307,18 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
                   <span>{time(v.start_min)} · {v.duration_min} min</span>
                 </div>
                 <div className="ca-visit-what">
-                  <b>{v.service_name}</b>
+                  <b>
+                    {v.service_name}
+                    {v.attendee_name && <small className="ca-for"> for {v.attendee_name}</small>}
+                  </b>
                   <span>
                     {v.staff_name ? `with ${v.staff_name}` : ""} · {money(v.price_pence)} · {v.reference}
+                    {v.group_id && (
+                      <>
+                        {" "}
+                        · <Icon name="users" size={12} /> group
+                      </>
+                    )}
                     {v.series_id && (
                       <>
                         {" "}
@@ -359,7 +368,10 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
                   <span>{time(v.start_min)}</span>
                 </div>
                 <div className="ca-visit-what">
-                  <b>{v.service_name}</b>
+                  <b>
+                    {v.service_name}
+                    {v.attendee_name && <small className="ca-for"> for {v.attendee_name}</small>}
+                  </b>
                   <span>
                     {v.staff_name ? `with ${v.staff_name}` : ""} · {money(v.price_pence)}
                   </span>

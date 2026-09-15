@@ -7,6 +7,7 @@ import {
   effectiveHours,
   localInstant,
   publicBookingSchema,
+  groupBookingSchema,
   ref,
   shopToday,
   slotReason,
@@ -566,6 +567,138 @@ pub.post("/shops/:slug/bookings", async (c) => {
   );
 });
 
+// Group bookings ------------------------------------------------------------
+// Availability for a party: for every 15-minute start on the day, which members could be seated
+// simultaneously (distinct barbers, one per member) and, for back-to-back with one barber, whether
+// the consecutive chain fits. Members carry service/addons/optional preferred barber.
+const groupQuery = z.object({
+  date: dateSchema,
+  members: z
+    .string()
+    .transform((s) => s.split(";").filter(Boolean).map((m) => {
+      const [service_id, staff_id, addons] = m.split(":");
+      return { service_id, staff_id: staff_id && staff_id !== "any" ? staff_id : null, addon_ids: addons ? addons.split(",") : [] };
+    }))
+    .pipe(z.array(z.object({ service_id: z.string().uuid(), staff_id: z.string().uuid().nullable(), addon_ids: addonIdsSchema })).min(2).max(4)),
+});
+pub.get("/shops/:slug/group-availability", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug"));
+  const p = groupQuery.safeParse(c.req.query());
+  if (!p.success) fail(400, "Supply a valid date and 2-4 members as service_id:staff_id|any:addon,addon");
+  const { date, members } = p.data!;
+  const { today, minStart, maxDate } = limits(shop);
+  if (date < today || date > maxDate) fail(409, "outside_booking_window");
+  const ctxs = await Promise.all(members.map((m) => rangeContext(c, shop, m.staff_id ? [m.staff_id] : null, m.service_id, date, date, m.addon_ids)));
+  const starts = Array.from({ length: 96 }, (_, i) => i * 15).filter((n) => n >= shop.opens && n < shop.closes);
+  const freeAt = (i: number, minute: number) => ctxs[i].staff.filter((st) => !slotFor(shop, ctxs[i], st, date, minute, minStart));
+  // Together: assign distinct barbers greedily by fewest options first (bipartite matching for <=4 is fine by backtracking).
+  const together = starts.map((start_min) => {
+    const options = members.map((_, i) => freeAt(i, start_min).map((st) => st.id));
+    const order = options.map((o, i) => i).sort((a, b) => options[a].length - options[b].length);
+    const used = new Set<string>();
+    const pick: (string | null)[] = members.map(() => null);
+    const solve = (k: number): boolean => {
+      if (k === order.length) return true;
+      const i = order[k];
+      for (const id of options[i]) {
+        if (used.has(id)) continue;
+        used.add(id);
+        pick[i] = id;
+        if (solve(k + 1)) return true;
+        used.delete(id);
+        pick[i] = null;
+      }
+      return false;
+    };
+    const ok = solve(0);
+    return {
+      start_min,
+      available: ok,
+      assignment: ok
+        ? members.map((_, i) => {
+            const st = ctxs[i].staff.find((x) => x.id === pick[i])!;
+            const q = ctxs[i].quotes.get(st.id)!;
+            return { staff_id: st.id, staff_name: st.name, start_min, price_pence: q.price_pence, duration_min: q.duration_min };
+          })
+        : null,
+    };
+  });
+  // Back to back: one barber takes everyone in sequence (only meaningful when a single barber can do every service).
+  const common = ctxs.map((x) => new Set(x.staff.map((st) => st.id))).reduce((acc, set) => new Set([...acc].filter((id) => set.has(id))));
+  const backToBack = starts.map((start_min) => {
+    for (const id of common) {
+      let cursor = start_min;
+      const chain: { staff_id: string; staff_name: string; start_min: number; price_pence: number; duration_min: number }[] = [];
+      let ok = true;
+      for (let i = 0; i < members.length; i++) {
+        const st = ctxs[i].staff.find((x) => x.id === id)!;
+        const q = ctxs[i].quotes.get(id)!;
+        // Each visit reserves duration + the shop's 10-minute buffer; the next starts on the following quarter hour.
+        if (cursor % 15 !== 0 || slotFor(shop, ctxs[i], st, date, cursor, minStart)) {
+          ok = false;
+          break;
+        }
+        chain.push({ staff_id: id, staff_name: st.name, start_min: cursor, price_pence: q.price_pence, duration_min: q.duration_min });
+        cursor = Math.ceil((cursor + q.duration_min + 10) / 15) * 15;
+      }
+      if (ok) return { start_min, available: true, assignment: chain };
+    }
+    return { start_min, available: false, assignment: null };
+  });
+  return c.json({
+    date,
+    together,
+    back_to_back: backToBack,
+    back_to_back_possible: common.size > 0,
+    quotes: members.map((_, i) => ({ service_version: ctxs[i].service.version, shop_version: shop.version })),
+    cancel_hours: shop.cancel_hours,
+    deposit_pence: shop.deposit_pence,
+  });
+});
+// Save a group: every member is a normal booking through createBooking (all guards apply) sharing a
+// group_id. Partial failure is reported honestly: created members stand, failed ones are listed.
+pub.post("/shops/:slug/group-bookings", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug"));
+  const b = await readInput(c, groupBookingSchema);
+  await throttle(c, "book", `${shop.id}:${clientKey(c)}`, 120);
+  await throttle(c, "book-phone", `${shop.id}:${b.phone}`, 12);
+  const { minStart, maxDate } = limits(shop);
+  // Replay: the same request id returns the same group.
+  const prior = await c.env.DB.prepare("SELECT group_id FROM bookings WHERE shop_id=? AND request_id LIKE ? LIMIT 1").bind(shop.id, `${b.request_id}:%`).first<{ group_id: string }>();
+  const groupId = prior?.group_id ?? uid();
+  const created: ReturnType<typeof customerView>[] = [];
+  const failed: { index: number; attendee_name: string; error: string }[] = [];
+  let firstToken: string | null = null;
+  const names = new Map<string, string>();
+  for (const [i, m] of b.members.entries()) {
+    try {
+      const result = await createBooking(
+        c,
+        { request_id: `${b.request_id}:${i}`, staff_id: m.staff_id, service_id: m.service_id, customer_name: b.customer_name, attendee_name: m.attendee_name, phone: b.phone, email: b.email, notes: b.notes, date: b.date, start_min: m.start_min, addon_ids: m.addon_ids, quote: m.quote, source: "TEST_BOOKING" },
+        "ONLINE",
+        { minStart, maxDate, groupId },
+      );
+      if (!names.has(result.booking.staff_id)) {
+        const st = await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(shop.id, result.booking.staff_id).first<{ name: string }>();
+        names.set(result.booking.staff_id, st?.name ?? "");
+      }
+      const token = await issueManageToken(c, result.booking);
+      if (!firstToken && token) firstToken = token;
+      created.push(customerView(result.booking, shop, names.get(result.booking.staff_id) ?? null));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      failed.push({ index: i, attendee_name: m.attendee_name || b.customer_name, error: message.includes("slot_taken") || message.includes("Slot taken") ? "slot_taken" : message });
+    }
+  }
+  if (!created.length) fail(409, failed[0]?.error || "slot_taken");
+  await c.env.DB.prepare(
+    "INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
+  )
+    .bind(uid(), shop.id, "group", groupId, "GROUP_BOOKED", c.get("actor"), `Customer booked a group of ${b.members.length} online: ${created.length} saved, ${failed.length} failed. No payment taken.`, Date.now())
+    .run();
+  return c.json({ group_id: groupId, bookings: created, failed, manage_token: firstToken, reference: created[0] ? created[0].reference : null }, failed.length ? 207 : 201);
+});
+
 // Customer manage links ---------------------------------------------------
 export function customerView(b: StoredBooking, shop: Shop, staffName: string | null) {
   const now = Date.now();
@@ -590,6 +723,8 @@ export function customerView(b: StoredBooking, shop: Shop, staffName: string | n
     notes: b.notes,
     staff_id: b.staff_id,
     staff_name: staffName,
+    attendee_name: b.attendee_name || "",
+    group_id: b.group_id,
     channel: b.channel,
     version: b.version,
     shop: { name: shop.name, address: shop.address, slug: shop.slug, timezone: shop.timezone },

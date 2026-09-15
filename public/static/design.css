@@ -1207,3 +1207,56 @@
 .form-error { margin: 0; color: var(--warn); font-size: var(--fs-13); font-weight: 600; }
 .customer-area .button.ghost { color: var(--accent-dark); }
 .customer-area .button.ghost:hover { background: var(--line-2); color: var(--ink); }
+
+/* ---- Booking flow upgrades: any-barber shortcut, book for someone else, group booking ---- */
+.booking-next-group { display: flex; gap: var(--s-2); flex-wrap: wrap; justify-content: flex-end; }
+.attendee-block { grid-column: 1 / -1; display: grid; gap: var(--s-2); border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s-3) var(--s-4); background: var(--canvas); }
+.attendee-toggle { display: grid !important; grid-template-columns: auto 1fr; gap: var(--s-3); align-items: start; cursor: pointer; }
+.attendee-toggle input { width: 18px; height: 18px; margin-top: 2px; }
+.attendee-toggle strong { display: block; font-size: var(--fs-14); }
+.attendee-toggle small { color: var(--muted); font-size: var(--fs-12); }
+.review-attendee { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.group-entry { width: 100%; display: grid; grid-template-columns: auto 1fr auto; gap: var(--s-3); align-items: center; text-align: left; border: 1px dashed var(--blocked-line); border-radius: var(--r-lg); background: var(--surface); padding: var(--s-3) var(--s-4); font: inherit; color: var(--ink); cursor: pointer; margin-bottom: var(--s-3); }
+.group-entry:hover { border-color: var(--accent); background: var(--ollo-soft); }
+.group-entry strong { display: block; font-size: var(--fs-14); }
+.group-entry small { color: var(--muted); font-size: var(--fs-12); }
+.group-booking { display: grid; gap: var(--s-4); max-width: 760px; min-width: 0; width: 100%; box-sizing: border-box; }
+.group-time { min-width: 0; display: grid; gap: var(--s-3); }
+.group-booking .step-heading h2 { margin: 4px 0; }
+.group-members { display: grid; gap: var(--s-3); }
+.group-member { border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s-3) var(--s-4) var(--s-4); margin: 0; display: grid; grid-template-columns: 1.2fr 1.4fr 1fr; gap: var(--s-3); background: var(--surface); }
+.group-member legend { grid-column: 1 / -1; font-weight: 700; font-size: var(--fs-13); display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0; }
+.group-member label { display: grid; gap: 6px; font-size: var(--fs-12); font-weight: 600; color: var(--ink-2); }
+.group-member input, .group-member select { font: inherit; font-size: var(--fs-14); padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); color: var(--ink); width: 100%; box-sizing: border-box; }
+.group-mode { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); }
+.group-mode button { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; text-align: left; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); padding: var(--s-3) var(--s-4); font: inherit; font-weight: 600; color: var(--ink); cursor: pointer; }
+.group-mode button small { grid-column: 2; font-weight: 400; color: var(--muted); font-size: var(--fs-12); }
+.group-mode button[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--on-accent); }
+.group-mode button[aria-pressed="true"] small { color: var(--rail-fg); }
+.group-mode button:disabled { opacity: 0.5; cursor: not-allowed; }
+.group-days { display: flex; gap: 6px; align-items: stretch; overflow-x: auto; padding-bottom: 4px; min-width: 0; max-width: 100%; }
+.group-days > button:not(.button) { flex: 1 0 auto; min-width: 48px; display: grid; justify-items: center; gap: 2px; padding: 8px 6px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); font: inherit; cursor: pointer; color: var(--ink); }
+.group-days > button small { font-size: var(--fs-11); color: var(--muted); text-transform: uppercase; }
+.group-days > button[aria-pressed="true"] { background: var(--ink); color: var(--on-accent); border-color: var(--ink); }
+.group-days > button[aria-pressed="true"] small { color: var(--rail-fg); }
+.group-slots { display: flex; gap: 6px; flex-wrap: wrap; min-height: 44px; }
+.group-slots button { display: grid; justify-items: center; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); padding: 8px 14px; font: inherit; font-size: var(--fs-14); font-variant-numeric: tabular-nums; cursor: pointer; color: var(--ink); }
+.group-slots button small { font-size: var(--fs-11); color: var(--muted); }
+.group-slots button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.group-slots button[aria-pressed="true"] small { color: var(--on-accent); }
+.group-plan, .group-summary { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); }
+.group-plan li, .group-summary li { display: flex; align-items: center; gap: var(--s-3); border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s-2) var(--s-3); font-size: var(--fs-14); background: var(--surface); }
+.group-summary li b, .group-summary li span { display: block; }
+.group-summary li span { color: var(--muted); font-size: var(--fs-13); }
+.group-summary li.failed { border-color: var(--warn); background: var(--warn-bg); }
+.group-plan li.group-total { justify-content: flex-end; gap: 6px; border: 0; background: transparent; padding-top: 0; }
+.group-actions { display: flex; justify-content: space-between; gap: var(--s-2); flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: var(--s-4); }
+@media (max-width: 640px) {
+  .group-member { grid-template-columns: 1fr; }
+  .group-mode { grid-template-columns: 1fr; }
+  .booking-next-group { width: 100%; }
+  .booking-next-group .button { flex: 1; justify-content: center; }
+}
+.ca-for { font-weight: 500; color: var(--muted); font-size: var(--fs-13); }
+.event-group { margin-left: 4px; vertical-align: -1px; }
+.panel-attendee { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-12); color: var(--muted); }

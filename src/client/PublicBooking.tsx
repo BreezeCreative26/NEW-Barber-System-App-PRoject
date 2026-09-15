@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { BookingItem } from "../server/domain";
 import { dateLabel, datePlus, money, time } from "./fixtures";
 import { Avatar, Brand, Button, Icon, Notice } from "./ui";
+import { GroupBooking } from "./GroupBooking";
 
 // Connected customer booking for /book/:slug and /manage/:token.
 // Reads and writes the same local D1 records as the owner workspace.
@@ -87,6 +88,8 @@ type CustomerBooking = {
   email: string;
   notes: string;
   staff_name: string | null;
+  attendee_name?: string;
+  group_id?: string | null;
   version: number;
   shop: { name: string; address: string; slug: string | null; timezone: string };
   can_manage: boolean;
@@ -221,7 +224,7 @@ type NextSlot = {
   duration_min: number;
 };
 const ANY = "any";
-export type BookingPreset = { service?: string; staff?: string; date?: string; start?: number; step?: number; nonce?: number };
+export type BookingPreset = { service?: string; staff?: string; date?: string; start?: number; step?: number; group?: boolean; nonce?: number };
 export type BookingCustomer = { name: string; phone: string; email: string; notes: string };
 export function PublicBooking({ slug, embedded = false, preset, onLoaded, customer }: { slug: string; embedded?: boolean; preset?: BookingPreset | null; onLoaded?: (shop: PublicShop) => void; customer?: BookingCustomer | null }) {
   const [shop, setShop] = useState<PublicShop | null>(null);
@@ -242,6 +245,11 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   const [assigned, setAssigned] = useState<{ id: string; name: string } | null>(null);
   const [daypart, setDaypart] = useState("All times");
   const [details, setDetails] = useState({ name: "", phone: "", email: "", notes: "" });
+  // Book for someone else: the person in the chair, when it is not the booker.
+  const [forOther, setForOther] = useState(false);
+  const [attendee, setAttendee] = useState("");
+  // Group mode swaps the single-visit flow for the party flow (2-4 people, same day).
+  const [group, setGroup] = useState(!!preset?.group);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -282,6 +290,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     }
     setSlot(preset.start ?? null);
     setStep(preset.step ?? (preset.staff ? 2 : preset.service ? 1 : 0));
+    setGroup(!!preset.group);
     setTimeout(() => heading.current?.focus(), 50);
   }, [presetKey, !!shop]);
   useEffect(() => {
@@ -421,6 +430,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     if (details.name.trim().length < 2) next.name = "Enter your name";
     if (!phoneOk(details.phone)) next.phone = "Enter a valid UK mobile number";
     if (!emailOk(details.email)) next.email = "Enter a valid email address";
+    if (forOther && attendee.trim().length < 2) next.attendee = "Who is the visit for?";
     setErrors(next);
     if (Object.keys(next).length)
       requestAnimationFrame(() =>
@@ -436,6 +446,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
       staff_id: bookingStaff,
       service_id: service,
       customer_name: details.name.trim(),
+      attendee_name: forOther ? attendee.trim() : "",
       phone: details.phone,
       email: details.email.trim(),
       notes: details.notes.trim(),
@@ -618,6 +629,10 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
           </div>
         </section>}
         <div className="booking-body">
+          {group ? (
+            <GroupBooking shop={shop} slug={slug} customer={customer} onExit={() => setGroup(false)} />
+          ) : (
+          <>
           <nav className="booking-progress" aria-label="Booking steps">
             {steps.map((label, i) => (
               <button
@@ -662,6 +677,16 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
               </header>
               {step === 0 && (
                 <>
+                  {shop.staff.length > 1 && (
+                    <button type="button" className="group-entry" onClick={() => setGroup(true)} data-testid="start-group">
+                      <Icon name="users" size={18} />
+                      <span>
+                        <strong>Booking for two or more?</strong>
+                        <small>Father and son, mates before a night out — seat everyone together or back to back.</small>
+                      </span>
+                      <Icon name="right" size={16} />
+                    </button>
+                  )}
                   <label className="service-search">
                     <Icon name="search" />
                     <input
@@ -1108,6 +1133,50 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                         )}
                       </label>
                     ))}
+                    <div className="attendee-block">
+                      <label className="attendee-toggle">
+                        <input
+                          type="checkbox"
+                          checked={forOther}
+                          onChange={(e) => {
+                            setForOther(e.target.checked);
+                            setErrors((c) => ({ ...c, attendee: "" }));
+                          }}
+                          data-testid="for-someone-else"
+                        />
+                        <span>
+                          <strong>This visit is for someone else</strong>
+                          <small>A child, partner or friend. We keep your contact details for the booking.</small>
+                        </span>
+                      </label>
+                      {forOther && (
+                        <label>
+                          <span id="booking-attendee-label">Who is it for?</span>
+                          <input
+                            aria-labelledby="booking-attendee-label"
+                            required
+                            type="text"
+                            name="attendee"
+                            autoComplete="off"
+                            value={attendee}
+                            placeholder="Sam (age 8)"
+                            maxLength={100}
+                            onChange={(e) => {
+                              setAttendee(e.target.value);
+                              setErrors((c) => ({ ...c, attendee: "" }));
+                            }}
+                            aria-invalid={!!errors.attendee}
+                            aria-describedby={errors.attendee ? "booking-attendee-error" : undefined}
+                            data-testid="attendee-name"
+                          />
+                          {errors.attendee && (
+                            <span className="field-error" id="booking-attendee-error">
+                              {errors.attendee}
+                            </span>
+                          )}
+                        </label>
+                      )}
+                    </div>
                     <label>
                       Anything you’d like us to know? (optional)
                       <textarea
@@ -1163,6 +1232,11 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                       {details.phone}
                       {details.email && ` · ${details.email}`}
                     </p>
+                    {forOther && attendee.trim() && (
+                      <p className="review-attendee" data-testid="review-attendee">
+                        <Icon name="userRound" size={14} /> Visit for <strong>{attendee.trim()}</strong>
+                      </p>
+                    )}
                     {details.notes && <p>{details.notes}</p>}
                   </section>
                   <Notice icon="shield">
@@ -1211,18 +1285,36 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                     <Icon name="check" />
                   </Button>
                 ) : (
-                  <Button
-                    key={`next-${step}`}
-                    disabled={
-                      (step === 0 && !service) ||
-                      (step === 1 && !barber) ||
-                      (step === 2 && (slot === null || !availability || !bookingStaff))
-                    }
-                    onClick={() => go(step + 1)}
-                  >
-                    {["Choose your barber", "Find a time", "Your details"][step]}
-                    <Icon name="arrowRight" />
-                  </Button>
+                  <span className="booking-next-group">
+                    {step === 0 && barbers.length > 1 && (
+                      <Button
+                        variant="secondary"
+                        disabled={!service}
+                        onClick={() => {
+                          setBarber(ANY);
+                          setSlot(null);
+                          go(2);
+                        }}
+                        data-testid="any-barber-skip"
+                        title="Skip choosing a barber and see every open time"
+                      >
+                        <Icon name="sparkles" size={16} />
+                        Any barber, see all times
+                      </Button>
+                    )}
+                    <Button
+                      key={`next-${step}`}
+                      disabled={
+                        (step === 0 && !service) ||
+                        (step === 1 && !barber) ||
+                        (step === 2 && (slot === null || !availability || !bookingStaff))
+                      }
+                      onClick={() => go(step + 1)}
+                    >
+                      {["Choose your barber", "Find a time", "Your details"][step]}
+                      <Icon name="arrowRight" />
+                    </Button>
+                  </span>
                 )}
               </footer>
               {step === 2 && slot === null && (
@@ -1327,6 +1419,8 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
               </div>
             </aside>
           </div>
+          </>
+          )}
           {!embedded && (
             <footer className="booking-footer">
               <Brand />
@@ -1392,7 +1486,7 @@ function ConfirmationCard({
         </div>
         <strong className="public-reference">{booking.reference}</strong>
         <p>
-          {booking.customer_name} · {booking.phone}
+          {booking.attendee_name ? <>Visit for <strong>{booking.attendee_name}</strong> · booked by {booking.customer_name}</> : booking.customer_name} · {booking.phone}
           {booking.email && ` · ${booking.email}`}
         </p>
         <p>
@@ -1594,6 +1688,11 @@ export function ManageBooking({ token }: { token: string }) {
               <h3>Reference {booking.reference}</h3>
             </div>
             <strong>{booking.customer_name}</strong>
+            {booking.attendee_name && (
+              <p className="review-attendee">
+                <Icon name="userRound" size={14} /> Visit for <strong>{booking.attendee_name}</strong>
+              </p>
+            )}
             <p>
               {booking.phone}
               {booking.email && ` · ${booking.email}`}

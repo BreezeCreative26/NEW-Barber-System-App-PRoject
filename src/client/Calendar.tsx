@@ -348,11 +348,12 @@ export function Calendar({
                           ),
                         }}
                         onClick={() => onOpen(b)}
-                        aria-label={`${b.customer_name}, ${b.service_name}, ${time(b.start_min)}, ${labels[b.status]}`}
-                        title={`${b.customer_name} · ${b.service_name} · ${time(b.start_min)}–${time(b.start_min + b.duration_min)} · ${labels[b.status]} · ${money(b.price_pence)}`}
+                        aria-label={`${b.attendee_name || b.customer_name}, ${b.service_name}, ${time(b.start_min)}, ${labels[b.status]}${b.attendee_name ? `, booked by ${b.customer_name}` : ""}${b.group_id ? ", group booking" : ""}`}
+                        title={`${b.attendee_name || b.customer_name}${b.attendee_name ? ` (booked by ${b.customer_name})` : ""} · ${b.service_name} · ${time(b.start_min)}–${time(b.start_min + b.duration_min)} · ${labels[b.status]} · ${money(b.price_pence)}`}
                       >
                         <strong>
-                          <time>{time(b.start_min)}</time> {b.customer_name}
+                          <time>{time(b.start_min)}</time> {b.attendee_name || b.customer_name}
+                          {b.group_id && <Icon name="users" size={11} className="event-group" />}
                         </strong>
                         {b.duration_min >= 30 && (
                           <span>
@@ -474,7 +475,7 @@ export type RangeBooking = Pick<
   | "price_pence"
   | "status"
   | "channel"
-> & { series_id: string | null };
+> & { series_id: string | null; attendee_name?: string; group_id?: string | null };
 export function WeekView({
   w,
   date,

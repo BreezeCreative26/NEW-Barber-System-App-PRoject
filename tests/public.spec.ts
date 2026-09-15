@@ -444,25 +444,36 @@ test.describe("public booking pages", () => {
 // Executable inventory of public write routes: origin, throttling key and validation.
 const publicMutations = [
   ["POST", "/shops/:slug/bookings"],
+  ["POST", "/shops/:slug/group-bookings"],
   ["POST", "/shops/:slug/waitlist"],
   ["POST", "/manage/:token/cancel"],
   ["POST", "/manage/:token/reschedule"],
+  // Customer account router (mounted under /shops/:slug/account behind the same guard).
+  ["POST", "/shops/:slug/account/start"],
+  ["POST", "/shops/:slug/account/verify"],
+  ["POST", "/shops/:slug/account/logout"],
+  ["PUT", "/shops/:slug/account/profile"],
+  ["POST", "/shops/:slug/account/bookings/:id/cancel"],
+  ["POST", "/shops/:slug/account/bookings/:id/reschedule"],
+  ["POST", "/shops/:slug/account/delete"],
 ] as const;
 test("all public mutation endpoints enforce origin and validate input", async () => {
   const source = readFileSync(new URL("../src/server/public.ts", import.meta.url), "utf8");
-  const actual = Array.from(
-    source.matchAll(/pub\.(post|put|patch|delete)\(\s*["']([^"']+)["']/g),
-    (m) => `${m[1].toUpperCase()} ${m[2]}`,
-  ).sort();
+  const accountSource = readFileSync(new URL("../src/server/customers.ts", import.meta.url), "utf8");
+  const actual = [
+    ...Array.from(source.matchAll(/pub\.(post|put|patch|delete)\(\s*["']([^"']+)["']/g), (m) => `${m[1].toUpperCase()} ${m[2]}`),
+    ...Array.from(accountSource.matchAll(/acct\.(post|put|patch|delete)\(\s*["']([^"']+)["']/g), (m) => `${m[1].toUpperCase()} /shops/:slug/account${m[2]}`),
+  ].sort();
   expect(actual).toEqual(publicMutations.map(([m, p]) => `${m} ${p}`).sort());
   const { slug } = await owner();
   const c = await customer();
   const foreign = await request.newContext({ extraHTTPHeaders: { Origin: "https://invalid.example" } });
   for (const [method, pattern] of publicMutations) {
-    const path = pattern.replace(":slug", slug).replace(":token", "t".repeat(72));
+    const path = pattern.replace(":slug", slug).replace(":token", "t".repeat(72)).replace(":id", crypto.randomUUID());
     expect((await foreign.fetch(pub + path, { method, data: {} })).status(), pattern).toBe(403);
     const invalid = await c.fetch(pub + path, { method, data: { shop_id: "nope" } });
-    expect([400, 404], pattern).toContain(invalid.status());
+    // Signed-out account routes answer 401 before reading the body; everything else rejects the payload.
+    expect([400, 401, 404], pattern).toContain(invalid.status());
   }
   // Public routes never accept a browser session cookie as authority: owner cookie adds nothing.
   const { r } = await owner();
