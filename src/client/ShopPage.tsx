@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { PublicBooking, type BookingPreset } from "./PublicBooking";
 import { Avatar, Icon } from "./ui";
 import { money, time, dateLabel } from "./fixtures";
+import { PublicReviews, Stars, type PublicReview } from "./Reviews";
 
 type PageData = {
   shop: { id: string; name: string; address: string; slug: string; timezone: string; opens: number; closes: number; deposit_pence: number; cancel_hours: number; lead_time_min: number; booking_window_days: number };
@@ -15,6 +16,8 @@ type PageData = {
   today: string;
   closures: { date: string; label: string }[];
   soonest: { staff_id: string; staff_name: string; date: string; start_min: number; service_id: string; price_pence: number }[];
+  reviews: PublicReview[];
+  rating: { count: number; average: number | null };
 };
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const initials = (n: string) => n.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
@@ -97,6 +100,7 @@ export function ShopPage({ slug }: { slug: string }) {
           {has("team") && <a href="#team">Team</a>}
           {has("hours") && <a href="#hours">Hours</a>}
           {has("find") && <a href="#find">Find us</a>}
+          {has("reviews") && data.reviews.length > 0 && <a href="#reviews">Reviews</a>}
           <a href={`/${shop.slug}/me`} className="sp-me" data-testid="nav-me">
             <Icon name="userRound" size={15} /> {me ? me.name.split(" ")[0] || "Your visits" : "Your visits"}
           </a>
@@ -116,6 +120,11 @@ export function ShopPage({ slug }: { slug: string }) {
               </span>
               <h1>{shop.name}</h1>
               <p className="sp-strap">{page.strapline || "Book your next visit online in under a minute."}</p>
+              {data.rating.count > 0 && data.rating.average !== null && (
+                <a className="sp-hero-rating" href="#reviews" data-testid="hero-rating">
+                  <Stars value={data.rating.average} size={14} label={`${data.rating.average} out of 5`} /> <strong>{data.rating.average}</strong> · {data.rating.count} review{data.rating.count === 1 ? "" : "s"}
+                </a>
+              )}
               <div className="sp-hero-actions">
                 <button type="button" className="button primary" onClick={() => book()} data-testid="hero-book">
                   <Icon name="calendar" size={16} /> Book now
@@ -337,6 +346,8 @@ export function ShopPage({ slug }: { slug: string }) {
             </ul>
           </section>
         )}
+
+        {has("reviews") && <PublicReviews reviews={data.reviews} rating={data.rating} />}
 
         {has("policies") && (
           <section className="sp-section sp-policies" aria-labelledby="sp-policies-heading">

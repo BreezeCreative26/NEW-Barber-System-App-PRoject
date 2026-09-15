@@ -95,9 +95,9 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   const salt = uid() + uid();
   const encoded = await passwordHash(DEMO_PASSWORD, salt);
   const staff = [
-    { id: uid(), name: "Jay Carter", role: "Senior barber", hours: [1, 2, 3, 4, 5, 6], colour: "sage", title: "Senior barber & owner's right hand", bio: "Twelve years behind the chair. Precision fades and classic scissor work; loves a proper consultation.", skills: ["Skin fades", "Scissor work", "Kids"], instagram: "jaycuts", commission: 60, pay: { model: "COMMISSION", period: "WEEKLY", tiers: [{ from_pence: 0, pct: 55 }, { from_pence: 100000, pct: 65 }] } },
-    { id: uid(), name: "Marcus Reed", role: "Barber", hours: [1, 2, 3, 4, 5], colour: "sand", title: "Barber", bio: "Fast, tidy and great with regulars who know exactly what they want.", skills: ["Skin fades", "Afro hair"], instagram: "", commission: 50, pay: { model: "CHAIR_RENT", period: "WEEKLY", rent: 18000 } },
-    { id: uid(), name: "Dani Okoro", role: "Barber & beard specialist", hours: [2, 3, 4, 5, 6], colour: "blue", title: "Beard specialist", bio: "Hot towel shaves, beard sculpting and grey blending. Book the full works for the complete reset.", skills: ["Beards", "Hot towel shaves", "Colour"], instagram: "dani.beards", commission: 55, pay: { model: "HYBRID", period: "MONTHLY", base: 120000, threshold: 200000 } },
+    { id: uid(), name: "Jay Carter", role: "Senior barber", hours: [1, 2, 3, 4, 5, 6], colour: "sage", title: "Senior barber & owner's right hand", bio: "Twelve years behind the chair. Precision fades and classic scissor work; loves a proper consultation.", skills: ["Skin fades", "Scissor work", "Kids"], instagram: "jaycuts", photo: "/static/demo/barber-jay.jpg", commission: 60, pay: { model: "COMMISSION", period: "WEEKLY", tiers: [{ from_pence: 0, pct: 55 }, { from_pence: 100000, pct: 65 }] } },
+    { id: uid(), name: "Marcus Reed", role: "Barber", hours: [1, 2, 3, 4, 5], colour: "sand", title: "Barber", bio: "Fast, tidy and great with regulars who know exactly what they want.", skills: ["Skin fades", "Afro hair"], instagram: "", photo: "/static/demo/barber-marcus.jpg", commission: 50, pay: { model: "CHAIR_RENT", period: "WEEKLY", rent: 18000 } },
+    { id: uid(), name: "Dani Okoro", role: "Barber & beard specialist", hours: [2, 3, 4, 5, 6], colour: "blue", title: "Beard specialist", bio: "Hot towel shaves, beard sculpting and grey blending. Book the full works for the complete reset.", skills: ["Beards", "Hot towel shaves", "Colour"], instagram: "dani.beards", photo: "/static/demo/barber-dani.jpg", commission: 55, pay: { model: "HYBRID", period: "MONTHLY", base: 120000, threshold: 200000 } },
   ];
   const services = [
     { id: uid(), name: "Signature cut", category: "Hair", duration: 30, price: 2800, colour: "sage", popular: 1, description: "Consultation, clipper or scissor cut, sharp neckline and a styled finish." },
@@ -126,8 +126,8 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   ];
   for (const b of staff) {
     s.push(
-      db.prepare("INSERT INTO staff(id,shop_id,name,role,colour,title,bio,skills,instagram,start_date,sort_order,commission_pct,pay_model,pay_period,commission_tiers,rent_pence,base_pence,commission_threshold_pence,employment) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-        .bind(b.id, shopId, b.name, b.role, b.colour, b.title, b.bio, JSON.stringify(b.skills), b.instagram, "2024-03-01", staff.indexOf(b), b.commission, b.pay.model, b.pay.period, JSON.stringify("tiers" in b.pay ? b.pay.tiers : []), "rent" in b.pay ? b.pay.rent : 0, "base" in b.pay ? b.pay.base : 0, "threshold" in b.pay ? b.pay.threshold : 0, b.pay.model === "HYBRID" ? "EMPLOYED" : "SELF_EMPLOYED"),
+      db.prepare("INSERT INTO staff(id,shop_id,name,role,colour,title,bio,skills,instagram,photo_url,start_date,sort_order,commission_pct,pay_model,pay_period,commission_tiers,rent_pence,base_pence,commission_threshold_pence,employment) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        .bind(b.id, shopId, b.name, b.role, b.colour, b.title, b.bio, JSON.stringify(b.skills), b.instagram, b.photo, "2024-03-01", staff.indexOf(b), b.commission, b.pay.model, b.pay.period, JSON.stringify("tiers" in b.pay ? b.pay.tiers : []), "rent" in b.pay ? b.pay.rent : 0, "base" in b.pay ? b.pay.base : 0, "threshold" in b.pay ? b.pay.threshold : 0, b.pay.model === "HYBRID" ? "EMPLOYED" : "SELF_EMPLOYED"),
     );
     for (let day = 0; day < 7; day++)
       s.push(
@@ -175,6 +175,7 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   }));
   // Bookings: walk history from -70 days to +14 days on each customer's cadence.
   const bookings: D1PreparedStatement[] = [];
+  const completedVisits: { id: string; barber: (typeof staff)[number]; service: (typeof services)[number]; cust: (typeof customers)[number]; end: number; date: string }[] = [];
   const taken = new Map<string, { start: number; end: number }[]>();
   let seq = 0;
   const day = (off: number) => {
@@ -235,6 +236,7 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
           "INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
         ).bind(uid(), shopId, "booking", id, `STATUS_${status}`, "demo-seed", status === "CANCELLED" ? "Customer cancelled." : status === "NO_SHOW" ? "Did not arrive." : "", end),
       );
+    if (status === "COMPLETED") completedVisits.push({ id, barber, service, cust, end, date });
     // Completed visits were paid at the chair: one ledger row each (card-heavy, some cash, occasional tip).
     if (status === "COMPLETED") {
       const r = random();
@@ -298,15 +300,15 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
       shopId,
       "Sharp cuts, straight talk, no fuss.",
       "Three chairs on the high street since 2019. Walk-ins welcome when the board says so; booking online gets you the barber and time you actually want. Kids, beards, hot towels and a proper consultation every time.",
-      "",
-      "[]",
+      "/static/demo/cover.jpg",
+      JSON.stringify(["/static/demo/gallery-1.jpg", "/static/demo/gallery-2.jpg", "/static/demo/gallery-3.jpg", "/static/demo/gallery-4.jpg"]),
       "020 7946 0111",
       "hello@demo-barbershop.test",
       "demobarbershop",
       "",
       "Two minutes from the station; free parking on Mill Lane after 6pm.",
       "Please give us 24 hours to cancel or move a visit. Running late? Call and we will do our best, but after 10 minutes the slot may go to a walk-in. No-shows twice in a row and we will ask for a deposit next time.",
-      JSON.stringify(["hero", "next", "services", "team", "hours", "find", "policies"]),
+      JSON.stringify(["hero", "next", "services", "team", "hours", "gallery", "reviews", "find", "policies"]),
       "ollo",
       now,
     ),
@@ -314,6 +316,49 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
       "INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
     ).bind(uid(), shopId, "shop", shopId, "DEMO_SHOP_BUILT", "demo-seed", `${seq} fictional appointments, 3 barbers, ${services.length} services. No payments or messages.`, now),
   ]);
+  // Verified reviews on a spread of recent completed visits: mostly 5s, a few 4s, one 3 that got a reply, one hidden.
+  const REVIEW_TEXT = [
+    "Best fade I've had in years. Jay actually listens.",
+    "Quick, tidy, no fuss. Booked online and was in the chair on time.",
+    "Took my son for his first proper cut — patient and kind, he can't stop looking in the mirror.",
+    "Hot towel shave was worth every penny. Felt brand new.",
+    "Good cut, bit of a wait past my slot though.",
+    "",
+    "Marcus knows exactly what I want every time. Regular for two years now.",
+    "Beard sculpting by Dani is on another level.",
+    "Solid haircut, fair price, friendly chat.",
+    "",
+    "Clean shop, good music, sharp cut.",
+    "Grey blending looks natural — nobody at work noticed, which is the point.",
+    "Decent but the shop was very busy and it felt rushed.",
+    "Walked out feeling ten years younger.",
+  ];
+  const ratings = [5, 5, 5, 5, 4, 5, 5, 5, 4, 5, 5, 5, 3, 5];
+  const recent = completedVisits.filter((v) => v.end < now).sort((a, b) => b.end - a.end);
+  const picked: typeof recent = [];
+  const seenCust = new Set<string>();
+  for (const v of recent) {
+    if (seenCust.has(v.cust.phone)) continue;
+    seenCust.add(v.cust.phone);
+    picked.push(v);
+    if (picked.length === REVIEW_TEXT.length) break;
+  }
+  const reviewRows: D1PreparedStatement[] = [];
+  picked.forEach((v, i) => {
+    const rid = uid();
+    const at = v.end + 3 * 3600000 + i * 977000;
+    const nameParts = v.cust.name.split(" ");
+    const shown = `${nameParts[0]} ${nameParts[1]?.[0] ?? ""}.`.trim();
+    const hidden = i === 9;
+    const reply = i === 12 ? "Sorry it felt rushed — Saturdays get hectic. Book a weekday slot next time and we'll take our time." : i === 0 ? "Cheers — see you in four weeks." : "";
+    reviewRows.push(
+      db.prepare(
+        "INSERT INTO reviews(id,shop_id,booking_id,customer_id,staff_id,service_name,rating,body,display_name,status,reply,reply_at,version,created_at,updated_at) VALUES(?,?,?,NULL,?,?,?,?,?,?,?,?,0,?,?)",
+      ).bind(rid, shopId, v.id, v.barber.id, v.service.name, ratings[i], REVIEW_TEXT[i], shown, hidden ? "HIDDEN" : "PUBLISHED", reply, reply ? at + 86400000 : null, at, at),
+      db.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shopId, "review", rid, "REVIEW_LEFT", `customer:manage:${v.id}`, `${ratings[i]}/5 for ${v.service.name} on ${v.date}.`, at),
+    );
+  });
+  if (reviewRows.length) await db.batch(reviewRows);
   return { shopId, ownerUser, ownerMembership, barberUser, barberMembership, slug, ownerEmail, barberEmail };
 }
 

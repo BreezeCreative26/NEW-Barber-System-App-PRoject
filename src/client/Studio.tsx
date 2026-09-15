@@ -889,7 +889,7 @@ function BarberEditor({
             <div className="workspace-form-grid">
               <label className="workspace-field">
                 <span>Photo URL (https, optional)</span>
-                <input type="url" value={form.photo_url} onChange={(e) => setForm({ ...form, photo_url: e.target.value })} placeholder="https://…/photo.jpg" maxLength={500} />
+                <input type="text" inputMode="url" value={form.photo_url} onChange={(e) => setForm({ ...form, photo_url: e.target.value })} placeholder="https://…/photo.jpg" maxLength={500} />
               </label>
               <label className="workspace-field">
                 <span>Instagram</span>

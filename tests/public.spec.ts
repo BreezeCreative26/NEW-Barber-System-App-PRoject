@@ -458,6 +458,8 @@ const publicMutations = [
   ["POST", "/shops/:slug/account/bookings/:id/cancel"],
   ["POST", "/shops/:slug/account/bookings/:id/reschedule"],
   ["POST", "/shops/:slug/account/waitlist/:id/leave"],
+  ["POST", "/shops/:slug/account/bookings/:id/review"],
+  ["POST", "/manage/:token/review"],
   ["POST", "/shops/:slug/account/delete"],
 ] as const;
 test("all public mutation endpoints enforce origin and validate input", async () => {

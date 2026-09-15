@@ -4,8 +4,10 @@ import { serveStatic } from "hono/cloudflare-workers";
 import sandbox from "./server/sandbox";
 import pub from "./server/public";
 import customerPlan from "../docs/CUSTOMER-PLAN.md?raw";
-import type { D1Database } from "@cloudflare/workers-types";
-const app = new Hono<{ Bindings: { DB: D1Database; APP_MODE?: string } }>();
+import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
+import type { Shop } from "./server/domain";
+import { headData, shopPageHead, type MediaRow } from "./server/presence";
+const app = new Hono<{ Bindings: { DB: D1Database; MEDIA?: R2Bucket; APP_MODE?: string } }>();
 app.route("/api/sandbox", sandbox);
 app.route("/api/public", pub);
 app.use("/static/*", serveStatic({ root: "./public" }));
@@ -45,8 +47,17 @@ app.get("/workspace", (c) => {
     `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>OLLO — Local workspace</title><link rel="icon" href="/static/favicon.svg"/><link rel="stylesheet" href="/static/style.css"/><link rel="stylesheet" href="/static/design.css"/><link rel="stylesheet" href="/static/app.css"/></head><body><div id="root"><p class="boot-message">Opening local workspace…</p></div><noscript>JavaScript is required. No live services are connected.</noscript><script type="module" src="/static/app.js"></script></body></html>`,
   );
 });
-const publicPage = (title: string, description: string) =>
-  `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="#181b2a"/><meta name="robots" content="noindex,nofollow"/><meta name="description" content="${description}"/><title>${title}</title><link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="stylesheet" href="/static/style.css"/><link rel="stylesheet" href="/static/design.css"/><link rel="stylesheet" href="/static/app.css"/></head><body><div id="root"><p class="boot-message">Opening online booking…</p></div><noscript>Online booking needs JavaScript. No payment is taken in this local test.</noscript><script type="module" src="/static/app.js"></script></body></html>`;
+// Head is either the generic private one (noindex) or a server-rendered SEO head for shop pages.
+const shell = (head: string, boot = "Opening online booking…") =>
+  `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="#181b2a"/>${head}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="stylesheet" href="/static/style.css"/><link rel="stylesheet" href="/static/design.css"/><link rel="stylesheet" href="/static/app.css"/></head><body><div id="root"><p class="boot-message">${boot}</p></div><noscript>Online booking needs JavaScript. No payment is taken in this local test.</noscript><script type="module" src="/static/app.js"></script></body></html>`;
+const publicPage = (title: string, description: string) => shell(`<meta name="robots" content="noindex,nofollow"/><meta name="description" content="${description}"/><title>${title}</title>`);
+// Public origin as the visitor sees it (dev proxies rewrite Host).
+const publicOrigin = (c: { req: { url: string; header: (k: string) => string | undefined } }) => {
+  const u = new URL(c.req.url);
+  const host = c.req.header("x-forwarded-host") || u.host;
+  const proto = c.req.header("x-forwarded-proto") || u.protocol.replace(":", "");
+  return `${proto}://${host}`;
+};
 const secure = (c: { header: (k: string, v: string) => void }) => {
   c.header("Cache-Control", "no-store");
   c.header("X-Content-Type-Options", "nosniff");
@@ -74,23 +85,59 @@ app.get("/book/:slug", (c) => {
 app.get("/:slug", async (c, next) => {
   if (c.env?.APP_MODE !== "sandbox") return next();
   const slug = c.req.param("slug").toLowerCase();
-  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs", "offer"].includes(slug)) return next();
-  const shop = await c.env.DB.prepare("SELECT name,address FROM shops WHERE slug=? AND online_booking=1").bind(slug).first<{ name: string; address: string }>();
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs", "offer", "media", "robots.txt", "sitemap.xml"].includes(slug)) return next();
+  const shop = await c.env.DB.prepare("SELECT * FROM shops WHERE slug=? AND online_booking=1").bind(slug).first<Shop>();
   if (!shop) return next();
+  const data = await headData(c.env.DB, shop);
+  // Hidden pages are not served at all; /book/<slug> keeps working.
+  if (!data.page.published) return next();
   secure(c);
-  // Cover/gallery/barber photos are owner-supplied https URLs.
+  // Cover/gallery/barber photos are uploads (/media) or owner-supplied https URLs.
   c.header(
     "Content-Security-Policy",
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
+  const head = shopPageHead({ origin: publicOrigin(c), shop, ...data });
+  return c.html(shell(head.html, `Opening ${shop.name}…`));
+});
+// Search engines: shop pages are indexable, everything private is not.
+app.get("/robots.txt", (c) => {
+  c.header("Cache-Control", "public, max-age=3600");
+  return c.text(["User-agent: *", "Allow: /", "Disallow: /api/", "Disallow: /workspace", "Disallow: /manage/", "Disallow: /offer/", "Disallow: /book/", "Disallow: /*/me$", `Sitemap: ${publicOrigin(c)}/sitemap.xml`, ""].join("\n"));
+});
+app.get("/sitemap.xml", async (c) => {
+  if (c.env?.APP_MODE !== "sandbox") return c.notFound();
+  const rows = await c.env.DB.prepare(
+    "SELECT s.slug, COALESCE(p.updated_at, 0) AS updated_at FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.online_booking=1 AND s.slug<>'' AND COALESCE(p.published,1)=1 ORDER BY s.slug",
+  ).all<{ slug: string; updated_at: number }>();
+  const origin = publicOrigin(c);
   const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
-  return c.html(publicPage(`${esc(shop.name)} · Book online`, esc(`${shop.name}${shop.address ? ` · ${shop.address}` : ""}. Book your next visit online.`)));
+  const urls = rows.results.map((r) => `<url><loc>${esc(`${origin}/${r.slug}`)}</loc>${r.updated_at ? `<lastmod>${new Date(r.updated_at).toISOString().slice(0, 10)}</lastmod>` : ""}<changefreq>weekly</changefreq></url>`).join("");
+  c.header("Content-Type", "application/xml; charset=utf-8");
+  c.header("Cache-Control", "public, max-age=3600");
+  return c.body(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`);
+});
+// Uploaded photos. Ids are unique per upload, so the response can be cached hard.
+app.get("/media/:id", async (c) => {
+  if (c.env?.APP_MODE !== "sandbox" || !c.env.MEDIA) return c.notFound();
+  const id = c.req.param("id");
+  if (!/^[a-f0-9-]{36}$/.test(id)) return c.notFound();
+  const row = await c.env.DB.prepare("SELECT object_key,content_type,bytes FROM shop_media WHERE id=?").bind(id).first<MediaRow>();
+  if (!row) return c.notFound();
+  const obj = await c.env.MEDIA.get(row.object_key);
+  if (!obj) return c.notFound();
+  c.header("Content-Type", row.content_type);
+  c.header("Content-Length", String(row.bytes));
+  c.header("Cache-Control", "public, max-age=31536000, immutable");
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("Content-Security-Policy", "default-src 'none'; sandbox");
+  return c.body(obj.body as unknown as ReadableStream);
 });
 // Customer account area: /<slug>/me (sign-in, visits, profile). Same guard as the home page.
 app.get("/:slug/me", async (c, next) => {
   if (c.env?.APP_MODE !== "sandbox") return next();
   const slug = c.req.param("slug").toLowerCase();
-  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs", "offer"].includes(slug)) return next();
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs", "offer", "media", "robots.txt", "sitemap.xml"].includes(slug)) return next();
   const shop = await c.env.DB.prepare("SELECT name FROM shops WHERE slug=? AND online_booking=1").bind(slug).first<{ name: string }>();
   if (!shop) return next();
   secure(c);

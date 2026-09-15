@@ -14,4 +14,6 @@
       "migrations_dir": "migrations",
     },
   ],
+  // Uploaded shop photos. Local development uses wrangler's built-in local R2; nothing is provisioned.
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "barbershop-os-media-local" }],
 }

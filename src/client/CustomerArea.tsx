@@ -4,9 +4,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Avatar, Button, Icon, Notice, StatusPill } from "./ui";
 import { dateLabel, datePlus, money, time } from "./fixtures";
+import { ReviewCard, type OwnReview } from "./Reviews";
 
 type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; notes: string; version: number; member_since: number };
 type Visit = {
+  review?: OwnReview;
+  can_review?: boolean;
   id: string; reference: string; status: string; date: string; start_min: number; start_at: number; duration_min: number; service_name: string; service_id: string; staff_id: string; staff_name: string | null;
   price_pence: number; cancel_hours: number; version: number; can_manage: boolean; late_change: boolean; series_id: string | null; attendee_name?: string; group_id?: string | null; items: { id: string; name: string; price_pence: number }[];
 };
@@ -401,7 +404,18 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
         {history.length ? (
           <ul className="ca-visits history" data-testid="history-list">
             {history.map((v) => (
-              <li key={v.id} className="ca-visit">
+              <li key={v.id} className={`ca-visit ${v.review || v.can_review ? "with-review" : ""}`}>
+                {(v.review || v.can_review) && (
+                  <ReviewCard
+                    compact
+                    review={v.review ?? null}
+                    canReview={!!v.can_review}
+                    post={async (rating, body) => {
+                      const r = await api<{ review: OwnReview }>(`/bookings/${v.id}/review`, "POST", { rating, body });
+                      return r.review;
+                    }}
+                  />
+                )}
                 <div className="ca-visit-when">
                   <b>{dateLabel(v.date)}</b>
                   <span>{time(v.start_min)}</span>

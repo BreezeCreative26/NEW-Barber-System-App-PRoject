@@ -284,6 +284,8 @@ export const customerSchema = z
   })
   .strict();
 export const colourSchema = z.enum(["sage", "sand", "blue", "clay", "plum", "slate"]);
+// Images may be an https URL or a same-origin upload (/media/<id>) or bundled asset (/static/...).
+export const imageRef = z.union([z.literal(""), z.string().trim().max(500).refine((u) => /^https:\/\/\S+$/.test(u) || /^\/(media|static)\/[A-Za-z0-9._\/-]+$/.test(u), "Use an https:// image address or an uploaded photo")]);
 export const staffSchema = z
   .object({
     name,
@@ -293,9 +295,7 @@ export const staffSchema = z
     title: z.string().trim().max(60).default(""),
     bio: z.string().trim().max(600).default(""),
     colour: colourSchema.default("sage"),
-    photo_url: z
-      .union([z.literal(""), z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "Use an https:// image address")])
-      .default(""),
+    photo_url: imageRef.default(""),
     online_visible: active.default(1),
     skills: z.array(z.string().trim().min(1).max(30)).max(12).default([]),
     instagram: z.string().trim().max(40).regex(/^@?[A-Za-z0-9._]*$/, "Instagram handle only").default(""),
@@ -402,7 +402,7 @@ export const slugSchema = z
     "Use lowercase letters, numbers and single hyphens",
   )
   .refine(
-    (s) => !["api", "static", "workspace", "preview", "manage", "book"].includes(s),
+    (s) => !["api", "static", "workspace", "preview", "manage", "book", "offer", "media", "docs", "robots.txt", "sitemap.xml"].includes(s),
     "This address is reserved",
   );
 export type ShopPage = {
@@ -423,14 +423,14 @@ export type ShopPage = {
   version: number;
   updated_at: number;
 };
-export const pageSections = ["hero", "next", "services", "team", "hours", "gallery", "find", "policies"] as const;
+export const pageSections = ["hero", "next", "services", "team", "hours", "gallery", "reviews", "find", "policies"] as const;
 const httpsUrl = z.union([z.literal(""), z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "Use an https:// address")]);
 export const shopPageSchema = z
   .object({
     strapline: z.string().trim().max(120).default(""),
     about: z.string().trim().max(1200).default(""),
-    cover_url: httpsUrl.default(""),
-    gallery: z.array(httpsUrl.refine((u) => u !== "", "Empty gallery entry")).max(12).default([]),
+    cover_url: imageRef.default(""),
+    gallery: z.array(imageRef.refine((u) => u !== "", "Empty gallery entry")).max(12).default([]),
     phone: z.union([z.literal(""), z.string().trim().max(20).regex(/^[+0-9 ()-]+$/, "Phone number only")]).default(""),
     email: z.union([z.literal(""), z.string().trim().email().max(254)]).default(""),
     instagram: z.string().trim().max(40).regex(/^@?[A-Za-z0-9._]*$/, "Instagram handle only").default(""),

@@ -3,6 +3,7 @@ import type { BookingItem } from "../server/domain";
 import { dateLabel, datePlus, money, time } from "./fixtures";
 import { Avatar, Brand, Button, Icon, Notice } from "./ui";
 import { GroupBooking } from "./GroupBooking";
+import { ReviewCard, type OwnReview } from "./Reviews";
 
 // Connected customer booking for /book/:slug and /manage/:token.
 // Reads and writes the same local D1 records as the owner workspace.
@@ -1549,6 +1550,7 @@ function ConfirmationCard({
 
 export function ManageBooking({ token }: { token: string }) {
   const [booking, setBooking] = useState<CustomerBooking | null>(null);
+  const [review, setReview] = useState<{ review: OwnReview; can: boolean }>({ review: null, can: false });
   const [error, setError] = useState("");
   const [mode, setMode] = useState<"view" | "move" | "cancel">("view");
   const [date, setDate] = useState("");
@@ -1561,8 +1563,9 @@ export function ManageBooking({ token }: { token: string }) {
   async function load() {
     setError("");
     try {
-      const r = await api<{ booking: CustomerBooking }>(`/manage/${token}`);
+      const r = await api<{ booking: CustomerBooking; review: OwnReview; can_review: boolean }>(`/manage/${token}`);
       setBooking(r.booking);
+      setReview({ review: r.review ?? null, can: !!r.can_review });
       setDate((d) => d || r.booking.date);
     } catch (e) {
       setError(e instanceof Error ? e.message : "This link could not be opened.");
@@ -1707,6 +1710,17 @@ export function ManageBooking({ token }: { token: string }) {
               {booking.cancel_hours} hours.
             </p>
           </section>
+          {mode === "view" && booking.status === "COMPLETED" && (
+            <ReviewCard
+              review={review.review}
+              canReview={review.can}
+              post={async (rating, body) => {
+                const r = await api<{ review: OwnReview }>(`/manage/${token}/review`, "POST", { rating, body });
+                setReview({ review: r.review, can: false });
+                return r.review;
+              }}
+            />
+          )}
           {mode === "view" && (
             <>
               {!booking.can_manage && booking.status === "CONFIRMED" && (

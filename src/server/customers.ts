@@ -7,6 +7,7 @@ import { z } from "zod";
 import { phoneSchema, ref, shopToday, type Customer, type Shop, type StoredBooking } from "./domain";
 import { digest, readInput, type AppEnv } from "./accounts";
 import { audit, checkVersionUpdate, fail, readBooking } from "./sandbox";
+import { leaveReview, ownReviewView, reviewEligibility, reviewSchema, type ReviewRow } from "./presence";
 import {
   calendarResponse,
   cancelBody,
@@ -201,7 +202,16 @@ acct.get("/me", async (c) => {
     .bind(shop.id, cust.id, cust.phone)
     .all<StoredBooking & { staff_name: string | null }>();
   const all = rows.results;
-  const view = (b: StoredBooking & { staff_name: string | null }) => ({ ...customerView(b, shop, b.staff_name), service_id: b.service_id, series_id: b.series_id });
+  // Reviews this customer has left here, keyed by booking, so history rows can show/offer them.
+  const reviewRows = all.length
+    ? await c.env.DB.prepare(`SELECT * FROM reviews WHERE shop_id=? AND booking_id IN (${all.map(() => "?").join(",")})`).bind(shop.id, ...all.map((b) => b.id)).all<ReviewRow>()
+    : { results: [] as ReviewRow[] };
+  const reviewBy = new Map(reviewRows.results.map((r) => [r.booking_id, r]));
+  const view = (b: StoredBooking & { staff_name: string | null }) => {
+    const r = reviewBy.get(b.id) ?? null;
+    const can = reviewEligibility(b, r, now);
+    return { ...customerView(b, shop, b.staff_name), service_id: b.service_id, series_id: b.series_id, review: ownReviewView(r), can_review: can.ok };
+  };
   const upcoming = all.filter((b) => b.start_at > now && ["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(b.status)).sort((x, y) => x.start_at - y.start_at).map(view);
   const history = all.filter((b) => !(b.start_at > now && ["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(b.status))).map(view);
   const completed = all.filter((b) => b.status === "COMPLETED").sort((x, y) => y.start_at - x.start_at);
@@ -311,6 +321,17 @@ acct.post("/bookings/:id/reschedule", async (c) => {
   const body = await readInput(c, moveBody);
   const { booking, staffName } = await ownBooking(c, shop, cust, c.req.param("id")!);
   return c.json(await moveByCustomer(c, shop, booking, staffName, body));
+});
+// Review a completed visit while signed in (same rule as the manage link: once, within 60 days).
+acct.post("/bookings/:id/review", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug")!);
+  const a = await requireAccount(c, shop);
+  const cust = await linkedCustomer(c, shop, a);
+  const body = await readInput(c, reviewSchema);
+  const { booking } = await ownBooking(c, shop, cust, c.req.param("id")!);
+  const r = await leaveReview(c, shop, booking, body, `customer:${a.id}`);
+  if (r.error) fail(409, r.error);
+  return c.json({ review: ownReviewView(r.review) }, 201);
 });
 acct.get("/bookings/:id/calendar.ics", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug")!);

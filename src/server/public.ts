@@ -30,6 +30,7 @@ import {
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
 import customerAccounts from "./customers";
 import { autoOffer, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
+import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
 import {
   audit,
   availabilityContext,
@@ -275,9 +276,11 @@ pub.get("/shops/:slug/page", async (c) => {
     c.env.DB.prepare("SELECT staff_id,weekday,enabled,starts,ends FROM staff_hours WHERE shop_id=?").bind(sid).all<{ staff_id: string; weekday: number; enabled: number; starts: number; ends: number }>(),
     c.env.DB.prepare("SELECT date,label FROM holidays WHERE shop_id=? AND date>=? ORDER BY date LIMIT 6").bind(sid, shopToday(shop.timezone)).all<{ date: string; label: string }>(),
     c.env.DB.prepare("SELECT staff_id,date FROM staff_days_off WHERE shop_id=? AND date>=? AND date<=?").bind(sid, shopToday(shop.timezone), datePlus(shopToday(shop.timezone), 14)).all<{ staff_id: string; date: string }>(),
-    Promise.resolve([]),
+    publicReviews(c.env.DB, sid),
   ]);
   const content = page ?? defaultShopPage(sid);
+  // Hidden pages are not public; /book/<slug> still works.
+  if (!content.published) fail(404, "This shop page is not available");
   const closed = JSON.parse(shop.closed_days) as number[];
   // Shop-level weekly hours: earliest start / latest end across rostered barbers, per weekday.
   const week = Array.from({ length: 7 }, (_, wd) => {
@@ -337,7 +340,8 @@ pub.get("/shops/:slug/page", async (c) => {
     closures: holidays.results,
     days_off: daysOff.results,
     soonest,
-    reviews,
+    reviews: reviews.reviews,
+    rating: reviews.summary,
     now,
   });
 });
@@ -856,7 +860,18 @@ async function bookingByToken(c: Ctx) {
 pub.get("/manage/:token", async (c) => {
   await throttle(c, "manage", clientKey(c), 600);
   const { shop, booking, staffName } = await bookingByToken(c);
-  return c.json({ booking: customerView(booking, shop, staffName) });
+  const review = await reviewForBooking(c.env.DB, booking.id);
+  const can = reviewEligibility(booking, review);
+  return c.json({ booking: customerView(booking, shop, staffName), review: ownReviewView(review), can_review: can.ok, review_blocked: can.ok ? null : can.reason });
+});
+// Leave a review for a completed visit through the manage link (one per booking, 60 days).
+pub.post("/manage/:token/review", async (c) => {
+  await throttle(c, "review", clientKey(c), 30);
+  const { shop, booking } = await bookingByToken(c);
+  const b = await readInput(c, reviewSchema);
+  const r = await leaveReview(c, shop, booking, b, `customer:manage:${booking.id}`);
+  if (r.error) fail(409, r.error);
+  return c.json({ review: ownReviewView(r.review) }, 201);
 });
 export function calendarResponse(c: Ctx, shop: Shop, booking: StoredBooking, staffName: string | null) {
   const stamp = (ms: number) =>

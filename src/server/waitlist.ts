@@ -24,13 +24,14 @@ export type OfferRow = {
 export type ShopQueueSettings = { waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_templates_json: string };
 
 // ---- Templates -------------------------------------------------------------
-export const TEMPLATE_KEYS = ["waitlist_joined", "waitlist_offer", "waitlist_booked", "waitlist_released"] as const;
+export const TEMPLATE_KEYS = ["waitlist_joined", "waitlist_offer", "waitlist_booked", "waitlist_released", "review_request"] as const;
 export type TemplateKey = (typeof TEMPLATE_KEYS)[number];
 export const DEFAULT_TEMPLATES: Record<TemplateKey, string> = {
   waitlist_joined: "Hi {first}, you're on the list at {shop} for {date} ({daypart}). We'll message you if a time opens up.",
   waitlist_offer: "Hi {first}, a {service} with {barber} has opened at {shop} on {date} at {time}. It's held for you until {expires}: {link}",
   waitlist_booked: "You're booked: {service} with {barber} at {shop}, {date} {time}. Ref {ref}. Manage: {manage}",
   waitlist_released: "No problem, {first} — we've put you back on the list at {shop} for {date}.",
+  review_request: "Thanks for coming in, {first}. How was your {service} with {barber} at {shop}? Leave a quick rating: {link}",
 };
 export const templatesSchema = z.object(Object.fromEntries(TEMPLATE_KEYS.map((k) => [k, z.string().trim().min(10).max(400)])) as Record<TemplateKey, z.ZodString>).strict();
 export function templatesOf(shop: ShopQueueSettings): Record<TemplateKey, string> {
@@ -170,3 +171,27 @@ export async function shopWithQueue(c: Ctx, shopId: string) {
 }
 
 export const helpers = { fmtDate, fmtTime, fmtStamp, daypartLabel, ref, localInstant };
+
+// After a visit is completed: ask for a review through the customer's manage link (issued if
+// needed; never rotated here so an existing link keeps working). Recorded in the outbox only.
+export async function queueReviewRequest(c: Ctx, shopId: string, bookingId: string, now = Date.now()) {
+  const shop = await shopWithQueue(c, shopId);
+  const b = await c.env.DB.prepare("SELECT b.*, s.name AS staff_name FROM bookings b LEFT JOIN staff s ON s.shop_id=b.shop_id AND s.id=b.staff_id WHERE b.shop_id=? AND b.id=?").bind(shopId, bookingId).first<{ id: string; status: string; customer_name: string; attendee_name: string; phone: string; email: string; service_name: string; staff_name: string | null; channel: string }>();
+  if (!b || b.status !== "COMPLETED" || (!b.phone && !b.email)) return null;
+  const already = await c.env.DB.prepare("SELECT 1 FROM notifications WHERE shop_id=? AND template='review_request' AND related_type='booking' AND related_id=?").bind(shopId, bookingId).first();
+  if (already) return null;
+  let token = await c.env.DB.prepare("SELECT token_hash FROM booking_manage_tokens WHERE booking_id=?").bind(bookingId).first<{ token_hash: string }>();
+  let raw: string | null = null;
+  if (!token) {
+    raw = uid() + uid();
+    await c.env.DB.prepare("INSERT INTO booking_manage_tokens(token_hash,shop_id,booking_id,created_at) VALUES(?,?,?,?) ON CONFLICT(booking_id) DO NOTHING").bind(await digest(raw), shopId, bookingId, now).run();
+    token = await c.env.DB.prepare("SELECT token_hash FROM booking_manage_tokens WHERE booking_id=?").bind(bookingId).first<{ token_hash: string }>();
+    if (!token || token.token_hash !== (await digest(raw))) raw = null;
+  }
+  // When a link already exists we cannot recover the raw token; the message points at the shop's
+  // account area instead, where the customer can review from their history.
+  const link = raw ? `${new URL(c.req.url).origin}/manage/${raw}` : `${new URL(c.req.url).origin}/${shop.slug}/me`;
+  const body = render(templatesOf(shop).review_request, { first: (b.attendee_name || b.customer_name).split(" ")[0], shop: shop.name, service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], link });
+  await queueMessage(c, shopId, b, "review_request", body, { type: "booking", id: bookingId }).run();
+  return body;
+}

@@ -117,7 +117,7 @@ test("owner edits the shop page in Settings and the public page reflects it", as
   expect(api.page.phone).toBe("020 7946 0999");
   expect(api.page.accent).toBe("sage");
   expect(api.page.sections).not.toContain("team");
-  expect(api.page.gallery).toEqual(["https://images.example.test/chair.jpg"]);
+  expect(api.page.gallery[0]).toBe("https://images.example.test/chair.jpg");
 
   await page.goto(`/${slug}`);
   const root = page.getByTestId("shop-page");

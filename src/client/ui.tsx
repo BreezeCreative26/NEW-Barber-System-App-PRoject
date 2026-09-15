@@ -76,6 +76,10 @@ import {
   Hourglass,
   Send,
   Copy,
+  MessageSquareReply,
+  ImagePlus,
+  Trash2,
+  EyeOff,
   type LucideIcon,
 } from "lucide-react";
 
@@ -151,6 +155,10 @@ const icons: Record<string, LucideIcon> = {
   hourglass: Hourglass,
   send: Send,
   copy: Copy,
+  messageReply: MessageSquareReply,
+  imagePlus: ImagePlus,
+  trash: Trash2,
+  eyeOff: EyeOff,
 };
 export function Icon({
   name,

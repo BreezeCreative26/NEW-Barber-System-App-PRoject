@@ -2397,7 +2397,7 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
               <input value={form.strapline} maxLength={120} placeholder="Sharp cuts, straight talk, no fuss." onChange={(e) => set("strapline", e.target.value)} />
             </Field>
             <Field label="Cover photo (https URL, optional)">
-              <input type="url" value={form.cover_url} maxLength={500} placeholder="https://…/shopfront.jpg" onChange={(e) => set("cover_url", e.target.value)} />
+              <input type="text" inputMode="url" value={form.cover_url} maxLength={500} placeholder="https://…/shopfront.jpg" onChange={(e) => set("cover_url", e.target.value)} />
             </Field>
           </div>
           <Field label="About the shop">
@@ -2454,7 +2454,7 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
               <div className="page-gallery-list">
                 {form.gallery.map((u, i) => (
                   <div key={i}>
-                    <input type="url" value={u} maxLength={500} aria-label={`Gallery image ${i + 1}`} onChange={(e) => set("gallery", form.gallery.map((x, j) => (j === i ? e.target.value : x)))} />
+                    <input type="text" inputMode="url" value={u} maxLength={500} aria-label={`Gallery image ${i + 1}`} onChange={(e) => set("gallery", form.gallery.map((x, j) => (j === i ? e.target.value : x)))} />
                     <Button variant="ghost" aria-label={`Remove gallery image ${i + 1}`} onClick={() => set("gallery", form.gallery.filter((_, j) => j !== i))}>
                       <Icon name="close" size={14} />
                     </Button>

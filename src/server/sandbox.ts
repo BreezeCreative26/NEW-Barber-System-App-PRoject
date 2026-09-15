@@ -61,7 +61,9 @@ import {
   type AuditEvent,
 } from "./domain";
 
-import { autoOffer, makeOffer, matchesFor, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
+import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
+import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
+import type { R2Bucket } from "@cloudflare/workers-types";
 import accounts, {
   ACCOUNT_COOKIE,
   resolveAccount,
@@ -207,7 +209,7 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && path === "/customers") ||
       (method === "PUT" && /^\/customers\/[^/]+$/.test(path)) ||
       (method === "POST" && /^\/customers\/[^/]+\/merge$/.test(path)) ||
-      (method === "GET" && ["/waitlist", "/notifications"].includes(path)) ||
+      (method === "GET" && ["/waitlist", "/notifications", "/reviews", "/media"].includes(path)) ||
       (method === "GET" && /^\/waitlist\/[^/]+\/matches$/.test(path)) ||
       (method === "POST" && /^\/waitlist\/[^/]+\/offer$/.test(path)) ||
       (method === "GET" && ["/bookings/range", "/insights", "/wallet", "/pay-runs", "/shop/page"].includes(path)) ||
@@ -226,6 +228,9 @@ sandbox.use("*", async (c, next) => {
       (method === "PATCH" && /^\/bookings\/[^/]+\/details$/.test(path));
     const setup =
       (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist"].includes(path)) ||
+      (method === "POST" && /^\/reviews\/[^/]+\/(status|reply)$/.test(path)) ||
+      (method === "POST" && path === "/media") ||
+      (method === "DELETE" && /^\/media\/[^/]+$/.test(path)) ||
       (["POST", "PUT", "DELETE"].includes(method) &&
         /^\/(staff|services|addons|holidays|service-rules|pay-runs)(\/|$)/.test(path));
     if (!(
@@ -1093,6 +1098,96 @@ sandbox.post("/bookings/:id/manage-link", async (c) => {
   ]);
   return c.json({ token: raw, path: `/manage/${raw}` }, 201);
 });
+// ---- Reviews (Settings → Reviews): read, hide/show, reply. Words are the customer's. ----
+sandbox.get("/reviews", async (c) => {
+  const a = c.get("account");
+  const rows = await c.env.DB.prepare(
+    "SELECT r.*, s.name AS staff_name, b.date AS visit_date FROM reviews r LEFT JOIN staff s ON s.shop_id=r.shop_id AND s.id=r.staff_id LEFT JOIN bookings b ON b.id=r.booking_id WHERE r.shop_id=? AND (? IS NULL OR r.staff_id=?) ORDER BY r.created_at DESC LIMIT 200",
+  )
+    .bind(c.get("shopId"), a?.role === "BARBER" ? a.staff_id : null, a?.role === "BARBER" ? a.staff_id : null)
+    .all<ReviewRow & { staff_name: string | null; visit_date: string }>();
+  const agg = await c.env.DB.prepare("SELECT COUNT(*) AS n, AVG(rating) AS avg, SUM(CASE WHEN status='HIDDEN' THEN 1 ELSE 0 END) AS hidden FROM reviews WHERE shop_id=? AND status='PUBLISHED'").bind(c.get("shopId")).first<{ n: number; avg: number | null }>();
+  const hidden = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM reviews WHERE shop_id=? AND status='HIDDEN'").bind(c.get("shopId")).first<{ n: number }>();
+  return c.json({ reviews: rows.results, summary: { count: agg?.n ?? 0, average: agg?.n ? Math.round((agg.avg ?? 0) * 10) / 10 : null, hidden: hidden?.n ?? 0 } });
+});
+async function readReview(c: Ctx, id: string) {
+  const r = await c.env.DB.prepare("SELECT * FROM reviews WHERE shop_id=? AND id=?").bind(c.get("shopId"), id).first<ReviewRow>();
+  if (!r) return fail(404, "Review not found");
+  return r;
+}
+sandbox.post("/reviews/:id/status", async (c) => {
+  const b = await input(c, reviewStatusSchema);
+  const r = await readReview(c, c.req.param("id"));
+  if (r.status === b.status) return c.json({ review: r });
+  await checkVersionUpdate(
+    c,
+    c.env.DB.prepare("UPDATE reviews SET status=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(b.status, Date.now(), c.get("shopId"), r.id, b.version),
+    audit(c, "review", r.id, b.status === "HIDDEN" ? "REVIEW_HIDDEN" : "REVIEW_SHOWN", b.status === "HIDDEN" ? "Review kept but no longer shown on the shop page." : "Review shown on the shop page again.", true),
+  );
+  return c.json({ review: await readReview(c, r.id) });
+});
+sandbox.post("/reviews/:id/reply", async (c) => {
+  const b = await input(c, replySchema);
+  const r = await readReview(c, c.req.param("id"));
+  const now = Date.now();
+  await checkVersionUpdate(
+    c,
+    c.env.DB.prepare("UPDATE reviews SET reply=?,reply_at=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(b.reply, b.reply ? now : null, now, c.get("shopId"), r.id, b.version),
+    audit(c, "review", r.id, "REVIEW_REPLIED", b.reply ? "Owner replied publicly." : "Owner removed their reply.", true),
+  );
+  return c.json({ review: await readReview(c, r.id) });
+});
+
+// ---- Media library (R2): upload, list, delete. Served at /media/<id>. ----
+const mediaBucket = (c: Ctx) => {
+  const bucket = (c.env as unknown as { MEDIA?: R2Bucket }).MEDIA;
+  if (!bucket) fail(409, "Photo uploads are not available in this environment");
+  return bucket!;
+};
+sandbox.get("/media", async (c) => {
+  const rows = await c.env.DB.prepare("SELECT * FROM shop_media WHERE shop_id=? ORDER BY created_at DESC LIMIT 200").bind(c.get("shopId")).all<MediaRow>();
+  return c.json({ media: rows.results.map((m) => ({ ...m, url: mediaUrl(m.id) })) });
+});
+sandbox.post("/media", async (c) => {
+  const bucket = mediaBucket(c);
+  const len = Number(c.req.header("content-length") || 0);
+  if (len > MEDIA_MAX_BYTES + 4096) fail(413, "Photos must be 5 MB or smaller");
+  let form: FormData;
+  try {
+    form = await c.req.raw.formData();
+  } catch {
+    return fail(400, "Send the photo as multipart form data");
+  }
+  const file = form.get("file");
+  const kind = String(form.get("kind") || "gallery");
+  const alt = String(form.get("alt") || "").trim().slice(0, 200);
+  if (!(file instanceof File)) fail(400, "Choose a photo to upload");
+  if (!(mediaKinds as readonly string[]).includes(kind)) fail(400, "Unknown photo kind");
+  const f = file as File;
+  if (f.size > MEDIA_MAX_BYTES) fail(413, "Photos must be 5 MB or smaller");
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  const type = sniffImage(bytes);
+  if (!type) fail(400, "Only JPEG, PNG or WebP photos are accepted");
+  const size = imageSize(bytes, type!);
+  const mid = id();
+  const key = `${c.get("shopId")}/${kind}/${mid}`;
+  await bucket.put(key, bytes, { httpMetadata: { contentType: type! } });
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO shop_media(id,shop_id,kind,object_key,content_type,bytes,width,height,alt,uploaded_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)").bind(mid, c.get("shopId"), kind, key, type, bytes.byteLength, size?.width ?? null, size?.height ?? null, alt, c.get("actor"), Date.now()),
+    audit(c, "media", mid, "MEDIA_UPLOADED", `${kind} photo, ${Math.round(bytes.byteLength / 1024)} KB${size ? `, ${size.width}×${size.height}` : ""}.`),
+  ]);
+  return c.json({ media: { id: mid, kind, url: mediaUrl(mid), content_type: type, bytes: bytes.byteLength, width: size?.width ?? null, height: size?.height ?? null, alt } }, 201);
+});
+sandbox.delete("/media/:id", async (c) => {
+  const bucket = mediaBucket(c);
+  const m = await c.env.DB.prepare("SELECT * FROM shop_media WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<MediaRow>();
+  if (!m) return fail(404, "Photo not found");
+  const now = Date.now();
+  await scrubMediaReferences(c.env.DB, c.get("shopId"), mediaUrl(m.id), now);
+  await c.env.DB.batch([c.env.DB.prepare("DELETE FROM shop_media WHERE id=?").bind(m.id), audit(c, "media", m.id, "MEDIA_DELETED", `${m.kind} photo removed; any cover, gallery or barber photo using it was cleared.`)]);
+  await bucket.delete(m.object_key);
+  return c.json({ ok: true });
+});
 sandbox.post("/staff", async (c) => {
   const b = await input(c, staffSchema);
   const sid = c.get("shopId");
@@ -1908,6 +2003,8 @@ sandbox.post("/bookings/:id/status", async (c) => {
   );
   // A cancelled visit frees a slot: offer it to the queue if the shop has auto-offer on.
   if (body.status === "CANCELLED") await autoOffer(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "cancel");
+  // A completed visit earns a review request (outbox only).
+  if (body.status === "COMPLETED") await queueReviewRequest(c, c.get("shopId"), b.id);
   return c.json({ booking: await readBooking(c, b.id) });
 });
 
@@ -1967,6 +2064,7 @@ sandbox.post("/bookings/:id/checkout", async (c) => {
   }
   await c.env.DB.batch(statements);
   const booking = await readBooking(c, b.id);
+  if (body.complete && booking.status === "COMPLETED") await queueReviewRequest(c, c.get("shopId"), b.id);
   const payments = (await c.env.DB.prepare("SELECT * FROM payments WHERE shop_id=? AND booking_id=? ORDER BY created_at").bind(c.get("shopId"), b.id).all<Payment>()).results;
   return c.json({ booking, payments }, 201);
 });
