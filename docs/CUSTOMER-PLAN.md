@@ -65,6 +65,7 @@ Optional, phone-first, no passwords: **one-time code by SMS or email**. Accounts
 - **Deposit step** — shown when policy > £0; collects card via Stripe Checkout (Later, provider).
 - **Confirmation** — page + email/SMS with manage link; add to Apple/Google calendar.
 - **Reminders** — 24h and 2h before, with confirm/reschedule/cancel links (Later, provider). The `notifications` outbox + templates now exist (built for the waiting list, see `WAITLIST-PLAN.md`); reminders will reuse it. Sends stubbed.
+- **Reviews** — LIVE: verified (completed visit only), manage link or /me, owner hide/show/reply, public section + JSON-LD rating; request queued to the outbox. See `SHOP-PAGE-PLAN.md`.
 - **Waiting list offers** — LIVE: join message, offer with `/offer/<token>` accept/decline, auto-offer on freed slots, `/me` Waiting list section.
 - **Running late / on my way** — customer taps from reminder; shows in the barber's Today queue.
 

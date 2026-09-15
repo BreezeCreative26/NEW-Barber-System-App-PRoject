@@ -104,7 +104,7 @@ test("owner edits the shop page in Settings and the public page reflects it", as
   await panel.getByLabel("Phone").fill("020 7946 0999");
   await panel.getByRole("group", { name: "Sections shown" }).getByLabel("Team", { exact: true }).uncheck();
   await panel.getByRole("group", { name: "Accent colour" }).getByRole("button", { name: "sage" }).click();
-  await panel.getByRole("button", { name: "Add image" }).click();
+  await panel.getByRole("button", { name: "Add by URL" }).click();
   await panel.getByLabel("Gallery image 1", { exact: true }).fill("not a url");
   await panel.getByTestId("save-shop-page").click();
   await expect(panel).toContainText(/https|valid|url/i);

@@ -11,6 +11,7 @@ import type {
 import { Avatar, Badge, Button, Icon, Notice } from "./ui";
 import { money, time } from "./fixtures";
 import { PayTermsForm, PayRuns, payFormOf, summariseTerms, type PayForm } from "./Pay";
+import { PhotoUpload } from "./Media";
 import type { PayRun } from "../server/domain";
 
 export const COLOURS: { key: string; label: string }[] = [
@@ -887,10 +888,13 @@ function BarberEditor({
             </label>
             <TagInput label="Skills" tags={form.skills} onChange={(skills) => setForm({ ...form, skills })} suggestions={["Skin fades", "Beards", "Scissor work", "Kids", "Hot towel shaves", "Afro hair", "Colour", "Long hair"]} />
             <div className="workspace-form-grid">
-              <label className="workspace-field">
-                <span>Photo URL (https, optional)</span>
-                <input type="text" inputMode="url" value={form.photo_url} onChange={(e) => setForm({ ...form, photo_url: e.target.value })} placeholder="https://…/photo.jpg" maxLength={500} />
-              </label>
+              <div className="workspace-field">
+                <span id="barber-photo-label">Photo (upload or https URL)</span>
+                <div className="photo-field">
+                  <input type="text" inputMode="url" aria-labelledby="barber-photo-label" value={form.photo_url} onChange={(e) => setForm({ ...form, photo_url: e.target.value })} placeholder="https://…/photo.jpg" maxLength={500} />
+                  <PhotoUpload kind="staff" label="Upload" testId="upload-staff-photo" onUploaded={([u]) => setForm({ ...form, photo_url: u })} />
+                </div>
+              </div>
               <label className="workspace-field">
                 <span>Instagram</span>
                 <input value={form.instagram} onChange={(e) => setForm({ ...form, instagram: e.target.value })} placeholder="@handle" maxLength={40} />

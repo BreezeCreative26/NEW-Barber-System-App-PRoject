@@ -793,10 +793,10 @@ test("service studio and barber studio: create with presentation flags, matrix f
   await page.getByTestId("team-card").filter({ hasText: b.name }).click();
   await expect(barberEditor.getByRole("heading", { level: 2 })).toHaveText(b.name);
   await page.getByLabel("Job title (shown to customers)").fill("Studio test title");
-  await page.getByLabel("Photo URL (https, optional)").fill("http://insecure.example/p.jpg");
+  await page.getByLabel("Photo (upload or https URL)").fill("http://insecure.example/p.jpg");
   await page.getByRole("button", { name: "Save profile", exact: true }).click();
   await expect(barberEditor.getByRole("alert")).toContainText(/https/i);
-  await page.getByLabel("Photo URL (https, optional)").fill("");
+  await page.getByLabel("Photo (upload or https URL)").fill("");
   await page.getByLabel("Add skills").fill("Studio test skill");
   await page.getByLabel("Add skills").press("Enter");
   await expect(barberEditor.getByRole("button", { name: "Remove Studio test skill", exact: true })).toBeVisible();

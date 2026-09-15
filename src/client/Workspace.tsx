@@ -27,6 +27,7 @@ import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { WalletDrawer } from "./Wallet";
 import { SearchPalette, AccountMenu } from "./Palette";
+import { PhotoUpload, PhotoPreview } from "./Media";
 import { money, time, datePlus } from "./fixtures";
 
 const reference = (b: StoredBooking) =>
@@ -1893,6 +1894,7 @@ export function Workspace() {
                   <OnlineBookingPanel w={w} saved={saved} />
                   <ShopPagePanel w={w} />
                   <WaitlistSettingsPanel w={w} />
+                  <ReviewsPanel w={w} />
                   <CustomerPagesPanel w={w} onOpenBooking={openBooking} />
                   <section className="workspace-panel">
                     <div className="workspace-section-heading">
@@ -2396,8 +2398,12 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
             <Field label="Strapline">
               <input value={form.strapline} maxLength={120} placeholder="Sharp cuts, straight talk, no fuss." onChange={(e) => set("strapline", e.target.value)} />
             </Field>
-            <Field label="Cover photo (https URL, optional)">
-              <input type="text" inputMode="url" value={form.cover_url} maxLength={500} placeholder="https://…/shopfront.jpg" onChange={(e) => set("cover_url", e.target.value)} />
+            <Field label="Cover photo (upload or https URL)">
+              <div className="photo-field">
+                <PhotoPreview url={form.cover_url} label="cover photo" onClear={() => set("cover_url", "")} />
+                <input type="text" inputMode="url" value={form.cover_url} maxLength={500} placeholder="https://…/shopfront.jpg" onChange={(e) => set("cover_url", e.target.value)} />
+                <PhotoUpload kind="cover" label="Upload" testId="upload-cover" onUploaded={([u]) => set("cover_url", u)} />
+              </div>
             </Field>
           </div>
           <Field label="About the shop">
@@ -2450,10 +2456,11 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
               </div>
             </div>
             <div>
-              <span className="workspace-field"><span>Gallery (https image URLs, up to 12)</span></span>
-              <div className="page-gallery-list">
+              <span className="workspace-field"><span>Gallery (upload or https URLs, up to 12)</span></span>
+              <div className="page-gallery-list" data-testid="gallery-list">
                 {form.gallery.map((u, i) => (
                   <div key={i}>
+                    <PhotoPreview url={u} label={`gallery image ${i + 1}`} onClear={() => set("gallery", form.gallery.filter((_, j) => j !== i))} />
                     <input type="text" inputMode="url" value={u} maxLength={500} aria-label={`Gallery image ${i + 1}`} onChange={(e) => set("gallery", form.gallery.map((x, j) => (j === i ? e.target.value : x)))} />
                     <Button variant="ghost" aria-label={`Remove gallery image ${i + 1}`} onClick={() => set("gallery", form.gallery.filter((_, j) => j !== i))}>
                       <Icon name="close" size={14} />
@@ -2461,9 +2468,12 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
                   </div>
                 ))}
                 {form.gallery.length < 12 && (
-                  <Button variant="ghost" onClick={() => set("gallery", [...form.gallery, ""])}>
-                    <Icon name="plus" size={14} /> Add image
-                  </Button>
+                  <div className="page-gallery-add">
+                    <PhotoUpload kind="gallery" multiple label="Upload photos" testId="upload-gallery" onUploaded={(urls) => set("gallery", [...form.gallery.filter(Boolean), ...urls].slice(0, 12))} />
+                    <Button variant="ghost" onClick={() => set("gallery", [...form.gallery, ""])}>
+                      <Icon name="plus" size={14} /> Add by URL
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>
@@ -2509,6 +2519,125 @@ const TEMPLATE_LABELS: Record<string, { label: string; hint: string }> = {
   waitlist_booked: { label: "Offer accepted", hint: "{service} {barber} {shop} {date} {time} {ref} {manage}" },
   waitlist_released: { label: "Declined or expired", hint: "{first} {shop} {date}" },
 };
+// Settings → Reviews: everything customers have left, hide/show and a public reply.
+type ReviewRowView = { id: string; rating: number; body: string; display_name: string; status: "PUBLISHED" | "HIDDEN"; reply: string; reply_at: number | null; version: number; created_at: number; service_name: string; staff_name: string | null; visit_date: string };
+function ReviewsPanel({ w }: { w: WorkspaceData }) {
+  const [data, setData] = useState<{ reviews: ReviewRowView[]; summary: { count: number; average: number | null; hidden: number } } | null>(null);
+  const [error, setError] = useState("");
+  const [replying, setReplying] = useState<{ id: string; text: string } | null>(null);
+  const [filter, setFilter] = useState<"ALL" | "PUBLISHED" | "HIDDEN">("ALL");
+  const canModerate = !w.account || ["OWNER", "MANAGER"].includes(w.account.role);
+  const load = () =>
+    api<{ reviews: ReviewRowView[]; summary: { count: number; average: number | null; hidden: number } }>("/reviews")
+      .then((r) => {
+        setData(r);
+        setError("");
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load reviews."));
+  useEffect(() => {
+    load();
+  }, []);
+  async function act(id: string, path: string, body: unknown) {
+    try {
+      await api(`/reviews/${id}/${path}`, "POST", body);
+      setReplying(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That change did not save.");
+      if ((e as ApiError).status === 409) load();
+    }
+  }
+  const rows = (data?.reviews || []).filter((r) => filter === "ALL" || r.status === filter);
+  const stars = (n: number) => (
+    <span className="stars" role="img" aria-label={`${n} out of 5`}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <Icon key={i} name="star" size={14} className={i <= n ? "on" : "off"} />
+      ))}
+    </span>
+  );
+  return (
+    <section className="workspace-card reviews-panel" data-testid="reviews-panel" aria-labelledby="reviews-panel-heading">
+      <header className="workspace-card-head">
+        <div>
+          <h2 id="reviews-panel-heading">Reviews</h2>
+          <p>
+            Only people who had a booked visit can leave one. You can hide a review from the shop page and reply publicly; the customer's words are never edited.
+            {data && data.summary.count > 0 && (
+              <>
+                {" "}
+                <strong data-testid="reviews-summary">
+                  {data.summary.average} · {data.summary.count} shown
+                </strong>
+                {data.summary.hidden > 0 && ` · ${data.summary.hidden} hidden`}
+              </>
+            )}
+          </p>
+        </div>
+        <div className="queue-filters" role="group" aria-label="Filter reviews">
+          {(["ALL", "PUBLISHED", "HIDDEN"] as const).map((f) => (
+            <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)}>
+              {f === "ALL" ? "All" : f === "PUBLISHED" ? "Shown" : "Hidden"}
+            </button>
+          ))}
+        </div>
+      </header>
+      {error && <Notice tone="warning">{error}</Notice>}
+      {!data ? (
+        <p className="muted">Loading…</p>
+      ) : rows.length === 0 ? (
+        <p className="muted" data-testid="reviews-empty">
+          No reviews yet. Customers are asked for one after each completed visit (see the outbox above).
+        </p>
+      ) : (
+        <ul className="review-admin-list">
+          {rows.map((r) => (
+            <li key={r.id} className={`review-admin ${r.status === "HIDDEN" ? "hidden" : ""}`} data-testid="review-row">
+              <header>
+                {stars(r.rating)}
+                <strong>{r.display_name}</strong>
+                <span>
+                  {r.service_name}
+                  {r.staff_name ? ` · ${r.staff_name.split(" ")[0]}` : ""} · {r.visit_date}
+                </span>
+                {r.status === "HIDDEN" && <StatusPill tone="note">Hidden</StatusPill>}
+              </header>
+              {r.body ? <p className="review-admin-body">{r.body}</p> : <p className="review-admin-body muted">No comment</p>}
+              {r.reply && replying?.id !== r.id && (
+                <p className="review-reply">
+                  <strong>Your reply</strong>
+                  {r.reply}
+                </p>
+              )}
+              {replying?.id === r.id && (
+                <div className="review-reply-form">
+                  <textarea rows={3} maxLength={400} value={replying.text} onChange={(e) => setReplying({ id: r.id, text: e.target.value })} aria-label="Reply" data-testid="reply-text" />
+                  <div className="review-actions">
+                    <Button variant="ghost" onClick={() => setReplying(null)}>
+                      Cancel
+                    </Button>
+                    <Button variant="primary" onClick={() => act(r.id, "reply", { reply: replying.text.trim(), version: r.version })} data-testid="reply-save">
+                      <Icon name="messageReply" size={14} /> {r.reply ? "Update reply" : "Post reply"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {canModerate && replying?.id !== r.id && (
+                <div className="review-admin-actions">
+                  <Button variant="ghost" onClick={() => setReplying({ id: r.id, text: r.reply })} data-testid="review-reply">
+                    <Icon name="messageReply" size={14} /> {r.reply ? "Edit reply" : "Reply"}
+                  </Button>
+                  <Button variant="ghost" onClick={() => act(r.id, "status", { status: r.status === "HIDDEN" ? "PUBLISHED" : "HIDDEN", version: r.version })} data-testid="review-toggle">
+                    <Icon name={r.status === "HIDDEN" ? "eye" : "eyeOff"} size={14} /> {r.status === "HIDDEN" ? "Show" : "Hide"}
+                  </Button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
 function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
   const [data, setData] = useState<{ notifications: OutboxRow[]; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number } } | null>(null);
   const [form, setForm] = useState<{ auto: number; hold: number; templates: Record<string, string> } | null>(null);
@@ -2712,8 +2841,9 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
         </a>
       ) : undefined,
     },
-    { icon: "repeat", title: "Booking flow upgrades", note: "Remember me · any barber · book for someone else · group booking", status: "next" },
-    { icon: "message", title: "Reminders & reviews", note: "24h / 2h reminders with confirm links; post-visit star review with owner moderation", status: "later" },
+    { icon: "repeat", title: "Booking flow upgrades", note: "Any barber shortcut · book for someone else · group bookings (together or back to back) · prefilled when signed in", status: "live" },
+    { icon: "star", title: "Reviews, photos & search", note: "Verified reviews from completed visits (moderate below); uploaded cover, gallery and barber photos; the shop page carries a search-engine head, robots.txt and sitemap", status: "live" },
+    { icon: "message", title: "Reminders", note: "24h / 2h reminders with confirm links; review requests already queue to the outbox", status: "later" },
     { icon: "card", title: "Deposits, loyalty, vouchers", note: "Card deposit at booking (Stripe), stamp card, gift vouchers bought online", status: "later" },
   ];
   const tone: Record<string, "good" | "next" | "note"> = { live: "good", next: "next", later: "note" };
