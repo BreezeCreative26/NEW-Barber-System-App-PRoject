@@ -124,3 +124,24 @@ test("top bar: search palette opens in place and deep-links; account menu offers
   await page.getByTestId("sign-out").click();
   await expect(page.getByRole("heading", { name: "Open the demo shop" })).toBeVisible();
 });
+
+test("settings lists every customer page with live links and the plan is readable in-app", async ({ page }) => {
+  await openFixtureShop(page);
+  await section(page, "Settings");
+  const panel = page.getByTestId("customer-pages");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("link", { name: /View as customer/ })).toHaveAttribute("href", /\/book\/demo/);
+  await panel.getByTestId("make-manage-link").click();
+  const link = panel.getByTestId("view-manage-page");
+  await expect(link).toHaveAttribute("href", /\/manage\//);
+  const manage = await page.request.get((await link.getAttribute("href"))!);
+  expect(manage.status()).toBe(200);
+  await expect(panel).toContainText("Shop home page");
+  await expect(panel).toContainText("Customer accounts");
+  const plan = await page.request.get("/docs/customer-plan");
+  expect(plan.status()).toBe(200);
+  expect(await plan.text()).toContain("Customer accounts");
+  // Account menu offers the customer view without leaving the admin.
+  await page.getByTestId("account-pill").click();
+  await expect(page.getByTestId("account-menu").getByRole("menuitem", { name: /View booking page as a customer/ })).toBeVisible();
+});

@@ -3,6 +3,7 @@ import { serveStatic } from "hono/cloudflare-workers";
 
 import sandbox from "./server/sandbox";
 import pub from "./server/public";
+import customerPlan from "../docs/CUSTOMER-PLAN.md?raw";
 import type { D1Database } from "@cloudflare/workers-types";
 const app = new Hono<{ Bindings: { DB: D1Database; APP_MODE?: string } }>();
 app.route("/api/sandbox", sandbox);
@@ -55,6 +56,10 @@ const secure = (c: { header: (k: string, v: string) => void }) => {
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
 };
+// Customer-side plan, readable from the admin (Settings → Customer pages → Read the plan).
+app.get("/docs/customer-plan", (c) =>
+  c.html(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OLLO · Customer plan</title><link rel="stylesheet" href="/static/design.css"><style>body{font-family:var(--font);max-width:80ch;margin:0 auto;padding:32px 20px;color:var(--ink);line-height:1.55}pre{white-space:pre-wrap;font:inherit;font-size:14px}h1{font-size:24px}a{color:var(--accent-dark)}</style></head><body><a href="/workspace">← Back to OLLO</a><h1>Customer side — plan</h1><pre>${customerPlan.replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[ch] as string)}</pre></body></html>`),
+);
 app.get("/book/:slug", (c) => {
   if (c.env?.APP_MODE !== "sandbox") return c.notFound();
   secure(c);

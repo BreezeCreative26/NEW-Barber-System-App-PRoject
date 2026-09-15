@@ -21,7 +21,7 @@ import type {
   Holiday,
   StaffDayOff,
 } from "../server/domain";
-import { Brand, Button, Icon, IconButton, Modal, Notice, Badge, Avatar, TopBar, Rail, TabBar, type NavItem } from "./ui";
+import { Brand, Button, Icon, IconButton, Modal, Notice, Badge, Avatar, TopBar, Rail, TabBar, StatusPill, type NavItem } from "./ui";
 import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, type CalendarDraft, type RangeBooking } from "./Calendar";
@@ -1878,6 +1878,7 @@ export function Workspace() {
                     </SaveForm>
                   </section>
                   <OnlineBookingPanel w={w} saved={saved} />
+                  <CustomerPagesPanel w={w} onOpenBooking={openBooking} />
                   <section className="workspace-panel">
                     <div className="workspace-section-heading">
                       <h2>Shop closures</h2>
@@ -2276,6 +2277,104 @@ type WaitlistEntry = {
   service_name: string;
   staff_name: string | null;
 };
+// Every customer-facing surface in one place so the owner can review them from the admin.
+// Live pages open in a new tab; planned ones link to the plan so the roadmap is visible in-app.
+function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBooking: (id: string) => void }) {
+  const [manageLink, setManageLink] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const live = !!w.shop.slug && w.shop.online_booking === 1;
+  const bookUrl = w.shop.slug ? `${location.origin}/book/${w.shop.slug}` : "";
+  const sample = w.bookings
+    .filter((b) => ["CONFIRMED", "CHECKED_IN"].includes(b.status) && b.start_at > w.now)
+    .sort((a, b) => a.start_at - b.start_at)[0];
+  async function makeManageLink() {
+    if (!sample) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await api<{ path: string }>(`/bookings/${sample.id}/manage-link`, "POST", {});
+      setManageLink(location.origin + r.path);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create a link.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const rows: { icon: string; title: string; note: string; status: "live" | "next" | "later"; action?: ReactNode }[] = [
+    {
+      icon: "store",
+      title: "Booking page",
+      note: live ? bookUrl : w.shop.slug ? "Online booking is switched off above" : "Choose a public address above to enable",
+      status: "live",
+      action: live ? (
+        <a className="button secondary" href={bookUrl} target="_blank" rel="noreferrer" data-testid="view-booking-page">
+          <Icon name="external" size={15} /> View as customer
+        </a>
+      ) : undefined,
+    },
+    {
+      icon: "calendar",
+      title: "Manage-my-visit link",
+      note: sample ? `Reschedule / cancel / add to calendar · sample uses ${sample.customer_name}'s next visit` : "Needs an upcoming appointment",
+      status: "live",
+      action: sample ? (
+        manageLink ? (
+          <a className="button secondary" href={manageLink} target="_blank" rel="noreferrer" data-testid="view-manage-page">
+            <Icon name="external" size={15} /> Open link
+          </a>
+        ) : (
+          <Button variant="secondary" disabled={busy} onClick={makeManageLink} data-testid="make-manage-link">
+            {busy ? "Creating…" : "Create sample link"}
+          </Button>
+        )
+      ) : (
+        <Button variant="ghost" onClick={() => onOpenBooking("")} disabled>
+          No upcoming visit
+        </Button>
+      ),
+    },
+    { icon: "bell", title: "Waitlist", note: "Customers join from the booking page when a day is full; you book them in from the bell.", status: "live" },
+    { icon: "globe", title: "Shop home page", note: `${location.origin}/${w.shop.slug || "your-shop"} · hero, next available, services, team, hours, gallery, find us, policies`, status: "next" },
+    { icon: "userRound", title: "Customer accounts", note: "Phone/email one-time code sign-in · upcoming, history, book my usual, profile, standing bookings", status: "next" },
+    { icon: "repeat", title: "Booking flow upgrades", note: "Remember me · any barber · book for someone else · group booking", status: "next" },
+    { icon: "message", title: "Reminders & reviews", note: "24h / 2h reminders with confirm links; post-visit star review with owner moderation", status: "later" },
+    { icon: "card", title: "Deposits, loyalty, vouchers", note: "Card deposit at booking (Stripe), stamp card, gift vouchers bought online", status: "later" },
+  ];
+  const tone: Record<string, "good" | "next" | "note"> = { live: "good", next: "next", later: "note" };
+  const label: Record<string, string> = { live: "Live", next: "Planned next", later: "Later · needs provider" };
+  return (
+    <section className="workspace-panel" aria-labelledby="customer-pages-heading" data-testid="customer-pages">
+      <div className="workspace-section-heading">
+        <div>
+          <h2 id="customer-pages-heading">Customer pages</h2>
+          <p className="workspace-footnote">Everything a customer sees, live and planned. Full plan: docs/CUSTOMER-PLAN.md.</p>
+        </div>
+        <a className="button ghost" href="/docs/customer-plan" target="_blank" rel="noreferrer">
+          <Icon name="file" size={15} /> Read the plan
+        </a>
+      </div>
+      <ErrorMessage error={error} />
+      <ul className="customer-pages">
+        {rows.map((r) => (
+          <li key={r.title}>
+            <span className="tx-ic">
+              <Icon name={r.icon} size={16} />
+            </span>
+            <span className="customer-page-text">
+              <b>
+                {r.title} <StatusPill tone={tone[r.status]}>{label[r.status]}</StatusPill>
+              </b>
+              <small>{r.note}</small>
+            </span>
+            <span className="customer-page-action">{r.action}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 // Notifications drawer (bell): schedule issues and the waitlist live here, off the timetable.
 function NotificationsDrawer({
   w,

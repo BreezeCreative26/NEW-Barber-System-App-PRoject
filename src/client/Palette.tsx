@@ -206,7 +206,7 @@ export function AccountMenu({
       )}
       {onPublicPage && (
         <button type="button" role="menuitem" onClick={() => { onClose(); onPublicPage(); }}>
-          <Icon name="globe" size={16} /> Open public booking page
+          <Icon name="globe" size={16} /> View booking page as a customer
         </button>
       )}
       <button type="button" role="menuitem" className="danger" onClick={() => { onClose(); onSignOut(); }} data-testid="sign-out">

@@ -998,3 +998,12 @@
 .studio .segmented[aria-label="Barber sections"] { max-width: 100%; overflow-x: auto; scrollbar-width: none; flex-wrap: nowrap; }
 .studio .segmented[aria-label="Barber sections"]::-webkit-scrollbar { display: none; }
 .studio .segmented[aria-label="Barber sections"] button { white-space: nowrap; flex: 0 0 auto; }
+
+/* Settings → Customer pages */
+.customer-pages { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); }
+.customer-pages li { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center; padding: 10px var(--s-3); border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.customer-page-text { display: grid; gap: 2px; min-width: 0; }
+.customer-page-text b { font-size: var(--fs-13); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.customer-page-text small { color: var(--muted); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.customer-page-action .button { min-height: 36px; padding: 0 var(--s-3); font-size: var(--fs-13); }
+@media (max-width: 767px) { .customer-pages li { grid-template-columns: 32px 1fr; } .customer-page-action { grid-column: 2; } }
