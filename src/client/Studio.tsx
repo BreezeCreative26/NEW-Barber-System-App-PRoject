@@ -722,6 +722,7 @@ const staffForm = (staff: Staff | null) => ({
   start_date: staff?.start_date || "",
   active: staff ? staff.active : 1,
   sort_order: staff?.sort_order ?? 0,
+  commission_pct: staff?.commission_pct ?? 50,
 });
 type Perf = { barbers: { staff_id: string; n: number; minutes: number; completed_value: number; no_shows: number }[]; from: string; to: string };
 function BarberEditor({
@@ -894,10 +895,17 @@ function BarberEditor({
                 <label className="switch"><input type="checkbox" checked={!!form.active} onChange={(e) => setForm({ ...form, active: e.target.checked ? 1 : 0 })} aria-label="Active and bookable" /><span /></label>
               </div>
             </div>
-            <label className="workspace-field narrow">
-              <span>Order on the timetable</span>
-              <input type="number" min={0} max={999} value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })} />
-            </label>
+            <div className="workspace-form-grid">
+              <label className="workspace-field narrow">
+                <span>Order on the timetable</span>
+                <input type="number" min={0} max={999} value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })} />
+              </label>
+              <label className="workspace-field narrow">
+                <span>Commission on services (%)</span>
+                <input type="number" min={0} max={100} value={form.commission_pct} onChange={(e) => setForm({ ...form, commission_pct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />
+                <small className="field-hint">Tips are always 100% to the barber. Applies to payments recorded from now on.</small>
+              </label>
+            </div>
           </fieldset>
           {canEdit ? (
             <div className="panel-actions-row">

@@ -25,6 +25,7 @@ import { Brand, Button, Icon, IconButton, Modal, Notice, Badge, Avatar, TopBar, 
 import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, type CalendarDraft, type RangeBooking } from "./Calendar";
+import { WalletDrawer } from "./Wallet";
 import { money, time, datePlus } from "./fixtures";
 
 const reference = (b: StoredBooking) =>
@@ -805,6 +806,7 @@ export function Workspace() {
   const [calendarView, setCalendarView] = useState("day");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [walletOpen, setWalletOpen] = useState(false);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
   const [week, setWeek] = useState<{ key: string; bookings: RangeBooking[] } | null>(null);
   const [weekLoading, setWeekLoading] = useState(false);
@@ -1114,9 +1116,10 @@ export function Workspace() {
     setDirectorySearch("");
     setDirectoryStatus("");
   }
-  const todayRows = (w?.bookings || []).filter((b) => b.date === (w?.today || "") && !["CANCELLED", "NO_SHOW"].includes(b.status));
-  const todayTaken = todayRows.reduce((n, b) => n + b.price_pence, 0);
-  const todayVisits = todayRows.length;
+  // Wallet chip reads the ledger: money actually recorded today (services + tips), not bookings.
+  const todayPayments = (w?.payments || []).filter((p) => p.date === (w?.today || "") && !p.voided_at);
+  const todayTaken = todayPayments.reduce((n, p) => n + p.service_pence + p.tip_pence, 0);
+  const todayVisits = new Set(todayPayments.map((p) => p.booking_id)).size;
   // Waitlist lives in the notifications drawer (bell) rather than on top of the timetable.
   useEffect(() => {
     if (!w) return;
@@ -1197,13 +1200,12 @@ export function Workspace() {
           w
             ? {
                 amount: money(todayTaken),
-                caption: `Booked today · ${todayVisits} visit${todayVisits === 1 ? "" : "s"}`,
+                caption: `${w.account?.role === "BARBER" ? "Taken" : "Taken today"} · ${todayVisits} visit${todayVisits === 1 ? "" : "s"}`,
+                open: walletOpen,
               }
             : null
         }
-        onWallet={() => {
-          if (tab !== "Insights" && canNavigate()) setTab("Insights");
-        }}
+        onWallet={() => setWalletOpen((v) => !v)}
         bell={w ? { count: w.issues.length + waitlist.length, open: notificationsOpen } : null}
         onBell={() => setNotificationsOpen((v) => !v)}
         account={
@@ -1223,6 +1225,17 @@ export function Workspace() {
           <Icon name="shield" size={14} /> Local test data
         </span>
       </TopBar>
+      {w && walletOpen && (
+        <WalletDrawer
+          w={w}
+          api={(path) => api(path)}
+          onClose={() => setWalletOpen(false)}
+          onOpenBooking={(id) => {
+            setWalletOpen(false);
+            openBooking(id);
+          }}
+        />
+      )}
       {w && notificationsOpen && (
         <NotificationsDrawer
           w={w}
@@ -1621,6 +1634,7 @@ export function Workspace() {
                           date={date}
                           barber={barber}
                           bookings={filteredBookings}
+                          paid={new Set(w.payments.filter((p) => !p.voided_at).map((p) => p.booking_id))}
                           disabled={!online || stale || loading}
                           onDraft={(draft) =>
                             setEditor({ kind: "booking", draft })
@@ -1704,6 +1718,7 @@ export function Workspace() {
                           deposit_pence: Math.round(number(f, "deposit") * 100),
                           cancel_hours: number(f, "cancel_hours"),
                           no_show_grace: number(f, "no_show_grace"),
+                          till_access: text(f, "till_access") === "ALL" ? "ALL" : "OWNER",
                           version: w.shop.version,
                         })
                       }
@@ -1792,6 +1807,12 @@ export function Workspace() {
                           required
                           defaultValue={w.shop.no_show_grace}
                         />
+                      </Field>
+                      <Field label="Who can take payment">
+                        <select name="till_access" defaultValue={w.shop.till_access}>
+                          <option value="OWNER">Shop device only (owner or manager)</option>
+                          <option value="ALL">Barbers too, for their own visits</option>
+                        </select>
                       </Field>
                     </SaveForm>
                   </section>
@@ -1910,6 +1931,11 @@ export function Workspace() {
               }),
             )
           }
+          payments={w.payments.filter((p) => p.booking_id === editor.item.id)}
+          canTakePayment={manager || (w.shop.till_access === "ALL" && w.account?.staff_id === editor.item.staff_id)}
+          canVoid={manager}
+          onCheckout={(body) => panelAction("CHECKOUT", () => api(`/bookings/${editor.item.id}/checkout`, "POST", body))}
+          onVoidPayment={(payment, reason) => panelAction("VOID", () => api(`/payments/${payment.id}/void`, "POST", { reason }))}
         >
           <details className="panel-card panel-advanced" open>
             <summary>Status with note, edit details, share confirmation</summary>

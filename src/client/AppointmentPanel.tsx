@@ -1,8 +1,9 @@
 // Appointment side panel: right-hand drawer on desktop, bottom sheet on phones.
 // The calendar stays visible behind it so the owner can compare or move visits.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { StoredBooking, WorkspaceData, BookingItem } from "../server/domain";
+import type { StoredBooking, WorkspaceData, BookingItem, Payment } from "../server/domain";
 import { Avatar, Badge, Button, Icon, IconButton, Notice } from "./ui";
+import { Checkout, PaidStrip, paidFor, type Tender } from "./Checkout";
 
 export type TimelineEvent = { id: string; action: string; actor: string; reason: string; created_at: number };
 export type PanelCustomer = {
@@ -81,6 +82,11 @@ export function AppointmentPanel({
   onSeriesCancel,
   onSeriesMove,
   onNote,
+  payments = [],
+  canTakePayment = true,
+  canVoid = false,
+  onCheckout,
+  onVoidPayment,
   children,
 }: {
   booking: StoredBooking;
@@ -99,6 +105,11 @@ export function AppointmentPanel({
   onSeriesCancel: (reason: string, fromThis: boolean) => Promise<void>;
   onSeriesMove: () => void;
   onNote: (note: string) => Promise<void>;
+  payments?: Payment[];
+  canTakePayment?: boolean;
+  canVoid?: boolean;
+  onCheckout?: (body: { version: number; discount_pence: number; note: string; tenders: Tender[]; complete: boolean }) => Promise<void>;
+  onVoidPayment?: (payment: Payment, reason: string) => Promise<void>;
   children?: ReactNode;
 }) {
   const ref = useRef<HTMLElement>(null);
@@ -108,6 +119,11 @@ export function AppointmentPanel({
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   const [copied, setCopied] = useState(false);
+  const [checkout, setCheckout] = useState(false);
+  const [voiding, setVoiding] = useState<Payment | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const paid = paidFor(payments, booking.id);
+  const outstanding = Math.max(0, booking.price_pence - paid.service - paid.discount);
   // Switching to another editor while a nested form is saving or dirty needs an explicit choice.
   const [nextAction, setNextAction] = useState<(() => void) | null>(null);
   const [switchError, setSwitchError] = useState("");
@@ -146,6 +162,13 @@ export function AppointmentPanel({
     setConfirm(null);
     setReason("");
     setNoteOpen(false);
+    setCheckout(false);
+    setVoiding(null);
+    // After a save the confirm/checkout controls unmount; keep keyboard focus inside the panel so
+    // Escape and Tab keep working rather than falling back to the page body.
+    requestAnimationFrame(() => {
+      if (ref.current && !ref.current.contains(document.activeElement)) ref.current.focus();
+    });
   }, [booking.id, booking.version]);
 
   function keyDown(e: React.KeyboardEvent) {
@@ -285,6 +308,28 @@ export function AppointmentPanel({
                 <span>{money(booking.price_pence)}</span>
               </li>
             </ul>
+            <PaidStrip payments={payments} booking={booking} canVoid={canVoid && !!onVoidPayment} onVoid={(p) => { setVoiding(p); setVoidReason(""); }} />
+            {voiding && (
+              <form
+                className="panel-note-form"
+                aria-label="Void payment"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!onVoidPayment || voidReason.trim().length < 3) return;
+                  await onVoidPayment(voiding, voidReason.trim());
+                  setVoiding(null);
+                }}
+              >
+                <label className="panel-reason">
+                  <span>Why is this payment being voided?</span>
+                  <input value={voidReason} onChange={(e) => setVoidReason(e.target.value)} minLength={3} maxLength={300} required autoFocus />
+                </label>
+                <div className="panel-actions-row">
+                  <Button variant="danger" type="submit" disabled={!!busy || voidReason.trim().length < 3}>Void payment</Button>
+                  <Button variant="ghost" onClick={() => setVoiding(null)}>Back</Button>
+                </div>
+              </form>
+            )}
             <div className="panel-notes">
               <div className="panel-notes-head">
                 <strong>Notes</strong>
@@ -342,6 +387,19 @@ export function AppointmentPanel({
             </section>
           )}
 
+          {checkout && onCheckout && (
+            <Checkout
+              booking={booking}
+              w={w}
+              payments={payments}
+              busy={busy === "CHECKOUT"}
+              onRecord={async (body) => {
+                await onCheckout(body);
+                setCheckout(false);
+              }}
+              onCancel={() => setCheckout(false)}
+            />
+          )}
           {/* Confirm step for status changes */}
           {confirm && (
             <section className="panel-card panel-confirm" role="alert" aria-label="Confirm change">
@@ -443,12 +501,37 @@ export function AppointmentPanel({
               <Button disabled={!!busy} onClick={() => onStatus("IN_SERVICE", "")}>
                 <Icon name="scissors" size={16} /> {busy === "IN_SERVICE" ? "Saving…" : "Start service"}
               </Button>
+              {canTakePayment && onCheckout && !checkout && (
+                <Button variant="secondary" disabled={!!busy} onClick={() => setCheckout(true)} data-testid="take-payment">
+                  <Icon name="wallet" size={16} /> Take payment
+                </Button>
+              )}
               <Button variant="ghost" onClick={() => setConfirm({ status: "CANCELLED" })}>Cancel</Button>
             </>
           )}
           {booking.status === "IN_SERVICE" && (
-            <Button disabled={!!busy} onClick={() => onStatus("COMPLETED", "")}>
-              <Icon name="checks" size={16} /> {busy === "COMPLETED" ? "Saving…" : `Complete · ${money(booking.price_pence)}`}
+            <>
+              {canTakePayment && onCheckout ? (
+                !checkout && (
+                  <Button disabled={!!busy} onClick={() => setCheckout(true)} data-testid="take-payment">
+                    <Icon name="wallet" size={16} /> Take payment · {money(outstanding)}
+                  </Button>
+                )
+              ) : (
+                <Button disabled={!!busy} onClick={() => onStatus("COMPLETED", "")}>
+                  <Icon name="checks" size={16} /> {busy === "COMPLETED" ? "Saving…" : `Complete · ${money(booking.price_pence)}`}
+                </Button>
+              )}
+              {canTakePayment && onCheckout && !checkout && (
+                <Button variant="ghost" disabled={!!busy} onClick={() => onStatus("COMPLETED", "")} title="Finish without recording a payment">
+                  {busy === "COMPLETED" ? "Saving…" : "Complete unpaid"}
+                </Button>
+              )}
+            </>
+          )}
+          {booking.status === "COMPLETED" && outstanding > 0 && canTakePayment && onCheckout && !checkout && (
+            <Button variant="secondary" disabled={!!busy} onClick={() => setCheckout(true)} data-testid="take-payment">
+              <Icon name="wallet" size={16} /> Record payment · {money(outstanding)}
             </Button>
           )}
           <Button variant={["COMPLETED", "CANCELLED", "NO_SHOW"].includes(booking.status) ? "primary" : "ghost"} onClick={goRebook}>
@@ -460,7 +543,7 @@ export function AppointmentPanel({
               <button type="button" onClick={goEdit}><Icon name="user" size={14} /> Edit name and phone</button>
               <button type="button" onClick={goShare}><Icon name="message" size={14} /> Share confirmation</button>
               <button type="button" onClick={copyDetails}><Icon name="external" size={14} /> {copied ? "Copied" : "Copy details"}</button>
-              <button type="button" disabled title="No live payments in this build"><Icon name="card" size={14} /> Record payment (off)</button>
+              {!canTakePayment && <span className="panel-more-note"><Icon name="lock" size={14} /> Payments are taken on the shop device</span>}
             </div>
           </details>
         </footer>

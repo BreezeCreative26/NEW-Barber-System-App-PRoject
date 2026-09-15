@@ -131,6 +131,8 @@ const mutationContracts = [
   ["POST", "/series/:id/cancel"],
   ["POST", "/series/:id/reschedule"],
   ["PUT", "/service-rules"],
+  ["POST", "/bookings/:id/checkout"],
+  ["POST", "/payments/:id/void"],
 ] as const;
 test("all registered mutation endpoints enforce origin and session boundaries", async () => {
   const source = readFileSync(

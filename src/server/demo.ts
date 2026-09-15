@@ -95,9 +95,9 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   const salt = uid() + uid();
   const encoded = await passwordHash(DEMO_PASSWORD, salt);
   const staff = [
-    { id: uid(), name: "Jay Carter", role: "Senior barber", hours: [1, 2, 3, 4, 5, 6], colour: "sage", title: "Senior barber & owner's right hand", bio: "Twelve years behind the chair. Precision fades and classic scissor work; loves a proper consultation.", skills: ["Skin fades", "Scissor work", "Kids"], instagram: "jaycuts" },
-    { id: uid(), name: "Marcus Reed", role: "Barber", hours: [1, 2, 3, 4, 5], colour: "sand", title: "Barber", bio: "Fast, tidy and great with regulars who know exactly what they want.", skills: ["Skin fades", "Afro hair"], instagram: "" },
-    { id: uid(), name: "Dani Okoro", role: "Barber & beard specialist", hours: [2, 3, 4, 5, 6], colour: "blue", title: "Beard specialist", bio: "Hot towel shaves, beard sculpting and grey blending. Book the full works for the complete reset.", skills: ["Beards", "Hot towel shaves", "Colour"], instagram: "dani.beards" },
+    { id: uid(), name: "Jay Carter", role: "Senior barber", hours: [1, 2, 3, 4, 5, 6], colour: "sage", title: "Senior barber & owner's right hand", bio: "Twelve years behind the chair. Precision fades and classic scissor work; loves a proper consultation.", skills: ["Skin fades", "Scissor work", "Kids"], instagram: "jaycuts", commission: 60 },
+    { id: uid(), name: "Marcus Reed", role: "Barber", hours: [1, 2, 3, 4, 5], colour: "sand", title: "Barber", bio: "Fast, tidy and great with regulars who know exactly what they want.", skills: ["Skin fades", "Afro hair"], instagram: "", commission: 50 },
+    { id: uid(), name: "Dani Okoro", role: "Barber & beard specialist", hours: [2, 3, 4, 5, 6], colour: "blue", title: "Beard specialist", bio: "Hot towel shaves, beard sculpting and grey blending. Book the full works for the complete reset.", skills: ["Beards", "Hot towel shaves", "Colour"], instagram: "dani.beards", commission: 55 },
   ];
   const services = [
     { id: uid(), name: "Signature cut", category: "Hair", duration: 30, price: 2800, colour: "sage", popular: 1, description: "Consultation, clipper or scissor cut, sharp neckline and a styled finish." },
@@ -126,8 +126,8 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   ];
   for (const b of staff) {
     s.push(
-      db.prepare("INSERT INTO staff(id,shop_id,name,role,colour,title,bio,skills,instagram,start_date,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
-        .bind(b.id, shopId, b.name, b.role, b.colour, b.title, b.bio, JSON.stringify(b.skills), b.instagram, "2024-03-01", staff.indexOf(b)),
+      db.prepare("INSERT INTO staff(id,shop_id,name,role,colour,title,bio,skills,instagram,start_date,sort_order,commission_pct) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
+        .bind(b.id, shopId, b.name, b.role, b.colour, b.title, b.bio, JSON.stringify(b.skills), b.instagram, "2024-03-01", staff.indexOf(b), b.commission),
     );
     for (let day = 0; day < 7; day++)
       s.push(
@@ -235,6 +235,17 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
           "INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
         ).bind(uid(), shopId, "booking", id, `STATUS_${status}`, "demo-seed", status === "CANCELLED" ? "Customer cancelled." : status === "NO_SHOW" ? "Did not arrive." : "", end),
       );
+    // Completed visits were paid at the chair: one ledger row each (card-heavy, some cash, occasional tip).
+    if (status === "COMPLETED") {
+      const r = random();
+      const method = r < 0.62 ? "CARD" : r < 0.9 ? "CASH" : r < 0.97 ? "TRANSFER" : "VOUCHER";
+      const tip = random() < 0.35 ? [200, 300, 500][Math.floor(random() * 3)] : 0;
+      bookings.push(
+        db.prepare(
+          "INSERT INTO payments(id,shop_id,booking_id,staff_id,customer_id,date,method,service_pence,tip_pence,discount_pence,commission_pct,note,recorded_by,created_at) VALUES(?,?,?,?,NULL,?,?,?,?,0,?,'',?,?)",
+        ).bind(uid(), shopId, id, barber.id, date, method, price, tip, barber.commission, "demo-seed", end + 120000),
+      );
+    }
     return true;
   };
   const starts = [570, 600, 630, 660, 690, 720, 750, 810, 840, 870, 900, 930, 960, 990, 1020];

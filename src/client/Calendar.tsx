@@ -87,7 +87,9 @@ export function Calendar({
   disabled,
   onDraft,
   onOpen,
+  paid = new Set<string>(),
 }: {
+  paid?: Set<string>;
   w: WorkspaceData;
   date: string;
   barber: string;
@@ -364,6 +366,7 @@ export function Calendar({
                               online={b.channel === "ONLINE"}
                               series={!!b.series_id}
                               walkIn={b.source === "WALK_IN"}
+                              paid={paid.has(b.id)}
                             />
                           </small>
                         )}

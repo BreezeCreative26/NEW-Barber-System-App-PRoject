@@ -40,6 +40,9 @@ import {
   slotReason,
   staffSchema,
   statusSchema,
+  checkoutSchema,
+  voidPaymentSchema,
+  type Payment,
   weekday,
   type Shop,
   type Staff,
@@ -196,7 +199,9 @@ sandbox.use("*", async (c, next) => {
       (method === "PUT" && /^\/customers\/[^/]+$/.test(path)) ||
       (method === "POST" && /^\/customers\/[^/]+\/merge$/.test(path)) ||
       (method === "GET" && path === "/waitlist") ||
-      (method === "GET" && ["/bookings/range", "/insights"].includes(path)) ||
+      (method === "GET" && ["/bookings/range", "/insights", "/wallet"].includes(path)) ||
+      (method === "POST" && /^\/bookings\/[^/]+\/checkout$/.test(path)) ||
+      (method === "POST" && /^\/payments\/[^/]+\/void$/.test(path)) ||
       (method === "POST" && ["/series/preview", "/series"].includes(path)) ||
       (method === "POST" && /^\/series\/[^/]+\/(cancel|reschedule)$/.test(path)) ||
       (method === "GET" && /^\/bookings\/[^/]+\/timeline$/.test(path)) ||
@@ -655,6 +660,13 @@ sandbox.get("/workspace", async (c) => {
           );
       return reason ? [{ booking_id: b.id, ref: ref(b), reason }] : [];
     });
+  const payments = (
+    await c.env.DB.prepare(
+      "SELECT * FROM payments WHERE shop_id=? AND (? IS NULL OR staff_id=?) AND date>=? ORDER BY created_at DESC LIMIT 2000",
+    )
+      .bind(sid, assigned, assigned, new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10))
+      .all<Payment>()
+  ).results;
   return c.json({
     shop,
     account,
@@ -663,6 +675,7 @@ sandbox.get("/workspace", async (c) => {
     hours,
     holidays,
     bookings,
+    payments,
     audit: result[5].results as AuditEvent[],
     days_off: daysOff,
     addons: result[7].results as Addon[],
@@ -680,7 +693,7 @@ sandbox.put("/shop", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE shops SET name=?,address=?,timezone=?,opens=?,closes=?,closed_days=?,deposit_pence=?,cancel_hours=?,no_show_grace=?,version=version+1 WHERE id=? AND version=?",
+      "UPDATE shops SET name=?,address=?,timezone=?,opens=?,closes=?,closed_days=?,deposit_pence=?,cancel_hours=?,no_show_grace=?,till_access=?,version=version+1 WHERE id=? AND version=?",
     ).bind(
       b.name,
       b.address,
@@ -691,6 +704,7 @@ sandbox.put("/shop", async (c) => {
       b.deposit_pence,
       b.cancel_hours,
       b.no_show_grace,
+      b.till_access,
       c.get("shopId"),
       b.version,
     ),
@@ -1018,7 +1032,7 @@ sandbox.put("/staff/:id", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE staff SET name=?,role=?,active=?,title=?,bio=?,colour=?,photo_url=?,online_visible=?,skills=?,instagram=?,start_date=?,sort_order=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
+      "UPDATE staff SET name=?,role=?,active=?,title=?,bio=?,colour=?,photo_url=?,online_visible=?,skills=?,instagram=?,start_date=?,sort_order=?,commission_pct=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
     ).bind(
       b.name,
       b.role,
@@ -1032,6 +1046,7 @@ sandbox.put("/staff/:id", async (c) => {
       b.instagram.replace(/^@/, ""),
       b.start_date || null,
       b.sort_order,
+      b.commission_pct,
       c.get("shopId"),
       c.req.param("id"),
       b.version,
@@ -1781,6 +1796,136 @@ sandbox.post("/bookings/:id/status", async (c) => {
     ),
   );
   return c.json({ booking: await readBooking(c, b.id) });
+});
+
+// ---- Payments ledger (Model A: records money taken at the chair; holds nothing) ----
+function tillAllowed(c: Ctx, shop: Shop, staffId: string) {
+  const a = c.get("account");
+  if (!a || ["OWNER", "MANAGER"].includes(a.role)) return;
+  if (shop.till_access === "ALL" && a.staff_id === staffId) return;
+  fail(403, shop.till_access === "ALL" ? "Barbers can only check out their own visits" : "Only the shop device (owner or manager) can take payment");
+}
+sandbox.post("/bookings/:id/checkout", async (c) => {
+  const body = await input(c, checkoutSchema);
+  const b = await readBooking(c, c.req.param("id"));
+  const shop = await readShop(c);
+  tillAllowed(c, shop, b.staff_id);
+  if (b.version !== body.version) fail(409, "record_changed");
+  if (!["IN_SERVICE", "COMPLETED", "CHECKED_IN"].includes(b.status)) fail(409, "Check the customer in before taking payment");
+  const already = await c.env.DB.prepare(
+    "SELECT COALESCE(SUM(service_pence),0) AS paid FROM payments WHERE shop_id=? AND booking_id=? AND voided_at IS NULL",
+  )
+    .bind(c.get("shopId"), b.id)
+    .first<{ paid: number }>();
+  const due = Math.max(0, b.price_pence - body.discount_pence - (already?.paid ?? 0));
+  const service = body.tenders.reduce((n, t) => n + t.service_pence, 0);
+  if (body.discount_pence > b.price_pence) fail(400, "Discount cannot exceed the visit price");
+  if (service > due) fail(409, `Payment exceeds the amount due (${due}p)`);
+  if (body.complete && service < due) fail(409, `Amount short by ${due - service}p; record the full amount or leave the visit open`);
+  const staff = await c.env.DB.prepare("SELECT commission_pct FROM staff WHERE shop_id=? AND id=?")
+    .bind(c.get("shopId"), b.staff_id)
+    .first<{ commission_pct: number }>();
+  const now = Date.now();
+  const statements: D1PreparedStatement[] = [];
+  // Move the visit forward so the ledger trigger sees a served visit, then record each tender.
+  if (b.status === "CHECKED_IN")
+    statements.push(
+      c.env.DB.prepare("UPDATE bookings SET status='IN_SERVICE',version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(now, c.get("shopId"), b.id, b.version),
+    );
+  let version = b.version + (b.status === "CHECKED_IN" ? 1 : 0);
+  const ids: string[] = [];
+  for (const t of body.tenders) {
+    if (t.service_pence === 0 && t.tip_pence === 0) continue;
+    const pid = id();
+    ids.push(pid);
+    statements.push(
+      c.env.DB.prepare(
+        "INSERT INTO payments(id,shop_id,booking_id,staff_id,customer_id,date,method,service_pence,tip_pence,discount_pence,commission_pct,note,recorded_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      ).bind(pid, c.get("shopId"), b.id, b.staff_id, b.customer_id, shopToday(shop.timezone, now), t.method, t.service_pence, t.tip_pence, ids.length === 1 ? body.discount_pence : 0, staff?.commission_pct ?? 50, body.note, c.get("actor"), now),
+    );
+    statements.push(audit(c, "payment", pid, "PAYMENT_RECORDED", `${t.method} ${t.service_pence}p service + ${t.tip_pence}p tip for ${ref(b)}`));
+  }
+  if (!ids.length) fail(400, "Nothing to record");
+  if (body.complete && b.status !== "COMPLETED") {
+    statements.push(
+      c.env.DB.prepare("UPDATE bookings SET status='COMPLETED',version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(now, c.get("shopId"), b.id, version),
+    );
+    statements.push(audit(c, "booking", b.id, "COMPLETED", "Checked out; payment recorded in the ledger.", true));
+  }
+  await c.env.DB.batch(statements);
+  const booking = await readBooking(c, b.id);
+  const payments = (await c.env.DB.prepare("SELECT * FROM payments WHERE shop_id=? AND booking_id=? ORDER BY created_at").bind(c.get("shopId"), b.id).all<Payment>()).results;
+  return c.json({ booking, payments }, 201);
+});
+sandbox.post("/payments/:id/void", async (c) => {
+  const body = await input(c, voidPaymentSchema);
+  const a = c.get("account");
+  if (a && !["OWNER", "MANAGER"].includes(a.role)) fail(403, "Only the owner or a manager can void a payment");
+  const p = await c.env.DB.prepare("SELECT * FROM payments WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<Payment>();
+  if (!p) return fail(404, "Payment not found");
+  if (p.voided_at) fail(409, "payment_already_voided");
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE payments SET voided_at=?,void_reason=? WHERE shop_id=? AND id=? AND voided_at IS NULL").bind(Date.now(), body.reason, c.get("shopId"), p.id),
+    audit(c, "payment", p.id, "PAYMENT_VOIDED", body.reason, true),
+  ]);
+  return c.json({ payment: { ...p, voided_at: Date.now(), void_reason: body.reason } });
+});
+// Wallet: ledger totals for a date range (defaults to today), per method and per barber.
+sandbox.get("/wallet", async (c) => {
+  const shop = await readShop(c);
+  const a = c.get("account");
+  const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const today = shopToday(shop.timezone);
+  const from = dateSchema.safeParse(c.req.query("from")).success ? (c.req.query("from") as string) : today;
+  const to = dateSchema.safeParse(c.req.query("to")).success ? (c.req.query("to") as string) : from;
+  if (to < from) fail(400, "to must be on or after from");
+  const rows = (
+    await c.env.DB.prepare(
+      "SELECT p.*, b.customer_name, b.service_name, b.start_min FROM payments p JOIN bookings b ON b.shop_id=p.shop_id AND b.id=p.booking_id WHERE p.shop_id=? AND (? IS NULL OR p.staff_id=?) AND p.date BETWEEN ? AND ? ORDER BY p.created_at DESC LIMIT 1000",
+    )
+      .bind(c.get("shopId"), assigned, assigned, from, to)
+      .all<Payment & { customer_name: string; service_name: string; start_min: number }>()
+  ).results;
+  const live = rows.filter((r) => !r.voided_at);
+  const sum = (list: typeof live, f: (r: Payment) => number) => list.reduce((n, r) => n + f(r), 0);
+  const byMethod = Object.fromEntries(
+    ["CARD", "CASH", "TRANSFER", "VOUCHER"].map((m) => {
+      const l = live.filter((r) => r.method === m);
+      return [m, { service: sum(l, (r) => r.service_pence), tips: sum(l, (r) => r.tip_pence), count: l.length }];
+    }),
+  );
+  const staffIds = [...new Set(live.map((r) => r.staff_id))];
+  const byStaff = staffIds.map((sid) => {
+    const l = live.filter((r) => r.staff_id === sid);
+    const service = sum(l, (r) => r.service_pence);
+    const tips = sum(l, (r) => r.tip_pence);
+    const commission = l.reduce((n, r) => n + Math.round((r.service_pence * r.commission_pct) / 100), 0);
+    return { staff_id: sid, service, tips, commission, earnings: commission + tips, visits: new Set(l.map((r) => r.booking_id)).size };
+  });
+  // Booked but not yet paid within the range (served or upcoming today).
+  const unpaid = await c.env.DB.prepare(
+    "SELECT COALESCE(SUM(b.price_pence),0) AS value, COUNT(*) AS n FROM bookings b WHERE b.shop_id=? AND (? IS NULL OR b.staff_id=?) AND b.date BETWEEN ? AND ? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') ",
+  )
+    .bind(c.get("shopId"), assigned, assigned, from, to)
+    .first<{ value: number; n: number }>();
+  return c.json({
+    from,
+    to,
+    today,
+    till_access: shop.till_access,
+    totals: {
+      service: sum(live, (r) => r.service_pence),
+      tips: sum(live, (r) => r.tip_pence),
+      discounts: sum(live, (r) => r.discount_pence),
+      visits: new Set(live.map((r) => r.booking_id)).size,
+      voided: rows.length - live.length,
+      unpaid_value: unpaid?.value ?? 0,
+      unpaid_visits: unpaid?.n ?? 0,
+    },
+    by_method: byMethod,
+    by_staff: byStaff,
+    payments: rows,
+  });
 });
 sandbox.post("/bookings/:id/reschedule", async (c) => {
   const body = await input(c, moveSchema);

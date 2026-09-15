@@ -644,11 +644,12 @@ test("appointment side panel: contextual actions, note, series ops, customer lin
   await expect(panel.getByText("Standing", { exact: true })).toBeVisible();
   await expect(panel.locator(".series-strip li")).toHaveCount(5);
   await panel.getByRole("button", { name: "Cancel series" }).click();
-  await panel.getByLabel(/Reason/).fill("Customer paused");
+  await panel.getByLabel("Reason (required)", { exact: true }).fill("Customer paused");
   await panel.getByRole("button", { name: "Cancel visits" }).click();
   await expect(panel.getByText("Cancelled", { exact: true }).first()).toBeVisible();
-  const after = await (await page.request.get(base + `/bookings/range?from=${w.today}&to=${plusDays(w.today, 90)}`)).json();
-  expect(after.bookings.filter((b: any) => b.series_id === seriesVisit.series_id && b.status === "CONFIRMED").length).toBe(0);
+  // Range reads are capped at 31 days; the series' remaining visits fall inside the next 30.
+  const after = await (await page.request.get(base + `/bookings/range?from=${w.today}&to=${plusDays(w.today, 30)}`)).json();
+  expect(after.bookings.filter((b: any) => b.series_id === seriesVisit.series_id && b.status === "CONFIRMED" && b.date >= seriesVisit.date).length).toBe(0);
   // Escape closes and focus returns.
   await page.keyboard.press("Escape");
   await expect(panel).toBeHidden();

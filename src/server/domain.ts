@@ -15,6 +15,7 @@ export type Shop = {
   online_booking: number;
   lead_time_min: number;
   booking_window_days: number;
+  till_access: "OWNER" | "ALL";
   version: number;
 };
 export type Staff = {
@@ -33,6 +34,7 @@ export type Staff = {
   instagram: string;
   start_date: string | null;
   sort_order: number;
+  commission_pct: number;
 };
 export type Service = {
   id: string;
@@ -170,6 +172,7 @@ export type WorkspaceData = {
   holidays: Holiday[];
   days_off: StaffDayOff[];
   bookings: StoredBooking[];
+  payments: Payment[];
   audit: AuditEvent[];
   today: string;
   now: number;
@@ -240,6 +243,7 @@ export const staffSchema = z
     instagram: z.string().trim().max(40).regex(/^@?[A-Za-z0-9._]*$/, "Instagram handle only").default(""),
     start_date: z.union([z.literal(""), dateSchema]).default(""),
     sort_order: z.number().int().min(0).max(999).default(0),
+    commission_pct: z.number().int().min(0).max(100).default(50),
   })
   .strict();
 export const serviceSchema = z
@@ -309,6 +313,7 @@ export const shopSchema = z
     deposit_pence: z.number().int().min(0).max(10000),
     cancel_hours: z.number().int().min(0).max(168),
     no_show_grace: z.number().int().min(0).max(120),
+    till_access: z.enum(["OWNER", "ALL"]).default("OWNER"),
     version,
   })
   .strict()
@@ -491,6 +496,46 @@ export const moveSchema = z
     version,
   })
   .strict();
+export type Payment = {
+  id: string;
+  shop_id: string;
+  booking_id: string;
+  staff_id: string;
+  customer_id: string | null;
+  date: string;
+  method: "CARD" | "CASH" | "TRANSFER" | "VOUCHER";
+  service_pence: number;
+  tip_pence: number;
+  discount_pence: number;
+  commission_pct: number;
+  note: string;
+  recorded_by: string;
+  voided_at: number | null;
+  void_reason: string;
+  created_at: number;
+};
+export const paymentMethods = ["CARD", "CASH", "TRANSFER", "VOUCHER"] as const;
+// Checkout: one or more tenders against a visit. Service amount defaults to the booking price
+// less discount; tips are recorded separately and belong to the barber.
+export const checkoutSchema = z
+  .object({
+    version,
+    discount_pence: z.number().int().min(0).max(100000).default(0),
+    note: z.string().trim().max(300).default(""),
+    tenders: z
+      .array(
+        z.object({
+          method: z.enum(paymentMethods),
+          service_pence: z.number().int().min(0).max(1000000),
+          tip_pence: z.number().int().min(0).max(100000).default(0),
+        }),
+      )
+      .min(1)
+      .max(4),
+    complete: z.boolean().default(true),
+  })
+  .strict();
+export const voidPaymentSchema = z.object({ reason: z.string().trim().min(3).max(300) }).strict();
 export const statusSchema = z
   .object({
     status: z.enum([
