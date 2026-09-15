@@ -95,9 +95,9 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   const salt = uid() + uid();
   const encoded = await passwordHash(DEMO_PASSWORD, salt);
   const staff = [
-    { id: uid(), name: "Jay Carter", role: "Senior barber", hours: [1, 2, 3, 4, 5, 6], colour: "sage", title: "Senior barber & owner's right hand", bio: "Twelve years behind the chair. Precision fades and classic scissor work; loves a proper consultation.", skills: ["Skin fades", "Scissor work", "Kids"], instagram: "jaycuts", commission: 60 },
-    { id: uid(), name: "Marcus Reed", role: "Barber", hours: [1, 2, 3, 4, 5], colour: "sand", title: "Barber", bio: "Fast, tidy and great with regulars who know exactly what they want.", skills: ["Skin fades", "Afro hair"], instagram: "", commission: 50 },
-    { id: uid(), name: "Dani Okoro", role: "Barber & beard specialist", hours: [2, 3, 4, 5, 6], colour: "blue", title: "Beard specialist", bio: "Hot towel shaves, beard sculpting and grey blending. Book the full works for the complete reset.", skills: ["Beards", "Hot towel shaves", "Colour"], instagram: "dani.beards", commission: 55 },
+    { id: uid(), name: "Jay Carter", role: "Senior barber", hours: [1, 2, 3, 4, 5, 6], colour: "sage", title: "Senior barber & owner's right hand", bio: "Twelve years behind the chair. Precision fades and classic scissor work; loves a proper consultation.", skills: ["Skin fades", "Scissor work", "Kids"], instagram: "jaycuts", commission: 60, pay: { model: "COMMISSION", period: "WEEKLY", tiers: [{ from_pence: 0, pct: 55 }, { from_pence: 100000, pct: 65 }] } },
+    { id: uid(), name: "Marcus Reed", role: "Barber", hours: [1, 2, 3, 4, 5], colour: "sand", title: "Barber", bio: "Fast, tidy and great with regulars who know exactly what they want.", skills: ["Skin fades", "Afro hair"], instagram: "", commission: 50, pay: { model: "CHAIR_RENT", period: "WEEKLY", rent: 18000 } },
+    { id: uid(), name: "Dani Okoro", role: "Barber & beard specialist", hours: [2, 3, 4, 5, 6], colour: "blue", title: "Beard specialist", bio: "Hot towel shaves, beard sculpting and grey blending. Book the full works for the complete reset.", skills: ["Beards", "Hot towel shaves", "Colour"], instagram: "dani.beards", commission: 55, pay: { model: "HYBRID", period: "MONTHLY", base: 120000, threshold: 200000 } },
   ];
   const services = [
     { id: uid(), name: "Signature cut", category: "Hair", duration: 30, price: 2800, colour: "sage", popular: 1, description: "Consultation, clipper or scissor cut, sharp neckline and a styled finish." },
@@ -126,8 +126,8 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   ];
   for (const b of staff) {
     s.push(
-      db.prepare("INSERT INTO staff(id,shop_id,name,role,colour,title,bio,skills,instagram,start_date,sort_order,commission_pct) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
-        .bind(b.id, shopId, b.name, b.role, b.colour, b.title, b.bio, JSON.stringify(b.skills), b.instagram, "2024-03-01", staff.indexOf(b), b.commission),
+      db.prepare("INSERT INTO staff(id,shop_id,name,role,colour,title,bio,skills,instagram,start_date,sort_order,commission_pct,pay_model,pay_period,commission_tiers,rent_pence,base_pence,commission_threshold_pence,employment) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        .bind(b.id, shopId, b.name, b.role, b.colour, b.title, b.bio, JSON.stringify(b.skills), b.instagram, "2024-03-01", staff.indexOf(b), b.commission, b.pay.model, b.pay.period, JSON.stringify("tiers" in b.pay ? b.pay.tiers : []), "rent" in b.pay ? b.pay.rent : 0, "base" in b.pay ? b.pay.base : 0, "threshold" in b.pay ? b.pay.threshold : 0, b.pay.model === "HYBRID" ? "EMPLOYED" : "SELF_EMPLOYED"),
     );
     for (let day = 0; day < 7; day++)
       s.push(

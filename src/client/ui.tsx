@@ -70,6 +70,9 @@ import {
   Download,
   CalendarCheck,
   Ban,
+  LogOut,
+  KeyRound,
+  Globe,
   type LucideIcon,
 } from "lucide-react";
 
@@ -139,6 +142,9 @@ const icons: Record<string, LucideIcon> = {
   download: Download,
   payrun: CalendarCheck,
   blocked: Ban,
+  logout: LogOut,
+  key: KeyRound,
+  globe: Globe,
 };
 export function Icon({
   name,
@@ -412,8 +418,10 @@ export function TopBar({
   onWallet,
   onBell,
   onAccount,
+  accountOpen = false,
   children,
 }: {
+  accountOpen?: boolean;
   search?: string;
   wallet?: { amount: string; caption: string; open?: boolean } | null;
   bell?: { count: number; open?: boolean } | null;
@@ -450,7 +458,7 @@ export function TopBar({
         </button>
       )}
       {account && (
-        <button type="button" className="account-pill" onClick={onAccount} aria-label={`Account: ${account.name}, ${account.caption}`} data-testid="account-pill">
+        <button type="button" className="account-pill" onClick={onAccount} aria-haspopup="menu" aria-expanded={accountOpen ? "true" : "false"} aria-label={`Account: ${account.name}, ${account.caption}`} data-testid="account-pill">
           <span className="avatar-ink">{account.initials}</span>
           <span className="account-pill-text">
             <b>{account.name}</b>

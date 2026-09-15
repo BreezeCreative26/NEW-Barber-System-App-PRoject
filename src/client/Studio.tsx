@@ -10,6 +10,8 @@ import type {
 } from "../server/domain";
 import { Avatar, Badge, Button, Icon, Notice } from "./ui";
 import { money, time } from "./fixtures";
+import { PayTermsForm, PayRuns, payFormOf, summariseTerms, type PayForm } from "./Pay";
+import type { PayRun } from "../server/domain";
 
 export const COLOURS: { key: string; label: string }[] = [
   { key: "sage", label: "Sage" },
@@ -263,14 +265,19 @@ export function ServiceStudio({
   refresh,
   onAddon,
   onAddAddon,
+  initialSelected = null,
 }: {
   w: WorkspaceData;
   api: Api;
   refresh: () => Promise<WorkspaceData>;
   onAddon: (id: string) => void;
   onAddAddon: () => void;
+  initialSelected?: string | null;
 }) {
-  const [selected, setSelected] = useState<string | "new" | null>(null);
+  const [selected, setSelected] = useState<string | "new" | null>(initialSelected);
+  useEffect(() => {
+    if (initialSelected) setSelected(initialSelected);
+  }, [initialSelected]);
   const pendingSelect = useRef<string | null>(null);
   // The record created from the "new" editor keeps that editor instance so its confirmation stays visible.
   const [born, setBorn] = useState<string | null>(null);
@@ -590,6 +597,7 @@ export function BarberStudio({
   onOverrides,
   onOpenBooking,
   canEdit,
+  initialSelected = null,
 }: {
   w: WorkspaceData;
   api: Api;
@@ -599,8 +607,12 @@ export function BarberStudio({
   onOverrides: (s: Staff) => void;
   onOpenBooking: (b: StoredBooking) => void;
   canEdit: boolean;
+  initialSelected?: string | null;
 }) {
-  const [selected, setSelected] = useState<string | "new" | null>(null);
+  const [selected, setSelected] = useState<string | "new" | null>(initialSelected);
+  useEffect(() => {
+    if (initialSelected) setSelected(initialSelected);
+  }, [initialSelected]);
   const pendingSelect = useRef<string | null>(null);
   // The record created from the "new" editor keeps that editor instance so its confirmation stays visible.
   const [born, setBorn] = useState<string | null>(null);
@@ -722,7 +734,7 @@ const staffForm = (staff: Staff | null) => ({
   start_date: staff?.start_date || "",
   active: staff ? staff.active : 1,
   sort_order: staff?.sort_order ?? 0,
-  commission_pct: staff?.commission_pct ?? 50,
+  ...payFormOf(staff),
 });
 type Perf = { barbers: { staff_id: string; n: number; minutes: number; completed_value: number; no_shows: number }[]; from: string; to: string };
 function BarberEditor({
@@ -748,7 +760,12 @@ function BarberEditor({
   onOverrides: (s: Staff) => void;
   onOpenBooking: (b: StoredBooking) => void;
 }) {
-  const [tab, setTabRaw] = useState<"profile" | "schedule" | "services" | "performance" | "upcoming">("profile");
+  const [tab, setTabRaw] = useState<"profile" | "schedule" | "services" | "pay" | "performance" | "upcoming">("profile");
+  const [payRuns, setPayRuns] = useState<PayRun[]>([]);
+  const loadPayRuns = () => api<{ pay_runs: PayRun[] }>("/pay-runs").then((r) => setPayRuns(r.pay_runs)).catch(() => {});
+  useEffect(() => {
+    if (tab === "pay") loadPayRuns();
+  }, [tab, staff?.version]);
   const { guarded, notice } = useLeaveGuard("barber-editor");
   const setTab = (t: typeof tab) => guarded(() => setTabRaw(t))();
   const [form, setForm] = useState(() => staffForm(staff));
@@ -806,6 +823,7 @@ function BarberEditor({
           <button type="button" aria-pressed={tab === "profile"} onClick={() => setTab("profile")}>Profile</button>
           <button type="button" aria-pressed={tab === "schedule"} onClick={() => setTab("schedule")}>Schedule</button>
           <button type="button" aria-pressed={tab === "services"} onClick={() => setTab("services")}>Services & pricing</button>
+          <button type="button" aria-pressed={tab === "pay"} onClick={() => setTab("pay")}>Pay</button>
           <button type="button" aria-pressed={tab === "performance"} onClick={() => setTab("performance")}>Performance</button>
           <button type="button" aria-pressed={tab === "upcoming"} onClick={() => setTab("upcoming")}>Upcoming</button>
         </div>
@@ -900,11 +918,6 @@ function BarberEditor({
                 <span>Order on the timetable</span>
                 <input type="number" min={0} max={999} value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })} />
               </label>
-              <label className="workspace-field narrow">
-                <span>Commission on services (%)</span>
-                <input type="number" min={0} max={100} value={form.commission_pct} onChange={(e) => setForm({ ...form, commission_pct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />
-                <small className="field-hint">Tips are always 100% to the barber. Applies to payments recorded from now on.</small>
-              </label>
             </div>
           </fieldset>
           {canEdit ? (
@@ -954,6 +967,54 @@ function BarberEditor({
         </div>
       )}
       {tab === "services" && staff && <RuleMatrix w={w} api={api} staff={staff} onSaved={() => onSaved(staff.id)} />}
+      {tab === "pay" && staff && (
+        <div className="studio-pay">
+          <form
+            className="studio-form"
+            data-dirty={dirty ? "true" : undefined}
+            aria-busy={busy}
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!canEdit) return;
+              setBusy(true);
+              setState(null);
+              try {
+                await api(`/staff/${staff.id}`, "PUT", { ...form, version: staff.version });
+                const latest = await onSaved(staff.id);
+                if (!latest) setLocked(true);
+                const fresh = latest?.staff.find((x) => x.id === staff.id);
+                if (fresh) setForm(staffForm(fresh));
+                setState({ kind: "ok", text: latest ? "Pay terms saved. They apply to pay runs created from now on." : "Pay terms saved, but the updated list could not load. Use Retry workspace above; do not save again." });
+              } catch (err) {
+                setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save.", conflict: isConflict(err) });
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <div className="workspace-section-heading compact">
+              <div>
+                <h3>Pay terms</h3>
+                <p className="workspace-footnote">How {staff.name.split(" ")[0]} is paid. Existing pay runs keep the terms they were calculated with.</p>
+              </div>
+            </div>
+            <PayTermsForm form={form as PayForm} setForm={(f) => setForm({ ...form, ...f })} disabled={!canEdit} />
+            {canEdit && (
+              <div className="panel-actions-row">
+                <Button type="submit" disabled={busy || locked || !dirty} data-testid="save-pay-terms">{busy ? "Saving…" : "Save pay terms"}</Button>
+              </div>
+            )}
+            <StatusLine state={state} />
+          </form>
+          <section className="workspace-section-heading compact">
+            <div>
+              <h3>Pay runs</h3>
+              <p className="workspace-footnote">Settle a period from the payments ledger: draft → approve → mark paid. Paid runs are frozen.</p>
+            </div>
+          </section>
+          <PayRuns w={w} api={api} staff={staff} canEdit={canEdit} runs={payRuns} onChanged={loadPayRuns} />
+        </div>
+      )}
       {tab === "performance" && staff && (
         <div className="studio-performance">
           <div className="segmented" aria-label="Period">

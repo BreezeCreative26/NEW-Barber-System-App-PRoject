@@ -26,6 +26,7 @@ import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { WalletDrawer } from "./Wallet";
+import { SearchPalette, AccountMenu } from "./Palette";
 import { money, time, datePlus } from "./fixtures";
 
 const reference = (b: StoredBooking) =>
@@ -807,6 +808,22 @@ export function Workspace() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [focusService, setFocusService] = useState<string | null>(null);
+  const [focusBarber, setFocusBarber] = useState<string | null>(null);
+  // "/" opens search anywhere outside an input, like the top-bar hint says.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement;
+      if (t.closest("input, textarea, select, [contenteditable]")) return;
+      e.preventDefault();
+      setSearchOpen(true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
   const [week, setWeek] = useState<{ key: string; bookings: RangeBooking[] } | null>(null);
   const [weekLoading, setWeekLoading] = useState(false);
@@ -1190,12 +1207,7 @@ export function Workspace() {
         Skip to content
       </a>
       <TopBar
-        onSearch={() => {
-          if (!w) return;
-          if (tab !== "Appointments" && !canNavigate()) return;
-          setTab("Appointments");
-          setTimeout(() => (document.querySelector<HTMLInputElement>('[aria-label="Search appointments"]') || document.querySelector<HTMLInputElement>('input[placeholder*="Name, phone"]'))?.focus(), 50);
-        }}
+        onSearch={() => w && setSearchOpen(true)}
         wallet={
           w
             ? {
@@ -1217,14 +1229,61 @@ export function Workspace() {
               }
             : null
         }
-        onAccount={() => {
-          if (tab !== "Accounts" && canNavigate()) setTab("Accounts");
-        }}
+        onAccount={() => setAccountOpen((v) => !v)}
+        accountOpen={accountOpen}
       >
         <span className="topbar-env" title="Local test workspace: fictional data only, no live payments or messages">
           <Icon name="shield" size={14} /> Local test data
         </span>
       </TopBar>
+      {w && accountOpen && (
+        <AccountMenu
+          w={w}
+          onClose={() => setAccountOpen(false)}
+          onAccounts={() => goTo("Accounts")}
+          onSettings={manager ? () => goTo("Settings") : undefined}
+          onPublicPage={w.shop.slug && w.shop.online_booking ? () => window.open(`/book/${w.shop.slug}`, "_blank", "noopener") : undefined}
+          onSignOut={async () => {
+            if (!canNavigate()) return;
+            try {
+              await api("/auth/logout", "POST", {});
+            } catch {
+              /* already signed out */
+            }
+            await accountChanged();
+          }}
+        />
+      )}
+      {w && searchOpen && (
+        <SearchPalette
+          w={w}
+          api={(path) => api(path)}
+          sections={navItems}
+          onClose={() => setSearchOpen(false)}
+          onSection={goTo}
+          onCustomer={(id) => {
+            if (!canNavigate()) return;
+            setCustomerId(id);
+            setTab("Customers");
+          }}
+          onBooking={(b) => {
+            if (tab !== "Appointments" && !canNavigate()) return;
+            setTab("Appointments");
+            setDate(b.date);
+            setEditor({ kind: "detail", item: b });
+          }}
+          onService={(id) => {
+            if (!canNavigate()) return;
+            setFocusService(id);
+            setTab("Services");
+          }}
+          onBarber={(id) => {
+            if (!canNavigate()) return;
+            setFocusBarber(id);
+            setTab("Team");
+          }}
+        />
+      )}
       {w && walletOpen && (
         <WalletDrawer
           w={w}
@@ -1685,6 +1744,7 @@ export function Workspace() {
                   w={w}
                   api={api}
                   refresh={refresh}
+                  initialSelected={focusBarber}
                   canEdit={!w.account || ["OWNER", "MANAGER"].includes(w.account.role)}
                   onHours={(item) => setEditor({ kind: "hours", item })}
                   onDaysOff={(item) => setEditor({ kind: "daysOff", item })}
@@ -1697,6 +1757,7 @@ export function Workspace() {
                   w={w}
                   api={api}
                   refresh={refresh}
+                  initialSelected={focusService}
                   onAddon={(id) => setEditor({ kind: "addon", item: w.addons.find((a) => a.id === id) })}
                   onAddAddon={() => setEditor({ kind: "addon" })}
                 />

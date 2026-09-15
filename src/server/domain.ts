@@ -18,6 +18,51 @@ export type Shop = {
   till_access: "OWNER" | "ALL";
   version: number;
 };
+export type PayModel = "COMMISSION" | "CHAIR_RENT" | "HOURLY" | "SALARY" | "HYBRID";
+export type PayPeriod = "WEEKLY" | "FORTNIGHTLY" | "MONTHLY";
+export type PayTerms = {
+  pay_model: PayModel;
+  pay_period: PayPeriod;
+  commission_pct: number;
+  base_pence: number;
+  hourly_pence: number;
+  rent_pence: number;
+  commission_threshold_pence: number;
+  commission_tiers: { from_pence: number; pct: number }[];
+  tip_share_pct: number;
+  product_commission_pct: number;
+  employment: "SELF_EMPLOYED" | "EMPLOYED";
+  pay_notes: string;
+};
+export type PayRun = {
+  id: string;
+  shop_id: string;
+  staff_id: string;
+  period_from: string;
+  period_to: string;
+  pay_model: PayModel;
+  terms_json: string;
+  service_pence: number;
+  tips_pence: number;
+  visits: number;
+  hours_x100: number;
+  commission_pence: number;
+  base_pence: number;
+  hourly_pence: number;
+  tip_pence: number;
+  rent_pence: number;
+  adjustments_json: string;
+  adjustments_pence: number;
+  net_pence: number;
+  status: "DRAFT" | "APPROVED" | "PAID" | "VOID";
+  paid_method: string | null;
+  paid_reference: string;
+  note: string;
+  created_by: string;
+  created_at: number;
+  updated_at: number;
+  version: number;
+};
 export type Staff = {
   id: string;
   shop_id: string;
@@ -35,6 +80,17 @@ export type Staff = {
   start_date: string | null;
   sort_order: number;
   commission_pct: number;
+  pay_model: PayModel;
+  pay_period: PayPeriod;
+  base_pence: number;
+  hourly_pence: number;
+  rent_pence: number;
+  commission_threshold_pence: number;
+  commission_tiers: string;
+  tip_share_pct: number;
+  product_commission_pct: number;
+  employment: "SELF_EMPLOYED" | "EMPLOYED";
+  pay_notes: string;
 };
 export type Service = {
   id: string;
@@ -244,6 +300,21 @@ export const staffSchema = z
     start_date: z.union([z.literal(""), dateSchema]).default(""),
     sort_order: z.number().int().min(0).max(999).default(0),
     commission_pct: z.number().int().min(0).max(100).default(50),
+    pay_model: z.enum(["COMMISSION", "CHAIR_RENT", "HOURLY", "SALARY", "HYBRID"]).default("COMMISSION"),
+    pay_period: z.enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY"]).default("WEEKLY"),
+    base_pence: z.number().int().min(0).max(10000000).default(0),
+    hourly_pence: z.number().int().min(0).max(100000).default(0),
+    rent_pence: z.number().int().min(0).max(10000000).default(0),
+    commission_threshold_pence: z.number().int().min(0).max(10000000).default(0),
+    commission_tiers: z
+      .array(z.object({ from_pence: z.number().int().min(0).max(10000000), pct: z.number().int().min(0).max(100) }))
+      .max(6)
+      .default([])
+      .refine((t) => t.every((x, i) => i === 0 || x.from_pence > t[i - 1].from_pence), "Tiers must increase"),
+    tip_share_pct: z.number().int().min(0).max(100).default(100),
+    product_commission_pct: z.number().int().min(0).max(100).default(0),
+    employment: z.enum(["SELF_EMPLOYED", "EMPLOYED"]).default("SELF_EMPLOYED"),
+    pay_notes: z.string().trim().max(600).default(""),
   })
   .strict();
 export const serviceSchema = z
@@ -535,6 +606,100 @@ export const checkoutSchema = z
     complete: z.boolean().default(true),
   })
   .strict();
+export const payRunCreateSchema = z
+  .object({
+    staff_id: z.string().uuid(),
+    period_from: dateSchema,
+    period_to: dateSchema,
+    adjustments: z.array(z.object({ label: z.string().trim().min(1).max(60), pence: z.number().int().min(-10000000).max(10000000) })).max(10).default([]),
+    note: z.string().trim().max(300).default(""),
+  })
+  .strict()
+  .refine((p) => p.period_to >= p.period_from, "Period end must be on or after start");
+export const payRunUpdateSchema = z
+  .object({
+    version,
+    status: z.enum(["DRAFT", "APPROVED", "PAID", "VOID"]).optional(),
+    paid_method: z.enum(["BANK", "CASH", "OTHER"]).optional(),
+    paid_reference: z.string().trim().max(80).default(""),
+    adjustments: z.array(z.object({ label: z.string().trim().min(1).max(60), pence: z.number().int().min(-10000000).max(10000000) })).max(10).optional(),
+    note: z.string().trim().max(300).optional(),
+    reason: z.string().trim().max(300).default(""),
+  })
+  .strict();
+export function payTermsOf(s: Staff): PayTerms {
+  let tiers: { from_pence: number; pct: number }[] = [];
+  try {
+    tiers = JSON.parse(s.commission_tiers || "[]");
+  } catch {
+    tiers = [];
+  }
+  return {
+    pay_model: s.pay_model,
+    pay_period: s.pay_period,
+    commission_pct: s.commission_pct,
+    base_pence: s.base_pence,
+    hourly_pence: s.hourly_pence,
+    rent_pence: s.rent_pence,
+    commission_threshold_pence: s.commission_threshold_pence,
+    commission_tiers: tiers,
+    tip_share_pct: s.tip_share_pct,
+    product_commission_pct: s.product_commission_pct,
+    employment: s.employment,
+    pay_notes: s.pay_notes,
+  };
+}
+// Commission on service takings. Tiers are marginal bands on the period's takings
+// (e.g. 40% to £1,000, 50% above). Flat % when no tiers are set.
+export function commissionFor(terms: PayTerms, servicePence: number) {
+  const eligible = Math.max(0, servicePence - (terms.pay_model === "HYBRID" ? terms.commission_threshold_pence : 0));
+  if (!terms.commission_tiers.length) return Math.round((eligible * terms.commission_pct) / 100);
+  let total = 0;
+  const tiers = [...terms.commission_tiers].sort((a, b) => a.from_pence - b.from_pence);
+  for (let i = 0; i < tiers.length; i++) {
+    const from = tiers[i].from_pence;
+    const to = tiers[i + 1]?.from_pence ?? Number.POSITIVE_INFINITY;
+    if (eligible <= from) break;
+    total += Math.round(((Math.min(eligible, to) - from) * tiers[i].pct) / 100);
+  }
+  return total;
+}
+// One pay-run calculation; pure so it can be unit-tested and previewed before saving.
+export function calculatePayRun(
+  terms: PayTerms,
+  input: { service_pence: number; tips_pence: number; visits: number; hours_x100: number; periods: number },
+  adjustments: { label: string; pence: number }[] = [],
+) {
+  const periods = Math.max(1, input.periods);
+  const tip_pence = Math.round((input.tips_pence * terms.tip_share_pct) / 100);
+  let commission_pence = 0, base_pence = 0, hourly_pence = 0, rent_pence = 0;
+  switch (terms.pay_model) {
+    case "COMMISSION":
+      commission_pence = commissionFor(terms, input.service_pence);
+      break;
+    case "CHAIR_RENT":
+      rent_pence = terms.rent_pence * periods;
+      break;
+    case "HOURLY":
+      hourly_pence = Math.round((input.hours_x100 * terms.hourly_pence) / 100);
+      break;
+    case "SALARY":
+      base_pence = terms.base_pence * periods;
+      break;
+    case "HYBRID":
+      base_pence = terms.base_pence * periods;
+      commission_pence = commissionFor(terms, input.service_pence);
+      break;
+  }
+  const adjustments_pence = adjustments.reduce((n, a) => n + a.pence, 0);
+  // Chair rent: the barber keeps their own takings (already in their pocket); the shop is owed rent
+  // less any tips the shop collected on their behalf.
+  const net_pence =
+    terms.pay_model === "CHAIR_RENT"
+      ? tip_pence - rent_pence + adjustments_pence
+      : commission_pence + base_pence + hourly_pence + tip_pence + adjustments_pence;
+  return { commission_pence, base_pence, hourly_pence, tip_pence, rent_pence, adjustments_pence, net_pence };
+}
 export const voidPaymentSchema = z.object({ reason: z.string().trim().min(3).max(300) }).strict();
 export const statusSchema = z
   .object({

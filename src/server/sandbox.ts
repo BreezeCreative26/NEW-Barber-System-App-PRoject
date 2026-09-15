@@ -42,7 +42,12 @@ import {
   statusSchema,
   checkoutSchema,
   voidPaymentSchema,
+  payRunCreateSchema,
+  payRunUpdateSchema,
+  payTermsOf,
+  calculatePayRun,
   type Payment,
+  type PayRun,
   weekday,
   type Shop,
   type Staff,
@@ -199,7 +204,8 @@ sandbox.use("*", async (c, next) => {
       (method === "PUT" && /^\/customers\/[^/]+$/.test(path)) ||
       (method === "POST" && /^\/customers\/[^/]+\/merge$/.test(path)) ||
       (method === "GET" && path === "/waitlist") ||
-      (method === "GET" && ["/bookings/range", "/insights", "/wallet"].includes(path)) ||
+      (method === "GET" && ["/bookings/range", "/insights", "/wallet", "/pay-runs"].includes(path)) ||
+      (method === "GET" && path === "/pay-runs/preview") ||
       (method === "POST" && /^\/bookings\/[^/]+\/checkout$/.test(path)) ||
       (method === "POST" && /^\/payments\/[^/]+\/void$/.test(path)) ||
       (method === "POST" && ["/series/preview", "/series"].includes(path)) ||
@@ -215,7 +221,7 @@ sandbox.use("*", async (c, next) => {
     const setup =
       (method === "PUT" && ["/shop", "/shop/online"].includes(path)) ||
       (["POST", "PUT", "DELETE"].includes(method) &&
-        /^\/(staff|services|addons|holidays|service-rules)(\/|$)/.test(path));
+        /^\/(staff|services|addons|holidays|service-rules|pay-runs)(\/|$)/.test(path));
     if (!(
       operational ||
       (["OWNER", "MANAGER"].includes(account.role) && setup)
@@ -1032,7 +1038,7 @@ sandbox.put("/staff/:id", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE staff SET name=?,role=?,active=?,title=?,bio=?,colour=?,photo_url=?,online_visible=?,skills=?,instagram=?,start_date=?,sort_order=?,commission_pct=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
+      "UPDATE staff SET name=?,role=?,active=?,title=?,bio=?,colour=?,photo_url=?,online_visible=?,skills=?,instagram=?,start_date=?,sort_order=?,commission_pct=?,pay_model=?,pay_period=?,base_pence=?,hourly_pence=?,rent_pence=?,commission_threshold_pence=?,commission_tiers=?,tip_share_pct=?,product_commission_pct=?,employment=?,pay_notes=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
     ).bind(
       b.name,
       b.role,
@@ -1047,6 +1053,17 @@ sandbox.put("/staff/:id", async (c) => {
       b.start_date || null,
       b.sort_order,
       b.commission_pct,
+      b.pay_model,
+      b.pay_period,
+      b.base_pence,
+      b.hourly_pence,
+      b.rent_pence,
+      b.commission_threshold_pence,
+      JSON.stringify(b.commission_tiers),
+      b.tip_share_pct,
+      b.product_commission_pct,
+      b.employment,
+      b.pay_notes,
       c.get("shopId"),
       c.req.param("id"),
       b.version,
@@ -1926,6 +1943,113 @@ sandbox.get("/wallet", async (c) => {
     by_staff: byStaff,
     payments: rows,
   });
+});
+
+// ---- Pay runs: settle a barber for a period from the ledger + their pay terms ----
+async function payRunFigures(c: Ctx, staffId: string, from: string, to: string) {
+  const sid = c.get("shopId");
+  const [pay, hoursRows, offRows, overrideRows, staff, shop] = await Promise.all([
+    c.env.DB.prepare(
+      "SELECT COALESCE(SUM(service_pence),0) AS service, COALESCE(SUM(tip_pence),0) AS tips, COUNT(DISTINCT booking_id) AS visits FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL",
+    ).bind(sid, staffId, from, to).first<{ service: number; tips: number; visits: number }>(),
+    c.env.DB.prepare("SELECT * FROM staff_hours WHERE shop_id=? AND staff_id=?").bind(sid, staffId).all<Hours>(),
+    c.env.DB.prepare("SELECT date FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<{ date: string }>(),
+    c.env.DB.prepare("SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<ScheduleOverride>(),
+    c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND id=?").bind(sid, staffId).first<Staff>(),
+    readShop(c),
+  ]);
+  if (!staff) return fail(404, "Barber not found");
+  const holidays = (await c.env.DB.prepare("SELECT date FROM holidays WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, from, to).all<{ date: string }>()).results.map((h) => h.date);
+  const off = new Set(offRows.results.map((r) => r.date));
+  const closed = new Set<number>(JSON.parse(shop.closed_days));
+  // Rostered minutes across the period (weekly hours + dated overrides, less leave/closures/breaks).
+  let minutes = 0;
+  for (let d = from; d <= to; d = datePlusServer(d, 1)) {
+    if (off.has(d) || holidays.includes(d) || closed.has(weekday(d))) continue;
+    const h = effectiveHours(hoursRows.results.find((x) => x.weekday === weekday(d)) ?? null, overrideRows.results.find((o) => o.date === d) ?? null);
+    if (!h?.enabled) continue;
+    minutes += Math.max(0, Math.min(h.ends, shop.closes) - Math.max(h.starts, shop.opens)) - Math.max(0, h.break_end - h.break_start);
+  }
+  const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+  const terms = payTermsOf(staff);
+  const periodDays = terms.pay_period === "WEEKLY" ? 7 : terms.pay_period === "FORTNIGHTLY" ? 14 : 30;
+  const periods = Math.max(1, Math.round(days / periodDays));
+  return {
+    staff,
+    terms,
+    input: { service_pence: pay?.service ?? 0, tips_pence: pay?.tips ?? 0, visits: pay?.visits ?? 0, hours_x100: Math.round((minutes / 60) * 100), periods },
+  };
+}
+function datePlusServer(d: string, n: number) {
+  const x = new Date(d + "T12:00:00Z");
+  x.setUTCDate(x.getUTCDate() + n);
+  return x.toISOString().slice(0, 10);
+}
+sandbox.get("/pay-runs/preview", async (c) => {
+  const q = z.object({ staff_id: z.string().uuid(), from: dateSchema, to: dateSchema }).safeParse(c.req.query());
+  if (!q.success) fail(400, "Supply staff_id, from and to");
+  scopeStaff(c, q.data!.staff_id);
+  const { terms, input } = await payRunFigures(c, q.data!.staff_id, q.data!.from, q.data!.to);
+  return c.json({ terms, input, result: calculatePayRun(terms, input) });
+});
+sandbox.get("/pay-runs", async (c) => {
+  const a = c.get("account");
+  const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const rows = await c.env.DB.prepare(
+    "SELECT * FROM pay_runs WHERE shop_id=? AND (? IS NULL OR staff_id=?) ORDER BY period_from DESC, created_at DESC LIMIT 300",
+  )
+    .bind(c.get("shopId"), assigned, assigned)
+    .all<PayRun>();
+  return c.json({ pay_runs: rows.results });
+});
+sandbox.post("/pay-runs", async (c) => {
+  const b = await input(c, payRunCreateSchema);
+  const { staff, terms, input: figures } = await payRunFigures(c, b.staff_id, b.period_from, b.period_to);
+  const r = calculatePayRun(terms, figures, b.adjustments);
+  const now = Date.now();
+  const runId = id();
+  try {
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        `INSERT INTO pay_runs(id,shop_id,staff_id,period_from,period_to,pay_model,terms_json,service_pence,tips_pence,visits,hours_x100,commission_pence,base_pence,hourly_pence,tip_pence,rent_pence,adjustments_json,adjustments_pence,net_pence,status,note,created_by,created_at,updated_at)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,?)`,
+      ).bind(runId, c.get("shopId"), staff.id, b.period_from, b.period_to, terms.pay_model, JSON.stringify(terms), figures.service_pence, figures.tips_pence, figures.visits, figures.hours_x100, r.commission_pence, r.base_pence, r.hourly_pence, r.tip_pence, r.rent_pence, JSON.stringify(b.adjustments), r.adjustments_pence, r.net_pence, b.note, c.get("actor"), now, now),
+      audit(c, "pay_run", runId, "PAY_RUN_CREATED", `${staff.name} ${b.period_from}..${b.period_to} net ${r.net_pence}p`),
+    ]);
+  } catch (e) {
+    if (String(e).includes("UNIQUE")) fail(409, "A pay run already exists for this barber and period");
+    throw e;
+  }
+  const run = await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), runId).first<PayRun>();
+  return c.json({ pay_run: run }, 201);
+});
+sandbox.put("/pay-runs/:id", async (c) => {
+  const b = await input(c, payRunUpdateSchema);
+  const run = await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<PayRun>();
+  if (!run) return fail(404, "Pay run not found");
+  if (run.version !== b.version) fail(409, "record_changed");
+  if (run.status === "VOID") fail(409, "This pay run is void");
+  const next = b.status ?? run.status;
+  const order = ["DRAFT", "APPROVED", "PAID"];
+  if (next !== "VOID" && order.indexOf(next) < order.indexOf(run.status)) fail(409, "Pay runs only move forward: draft → approved → paid");
+  if (run.status === "PAID" && next !== "VOID") fail(409, "Paid runs are frozen; void it to redo");
+  if (next === "VOID" && b.reason.length < 3) fail(400, "A reason of at least three characters is required to void");
+  if (next === "PAID" && !(b.paid_method ?? run.paid_method)) fail(400, "Record how it was paid (bank, cash or other)");
+  // Adjustments/note only change on drafts; recompute net.
+  const adjustments = run.status === "DRAFT" && b.adjustments ? b.adjustments : (JSON.parse(run.adjustments_json) as { label: string; pence: number }[]);
+  const terms = JSON.parse(run.terms_json);
+  const r = calculatePayRun(terms, { service_pence: run.service_pence, tips_pence: run.tips_pence, visits: run.visits, hours_x100: run.hours_x100, periods: 1 }, adjustments);
+  // periods are baked into base/rent already; keep the stored base/rent and only re-sum.
+  const net = next === "VOID" ? run.net_pence : (terms.pay_model === "CHAIR_RENT" ? run.tip_pence - run.rent_pence + r.adjustments_pence : run.commission_pence + run.base_pence + run.hourly_pence + run.tip_pence + r.adjustments_pence);
+  await checkVersionUpdate(
+    c,
+    c.env.DB.prepare(
+      "UPDATE pay_runs SET status=?,paid_method=?,paid_reference=?,adjustments_json=?,adjustments_pence=?,net_pence=?,note=?,updated_at=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
+    ).bind(next, b.paid_method ?? run.paid_method, b.paid_reference || run.paid_reference, JSON.stringify(adjustments), r.adjustments_pence, net, b.note ?? run.note, Date.now(), c.get("shopId"), run.id, b.version),
+    audit(c, "pay_run", run.id, `PAY_RUN_${next}`, b.reason || (next === "PAID" ? `Paid by ${b.paid_method ?? run.paid_method}${b.paid_reference ? ` · ${b.paid_reference}` : ""}` : ""), true),
+  );
+  const fresh = await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), run.id).first<PayRun>();
+  return c.json({ pay_run: fresh });
 });
 sandbox.post("/bookings/:id/reschedule", async (c) => {
   const body = await input(c, moveSchema);
