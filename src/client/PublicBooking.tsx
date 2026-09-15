@@ -1074,8 +1074,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   {waitlist === "done" && (
                     <Notice icon="check">
                       <strong>You’re on the list.</strong> The shop can see your request for{" "}
-                      {dateLabel(date, { weekday: "long", day: "numeric", month: "long" })} and will contact you by hand if a
-                      space opens. Nothing is reserved yet.
+                      {dateLabel(date, { weekday: "long", day: "numeric", month: "long" })}. If a time opens up you’ll get a message with a link to take it — it’s held for you for a couple of hours. Nothing is reserved yet.
                     </Notice>
                   )}
                   <p className="slot-note">

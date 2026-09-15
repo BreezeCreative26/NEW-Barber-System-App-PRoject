@@ -807,6 +807,7 @@ export function Workspace() {
   const [calendarView, setCalendarView] = useState("day");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -1218,7 +1219,9 @@ export function Workspace() {
             : null
         }
         onWallet={() => setWalletOpen((v) => !v)}
-        bell={w ? { count: w.issues.length + waitlist.length, open: notificationsOpen } : null}
+        queue={w ? { count: waitlist.length, offered: waitlist.filter((e) => e.status === "OFFERED").length, open: queueOpen } : null}
+        onQueue={() => setQueueOpen((v) => !v)}
+        bell={w ? { count: w.issues.length, open: notificationsOpen } : null}
         onBell={() => setNotificationsOpen((v) => !v)}
         account={
           w
@@ -1298,23 +1301,33 @@ export function Workspace() {
       {w && notificationsOpen && (
         <NotificationsDrawer
           w={w}
-          date={date}
-          waitlist={waitlist}
-          onRefreshWaitlist={() =>
-            api<{ waitlist: WaitlistEntry[] }>(`/waitlist?from=${w.today}`)
-              .then((r) => setWaitlist(r.waitlist))
-              .catch(() => {})
-          }
-          onBook={(entry) => {
-            setNotificationsOpen(false);
-            if (tab !== "Appointments") setTab("Appointments");
-            setEditor({ kind: "booking", waitlist: entry });
-          }}
           onReview={(id) => {
             setNotificationsOpen(false);
             openBooking(id);
           }}
           onClose={() => setNotificationsOpen(false)}
+        />
+      )}
+      {w && queueOpen && (
+        <QueueDrawer
+          w={w}
+          date={date}
+          waitlist={waitlist}
+          onRefresh={() =>
+            api<{ waitlist: WaitlistEntry[] }>(`/waitlist?from=${w.today}`)
+              .then((r) => setWaitlist(r.waitlist))
+              .catch(() => {})
+          }
+          onBook={(entry) => {
+            setQueueOpen(false);
+            if (tab !== "Appointments") setTab("Appointments");
+            setEditor({ kind: "booking", waitlist: entry });
+          }}
+          onOpenSettings={() => {
+            setQueueOpen(false);
+            setTab("Settings");
+          }}
+          onClose={() => setQueueOpen(false)}
         />
       )}
       <div className="workspace-layout">
@@ -1879,6 +1892,7 @@ export function Workspace() {
                   </section>
                   <OnlineBookingPanel w={w} saved={saved} />
                   <ShopPagePanel w={w} />
+                  <WaitlistSettingsPanel w={w} />
                   <CustomerPagesPanel w={w} onOpenBooking={openBooking} />
                   <section className="workspace-panel">
                     <div className="workspace-section-heading">
@@ -2277,7 +2291,15 @@ type WaitlistEntry = {
   created_at: number;
   service_name: string;
   staff_name: string | null;
+  offer_id: string | null;
+  offers_made: number;
+  offer_date?: string | null;
+  offer_start_min?: number | null;
+  offer_expires_at?: number | null;
+  offer_staff_name?: string | null;
+  offer_source?: string | null;
 };
+type QueueMatch = { staff_id: string; staff_name: string; start_min: number; price_pence: number; duration_min: number };
 // Settings → Shop page: content of the public home page at /<slug>. Presentation only.
 type PageForm = { strapline: string; about: string; cover_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; published: number; version: number };
 const PAGE_SECTIONS: { key: string; label: string }[] = [
@@ -2479,6 +2501,139 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
 
 // Every customer-facing surface in one place so the owner can review them from the admin.
 // Live pages open in a new tab; planned ones link to the plan so the roadmap is visible in-app.
+// Settings → Waiting list & messages: auto-offer, hold time, message wording, and the outbox.
+type OutboxRow = { id: string; channel: string; recipient: string; template: string; body: string; status: string; status_note: string; related_type: string; created_at: number };
+const TEMPLATE_LABELS: Record<string, { label: string; hint: string }> = {
+  waitlist_joined: { label: "Joined the list", hint: "{first} {shop} {date} {daypart}" },
+  waitlist_offer: { label: "A time is offered", hint: "{first} {shop} {service} {barber} {date} {time} {expires} {link}" },
+  waitlist_booked: { label: "Offer accepted", hint: "{service} {barber} {shop} {date} {time} {ref} {manage}" },
+  waitlist_released: { label: "Declined or expired", hint: "{first} {shop} {date}" },
+};
+function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
+  const [data, setData] = useState<{ notifications: OutboxRow[]; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number } } | null>(null);
+  const [form, setForm] = useState<{ auto: number; hold: number; templates: Record<string, string> } | null>(null);
+  const [state, setState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
+  const [copied, setCopied] = useState("");
+  const load = () =>
+    api<NonNullable<typeof data>>("/notifications?limit=50")
+      .then((d) => {
+        setData(d);
+        setForm({ auto: d.settings.waitlist_auto_offer, hold: d.settings.waitlist_offer_hold_min, templates: { ...d.templates } });
+      })
+      .catch((e) => setState({ kind: "error", text: e instanceof Error ? e.message : "Could not load." }));
+  useEffect(() => {
+    load();
+  }, [w.shop.version]);
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!form) return;
+    setState({ kind: "saving", text: "" });
+    try {
+      await api("/shop/waitlist", "PUT", { waitlist_auto_offer: form.auto, waitlist_offer_hold_min: form.hold, templates: form.templates, version: w.shop.version });
+      setState({ kind: "saved", text: "Saved. New offers use this wording; existing messages are unchanged." });
+    } catch (err) {
+      setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
+    }
+  }
+  async function copy(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied("Message copied.");
+    } catch {
+      setCopied("Copy unavailable here; select the text instead.");
+    }
+  }
+  const fmtWhen = (ms: number) => new Date(ms).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" });
+  const tone: Record<string, "good" | "next" | "paid" | "warn" | "note"> = { SENT: "good", QUEUED: "next", FAILED: "warn", SKIPPED: "note" };
+  return (
+    <section className="workspace-panel" aria-labelledby="waitlist-settings-heading" data-testid="waitlist-settings">
+      <div className="workspace-section-heading">
+        <div>
+          <h2 id="waitlist-settings-heading">Waiting list & messages</h2>
+          <p className="workspace-footnote">How the queue works when a day is full: whether freed slots are offered automatically, how long an offer is held, and the wording customers receive. No message provider is connected yet — every message is recorded below so staff can send it by hand.</p>
+        </div>
+        <StatusPill tone="note">Outbox only · nothing sent</StatusPill>
+      </div>
+      {form && data && (
+        <form className="workspace-form" onSubmit={save} data-testid="waitlist-settings-form">
+          <div className="workspace-form-grid">
+            <div className="workspace-switch-row">
+              <span>
+                <strong>Offer freed slots automatically</strong>
+                <small>When a booking is cancelled or moved, the oldest matching request on that day is offered the time.</small>
+              </span>
+              <label className="switch">
+                <input type="checkbox" checked={!!form.auto} onChange={(e) => setForm({ ...form, auto: e.target.checked ? 1 : 0 })} aria-label="Offer freed slots automatically" data-testid="auto-offer" />
+                <span />
+              </label>
+            </div>
+            <Field label="Hold an offer for (minutes)">
+              <input type="number" min={15} max={1440} step={15} value={form.hold} onChange={(e) => setForm({ ...form, hold: Number(e.target.value) })} data-testid="offer-hold" />
+            </Field>
+          </div>
+          <fieldset className="template-fields">
+            <legend>Message wording</legend>
+            {Object.keys(TEMPLATE_LABELS).map((k) => (
+              <Field key={k} label={TEMPLATE_LABELS[k].label}>
+                <textarea value={form.templates[k] ?? ""} rows={2} maxLength={400} onChange={(e) => setForm({ ...form, templates: { ...form.templates, [k]: e.target.value } })} data-testid={`template-${k}`} />
+                <span className="field-help">
+                  Placeholders: <code>{TEMPLATE_LABELS[k].hint}</code>
+                  {form.templates[k] !== data.defaults[k] && (
+                    <>
+                      {" · "}
+                      <button type="button" className="linkish" onClick={() => setForm({ ...form, templates: { ...form.templates, [k]: data.defaults[k] } })}>
+                        Reset to default
+                      </button>
+                    </>
+                  )}
+                </span>
+              </Field>
+            ))}
+          </fieldset>
+          {state.text && (
+            <p className={state.kind === "error" ? "workspace-error" : "workspace-success"} role={state.kind === "error" ? "alert" : "status"}>
+              {state.text}
+            </p>
+          )}
+          <div className="workspace-form-actions">
+            <Button type="submit" disabled={state.kind === "saving"} data-testid="save-waitlist-settings">
+              {state.kind === "saving" ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </form>
+      )}
+      <div className="outbox" data-testid="outbox">
+        <h3>
+          Outbox <small>{data ? `${data.notifications.length} recent` : ""}</small>
+        </h3>
+        {copied && (
+          <p className="workspace-success" role="status">
+            {copied}
+          </p>
+        )}
+        {data && data.notifications.length === 0 && <p className="workspace-footnote">No messages yet. Joining the list, offers, acceptances and releases all appear here.</p>}
+        <ul className="outbox-list">
+          {data?.notifications.map((n) => (
+            <li key={n.id} data-testid="outbox-row">
+              <div className="outbox-meta">
+                <StatusPill tone={tone[n.status] ?? "note"}>{n.status === "SKIPPED" ? "Not sent" : n.status.toLowerCase()}</StatusPill>
+                <span>
+                  {n.channel} · {n.recipient} · {TEMPLATE_LABELS[n.template]?.label ?? n.template} · {fmtWhen(n.created_at)}
+                </span>
+              </div>
+              <code>{n.body}</code>
+              <div className="outbox-actions">
+                <Button variant="ghost" onClick={() => copy(n.body)}>
+                  <Icon name="copy" size={14} /> Copy
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
 function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBooking: (id: string) => void }) {
   const [manageLink, setManageLink] = useState("");
   const [busy, setBusy] = useState(false);
@@ -2534,7 +2689,7 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
         </Button>
       ),
     },
-    { icon: "bell", title: "Waitlist", note: "Customers join from the booking page when a day is full; you book them in from the bell.", status: "live" },
+    { icon: "hourglass", title: "Waiting list & offers", note: "Customers join from the booking page when a day is full; you work the queue from the hourglass in the top bar. Freed slots are offered automatically; customers reply at /offer/<link>. Messages sit in the outbox until a provider is connected.", status: "live" },
     {
       icon: "globe",
       title: "Shop home page",
@@ -2595,27 +2750,8 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
   );
 }
 
-// Notifications drawer (bell): schedule issues and the waitlist live here, off the timetable.
-function NotificationsDrawer({
-  w,
-  date,
-  waitlist,
-  onRefreshWaitlist,
-  onBook,
-  onReview,
-  onClose,
-}: {
-  w: WorkspaceData;
-  date: string;
-  waitlist: WaitlistEntry[];
-  onRefreshWaitlist: () => void;
-  onBook: (entry: WaitlistEntry) => void;
-  onReview: (bookingId: string) => void;
-  onClose: () => void;
-}) {
-  const [error, setError] = useState("");
-  const [busyId, setBusyId] = useState("");
-  const [expanded, setExpanded] = useState(false);
+// Notifications drawer (bell): schedule issues. The waiting list has its own Queue drawer.
+function NotificationsDrawer({ w, onReview, onClose }: { w: WorkspaceData; onReview: (bookingId: string) => void; onClose: () => void }) {
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -2629,21 +2765,7 @@ function NotificationsDrawer({
       previous?.focus();
     };
   }, []);
-  async function close(entry: WaitlistEntry) {
-    setBusyId(entry.id);
-    try {
-      await api(`/waitlist/${entry.id}/status`, "POST", { status: "CLOSED", version: entry.version });
-      onRefreshWaitlist();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not update.");
-    } finally {
-      setBusyId("");
-    }
-  }
-  const today = waitlist.filter((r) => r.date === date);
-  const shown = expanded ? waitlist : today.length ? today : waitlist.slice(0, 3);
-  const part: Record<string, string> = { ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" };
-  const total = w.issues.length + waitlist.length;
+  const total = w.issues.length;
   return (
     <>
       <div className="drawer-scrim" onClick={onClose} aria-hidden="true" />
@@ -2653,7 +2775,7 @@ function NotificationsDrawer({
           <small>{total ? `${total} item${total === 1 ? "" : "s"}` : "All clear"}</small>
           <IconButton name="close" label="Close notifications" onClick={onClose} />
         </h2>
-        {w.issues.length > 0 && (
+        {w.issues.length > 0 ? (
           <section className="notify-group" aria-labelledby="notify-issues-heading">
             <h3 id="notify-issues-heading">
               <Icon name="blocked" size={16} /> Schedule review
@@ -2674,52 +2796,227 @@ function NotificationsDrawer({
               ))}
             </ul>
           </section>
+        ) : (
+          <p className="drawer-note left">Nothing needs your attention. The waiting list lives under the hourglass in the top bar.</p>
         )}
-        <section className="notify-group waitlist-panel" aria-labelledby="waitlist-panel-heading">
-          <h3 id="waitlist-panel-heading">
-            <Icon name="bell" size={16} /> Waitlist
-            <span className="nav-count">{waitlist.length}</span>
-          </h3>
-          <p className="drawer-note left">
-            {waitlist.length === 0
-              ? "No one is waiting. Customers can join the waitlist from the public booking page when a day is full."
-              : today.length
-                ? `${today.length} customer${today.length === 1 ? "" : "s"} waiting for ${date === w.today ? "today" : "this day"}. Book them into a free slot or close the request.`
-                : "Customers who asked to be contacted when a full day opens up. Nothing is reserved until you book them."}
-          </p>
-          <ErrorMessage error={error} />
-          <ul className="notify-list">
+        <p className="drawer-note">Local test data · nothing here sends a message or takes a payment.</p>
+      </aside>
+    </>
+  );
+}
+// Queue drawer (hourglass): the waiting list, worked from the top bar. See docs/WAITLIST-PLAN.md.
+function QueueDrawer({
+  w,
+  date,
+  waitlist,
+  onRefresh,
+  onBook,
+  onOpenSettings,
+  onClose,
+}: {
+  w: WorkspaceData;
+  date: string;
+  waitlist: WaitlistEntry[];
+  onRefresh: () => void;
+  onBook: (entry: WaitlistEntry) => void;
+  onOpenSettings: () => void;
+  onClose: () => void;
+}) {
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const [offering, setOffering] = useState<{ entry: WaitlistEntry; matches: QueueMatch[] | null } | null>(null);
+  const [lastOffer, setLastOffer] = useState<{ link: string; body: string; name: string } | null>(null);
+  const [copied, setCopied] = useState("");
+  const [filter, setFilter] = useState<"all" | "today" | "offered">("all");
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    ref.current?.querySelector<HTMLElement>("button")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") (offering ? setOffering(null) : onClose());
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      previous?.focus();
+    };
+  }, [offering]);
+  async function close(entry: WaitlistEntry) {
+    setBusyId(entry.id);
+    setError("");
+    try {
+      await api(`/waitlist/${entry.id}/status`, "POST", { status: "CLOSED", version: entry.version });
+      onRefresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update.");
+    } finally {
+      setBusyId("");
+    }
+  }
+  async function startOffer(entry: WaitlistEntry) {
+    setOffering({ entry, matches: null });
+    setError("");
+    try {
+      const r = await api<{ matches: QueueMatch[] }>(`/waitlist/${entry.id}/matches`);
+      setOffering((o) => (o && o.entry.id === entry.id ? { entry, matches: r.matches } : o));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load times.");
+      setOffering(null);
+    }
+  }
+  async function sendOffer(entry: WaitlistEntry, m: QueueMatch) {
+    setBusyId(entry.id);
+    setError("");
+    try {
+      const r = await api<{ offer: { link: string; body: string } }>(`/waitlist/${entry.id}/offer`, "POST", { staff_id: m.staff_id, start_min: m.start_min, version: entry.version });
+      setLastOffer({ link: r.offer.link, body: r.offer.body, name: entry.customer_name });
+      setOffering(null);
+      onRefresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not offer that time.");
+    } finally {
+      setBusyId("");
+    }
+  }
+  async function copy(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(`${label} copied.`);
+    } catch {
+      setCopied("Copy unavailable here; select the text instead.");
+    }
+  }
+  const part: Record<string, string> = { ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" };
+  const shown = waitlist.filter((r) => (filter === "today" ? r.date === date : filter === "offered" ? r.status === "OFFERED" : true));
+  const offered = waitlist.filter((r) => r.status === "OFFERED").length;
+  const fmt = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" });
+  const canOffer = (r: WaitlistEntry) => r.date >= w.today;
+  return (
+    <>
+      <div className="drawer-scrim" onClick={onClose} aria-hidden="true" />
+      <aside className="drawer-right queue-drawer" aria-label="Waiting list" ref={ref} data-testid="queue-drawer">
+        <h2>
+          Waiting list
+          <small>{waitlist.length ? `${waitlist.length} waiting${offered ? ` · ${offered} offered` : ""}` : "Nobody waiting"}</small>
+          <IconButton name="close" label="Close waiting list" onClick={onClose} />
+        </h2>
+        <p className="drawer-note left">
+          Customers who asked to be contacted when a full day opens up. Offer a time and the message is queued for them (shown here to copy — nothing is sent in this build); a freed slot is offered automatically when auto-offer is on.
+        </p>
+        <div className="queue-filters" role="group" aria-label="Filter waiting list">
+          {(
+            [
+              ["all", `All · ${waitlist.length}`],
+              ["today", `${date === w.today ? "Today" : fmt(date)} · ${waitlist.filter((r) => r.date === date).length}`],
+              ["offered", `Offered · ${offered}`],
+            ] as const
+          ).map(([k, label]) => (
+            <button key={k} type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <ErrorMessage error={error} />
+        {lastOffer && (
+          <div className="queue-offer-sent" role="status" data-testid="offer-sent">
+            <strong>Offer recorded for {lastOffer.name}.</strong>
+            <small>No message provider is connected, so send it yourself:</small>
+            <code>{lastOffer.body}</code>
+            <div className="queue-offer-actions">
+              <Button variant="secondary" onClick={() => copy(lastOffer.body, "Message")}>
+                <Icon name="copy" size={14} /> Copy message
+              </Button>
+              <Button variant="ghost" onClick={() => copy(lastOffer.link, "Link")}>
+                Copy link only
+              </Button>
+              <Button variant="ghost" onClick={() => setLastOffer(null)}>
+                Dismiss
+              </Button>
+            </div>
+            {copied && <small>{copied}</small>}
+          </div>
+        )}
+        {offering ? (
+          <section className="queue-offering" aria-labelledby="queue-offer-heading" data-testid="queue-offer-picker">
+            <h3 id="queue-offer-heading">
+              <Icon name="send" size={16} /> Offer a time to {offering.entry.customer_name}
+            </h3>
+            <p className="drawer-note left">
+              {offering.entry.service_name} · {offering.entry.staff_name || "any barber"} · {fmt(offering.entry.date)} · {part[offering.entry.daypart]}. Free times that fit their request:
+            </p>
+            {offering.matches === null ? (
+              <p className="drawer-note left">Checking the diary…</p>
+            ) : offering.matches.length === 0 ? (
+              <p className="drawer-note left">Nothing fits yet. Times will be offered automatically if a booking on that day is cancelled or moved.</p>
+            ) : (
+              <ul className="queue-matches">
+                {offering.matches.map((m) => (
+                  <li key={`${m.staff_id}-${m.start_min}`}>
+                    <button type="button" onClick={() => sendOffer(offering.entry, m)} disabled={busyId === offering.entry.id} data-testid="queue-match">
+                      <b>{time(m.start_min)}</b>
+                      <span>
+                        {m.staff_name.split(" ")[0]} · {m.duration_min} min · {money(m.price_pence)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <Button variant="ghost" onClick={() => setOffering(null)}>
+              <Icon name="arrowLeft" size={14} /> Back to the list
+            </Button>
+          </section>
+        ) : (
+          <ul className="notify-list queue-list" data-testid="queue-list">
+            {shown.length === 0 && <li className="queue-empty">{waitlist.length ? "Nothing in this view." : "No one is waiting. Customers can join from the booking page when a day is full."}</li>}
             {shown.map((r) => (
-              <li key={r.id}>
+              <li key={r.id} className={r.status === "OFFERED" ? "offered" : ""} data-testid="queue-row">
                 <div>
-                  <strong>{r.customer_name}</strong>
+                  <strong>
+                    {r.customer_name}
+                    {r.status === "OFFERED" && (
+                      <StatusPill tone="next">
+                        Offered{r.offer_source === "AUTO" ? " · auto" : ""}
+                      </StatusPill>
+                    )}
+                  </strong>
                   <small>
                     {r.service_name} · {r.staff_name || "Any barber"} · {part[r.daypart]}
                   </small>
                   <small>
-                    {new Date(`${r.date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" })}
-                    {" · "}
-                    {r.phone}
+                    {fmt(r.date)} · {r.phone}
+                    {r.offers_made > 0 && r.status !== "OFFERED" ? ` · ${r.offers_made} offer${r.offers_made === 1 ? "" : "s"} so far` : ""}
                   </small>
+                  {r.status === "OFFERED" && r.offer_start_min != null && (
+                    <small className="queue-offer-line">
+                      <Icon name="clock" size={11} /> {time(r.offer_start_min)} with {(r.offer_staff_name || "").split(" ")[0]} · until{" "}
+                      {r.offer_expires_at ? new Date(r.offer_expires_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }) : ""}
+                    </small>
+                  )}
                 </div>
                 <div className="waitlist-row-actions">
-                  <Button onClick={() => onBook(r)} disabled={busyId === r.id}>
+                  {canOffer(r) && (
+                    <Button onClick={() => startOffer(r)} disabled={busyId === r.id} data-testid="queue-offer">
+                      {r.status === "OFFERED" ? "Offer another" : "Offer a time"}
+                    </Button>
+                  )}
+                  <Button variant="secondary" onClick={() => onBook(r)} disabled={busyId === r.id}>
                     Book them in
                   </Button>
                   <Button variant="ghost" onClick={() => close(r)} disabled={busyId === r.id}>
-                    {busyId === r.id ? "…" : "Close"}
+                    {busyId === r.id ? "…" : "Remove"}
                   </Button>
                 </div>
               </li>
             ))}
           </ul>
-          {waitlist.length > shown.length || expanded ? (
-            <Button variant="ghost" onClick={() => setExpanded((v) => !v)}>
-              {expanded ? "Show fewer" : `Show all ${waitlist.length}`}
-            </Button>
-          ) : null}
-        </section>
-        <p className="drawer-note">Local test data · nothing here sends a message or takes a payment.</p>
+        )}
+        {w.account?.role !== "BARBER" && (
+          <button type="button" className="queue-settings-link" onClick={onOpenSettings} data-testid="queue-settings">
+            <Icon name="settings" size={14} /> Auto-offer, hold time and message wording are in Settings → Waiting list & messages
+          </button>
+        )}
+        <p className="drawer-note">Local test data · messages are recorded in the outbox, never sent.</p>
       </aside>
     </>
   );

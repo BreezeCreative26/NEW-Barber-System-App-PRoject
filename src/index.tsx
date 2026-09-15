@@ -74,7 +74,7 @@ app.get("/book/:slug", (c) => {
 app.get("/:slug", async (c, next) => {
   if (c.env?.APP_MODE !== "sandbox") return next();
   const slug = c.req.param("slug").toLowerCase();
-  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs"].includes(slug)) return next();
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs", "offer"].includes(slug)) return next();
   const shop = await c.env.DB.prepare("SELECT name,address FROM shops WHERE slug=? AND online_booking=1").bind(slug).first<{ name: string; address: string }>();
   if (!shop) return next();
   secure(c);
@@ -90,12 +90,17 @@ app.get("/:slug", async (c, next) => {
 app.get("/:slug/me", async (c, next) => {
   if (c.env?.APP_MODE !== "sandbox") return next();
   const slug = c.req.param("slug").toLowerCase();
-  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs"].includes(slug)) return next();
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs", "offer"].includes(slug)) return next();
   const shop = await c.env.DB.prepare("SELECT name FROM shops WHERE slug=? AND online_booking=1").bind(slug).first<{ name: string }>();
   if (!shop) return next();
   secure(c);
   const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
   return c.html(publicPage(`Your visits · ${esc(shop.name)}`, esc(`Sign in to see, move or rebook your visits at ${shop.name}.`)));
+});
+app.get("/offer/:token", (c) => {
+  if (c.env?.APP_MODE !== "sandbox") return c.notFound();
+  secure(c);
+  return c.html(publicPage("A time has opened up — OLLO", "Accept or decline the time the shop is holding for you. Local test; no payment is taken."));
 });
 app.get("/manage/:token", (c) => {
   if (c.env?.APP_MODE !== "sandbox") return c.notFound();

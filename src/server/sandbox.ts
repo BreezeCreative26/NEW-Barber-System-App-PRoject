@@ -61,6 +61,7 @@ import {
   type AuditEvent,
 } from "./domain";
 
+import { autoOffer, makeOffer, matchesFor, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import accounts, {
   ACCOUNT_COOKIE,
   resolveAccount,
@@ -206,7 +207,9 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && path === "/customers") ||
       (method === "PUT" && /^\/customers\/[^/]+$/.test(path)) ||
       (method === "POST" && /^\/customers\/[^/]+\/merge$/.test(path)) ||
-      (method === "GET" && path === "/waitlist") ||
+      (method === "GET" && ["/waitlist", "/notifications"].includes(path)) ||
+      (method === "GET" && /^\/waitlist\/[^/]+\/matches$/.test(path)) ||
+      (method === "POST" && /^\/waitlist\/[^/]+\/offer$/.test(path)) ||
       (method === "GET" && ["/bookings/range", "/insights", "/wallet", "/pay-runs", "/shop/page"].includes(path)) ||
       (method === "GET" && path === "/pay-runs/preview") ||
       (method === "POST" && /^\/bookings\/[^/]+\/checkout$/.test(path)) ||
@@ -222,7 +225,7 @@ sandbox.use("*", async (c, next) => {
           /^\/bookings\/[^/]+\/(status|reschedule)$/.test(path))) ||
       (method === "PATCH" && /^\/bookings\/[^/]+\/details$/.test(path));
     const setup =
-      (method === "PUT" && ["/shop", "/shop/online", "/shop/page"].includes(path)) ||
+      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist"].includes(path)) ||
       (["POST", "PUT", "DELETE"].includes(method) &&
         /^\/(staff|services|addons|holidays|service-rules|pay-runs)(\/|$)/.test(path));
     if (!(
@@ -978,22 +981,52 @@ sandbox.post("/customers/:id/merge", async (c) => {
   return c.json({ customer: await readCustomer(c, winner.id), moved: moved?.n ?? 0 });
 });
 // Waitlist: open requests for full days, scoped like bookings.
+// ---- Waiting list (queue) — see docs/WAITLIST-PLAN.md ----
+const queueSelect =
+  "SELECT w.*, s.name AS service_name, st.name AS staff_name, o.date AS offer_date, o.start_min AS offer_start_min, o.expires_at AS offer_expires_at, o.staff_id AS offer_staff_id, os.name AS offer_staff_name, o.source AS offer_source FROM waitlist_entries w JOIN services s ON s.shop_id=w.shop_id AND s.id=w.service_id LEFT JOIN staff st ON st.shop_id=w.shop_id AND st.id=w.staff_id LEFT JOIN waitlist_offers o ON o.id=w.offer_id LEFT JOIN staff os ON os.shop_id=o.shop_id AND os.id=o.staff_id";
 sandbox.get("/waitlist", async (c) => {
   const p = z
     .object({
-      status: z.enum(["OPEN", "BOOKED", "CLOSED"]).default("OPEN"),
+      status: z.enum(["OPEN", "OFFERED", "BOOKED", "CLOSED", "EXPIRED", "ACTIVE"]).default("ACTIVE"),
       from: dateSchema.optional(),
     })
     .safeParse(c.req.query());
   if (!p.success) fail(400, "Invalid waitlist query");
+  const shop = await shopWithQueue(c, c.get("shopId"));
+  await sweep(c, shop);
   const a = c.get("account");
   const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const statuses = p.data!.status === "ACTIVE" ? ["OPEN", "OFFERED"] : [p.data!.status];
   const rows = await c.env.DB.prepare(
-    "SELECT w.*, s.name AS service_name, st.name AS staff_name FROM waitlist_entries w JOIN services s ON s.shop_id=w.shop_id AND s.id=w.service_id LEFT JOIN staff st ON st.shop_id=w.shop_id AND st.id=w.staff_id WHERE w.shop_id=? AND w.status=? AND (? IS NULL OR w.staff_id=? OR w.staff_id IS NULL) AND (? IS NULL OR w.date>=?) ORDER BY w.date, w.created_at LIMIT 200",
+    `${queueSelect} WHERE w.shop_id=? AND w.status IN (${statuses.map(() => "?").join(",")}) AND (? IS NULL OR w.staff_id=? OR w.staff_id IS NULL) AND (? IS NULL OR w.date>=?) ORDER BY w.date, w.created_at LIMIT 200`,
   )
-    .bind(c.get("shopId"), p.data!.status, assigned, assigned, p.data!.from ?? null, p.data!.from ?? null)
+    .bind(c.get("shopId"), ...statuses, assigned, assigned, p.data!.from ?? null, p.data!.from ?? null)
     .all();
-  return c.json({ waitlist: rows.results });
+  const counts = await c.env.DB.prepare("SELECT status, COUNT(*) AS n FROM waitlist_entries WHERE shop_id=? AND date>=? GROUP BY status").bind(c.get("shopId"), shopToday(shop.timezone)).all<{ status: string; n: number }>();
+  return c.json({ waitlist: rows.results, counts: Object.fromEntries(counts.results.map((r) => [r.status, r.n])), settings: { auto_offer: shop.waitlist_auto_offer, hold_min: shop.waitlist_offer_hold_min } });
+});
+sandbox.get("/waitlist/:id/matches", async (c) => {
+  const shop = await shopWithQueue(c, c.get("shopId"));
+  const entry = await c.env.DB.prepare("SELECT * FROM waitlist_entries WHERE shop_id=? AND id=?").bind(shop.id, c.req.param("id")).first<WaitlistRow>();
+  if (!entry) return fail(404, "Waitlist entry not found");
+  const a = c.get("account");
+  const matches = (await matchesFor(c, shop, entry)).filter((m) => a?.role !== "BARBER" || m.staff_id === a.staff_id);
+  return c.json({ entry, matches });
+});
+// Offer a specific time to a waiting customer. Records the offer + queues the message (not sent).
+sandbox.post("/waitlist/:id/offer", async (c) => {
+  const b = await input(c, z.object({ staff_id: z.string().uuid(), start_min: z.number().int().min(0).max(1425).refine((v) => v % 15 === 0), version: z.number().int().min(0) }).strict());
+  const shop = await shopWithQueue(c, c.get("shopId"));
+  scopeStaff(c, b.staff_id);
+  const entry = await c.env.DB.prepare("SELECT * FROM waitlist_entries WHERE shop_id=? AND id=?").bind(shop.id, c.req.param("id")).first<WaitlistRow>();
+  if (!entry) return fail(404, "Waitlist entry not found");
+  if (entry.version !== b.version) fail(409, "record_changed");
+  if (!["OPEN", "OFFERED"].includes(entry.status)) fail(409, "invalid_transition");
+  const matches = await matchesFor(c, shop, entry);
+  if (!matches.some((m) => m.staff_id === b.staff_id && m.start_min === b.start_min)) fail(409, "slot_taken");
+  const offer = await makeOffer(c, shop, entry, b, "MANUAL", c.get("actor"));
+  if (!offer) return fail(404, "Barber or service not available");
+  return c.json({ ok: true, offer }, 201);
 });
 sandbox.post("/waitlist/:id/status", async (c) => {
   const b = await input(
@@ -1006,14 +1039,42 @@ sandbox.post("/waitlist/:id/status", async (c) => {
       })
       .strict(),
   );
+  const now = Date.now();
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE waitlist_entries SET status=?,booking_id=COALESCE(?,booking_id),version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
-    ).bind(b.status, b.booking_id ?? null, Date.now(), c.get("shopId"), c.req.param("id"), b.version),
+      "UPDATE waitlist_entries SET status=?,booking_id=COALESCE(?,booking_id),offer_id=CASE WHEN ?='OPEN' THEN NULL ELSE offer_id END,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
+    ).bind(b.status, b.booking_id ?? null, b.status, now, c.get("shopId"), c.req.param("id"), b.version),
     audit(c, "waitlist", c.req.param("id"), `WAITLIST_${b.status}`, b.booking_id ? `Linked to booking ${b.booking_id}.` : "", true),
   );
+  // Any pending offer is superseded by the shop's decision.
+  await c.env.DB.prepare("UPDATE waitlist_offers SET status='SUPERSEDED',responded_at=? WHERE shop_id=? AND entry_id=? AND status='PENDING'").bind(now, c.get("shopId"), c.req.param("id")).run();
   return c.json({ ok: true });
+});
+// Queue settings: auto-offer, hold time, message wording.
+export const waitlistSettingsSchema = z
+  .object({
+    waitlist_auto_offer: z.union([z.literal(0), z.literal(1)]),
+    waitlist_offer_hold_min: z.number().int().min(15).max(1440),
+    templates: templatesSchema,
+    version: z.number().int().min(0),
+  })
+  .strict();
+sandbox.put("/shop/waitlist", async (c) => {
+  const b = await input(c, waitlistSettingsSchema);
+  await checkVersionUpdate(
+    c,
+    c.env.DB.prepare("UPDATE shops SET waitlist_auto_offer=?,waitlist_offer_hold_min=?,waitlist_templates_json=?,version=version+1 WHERE id=? AND version=?").bind(b.waitlist_auto_offer, b.waitlist_offer_hold_min, JSON.stringify(b.templates), c.get("shopId"), b.version),
+    audit(c, "shop", c.get("shopId"), "WAITLIST_SETTINGS_UPDATED", `Auto-offer ${b.waitlist_auto_offer ? "on" : "off"}; hold ${b.waitlist_offer_hold_min} min.`, true),
+  );
+  const shop = await shopWithQueue(c, c.get("shopId"));
+  return c.json({ shop: await readShop(c), templates: templatesOf(shop), defaults: DEFAULT_TEMPLATES });
+});
+sandbox.get("/notifications", async (c) => {
+  const p = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) }).safeParse(c.req.query());
+  const rows = await c.env.DB.prepare("SELECT * FROM notifications WHERE shop_id=? ORDER BY created_at DESC LIMIT ?").bind(c.get("shopId"), p.success ? p.data.limit : 50).all();
+  const shop = await shopWithQueue(c, c.get("shopId"));
+  return c.json({ notifications: rows.results, templates: templatesOf(shop), defaults: DEFAULT_TEMPLATES, settings: { waitlist_auto_offer: shop.waitlist_auto_offer, waitlist_offer_hold_min: shop.waitlist_offer_hold_min } });
 });
 // Owner retrieves or creates the customer's manage link so it can be shared by hand.
 sandbox.post("/bookings/:id/manage-link", async (c) => {
@@ -1845,6 +1906,8 @@ sandbox.post("/bookings/:id/status", async (c) => {
       true,
     ),
   );
+  // A cancelled visit frees a slot: offer it to the queue if the shop has auto-offer on.
+  if (body.status === "CANCELLED") await autoOffer(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "cancel");
   return c.json({ booking: await readBooking(c, b.id) });
 });
 
@@ -2129,6 +2192,7 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     ),
     audit(c, "booking", b.id, "RESCHEDULED", body.reason, true),
   );
+  await autoOffer(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "move");
   return c.json({ booking: await readBooking(c, b.id) });
 });
 // ---- Appointment panel: per-booking timeline and standing-series operations ----

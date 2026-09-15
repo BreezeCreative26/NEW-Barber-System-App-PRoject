@@ -73,6 +73,9 @@ import {
   LogOut,
   KeyRound,
   Globe,
+  Hourglass,
+  Send,
+  Copy,
   type LucideIcon,
 } from "lucide-react";
 
@@ -145,6 +148,9 @@ const icons: Record<string, LucideIcon> = {
   logout: LogOut,
   key: KeyRound,
   globe: Globe,
+  hourglass: Hourglass,
+  send: Send,
+  copy: Copy,
 };
 export function Icon({
   name,
@@ -412,10 +418,12 @@ export type NavItem = { key: string; label: string; icon: string };
 export function TopBar({
   search,
   wallet,
+  queue,
   bell,
   account,
   onSearch,
   onWallet,
+  onQueue,
   onBell,
   onAccount,
   accountOpen = false,
@@ -424,10 +432,12 @@ export function TopBar({
   accountOpen?: boolean;
   search?: string;
   wallet?: { amount: string; caption: string; open?: boolean } | null;
+  queue?: { count: number; offered: number; open?: boolean } | null;
   bell?: { count: number; open?: boolean } | null;
   account?: { initials: string; name: string; caption: string; online?: boolean } | null;
   onSearch?: () => void;
   onWallet?: () => void;
+  onQueue?: () => void;
   onBell?: () => void;
   onAccount?: () => void;
   children?: ReactNode;
@@ -449,6 +459,20 @@ export function TopBar({
           <span className="chip-ic"><Icon name="wallet" size={15} /></span>
           <span><b>{wallet.amount}</b><small>{wallet.caption}</small></span>
           <Icon name="down" size={14} />
+        </button>
+      )}
+      {queue && (
+        <button
+          type="button"
+          className={`queue-chip ${queue.offered ? "has-offers" : ""}`}
+          onClick={onQueue}
+          aria-expanded={queue.open ? "true" : "false"}
+          aria-label={`Waiting list: ${queue.count} waiting${queue.offered ? `, ${queue.offered} offer${queue.offered === 1 ? "" : "s"} pending` : ""}`}
+          data-testid="queue-chip"
+        >
+          <span className="chip-ic"><Icon name="hourglass" size={15} /></span>
+          <span><b>{queue.count}</b><small>{queue.offered ? `${queue.offered} offered` : "waiting"}</small></span>
+          {queue.offered > 0 && <span className="presence-dot offer-dot" aria-hidden="true" />}
         </button>
       )}
       {bell && (

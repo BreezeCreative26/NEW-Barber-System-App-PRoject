@@ -64,7 +64,8 @@ Optional, phone-first, no passwords: **one-time code by SMS or email**. Accounts
 - ~~**Group booking**~~ — shipped: 2–4 people on one day, **together** (distinct barbers, same start) or **back to back** (one barber, consecutive); each visit its own row under every guard, shared `group_id`, partial failures reported.
 - **Deposit step** — shown when policy > £0; collects card via Stripe Checkout (Later, provider).
 - **Confirmation** — page + email/SMS with manage link; add to Apple/Google calendar.
-- **Reminders** — 24h and 2h before, with confirm/reschedule/cancel links (Later, provider). Queue table built now; sends stubbed.
+- **Reminders** — 24h and 2h before, with confirm/reschedule/cancel links (Later, provider). The `notifications` outbox + templates now exist (built for the waiting list, see `WAITLIST-PLAN.md`); reminders will reuse it. Sends stubbed.
+- **Waiting list offers** — LIVE: join message, offer with `/offer/<token>` accept/decline, auto-offer on freed slots, `/me` Waiting list section.
 - **Running late / on my way** — customer taps from reminder; shows in the barber's Today queue.
 
 ## 4. Reviews (Next, after §2)

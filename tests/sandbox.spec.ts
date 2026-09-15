@@ -124,6 +124,8 @@ const mutationContracts = [
   ["POST", "/bookings/:id/reschedule"],
   ["POST", "/bookings/:id/manage-link"],
   ["POST", "/waitlist/:id/status"],
+  ["POST", "/waitlist/:id/offer"],
+  ["PUT", "/shop/waitlist"],
   ["POST", "/series/preview"],
   ["POST", "/series"],
   ["POST", "/customers"],

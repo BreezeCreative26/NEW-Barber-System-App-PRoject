@@ -5,6 +5,7 @@ import { Workspace } from "./Workspace";
 import { PublicBooking, ManageBooking } from "./PublicBooking";
 import { ShopPage } from "./ShopPage";
 import { CustomerArea } from "./CustomerArea";
+import { OfferPage } from "./OfferPage";
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -35,6 +36,8 @@ createRoot(document.getElementById("root")!).render(
       <PublicBooking slug={decodeURIComponent(param)} />
     ) : area === "manage" && param ? (
       <ManageBooking token={param} />
+    ) : area === "offer" && param ? (
+      <OfferPage token={param} />
     ) : area && area !== "workspace" && param === "me" ? (
       <CustomerArea slug={decodeURIComponent(area)} />
     ) : area && area !== "workspace" && !param ? (

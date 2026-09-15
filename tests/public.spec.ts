@@ -7,7 +7,7 @@ import {
 import AxeBuilder from "@axe-core/playwright";
 import { readFileSync } from "node:fs";
 import type { WorkspaceData } from "../src/server/domain";
-import { openNotifications } from "./fixture";
+import { openQueue } from "./fixture";
 
 // Public online booking, customer manage links and owner customer directory.
 // Every test creates its own fictional shop; nothing live is touched.
@@ -448,6 +448,8 @@ const publicMutations = [
   ["POST", "/shops/:slug/waitlist"],
   ["POST", "/manage/:token/cancel"],
   ["POST", "/manage/:token/reschedule"],
+  ["POST", "/offer/:token/accept"],
+  ["POST", "/offer/:token/decline"],
   // Customer account router (mounted under /shops/:slug/account behind the same guard).
   ["POST", "/shops/:slug/account/start"],
   ["POST", "/shops/:slug/account/verify"],
@@ -455,6 +457,7 @@ const publicMutations = [
   ["PUT", "/shops/:slug/account/profile"],
   ["POST", "/shops/:slug/account/bookings/:id/cancel"],
   ["POST", "/shops/:slug/account/bookings/:id/reschedule"],
+  ["POST", "/shops/:slug/account/waitlist/:id/leave"],
   ["POST", "/shops/:slug/account/delete"],
 ] as const;
 test("all public mutation endpoints enforce origin and validate input", async () => {
@@ -660,9 +663,9 @@ test.describe("public booking v2 UI", () => {
     await page.context().addCookies(state.cookies);
     await page.goto("/workspace");
     await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
-    await expect(page.getByTestId("bell")).toHaveAccessibleName(/1 unread/);
-    await openNotifications(page);
-    await expect(page.getByRole("heading", { name: /Waitlist/ })).toBeVisible();
+    await expect(page.getByTestId("queue-chip")).toHaveAccessibleName(/1 waiting/);
+    await openQueue(page);
+    await expect(page.getByRole("heading", { name: "Waiting list" })).toBeVisible();
     await page.getByRole("button", { name: "Book them in" }).click();
     await expect(page.getByRole("complementary", { name: "Waitlist request" })).toContainText("Waiting Wanda");
     await expect(page.getByLabel("Fictional customer name")).toHaveValue("Waiting Wanda");

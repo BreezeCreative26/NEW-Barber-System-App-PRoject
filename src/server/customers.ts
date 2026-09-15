@@ -244,7 +244,14 @@ acct.get("/me", async (c) => {
     }
   }
   const staff = await c.env.DB.prepare("SELECT id,name FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name").bind(shop.id).all<{ id: string; name: string }>();
+  // Waiting-list requests (open or with an offer pending) for this customer at this shop.
+  const waiting = await c.env.DB.prepare(
+    "SELECT w.id,w.date,w.daypart,w.status,w.version,s.name AS service_name,st.name AS staff_name,o.start_min AS offer_start_min,o.expires_at AS offer_expires_at,os.name AS offer_staff_name FROM waitlist_entries w JOIN services s ON s.shop_id=w.shop_id AND s.id=w.service_id LEFT JOIN staff st ON st.shop_id=w.shop_id AND st.id=w.staff_id LEFT JOIN waitlist_offers o ON o.id=w.offer_id LEFT JOIN staff os ON os.shop_id=o.shop_id AND os.id=o.staff_id WHERE w.shop_id=? AND w.phone=? AND w.status IN ('OPEN','OFFERED') AND w.date>=? ORDER BY w.date",
+  )
+    .bind(shop.id, cust.phone, shopToday(shop.timezone, now))
+    .all();
   return c.json({
+    waiting: waiting.results,
     shop: { name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now) },
     profile: profileOf(a, cust),
     upcoming,
@@ -311,6 +318,25 @@ acct.get("/bookings/:id/calendar.ics", async (c) => {
   const cust = await linkedCustomer(c, shop, a);
   const { booking, staffName } = await ownBooking(c, shop, cust, c.req.param("id")!);
   return calendarResponse(c, shop, booking, staffName);
+});
+
+// Leave the waiting list for one request.
+acct.post("/waitlist/:id/leave", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug")!);
+  const a = await requireAccount(c, shop);
+  const cust = await linkedCustomer(c, shop, a);
+  const b = await readInput(c, z.object({ version: z.number().int().min(0) }).strict());
+  const entry = await c.env.DB.prepare("SELECT id,version,status FROM waitlist_entries WHERE shop_id=? AND id=? AND phone=?").bind(shop.id, c.req.param("id"), cust.phone).first<{ id: string; version: number; status: string }>();
+  if (!entry) return fail(404, "Request not found");
+  if (entry.version !== b.version) fail(409, "record_changed");
+  if (!["OPEN", "OFFERED"].includes(entry.status)) fail(409, "invalid_transition");
+  const now = Date.now();
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE waitlist_offers SET status='DECLINED',responded_at=? WHERE shop_id=? AND entry_id=? AND status='PENDING'").bind(now, shop.id, entry.id),
+    c.env.DB.prepare("UPDATE waitlist_entries SET status='CLOSED',offer_id=NULL,version=version+1,updated_at=? WHERE id=? AND version=?").bind(now, entry.id, b.version),
+    audit(c, "waitlist", entry.id, "WAITLIST_LEFT", "Customer left the waiting list from their account."),
+  ]);
+  return c.json({ ok: true });
 });
 
 // Privacy: export everything this shop holds about me; delete the account (bookings stay with the shop as history).

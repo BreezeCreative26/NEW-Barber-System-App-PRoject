@@ -49,3 +49,10 @@ export async function openNotifications(page: Page) {
   if ((await bell.getAttribute("aria-expanded")) !== "true") await bell.click();
   await expect(page.getByTestId("notifications")).toBeVisible();
 }
+
+// The waiting list (queue) drawer lives behind the hourglass chip in the top bar.
+export async function openQueue(page: Page) {
+  const chip = page.getByTestId("queue-chip");
+  if ((await chip.getAttribute("aria-expanded")) !== "true") await chip.click();
+  await expect(page.getByTestId("queue-drawer")).toBeVisible();
+}

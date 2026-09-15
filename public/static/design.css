@@ -1260,3 +1260,55 @@
 .ca-for { font-weight: 500; color: var(--muted); font-size: var(--fs-13); }
 .event-group { margin-left: 4px; vertical-align: -1px; }
 .panel-attendee { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-12); color: var(--muted); }
+
+/* ---- Waiting list: queue chip, queue drawer, offer page, settings/outbox ---- */
+.queue-chip { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px 0 6px; border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; position: relative; }
+.queue-chip:hover { border-color: var(--ollo); }
+.queue-chip[aria-expanded="true"] { background: var(--ollo-soft); border-color: var(--accent); }
+.queue-chip .chip-ic { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--note-bg); color: var(--note); }
+.queue-chip > span:not(.chip-ic) { display: grid; line-height: 1.05; text-align: left; }
+.queue-chip b { font-size: var(--fs-13); }
+.queue-chip small { font-size: var(--fs-11); color: var(--muted); }
+.queue-chip .offer-dot { position: absolute; top: 4px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.queue-chip.has-offers .chip-ic { background: var(--ollo-soft); color: var(--accent-dark); }
+@media (max-width: 640px) { .queue-chip > span:not(.chip-ic) small { display: none; } .queue-chip { padding-right: 10px; } }
+.queue-drawer { gap: var(--s-3); }
+.queue-drawer .button.ghost, .offer-card .button.ghost { color: var(--accent-dark); }
+.queue-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.queue-filters button { border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--surface); padding: 6px 12px; font: inherit; font-size: var(--fs-12); font-weight: 600; color: var(--muted); cursor: pointer; }
+.queue-filters button[aria-pressed="true"] { background: var(--ink); color: var(--on-accent); border-color: var(--ink); }
+.queue-list li.offered { border-color: var(--accent); background: var(--ollo-soft); }
+.queue-list li strong { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.queue-list li .queue-offer-line { color: var(--accent-dark); display: inline-flex; align-items: center; gap: 4px; }
+.queue-list li.queue-empty { display: block; color: var(--muted); font-size: var(--fs-13); border-style: dashed; }
+.queue-offer-sent { border: 1px solid var(--accent); background: var(--ollo-soft); border-radius: var(--r-lg); padding: var(--s-3); display: grid; gap: 6px; font-size: var(--fs-13); }
+.queue-offer-sent code, .outbox code { display: block; white-space: pre-wrap; font: inherit; font-size: var(--fs-13); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; color: var(--ink-2); }
+.queue-offer-actions, .outbox-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.queue-offering { display: grid; gap: var(--s-2); }
+.queue-offering h3 { margin: 0; font-size: var(--fs-14); display: flex; align-items: center; gap: 6px; }
+.queue-matches { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
+.queue-matches button { width: 100%; display: grid; gap: 2px; text-align: left; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); padding: 8px 10px; font: inherit; cursor: pointer; color: var(--ink); }
+.queue-matches button:hover { border-color: var(--accent); background: var(--ollo-soft); }
+.queue-matches b { font-size: var(--fs-15); font-variant-numeric: tabular-nums; }
+.queue-matches span { font-size: var(--fs-11); color: var(--muted); }
+.queue-settings-link { border: 0; background: transparent; color: var(--accent-dark); font: inherit; font-size: var(--fs-12); text-align: left; display: inline-flex; gap: 6px; align-items: flex-start; cursor: pointer; padding: 0; }
+.queue-settings-link:hover { text-decoration: underline; }
+.offer-card { text-align: left; }
+.offer-slot { display: flex; align-items: center; gap: var(--s-3); border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s-3) var(--s-4); background: var(--canvas); }
+.offer-slot b { display: block; font-size: var(--fs-20); letter-spacing: -0.3px; }
+.offer-slot span { color: var(--muted); font-size: var(--fs-14); }
+.ca-linkish, .linkish { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: var(--fs-13); text-decoration: underline; cursor: pointer; padding: 0; justify-self: start; }
+.linkish { color: var(--accent-dark); font-size: inherit; }
+.workspace-switch-row { display: flex; justify-content: space-between; align-items: center; gap: var(--s-3); border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s-3) var(--s-4); }
+.workspace-switch-row strong { display: block; font-size: var(--fs-14); }
+.workspace-switch-row small { color: var(--muted); font-size: var(--fs-12); }
+.template-fields { border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s-3) var(--s-4) var(--s-4); margin: var(--s-3) 0 0; display: grid; gap: var(--s-3); }
+.template-fields legend { font-weight: 700; font-size: var(--fs-13); padding: 0 6px; }
+.template-fields textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: var(--fs-14); padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); resize: vertical; }
+.template-fields .field-help code { font-size: var(--fs-11); background: var(--canvas); padding: 1px 6px; border-radius: 6px; }
+.outbox { margin-top: var(--s-4); display: grid; gap: var(--s-2); }
+.outbox h3 { margin: 0; font-size: var(--fs-15); display: flex; align-items: baseline; gap: 8px; }
+.outbox h3 small { color: var(--muted); font-size: var(--fs-12); font-weight: 500; }
+.outbox-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); }
+.outbox-list li { border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s-3); display: grid; gap: 6px; }
+.outbox-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-12); color: var(--muted); }
