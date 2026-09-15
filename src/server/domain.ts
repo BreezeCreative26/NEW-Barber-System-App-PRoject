@@ -403,6 +403,62 @@ export const slugSchema = z
     (s) => !["api", "static", "workspace", "preview", "manage", "book"].includes(s),
     "This address is reserved",
   );
+export type ShopPage = {
+  shop_id: string;
+  strapline: string;
+  about: string;
+  cover_url: string;
+  gallery_json: string;
+  phone: string;
+  email: string;
+  instagram: string;
+  map_url: string;
+  transport_note: string;
+  policy_text: string;
+  sections_json: string;
+  accent: "ollo" | "ink" | "sage" | "clay" | "plum" | "slate";
+  published: number;
+  version: number;
+  updated_at: number;
+};
+export const pageSections = ["hero", "next", "services", "team", "hours", "gallery", "find", "policies"] as const;
+const httpsUrl = z.union([z.literal(""), z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "Use an https:// address")]);
+export const shopPageSchema = z
+  .object({
+    strapline: z.string().trim().max(120).default(""),
+    about: z.string().trim().max(1200).default(""),
+    cover_url: httpsUrl.default(""),
+    gallery: z.array(httpsUrl.refine((u) => u !== "", "Empty gallery entry")).max(12).default([]),
+    phone: z.union([z.literal(""), z.string().trim().max(20).regex(/^[+0-9 ()-]+$/, "Phone number only")]).default(""),
+    email: z.union([z.literal(""), z.string().trim().email().max(254)]).default(""),
+    instagram: z.string().trim().max(40).regex(/^@?[A-Za-z0-9._]*$/, "Instagram handle only").default(""),
+    map_url: httpsUrl.default(""),
+    transport_note: z.string().trim().max(300).default(""),
+    policy_text: z.string().trim().max(1200).default(""),
+    sections: z.array(z.enum(pageSections)).max(pageSections.length).default([...pageSections]),
+    accent: z.enum(["ollo", "ink", "sage", "clay", "plum", "slate"]).default("ollo"),
+    published: active.default(1),
+    version,
+  })
+  .strict();
+export const defaultShopPage = (shopId: string, now = Date.now()): ShopPage => ({
+  shop_id: shopId,
+  strapline: "",
+  about: "",
+  cover_url: "",
+  gallery_json: "[]",
+  phone: "",
+  email: "",
+  instagram: "",
+  map_url: "",
+  transport_note: "",
+  policy_text: "",
+  sections_json: JSON.stringify(pageSections),
+  accent: "ollo",
+  published: 1,
+  version: 0,
+  updated_at: now,
+});
 export const onlineBookingSchema = z
   .object({
     slug: slugSchema,

@@ -5,7 +5,7 @@ import { Avatar, Brand, Button, Icon, Notice } from "./ui";
 
 // Connected customer booking for /book/:slug and /manage/:token.
 // Reads and writes the same local D1 records as the owner workspace.
-type PublicShop = {
+export type PublicShop = {
   shop: {
     id: string;
     name: string;
@@ -221,12 +221,13 @@ type NextSlot = {
   duration_min: number;
 };
 const ANY = "any";
-export function PublicBooking({ slug }: { slug: string }) {
+export type BookingPreset = { service?: string; staff?: string; date?: string; start?: number; step?: number; nonce?: number };
+export function PublicBooking({ slug, embedded = false, preset, onLoaded }: { slug: string; embedded?: boolean; preset?: BookingPreset | null; onLoaded?: (shop: PublicShop) => void }) {
   const [shop, setShop] = useState<PublicShop | null>(null);
   const [loadError, setLoadError] = useState("");
-  const [step, setStep] = useState(0);
-  const [service, setService] = useState("");
-  const [barber, setBarber] = useState("");
+  const [step, setStep] = useState(preset?.step ?? (preset?.staff ? 2 : preset?.service ? 1 : 0));
+  const [service, setService] = useState(preset?.service || "");
+  const [barber, setBarber] = useState(preset?.staff || "");
   const [extraIds, setExtraIds] = useState<string[]>([]);
   const [category, setCategory] = useState("All services");
   const [query, setQuery] = useState("");
@@ -256,8 +257,9 @@ export function PublicBooking({ slug }: { slug: string }) {
     try {
       const s = await api<PublicShop>(`/shops/${encodeURIComponent(slug)}`);
       setShop(s);
-      setFrom((f) => f || s.today);
-      setDate((d) => d || s.today);
+      onLoaded?.(s);
+      setFrom((f) => f || preset?.date || s.today);
+      setDate((d) => d || preset?.date || s.today);
       setService((v) => v || s.services[0]?.id || "");
       setBarber((b) => b || (s.staff.length > 1 ? ANY : s.staff[0]?.id || ""));
     } catch (e) {
@@ -267,6 +269,20 @@ export function PublicBooking({ slug }: { slug: string }) {
   useEffect(() => {
     load();
   }, [slug]);
+  // Home-page shortcuts re-target the embedded flow: "book this service", "book with Jay", "soonest".
+  const presetKey = preset ? `${preset.service || ""}|${preset.staff || ""}|${preset.date || ""}|${preset.start ?? ""}|${preset.step ?? ""}|${preset.nonce ?? ""}` : "";
+  useEffect(() => {
+    if (!preset || !shop) return;
+    if (preset.service) setService(preset.service);
+    if (preset.staff) setBarber(preset.staff);
+    if (preset.date) {
+      setDate(preset.date);
+      setFrom(preset.date);
+    }
+    setSlot(preset.start ?? null);
+    setStep(preset.step ?? (preset.staff ? 2 : preset.service ? 1 : 0));
+    setTimeout(() => heading.current?.focus(), 50);
+  }, [presetKey, !!shop]);
   useEffect(() => {
     // Remember contact details on this device only; nothing is sent anywhere.
     try {
@@ -508,10 +524,10 @@ export function PublicBooking({ slug }: { slug: string }) {
     );
   if (confirmed)
     return (
-      <div className="booking-app">
-        <TestBanner />
-        <ShopHeader name={shop.shop.name} address={shop.shop.address} />
-        <main id="main-content" className="booking-body">
+      <div className={`booking-app ${embedded ? "embedded" : ""}`}>
+        {!embedded && <TestBanner />}
+        {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} />}
+        <main id={embedded ? undefined : "main-content"} className="booking-body">
           <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} />
         </main>
       </div>
@@ -545,11 +561,11 @@ export function PublicBooking({ slug }: { slug: string }) {
   const dayFull = !!availability && openCount === 0 && !!dayInfo(date) && !dayInfo(date)!.closed;
   const nextElsewhere = next?.filter((n) => n.date !== date) || [];
   return (
-    <div className="booking-app">
-      <TestBanner />
-      <ShopHeader name={shop.shop.name} address={shop.shop.address} />
-      <main id="main-content">
-        <section className="booking-hero public-hero">
+    <div className={`booking-app ${embedded ? "embedded" : ""}`}>
+      {!embedded && <TestBanner />}
+      {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} />}
+      <main id={embedded ? undefined : "main-content"}>
+        {!embedded && <section className="booking-hero public-hero">
           <div className="hero-copy">
             <span className="eyebrow">BOOK ONLINE</span>
             <h1>
@@ -595,7 +611,7 @@ export function PublicBooking({ slug }: { slug: string }) {
               <span>{shop.shop.name.toUpperCase().slice(0, 24)}</span>
             </div>
           </div>
-        </section>
+        </section>}
         <div className="booking-body">
           <nav className="booking-progress" aria-label="Booking steps">
             {steps.map((label, i) => (
@@ -1301,11 +1317,13 @@ export function PublicBooking({ slug }: { slug: string }) {
               </div>
             </aside>
           </div>
-          <footer className="booking-footer">
-            <Brand />
-            <span>Good hair. Good company.</span>
-            <span>Local test booking</span>
-          </footer>
+          {!embedded && (
+            <footer className="booking-footer">
+              <Brand />
+              <span>Good hair. Good company.</span>
+              <span>Local test booking</span>
+            </footer>
+          )}
         </div>
       </main>
     </div>

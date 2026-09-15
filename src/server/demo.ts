@@ -293,6 +293,24 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
     ).bind(uid(), shopId, services[6].id, customers[9].name, customers[9].phone, customers[9].email, day(1), "MORNING", "", now, now),
     db.prepare("INSERT INTO staff_days_off(id,shop_id,staff_id,date,reason,created_at) VALUES(?,?,?,?,?,?)").bind(uid(), shopId, staff[1].id, day(5), "Annual leave", now),
     db.prepare(
+      "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1,0,?)",
+    ).bind(
+      shopId,
+      "Sharp cuts, straight talk, no fuss.",
+      "Three chairs on the high street since 2019. Walk-ins welcome when the board says so; booking online gets you the barber and time you actually want. Kids, beards, hot towels and a proper consultation every time.",
+      "",
+      "[]",
+      "020 7946 0111",
+      "hello@demo-barbershop.test",
+      "demobarbershop",
+      "",
+      "Two minutes from the station; free parking on Mill Lane after 6pm.",
+      "Please give us 24 hours to cancel or move a visit. Running late? Call and we will do our best, but after 10 minutes the slot may go to a walk-in. No-shows twice in a row and we will ask for a deposit next time.",
+      JSON.stringify(["hero", "next", "services", "team", "hours", "find", "policies"]),
+      "ollo",
+      now,
+    ),
+    db.prepare(
       "INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
     ).bind(uid(), shopId, "shop", shopId, "DEMO_SHOP_BUILT", "demo-seed", `${seq} fictional appointments, 3 barbers, ${services.length} services. No payments or messages.`, now),
   ]);

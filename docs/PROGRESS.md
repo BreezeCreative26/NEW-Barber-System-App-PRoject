@@ -1,5 +1,13 @@
 # Barbershop OS — Progress and next-session handoff
 
+## Latest — public shop home page with booking on it (2026-09-15)
+
+- **`/<slug>` is the customer's front door.** Server route (sandbox-only, reserved segments guarded, 404 unless the shop has online booking on) renders the same SPA; `ShopPage.tsx` fetches `GET /api/public/shops/:slug/page` (shop, page copy, staff, services, week hours, `open_now`, closures, soonest slot per barber for the popular service). Sections: sticky nav, hero (Open now / Closed pill, Book now, Call, Directions, facts), Next available, About, Services by category, Team cards, **embedded booking**, Opening hours + Find us, Gallery, Good to know (cancel window, notice, deposit, house rules), footer.
+- **Every card re-targets the embedded flow.** `PublicBooking` gained `embedded` and `preset` props (service / staff / date / start / step, plus a nonce so repeated taps still re-target); embedded mode drops its own banner/header/hero/footer and keeps the action bar in-flow on phones. Confirmation renders inside the page.
+- **Owner edits it in Settings → Shop page** (migration `0013_shop_pages`, `GET/PUT /api/sandbox/shop/page`, versioned, audit `SHOP_PAGE_UPDATED`): strapline, about, cover/gallery https URLs, phone, email, Instagram, map link, transport note, house rules, section toggles, accent (6 token-bound options), Published. Customer pages panel and the account menu ("View shop page as a customer") link to it; direct booking link kept.
+- Tests: `tests/shop-page.spec.ts` (4) — sections render, service/barber/soonest shortcuts drive the embedded flow and a booking completes from the home page (axe clean), unknown/reserved/offline slugs 404, editor round-trip reflected publicly, API validation + 409. `pay.spec.ts` link expectations updated; sandbox mutation contract `PUT /shop/page`. Full gate: tsc, guardrails PASS, vitest 26, **Playwright 115 passed / 0 failed** (after fixing a 320 px pill overflow in the Shop page panel).
+- Next: SEO (OpenGraph/JSON-LD/sitemap), reviews section, R2 image upload, then customer accounts (§2 of `docs/CUSTOMER-PLAN.md`).
+
 ## Latest — design system + new shell (2026-09-14)
 
 - **Design system is now code.** `public/static/design.css` holds every token (`:root`) and the shared components from the approved mockups: top bar, icon rail, phone tab bar (+ More sheet), toolbar, wallet hero, KPI and method tiles, transaction row, status pill, block icons, blocked-time fill, card, right drawer. `docs/DESIGN.md` documents tokens, components, screen patterns and the definition of done. React primitives in `ui.tsx`: `TopBar`, `Rail`, `TabBar`, `WalletHero`, `KPI`, `TxRow`, `StatusPill`, `BlockIcons`; 20 new Lucide icons registered.

@@ -46,6 +46,9 @@ import {
   payRunUpdateSchema,
   payTermsOf,
   calculatePayRun,
+  shopPageSchema,
+  defaultShopPage,
+  type ShopPage,
   type Payment,
   type PayRun,
   weekday,
@@ -204,7 +207,7 @@ sandbox.use("*", async (c, next) => {
       (method === "PUT" && /^\/customers\/[^/]+$/.test(path)) ||
       (method === "POST" && /^\/customers\/[^/]+\/merge$/.test(path)) ||
       (method === "GET" && path === "/waitlist") ||
-      (method === "GET" && ["/bookings/range", "/insights", "/wallet", "/pay-runs"].includes(path)) ||
+      (method === "GET" && ["/bookings/range", "/insights", "/wallet", "/pay-runs", "/shop/page"].includes(path)) ||
       (method === "GET" && path === "/pay-runs/preview") ||
       (method === "POST" && /^\/bookings\/[^/]+\/checkout$/.test(path)) ||
       (method === "POST" && /^\/payments\/[^/]+\/void$/.test(path)) ||
@@ -219,7 +222,7 @@ sandbox.use("*", async (c, next) => {
           /^\/bookings\/[^/]+\/(status|reschedule)$/.test(path))) ||
       (method === "PATCH" && /^\/bookings\/[^/]+\/details$/.test(path));
     const setup =
-      (method === "PUT" && ["/shop", "/shop/online"].includes(path)) ||
+      (method === "PUT" && ["/shop", "/shop/online", "/shop/page"].includes(path)) ||
       (["POST", "PUT", "DELETE"].includes(method) &&
         /^\/(staff|services|addons|holidays|service-rules|pay-runs)(\/|$)/.test(path));
     if (!(
@@ -727,6 +730,31 @@ sandbox.put("/shop", async (c) => {
 });
 
 // Online booking settings: public address, on/off switch, lead time and window.
+
+// ---- Shop home page content (Settings → Online presence) ----
+sandbox.get("/shop/page", async (c) => {
+  const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(c.get("shopId")).first<ShopPage>();
+  return c.json({ page: row ?? defaultShopPage(c.get("shopId")) });
+});
+sandbox.put("/shop/page", async (c) => {
+  const b = await input(c, shopPageSchema);
+  const sid = c.get("shopId");
+  const now = Date.now();
+  const existing = await c.env.DB.prepare("SELECT version FROM shop_pages WHERE shop_id=?").bind(sid).first<{ version: number }>();
+  if (existing && existing.version !== b.version) fail(409, "record_changed");
+  if (!existing && b.version !== 0) fail(409, "record_changed");
+  const sections = JSON.stringify([...new Set(b.sections)]);
+  const stmt = existing
+    ? c.env.DB.prepare(
+        "UPDATE shop_pages SET strapline=?,about=?,cover_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
+      ).bind(b.strapline, b.about, b.cover_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, b.published, now, sid, b.version)
+    : c.env.DB.prepare(
+        "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+      ).bind(sid, b.strapline, b.about, b.cover_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, b.published, now);
+  await checkVersionUpdate(c, stmt, audit(c, "shop", sid, "SHOP_PAGE_UPDATED", `${b.published ? "Published" : "Unpublished"}; ${b.sections.length} sections.`, true));
+  const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>();
+  return c.json({ page: row });
+});
 sandbox.put("/shop/online", async (c) => {
   const b = await input(c, onlineBookingSchema);
   try {

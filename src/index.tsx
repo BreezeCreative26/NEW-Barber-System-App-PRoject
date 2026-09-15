@@ -70,6 +70,22 @@ app.get("/book/:slug", (c) => {
     ),
   );
 });
+// Shop home page: /<slug>. Only for shops that are online; anything else falls through to 404.
+app.get("/:slug", async (c, next) => {
+  if (c.env?.APP_MODE !== "sandbox") return next();
+  const slug = c.req.param("slug").toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs"].includes(slug)) return next();
+  const shop = await c.env.DB.prepare("SELECT name,address FROM shops WHERE slug=? AND online_booking=1").bind(slug).first<{ name: string; address: string }>();
+  if (!shop) return next();
+  secure(c);
+  // Cover/gallery/barber photos are owner-supplied https URLs.
+  c.header(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
+  );
+  const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
+  return c.html(publicPage(`${esc(shop.name)} · Book online`, esc(`${shop.name}${shop.address ? ` · ${shop.address}` : ""}. Book your next visit online.`)));
+});
 app.get("/manage/:token", (c) => {
   if (c.env?.APP_MODE !== "sandbox") return c.notFound();
   secure(c);

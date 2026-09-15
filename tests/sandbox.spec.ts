@@ -102,6 +102,7 @@ const mutationContracts = [
   ["POST", "/session"],
   ["PUT", "/shop"],
   ["PUT", "/shop/online"],
+  ["PUT", "/shop/page"],
   ["POST", "/staff"],
   ["PUT", "/staff/:id"],
   ["PUT", "/staff/:id/hours"],

@@ -130,7 +130,8 @@ test("settings lists every customer page with live links and the plan is readabl
   await section(page, "Settings");
   const panel = page.getByTestId("customer-pages");
   await expect(panel).toBeVisible();
-  await expect(panel.getByRole("link", { name: /View as customer/ })).toHaveAttribute("href", /\/book\/demo/);
+  await expect(panel.getByTestId("view-home-page")).toHaveAttribute("href", /\/demo[a-z0-9-]*$/);
+  await expect(panel.getByTestId("view-booking-page")).toHaveAttribute("href", /\/book\/demo/);
   await panel.getByTestId("make-manage-link").click();
   const link = panel.getByTestId("view-manage-page");
   await expect(link).toHaveAttribute("href", /\/manage\//);
@@ -143,5 +144,5 @@ test("settings lists every customer page with live links and the plan is readabl
   expect(await plan.text()).toContain("Customer accounts");
   // Account menu offers the customer view without leaving the admin.
   await page.getByTestId("account-pill").click();
-  await expect(page.getByTestId("account-menu").getByRole("menuitem", { name: /View booking page as a customer/ })).toBeVisible();
+  await expect(page.getByTestId("account-menu").getByRole("menuitem", { name: /View shop page as a customer/ })).toBeVisible();
 });

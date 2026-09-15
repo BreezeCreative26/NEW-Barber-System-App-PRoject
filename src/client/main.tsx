@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./fonts.css";
 import { Workspace } from "./Workspace";
 import { PublicBooking, ManageBooking } from "./PublicBooking";
+import { ShopPage } from "./ShopPage";
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -33,6 +34,8 @@ createRoot(document.getElementById("root")!).render(
       <PublicBooking slug={decodeURIComponent(param)} />
     ) : area === "manage" && param ? (
       <ManageBooking token={param} />
+    ) : area && area !== "workspace" && !param ? (
+      <ShopPage slug={decodeURIComponent(area)} />
     ) : (
       <Workspace />
     )}

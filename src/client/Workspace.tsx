@@ -1242,7 +1242,7 @@ export function Workspace() {
           onClose={() => setAccountOpen(false)}
           onAccounts={() => goTo("Accounts")}
           onSettings={manager ? () => goTo("Settings") : undefined}
-          onPublicPage={w.shop.slug && w.shop.online_booking ? () => window.open(`/book/${w.shop.slug}`, "_blank", "noopener") : undefined}
+          onPublicPage={w.shop.slug && w.shop.online_booking ? () => window.open(`/${w.shop.slug}`, "_blank", "noopener") : undefined}
           onSignOut={async () => {
             if (!canNavigate()) return;
             try {
@@ -1878,6 +1878,7 @@ export function Workspace() {
                     </SaveForm>
                   </section>
                   <OnlineBookingPanel w={w} saved={saved} />
+                  <ShopPagePanel w={w} />
                   <CustomerPagesPanel w={w} onOpenBooking={openBooking} />
                   <section className="workspace-panel">
                     <div className="workspace-section-heading">
@@ -2277,6 +2278,205 @@ type WaitlistEntry = {
   service_name: string;
   staff_name: string | null;
 };
+// Settings → Shop page: content of the public home page at /<slug>. Presentation only.
+type PageForm = { strapline: string; about: string; cover_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; published: number; version: number };
+const PAGE_SECTIONS: { key: string; label: string }[] = [
+  { key: "hero", label: "Hero" },
+  { key: "next", label: "Next available" },
+  { key: "services", label: "Services" },
+  { key: "team", label: "Team" },
+  { key: "hours", label: "Opening hours" },
+  { key: "gallery", label: "Gallery" },
+  { key: "find", label: "Find us" },
+  { key: "policies", label: "Good to know" },
+];
+function ShopPagePanel({ w }: { w: WorkspaceData }) {
+  const [form, setForm] = useState<PageForm | null>(null);
+  const [saved, setSavedForm] = useState<PageForm | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [state, setState] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const load = () =>
+    api<{ page: Record<string, unknown> }>("/shop/page").then((r) => {
+      const p = r.page;
+      const f: PageForm = {
+        strapline: String(p.strapline || ""),
+        about: String(p.about || ""),
+        cover_url: String(p.cover_url || ""),
+        gallery: JSON.parse(String(p.gallery_json || "[]")),
+        phone: String(p.phone || ""),
+        email: String(p.email || ""),
+        instagram: String(p.instagram || ""),
+        map_url: String(p.map_url || ""),
+        transport_note: String(p.transport_note || ""),
+        policy_text: String(p.policy_text || ""),
+        sections: JSON.parse(String(p.sections_json || "[]")),
+        accent: String(p.accent || "ollo"),
+        published: Number(p.published ?? 1),
+        version: Number(p.version ?? 0),
+      };
+      setForm(f);
+      setSavedForm(f);
+    });
+  useEffect(() => {
+    load().catch((e) => setState({ kind: "error", text: e instanceof Error ? e.message : "Could not load the page." }));
+  }, [w.shop.version]);
+  if (!form) return null;
+  const dirty = JSON.stringify(form) !== JSON.stringify(saved);
+  const live = !!w.shop.slug && w.shop.online_booking === 1;
+  const url = w.shop.slug ? `${location.origin}/${w.shop.slug}` : "";
+  const set = <K extends keyof PageForm>(k: K, v: PageForm[K]) => setForm({ ...form, [k]: v });
+  return (
+    <section className="workspace-panel" aria-labelledby="shop-page-heading" data-testid="shop-page-panel">
+      <div className="workspace-section-heading">
+        <div>
+          <h2 id="shop-page-heading">Shop page</h2>
+          <p className="workspace-footnote">Your public front door: customers land here and book from it. Services, team and hours come from the shop itself.</p>
+        </div>
+        {live && (
+          <a className="button secondary" href={url} target="_blank" rel="noreferrer" data-testid="view-shop-page">
+            <Icon name="external" size={15} /> View page
+          </a>
+        )}
+      </div>
+      <p className="page-live-link">
+        {live ? (
+          <>
+            <StatusPill tone={form.published ? "good" : "note"}>{form.published ? "Published" : "Hidden"}</StatusPill> <code>{url}</code>
+          </>
+        ) : (
+          <>
+            <StatusPill tone="warn">Not live</StatusPill> Set a public address and turn on online booking above to publish.
+          </>
+        )}
+      </p>
+      <form
+        className="page-editor"
+        data-dirty={dirty ? "true" : undefined}
+        aria-busy={busy}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          setState(null);
+          try {
+            await api("/shop/page", "PUT", { ...form, gallery: form.gallery.filter(Boolean) });
+            await load();
+            setState({ kind: "ok", text: "Shop page saved." });
+          } catch (err) {
+            setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
+            if (err instanceof ApiError && err.status === 409) load().catch(() => {});
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <fieldset disabled={busy} className="studio-fieldset page-editor">
+          <div className="workspace-form-grid">
+            <Field label="Strapline">
+              <input value={form.strapline} maxLength={120} placeholder="Sharp cuts, straight talk, no fuss." onChange={(e) => set("strapline", e.target.value)} />
+            </Field>
+            <Field label="Cover photo (https URL, optional)">
+              <input type="url" value={form.cover_url} maxLength={500} placeholder="https://…/shopfront.jpg" onChange={(e) => set("cover_url", e.target.value)} />
+            </Field>
+          </div>
+          <Field label="About the shop">
+            <textarea rows={3} maxLength={1200} value={form.about} onChange={(e) => set("about", e.target.value)} />
+          </Field>
+          <div className="workspace-form-grid three">
+            <Field label="Phone">
+              <input value={form.phone} maxLength={20} placeholder="020 7946 0111" onChange={(e) => set("phone", e.target.value)} />
+            </Field>
+            <Field label="Email">
+              <input type="email" value={form.email} maxLength={254} onChange={(e) => set("email", e.target.value)} />
+            </Field>
+            <Field label="Instagram">
+              <input value={form.instagram} maxLength={40} placeholder="@handle" onChange={(e) => set("instagram", e.target.value)} />
+            </Field>
+          </div>
+          <div className="workspace-form-grid">
+            <Field label="Map link (https, optional)">
+              <input type="url" value={form.map_url} maxLength={500} placeholder="Leave blank to use the address" onChange={(e) => set("map_url", e.target.value)} />
+            </Field>
+            <Field label="Getting here (parking, transport)">
+              <input value={form.transport_note} maxLength={300} onChange={(e) => set("transport_note", e.target.value)} />
+            </Field>
+          </div>
+          <Field label="House rules (shown under Good to know)">
+            <textarea rows={3} maxLength={1200} value={form.policy_text} onChange={(e) => set("policy_text", e.target.value)} />
+          </Field>
+          <div>
+            <span className="workspace-field"><span>Sections shown</span></span>
+            <div className="page-sections" role="group" aria-label="Sections shown">
+              {PAGE_SECTIONS.map((sec) => (
+                <label key={sec.key}>
+                  <input
+                    type="checkbox"
+                    checked={form.sections.includes(sec.key)}
+                    onChange={(e) => set("sections", e.target.checked ? PAGE_SECTIONS.map((x) => x.key).filter((k) => k === sec.key || form.sections.includes(k)) : form.sections.filter((k) => k !== sec.key))}
+                  />
+                  {sec.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="workspace-form-grid">
+            <div>
+              <span className="workspace-field"><span>Accent colour</span></span>
+              <div className="accent-picker" role="group" aria-label="Accent colour">
+                {["ollo", "ink", "sage", "clay", "plum", "slate"].map((a) => (
+                  <button key={a} type="button" className={`accent-swatch ${a}`} aria-label={a} aria-pressed={form.accent === a} onClick={() => set("accent", a)} />
+                ))}
+              </div>
+            </div>
+            <div>
+              <span className="workspace-field"><span>Gallery (https image URLs, up to 12)</span></span>
+              <div className="page-gallery-list">
+                {form.gallery.map((u, i) => (
+                  <div key={i}>
+                    <input type="url" value={u} maxLength={500} aria-label={`Gallery image ${i + 1}`} onChange={(e) => set("gallery", form.gallery.map((x, j) => (j === i ? e.target.value : x)))} />
+                    <Button variant="ghost" aria-label={`Remove gallery image ${i + 1}`} onClick={() => set("gallery", form.gallery.filter((_, j) => j !== i))}>
+                      <Icon name="close" size={14} />
+                    </Button>
+                  </div>
+                ))}
+                {form.gallery.length < 12 && (
+                  <Button variant="ghost" onClick={() => set("gallery", [...form.gallery, ""])}>
+                    <Icon name="plus" size={14} /> Add image
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="switch-row">
+            <span>
+              <strong>Published</strong>
+              <small>Hidden pages still let customers book at /book/{w.shop.slug || "…"}.</small>
+            </span>
+            <label className="switch">
+              <input type="checkbox" checked={!!form.published} onChange={(e) => set("published", e.target.checked ? 1 : 0)} aria-label="Published" />
+              <span />
+            </label>
+          </div>
+        </fieldset>
+        <div className="panel-actions-row">
+          <Button type="submit" disabled={busy || !dirty} data-testid="save-shop-page">
+            {busy ? "Saving…" : "Save shop page"}
+          </Button>
+          {dirty && (
+            <Button variant="ghost" onClick={() => setForm(saved)}>
+              Revert
+            </Button>
+          )}
+        </div>
+        {state && (
+          <p className={state.kind === "error" ? "workspace-error" : "workspace-success"} role={state.kind === "error" ? "alert" : "status"}>
+            {state.text}
+          </p>
+        )}
+      </form>
+    </section>
+  );
+}
+
 // Every customer-facing surface in one place so the owner can review them from the admin.
 // Live pages open in a new tab; planned ones link to the plan so the roadmap is visible in-app.
 function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBooking: (id: string) => void }) {
@@ -2304,12 +2504,12 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
   const rows: { icon: string; title: string; note: string; status: "live" | "next" | "later"; action?: ReactNode }[] = [
     {
       icon: "store",
-      title: "Booking page",
-      note: live ? bookUrl : w.shop.slug ? "Online booking is switched off above" : "Choose a public address above to enable",
+      title: "Direct booking link",
+      note: live ? `${bookUrl} · booking flow only, for Instagram bios and QR codes` : w.shop.slug ? "Online booking is switched off above" : "Choose a public address above to enable",
       status: "live",
       action: live ? (
         <a className="button secondary" href={bookUrl} target="_blank" rel="noreferrer" data-testid="view-booking-page">
-          <Icon name="external" size={15} /> View as customer
+          <Icon name="external" size={15} /> Open
         </a>
       ) : undefined,
     },
@@ -2335,7 +2535,17 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
       ),
     },
     { icon: "bell", title: "Waitlist", note: "Customers join from the booking page when a day is full; you book them in from the bell.", status: "live" },
-    { icon: "globe", title: "Shop home page", note: `${location.origin}/${w.shop.slug || "your-shop"} · hero, next available, services, team, hours, gallery, find us, policies`, status: "next" },
+    {
+      icon: "globe",
+      title: "Shop home page",
+      note: live ? `${location.origin}/${w.shop.slug} · the front door: hero, next available, services, team, booking, hours, find us, house rules` : "Publishes with online booking",
+      status: "live",
+      action: live ? (
+        <a className="button secondary" href={`${location.origin}/${w.shop.slug}`} target="_blank" rel="noreferrer" data-testid="view-home-page">
+          <Icon name="external" size={15} /> View as customer
+        </a>
+      ) : undefined,
+    },
     { icon: "userRound", title: "Customer accounts", note: "Phone/email one-time code sign-in · upcoming, history, book my usual, profile, standing bookings", status: "next" },
     { icon: "repeat", title: "Booking flow upgrades", note: "Remember me · any barber · book for someone else · group booking", status: "next" },
     { icon: "message", title: "Reminders & reviews", note: "24h / 2h reminders with confirm links; post-visit star review with owner moderation", status: "later" },

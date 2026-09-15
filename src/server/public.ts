@@ -23,6 +23,8 @@ import {
   type StaffDayOff,
   type StaffServiceRule,
   type StoredBooking,
+  type ShopPage,
+  defaultShopPage,
 } from "./domain";
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
 import {
@@ -256,6 +258,83 @@ const addonQuery = z
   .transform((s) => (s ? s.split(",") : []))
   .pipe(addonIdsSchema);
 // Fourteen-day availability summary so the date strip shows real open counts.
+// Shop home page: content + live "open now" + soonest slots per barber. Public, read-only.
+pub.get("/shops/:slug/page", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug"));
+  const sid = shop.id;
+  const [page, staff, services, hours, holidays, daysOff, reviews] = await Promise.all([
+    c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>(),
+    c.env.DB.prepare("SELECT id,name,role,title,bio,colour,photo_url,skills,instagram FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name").bind(sid).all(),
+    c.env.DB.prepare("SELECT id,name,category,duration_min,price_pence,description,colour,popular FROM services WHERE shop_id=? AND active=1 AND online_bookable=1 ORDER BY popular DESC,sort_order,category,name").bind(sid).all(),
+    c.env.DB.prepare("SELECT staff_id,weekday,enabled,starts,ends FROM staff_hours WHERE shop_id=?").bind(sid).all<{ staff_id: string; weekday: number; enabled: number; starts: number; ends: number }>(),
+    c.env.DB.prepare("SELECT date,label FROM holidays WHERE shop_id=? AND date>=? ORDER BY date LIMIT 6").bind(sid, shopToday(shop.timezone)).all<{ date: string; label: string }>(),
+    c.env.DB.prepare("SELECT staff_id,date FROM staff_days_off WHERE shop_id=? AND date>=? AND date<=?").bind(sid, shopToday(shop.timezone), datePlus(shopToday(shop.timezone), 14)).all<{ staff_id: string; date: string }>(),
+    Promise.resolve([]),
+  ]);
+  const content = page ?? defaultShopPage(sid);
+  const closed = JSON.parse(shop.closed_days) as number[];
+  // Shop-level weekly hours: earliest start / latest end across rostered barbers, per weekday.
+  const week = Array.from({ length: 7 }, (_, wd) => {
+    if (closed.includes(wd)) return { weekday: wd, open: false as const };
+    const on = hours.results.filter((h) => h.weekday === wd && h.enabled);
+    if (!on.length) return { weekday: wd, open: false as const };
+    return { weekday: wd, open: true as const, starts: Math.max(shop.opens, Math.min(...on.map((h) => h.starts))), ends: Math.min(shop.closes, Math.max(...on.map((h) => h.ends))) };
+  });
+  const now = Date.now();
+  const today = shopToday(shop.timezone, now);
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: shop.timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now);
+  const minute = Number(parts.find((p) => p.type === "hour")?.value) * 60 + Number(parts.find((p) => p.type === "minute")?.value);
+  const todayHours = week[weekday(today)];
+  const holidayToday = holidays.results.find((h) => h.date === today);
+  const openNow = !holidayToday && todayHours.open && minute >= todayHours.starts && minute < todayHours.ends;
+  // Soonest bookable slot per barber for their most popular service, cheap enough to run per view.
+  const popular = (services.results as { id: string; popular: number }[])[0];
+  const soonest: { staff_id: string; staff_name: string; date: string; start_min: number; service_id: string; price_pence: number }[] = [];
+  if (popular) {
+    const { minStart, maxDate } = limits(shop, now);
+    const horizon = datePlus(today, 7) < maxDate ? datePlus(today, 7) : maxDate;
+    const ctx = await rangeContext(c, shop, null, popular.id, today, horizon, []);
+    for (const st of ctx.staff) {
+      let found = false;
+      for (let date = today; date <= horizon && !found; date = datePlus(date, 1))
+        for (let m = shop.opens; m < shop.closes; m += 15)
+          if (!slotFor(shop, ctx, st, date, m, minStart)) {
+            soonest.push({ staff_id: st.id, staff_name: st.name, date, start_min: m, service_id: popular.id, price_pence: ctx.quotes.get(st.id)!.price_pence });
+            found = true;
+            break;
+          }
+    }
+    soonest.sort((a, b) => a.date.localeCompare(b.date) || a.start_min - b.start_min);
+  }
+  return c.json({
+    shop: publicShop(shop),
+    page: {
+      strapline: content.strapline,
+      about: content.about,
+      cover_url: content.cover_url,
+      gallery: JSON.parse(content.gallery_json) as string[],
+      phone: content.phone,
+      email: content.email,
+      instagram: content.instagram,
+      map_url: content.map_url,
+      transport_note: content.transport_note,
+      policy_text: content.policy_text,
+      sections: JSON.parse(content.sections_json) as string[],
+      accent: content.accent,
+      published: content.published,
+    },
+    staff: staff.results,
+    services: services.results,
+    week,
+    open_now: openNow,
+    today,
+    closures: holidays.results,
+    days_off: daysOff.results,
+    soonest,
+    reviews,
+    now,
+  });
+});
 pub.get("/shops/:slug/days", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug"));
   const p = z

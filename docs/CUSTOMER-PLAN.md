@@ -6,16 +6,17 @@ Status legend: **Live** = works today · **Next** = agreed, not built · **Later
 
 | Surface | URL | Notes |
 |---|---|---|
+| **Shop home page** | `/<slug>` | The shop's front door: hero with Open now pill, next available, services, team, embedded booking, hours, gallery, find us, house rules. Owner edits copy/contact/sections/accent in **Settings → Shop page**. Only served while online booking is on. |
 | Public booking page | `/book/<slug>` | Service → barber → time → details → confirm. Add-ons, "soonest", join waitlist when full. No account. |
 | Manage link | `/manage/<token>` | From the confirmation: reschedule, cancel, add to calendar (.ics). Token is a hashed capability, expires with the visit. |
 | Waitlist | inside `/book/<slug>` | Captured per day/daypart; owner books them in from the bell. |
 | Customer record | admin → Customers | One record per shop + mobile; notes, tags, birthday, preferred barber, marketing opt-in, history, merge. |
 
-Gaps a customer feels: no shop home page (the URL drops straight into the booking flow), no way to see past/upcoming visits, no "book my usual", nothing remembers them between visits, no reminders.
+Gaps a customer feels: no way to see past/upcoming visits, no "book my usual", nothing remembers them between visits, no reminders.
 
 ---
 
-## 1. Barbershop home page — `/<slug>` (Next)
+## 1. Barbershop home page — `/<slug>` (Live — first cut shipped; SEO/JSON-LD, reviews section and R2 uploads still to come)
 
 Every shop gets a public page that *is* their website. Owner edits it in **Settings → Online presence**; the booking flow becomes a section of it (`/<slug>/book`) with `/book/<slug>` kept as a redirect.
 
@@ -93,7 +94,7 @@ After a completed visit the customer gets a "How was it?" link (from the reminde
 
 ## Build order
 
-1. **Shop home page + Online presence editor + admin links** — no provider needed, immediately visible value.
+1. ~~**Shop home page + editor + admin links**~~ — shipped (`/<slug>`, Settings → Shop page).
 2. **Customer accounts (OTP, sandbox-shown codes) + /me area + remember-me in booking.**
 3. **Booking flow: any barber, book for someone else, group.**
 4. **Reminder queue + review flow (sends stubbed until provider).**
