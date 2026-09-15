@@ -797,7 +797,8 @@ const customerStats = `
   MIN(CASE WHEN b.status<>'CANCELLED' THEN b.start_at END) AS first_visit_at,
   MAX(CASE WHEN b.status='COMPLETED' THEN b.start_at END) AS last_visit_at,
   MIN(CASE WHEN b.start_at>? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') THEN b.start_at END) AS next_visit_at,
-  SUM(CASE WHEN b.start_at>? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') THEN 1 ELSE 0 END) AS upcoming`;
+  SUM(CASE WHEN b.start_at>? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') THEN 1 ELSE 0 END) AS upcoming,
+  (SELECT MAX(a.last_seen_at) FROM customer_account_links l JOIN customer_accounts a ON a.id=l.account_id WHERE l.shop_id=c.shop_id AND l.customer_id=c.id) AS account_last_seen_at`;
 function customerScope(c: Ctx) {
   const a = c.get("account");
   return a?.role === "BARBER" ? a.staff_id : null;

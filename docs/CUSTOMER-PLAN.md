@@ -7,12 +7,13 @@ Status legend: **Live** = works today · **Next** = agreed, not built · **Later
 | Surface | URL | Notes |
 |---|---|---|
 | **Shop home page** | `/<slug>` | The shop's front door: hero with Open now pill, next available, services, team, embedded booking, hours, gallery, find us, house rules. Owner edits copy/contact/sections/accent in **Settings → Shop page**. Only served while online booking is on. |
+| **Customer account** | `/<slug>/me` | Passwordless sign-in (6-digit code, shown on screen in the sandbox). Your usual with one-tap next free slot, upcoming visits (move/cancel/calendar), history with Book again, profile, export and delete my data. Signed-in customers get the booking details prefilled on the shop page. |
 | Public booking page | `/book/<slug>` | Service → barber → time → details → confirm. Add-ons, "soonest", join waitlist when full. No account. |
 | Manage link | `/manage/<token>` | From the confirmation: reschedule, cancel, add to calendar (.ics). Token is a hashed capability, expires with the visit. |
 | Waitlist | inside `/book/<slug>` | Captured per day/daypart; owner books them in from the bell. |
 | Customer record | admin → Customers | One record per shop + mobile; notes, tags, birthday, preferred barber, marketing opt-in, history, merge. |
 
-Gaps a customer feels: no way to see past/upcoming visits, no "book my usual", nothing remembers them between visits, no reminders.
+Gaps a customer feels: no reminders, no reviews, no deposits; "any barber" and group bookings still to come.
 
 ---
 
@@ -37,7 +38,7 @@ Every shop gets a public page that *is* their website. Owner edits it in **Setti
 **Theme:** one accent colour + light/dark tone, constrained to our tokens so pages stay on-brand.
 **Admin preview:** live preview pane in Settings → Online presence; "View as customer" link in the account menu.
 
-## 2. Customer accounts (Next)
+## 2. Customer accounts (Live — first cut shipped; standing-booking requests and loyalty still to come)
 
 Optional, phone-first, no passwords: **one-time code by SMS or email**. Accounts are *global* (one customer identity across shops) but every shop still keeps its own `customers` row — the account links to it by verified phone.
 
@@ -95,7 +96,7 @@ After a completed visit the customer gets a "How was it?" link (from the reminde
 ## Build order
 
 1. ~~**Shop home page + editor + admin links**~~ — shipped (`/<slug>`, Settings → Shop page).
-2. **Customer accounts (OTP, sandbox-shown codes) + /me area + remember-me in booking.**
+2. ~~**Customer accounts (OTP, sandbox-shown codes) + /me area + remember-me in booking.**~~ — shipped (`/<slug>/me`).
 3. **Booking flow: any barber, book for someone else, group.**
 4. **Reminder queue + review flow (sends stubbed until provider).**
 5. Provider decisions → SMS/email live, Stripe deposits, loyalty, vouchers, uploads.

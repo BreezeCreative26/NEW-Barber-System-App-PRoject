@@ -22,8 +22,24 @@ const initials = (n: string) => n.split(" ").map((p) => p[0]).join("").slice(0, 
 export function ShopPage({ slug }: { slug: string }) {
   const [data, setData] = useState<PageData | null>(null);
   const [error, setError] = useState("");
-  const [preset, setPreset] = useState<BookingPreset | null>(null);
+  // Deep links from the customer area ("book my usual") arrive as ?service=&staff=&date=&start=&step=.
+  const [preset, setPreset] = useState<BookingPreset | null>(() => {
+    const q = new URLSearchParams(location.search);
+    if (![...q.keys()].some((k) => ["service", "staff", "date", "start", "step"].includes(k))) return null;
+    const num = (k: string) => (q.get(k) !== null && /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : undefined);
+    return { service: q.get("service") || undefined, staff: q.get("staff") || undefined, date: q.get("date") || undefined, start: num("start"), step: num("step"), nonce: Date.now() };
+  });
+  const [me, setMe] = useState<{ name: string; phone: string; email: string; notes: string } | null>(null);
   const bookRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    fetch(`/api/public/shops/${encodeURIComponent(slug)}/account/session`, { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : { profile: null }))
+      .then((d) => d.profile && setMe({ name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes }))
+      .catch(() => {});
+  }, [slug]);
+  useEffect(() => {
+    if (preset && data && location.hash === "#book") requestAnimationFrame(() => bookRef.current?.scrollIntoView({ block: "start" }));
+  }, [!!data]);
   useEffect(() => {
     fetch(`/api/public/shops/${encodeURIComponent(slug)}/page`)
       .then(async (r) => {
@@ -81,6 +97,9 @@ export function ShopPage({ slug }: { slug: string }) {
           {has("team") && <a href="#team">Team</a>}
           {has("hours") && <a href="#hours">Hours</a>}
           {has("find") && <a href="#find">Find us</a>}
+          <a href={`/${shop.slug}/me`} className="sp-me" data-testid="nav-me">
+            <Icon name="userRound" size={15} /> {me ? me.name.split(" ")[0] || "Your visits" : "Your visits"}
+          </a>
         </nav>
         <button type="button" className="button primary sp-book-btn" onClick={() => book()} data-testid="nav-book">
           Book now
@@ -240,7 +259,7 @@ export function ShopPage({ slug }: { slug: string }) {
             <h2 id="sp-book-heading">Book a visit</h2>
             <p>Choose a service, a barber and a time. You'll get a link to move or cancel it.</p>
           </div>
-          <PublicBooking slug={slug} embedded preset={preset} />
+          <PublicBooking slug={slug} embedded preset={preset} customer={me} />
         </section>
 
         {(has("hours") || has("find")) && (

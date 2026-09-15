@@ -2546,7 +2546,17 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
         </a>
       ) : undefined,
     },
-    { icon: "userRound", title: "Customer accounts", note: "Phone/email one-time code sign-in · upcoming, history, book my usual, profile, standing bookings", status: "next" },
+    {
+      icon: "userRound",
+      title: "Customer accounts",
+      note: "Passwordless sign-in by one-time code (shown on screen in this build) · upcoming visits with move/cancel · your usual, one tap · history · profile · export/delete my data",
+      status: "live",
+      action: live ? (
+        <a className="button secondary" href={`${location.origin}/${w.shop.slug}/me`} target="_blank" rel="noreferrer" data-testid="view-customer-area">
+          <Icon name="external" size={15} /> View as customer
+        </a>
+      ) : undefined,
+    },
     { icon: "repeat", title: "Booking flow upgrades", note: "Remember me · any barber · book for someone else · group booking", status: "next" },
     { icon: "message", title: "Reminders & reviews", note: "24h / 2h reminders with confirm links; post-visit star review with owner moderation", status: "later" },
     { icon: "card", title: "Deposits, loyalty, vouchers", note: "Card deposit at booking (Stripe), stamp card, gift vouchers bought online", status: "later" },
@@ -2943,6 +2953,7 @@ type CustomerRow = {
   last_visit_at: number | null;
   next_visit_at: number | null;
   upcoming: number;
+  account_last_seen_at: number | null;
   favourite_staff_id: string | null;
   favourite_service: string | null;
 };
@@ -3121,6 +3132,12 @@ function CustomersPanel({
                     <small>
                       {c.phone}
                       {c.favourite_staff_id ? ` · ${staffName(c.favourite_staff_id)}` : ""}
+                      {c.account_last_seen_at ? (
+                        <>
+                          {" · "}
+                          <Icon name="userRound" size={11} /> online account
+                        </>
+                      ) : null}
                     </small>
                     {(JSON.parse(c.tags || "[]") as string[]).length > 0 && (
                       <span className="panel-tags">
@@ -3168,6 +3185,7 @@ function CustomersPanel({
                     ))}
                     {profile.customer.no_shows >= 2 && <span className="tag warn">{profile.customer.no_shows} no-shows</span>}
                     {profile.customer.completed >= 4 && <span className="tag good">Regular</span>}
+                    {profile.customer.account_last_seen_at ? <span className="tag" data-testid="has-account">Online account</span> : null}
                   </div>
                 </div>
                 <div className="customer-profile-actions">

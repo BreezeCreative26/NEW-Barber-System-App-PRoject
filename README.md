@@ -20,6 +20,7 @@ OLLO is one connected barbershop platform in development: booking, shop operatio
 
 ## Working features
 
+- **Customer accounts (new):** `/<slug>/me` — passwordless sign-in by 6-digit code (shown on screen in this build, never sent), shop-scoped sessions. Your usual with one-tap next free slot, upcoming visits with move/cancel/calendar, history with Book again, profile (writes to the shop's customer record), export and delete my data. Signed-in customers get their details prefilled when booking from the shop page; admin shows an *online account* badge.
 - **Shop home page (new):** `/<slug>` is a public page per shop with hero (Open now pill, Book/Call/Directions), next available slots, services, team, the booking flow embedded as a section, hours, find us, gallery and house rules. Cards re-target the booking (book this service / with this barber / that slot). Owners edit copy, contacts, sections and accent in **Settings → Shop page**; published only while online booking is on.
 - **Service studio (new):** Services tab is a two-pane studio — searchable category groups of colour-coded service cards (Popular / In shop only / Inactive badges, price · minutes · barbers offering · upcoming count) with an inline editor: Details (name, category, description shown online, duration, price, order, calendar colour, Bookable online / Popular / Active switches), **Barbers & pricing** (one matrix of every active barber: offers on/off, price and duration overrides, Reset, single **Save barber rules** through `PUT /service-rules`), and Add-ons linked to the service. Add-on chips open the existing add-on editor. Non-online services never appear on `/book/<slug>` or in public availability; owners can still book them.
 - **Barber studio (new):** Team tab shows profile cards (photo or coloured initials, title, skills, today's load, next visit, Hidden online / Inactive) with an inline editor: **Profile** (name, job title, internal role, start date, bio, skills tags with suggestions, https-only photo URL, Instagram handle, calendar colour, Show on online booking, Active, timetable order), **Schedule** (weekly hours strip + Edit weekly hours / Days off / Dated hours editors), **Services & pricing** (the same matrix from the barber side), **Performance** (7/30/90-day appointments, completed value, no-shows from `/insights`) and **Upcoming** (next 14 days, opens the appointment panel). Hidden barbers vanish from the public page and public slot assignment. Barber accounts read their own profile; owners/managers edit.
@@ -63,7 +64,9 @@ Next connected work: wider settings/navigation draft protection, then local acco
 | Path | Purpose |
 | --- | --- |
 | `/`, `/workspace` | The app. Root always redirects here; the entry hub opens the demo shop as owner or barber and links to the customer pages |
-| `/:slug` | Public shop home page with embedded booking (`GET /api/public/shops/:slug/page` feeds it) |
+| `/:slug` | Public shop home page with embedded booking (`GET /api/public/shops/:slug/page` feeds it); `?service=&staff=&date=&start=&step=#book` presets the flow |
+| `/:slug/me` | Customer account area (sign in, visits, usual, profile) |
+| `/api/public/shops/:slug/account/*` | `POST start` / `verify` / `logout`; `GET session` / `me` / `export`; `PUT profile`; `GET bookings/:id/availability` + `calendar.ics`; `POST bookings/:id/cancel` / `reschedule`; `POST delete` |
 | `/book/:slug` | Direct public booking flow for a shop with online booking enabled |
 | `/manage/:token` | Customer self-service: view, move, cancel, calendar export |
 | `/api/public/shops/:slug` | GET public catalogue, active barbers, rules, hours, window |

@@ -27,6 +27,7 @@ import {
   defaultShopPage,
 } from "./domain";
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
+import customerAccounts from "./customers";
 import {
   audit,
   availabilityContext,
@@ -40,22 +41,22 @@ import {
 // Customer-facing booking. No account: the shop is chosen by public address and
 // a saved visit is reachable only through its hashed manage link. Every write
 // reuses the owner code path so quotes, availability and D1 guards are identical.
-type Ctx = Context<AppEnv>;
+export type Ctx = Context<AppEnv>;
 const pub = new Hono<AppEnv>();
 const uid = () => crypto.randomUUID();
-const datePlus = (date: string, days: number) => {
+export const datePlus = (date: string, days: number) => {
   const d = new Date(`${date}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 };
-function clientKey(c: Ctx) {
+export function clientKey(c: Ctx) {
   return (
     c.req.header("cf-connecting-ip") ||
     c.req.header("x-forwarded-for")?.split(",")[0].trim() ||
     "local"
   );
 }
-async function throttle(c: Ctx, action: string, identity: string, max = 20) {
+export async function throttle(c: Ctx, action: string, identity: string, max = 20) {
   const now = Date.now();
   const row = await c.env.DB.prepare(
     `INSERT INTO auth_throttle(key_hash,attempts,resets_at) VALUES(?,1,?) ON CONFLICT(key_hash) DO UPDATE SET attempts=CASE WHEN resets_at<=? THEN 1 ELSE attempts+1 END,resets_at=CASE WHEN resets_at<=? THEN excluded.resets_at ELSE resets_at END RETURNING attempts`,
@@ -67,7 +68,7 @@ async function throttle(c: Ctx, action: string, identity: string, max = 20) {
     fail(429, "Too many attempts. Wait ten minutes before retrying.");
   }
 }
-pub.use("*", async (c, next) => {
+export const publicGuard = async (c: Ctx, next: () => Promise<void>) => {
   c.header("Cache-Control", "no-store");
   c.header("X-Content-Type-Options", "nosniff");
   if (c.env?.APP_MODE !== "sandbox" || !c.env.DB)
@@ -88,10 +89,13 @@ pub.use("*", async (c, next) => {
   c.set("account", null);
   c.set("actor", "customer:online");
   await next();
-});
+};
+pub.use("*", publicGuard);
 pub.onError(handleError);
+// Customer accounts live in their own module; mounted after the guard so it applies to them too.
+pub.route("/shops/:slug/account", customerAccounts);
 
-async function shopBySlug(c: Ctx, slug: string) {
+export async function shopBySlug(c: Ctx, slug: string) {
   const shop = await c.env.DB.prepare(
     "SELECT * FROM shops WHERE slug=? AND online_booking=1",
   )
@@ -102,7 +106,7 @@ async function shopBySlug(c: Ctx, slug: string) {
   return shop;
 }
 // Customers may not book inside the lead time or beyond the booking window.
-function limits(shop: Shop, now = Date.now()) {
+export function limits(shop: Shop, now = Date.now()) {
   const today = shopToday(shop.timezone, now);
   return {
     today,
@@ -168,7 +172,7 @@ pub.get("/shops/:slug", async (c) => {
 
 
 // Load everything needed to evaluate slots for one or more barbers over a date range in one batch.
-async function rangeContext(
+export async function rangeContext(
   c: Ctx,
   shop: Shop,
   staffIds: string[] | null,
@@ -226,8 +230,8 @@ async function rangeContext(
     bookings: r[6].results as StoredBooking[],
   };
 }
-type Range = Awaited<ReturnType<typeof rangeContext>>;
-function slotFor(shop: Shop, ctx: Range, staff: Staff, date: string, minute: number, minStart: number) {
+export type Range = Awaited<ReturnType<typeof rangeContext>>;
+export function slotFor(shop: Shop, ctx: Range, staff: Staff, date: string, minute: number, minStart: number) {
   const h = effectiveHours(
     ctx.hours.find((x) => x.staff_id === staff.id && x.weekday === weekday(date)) ?? null,
     ctx.overrides.find((o) => o.staff_id === staff.id && o.date === date) ?? null,
@@ -563,7 +567,7 @@ pub.post("/shops/:slug/bookings", async (c) => {
 });
 
 // Customer manage links ---------------------------------------------------
-function customerView(b: StoredBooking, shop: Shop, staffName: string | null) {
+export function customerView(b: StoredBooking, shop: Shop, staffName: string | null) {
   const now = Date.now();
   const late = b.start_at - now < b.cancel_hours_snapshot * 3600000;
   return {
@@ -619,8 +623,7 @@ pub.get("/manage/:token", async (c) => {
   const { shop, booking, staffName } = await bookingByToken(c);
   return c.json({ booking: customerView(booking, shop, staffName) });
 });
-pub.get("/manage/:token/calendar.ics", async (c) => {
-  const { shop, booking, staffName } = await bookingByToken(c);
+export function calendarResponse(c: Ctx, shop: Shop, booking: StoredBooking, staffName: string | null) {
   const stamp = (ms: number) =>
     new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
   const esc = (s: string) => s.replace(/([,;\\])/g, "\\$1").replace(/\n/g, "\\n");
@@ -649,20 +652,16 @@ pub.get("/manage/:token/calendar.ics", async (c) => {
     `attachment; filename="${ref(booking)}.ics"`,
   );
   return c.body(body);
+}
+pub.get("/manage/:token/calendar.ics", async (c) => {
+  const { shop, booking, staffName } = await bookingByToken(c);
+  return calendarResponse(c, shop, booking, staffName);
 });
-pub.get("/manage/:token/availability", async (c) => {
-  const p = z.object({ date: dateSchema }).safeParse(c.req.query());
-  if (!p.success) fail(400, "Supply a valid date");
-  const { shop, booking } = await bookingByToken(c);
+// Slots a confirmed visit could move to on one day (same barber and service).
+export async function moveOptions(c: Ctx, shop: Shop, booking: StoredBooking, date: string) {
   const { today, minStart, maxDate } = limits(shop);
-  if (p.data!.date < today || p.data!.date > maxDate)
-    fail(409, "outside_booking_window");
-  const data = await availabilityContext(
-    c,
-    booking.staff_id,
-    booking.service_id,
-    p.data!.date,
-  );
+  if (date < today || date > maxDate) fail(409, "outside_booking_window");
+  const data = await availabilityContext(c, booking.staff_id, booking.service_id, date);
   const slots = Array.from({ length: 96 }, (_, i) => i * 15)
     .filter((n) => n >= shop.opens && n < shop.closes)
     .map((start_min) => {
@@ -672,7 +671,7 @@ pub.get("/manage/:token/availability", async (c) => {
         data.hours,
         data.holidays,
         data.bookings,
-        p.data!.date,
+        date,
         start_min,
         booking.duration_min,
         minStart,
@@ -685,14 +684,29 @@ pub.get("/manage/:token/availability", async (c) => {
         reason: reason === "Slot taken" ? "Unavailable" : reason,
       };
     });
-  return c.json({ slots, duration_min: booking.duration_min, max_date: maxDate, today });
+  return { slots, duration_min: booking.duration_min, max_date: maxDate, today };
+}
+pub.get("/manage/:token/availability", async (c) => {
+  const p = z.object({ date: dateSchema }).safeParse(c.req.query());
+  if (!p.success) fail(400, "Supply a valid date");
+  const { shop, booking } = await bookingByToken(c);
+  return c.json(await moveOptions(c, shop, booking, p.data!.date));
 });
-pub.post("/manage/:token/cancel", async (c) => {
-  const body = await readInput(
-    c,
-    z.object({ version: z.number().int().min(0) }).strict(),
-  );
-  const { shop, booking, staffName } = await bookingByToken(c);
+export const cancelBody = z.object({ version: z.number().int().min(0) }).strict();
+export const moveBody = z
+  .object({
+    date: dateSchema,
+    start_min: z
+      .number()
+      .int()
+      .min(0)
+      .max(1425)
+      .refine((v) => v % 15 === 0),
+    version: z.number().int().min(0),
+  })
+  .strict();
+// Customer-initiated cancel: same guards whether it comes from a manage link or a signed-in account.
+export async function cancelByCustomer(c: Ctx, shop: Shop, booking: StoredBooking, staffName: string | null, body: z.infer<typeof cancelBody>) {
   await throttle(c, "manage-write", booking.id, 30);
   if (booking.version !== body.version) fail(409, "record_changed");
   if (booking.status !== "CONFIRMED") fail(409, "invalid_transition");
@@ -714,28 +728,17 @@ pub.post("/manage/:token/cancel", async (c) => {
       true,
     ),
   );
-  return c.json({
+  return {
     booking: customerView(await readBooking(c, booking.id), shop, staffName),
     late,
-  });
-});
-pub.post("/manage/:token/reschedule", async (c) => {
-  const body = await readInput(
-    c,
-    z
-      .object({
-        date: dateSchema,
-        start_min: z
-          .number()
-          .int()
-          .min(0)
-          .max(1425)
-          .refine((v) => v % 15 === 0),
-        version: z.number().int().min(0),
-      })
-      .strict(),
-  );
+  };
+}
+pub.post("/manage/:token/cancel", async (c) => {
+  const body = await readInput(c, cancelBody);
   const { shop, booking, staffName } = await bookingByToken(c);
+  return c.json(await cancelByCustomer(c, shop, booking, staffName, body));
+});
+export async function moveByCustomer(c: Ctx, shop: Shop, booking: StoredBooking, staffName: string | null, body: z.infer<typeof moveBody>) {
   await throttle(c, "manage-write", booking.id, 30);
   if (booking.status !== "CONFIRMED") fail(409, "invalid_transition");
   const { today, minStart, maxDate } = limits(shop);
@@ -787,8 +790,13 @@ pub.post("/manage/:token/reschedule", async (c) => {
       true,
     ),
   );
-  return c.json({
+  return {
     booking: customerView(await readBooking(c, booking.id), shop, staffName),
-  });
+  };
+}
+pub.post("/manage/:token/reschedule", async (c) => {
+  const body = await readInput(c, moveBody);
+  const { shop, booking, staffName } = await bookingByToken(c);
+  return c.json(await moveByCustomer(c, shop, booking, staffName, body));
 });
 export default pub;

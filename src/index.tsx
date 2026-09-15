@@ -86,6 +86,17 @@ app.get("/:slug", async (c, next) => {
   const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
   return c.html(publicPage(`${esc(shop.name)} · Book online`, esc(`${shop.name}${shop.address ? ` · ${shop.address}` : ""}. Book your next visit online.`)));
 });
+// Customer account area: /<slug>/me (sign-in, visits, profile). Same guard as the home page.
+app.get("/:slug/me", async (c, next) => {
+  if (c.env?.APP_MODE !== "sandbox") return next();
+  const slug = c.req.param("slug").toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs"].includes(slug)) return next();
+  const shop = await c.env.DB.prepare("SELECT name FROM shops WHERE slug=? AND online_booking=1").bind(slug).first<{ name: string }>();
+  if (!shop) return next();
+  secure(c);
+  const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
+  return c.html(publicPage(`Your visits · ${esc(shop.name)}`, esc(`Sign in to see, move or rebook your visits at ${shop.name}.`)));
+});
 app.get("/manage/:token", (c) => {
   if (c.env?.APP_MODE !== "sandbox") return c.notFound();
   secure(c);

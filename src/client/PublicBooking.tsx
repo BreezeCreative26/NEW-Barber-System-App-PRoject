@@ -222,7 +222,8 @@ type NextSlot = {
 };
 const ANY = "any";
 export type BookingPreset = { service?: string; staff?: string; date?: string; start?: number; step?: number; nonce?: number };
-export function PublicBooking({ slug, embedded = false, preset, onLoaded }: { slug: string; embedded?: boolean; preset?: BookingPreset | null; onLoaded?: (shop: PublicShop) => void }) {
+export type BookingCustomer = { name: string; phone: string; email: string; notes: string };
+export function PublicBooking({ slug, embedded = false, preset, onLoaded, customer }: { slug: string; embedded?: boolean; preset?: BookingPreset | null; onLoaded?: (shop: PublicShop) => void; customer?: BookingCustomer | null }) {
   const [shop, setShop] = useState<PublicShop | null>(null);
   const [loadError, setLoadError] = useState("");
   const [step, setStep] = useState(preset?.step ?? (preset?.staff ? 2 : preset?.service ? 1 : 0));
@@ -292,6 +293,10 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded }: { sl
       /* private mode */
     }
   }, []);
+  // A signed-in customer's details win over the device memory; their barber notes are prefilled too.
+  useEffect(() => {
+    if (customer) setDetails((d) => ({ ...d, name: customer.name || d.name, phone: customer.phone || d.phone, email: customer.email || d.email, notes: d.notes || customer.notes || "" }));
+  }, [customer?.phone]);
   const eligible = (staffId: string, serviceId: string) =>
     !shop?.service_rules.some(
       (r) => r.staff_id === staffId && r.service_id === serviceId && !r.enabled,
@@ -1062,6 +1067,11 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded }: { sl
               )}
               {step === 3 && (
                 <form id="customer-details" noValidate onSubmit={submitDetails}>
+                  {customer && (
+                    <Notice icon="userRound">
+                      <span data-testid="signed-in-note">Signed in as <strong>{customer.name}</strong> — details filled in for you.</span>
+                    </Notice>
+                  )}
                   <div className="customer-fields">
                     {[
                       { id: "name", label: "Your name", placeholder: "Jamie Taylor", type: "text", auto: "name" },
