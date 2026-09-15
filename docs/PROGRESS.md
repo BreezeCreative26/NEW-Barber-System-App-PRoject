@@ -348,3 +348,15 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - Page heading removed on Appointments (visually-hidden h1 + h2 "Your timetable" kept for AT/tests); other tabs unchanged.
 - Tests: new helpers `openFilters(page)` / `openNotifications(page)` in `tests/fixture.ts`; calendar/workspace/accounts/public specs updated; visual baselines refreshed deliberately (5/5).
 - Gate: tsc OK · guardrails PASS · vitest 26 · Playwright 103 passed / 1 flaky (`workspace.spec.ts:594` strict-mode clash on two "Reason" textareas in the appointment panel — pre-existing panel markup, passed on re-run twice; to be tightened with an exact label).
+
+## 2026-09-15 — Payments ledger, checkout and shop wallet (Model A)
+
+- **Migration 0011** `payments` table (append-only; void sets `voided_at` once; triggers refuse edits/deletes and any row against a visit that is not IN_SERVICE/COMPLETED). `staff.commission_pct` (default 50), `shops.till_access` ('OWNER' | 'ALL').
+- **Routes**: `POST /bookings/:id/checkout` (tenders[] × method/service/tip, discount, `complete` flag; guards: due amount, over/short payment, version), `POST /payments/:id/void` (owner/manager, reason ≥3), `GET /wallet?from&to` (totals, by method, by barber incl. commission snapshot + tips, unpaid booked value, recent rows). `/workspace` now returns `payments` (last 120 days). Barber accounts see only their own rows.
+- **Checkout** (`src/client/Checkout.tsx`) inside the appointment panel: price → discount → tip chips (£0/2/3/5/other) → method tiles (Card/Cash/Transfer/Voucher) → "Record £x · complete"; optional split (part payments leave the visit IN_SERVICE). "Complete unpaid" remains for cash-free finishes. Paid strip under the items list with Void (owner/manager).
+- **Wallet drawer** (`src/client/Wallet.tsx`) from the top-bar wallet chip: Today / This week / This month; hero (services · tips · booked-unpaid), method tiles, by-barber KPIs with what the shop owes each (commission % + tips), recent payments (click → appointment). Barber accounts get "My earnings" (commission, tips) instead. Wallet chip = ledger recorded today, not bookings.
+- **Settings**: Shop → "Who can take payment" (shop device only / barbers for their own visits). Barber profile → "Commission on services (%)". Demo seeds Jay 60 / Marcus 50 / Dani 55 and a ledger row for every completed visit.
+- Timetable events show the `paid` block icon once a live payment exists.
+- Tests: `tests/payments.spec.ts` (3: UI checkout→wallet→void; server guards incl. split/over/short/stale; till access for barbers + owner setting). `sandbox.spec.ts` mutation contracts extended. Fixes along the way: series strip cancelled tiles AA contrast; panel keeps focus after saves; `workspace.spec.ts:594` locator tightened + 31-day range cap respected.
+- Gate: tsc OK · guardrails PASS · vitest 26 · Playwright 106 passed / 1 flaky (`workspace.spec.ts:184` stale-editor; passes 2/2 in isolation) · visual baselines refreshed (phone calendar).
+- Defaults chosen pending your call: commission per-barber % on services + 100% tips; till owner/manager-only.
