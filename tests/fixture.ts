@@ -4,7 +4,7 @@
 import { expect, type Page } from "@playwright/test";
 
 export const origin = "http://localhost:3000";
-export const base = origin + "/api/sandbox";
+export const base = origin + "/api/app";
 
 export type Fixture = { shop_id: string; slug: string; email: string };
 

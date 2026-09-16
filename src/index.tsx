@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 
 import sandbox from "./server/sandbox";
 import pub from "./server/public";
@@ -8,8 +8,10 @@ import type { Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import type { Database } from "./db/client";
 import type { ObjectStore } from "./db/storage";
-export type AppBindings = { DB: Database; MEDIA?: ObjectStore; APP_MODE?: string; ALLOWED_ORIGINS?: string };
+export type AppBindings = { DB: Database; MEDIA?: ObjectStore; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string };
 const app = new Hono<{ Bindings: AppBindings }>();
+app.route("/api/app", sandbox);
+// Legacy path kept for one release so old tabs keep working.
 app.route("/api/sandbox", sandbox);
 app.route("/api/public", pub);
 app.get("/api/health", (c) =>
@@ -36,7 +38,10 @@ app.all("/api/origin-check", (c) => {
   });
 });
 app.get("/", (c) => c.redirect("/workspace"));
-app.get("/workspace", (c) => {
+app.get("/workspace", workspaceShell);
+app.get("/signin", workspaceShell);
+app.get("/signup", workspaceShell);
+function workspaceShell(c: Context<{ Bindings: AppBindings }>) {
   c.header("Cache-Control", "no-store");
   c.header("X-Content-Type-Options", "nosniff");
   c.header("Referrer-Policy", "same-origin");
@@ -45,9 +50,9 @@ app.get("/workspace", (c) => {
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
   return c.html(
-    `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>OLLO — Workspace</title><link rel="icon" href="/static/favicon.svg"/><link rel="stylesheet" href="/static/style.css"/><link rel="stylesheet" href="/static/design.css"/><link rel="stylesheet" href="/static/app.css"/></head><body><div id="root"><p class="boot-message">Opening workspace…</p></div><noscript>JavaScript is required.</noscript><script type="module" src="/static/app.js"></script></body></html>`,
+    `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>OLLO</title><link rel="icon" href="/static/favicon.svg"/><link rel="stylesheet" href="/static/style.css"/><link rel="stylesheet" href="/static/design.css"/><link rel="stylesheet" href="/static/app.css"/></head><body><div id="root"><p class="boot-message">Opening workspace…</p></div><noscript>JavaScript is required.</noscript><script type="module" src="/static/app.js"></script></body></html>`,
   );
-});
+}
 // Head is either the generic private one (noindex) or a server-rendered SEO head for shop pages.
 const shell = (head: string, boot = "Opening online booking…") =>
   `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="#181b2a"/>${head}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="stylesheet" href="/static/style.css"/><link rel="stylesheet" href="/static/design.css"/><link rel="stylesheet" href="/static/app.css"/></head><body><div id="root"><p class="boot-message">${boot}</p></div><noscript>Online booking needs JavaScript.</noscript><script type="module" src="/static/app.js"></script></body></html>`;
@@ -90,7 +95,7 @@ app.get("/book/:slug", (c) => {
 // Shop home page: /<slug>. Only for shops that are online; anything else falls through to 404.
 app.get("/:slug", async (c, next) => {
   const slug = c.req.param("slug").toLowerCase();
-  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs", "offer", "media", "robots.txt", "sitemap.xml"].includes(slug)) return next();
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs", "offer", "media", "signin", "signup", "forgot", "reset", "admin", "robots.txt", "sitemap.xml"].includes(slug)) return next();
   const shop = await c.env.DB.prepare("SELECT * FROM shops WHERE slug=? AND online_booking=1").bind(slug).first<Shop>();
   if (!shop) return next();
   const data = await headData(c.env.DB, shop);
@@ -140,7 +145,7 @@ app.get("/media/:id", async (c) => {
 // Customer account area: /<slug>/me (sign-in, visits, profile). Same guard as the home page.
 app.get("/:slug/me", async (c, next) => {
   const slug = c.req.param("slug").toLowerCase();
-  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs", "offer", "media", "robots.txt", "sitemap.xml"].includes(slug)) return next();
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug) || ["api", "static", "workspace", "book", "manage", "docs", "offer", "media", "signin", "signup", "forgot", "reset", "admin", "robots.txt", "sitemap.xml"].includes(slug)) return next();
   const shop = await c.env.DB.prepare("SELECT name FROM shops WHERE slug=? AND online_booking=1").bind(slug).first<{ name: string }>();
   if (!shop) return next();
   secure(c);

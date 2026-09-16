@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function env(): AppBindings {
-  return { DB: getDb(), MEDIA: getStore(), ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS };
+  return { DB: getDb(), MEDIA: getStore(), ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS, DEMO_ENABLED: process.env.DEMO_ENABLED };
 }
 const handle = (req: Request) => app.fetch(req, env());
 export const GET = handle;

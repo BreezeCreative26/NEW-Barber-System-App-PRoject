@@ -34,7 +34,8 @@ test("visual: entry hub", async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
   const page = await context.newPage();
   await page.goto("/workspace");
-  await page.getByRole("heading", { name: "Open the demo shop" }).waitFor();
+  await page.getByRole("heading", { name: "Welcome back" }).waitFor();
+  await page.getByRole("heading", { name: "Just looking?" }).waitFor();
   await expect(page).toHaveScreenshot("entry-hub.png", { fullPage: false, maxDiffPixelRatio: 0.02 });
   await context.close();
 });

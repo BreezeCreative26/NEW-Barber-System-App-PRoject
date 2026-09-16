@@ -8,10 +8,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { section } from "./fixture";
 import { readFileSync } from "node:fs";
 import type { WorkspaceData } from "../src/server/domain";
-const origin = "http://localhost:3000",
-  base = origin + "/api/sandbox";
-const password = "Unique fictional test password 438!";
-const email = () => `${crypto.randomUUID()}@example.test`;
+import { base, origin, PASSWORD as password, email, signup, seedCatalogue } from "./shop";
 async function client() {
   return request.newContext({ extraHTTPHeaders: { Origin: origin } });
 }
@@ -22,22 +19,12 @@ async function workspace(r: APIRequestContext): Promise<WorkspaceData> {
 }
 async function owner() {
   const r = await client();
-  expect(
-    (
-      await r.post(base + "/session", {
-        data: { name: "Fictional account test shop" },
-      })
-    ).status(),
-  ).toBe(201);
-  const before = await workspace(r),
-    legacy = await r.storageState(),
-    address = email();
-  const result = await r.post(base + "/auth/register", {
-    data: { name: "Fictional Owner", email: address, password },
-  });
-  expect(result.status(), await result.text()).toBe(201);
-  return { r, before, legacy, address };
+  const { email: address } = await signup(r, "Fictional account test shop");
+  await seedCatalogue(r);
+  const before = await workspace(r);
+  return { r, before, address };
 }
+
 async function invite(
   r: APIRequestContext,
   w: WorkspaceData,
@@ -92,7 +79,7 @@ async function booking(r: APIRequestContext, w: WorkspaceData, index: number) {
   return { data, booking: (await response.json()).booking };
 }
 const mutations = [
-  ["POST", "/register"],
+  ["POST", "/signup"],
   ["POST", "/login"],
   ["POST", "/logout"],
   ["POST", "/invites"],
@@ -125,7 +112,7 @@ test("account mutation inventory enforces origin and anonymous authorization", a
         ).status(),
       ).toBe(403);
     }
-    if (!["/login", "/logout", "/accept", "/demo"].includes(path))
+    if (!["/login", "/signup", "/logout", "/accept", "/demo"].includes(path))
       expect(
         (
           await anonymous.fetch(
@@ -152,21 +139,25 @@ test("account mutation inventory enforces origin and anonymous authorization", a
   ).toBe(413);
   await anonymous.dispose();
 });
-test("owner claim preserves shop and retires legacy capability; login and password revoke sessions", async () => {
-  const { r, before, legacy, address } = await owner();
-  expect((await workspace(r)).shop).toEqual(before.shop);
-  expect((await workspace(r)).staff).toEqual(before.staff);
+test("signup creates the shop with the owner as first barber; login and password revoke sessions", async () => {
+  const { r, before, address } = await owner();
+  expect(before.shop.name).toBe("Fictional account test shop");
+  // Signup created one barber profile (renamed by the seed) and the seed added one more.
+  expect(before.staff.map((s) => s.name)).toEqual(["Jay Carter", "Marcus Reed"]);
+  expect(before.audit.some((a) => a.action === "SHOP_CREATED")).toBeTruthy();
   const cookies = (await r.storageState()).cookies;
-  const session = cookies.find((c) => c.name === "barbershop_account")!;
+  const session = cookies.find((c) => c.name === "ollo_session")!;
   expect(
     session.httpOnly && session.secure && session.sameSite === "Strict",
   ).toBeTruthy();
-  expect(cookies.some((c) => c.name === "barbershop_test_session")).toBeFalsy();
-  const old = await request.newContext({
-    storageState: legacy,
-    extraHTTPHeaders: { Origin: origin },
-  });
-  expect((await old.get(base + "/workspace")).status()).toBe(401);
+  expect(cookies.some((c) => c.name.startsWith("barbershop_"))).toBeFalsy();
+  // Duplicate email is refused without leaking which field; already-signed-in users cannot double up.
+  const dup = await client();
+  expect((await dup.post(base + "/auth/signup", { data: { shop_name: "Twin", name: "Twin Owner", email: address, password } })).status()).toBe(409);
+  expect((await r.post(base + "/auth/signup", { data: { shop_name: "Twin", name: "Twin Owner", email: email(), password } })).status()).toBe(409);
+  expect((await dup.post(base + "/auth/signup", { data: { shop_name: "Twin", name: "Twin Owner", email: email(), password: "short" } })).status()).toBe(400);
+  expect((await dup.post(base + "/auth/signup", { data: { shop_name: "Twin", name: "Twin Owner", email: email(), password, timezone: "Mars/Olympus" } })).status()).toBe(400);
+  await dup.dispose();
   const second = await client();
   expect(
     (
@@ -202,7 +193,7 @@ test("owner claim preserves shop and retires legacy capability; login and passwo
     200,
   );
   expect((await r.get(base + "/workspace")).status()).toBe(401);
-  await Promise.all([r, old, second].map((r) => r.dispose()));
+  await Promise.all([r, second].map((r) => r.dispose()));
 });
 test("barber reads and writes are assigned scoped including replay and availability", async () => {
   const { r, before: w } = await owner();
@@ -391,24 +382,10 @@ test("role change suspension stale versions and owner protection revoke only int
       })
     ).status(),
   ).toBe(401);
-  const legacy = await client();
-  await legacy.post(base + "/session", { data: { name: "Other legacy shop" } });
-  const mixed = await staff.storageState();
-  mixed.cookies.push(...(await legacy.storageState()).cookies);
-  const bypass = await request.newContext({
-    storageState: mixed,
-    extraHTTPHeaders: { Origin: origin },
-  });
-  expect((await bypass.get(base + "/workspace")).status()).toBe(401);
-  expect(
-    (
-      await bypass.post(base + "/session", { data: { name: "Bypass" } })
-    ).status(),
-  ).toBe(401);
   expect(
     (await workspace(r)).audit.filter((a) => a.action === "MEMBERSHIP_UPDATED"),
   ).toHaveLength(2);
-  await Promise.all([r, staff, legacy, bypass].map((r) => r.dispose()));
+  await Promise.all([r, staff].map((r) => r.dispose()));
 });
 test("competing invite accepts create one membership and competing password changes have one winner", async () => {
   const { r, before: w, address } = await owner();

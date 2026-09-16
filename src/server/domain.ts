@@ -402,7 +402,7 @@ export const slugSchema = z
     "Use lowercase letters, numbers and single hyphens",
   )
   .refine(
-    (s) => !["api", "static", "workspace", "preview", "manage", "book", "offer", "media", "docs", "robots.txt", "sitemap.xml"].includes(s),
+    (s) => !["api", "static", "workspace", "preview", "manage", "book", "offer", "media", "docs", "signin", "signup", "forgot", "reset", "admin", "demo-shop", "robots.txt", "sitemap.xml"].includes(s),
     "This address is reserved",
   );
 export type ShopPage = {

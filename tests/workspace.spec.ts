@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { openFixtureShop, origin, base, section, openFilters } from "./fixture";
+import { enterNewShop } from "./shop";
 test("initial network failure retries in place and unexpected HTML has a useful recovery message", async ({
   page,
 }) => {
@@ -8,7 +9,7 @@ test("initial network failure retries in place and unexpected HTML has a useful 
   page.on("request", (r) => {
     if (r.resourceType() === "document") documentLoads.push(r.url());
   });
-  await page.route("**/api/sandbox/workspace", (r) => r.abort("failed"));
+  await page.route("**/api/app/workspace", (r) => r.abort("failed"));
   await page.goto("/workspace");
   await expect(page.getByRole("alert")).toContainText(
     "Unable to reach the local workspace",
@@ -16,8 +17,8 @@ test("initial network failure retries in place and unexpected HTML has a useful 
   await expect(
     page.getByRole("button", { name: "Retry workspace" }),
   ).toBeVisible();
-  await page.unroute("**/api/sandbox/workspace");
-  await page.route("**/api/sandbox/workspace", (r) =>
+  await page.unroute("**/api/app/workspace");
+  await page.route("**/api/app/workspace", (r) =>
     r.fulfill({
       status: 502,
       contentType: "text/html",
@@ -26,9 +27,9 @@ test("initial network failure retries in place and unexpected HTML has a useful 
   );
   await page.getByRole("button", { name: "Retry workspace" }).click();
   await expect(page.getByRole("alert")).toContainText("unexpected response");
-  await page.unroute("**/api/sandbox/workspace");
+  await page.unroute("**/api/app/workspace");
   await page.getByRole("button", { name: "Retry workspace" }).click();
-  await expect(page.getByRole("heading", { name: "Open the demo shop" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   expect(documentLoads).toHaveLength(1);
 });
 
@@ -43,13 +44,13 @@ test("successful save followed by failed read recovers without repeating mutatio
   await section(page, "Services");
   await page.getByRole("button", { name: "New service", exact: true }).click();
   await page.getByLabel("Service name").fill("Saved before network failure");
-  await page.route("**/api/sandbox/workspace", (r) => r.abort("failed"));
+  await page.route("**/api/app/workspace", (r) => r.abort("failed"));
   await page.getByRole("button", { name: "Create service", exact: true }).click();
   await expect(
     page.getByTestId("service-editor").getByRole("status"),
   ).toContainText("Service created");
   await expect(page.getByRole("alert")).toContainText("Unable to reach");
-  await page.unroute("**/api/sandbox/workspace");
+  await page.unroute("**/api/app/workspace");
   await page.getByRole("button", { name: "Retry workspace" }).click();
   await expect(
     page.getByRole("heading", { name: "Saved before network failure" }),
@@ -76,7 +77,7 @@ test("interrupted booking response retries idempotently and details/status filte
   await enter(page);
   await bookingDraft(page);
   let intercepted = false;
-  await page.route("**/api/sandbox/bookings", async (route) => {
+  await page.route("**/api/app/bookings", async (route) => {
     if (!intercepted && route.request().method() === "POST") {
       intercepted = true;
       const response = await route.fetch();
@@ -95,7 +96,7 @@ test("interrupted booking response retries idempotently and details/status filte
   await page.getByRole("button", { name: "Review appointment" }).click();
   await page.getByRole("button", { name: "Confirm test booking" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
-  let w = await (await page.request.get("/api/sandbox/workspace")).json();
+  let w = await (await page.request.get("/api/app/workspace")).json();
   expect(w.bookings).toHaveLength(1);
   await page
     .getByRole("button")
@@ -124,7 +125,7 @@ test("interrupted booking response retries idempotently and details/status filte
   await expect(
     page.getByRole("button").filter({ hasText: "Updated recovery client" }),
   ).toBeVisible();
-  w = await (await page.request.get("/api/sandbox/workspace")).json();
+  w = await (await page.request.get("/api/app/workspace")).json();
   expect(w.bookings[0].notes).toBe("Fictional preference");
   expect(w.bookings[0].price_pence).toBe(2800);
 });
@@ -134,25 +135,25 @@ test("availability network retry and stale quote refresh keep contact details", 
 }) => {
   await enter(page);
   await page.getByLabel("Appointment date", { exact: true }).fill(future());
-  await page.route("**/api/sandbox/availability?**", (r) => r.abort("failed"));
+  await page.route("**/api/app/availability?**", (r) => r.abort("failed"));
   await page.getByRole("button", { name: "New booking", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Retry availability" }),
   ).toBeVisible();
   await page.getByLabel("Customer name", { exact: true }).fill("Quote test client");
   await page.getByLabel("Test UK mobile number").fill("07700900123");
-  await page.unroute("**/api/sandbox/availability?**");
+  await page.unroute("**/api/app/availability?**");
   await page.getByRole("button", { name: "Retry availability" }).click();
   await page
     .getByLabel("Service", { exact: true })
     .selectOption({ label: "Signature cut" });
   await page.getByLabel("Available start time").selectOption("540");
   await page.getByRole("button", { name: "Review appointment" }).click();
-  const w = await (await page.request.get("/api/sandbox/workspace")).json();
+  const w = await (await page.request.get("/api/app/workspace")).json();
   const s = w.services.find(
     (s: { name: string }) => s.name === "Signature cut",
   );
-  await page.request.put("/api/sandbox/services/" + s.id, {
+  await page.request.put("/api/app/services/" + s.id, {
     headers: { Origin: "http://localhost:3000" },
     data: {
       name: s.name,
@@ -176,7 +177,7 @@ test("availability network retry and stale quote refresh keep contact details", 
   await page.getByRole("button", { name: "Confirm test booking" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   expect(
-    (await (await page.request.get("/api/sandbox/workspace")).json())
+    (await (await page.request.get("/api/app/workspace")).json())
       .bookings[0].price_pence,
   ).toBe(3700);
 });
@@ -186,11 +187,11 @@ test("stale editor can explicitly discard and load latest without page reload", 
 }) => {
   await enter(page);
   await section(page, "Team");
-  const w = await (await page.request.get("/api/sandbox/workspace")).json();
+  const w = await (await page.request.get("/api/app/workspace")).json();
   const s = w.staff[0];
   await page.getByTestId("team-card").filter({ hasText: s.name }).click();
   await page.getByLabel("Full name").fill("Unsaved edit");
-  await page.request.put("/api/sandbox/staff/" + s.id, {
+  await page.request.put("/api/app/staff/" + s.id, {
     headers: { Origin: "http://localhost:3000" },
     data: {
       name: "Changed in another tab",
@@ -269,7 +270,7 @@ test("dated staff leave survives reload, flags saved appointments and can be rem
   await page.getByRole("button", { name: "Review appointment" }).click();
   await page.getByRole("button", { name: "Confirm test booking" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
-  const w = await (await page.request.get("/api/sandbox/workspace")).json();
+  const w = await (await page.request.get("/api/app/workspace")).json();
   const barber = w.staff.find(
     (s: { id: string }) => s.id === w.bookings[0].staff_id,
   );
@@ -319,7 +320,7 @@ test("dated staff leave survives reload, flags saved appointments and can be rem
   await expect(
     page.getByRole("button").filter({ hasText: "Leave impact client" }),
   ).toBeVisible();
-  const after = await (await page.request.get("/api/sandbox/workspace")).json();
+  const after = await (await page.request.get("/api/app/workspace")).json();
   expect(after.bookings).toHaveLength(1);
   expect(after.days_off).toHaveLength(0);
 });
@@ -330,12 +331,7 @@ function future() {
   return d.toISOString().slice(0, 10);
 }
 async function enter(page: Page) {
-  await page.goto("/workspace");
-  await page.getByText("Start a blank test shop").click();
-  await page.getByLabel("Test shop name").fill("Matte workflow test");
-  await page
-    .getByRole("button", { name: "Create test workspace", exact: true })
-    .click();
+  await enterNewShop(page, "Matte workflow test");
   await expect(
     page.getByRole("heading", { name: "No matching appointments" }),
   ).toBeVisible();
@@ -457,7 +453,7 @@ test("failed mutation keeps entered form; retry works; offline does not imply sa
   await section(page, "Services");
   await page.getByRole("button", { name: "New service", exact: true }).click();
   await page.getByLabel("Service name").fill("Preserved form");
-  await page.route("**/api/sandbox/services", (route) =>
+  await page.route("**/api/app/services", (route) =>
     route.fulfill({
       status: 500,
       contentType: "application/json",
@@ -469,7 +465,7 @@ test("failed mutation keeps entered form; retry works; offline does not imply sa
     "Temporary database test error",
   );
   await expect(page.getByLabel("Service name")).toHaveValue("Preserved form");
-  await page.unroute("**/api/sandbox/services");
+  await page.unroute("**/api/app/services");
   await page.getByRole("button", { name: "Create service", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Preserved form" }),

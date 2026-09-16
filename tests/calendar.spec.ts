@@ -1,8 +1,7 @@
 import { test, expect, request, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { section, openFilters } from "./fixture";
-const origin = "http://localhost:3000";
-const base = origin + "/api/sandbox";
+import { base, origin, signup, seedCatalogue, enterNewShop } from "./shop";
 function day(offset = 5) {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + offset);
@@ -10,11 +9,7 @@ function day(offset = 5) {
   return d.toISOString().slice(0, 10);
 }
 async function enter(page: Page) {
-  await page.goto("/workspace");
-  await page.getByText("Start a blank test shop").click();
-  await page
-    .getByRole("button", { name: "Create test workspace", exact: true })
-    .click();
+  await enterNewShop(page, "Calendar UI shop");
   await expect(
     page.getByRole("heading", { name: "No matching appointments" }),
   ).toBeVisible();
@@ -25,10 +20,10 @@ test("day reads page deterministic ties, reject invalid queries and isolate tena
   const a = await request.newContext({ extraHTTPHeaders: { Origin: origin } }),
     b = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
   try {
-    await a.post(base + "/session", {
-      data: { name: "Calendar pagination audit" },
-    });
-    await b.post(base + "/session", { data: { name: "Other calendar shop" } });
+    await signup(a, "Calendar pagination audit");
+    await seedCatalogue(a);
+    await signup(b, "Other calendar shop");
+    await seedCatalogue(b);
     const w = await (await a.get(base + "/workspace")).json();
     const service = w.services.find((s: any) => s.duration_min === 30);
     const date = day();
@@ -222,7 +217,7 @@ test("barber rule matrix: multi-row draft saves together, revert is explicit and
     .getByRole("button", { name: "Discard changes and continue", exact: true })
     .click();
   await expect(editor).toHaveCount(0);
-  const w = await (await page.request.get("/api/sandbox/workspace")).json();
+  const w = await (await page.request.get("/api/app/workspace")).json();
   const fade = w.services.find((s: { name: string }) => s.name === "Skin fade");
   const who = w.staff.find((s: { name: string }) => s.name === barber);
   expect(
@@ -237,7 +232,7 @@ test("incomplete day or workspace responses have recovery without false empty ca
   page,
 }) => {
   await enter(page);
-  await page.route("**/api/sandbox/bookings?**", (route) =>
+  await page.route("**/api/app/bookings?**", (route) =>
     route.abort("failed"),
   );
   await page.getByLabel("Appointment date", { exact: true }).fill(day());
@@ -247,14 +242,14 @@ test("incomplete day or workspace responses have recovery without false empty ca
   await expect(
     page.getByRole("region", { name: "Saved appointment timetable" }),
   ).not.toBeVisible();
-  await page.unroute("**/api/sandbox/bookings?**");
+  await page.unroute("**/api/app/bookings?**");
   await page
     .getByRole("button", { name: "Retry workspace", exact: true })
     .click();
   await expect(
     page.getByRole("region", { name: "Saved appointment timetable" }),
   ).toBeVisible();
-  await page.route("**/api/sandbox/workspace", async (route) => {
+  await page.route("**/api/app/workspace", async (route) => {
     const response = await route.fetch();
     await route.fulfill({
       response,
@@ -689,7 +684,7 @@ test("pending status save blocks action switching and first-time shortcut never 
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route("**/api/sandbox/bookings/*/status", async (route) => {
+  await page.route("**/api/app/bookings/*/status", async (route) => {
     const response = await route.fetch();
     await gate;
     await route.fulfill({ response });

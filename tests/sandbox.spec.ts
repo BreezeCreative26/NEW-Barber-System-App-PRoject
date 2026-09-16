@@ -99,7 +99,6 @@ import { readFileSync } from "node:fs";
 // Keep an executable inventory of ALL write routes, including PATCH and DELETE.
 // A new write route without a security test fails this source-derived coverage gate.
 const mutationContracts = [
-  ["POST", "/session"],
   ["PUT", "/shop"],
   ["PUT", "/shop/online"],
   ["PUT", "/shop/page"],
@@ -169,7 +168,7 @@ test("all registered mutation endpoints enforce origin and session boundaries", 
       ...(method !== "DELETE" ? { data: {} } : {}),
     });
     expect(foreign.status(), `${method} ${pattern} origin`).toBe(403);
-    if (pattern !== "/session") {
+    {
       const unauth = await anon.fetch(base + path, {
         method,
         ...(method !== "DELETE" ? { data: {} } : {}),
@@ -275,14 +274,9 @@ test("staff days off persist, isolate shops, reject bookings and moves, and rele
   await Promise.all([r.dispose(), other.dispose()]);
 });
 
-const origin = "http://localhost:3000";
-const base = origin + "/api/sandbox";
+import { base, origin, newShop } from "./shop";
 async function owner(name = "API test shop") {
-  const r = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
-  expect((await r.post(base + "/session", { data: { name } })).status()).toBe(
-    201,
-  );
-  return r;
+  return (await newShop(name)).r;
 }
 async function workspace(r: APIRequestContext): Promise<WorkspaceData> {
   const response = await r.get(base + "/workspace");
@@ -335,7 +329,7 @@ test("session cookie, same-origin checks and isolation across entity endpoints",
   expect((await anonymous.get(base + "/workspace")).status()).toBe(401);
   expect(
     (
-      await anonymous.post(base + "/session", { data: { name: "Rejected" } })
+      await anonymous.post(base + "/auth/signup", { data: { shop_name: "Rejected", name: "Nobody", email: "x@y.test", password: "Unique fictional test password 438!" } })
     ).status(),
   ).toBe(403);
   expect(

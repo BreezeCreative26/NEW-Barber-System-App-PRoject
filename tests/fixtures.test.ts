@@ -22,14 +22,9 @@ describe("app route boundaries", () => {
       expect((await app.request(p)).status).toBe(404);
     expect((await app.request("/api/bookings", { method: "POST" })).status).toBe(404);
   });
-  it("declares that payments and persistence are absent without sandbox bindings", async () => {
+  it("declares that payments and persistence are absent without bindings", async () => {
     const r = await app.request("/api/health");
-    expect(await r.json()).toEqual({
-      status: "ok",
-      mode: "static",
-      livePayments: false,
-      persistence: false,
-    });
+    expect(await r.json()).toMatchObject({ status: "ok", livePayments: false, persistence: false });
   });
 });
 

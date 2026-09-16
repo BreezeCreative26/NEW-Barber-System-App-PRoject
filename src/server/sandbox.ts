@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import { getCookie, setCookie } from "hono/cookie";
+import { getCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import type { Database as D1Database, Statement as D1PreparedStatement } from "../db/client";
 import { putObject, deleteObject, type ObjectStore } from "../db/storage";
@@ -71,7 +71,6 @@ import accounts, {
 type Env = AppEnv;
 type Ctx = Context<Env>;
 const sandbox = new Hono<Env>();
-const COOKIE = "barbershop_test_session";
 const id = () => crypto.randomUUID();
 const hash = async (text: string) =>
   Array.from(
@@ -146,12 +145,8 @@ sandbox.use("*", async (c, next) => {
   c.header("X-Content-Type-Options", "nosniff");
   if (!c.env?.DB)
     return c.json(
-      {
-        error: "sandbox_disabled",
-        message:
-          "Functional test endpoints are disabled outside the local sandbox.",
-      },
-      404,
+      { error: "database_unavailable", message: "The database is not configured on this deployment." },
+      503,
     );
   if (!["GET", "HEAD"].includes(c.req.method)) {
     if (!sameOrigin(c))
@@ -166,33 +161,21 @@ sandbox.use("*", async (c, next) => {
   const accountToken = getCookie(c, ACCOUNT_COOKIE);
   const account = accountToken ? await resolveAccount(c, accountToken) : null;
   c.set("account", account);
-  const token = getCookie(c, COOKIE);
-  const session =
-    !accountToken && token
-      ? await c.env.DB.prepare(
-          "SELECT shop_id,token_hash FROM sandbox_sessions WHERE token_hash=? AND expires_at>? AND NOT EXISTS (SELECT 1 FROM shop_owners o WHERE o.shop_id=sandbox_sessions.shop_id)",
-        )
-          .bind(await hash(token), Date.now())
-          .first<{ shop_id: string; token_hash: string }>()
-      : null;
   if (account) {
     c.set("shopId", account.shop_id);
     c.set("actor", `user:${account.user_id}`);
-  } else if (session) {
-    c.set("shopId", session.shop_id);
-    c.set("actor", `sandbox-owner:${session.token_hash.slice(0, 12)}`);
   }
-  const path = c.req.path.replace(/^\/api\/sandbox/, ""),
+  const path = c.req.path.replace(/^\/api\/(app|sandbox)/, ""),
     method = c.req.method;
   const publicAuth =
-    method === "POST" &&
-    ["/auth/login", "/auth/accept", "/auth/logout", "/auth/demo"].includes(path);
-  const bootstrap = path === "/session" && method === "POST" && !accountToken;
-  if (!account && !session && !publicAuth && !bootstrap)
+    (method === "POST" &&
+      ["/auth/login", "/auth/signup", "/auth/accept", "/auth/logout", "/auth/demo"].includes(path)) ||
+    (method === "GET" && path === "/auth/me");
+  if (!account && !publicAuth)
     return c.json(
       {
         error: "session_required",
-        message: "Sign in or create a local test workspace.",
+        message: "Sign in to continue.",
       },
       401,
     );
@@ -287,77 +270,6 @@ export function handleError(err: Error, c: Ctx) {
 sandbox.onError(handleError);
 
 sandbox.route("/auth", accounts);
-
-sandbox.post("/session", async (c) => {
-  if (c.get("shopId"))
-    return c.json({ shop_id: c.get("shopId"), mode: "sandbox" });
-  const body = await input(
-    c,
-    z.object({ name: z.string().trim().min(2).max(100) }).strict(),
-  );
-  const shopId = id();
-  const raw = crypto.randomUUID() + crypto.randomUUID();
-  const digest = await hash(raw);
-  const now = Date.now();
-  const staffIds = [id(), id()];
-  const serviceIds = [id(), id(), id()];
-  const statements: D1PreparedStatement[] = [
-    c.env.DB.prepare(
-      "INSERT INTO shops(id,name,created_at) VALUES(?,?,?)",
-    ).bind(shopId, body.name, now),
-    c.env.DB.prepare(
-      "INSERT INTO sandbox_sessions(token_hash,shop_id,expires_at,created_at) VALUES(?,?,?,?)",
-    ).bind(digest, shopId, now + 7 * 86400000, now),
-  ];
-  for (const [i, name] of ["Jay Carter", "Marcus Reed"].entries()) {
-    statements.push(
-      c.env.DB.prepare(
-        "INSERT INTO staff(id,shop_id,name,role) VALUES(?,?,?,?)",
-      ).bind(staffIds[i], shopId, name, i === 0 ? "Senior barber" : "Barber"),
-    );
-    for (let day = 0; day < 7; day++)
-      statements.push(
-        c.env.DB.prepare(
-          "INSERT INTO staff_hours(shop_id,staff_id,weekday,enabled,starts,ends,break_start,break_end) VALUES(?,?,?,?,540,1080,765,810)",
-        ).bind(shopId, staffIds[i], day, day === 0 ? 0 : 1),
-      );
-  }
-  for (const [i, s] of [
-    { name: "Signature cut", duration: 30, price: 2800 },
-    { name: "Skin fade", duration: 45, price: 3200 },
-    { name: "Cut & beard", duration: 60, price: 4200 },
-  ].entries())
-    statements.push(
-      c.env.DB.prepare(
-        "INSERT INTO services(id,shop_id,name,duration_min,price_pence) VALUES(?,?,?,?,?)",
-      ).bind(serviceIds[i], shopId, s.name, s.duration, s.price),
-    );
-  statements.push(
-    c.env.DB.prepare(
-      "INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
-    ).bind(
-      id(),
-      shopId,
-      "shop",
-      shopId,
-      "WORKSPACE_CREATED",
-      "sandbox-owner:" + digest.slice(0, 12),
-      "Local test workspace with editable example catalogue; no bookings or payments seeded.",
-      now,
-    ),
-  );
-  await c.env.DB.batch(statements);
-  setCookie(c, COOKIE, raw, {
-    httpOnly: true,
-    sameSite: "Strict",
-    // Secure cookies also work on the browser's trusted localhost origin.
-    // Wrangler's HTTP origin can sit behind an HTTPS development proxy.
-    secure: true,
-    path: "/",
-    maxAge: 7 * 86400,
-  });
-  return c.json({ shop_id: shopId, mode: "sandbox" }, 201);
-});
 
 // Range read for week view: compact rows for up to 31 days, barber-scoped.
 sandbox.get("/bookings/range", async (c) => {

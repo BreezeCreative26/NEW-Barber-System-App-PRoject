@@ -8,8 +8,7 @@ import {
 import AxeBuilder from "@axe-core/playwright";
 import { section } from "./fixture";
 import type { WorkspaceData, BookingItem } from "../src/server/domain";
-const origin = "http://localhost:3000",
-  base = origin + "/api/sandbox";
+import { base, origin, newShop, enterNewShop } from "./shop";
 const day = () => {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + 8);
@@ -17,13 +16,7 @@ const day = () => {
   return d.toISOString().slice(0, 10);
 };
 async function owner() {
-  const r = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
-  expect(
-    (
-      await r.post(base + "/session", { data: { name: "Catalogue test shop" } })
-    ).status(),
-  ).toBe(201);
-  return r;
+  return (await newShop("Catalogue test shop")).r;
 }
 async function ws(r: APIRequestContext): Promise<WorkspaceData> {
   const q = await r.get(base + "/workspace");
@@ -386,14 +379,7 @@ test("dated partial shifts replace weekly hours, keep closure precedence, flag b
 });
 
 async function enter(page: Page) {
-  await page.goto("/workspace");
-  await page.getByText("Start a blank test shop").click();
-  await page
-    .getByRole("button", { name: "Create test workspace", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "New booking", exact: true }),
-  ).toBeVisible();
+  await enterNewShop(page, "Catalogue UI shop");
 }
 async function save(page: Page, name = "Save changes") {
   await page

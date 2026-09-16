@@ -16,11 +16,11 @@ export type Account = {
   version: number;
 };
 export type AppEnv = {
-  Bindings: { DB: Database; APP_MODE?: string; ALLOWED_ORIGINS?: string };
+  Bindings: { DB: Database; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string };
   Variables: { shopId: string; actor: string; account: Account | null };
 };
 type Ctx = Context<AppEnv>;
-export const ACCOUNT_COOKIE = "barbershop_account";
+export const ACCOUNT_COOKIE = "ollo_session";
 // Same-origin guard for every write. Development proxies (preview wrappers, HTTPS
 // tunnels) rewrite Host, so the forwarded host/proto and an explicit sandbox-only
 // allow-list also count as "this site". Cross-site origins are always refused.
@@ -74,7 +74,7 @@ export function sameOrigin(c: Ctx): boolean {
   );
   return false;
 }
-const LEGACY_COOKIE = "barbershop_test_session";
+const LEGACY_COOKIES = ["barbershop_account", "barbershop_test_session"];
 const uid = () => crypto.randomUUID();
 export const digest = async (value: string) =>
   [
@@ -231,7 +231,7 @@ function event(
     entity,
     action,
     actor,
-    "Local test access management; no message sent.",
+    "Account access change.",
     Date.now(),
   );
 }
@@ -266,39 +266,75 @@ export function cookies(c: Ctx, raw: string) {
     path: "/",
     maxAge: 7 * 86400,
   });
-  deleteCookie(c, LEGACY_COOKIE, { path: "/", secure: true });
+  for (const name of LEGACY_COOKIES) deleteCookie(c, name, { path: "/", secure: true });
 }
 const accounts = new Hono<AppEnv>();
-accounts.post("/register", async (c) => {
-  const b = await readInput(c, registration);
-  if (!c.get("shopId") || c.get("account"))
-    return reject(403, "Create or open your unclaimed test workspace first");
-  await throttle(c, "register", b.email);
-  const shop = c.get("shopId"),
+export const demoEnabled = (c: Ctx) => (c.env.DEMO_ENABLED ?? process.env.DEMO_ENABLED ?? "") === "1";
+const timezone = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine((tz) => {
+    try {
+      new Intl.DateTimeFormat("en-GB", { timeZone: tz });
+      return true;
+    } catch {
+      return false;
+    }
+  }, "Unknown timezone");
+const signup = z
+  .object({
+    shop_name: z.string().trim().min(2).max(100),
+    name: z.string().trim().min(2).max(100),
+    email,
+    password,
+    timezone: timezone.default("Europe/London"),
+  })
+  .strict();
+// POST /auth/signup — the only way a real shop starts. Creates the shop, the owner's user +
+// OWNER membership, and adds the owner as the first bookable barber (most owners cut hair; the
+// profile can be deactivated in Team if not). No fictional services or staff are seeded.
+accounts.post("/signup", async (c) => {
+  const b = await readInput(c, signup);
+  if (c.get("account")) return reject(409, "You are already signed in. Sign out first to create another shop.");
+  await throttle(c, "signup", b.email);
+  const existing = await c.env.DB.prepare("SELECT 1 AS x FROM app_users WHERE email=?").bind(b.email).first();
+  if (existing) return reject(409, "An account with this email already exists. Sign in instead.");
+  const shop = uid(),
     user = uid(),
     membership = uid(),
-    salt = uid() + uid();
+    staffId = uid(),
+    salt = uid() + uid(),
+    now = Date.now();
   const encoded = await passwordHash(b.password, salt);
   const session = await newSession(c, membership);
-  // Unique shop ownership and user email serialize competing claims. All writes rollback together.
-  await c.env.DB.batch([
-    c.env.DB.prepare(
-      "INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)",
-    ).bind(user, b.email, b.name, encoded, salt, Date.now()),
-    c.env.DB.prepare(
-      "INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?)",
-    ).bind(shop, user),
-    c.env.DB.prepare(
-      "INSERT INTO app_memberships(id,shop_id,user_id,role) VALUES(?,?,?,'OWNER')",
-    ).bind(membership, shop, user),
+  const writes = [
+    c.env.DB.prepare("INSERT INTO shops(id,name,timezone,created_at) VALUES(?,?,?,?)").bind(shop, b.shop_name, b.timezone, now),
+    c.env.DB.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)").bind(user, b.email, b.name, encoded, salt, now),
+    c.env.DB.prepare("INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?)").bind(shop, user),
+    c.env.DB.prepare("INSERT INTO staff(id,shop_id,name,role,title,start_date) VALUES(?,?,?,?,?,?)").bind(staffId, shop, b.name, "Owner", "Owner & barber", new Date(now).toISOString().slice(0, 10)),
+    // The owner's barber profile is not bound to the membership: owners see the whole shop, and a
+    // bound profile would block inviting someone else onto it. Linking comes with "my day" later.
+    c.env.DB.prepare("INSERT INTO app_memberships(id,shop_id,user_id,role) VALUES(?,?,?,'OWNER')").bind(membership, shop, user),
+  ];
+  // Default week: Mon–Sat 09:00–18:00, closed Sunday (matches the shop defaults).
+  for (let day = 0; day < 7; day++)
+    writes.push(
+      c.env.DB.prepare("INSERT INTO staff_hours(shop_id,staff_id,weekday,enabled,starts,ends,break_start,break_end) VALUES(?,?,?,?,540,1080,780,780)").bind(shop, staffId, day, day === 0 ? 0 : 1),
+    );
+  writes.push(
     session.write,
     c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
     c.env.DB.prepare("DELETE FROM account_assertions"),
-    c.env.DB.prepare("DELETE FROM sandbox_sessions WHERE shop_id=?").bind(shop),
+    c.env.DB.prepare(
+      "INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
+    ).bind(uid(), shop, "shop", shop, "SHOP_CREATED", `user:${user}`, "Shop created at signup.", now),
     event(c, shop, `user:${user}`, user, "OWNER_ACCOUNT_CREATED"),
-  ]);
+  );
+  await c.env.DB.batch(writes);
   cookies(c, session.raw);
-  return c.json({ ok: true }, 201);
+  return c.json({ ok: true, shop_id: shop }, 201);
 });
 accounts.post("/login", async (c) => {
   const b = await readInput(c, credentials);
@@ -332,7 +368,10 @@ accounts.post("/login", async (c) => {
   cookies(c, session.raw);
   return c.json({ ok: true });
 });
-accounts.post("/demo", demoRoute);
+accounts.post("/demo", async (c) => {
+  if (!demoEnabled(c)) return reject(404, "The demo is not enabled on this deployment");
+  return demoRoute(c);
+});
 accounts.post("/logout", async (c) => {
   await readInput(c, z.object({}).strict());
   const token = getCookie(c, ACCOUNT_COOKIE);
@@ -341,11 +380,11 @@ accounts.post("/logout", async (c) => {
       .bind(await digest(token))
       .run();
   deleteCookie(c, ACCOUNT_COOKIE, { path: "/", secure: true });
-  deleteCookie(c, LEGACY_COOKIE, { path: "/", secure: true });
+  for (const name of LEGACY_COOKIES) deleteCookie(c, name, { path: "/", secure: true });
   return c.json({ ok: true });
 });
 accounts.get("/me", (c) =>
-  c.json({ account: c.get("account") || null, mode: "local-test" }),
+  c.json({ account: c.get("account") || null, demo: demoEnabled(c) }),
 );
 accounts.get("/access", async (c) => {
   const a = owner(c);

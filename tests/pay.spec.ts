@@ -122,7 +122,7 @@ test("top bar: search palette opens in place and deep-links; account menu offers
   await expect(page.getByRole("heading", { name: "Shop settings" })).toBeVisible();
   await page.getByTestId("account-pill").click();
   await page.getByTestId("sign-out").click();
-  await expect(page.getByRole("heading", { name: "Open the demo shop" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
 });
 
 test("settings lists every customer page with live links and the plan is readable in-app", async ({ page }) => {

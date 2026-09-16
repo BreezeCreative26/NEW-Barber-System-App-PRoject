@@ -1,0 +1,16 @@
+import { chromium } from "@playwright/test";
+const base="http://localhost:3000"; const b=await chromium.launch();
+const page=await (await b.newContext({viewport:{width:1366,height:900}})).newPage();
+const errors=[]; page.on("pageerror",e=>errors.push(e.message)); page.on("response",r=>{ if(r.status()>=400) errors.push(`${r.status()} ${r.url().replace(base,"")}`); });
+await page.goto(base+"/workspace"); await page.waitForTimeout(1500); await page.screenshot({path:"/tmp/fd-signin.png"});
+await page.getByRole("tab",{name:"Create your shop"}).click(); await page.waitForTimeout(300); await page.screenshot({path:"/tmp/fd-signup.png"});
+console.log("url after tab:", page.url());
+const em=`owner-${Date.now()}@ollo.test`;
+await page.getByLabel("Shop name").fill("Fade Society"); await page.getByLabel("Your name").fill("Sam Fade"); await page.getByLabel("Email").fill(em); await page.getByLabel("Password").fill("a very long password 2026!");
+await page.getByRole("button",{name:"Create shop"}).click(); await page.waitForTimeout(2500);
+console.log("url:", page.url()); await page.screenshot({path:"/tmp/fd-new.png", fullPage:true});
+console.log((await page.locator("main").innerText()).replace(/\n{2,}/g,"\n").slice(0,700));
+const nav=page.getByRole("navigation",{name:"Workspace sections"});
+await nav.getByRole("button",{name:"Team",exact:true}).click(); await page.waitForTimeout(600); console.log("\n[Team]\n",(await page.locator("main").innerText()).replace(/\n{2,}/g,"\n").slice(0,400));
+await nav.getByRole("button",{name:"Services",exact:true}).click(); await page.waitForTimeout(600); console.log("\n[Services]\n",(await page.locator("main").innerText()).replace(/\n{2,}/g,"\n").slice(0,400)); await page.screenshot({path:"/tmp/fd-services.png"});
+console.log("ERRORS",errors); await b.close();

@@ -131,17 +131,15 @@ describe("authoritative catalogue items and dated hours", () => {
   });
 });
 
-describe("local sandbox boundary", () => {
-  it.each([
-    "/api/sandbox/session",
-    "/api/sandbox/workspace",
-    "/api/sandbox/bookings",
-  ])("fails closed without local flag: %s", async (path) => {
+describe("app API boundary", () => {
+  // Unit tests run the Hono app without bindings: the API must fail closed, never 500.
+  it.each(["/api/app/workspace", "/api/app/bookings"])("fails closed without a database: %s", async (path) => {
     const r = await app.request(path, {
       method: path.endsWith("workspace") ? "GET" : "POST",
+      headers: { Origin: "http://localhost" },
     });
-    expect(r.status).toBe(404);
-    expect(await r.json()).toMatchObject({ error: "sandbox_disabled" });
+    expect(r.status).toBe(503);
+    expect(await r.json()).toMatchObject({ error: "database_unavailable" });
   });
   it("serves a no-store workspace shell without claiming identity", async () => {
     const r = await app.request("/workspace");

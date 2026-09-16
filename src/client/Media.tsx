@@ -1,5 +1,5 @@
 // Photo upload control for the Shop page and barber editors. Posts multipart to
-// /api/sandbox/media and hands back the /media/<id> path to store in the existing URL field.
+// /api/app/media and hands back the /media/<id> path to store in the existing URL field.
 import { useRef, useState } from "react";
 import { Button, Icon } from "./ui";
 
@@ -13,7 +13,7 @@ export async function uploadPhoto(file: File, kind: UploadKind, alt = ""): Promi
   fd.append("file", file);
   fd.append("kind", kind);
   if (alt) fd.append("alt", alt);
-  const res = await fetch("/api/sandbox/media", { method: "POST", credentials: "same-origin", body: fd });
+  const res = await fetch("/api/app/media", { method: "POST", credentials: "same-origin", body: fd });
   const body = (await res.json().catch(() => ({}))) as { media?: { id: string; url: string }; message?: string };
   if (!res.ok || !body.media) throw new Error(body.message || "Upload failed.");
   return body.media;

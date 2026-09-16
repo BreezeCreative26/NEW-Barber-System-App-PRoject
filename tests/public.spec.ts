@@ -11,9 +11,8 @@ import { openQueue } from "./fixture";
 
 // Public online booking, customer manage links and owner customer directory.
 // Every test creates its own fictional shop; nothing live is touched.
-const origin = "http://localhost:3000",
-  base = origin + "/api/sandbox",
-  pub = origin + "/api/public";
+import { base, origin, newShop, enterNewShop } from "./shop";
+const pub = origin + "/api/public";
 const slugFor = () => `test-${crypto.randomUUID().slice(0, 12)}`;
 function futureDate(days = 8) {
   const d = new Date();
@@ -22,11 +21,7 @@ function futureDate(days = 8) {
   return d.toISOString().slice(0, 10);
 }
 async function owner(enable = true) {
-  const r = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
-  expect(
-    (await r.post(base + "/session", { data: { name: "Public Test Shop" } }))
-      .status(),
-  ).toBe(201);
+  const { r } = await newShop("Public Test Shop");
   let w: WorkspaceData = await (await r.get(base + "/workspace")).json();
   const slug = slugFor();
   if (enable) {

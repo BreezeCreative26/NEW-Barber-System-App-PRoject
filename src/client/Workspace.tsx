@@ -70,7 +70,7 @@ async function api<T>(
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 15000);
   try {
-    const response = await fetch(`/api/sandbox${path}`, {
+    const response = await fetch(`/api/app${path}`, {
       method,
       credentials: "same-origin",
       signal: controller.signal,
@@ -97,7 +97,7 @@ async function api<T>(
         slot_taken:
           "That time was just booked. Choose another available time; your customer details have been kept.",
         session_required:
-          "This browser’s test session is missing or expired. Close this dialog and refresh workspace access.",
+          "Your session has expired. Sign in again.",
         slug_taken:
           "Another shop already uses this public address. Choose a different one.",
       };
@@ -242,180 +242,148 @@ function SaveForm({
     </form>
   );
 }
-const DEMO = { email: "owner@demo.test", barber: "jay@demo.test", password: "Demo1234!" };
-function DemoEntry({ onDone }: { onDone: () => Promise<void> }) {
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  async function open(as: "owner" | "barber", rebuild = false) {
-    setBusy(as + (rebuild ? "-rebuild" : ""));
-    setError("");
+const DEMO_ENABLED_KEY = "ollo:demo";
+type AuthMode = "signin" | "signup" | "invite";
+// Real front door. `/signin` and `/signup` render this; `/workspace` shows it when signed out.
+// The demo shortcut appears only when the server reports DEMO_ENABLED=1.
+function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Promise<void> }) {
+  const initial: AuthMode = token ? "invite" : location.pathname === "/signup" ? "signup" : "signin";
+  const [mode, setMode] = useState<AuthMode>(initial);
+  const [demo, setDemo] = useState<boolean>(() => sessionStorage.getItem(DEMO_ENABLED_KEY) === "1");
+  const [demoBusy, setDemoBusy] = useState("");
+  const [demoError, setDemoError] = useState("");
+  useEffect(() => {
+    api<{ demo: boolean }>("/auth/me")
+      .then((r) => {
+        setDemo(!!r.demo);
+        sessionStorage.setItem(DEMO_ENABLED_KEY, r.demo ? "1" : "0");
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (mode !== "invite") {
+      const path = mode === "signup" ? "/signup" : "/signin";
+      if (location.pathname !== path && location.pathname !== "/workspace") history.replaceState(null, "", path);
+    }
+  }, [mode]);
+  const tz = (() => {
     try {
-      await api("/auth/demo", "POST", { as, rebuild });
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/London";
+    } catch {
+      return "Europe/London";
+    }
+  })();
+  async function openDemo(as: "owner" | "barber") {
+    setDemoBusy(as);
+    setDemoError("");
+    try {
+      await api("/auth/demo", "POST", { as });
       await onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not open the demo shop.");
+      setDemoError(e instanceof Error ? e.message : "Could not open the demo shop.");
     } finally {
-      setBusy("");
+      setDemoBusy("");
     }
   }
   return (
-    <section className="workspace-panel demo-entry" aria-labelledby="demo-heading">
-      <Badge>One project · every view</Badge>
-      <h2 id="demo-heading">Open the demo shop</h2>
-      <p>
-        <strong>Demo Barbershop</strong> is the single shared project. Every page of OLLO runs
-        against it — the owner workspace, the barber's own view, the customer booking page and the
-        customer's manage link — so you always see the same data from each side. Rebuild resets it
-        to the seed (3 barbers, 8 services, ~120 fictional appointments, a standing booking, a
-        waitlist).
-      </p>
-      <ul className="demo-surfaces" aria-label="Pages in this project">
-        <li>
-          <span className="demo-surface-icon"><Icon name="store" /></span>
-          <div>
-            <strong>Owner / admin</strong>
-            <small>Calendar, customers, team, services, insights, settings, audit</small>
+    <div className="auth-screen">
+      <section className="workspace-panel account-entry auth-card" aria-labelledby="auth-heading">
+        <Brand />
+        {mode !== "invite" && (
+          <div className="auth-tabs" role="tablist" aria-label="Sign in or create a shop">
+            <button type="button" role="tab" aria-selected={mode === "signin"} onClick={() => setMode("signin")}>
+              Sign in
+            </button>
+            <button type="button" role="tab" aria-selected={mode === "signup"} onClick={() => setMode("signup")}>
+              Create your shop
+            </button>
           </div>
-          <Button onClick={() => open("owner")} disabled={!!busy} data-testid="open-owner">
-            {busy === "owner" ? "Opening…" : "Open as owner"}
-          </Button>
-        </li>
-        <li>
-          <span className="demo-surface-icon"><Icon name="scissors" /></span>
-          <div>
-            <strong>Barber</strong>
-            <small>Jay Carter's scoped view: own day, own customers, own profile</small>
-          </div>
-          <Button variant="secondary" onClick={() => open("barber")} disabled={!!busy} data-testid="open-barber">
-            {busy === "barber" ? "Opening…" : "Open as barber"}
-          </Button>
-        </li>
-        <li>
-          <span className="demo-surface-icon"><Icon name="calendar" /></span>
-          <div>
-            <strong>Customer booking</strong>
-            <small>Public page at <code>/book/demo</code> — pick service, barber, time</small>
-          </div>
-          <a className="button secondary" href="/book/demo" target="_blank" rel="noreferrer" data-testid="open-customer">
-            Open booking page
-          </a>
-        </li>
-        <li>
-          <span className="demo-surface-icon"><Icon name="user" /></span>
-          <div>
-            <strong>Customer manage link</strong>
-            <small>Open any appointment → Share → the <code>/manage/…</code> link a customer receives</small>
-          </div>
-          <span className="demo-surface-note">via an appointment</span>
-        </li>
-      </ul>
-      <div className="demo-actions">
-        <Button variant="ghost" onClick={() => open("owner", true)} disabled={!!busy}>
-          <Icon name="refresh" />
-          {busy === "owner-rebuild" ? "Rebuilding…" : "Rebuild demo data"}
-        </Button>
-      </div>
-      <ErrorMessage error={error} />
-      <p className="helper">
-        Sign in from any browser with <code>{DEMO.email}</code> / <code>{DEMO.password}</code>
-        {" "}(barber: <code>{DEMO.barber}</code>). Demo data; no payments or messages are sent.
-      </p>
-    </section>
-  );
-}
-function AuthEntry({
-  token = "",
-  claim = false,
-  onDone,
-}: {
-  token?: string;
-  claim?: boolean;
-  onDone: () => Promise<void>;
-}) {
-  return (
-    <section className="workspace-panel account-entry">
-      <Badge>Accounts</Badge>
-      <h2>
-        {claim
-          ? "Secure this test shop"
-          : token
-            ? "Accept staff invitation"
-            : "Sign in to your shop"}
-      </h2>
-      <p>
-        {claim
-          ? "Keep this shop, its catalogue and every saved appointment. Creating your owner account retires this shop’s browser-only access."
-          : token
-            ? "Use the email on your invitation. Your owner chooses your shop, staff profile and permissions."
-            : "Return to your existing shop from another browser using your account."}
-      </p>
-      <SaveForm
-        label={
-          claim
-            ? "Create owner account"
-            : token
-              ? "Accept invitation"
-              : "Sign in"
-        }
-        onSave={async (f) => {
-          const creating = claim || !!token;
-          await api(
-            `/auth/${claim ? "register" : token ? "accept" : "login"}`,
-            "POST",
-            {
-              email: text(f, "email"),
-              password: text(f, "password"),
-              ...(creating ? { name: text(f, "name") } : {}),
-              ...(token ? { token } : {}),
-            },
-          );
-          await onDone();
-        }}
-      >
-        {(claim || token) && (
-          <Field label="Your name">
+        )}
+        <h2 id="auth-heading">
+          {mode === "invite" ? "Accept your invitation" : mode === "signup" ? "Set up your shop" : "Welcome back"}
+        </h2>
+        <p>
+          {mode === "invite"
+            ? "Use the email on your invitation. Your owner chose your role and which barber profile is yours."
+            : mode === "signup"
+              ? "Your shop, your team and online booking in a couple of minutes. You’ll be added as the first barber; add the rest of the team from Team."
+              : "Sign in to your shop’s workspace."}
+        </p>
+        <SaveForm
+          key={mode}
+          label={mode === "invite" ? "Accept invitation" : mode === "signup" ? "Create shop" : "Sign in"}
+          onSave={async (f) => {
+            if (mode === "signup")
+              await api("/auth/signup", "POST", {
+                shop_name: text(f, "shop_name"),
+                name: text(f, "name"),
+                email: text(f, "email"),
+                password: text(f, "password"),
+                timezone: tz,
+              });
+            else if (mode === "invite")
+              await api("/auth/accept", "POST", { email: text(f, "email"), password: text(f, "password"), name: text(f, "name"), token });
+            else await api("/auth/login", "POST", { email: text(f, "email"), password: text(f, "password") });
+            history.replaceState(null, "", "/workspace");
+            await onDone();
+          }}
+        >
+          {mode === "signup" && (
+            <Field label="Shop name">
+              <input name="shop_name" autoComplete="organization" required minLength={2} maxLength={100} placeholder="e.g. Fade Society" />
+            </Field>
+          )}
+          {mode !== "signin" && (
+            <Field label="Your name">
+              <input name="name" autoComplete="name" required minLength={2} maxLength={100} />
+            </Field>
+          )}
+          <Field label="Email">
+            <input name="email" type="email" autoComplete="username" required maxLength={254} inputMode="email" />
+          </Field>
+          <Field label="Password">
             <input
-              name="name"
-              autoComplete="name"
+              name="password"
+              type="password"
+              autoComplete={mode === "signin" ? "current-password" : "new-password"}
               required
-              minLength={2}
-              maxLength={100}
+              minLength={mode === "signin" ? 1 : 12}
+              maxLength={128}
             />
           </Field>
-        )}
-        <Field label="Account email">
-          <input
-            name="email"
-            type="email"
-            autoComplete="username"
-            required
-            maxLength={254}
-            defaultValue={!claim && !token ? DEMO.email : undefined}
-          />
-        </Field>
-        <Field label="Password">
-          <input
-            name="password"
-            type="password"
-            autoComplete={claim || token ? "new-password" : "current-password"}
-            required
-            minLength={claim || token ? 12 : 1}
-            maxLength={128}
-            defaultValue={!claim && !token ? DEMO.password : undefined}
-          />
-        </Field>
-        {!claim && !token && (
-          <p className="helper demo-hint">
-            Demo credentials are pre-filled: <code>{DEMO.email}</code> / <code>{DEMO.password}</code>. Barber view: <code>{DEMO.barber}</code>.
+          {mode !== "signin" && <p className="helper">At least 12 characters. Timezone will be set to {tz}; change it later in Settings.</p>}
+        </SaveForm>
+        {mode === "signin" && (
+          <p className="helper auth-switch">
+            New here? <button type="button" className="linklike" onClick={() => setMode("signup")}>Create your shop</button>
+            {" · "}
+            <span title="Password reset arrives with email in the next release">Forgot password? Contact support for now.</span>
           </p>
         )}
-      </SaveForm>
-      <p className="helper">
-        Use a unique password of at least 12
-        characters. Email verification, password recovery, MFA and customer
-        accounts are not connected.
-      </p>
-    </section>
+        {mode === "signup" && (
+          <p className="helper auth-switch">
+            Already have a shop? <button type="button" className="linklike" onClick={() => setMode("signin")}>Sign in</button>
+          </p>
+        )}
+      </section>
+      {demo && mode !== "invite" && (
+        <aside className="workspace-panel auth-demo" aria-labelledby="demo-heading">
+          <Badge>Demo</Badge>
+          <h3 id="demo-heading">Just looking?</h3>
+          <p>Open a fully seeded demo barbershop — 3 barbers, 8 services, a month of appointments. Anyone can reset it.</p>
+          <div className="demo-actions">
+            <Button variant="secondary" disabled={!!demoBusy} onClick={() => openDemo("owner")} data-testid="open-demo-owner">
+              {demoBusy === "owner" ? "Opening…" : "Open as owner"}
+            </Button>
+            <Button variant="ghost" disabled={!!demoBusy} onClick={() => openDemo("barber")} data-testid="open-demo-barber">
+              {demoBusy === "barber" ? "Opening…" : "Open as barber"}
+            </Button>
+            <a className="button ghost" href="/book/demo" data-testid="open-customer">Customer booking page</a>
+          </div>
+          <ErrorMessage error={demoError} />
+        </aside>
+      )}
+    </div>
   );
 }
 type AccessMember = {
@@ -474,7 +442,7 @@ function AccountSettings({
     const result = await api<{ token?: string }>(path, method, body);
     if (result.token)
       setLink(`${location.origin}/workspace#invite=${result.token}`);
-    setNotice("Access change saved. No email or message was sent.");
+    setNotice("Access change saved.");
     try {
       await loadAccess();
     } catch {
@@ -485,7 +453,7 @@ function AccountSettings({
     }
     return result;
   }
-  if (!account) return <AuthEntry claim onDone={onDone} />;
+  if (!account) return <AuthScreen onDone={onDone} />;
   return (
     <section className="account-settings" ref={root}>
       <header className="workspace-panel">
@@ -727,10 +695,8 @@ function AccountSettings({
         </section>
       )}
       <Notice>
-        Local identity testing only: one shop per account. No customer identity,
-        email verification, recovery or live provider is enabled. Suspending
-        access or changing a role revokes that member’s sessions; deactivating
-        their team profile also blocks access.
+        Suspending access or changing a role signs that member out everywhere; deactivating their
+        team profile also blocks access.
       </Notice>
     </section>
   );
@@ -907,7 +873,7 @@ export function Workspace() {
           setNeedsSession(true);
           setError("");
           setNotice(
-            "No active browser session. Existing test records have not been deleted; creating a workspace starts a separate shop.",
+            "",
           );
         } else {
           setError(
@@ -1203,6 +1169,16 @@ export function Workspace() {
       </Button>
     </section>
   );
+  // Signed out: the front door only. No rail, search or chips until there is a shop to show.
+  if (!w && (needsSession || inviteToken))
+    return (
+      <div className="workspace workspace-signed-out">
+        <main id="workspace-main" className="workspace-main">
+          <ErrorMessage error={error} />
+          <AuthScreen token={inviteToken} onDone={accountChanged} />
+        </main>
+      </div>
+    );
   return (
     <div className="workspace">
       <a className="skip-link" href="#workspace-main">
@@ -1396,45 +1372,6 @@ export function Workspace() {
             <p className="workspace-success" role="status">
               {notice}
             </p>
-          )}
-          {needsSession && !w && !inviteToken && (
-            <DemoEntry onDone={accountChanged} />
-          )}
-          {(inviteToken || (needsSession && !w)) && (
-            <AuthEntry token={inviteToken} onDone={accountChanged} />
-          )}
-          {needsSession && !w && !inviteToken && (
-            <details className="workspace-panel workspace-welcome">
-              <summary>
-                <Icon name="store" size={18} /> Need an empty shop instead? Start a blank test shop
-              </summary>
-              <p>
-                Creates a separate, isolated shop with two example barbers and three editable
-                services and no bookings.
-              </p>
-              <SaveForm
-                label="Create test workspace"
-                onSave={async (f) => {
-                  await api("/auth/logout", "POST", {});
-                  await api("/session", "POST", { name: text(f, "name") });
-                  await refresh();
-                }}
-              >
-                <Field label="Test shop name">
-                  <input
-                    name="name"
-                    required
-                    minLength={2}
-                    maxLength={100}
-                    defaultValue="The Matte Barbershop"
-                  />
-                </Field>
-              </SaveForm>
-              <p>
-                Keep this browser’s cookies to return to your saved test data.
-                No production account, subscription or payment is created.
-              </p>
-            </details>
           )}
           {!w && !needsSession && !error && (
             <p role="status">Loading local workspace…</p>
@@ -3969,7 +3906,7 @@ function BookingList({
     <div className="workspace-empty">
       <Icon name="calendar" size={34} />
       <h2>No matching appointments</h2>
-      <p>Create a test booking, change the date or clear your filters.</p>
+      <p>Add a booking, change the date or clear your filters.</p>
     </div>
   );
 }

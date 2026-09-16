@@ -57,7 +57,6 @@ async function retirePrevious(db: D1Database) {
   const statements: D1PreparedStatement[] = [
     db.prepare("DELETE FROM app_sessions WHERE membership_id IN (SELECT id FROM app_memberships WHERE shop_id=?)").bind(previous),
     db.prepare("DELETE FROM staff_invitations WHERE shop_id=?").bind(previous),
-    db.prepare("DELETE FROM sandbox_sessions WHERE shop_id=?").bind(previous),
     db.prepare("DELETE FROM booking_manage_tokens WHERE shop_id=?").bind(previous),
     db.prepare("DELETE FROM waitlist_offers WHERE shop_id=?").bind(previous),
     db.prepare("DELETE FROM waitlist_entries WHERE shop_id=?").bind(previous),
