@@ -65,7 +65,7 @@ async function bookingDraft(page: Page, name = "Recovery test client") {
     .getByLabel("Service", { exact: true })
     .selectOption({ label: "Signature cut" });
   await page.getByLabel("Available start time").selectOption("540");
-  await page.getByLabel("Fictional customer name").fill(name);
+  await page.getByLabel("Customer name", { exact: true }).fill(name);
   await page.getByLabel("Test UK mobile number").fill("07700900123");
   return date;
 }
@@ -89,7 +89,7 @@ test("interrupted booking response retries idempotently and details/status filte
   await expect(page.getByRole("alert")).toContainText(
     "save response was interrupted",
   );
-  await expect(page.getByLabel("Fictional customer name")).toHaveValue(
+  await expect(page.getByLabel("Customer name", { exact: true })).toHaveValue(
     "Recovery test client",
   );
   await page.getByRole("button", { name: "Review appointment" }).click();
@@ -105,7 +105,7 @@ test("interrupted booking response retries idempotently and details/status filte
     .getByRole("button", { name: "Edit booking details", exact: true })
     .click();
   await page
-    .getByLabel("Fictional customer name")
+    .getByLabel("Customer name", { exact: true })
     .fill("Updated recovery client");
   await page.getByLabel("Test notes").fill("Fictional preference");
   await page
@@ -139,7 +139,7 @@ test("availability network retry and stale quote refresh keep contact details", 
   await expect(
     page.getByRole("button", { name: "Retry availability" }),
   ).toBeVisible();
-  await page.getByLabel("Fictional customer name").fill("Quote test client");
+  await page.getByLabel("Customer name", { exact: true }).fill("Quote test client");
   await page.getByLabel("Test UK mobile number").fill("07700900123");
   await page.unroute("**/api/sandbox/availability?**");
   await page.getByRole("button", { name: "Retry availability" }).click();
@@ -168,7 +168,7 @@ test("availability network retry and stale quote refresh keep contact details", 
     "service or shop policy changed",
   );
   await expect(page.locator(".workspace-quote")).toContainText("£37");
-  await expect(page.getByLabel("Fictional customer name")).toHaveValue(
+  await expect(page.getByLabel("Customer name", { exact: true })).toHaveValue(
     "Quote test client",
   );
   await page.getByLabel("Available start time").selectOption("540");
@@ -402,7 +402,7 @@ test("saved setup and appointment workflow survives reload, move and completion"
     .selectOption({ label: "Test tidy-up" });
   await expect(page.getByLabel("Available start time")).toBeVisible();
   await page.getByLabel("Available start time").selectOption("540");
-  await page.getByLabel("Fictional customer name").fill("Morgan Fictional");
+  await page.getByLabel("Customer name", { exact: true }).fill("Morgan Fictional");
   await page.getByLabel("Test UK mobile number").fill("07700 900123");
   await page.getByRole("button", { name: "Review appointment" }).click();
   await expect(
@@ -718,11 +718,11 @@ test("customers tab: filters, add customer with tags, profile stats, picker in b
   await dialog.getByLabel("Find customer").fill("Fresh");
   await expect(dialog.locator(".customer-picker-results button.active")).toContainText("Fresh Face");
   await dialog.getByLabel("Find customer").press("Enter");
-  await expect(dialog.getByLabel("Fictional customer name")).toHaveValue("Fresh Face");
+  await expect(dialog.getByLabel("Customer name", { exact: true })).toHaveValue("Fresh Face");
   await expect(dialog.getByLabel("Test UK mobile number")).toHaveValue("07700900321");
   await expect(dialog.getByTestId("customer-picked")).toBeVisible();
   await dialog.getByRole("button", { name: "Book as someone else" }).click();
-  await dialog.getByLabel("Fictional customer name").fill("Someone New");
+  await dialog.getByLabel("Customer name", { exact: true }).fill("Someone New");
   await dialog.getByLabel("Test UK mobile number").fill("07700900321");
   await expect(dialog.locator(".customer-duplicate")).toContainText("Fresh Face already has this number");
   await dialog.getByRole("button", { name: "use existing record" }).click();

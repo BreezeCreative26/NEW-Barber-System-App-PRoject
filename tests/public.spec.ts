@@ -320,7 +320,6 @@ test.describe("public booking pages", () => {
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto(`/book/${slug}`);
     await expect(page.getByRole("heading", { name: "What are we doing today?" })).toBeVisible();
-    await expect(page.getByText("LOCAL TEST BOOKING", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: new RegExp(w.services[1].name) }).click();
     await page.getByRole("button", { name: "Choose your barber", exact: true }).click();
     await page.getByRole("button", { name: new RegExp(w.staff[0].name) }).click();
@@ -670,7 +669,7 @@ test.describe("public booking v2 UI", () => {
     await expect(page.getByRole("heading", { name: "Waiting list" })).toBeVisible();
     await page.getByRole("button", { name: "Book them in" }).click();
     await expect(page.getByRole("complementary", { name: "Waitlist request" })).toContainText("Waiting Wanda");
-    await expect(page.getByLabel("Fictional customer name")).toHaveValue("Waiting Wanda");
+    await expect(page.getByLabel("Customer name", { exact: true })).toHaveValue("Waiting Wanda");
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Customers", exact: true }).click();
     await page.getByRole("button", { name: "Waiting Wanda" }).click();

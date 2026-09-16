@@ -170,7 +170,7 @@ const gcal = (b: { start_at: number; end_at: number; service_name: string; shop:
     text: `${b.service_name} at ${b.shop.name}`,
     dates: `${f(b.start_at)}/${f(b.end_at)}`,
     location: b.shop.address || b.shop.name,
-    details: "Booked with OLLO. Local test booking.",
+    details: "Booked with OLLO.",
   });
   return `https://calendar.google.com/calendar/render?${q}`;
 };
@@ -204,15 +204,9 @@ function ShopHeader({ name, address }: { name: string; address: string }) {
     </header>
   );
 }
+// Public pages carry no environment banner any more; kept as a no-op so call sites stay put.
 function TestBanner() {
-  return (
-    <div className="workspace-banner public-banner">
-      <span>
-        <strong>LOCAL TEST BOOKING</strong> · Fictional details only
-      </span>
-      <span>No payment or message is sent</span>
-    </div>
-  );
+  return null;
 }
 
 const steps = ["Service", "Barber", "Date & time", "Your details", "Review"];
@@ -670,8 +664,8 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                       "Pick your service and any extras.",
                       "Choose a barber, or let us find the first free chair.",
                       `Times are shown in ${shop.shop.timezone}. Online bookings need at least ${shop.shop.lead_time_min} minutes’ notice.`,
-                      "Use fictional details for this local test. Nothing is sent.",
-                      "Review your visit. Confirming saves it to the shop’s diary; no payment is taken.",
+                      "We’ll use these to confirm your visit.",
+                      "Review your visit. Confirming saves it to the shop’s diary.",
                     ][step]
                   }
                 </p>
@@ -1190,7 +1184,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   </div>
                   <Notice icon="shield">
                     Your details are saved with this booking only so the shop can find your visit, and remembered on this
-                    device to speed up next time. Use fictional details in this local test.
+                    device to speed up next time.
                   </Notice>
                 </form>
               )}
@@ -1425,7 +1419,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
             <footer className="booking-footer">
               <Brand />
               <span>Good hair. Good company.</span>
-              <span>Local test booking</span>
+              <span>Powered by OLLO</span>
             </footer>
           )}
         </div>
@@ -1869,7 +1863,7 @@ export function ManageBooking({ token }: { token: string }) {
         <footer className="booking-footer">
           <Brand />
           <span>Good hair. Good company.</span>
-          <span>Local test booking</span>
+          <span>Powered by OLLO</span>
         </footer>
       </main>
     </div>

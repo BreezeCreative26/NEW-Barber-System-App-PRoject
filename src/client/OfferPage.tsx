@@ -171,7 +171,7 @@ export function OfferPage({ token }: { token: string }) {
               )}
             </>
           )}
-          <p className="ca-fine">Local test: this link was shown to the shop instead of being sent. No payment is taken.</p>
+          <p className="ca-fine">Pay in the shop. Nothing is charged online.</p>
         </div>
       </main>
     </div>

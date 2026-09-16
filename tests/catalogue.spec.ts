@@ -468,7 +468,7 @@ test("owner edits add-ons, barber pricing and partial shifts; booking items surv
   ).toHaveJSProperty("disabled", true);
   await page.getByLabel("Available start time").selectOption("600");
   await page
-    .getByLabel("Fictional customer name")
+    .getByLabel("Customer name", { exact: true })
     .fill("Combined quote client");
   await page.getByLabel("Test UK mobile number").fill("07700900123");
   await page.getByRole("button", { name: "Review appointment" }).click();
@@ -537,7 +537,7 @@ test("changing add-ons invalidates a selected slot, preserves contact fields and
     .selectOption({ label: "Signature cut" });
   await page.getByLabel("Available start time").selectOption("540");
   await page
-    .getByLabel("Fictional customer name")
+    .getByLabel("Customer name", { exact: true })
     .fill("Preserved addon draft");
   await page.getByLabel("Test UK mobile number").fill("07700900123");
   await page.getByLabel("Long finish", { exact: false }).check();
@@ -545,7 +545,7 @@ test("changing add-ons invalidates a selected slot, preserves contact fields and
   await expect(
     page.getByRole("option", { name: "09:00 — Slot taken", exact: true }),
   ).toHaveJSProperty("disabled", true);
-  await expect(page.getByLabel("Fictional customer name")).toHaveValue(
+  await expect(page.getByLabel("Customer name", { exact: true })).toHaveValue(
     "Preserved addon draft",
   );
   await page.getByLabel("Available start time").selectOption("900");
@@ -563,7 +563,7 @@ test("changing add-ons invalidates a selected slot, preserves contact fields and
   });
   await page.getByRole("button", { name: "Confirm test booking" }).click();
   await expect(page.getByRole("alert")).toContainText("changed");
-  await expect(page.getByLabel("Fictional customer name")).toHaveValue(
+  await expect(page.getByLabel("Customer name", { exact: true })).toHaveValue(
     "Preserved addon draft",
   );
   await expect(page.locator(".workspace-quote")).toContainText("£35");

@@ -318,7 +318,7 @@ function DemoEntry({ onDone }: { onDone: () => Promise<void> }) {
       <ErrorMessage error={error} />
       <p className="helper">
         Sign in from any browser with <code>{DEMO.email}</code> / <code>{DEMO.password}</code>
-        {" "}(barber: <code>{DEMO.barber}</code>). Fictional data only; no payments or messages.
+        {" "}(barber: <code>{DEMO.barber}</code>). Demo data; no payments or messages are sent.
       </p>
     </section>
   );
@@ -334,7 +334,7 @@ function AuthEntry({
 }) {
   return (
     <section className="workspace-panel account-entry">
-      <Badge>Local test accounts</Badge>
+      <Badge>Accounts</Badge>
       <h2>
         {claim
           ? "Secure this test shop"
@@ -347,7 +347,7 @@ function AuthEntry({
           ? "Keep this shop, its catalogue and every saved appointment. Creating your owner account retires this shop’s browser-only access."
           : token
             ? "Use the email on your invitation. Your owner chooses your shop, staff profile and permissions."
-            : "Return to your existing shop from another browser using your local test account."}
+            : "Return to your existing shop from another browser using your account."}
       </p>
       <SaveForm
         label={
@@ -411,7 +411,7 @@ function AuthEntry({
         )}
       </SaveForm>
       <p className="helper">
-        Fictional accounts only. Use a unique test password of at least 12
+        Use a unique password of at least 12
         characters. Email verification, password recovery, MFA and customer
         accounts are not connected.
       </p>
@@ -489,7 +489,7 @@ function AccountSettings({
   return (
     <section className="account-settings" ref={root}>
       <header className="workspace-panel">
-        <Badge>{account.role} · local test</Badge>
+        <Badge>{account.role}</Badge>
         <h2>Accounts & permissions</h2>
         <p>
           Signed in as <strong>{account.name}</strong> · {account.email}
@@ -985,7 +985,7 @@ export function Workspace() {
     try {
       const result = (await run()) as { booking?: StoredBooking } | undefined;
       const fresh = result?.booking ?? (panelBooking ? (await api<{ booking: StoredBooking }>(`/bookings/${panelBooking.id}`)).booking : null);
-      setNotice("Saved to your local test database.");
+      setNotice("Saved.");
       await refresh().catch(() =>
         setError("Saved successfully, but the updated view could not load. Use Retry workspace below; do not repeat the saved action."),
       );
@@ -1024,7 +1024,7 @@ export function Workspace() {
       setSearch("");
     }
     setEditor(null);
-    setNotice("Saved to your local test database.");
+    setNotice("Saved.");
     try {
       await refresh();
     } catch {
@@ -1236,9 +1236,6 @@ export function Workspace() {
         onAccount={() => setAccountOpen((v) => !v)}
         accountOpen={accountOpen}
       >
-        <span className="topbar-env" title="Local test workspace: fictional data only, no live payments or messages">
-          <Icon name="shield" size={14} /> Local test data
-        </span>
       </TopBar>
       {w && accountOpen && (
         <AccountMenu
@@ -1363,7 +1360,7 @@ export function Workspace() {
               <div>
                 <p className="eyebrow">{"YOUR SHOP / " + tab.toUpperCase()}</p>
                 <h1>{tab}</h1>
-                <p>Manage your shop with changes saved to the local test database.</p>
+                <p>Manage your shop. Changes are saved as you confirm them.</p>
               </div>
               <Button
                 variant="secondary"
@@ -1413,7 +1410,7 @@ export function Workspace() {
               </summary>
               <p>
                 Creates a separate, isolated shop with two example barbers and three editable
-                services and no bookings. Use fictional names and numbers only.
+                services and no bookings.
               </p>
               <SaveForm
                 label="Create test workspace"
@@ -2929,7 +2926,7 @@ function NotificationsDrawer({ w, onReview, onClose }: { w: WorkspaceData; onRev
         ) : (
           <p className="drawer-note left">Nothing needs your attention. The waiting list lives under the hourglass in the top bar.</p>
         )}
-        <p className="drawer-note">Local test data · nothing here sends a message or takes a payment.</p>
+        <p className="drawer-note">No message provider is connected yet, so nothing here sends automatically.</p>
       </aside>
     </>
   );
@@ -3146,7 +3143,7 @@ function QueueDrawer({
             <Icon name="settings" size={14} /> Auto-offer, hold time and message wording are in Settings → Waiting list & messages
           </button>
         )}
-        <p className="drawer-note">Local test data · messages are recorded in the outbox, never sent.</p>
+        <p className="drawer-note">Messages are recorded in the outbox; connect a provider in Settings to send them.</p>
       </aside>
     </>
   );
@@ -4209,7 +4206,7 @@ function WorkspaceEditor({
                 required
                 minLength={3}
                 maxLength={100}
-                placeholder="Fictional test leave"
+                placeholder="Annual leave"
               />
             </Field>
           </SaveForm>
@@ -4288,7 +4285,7 @@ function WorkspaceEditor({
             })
           }
         >
-          <Field label="Fictional customer name">
+          <Field label="Customer name">
             <input
               name="customer_name"
               required
@@ -4898,7 +4895,7 @@ function CustomerPicker({
         </p>
       )}
       <div className="workspace-form-grid">
-        <Field label="Fictional customer name">
+        <Field label="Customer name">
           <input
             name="customer_name"
             value={name}
@@ -5681,8 +5678,7 @@ function BookingForm({
         </p>
       )}
       <p className="workspace-footnote">
-        Local test workflow only. Times are Europe/London. Data is saved only
-        after confirmation.
+        Times are Europe/London. Data is saved only after confirmation.
       </p>
     </SaveForm>
   );

@@ -18,7 +18,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
         <h1>The workspace could not display this view</h1>
         <p>
           Reload to check your saved records. If a save was in progress, inspect its result before
-          repeating it. No live payments are enabled.
+          repeating it.
         </p>
         <a className="button primary" href={location.pathname}>
           Reload workspace

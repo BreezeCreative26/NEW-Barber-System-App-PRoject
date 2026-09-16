@@ -232,7 +232,7 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
           ) : (
             <form onSubmit={verify} className="ca-form">
               <Notice icon="shield" tone="info">
-                <strong>Local test:</strong> no message is sent. Your code is <code data-testid="shown-code">{shownCode}</code>.
+                <strong>No SMS provider connected yet:</strong> your code is <code data-testid="shown-code">{shownCode}</code>.
               </Notice>
               <label>
                 <span>6-digit code</span>
