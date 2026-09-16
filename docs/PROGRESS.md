@@ -11,6 +11,14 @@
 - **Not done yet:** push to GitHub + Vercel connect (needs GitHub auth in the project; then set env vars from `.env` in Vercel: `DATABASE_URL`, `DIRECT_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SESSION_SECRET`); Playwright suite not run on the new stack (`playwright.config` still expects the old server — switch webServer to `npm run start`); demo `/static/demo/*.jpg` photos served from Next `public/` fine, but `MEDIA_DIR` fallback is not persistent on Vercel (Supabase keys must be set); remaining "Local test data" / "no payment taken" copy in `src/client/*` (TopBar pill, booking footer, error boundary) to strip; **rotate the Supabase DB password and access token** that were pasted in chat; `sandbox_sessions`/`account_assertions`/"sandbox" naming in routes (`/api/sandbox/*`) kept for compatibility — rename to `/api/app/*` when convenient.
 
 
+### Postgres dialect clean-up — full gate green on Next + Supabase
+- Customer merge: `CHAR(10)` → `chr(10)` (Postgres).
+- Demo rebuild: delete `waitlist_offers` before `waitlist_entries` (FK order).
+- Settings › Customer pages: the sample manage link now looks ahead 31 days via `/bookings/range` instead of relying on the loaded calendar day.
+- payments.spec: wallet range check spans today → booking date (fixture may book a later day).
+- Visual baselines refreshed after the sandbox banner/pill removal.
+- Result: 133 passed / 1 skipped / 0 failed against local Postgres 17.
+
 ## Latest — shop page phase 2: search (SEO), verified reviews, uploaded photos (2026-09-15)
 
 - **Search engines can read the page.** `/<slug>` server-renders its head from the database (`src/server/presence.ts` → `shopPageHead`): `<title>{Shop} · Barbers in {town}</title>`, description, canonical, Open Graph + Twitter card (cover or `/static/brand/og-default.svg`), and JSON-LD `HairSalon` — address, phone, `openingHoursSpecification` from rostered hours, `priceRange`, `hasOfferCatalog` (bookable services), `employee`, `aggregateRating` when reviews exist, `ReserveAction`. `/robots.txt` allows shop pages and disallows `/api/`, `/workspace`, `/manage/`, `/offer/`, `/book/`, `/*/me`; `/sitemap.xml` lists published online shops with `lastmod`. **Hidden means hidden:** `published=0` → `/<slug>` and `GET /api/public/shops/:slug/page` 404 and the shop leaves the sitemap; `/book/<slug>` still works. Reserved slugs now include `offer media docs robots.txt sitemap.xml`.

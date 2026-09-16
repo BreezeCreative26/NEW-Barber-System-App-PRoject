@@ -2766,9 +2766,27 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
   const [error, setError] = useState("");
   const live = !!w.shop.slug && w.shop.online_booking === 1;
   const bookUrl = w.shop.slug ? `${location.origin}/book/${w.shop.slug}` : "";
-  const sample = w.bookings
-    .filter((b) => ["CONFIRMED", "CHECKED_IN"].includes(b.status) && b.start_at > w.now)
-    .sort((a, b) => a.start_at - b.start_at)[0];
+  // `w.bookings` only holds the calendar day; look ahead a month for the next upcoming visit.
+  const [sample, setSample] = useState<{ id: string; customer_name: string; start_at: number } | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    api<{ bookings: { id: string; customer_name: string; start_at: number; status: string }[] }>(
+      `/bookings/range?from=${w.today}&to=${datePlus(w.today, 31)}`,
+    )
+      .then((r) => {
+        if (cancelled) return;
+        const next = r.bookings
+          .filter((b) => ["CONFIRMED", "CHECKED_IN"].includes(b.status) && b.start_at > Date.now())
+          .sort((a, b) => a.start_at - b.start_at)[0];
+        setSample(next);
+      })
+      .catch(() => {
+        if (!cancelled) setSample(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [w.shop.id, w.today]);
   async function makeManageLink() {
     if (!sample) return;
     setBusy(true);

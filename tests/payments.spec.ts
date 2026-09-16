@@ -98,7 +98,7 @@ test("checkout records service + tip by method, completes the visit, updates the
   await panel.getByLabel("Why is this payment being voided?").fill("Rang up twice");
   await panel.getByRole("button", { name: "Void payment" }).click();
   await expect(strip.getByText("Voided")).toBeVisible();
-  const after = await (await page.request.get(base + `/wallet?from=${booking.date}&to=${booking.date}`)).json();
+  const after = await (await page.request.get(base + `/wallet?from=${wallet.today}&to=${booking.date}`)).json();
   expect(after.payments.find((p: any) => p.booking_id === booking.id).voided_at).toBeTruthy();
   expect(after.totals.voided).toBeGreaterThanOrEqual(1);
   // Ledger is append-only: a second void and any other update are refused.

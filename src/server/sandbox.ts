@@ -976,7 +976,7 @@ sandbox.post("/customers/:id/merge", async (c) => {
     c.env.DB.prepare("UPDATE bookings SET customer_id=? WHERE shop_id=? AND customer_id=?").bind(winner.id, c.get("shopId"), loser.id),
     c.env.DB.prepare("UPDATE customers SET merged_into=?, version=version+1, updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(winner.id, Date.now(), c.get("shopId"), loser.id, b.version),
     c.env.DB.prepare(
-      "UPDATE customers SET email=CASE WHEN email='' THEN ? ELSE email END, notes=CASE WHEN ?<>'' AND notes NOT LIKE '%'||?||'%' THEN TRIM(notes||CHAR(10)||?) ELSE notes END, version=version+1, updated_at=? WHERE shop_id=? AND id=?",
+      "UPDATE customers SET email=CASE WHEN email='' THEN ? ELSE email END, notes=CASE WHEN ?<>'' AND notes NOT LIKE '%'||?||'%' THEN TRIM(notes||chr(10)||?) ELSE notes END, version=version+1, updated_at=? WHERE shop_id=? AND id=?",
     ).bind(loser.email, loser.notes, loser.notes, loser.notes, Date.now(), c.get("shopId"), winner.id),
     audit(c, "customer", winner.id, "CUSTOMER_MERGED", `Merged ${loser.name} (${loser.phone}) into this record; ${moved?.n ?? 0} visits moved.`),
     audit(c, "customer", loser.id, "CUSTOMER_MERGED_AWAY", `Merged into ${winner.name} (${winner.phone}).`),

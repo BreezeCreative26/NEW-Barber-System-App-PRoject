@@ -59,6 +59,7 @@ async function retirePrevious(db: D1Database) {
     db.prepare("DELETE FROM staff_invitations WHERE shop_id=?").bind(previous),
     db.prepare("DELETE FROM sandbox_sessions WHERE shop_id=?").bind(previous),
     db.prepare("DELETE FROM booking_manage_tokens WHERE shop_id=?").bind(previous),
+    db.prepare("DELETE FROM waitlist_offers WHERE shop_id=?").bind(previous),
     db.prepare("DELETE FROM waitlist_entries WHERE shop_id=?").bind(previous),
     // Owner memberships are delete-protected; release the shop by retiring it instead.
     db.prepare("UPDATE shops SET slug=NULL, online_booking=0, name=name||' (retired demo)', version=version+1 WHERE id=?").bind(previous),
