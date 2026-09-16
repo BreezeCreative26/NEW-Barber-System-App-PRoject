@@ -134,7 +134,7 @@ test("timetable click prefills saved booking; reschedule and cancellation update
   await page
     .getByLabel("Customer name", { exact: true })
     .fill("Calendar saved client");
-  await page.getByLabel("Test UK mobile number").fill("07700900123");
+  await page.getByLabel("Mobile number", { exact: true }).fill("07700900123");
   await page
     .getByRole("button", { name: "Review appointment", exact: true })
     .click();
@@ -561,10 +561,10 @@ test("rebooking creates a separately priced visit and opens its saved day withou
   await expect(page.getByLabel("Customer name", { exact: true })).toHaveValue(
     original.customer_name,
   );
-  await expect(page.getByLabel("Test UK mobile number")).toHaveValue(
+  await expect(page.getByLabel("Mobile number", { exact: true })).toHaveValue(
     original.phone,
   );
-  await expect(page.getByLabel("Test notes", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Notes", { exact: true })).toHaveValue("");
   await page.getByRole("button", { name: "4 weeks", exact: true }).click();
   const nextDate = new Date(original.date + "T12:00:00Z");
   nextDate.setUTCDate(nextDate.getUTCDate() + 28);
@@ -925,7 +925,7 @@ test("standing booking: repeat controls preview every date, conflicts must be sk
   await expect(timeSelect.locator("option[value='600']")).toBeEnabled();
   await timeSelect.selectOption("600");
   await dialog.getByLabel("Customer name", { exact: true }).fill("Standing Regular");
-  await dialog.getByLabel("Test UK mobile number").fill("07700900555");
+  await dialog.getByLabel("Mobile number", { exact: true }).fill("07700900555");
   // Repeat controls are only offered for a new booking.
   const repeat = dialog.getByLabel("Repeat this appointment at the same time");
   await repeat.check();

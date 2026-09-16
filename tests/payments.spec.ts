@@ -2,6 +2,7 @@
 // No money moves; nothing here talks to a card reader. Each test uses its own fixture shop.
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { shopPayload } from "./shop";
 import { openFixtureShop, base, origin } from "./fixture";
 
 async function bookToday(page: Page) {
@@ -166,19 +167,7 @@ test("till access: barbers cannot take payment by default; owner setting opens i
   // Owner opens the till to barbers.
   r = await owner.request.put(base + "/shop", {
     headers: { Origin: origin },
-    data: {
-      name: w.shop.name,
-      address: w.shop.address,
-      timezone: "Europe/London",
-      opens: w.shop.opens,
-      closes: w.shop.closes,
-      closed_days: JSON.parse(w.shop.closed_days),
-      deposit_pence: w.shop.deposit_pence,
-      cancel_hours: w.shop.cancel_hours,
-      no_show_grace: w.shop.no_show_grace,
-      till_access: "ALL",
-      version: w.shop.version,
-    },
+    data: shopPayload(w.shop, { till_access: "ALL" }),
   });
   expect(r.status(), await r.text()).toBe(200);
   r = await barber.request.post(base + `/bookings/${booking.id}/checkout`, { headers: { Origin: origin }, data: { version: fresh.version, tenders: [{ method: "CARD", service_pence: 2800, tip_pence: 500 }] } });

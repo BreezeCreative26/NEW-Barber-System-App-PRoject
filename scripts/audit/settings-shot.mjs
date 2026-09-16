@@ -1,0 +1,15 @@
+import { chromium } from "@playwright/test";
+const base="http://localhost:3000"; const b=await chromium.launch();
+const page=await (await b.newContext({viewport:{width:1366,height:900}})).newPage();
+await page.request.post(base+"/api/app/auth/demo",{headers:{Origin:base},data:{as:"owner"}});
+await page.goto(base+"/workspace"); await page.waitForTimeout(1500);
+await page.getByRole("navigation",{name:"Workspace sections"}).getByRole("button",{name:"Settings",exact:true}).click(); await page.waitForTimeout(800);
+await page.locator(".workspace-settings section").first().screenshot({path:"/tmp/set-hours.png"});
+await page.getByRole("navigation",{name:"Workspace sections"}).getByRole("button",{name:"Appointments",exact:true}).click(); await page.waitForTimeout(500);
+await page.getByRole("button",{name:"New booking",exact:true}).click(); await page.waitForTimeout(600);
+const dlg=page.getByRole("dialog");
+await dlg.getByLabel("Barber",{exact:true}).selectOption({index:1}); await dlg.getByLabel("Service",{exact:true}).selectOption({index:1});
+const d=new Date(); d.setUTCDate(d.getUTCDate()+2); if(d.getUTCDay()===0) d.setUTCDate(d.getUTCDate()+1);
+await dlg.getByLabel("Booking date").fill(d.toISOString().slice(0,10)); await page.waitForTimeout(1500);
+await dlg.screenshot({path:"/tmp/newbooking.png"});
+await b.close();

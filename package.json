@@ -12,7 +12,8 @@
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "test:area": "playwright test --reporter=line",
-    "test": "npm run typecheck && npm run test:unit && npm run test:e2e"
+    "test": "npm run typecheck && npm run test:unit && npm run test:e2e",
+    "db:migrate": "node scripts/db-migrate.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

@@ -432,3 +432,15 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - Dead-control audit across all 8 sections: only intentionally disabled timetable cells remain; the old "Record payment (off)" item is gone.
 - Fixes: barber section tabs scroll sideways on phones (was widening the page at 390px); pay breakdown small text AA contrast.
 - Tests: `tests/pay.spec.ts` (3: terms save + snapshot + frozen/duplicate guards; maths for tiers/hybrid/adjustments/void; palette + account menu + sign out). `sandbox.spec.ts` contracts extended. Gate: tsc OK · guardrails PASS · vitest 26 · Playwright 108/110 first pass, both failures fixed and re-run green (catalogue 390px overflow, accounts UI); visual baselines refreshed.
+
+### Shop entity: per-day opening hours, timezone, honest labels; owner booking slot grid
+- `shops.week_json` — one `{enabled,starts,ends}` per weekday. `opens/closes/closed_days` are now
+  derived (envelope) on write so range queries stay simple. Trigger `ollo_booking_slot_checks` enforces
+  the per-day bound. Migration `0001_shop_week.sql` backfills; `npm run db:migrate` applies.
+- Availability (owner + public + waitlist + customer "usual"), calendar shading, chair-time stats and
+  shop-page opening hours all read the per-day hours via `shopDay()/dayStarts()`.
+- Settings: weekly hours grid (Mon first, open toggle + start/end), timezone picker, "Deposit (£) ·
+  payable in the shop". New barbers inherit the per-day shop hours.
+- New booking: free times as tappable chips grouped Morning/Afternoon/Evening; the full select stays
+  as a fallback. Dialog copy de-harnessed (New booking, Mobile number, Notes, Phone / in person).
+- Tests: `shopPayload()` helper; per-day availability assertion (Thursday late vs Saturday short).

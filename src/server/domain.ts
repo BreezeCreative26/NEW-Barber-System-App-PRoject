@@ -8,6 +8,7 @@ export type Shop = {
   opens: number;
   closes: number;
   closed_days: string;
+  week_json: string;
   deposit_pence: number;
   cancel_hours: number;
   no_show_grace: number;
@@ -18,6 +19,38 @@ export type Shop = {
   till_access: "OWNER" | "ALL";
   version: number;
 };
+export type ShopDay = { enabled: 0 | 1; starts: number; ends: number };
+const DEFAULT_WEEK: ShopDay[] = Array.from({ length: 7 }, (_, wd) => ({ enabled: wd === 0 ? 0 : 1, starts: 540, ends: 1080 }));
+// Per-weekday shop hours. Falls back to the legacy opens/closes/closed_days when week_json is absent
+// (older rows, unit fixtures) so every caller can rely on a full 7-entry array.
+export function shopWeek(shop: Pick<Shop, "opens" | "closes" | "closed_days"> & { week_json?: string | null }): ShopDay[] {
+  try {
+    const parsed = shop.week_json ? (JSON.parse(shop.week_json) as ShopDay[]) : null;
+    if (parsed && parsed.length === 7) return parsed.map((d) => ({ enabled: d.enabled ? 1 : 0, starts: d.starts, ends: d.ends }));
+  } catch {
+    /* fall through */
+  }
+  const closed = new Set<number>(JSON.parse(shop.closed_days || "[]"));
+  return DEFAULT_WEEK.map((_, wd) => ({ enabled: closed.has(wd) ? 0 : 1, starts: shop.opens, ends: shop.closes }));
+}
+export const shopDay = (shop: Parameters<typeof shopWeek>[0], wd: number): ShopDay => shopWeek(shop)[wd];
+// 15-minute start candidates within the shop's hours on a given date (empty when the shop is shut).
+export function dayStarts(shop: Parameters<typeof shopWeek>[0], date: string): number[] {
+  const d = shopDay(shop, weekday(date));
+  if (!d.enabled) return [];
+  const out: number[] = [];
+  for (let m = Math.ceil(d.starts / 15) * 15; m < d.ends; m += 15) out.push(m);
+  return out;
+}
+// Legacy columns derived from the week: earliest open, latest close, disabled weekdays.
+export function weekEnvelope(week: ShopDay[]) {
+  const open = week.filter((d) => d.enabled);
+  return {
+    opens: open.length ? Math.min(...open.map((d) => d.starts)) : 540,
+    closes: open.length ? Math.max(...open.map((d) => d.ends)) : 1080,
+    closed_days: week.map((d, i) => (d.enabled ? -1 : i)).filter((i) => i >= 0),
+  };
+}
 export type PayModel = "COMMISSION" | "CHAIR_RENT" | "HOURLY" | "SALARY" | "HYBRID";
 export type PayPeriod = "WEEKLY" | "FORTNIGHTLY" | "MONTHLY";
 export type PayTerms = {
@@ -375,22 +408,35 @@ export const serviceRuleSchema = z
     version,
   })
   .strict();
+const shopDaySchema = z
+  .object({ enabled: z.union([z.literal(0), z.literal(1)]), starts: z.number().int().min(0).max(1439), ends: z.number().int().min(1).max(1440) })
+  .strict()
+  .refine((d) => !d.enabled || d.ends > d.starts, "Closing time must be after opening time");
 export const shopSchema = z
   .object({
     name,
     address: z.string().trim().max(200),
-    timezone: z.literal("Europe/London"),
-    opens: z.number().int().min(0).max(1439),
-    closes: z.number().int().min(1).max(1440),
-    closed_days: z.array(z.number().int().min(0).max(6)).max(7),
+    timezone: z
+      .string()
+      .trim()
+      .min(1)
+      .max(64)
+      .refine((tz) => {
+        try {
+          new Intl.DateTimeFormat("en-GB", { timeZone: tz });
+          return true;
+        } catch {
+          return false;
+        }
+      }, "Unknown timezone"),
+    week: z.array(shopDaySchema).length(7).refine((w) => w.some((d) => d.enabled), "Open at least one day"),
     deposit_pence: z.number().int().min(0).max(10000),
     cancel_hours: z.number().int().min(0).max(168),
     no_show_grace: z.number().int().min(0).max(120),
     till_access: z.enum(["OWNER", "ALL"]).default("OWNER"),
     version,
   })
-  .strict()
-  .refine((s) => s.closes > s.opens, "Closing time must be after opening time");
+  .strict();
 export const slugSchema = z
   .string()
   .trim()
@@ -928,15 +974,12 @@ export function slotReason(
     )
   )
     return "Barber has a day off";
-  if (
-    JSON.parse(shop.closed_days).includes(weekday(date)) ||
-    holidays.some((h) => h.date === date)
-  )
-    return "Shop closed";
+  const day = shopDay(shop, weekday(date));
+  if (!day.enabled || holidays.some((h) => h.date === date)) return "Shop closed";
   if (!hours?.enabled) return "Barber off duty";
   if (
-    start < Math.max(shop.opens, hours.starts) ||
-    start + duration + 10 > Math.min(shop.closes, hours.ends)
+    start < Math.max(day.starts, hours.starts) ||
+    start + duration + 10 > Math.min(day.ends, hours.ends)
   )
     return "Outside working hours";
   if (

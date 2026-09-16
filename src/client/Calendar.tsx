@@ -6,7 +6,7 @@ import {
 } from "react";
 import type { WorkspaceData, StoredBooking } from "../server/domain";
 import { Avatar, BlockIcons, Icon } from "./ui";
-import { time, money, datePlus } from "./fixtures";
+import { time, money, datePlus, shopDayOf } from "./fixtures";
 
 // Phone-first timetable: below this width columns narrow and the board scrolls sideways
 // inside its own region so the page itself never overflows.
@@ -119,25 +119,23 @@ export function Calendar({
   const dayBookings = w.bookings.filter(
     (b) => b.date === date && !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
+  const dayHours = shopDayOf(w.shop, date);
   const begin =
     Math.floor(
-      Math.min(w.shop.opens, ...dayBookings.map((b) => b.start_min)) / 60,
+      Math.min(dayHours.starts, ...dayBookings.map((b) => b.start_min)) / 60,
     ) * 60;
   const end = Math.min(
     1440,
     Math.ceil(
       Math.max(
-        w.shop.closes,
+        dayHours.ends,
         ...dayBookings.map((b) => b.start_min + b.duration_min + b.buffer_min),
       ) / 60,
     ) * 60,
   );
   const step = 44; // 15-minute cell; short events keep a 24px minimum plus agenda/detail alternatives.
   const height = ((end - begin) / 15) * step;
-  const closed =
-    JSON.parse(w.shop.closed_days).includes(
-      new Date(date + "T12:00:00Z").getUTCDay(),
-    ) || w.holidays.some((h) => h.date === date);
+  const closed = !dayHours.enabled || w.holidays.some((h) => h.date === date);
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: w.shop.timezone,
     hour: "2-digit",
@@ -243,8 +241,8 @@ export function Calendar({
                         ? "Day off"
                         : !shift?.enabled
                           ? "Off duty"
-                          : start < Math.max(w.shop.opens, shift.starts) ||
-                              start >= Math.min(w.shop.closes, shift.ends)
+                          : start < Math.max(dayHours.starts, shift.starts) ||
+                              start >= Math.min(dayHours.ends, shift.ends)
                             ? "Outside hours"
                             : start >= shift.break_start &&
                                 start < shift.break_end
@@ -499,12 +497,12 @@ export function WeekView({
   );
   const days = Array.from({ length: 7 }, (_, i) => datePlus(monday, i));
   const staff = w.staff.filter((s) => s.active && (!barber || s.id === barber));
-  const closedDays = JSON.parse(w.shop.closed_days) as number[];
   const active = (b: RangeBooking) =>
     !["CANCELLED", "NO_SHOW"].includes(b.status);
   const rostered = (staffId: string, d: string) => {
     const weekday = new Date(d + "T12:00:00Z").getUTCDay();
-    if (closedDays.includes(weekday) || w.holidays.some((h) => h.date === d))
+    const day = shopDayOf(w.shop, d);
+    if (!day.enabled || w.holidays.some((h) => h.date === d))
       return 0;
     if (w.days_off.some((x) => x.staff_id === staffId && x.date === d)) return 0;
     const override = w.schedule_overrides.find(
@@ -515,8 +513,8 @@ export function WeekView({
       w.hours.find((x) => x.staff_id === staffId && x.weekday === weekday);
     if (!h?.enabled) return 0;
     return (
-      Math.min(h.ends, w.shop.closes) -
-      Math.max(h.starts, w.shop.opens) -
+      Math.min(h.ends, day.ends) -
+      Math.max(h.starts, day.starts) -
       Math.max(0, h.break_end - h.break_start)
     );
   };

@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { Database as D1Database } from "../db/client";
 import type { ObjectStore as R2Bucket } from "../db/storage";
 import type { Shop, ShopPage, StoredBooking } from "./domain";
-import { defaultShopPage } from "./domain";
+import { defaultShopPage, shopDay } from "./domain";
 import type { AppEnv } from "./accounts";
 
 export type MediaEnv = AppEnv & { Bindings: AppEnv["Bindings"] & { MEDIA?: R2Bucket } };
@@ -233,11 +233,11 @@ export async function headData(db: D1Database, shop: Shop) {
     db.prepare("SELECT name,price_pence,description,duration_min FROM services WHERE shop_id=? AND active=1 AND online_bookable=1 ORDER BY popular DESC,sort_order,category,name").bind(shop.id).all<{ name: string; price_pence: number; description: string; duration_min: number }>(),
     db.prepare("SELECT weekday,enabled,starts,ends FROM staff_hours WHERE shop_id=?").bind(shop.id).all<{ weekday: number; enabled: number; starts: number; ends: number }>(),
   ]);
-  const closed = JSON.parse(shop.closed_days) as number[];
   const week = Array.from({ length: 7 }, (_, wd) => {
+    const day = shopDay(shop, wd);
     const on = hours.results.filter((h) => h.weekday === wd && h.enabled);
-    if (closed.includes(wd) || !on.length) return { weekday: wd, open: false };
-    return { weekday: wd, open: true, starts: Math.max(shop.opens, Math.min(...on.map((h) => h.starts))), ends: Math.min(shop.closes, Math.max(...on.map((h) => h.ends))) };
+    if (!day.enabled || !on.length) return { weekday: wd, open: false };
+    return { weekday: wd, open: true, starts: Math.max(day.starts, Math.min(...on.map((h) => h.starts))), ends: Math.min(day.ends, Math.max(...on.map((h) => h.ends))) };
   });
   const { summary } = await publicReviews(db, shop.id, 1);
   return { page: page ?? defaultShopPage(shop.id), staff: staff.results, services: services.results, week, rating: summary };

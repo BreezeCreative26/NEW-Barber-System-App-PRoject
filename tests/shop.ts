@@ -90,3 +90,30 @@ export async function enterNewShop(page: Page, name = "UI test shop") {
   await page.goto("/workspace");
   await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
 }
+
+// Payload for PUT /shop mirroring a workspace's current shop (per-day week derived from legacy fields).
+export function shopPayload(shop: { name: string; address: string; timezone: string; opens: number; closes: number; closed_days: string; week_json?: string; deposit_pence: number; cancel_hours: number; no_show_grace: number; till_access?: string; version: number }, overrides: Record<string, unknown> = {}) {
+  let week: { enabled: 0 | 1; starts: number; ends: number }[] | null = null;
+  try {
+    const parsed = shop.week_json ? JSON.parse(shop.week_json) : null;
+    if (Array.isArray(parsed) && parsed.length === 7) week = parsed;
+  } catch {
+    /* legacy */
+  }
+  if (!week) {
+    const closed = new Set<number>(JSON.parse(shop.closed_days || "[]"));
+    week = Array.from({ length: 7 }, (_, i) => ({ enabled: closed.has(i) ? 0 : 1, starts: shop.opens, ends: shop.closes }));
+  }
+  return {
+    name: shop.name,
+    address: shop.address,
+    timezone: shop.timezone,
+    week,
+    deposit_pence: shop.deposit_pence,
+    cancel_hours: shop.cancel_hours,
+    no_show_grace: shop.no_show_grace,
+    till_access: shop.till_access ?? "OWNER",
+    version: shop.version,
+    ...overrides,
+  };
+}

@@ -34,6 +34,9 @@ import {
   ref,
   serviceSchema,
   shopSchema,
+  shopDay,
+  shopWeek,
+  weekEnvelope,
   shopToday,
   slotReason,
   staffSchema,
@@ -614,17 +617,20 @@ sandbox.get("/workspace", async (c) => {
 });
 sandbox.put("/shop", async (c) => {
   const b = await input(c, shopSchema);
+  const week = b.week.map((d) => ({ enabled: d.enabled, starts: d.starts, ends: d.ends }));
+  const env = weekEnvelope(week);
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE shops SET name=?,address=?,timezone=?,opens=?,closes=?,closed_days=?,deposit_pence=?,cancel_hours=?,no_show_grace=?,till_access=?,version=version+1 WHERE id=? AND version=?",
+      "UPDATE shops SET name=?,address=?,timezone=?,opens=?,closes=?,closed_days=?,week_json=?,deposit_pence=?,cancel_hours=?,no_show_grace=?,till_access=?,version=version+1 WHERE id=? AND version=?",
     ).bind(
       b.name,
       b.address,
       b.timezone,
-      b.opens,
-      b.closes,
-      JSON.stringify([...new Set(b.closed_days)]),
+      env.opens,
+      env.closes,
+      JSON.stringify(env.closed_days),
+      JSON.stringify(week),
       b.deposit_pence,
       b.cancel_hours,
       b.no_show_grace,
@@ -1116,11 +1122,11 @@ sandbox.post("/staff", async (c) => {
         sid,
         staffId,
         day,
-        JSON.parse(shop.closed_days).includes(day) ? 0 : 1,
-        shop.opens,
-        shop.closes,
-        shop.opens,
-        shop.opens,
+        shopDay(shop, day).enabled,
+        shopDay(shop, day).starts,
+        shopDay(shop, day).ends,
+        shopDay(shop, day).starts,
+        shopDay(shop, day).starts,
       ),
     );
   writes.push(audit(c, "staff", staffId, "STAFF_CREATED"));
@@ -1671,8 +1677,9 @@ sandbox.get("/availability", async (c) => {
         p.addon_ids,
       );
   const duration = quote.duration_min;
+  const dayHours = shopDay(data.shop, weekday(p.date));
   const slots = Array.from({ length: 96 }, (_, i) => i * 15)
-    .filter((n) => n >= data.shop.opens && n < data.shop.closes)
+    .filter((n) => n >= dayHours.starts && n < dayHours.ends)
     .map((start_min) => ({
       start_min,
       reason:
@@ -2072,14 +2079,14 @@ async function payRunFigures(c: Ctx, staffId: string, from: string, to: string) 
   if (!staff) return fail(404, "Barber not found");
   const holidays = (await c.env.DB.prepare("SELECT date FROM holidays WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, from, to).all<{ date: string }>()).results.map((h) => h.date);
   const off = new Set(offRows.results.map((r) => r.date));
-  const closed = new Set<number>(JSON.parse(shop.closed_days));
   // Rostered minutes across the period (weekly hours + dated overrides, less leave/closures/breaks).
   let minutes = 0;
   for (let d = from; d <= to; d = datePlusServer(d, 1)) {
-    if (off.has(d) || holidays.includes(d) || closed.has(weekday(d))) continue;
+    const day = shopDay(shop, weekday(d));
+    if (off.has(d) || holidays.includes(d) || !day.enabled) continue;
     const h = effectiveHours(hoursRows.results.find((x) => x.weekday === weekday(d)) ?? null, overrideRows.results.find((o) => o.date === d) ?? null);
     if (!h?.enabled) continue;
-    minutes += Math.max(0, Math.min(h.ends, shop.closes) - Math.max(h.starts, shop.opens)) - Math.max(0, h.break_end - h.break_start);
+    minutes += Math.max(0, Math.min(h.ends, day.ends) - Math.max(h.starts, day.starts)) - Math.max(0, h.break_end - h.break_start);
   }
   const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
   const terms = payTermsOf(staff);

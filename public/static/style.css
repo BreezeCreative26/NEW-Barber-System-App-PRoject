@@ -7569,3 +7569,26 @@ details.workspace-welcome > svg { display: none; }
 @media (max-width: 900px) { .auth-screen { grid-template-columns: minmax(0, 1fr); } }
 .workspace-signed-out { min-height: 100vh; display: grid; align-items: start; background: var(--bg, #f4f5f9); }
 .workspace-signed-out .workspace-main { padding: 48px 20px; }
+
+/* ---- Settings: weekly opening hours ---- */
+.week-hours { border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px 12px; margin: 6px 0 14px; display: grid; gap: 6px; }
+.week-hours legend { font-weight: 600; font-size: 13px; padding: 0 6px; }
+.week-hours-row { display: grid; grid-template-columns: 130px 1fr auto 1fr; align-items: center; gap: 8px; }
+.week-hours-row[data-open="false"] { grid-template-columns: 130px 1fr; }
+.week-hours-day { display: flex; gap: 8px; align-items: center; font-weight: 500; }
+.week-hours-row input[type="time"] { min-width: 0; }
+.week-hours-dash { color: var(--muted); text-align: center; }
+.week-hours-closed { color: var(--muted); font-size: 13px; }
+@media (max-width: 640px) { .week-hours-row { grid-template-columns: 100px 1fr auto 1fr; } .week-hours-row[data-open="false"] { grid-template-columns: 100px 1fr; } }
+
+/* ---- New booking: slot grid ---- */
+.slot-grid { display: grid; gap: 10px; margin: 8px 0 10px; }
+.slot-grid-group h5 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.slot-grid-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.slot-chip { border: 1px solid var(--line); background: var(--surface, #fff); border-radius: 10px; padding: 8px 12px; font: inherit; font-size: 14px; font-variant-numeric: tabular-nums; cursor: pointer; min-width: 64px; }
+.slot-chip:hover { border-color: var(--ink, #181b2a); }
+.slot-chip[aria-pressed="true"] { background: var(--ink, #181b2a); color: #fff; border-color: var(--ink, #181b2a); }
+.booking-time-fallback { margin: 4px 0 8px; }
+.booking-time-fallback > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.workspace .week-hours .week-hours-day { flex-direction: row; align-items: center; gap: 8px; }
+.workspace .week-hours .week-hours-day input[type="checkbox"] { margin: 0; width: 18px; height: 18px; }

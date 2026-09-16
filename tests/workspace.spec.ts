@@ -67,7 +67,7 @@ async function bookingDraft(page: Page, name = "Recovery test client") {
     .selectOption({ label: "Signature cut" });
   await page.getByLabel("Available start time").selectOption("540");
   await page.getByLabel("Customer name", { exact: true }).fill(name);
-  await page.getByLabel("Test UK mobile number").fill("07700900123");
+  await page.getByLabel("Mobile number", { exact: true }).fill("07700900123");
   return date;
 }
 
@@ -108,7 +108,7 @@ test("interrupted booking response retries idempotently and details/status filte
   await page
     .getByLabel("Customer name", { exact: true })
     .fill("Updated recovery client");
-  await page.getByLabel("Test notes").fill("Fictional preference");
+  await page.getByLabel("Notes", { exact: true }).fill("Fictional preference");
   await page
     .getByLabel("Reason for detail changes")
     .fill("Corrected test record");
@@ -141,7 +141,7 @@ test("availability network retry and stale quote refresh keep contact details", 
     page.getByRole("button", { name: "Retry availability" }),
   ).toBeVisible();
   await page.getByLabel("Customer name", { exact: true }).fill("Quote test client");
-  await page.getByLabel("Test UK mobile number").fill("07700900123");
+  await page.getByLabel("Mobile number", { exact: true }).fill("07700900123");
   await page.unroute("**/api/app/availability?**");
   await page.getByRole("button", { name: "Retry availability" }).click();
   await page
@@ -399,7 +399,7 @@ test("saved setup and appointment workflow survives reload, move and completion"
   await expect(page.getByLabel("Available start time")).toBeVisible();
   await page.getByLabel("Available start time").selectOption("540");
   await page.getByLabel("Customer name", { exact: true }).fill("Morgan Fictional");
-  await page.getByLabel("Test UK mobile number").fill("07700 900123");
+  await page.getByLabel("Mobile number", { exact: true }).fill("07700 900123");
   await page.getByRole("button", { name: "Review appointment" }).click();
   await expect(
     page.getByText("Ready to save:", { exact: false }),
@@ -715,11 +715,11 @@ test("customers tab: filters, add customer with tags, profile stats, picker in b
   await expect(dialog.locator(".customer-picker-results button.active")).toContainText("Fresh Face");
   await dialog.getByLabel("Find customer").press("Enter");
   await expect(dialog.getByLabel("Customer name", { exact: true })).toHaveValue("Fresh Face");
-  await expect(dialog.getByLabel("Test UK mobile number")).toHaveValue("07700900321");
+  await expect(dialog.getByLabel("Mobile number", { exact: true })).toHaveValue("07700900321");
   await expect(dialog.getByTestId("customer-picked")).toBeVisible();
   await dialog.getByRole("button", { name: "Book as someone else" }).click();
   await dialog.getByLabel("Customer name", { exact: true }).fill("Someone New");
-  await dialog.getByLabel("Test UK mobile number").fill("07700900321");
+  await dialog.getByLabel("Mobile number", { exact: true }).fill("07700900321");
   await expect(dialog.locator(".customer-duplicate")).toContainText("Fresh Face already has this number");
   await dialog.getByRole("button", { name: "use existing record" }).click();
   await expect(dialog.getByTestId("customer-picked")).toBeVisible();

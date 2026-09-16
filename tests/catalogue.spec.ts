@@ -456,7 +456,7 @@ test("owner edits add-ons, barber pricing and partial shifts; booking items surv
   await page
     .getByLabel("Customer name", { exact: true })
     .fill("Combined quote client");
-  await page.getByLabel("Test UK mobile number").fill("07700900123");
+  await page.getByLabel("Mobile number", { exact: true }).fill("07700900123");
   await page.getByRole("button", { name: "Review appointment" }).click();
   await page.getByRole("button", { name: "Confirm test booking" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
@@ -525,7 +525,7 @@ test("changing add-ons invalidates a selected slot, preserves contact fields and
   await page
     .getByLabel("Customer name", { exact: true })
     .fill("Preserved addon draft");
-  await page.getByLabel("Test UK mobile number").fill("07700900123");
+  await page.getByLabel("Mobile number", { exact: true }).fill("07700900123");
   await page.getByLabel("Long finish", { exact: false }).check();
   await expect(page.getByLabel("Available start time")).toHaveValue("");
   await expect(

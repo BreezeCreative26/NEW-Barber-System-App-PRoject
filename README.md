@@ -25,6 +25,12 @@ node scripts/smoke.mjs        # 29 end-to-end checks against the running server
 Local dev without Supabase: run Postgres locally and point `DATABASE_URL`/`DIRECT_URL` at it in
 `.env.local`; photos fall back to `.media/` on disk.
 
+## Schema changes
+
+`src/db/schema.sql` is the full schema for a fresh database. Changes to an existing database go in
+`src/db/migrations/NNNN_name.sql` and are applied with `npm run db:migrate` (tracks applied files in
+`ollo_migrations`). Run it against Supabase after pulling a migration, before or right after deploy.
+
 ## Deploy (Vercel)
 
 1. Import this repo in Vercel (framework: Next.js, defaults otherwise; `vercel.json` sets `lhr1`).

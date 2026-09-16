@@ -74,18 +74,7 @@ test("reviewed quote must match current service and shop versions; details are v
   expect(
     (
       await r.put(base + "/shop", {
-        data: {
-          name: shop.name,
-          address: shop.address,
-          timezone: shop.timezone,
-          opens: shop.opens,
-          closes: shop.closes,
-          closed_days: JSON.parse(shop.closed_days),
-          deposit_pence: 800,
-          cancel_hours: shop.cancel_hours,
-          no_show_grace: shop.no_show_grace,
-          version: shop.version,
-        },
+        data: shopPayload(shop, { deposit_pence: 800 }),
       })
     ).status(),
   ).toBe(200);
@@ -274,7 +263,7 @@ test("staff days off persist, isolate shops, reject bookings and moves, and rele
   await Promise.all([r.dispose(), other.dispose()]);
 });
 
-import { base, origin, newShop } from "./shop";
+import { base, origin, newShop, shopPayload } from "./shop";
 async function owner(name = "API test shop") {
   return (await newShop(name)).r;
 }
@@ -670,16 +659,31 @@ test("weekly hours, holidays, shop settings and deactivation flag affected booki
     name: "Updated test shop",
     address: "Test address",
     timezone: "Europe/London",
-    opens: 540,
-    closes: 1020,
-    closed_days: [0],
+    // Per-day hours: Sunday closed, Saturday shorter, Thursday late.
+    week: Array.from({ length: 7 }, (_, wd) => ({ enabled: wd === 0 ? 0 : 1, starts: 540, ends: wd === 6 ? 960 : wd === 4 ? 1200 : 1020 })),
     deposit_pence: 700,
     cancel_hours: 48,
     no_show_grace: 20,
     version: 0,
   };
   expect((await r.put(base + "/shop", { data: settings })).status()).toBe(200);
-  expect((await workspace(r)).shop.name).toBe(settings.name);
+  const updated = (await workspace(r)).shop;
+  expect(updated.name).toBe(settings.name);
+  // Legacy envelope is derived: earliest open, latest close, closed weekdays.
+  expect([updated.opens, updated.closes, JSON.parse(updated.closed_days)]).toEqual([540, 1200, [0]]);
+  expect(JSON.parse(updated.week_json)[6]).toEqual({ enabled: 1, starts: 540, ends: 960 });
+  // Availability honours the per-day hours: 16:30 is bookable on Thursday but not Saturday.
+  const nextThu = (() => { const d = new Date(w.today + "T12:00:00Z"); do d.setUTCDate(d.getUTCDate() + 1); while (d.getUTCDay() !== 4); return d.toISOString().slice(0, 10); })();
+  const nextSat = (() => { const d = new Date(w.today + "T12:00:00Z"); do d.setUTCDate(d.getUTCDate() + 1); while (d.getUTCDay() !== 6); return d.toISOString().slice(0, 10); })();
+  const fresh = await workspace(r);
+  const barber = fresh.staff.find((x) => x.active)!;
+  // Barber rostered 09:00–20:00 every open day; the shop's own day hours are the tighter bound.
+  const lateRows = fresh.hours.filter((h) => h.staff_id === barber.id).map((h) => ({ weekday: h.weekday, enabled: h.weekday === 0 ? 0 : 1, starts: 540, ends: 1200, break_start: 540, break_end: 540 }));
+  expect((await r.put(base + `/staff/${barber.id}/hours`, { data: { version: barber.version, rows: lateRows } })).status()).toBe(200);
+  const thu = await (await r.get(base + `/availability?date=${nextThu}&staff_id=${barber.id}&service_id=${w.services[0].id}`)).json();
+  const sat = await (await r.get(base + `/availability?date=${nextSat}&staff_id=${barber.id}&service_id=${w.services[0].id}`)).json();
+  expect(thu.slots.some((x: { start_min: number }) => x.start_min === 1110)).toBe(true);
+  expect(sat.slots.some((x: { start_min: number }) => x.start_min === 1110)).toBe(false);
   await r.dispose();
 });
 

@@ -197,7 +197,9 @@ test("online booking shares owner guards: lead time, window, collisions, replay 
   );
   if (soon.status() === 200) {
     const slots = (await soon.json()).slots as { start_min: number; available: boolean }[];
-    const nowMin = new Date().getUTCHours() * 60 + new Date().getUTCMinutes();
+    // Shop-local clock (Europe/London), not UTC: around midnight the two disagree on the date.
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
+    const nowMin = Number(parts.find((p) => p.type === "hour")!.value) * 60 + Number(parts.find((p) => p.type === "minute")!.value);
     for (const s of slots)
       if (s.start_min < nowMin + 45) expect(s.available).toBe(false);
   }

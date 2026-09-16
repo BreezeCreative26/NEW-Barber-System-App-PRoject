@@ -28,7 +28,7 @@ import { Calendar, WeekStrip, WeekView, type CalendarDraft, type RangeBooking } 
 import { WalletDrawer } from "./Wallet";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
-import { money, time, datePlus } from "./fixtures";
+import { money, time, datePlus, shopWeekOf, shopDayOf, type ShopDayLite } from "./fixtures";
 
 const reference = (b: StoredBooking) =>
   `BRB-${String(b.sequence).padStart(4, "0")}`;
@@ -701,6 +701,97 @@ function AccountSettings({
     </section>
   );
 }
+
+type ShopDayClient = ShopDayLite;
+const COMMON_TIMEZONES = [
+  "Europe/London", "Europe/Dublin", "Europe/Paris", "Europe/Berlin", "Europe/Madrid", "Europe/Rome", "Europe/Amsterdam", "Europe/Lisbon", "Europe/Stockholm", "Europe/Warsaw", "Europe/Athens", "Europe/Istanbul",
+  "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Toronto", "America/Vancouver", "America/Mexico_City", "America/Sao_Paulo",
+  "Asia/Dubai", "Asia/Karachi", "Asia/Kolkata", "Asia/Singapore", "Asia/Hong_Kong", "Asia/Tokyo", "Australia/Sydney", "Australia/Melbourne", "Australia/Perth", "Pacific/Auckland", "Africa/Lagos", "Africa/Johannesburg", "Africa/Nairobi",
+];
+function timezoneOptions(current: string) {
+  const all = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ?? COMMON_TIMEZONES;
+  const set = new Set([current, ...COMMON_TIMEZONES, ...all]);
+  return [...set];
+}
+// Weekly opening hours: one row per day, Monday first, open toggle + start/end.
+function WeekHoursEditor({ week }: { week: ShopDayClient[] }) {
+  const [open, setOpen] = useState(week.map((d) => !!d.enabled));
+  const order = [1, 2, 3, 4, 5, 6, 0];
+  return (
+    <fieldset className="week-hours">
+      <legend>Opening hours</legend>
+      {order.map((i) => (
+        <div className="week-hours-row" key={i} data-open={open[i]}>
+          <label className="week-hours-day">
+            <input
+              type="checkbox"
+              name={`open_${i}`}
+              value="1"
+              checked={open[i]}
+              onChange={(e) => setOpen((o) => o.map((v, k) => (k === i ? e.target.checked : v)))}
+            />
+            <span>{days[i]}</span>
+          </label>
+          {open[i] ? (
+            <>
+              <input type="time" name={`starts_${i}`} aria-label={`${days[i]} opens`} required defaultValue={clock(week[i].starts)} step={900} />
+              <span className="week-hours-dash">–</span>
+              <input type="time" name={`ends_${i}`} aria-label={`${days[i]} closes`} required defaultValue={clock(week[i].ends)} step={900} />
+            </>
+          ) : (
+            <span className="week-hours-closed">Closed</span>
+          )}
+        </div>
+      ))}
+    </fieldset>
+  );
+}
+
+// Free start times as tappable chips, grouped by part of day. Unavailable times live in the
+// fallback select so the grid stays scannable.
+function SlotGrid({
+  slots,
+  value,
+  onPick,
+}: {
+  slots: { start_min: number; reason: string }[];
+  value: string;
+  onPick: (minute: number, el: HTMLElement) => void;
+}) {
+  const free = slots.filter((s) => !s.reason);
+  if (!free.length) return null;
+  const groups: [string, (m: number) => boolean][] = [
+    ["Morning", (m) => m < 720],
+    ["Afternoon", (m) => m >= 720 && m < 1020],
+    ["Evening", (m) => m >= 1020],
+  ];
+  return (
+    <div className="slot-grid" role="group" aria-label="Free times">
+      {groups.map(([label, test]) => {
+        const items = free.filter((s) => test(s.start_min));
+        if (!items.length) return null;
+        return (
+          <div className="slot-grid-group" key={label}>
+            <h5>{label}</h5>
+            <div className="slot-grid-chips">
+              {items.map((s) => (
+                <button
+                  type="button"
+                  key={s.start_min}
+                  className="slot-chip"
+                  aria-pressed={value === String(s.start_min)}
+                  onClick={(e) => onPick(s.start_min, e.currentTarget)}
+                >
+                  {time(s.start_min)}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 type Editor =
   | { kind: "addon"; item?: Addon }
   | { kind: "overrides"; item: Staff }
@@ -1127,8 +1218,9 @@ export function Workspace() {
             const h = w.hours.find(
               (x) => x.staff_id === s.id && x.weekday === new Date(`${date}T12:00:00Z`).getUTCDay(),
             );
-            if (!h?.enabled) return n;
-            return n + (Math.min(h.ends, w.shop.closes) - Math.max(h.starts, w.shop.opens)) - Math.max(0, h.break_end - h.break_start);
+            const day = shopDayOf(w.shop, date);
+            if (!h?.enabled || !day.enabled) return n;
+            return n + (Math.min(h.ends, day.ends) - Math.max(h.starts, day.starts)) - Math.max(0, h.break_end - h.break_start);
           }, 0)
       : 0;
     return {
@@ -1721,10 +1813,12 @@ export function Workspace() {
                         saved("/shop", "PUT", {
                           name: text(f, "name"),
                           address: text(f, "address"),
-                          timezone: "Europe/London",
-                          opens: minute(text(f, "opens")),
-                          closes: minute(text(f, "closes")),
-                          closed_days: f.getAll("closed_days").map(Number),
+                          timezone: text(f, "timezone"),
+                          week: days.map((_, i) => ({
+                            enabled: f.get(`open_${i}`) ? 1 : 0,
+                            starts: minute(text(f, `starts_${i}`) || "09:00"),
+                            ends: minute(text(f, `ends_${i}`) || "18:00"),
+                          })),
                           deposit_pence: Math.round(number(f, "deposit") * 100),
                           cancel_hours: number(f, "cancel_hours"),
                           no_show_grace: number(f, "no_show_grace"),
@@ -1749,45 +1843,18 @@ export function Workspace() {
                           defaultValue={w.shop.address}
                         />
                       </Field>
-                      <p>
-                        Timezone: Europe/London. Scheduling includes a 10-minute
-                        buffer.
-                      </p>
-                      <div className="workspace-form-grid">
-                        <Field label="Shop opens">
-                          <input
-                            type="time"
-                            name="opens"
-                            required
-                            defaultValue={clock(w.shop.opens)}
-                          />
-                        </Field>
-                        <Field label="Shop closes">
-                          <input
-                            type="time"
-                            name="closes"
-                            required
-                            defaultValue={clock(w.shop.closes)}
-                          />
-                        </Field>
-                      </div>
-                      <fieldset className="workspace-checks">
-                        <legend>Closed weekdays</legend>
-                        {days.map((day, i) => (
-                          <label key={day}>
-                            <input
-                              type="checkbox"
-                              name="closed_days"
-                              value={i}
-                              defaultChecked={JSON.parse(
-                                w.shop.closed_days,
-                              ).includes(i)}
-                            />
-                            {day}
-                          </label>
-                        ))}
-                      </fieldset>
-                      <Field label="Test deposit policy (£) — not collected">
+                      <Field label="Timezone">
+                        <select name="timezone" defaultValue={w.shop.timezone}>
+                          {timezoneOptions(w.shop.timezone).map((tz) => (
+                            <option key={tz} value={tz}>
+                              {tz.replace(/_/g, " ")}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <WeekHoursEditor week={shopWeekOf(w.shop)} />
+                      <p className="helper">Times between visits include a 10-minute buffer. Each barber has their own hours under Team.</p>
+                      <Field label="Deposit (£) · shown to customers, payable in the shop">
                         <input
                           type="number"
                           name="deposit"
@@ -3982,7 +4049,7 @@ function WorkspaceEditor({
                           : e.kind === "booking"
                             ? e.item
                               ? "Reschedule appointment"
-                              : "New test booking"
+                              : "New booking"
                             : e.kind === "detail"
                               ? reference(e.item)
                               : e.kind === "share"
@@ -3996,7 +4063,7 @@ function WorkspaceEditor({
     <Modal
       title={title}
       onClose={onClose}
-      context="LOCAL DATABASE · TEST DATA ONLY"
+      context="APPOINTMENT"
       protectChanges
       wide={e.kind === "hours" || e.kind === "booking"}
     >
@@ -4250,7 +4317,7 @@ function WorkspaceEditor({
               defaultValue={e.item.customer_name}
             />
           </Field>
-          <Field label="Test UK mobile number">
+          <Field label="Mobile number">
             <input
               name="phone"
               type="tel"
@@ -4258,7 +4325,7 @@ function WorkspaceEditor({
               defaultValue={e.item.phone}
             />
           </Field>
-          <Field label="Test notes">
+          <Field label="Notes">
             <textarea
               name="notes"
               maxLength={500}
@@ -4862,7 +4929,7 @@ function CustomerPicker({
             autoComplete="off"
           />
         </Field>
-        <Field label="Test UK mobile number">
+        <Field label="Mobile number">
           <input
             name="phone"
             value={phone}
@@ -5362,25 +5429,36 @@ function BookingForm({
           )}
           {slots && (
             <>
-              <Field label="Available start time">
-                <select
-                  value={start}
-                  onChange={(e) => setStart(e.target.value)}
-                  required
-                >
-                  <option value="">Choose a time</option>
-                  {slots.slots.map((s) => (
-                    <option
-                      key={s.start_min}
-                      value={s.start_min}
-                      disabled={!!s.reason}
-                    >
-                      {time(s.start_min)}
-                      {s.reason ? ` — ${s.reason}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+              <SlotGrid
+                slots={slots.slots}
+                value={start}
+                onPick={(m, el) => {
+                  markDraft(el);
+                  setStart(String(m));
+                }}
+              />
+              <details className="booking-time-fallback" open>
+                <summary>All times, including unavailable</summary>
+                <Field label="Available start time">
+                  <select
+                    value={start}
+                    onChange={(e) => setStart(e.target.value)}
+                    required
+                  >
+                    <option value="">Choose a time</option>
+                    {slots.slots.map((s) => (
+                      <option
+                        key={s.start_min}
+                        value={s.start_min}
+                        disabled={!!s.reason}
+                      >
+                        {time(s.start_min)}
+                        {s.reason ? ` — ${s.reason}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </details>
               <div className="booking-time-shortcut">
                 <Button
                   variant="secondary"
@@ -5409,8 +5487,7 @@ function BookingForm({
                 <strong>{money(slots.price_pence)}</strong> ·{" "}
                 {slots.duration_min} minutes + 10-minute buffer
                 <br />
-                Test deposit policy {money(slots.deposit_policy_pence)} — not
-                collected. Cancellation policy: {slots.cancel_hours} hours.
+                Deposit {money(slots.deposit_policy_pence)} · payable in shop. Cancellation policy: {slots.cancel_hours} hours.
               </p>
             </>
           )}
@@ -5440,11 +5517,11 @@ function BookingForm({
               />
               <Field label="Booking source">
                 <select name="source">
-                  <option value="TEST_BOOKING">Test booking</option>
+                  <option value="TEST_BOOKING">Phone / in person</option>
                   <option value="WALK_IN">Walk-in</option>
                 </select>
               </Field>
-              <Field label="Test notes">
+              <Field label="Notes">
                 <textarea name="notes" maxLength={500} />
               </Field>
               <fieldset className="series-options" data-testid="series-options">
@@ -5510,10 +5587,7 @@ function BookingForm({
               <textarea name="reason" required minLength={3} maxLength={300} />
             </Field>
           )}
-          <p className="workspace-footnote">
-            Review the details before saving. No payment or message will be
-            sent.
-          </p>
+          <p className="workspace-footnote">Review the details before saving.</p>
         </section>
       </div>
       {review && (

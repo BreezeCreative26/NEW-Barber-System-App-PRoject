@@ -15,6 +15,9 @@ CREATE TABLE shops (
   opens INTEGER NOT NULL DEFAULT 540 CHECK(opens BETWEEN 0 AND 1439),
   closes INTEGER NOT NULL DEFAULT 1080 CHECK(closes BETWEEN 1 AND 1440 AND closes > opens),
   closed_days TEXT NOT NULL DEFAULT '[0]',
+  -- Per-day opening hours [{enabled,starts,ends} x 7, index = weekday]. opens/closes/closed_days are
+  -- derived from this on write (earliest open, latest close, disabled days) so range queries stay simple.
+  week_json TEXT NOT NULL DEFAULT '[{"enabled":0,"starts":540,"ends":1080},{"enabled":1,"starts":540,"ends":1080},{"enabled":1,"starts":540,"ends":1080},{"enabled":1,"starts":540,"ends":1080},{"enabled":1,"starts":540,"ends":1080},{"enabled":1,"starts":540,"ends":1080},{"enabled":1,"starts":540,"ends":1080}]',
   deposit_pence INTEGER NOT NULL DEFAULT 500 CHECK(deposit_pence >= 0),
   cancel_hours INTEGER NOT NULL DEFAULT 24 CHECK(cancel_hours BETWEEN 0 AND 168),
   no_show_grace INTEGER NOT NULL DEFAULT 15 CHECK(no_show_grace BETWEEN 0 AND 120),
@@ -597,8 +600,9 @@ BEGIN
     LEFT JOIN staff_schedule_overrides o ON o.shop_id=h.shop_id AND o.staff_id=h.staff_id AND o.date=b.date
     WHERE h.shop_id=b.shop_id AND h.staff_id=b.staff_id AND h.weekday=ollo_weekday(b.date)
       AND COALESCE(o.enabled,h.enabled)=1
-      AND b.start_min >= GREATEST(COALESCE(o.starts,h.starts), s.opens)
-      AND b.start_min + b.duration_min + b.buffer_min <= LEAST(COALESCE(o.ends,h.ends), s.closes)
+      AND b.start_min >= GREATEST(COALESCE(o.starts,h.starts), s.opens, ((s.week_json::jsonb)->h.weekday->>'starts')::int)
+      AND b.start_min + b.duration_min + b.buffer_min <= LEAST(COALESCE(o.ends,h.ends), s.closes, ((s.week_json::jsonb)->h.weekday->>'ends')::int)
+      AND ((s.week_json::jsonb)->h.weekday->>'enabled')::int = 1
       AND NOT (COALESCE(o.break_end,h.break_end) > COALESCE(o.break_start,h.break_start)
                AND b.start_min < COALESCE(o.break_end,h.break_end)
                AND b.start_min + b.duration_min + b.buffer_min > COALESCE(o.break_start,h.break_start))

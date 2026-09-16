@@ -26,6 +26,7 @@ import {
   type StoredBooking,
   type ShopPage,
   defaultShopPage,
+ shopDay, shopWeek, dayStarts,
 } from "./domain";
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
 import customerAccounts from "./customers";
@@ -126,6 +127,7 @@ const publicShop = (s: Shop) => ({
   opens: s.opens,
   closes: s.closes,
   closed_days: JSON.parse(s.closed_days) as number[],
+  week: shopWeek(s),
   deposit_pence: s.deposit_pence,
   cancel_hours: s.cancel_hours,
   lead_time_min: s.lead_time_min,
@@ -281,13 +283,13 @@ pub.get("/shops/:slug/page", async (c) => {
   const content = page ?? defaultShopPage(sid);
   // Hidden pages are not public; /book/<slug> still works.
   if (!content.published) fail(404, "This shop page is not available");
-  const closed = JSON.parse(shop.closed_days) as number[];
-  // Shop-level weekly hours: earliest start / latest end across rostered barbers, per weekday.
+  // Shop-level weekly hours: the shop's own day hours, narrowed to when a barber is actually rostered.
   const week = Array.from({ length: 7 }, (_, wd) => {
-    if (closed.includes(wd)) return { weekday: wd, open: false as const };
+    const day = shopDay(shop, wd);
+    if (!day.enabled) return { weekday: wd, open: false as const };
     const on = hours.results.filter((h) => h.weekday === wd && h.enabled);
     if (!on.length) return { weekday: wd, open: false as const };
-    return { weekday: wd, open: true as const, starts: Math.max(shop.opens, Math.min(...on.map((h) => h.starts))), ends: Math.min(shop.closes, Math.max(...on.map((h) => h.ends))) };
+    return { weekday: wd, open: true as const, starts: Math.max(day.starts, Math.min(...on.map((h) => h.starts))), ends: Math.min(day.ends, Math.max(...on.map((h) => h.ends))) };
   });
   const now = Date.now();
   const today = shopToday(shop.timezone, now);
@@ -306,7 +308,7 @@ pub.get("/shops/:slug/page", async (c) => {
     for (const st of ctx.staff) {
       let found = false;
       for (let date = today; date <= horizon && !found; date = datePlus(date, 1))
-        for (let m = shop.opens; m < shop.closes; m += 15)
+        for (const m of dayStarts(shop, date))
           if (!slotFor(shop, ctx, st, date, m, minStart)) {
             soonest.push({ staff_id: st.id, staff_name: st.name, date, start_min: m, service_id: popular.id, price_pence: ctx.quotes.get(st.id)!.price_pence });
             found = true;
@@ -366,7 +368,7 @@ pub.get("/shops/:slug/days", async (c) => {
     const open = new Set<number>();
     let closed = true;
     for (const staff of ctx.staff)
-      for (let m = shop.opens; m < shop.closes; m += 15) {
+      for (const m of dayStarts(shop, date)) {
         const reason = slotFor(shop, ctx, staff, date, m, minStart);
         if (!reason) open.add(m);
         if (!closedReasons.includes(reason)) closed = false;
@@ -405,13 +407,15 @@ pub.get("/shops/:slug/next", async (c) => {
   const seenDays = new Set<string>();
   for (let date = today; date <= maxDate && results.length < q.limit; date = datePlus(date, 1)) {
     let firstOnDay: (typeof results)[number] | null = null;
-    for (let m = shop.opens; m < shop.closes && !firstOnDay; m += 15)
+    for (const m of dayStarts(shop, date)) {
+      if (firstOnDay) break;
       for (const staff of ctx.staff)
         if (!slotFor(shop, ctx, staff, date, m, minStart)) {
           const quote = ctx.quotes.get(staff.id)!;
           firstOnDay = { date, start_min: m, staff_id: staff.id, staff_name: staff.name, price_pence: quote.price_pence, duration_min: quote.duration_min };
           break;
         }
+    }
     if (firstOnDay && !seenDays.has(date)) {
       seenDays.add(date);
       results.push(firstOnDay);
@@ -437,8 +441,7 @@ pub.get("/shops/:slug/availability", async (c) => {
   const ctx = await rangeContext(c, shop, q.staff_id ? [q.staff_id] : null, q.service_id, q.date, q.date, q.addon_ids);
   // Any-barber: each open slot is assigned to the least-booked eligible barber so demand spreads.
   const load = new Map(ctx.staff.map((s) => [s.id, ctx.bookings.filter((b) => b.staff_id === s.id).length]));
-  const slots = Array.from({ length: 96 }, (_, i) => i * 15)
-    .filter((n) => n >= shop.opens && n < shop.closes)
+  const slots = dayStarts(shop, q.date)
     .map((start_min) => {
       const open = ctx.staff
         .filter((s) => !slotFor(shop, ctx, s, q.date, start_min, minStart))
@@ -597,7 +600,7 @@ pub.get("/shops/:slug/group-availability", async (c) => {
   const { today, minStart, maxDate } = limits(shop);
   if (date < today || date > maxDate) fail(409, "outside_booking_window");
   const ctxs = await Promise.all(members.map((m) => rangeContext(c, shop, m.staff_id ? [m.staff_id] : null, m.service_id, date, date, m.addon_ids)));
-  const starts = Array.from({ length: 96 }, (_, i) => i * 15).filter((n) => n >= shop.opens && n < shop.closes);
+  const starts = dayStarts(shop, date);
   const freeAt = (i: number, minute: number) => ctxs[i].staff.filter((st) => !slotFor(shop, ctxs[i], st, date, minute, minStart));
   // Together: assign distinct barbers greedily by fewest options first (bipartite matching for <=4 is fine by backtracking).
   const together = starts.map((start_min) => {
@@ -912,8 +915,7 @@ export async function moveOptions(c: Ctx, shop: Shop, booking: StoredBooking, da
   const { today, minStart, maxDate } = limits(shop);
   if (date < today || date > maxDate) fail(409, "outside_booking_window");
   const data = await availabilityContext(c, booking.staff_id, booking.service_id, date);
-  const slots = Array.from({ length: 96 }, (_, i) => i * 15)
-    .filter((n) => n >= shop.opens && n < shop.closes)
+  const slots = dayStarts(shop, date)
     .map((start_min) => {
       const reason = slotReason(
         data.shop,

@@ -103,8 +103,9 @@ test("/me returns only this shop's rows: usual, next free slot, upcoming, histor
   }
   expect(moved).toBe(true);
   // Someone else's booking is invisible (404, not 403).
-  const foreign = (await (await r.get(base + `/bookings/range?from=${new Date().toISOString().slice(0, 10)}&to=${new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)}`)).json()).bookings.find(
-    (b: { phone: string }) => b.phone !== P,
+  // /workspace rows carry phone; /bookings/range deliberately does not.
+  const foreign = (await (await r.get(base + "/workspace")).json()).bookings.find(
+    (b: { phone: string; status: string }) => b.phone.replace(/\D/g, "") !== P.replace(/\D/g, "") && b.status === "CONFIRMED",
   );
   expect(foreign).toBeTruthy();
   expect((await c.post(`${A}/bookings/${foreign.id}/cancel`, { data: { version: 0 } })).status()).toBe(404);

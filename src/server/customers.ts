@@ -4,7 +4,7 @@
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
-import { phoneSchema, ref, shopToday, type Customer, type Shop, type StoredBooking } from "./domain";
+import { dayStarts, phoneSchema, ref, shopToday, type Customer, type Shop, type StoredBooking } from "./domain";
 import { digest, readInput, type AppEnv } from "./accounts";
 import { audit, checkVersionUpdate, fail, readBooking } from "./sandbox";
 import { leaveReview, ownReviewView, reviewEligibility, reviewSchema, type ReviewRow } from "./presence";
@@ -242,7 +242,7 @@ acct.get("/me", async (c) => {
       outer: for (let d = 0; d <= 21; d++) {
         const date = datePlus(today, d);
         if (date > horizon) break;
-        for (let m = shop.opens; m < shop.closes; m += 15) {
+        for (const m of dayStarts(shop, date)) {
           if (!slotFor(shop, ctx, st, date, m, minStart)) {
             next_usual = { date, start_min: m, price_pence: ctx.quotes.get(st.id)!.price_pence };
             break outer;

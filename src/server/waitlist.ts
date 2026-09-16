@@ -4,7 +4,7 @@
 import type { Context } from "hono";
 import type { Statement as D1PreparedStatement } from "../db/client";
 import { z } from "zod";
-import { calculateQuote, effectiveHours, localInstant, ref, shopToday, slotReason, weekday, type Addon, type AddonLink, type Holiday, type Hours, type ScheduleOverride, type Service, type Shop, type Staff, type StaffDayOff, type StaffServiceRule, type StoredBooking } from "./domain";
+import { calculateQuote, dayStarts, effectiveHours, localInstant, ref, shopToday, slotReason, weekday, type Addon, type AddonLink, type Holiday, type Hours, type ScheduleOverride, type Service, type Shop, type Staff, type StaffDayOff, type StaffServiceRule, type StoredBooking } from "./domain";
 import type { AppEnv } from "./accounts";
 import { digest } from "./accounts";
 
@@ -89,7 +89,7 @@ export async function matchesFor(c: Ctx, shop: Shop & ShopQueueSettings, entry: 
   for (const st of staff) {
     const q = calculateQuote(service, rules.find((x) => x.staff_id === st.id) ?? null, r[8].results as Addon[], r[9].results as AddonLink[], []);
     const h = effectiveHours((r[2].results as Hours[]).find((x) => x.staff_id === st.id) ?? null, (r[3].results as ScheduleOverride[]).find((o) => o.staff_id === st.id) ?? null);
-    for (let m = shop.opens; m < shop.closes; m += 15) {
+    for (const m of dayStarts(shop, entry.date)) {
       if (!inDaypart(m, entry.daypart) || pending.has(`${st.id}:${m}`)) continue;
       if (!slotReason(shop, st, h, r[4].results as Holiday[], r[6].results as StoredBooking[], entry.date, m, q.duration_min, minStart, undefined, r[5].results as StaffDayOff[])) {
         out.push({ staff_id: st.id, staff_name: st.name, start_min: m, price_pence: q.price_pence, duration_min: q.duration_min });
