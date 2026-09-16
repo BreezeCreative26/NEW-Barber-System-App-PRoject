@@ -1844,8 +1844,13 @@ export async function createBooking(
       ),
     ]);
   } catch (err) {
-    const previous = await replay();
-    if (previous) return { booking: previous, replayed: true };
+    // Same request_id racing itself: the loser may fail on the slot before the winner's row is
+    // visible. Look for the winner, once immediately and once after a short pause.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const previous = await replay();
+      if (previous) return { booking: previous, replayed: true };
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 150));
+    }
     throw err;
   }
   return { booking: await readBooking(c, bookingId), replayed: false };

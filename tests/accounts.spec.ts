@@ -511,27 +511,21 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
       width,
       height: width === 844 ? 390 : width === 1024 ? 600 : 900,
     });
-    await page.goto(origin + "/workspace");
-    await page.getByText("Start a blank test shop").click();
-    await page
-      .getByRole("button", { name: "Create test workspace", exact: true })
-      .click();
-    await expect(
-      page.getByRole("button", { name: "New booking", exact: true }),
-    ).toBeVisible();
-    const w = await (await page.request.get(base + "/workspace")).json();
-    await section(page, "Accounts");
-    await page
-      .getByLabel("Your name", { exact: true })
-      .fill("Fictional UI Owner");
-    await page.getByLabel("Account email").fill(email());
+    // Real front door: create the shop through the signup form.
+    await page.goto(origin + "/signup");
+    await expect(page.getByRole("heading", { name: "Set up your shop" })).toBeVisible();
+    await page.getByLabel("Shop name").fill("UI Signup Shop");
+    await page.getByLabel("Your name", { exact: true }).fill("Fictional UI Owner");
+    await page.getByLabel("Email", { exact: true }).fill(email());
     await page.getByLabel("Password", { exact: true }).fill(password);
-    await page
-      .getByRole("button", { name: "Create owner account", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Create shop", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "New booking", exact: true }),
     ).toBeVisible();
+    await expect(page).toHaveURL(origin + "/workspace");
+    const w = await (await page.request.get(base + "/workspace")).json();
+    // Signup made the owner the first barber.
+    expect(w.staff.map((s: any) => s.name)).toEqual(["Fictional UI Owner"]);
     await section(page, "Accounts");
     await expect(
       page.getByRole("heading", { name: "Team access", exact: true }),
@@ -570,7 +564,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     await staffPage
       .getByLabel("Your name", { exact: true })
       .fill("Fictional UI Barber");
-    await staffPage.getByLabel("Account email").fill(staffEmail);
+    await staffPage.getByLabel("Email", { exact: true }).fill(staffEmail);
     await staffPage.getByLabel("Password", { exact: true }).fill(password);
     await staffPage
       .getByRole("button", { name: "Accept invitation", exact: true })
@@ -628,47 +622,40 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
   });
 
 test("same-origin guard accepts forwarded proxy hosts and refuses foreign origins", async () => {
+  // Signup is the anonymous write every visitor can reach, so it is the probe.
+  const probe = () => ({ shop_name: "Origin probe", name: "Probe Owner", email: email(), password });
   const r = await request.newContext();
   // Bare mismatch is refused.
-  const foreign = await r.post(base + "/session", {
-    headers: { Origin: "https://evil.example" },
-    data: { name: "Origin probe" },
-  });
+  const foreign = await r.post(base + "/auth/signup", { headers: { Origin: "https://evil.example" }, data: probe() });
   expect(foreign.status()).toBe(403);
   expect((await foreign.json()).error).toBe("origin_forbidden");
   // Missing origin is refused.
-  expect((await r.post(base + "/session", { data: { name: "Origin probe" } })).status()).toBe(403);
+  expect((await r.post(base + "/auth/signup", { data: probe() })).status()).toBe(403);
   // A development proxy that rewrites Host but forwards the public host is accepted.
-  const forwarded = await r.post(base + "/session", {
-    headers: {
-      Origin: "https://preview.example.dev",
-      "X-Forwarded-Host": "preview.example.dev",
-      "X-Forwarded-Proto": "https",
-    },
-    data: { name: "Origin probe" },
+  const forwarded = await r.post(base + "/auth/signup", {
+    headers: { Origin: "https://preview.example.dev", "X-Forwarded-Host": "preview.example.dev", "X-Forwarded-Proto": "https" },
+    data: probe(),
   });
   expect(forwarded.status()).toBe(201);
   // Forwarded host that does not match the Origin is still refused.
   const mismatch = await request.newContext();
-  const bad = await mismatch.post(base + "/session", {
+  const bad = await mismatch.post(base + "/auth/signup", {
     headers: { Origin: "https://evil.example", "X-Forwarded-Host": "preview.example.dev" },
-    data: { name: "Origin probe" },
+    data: probe(),
   });
   expect(bad.status()).toBe(403);
-  // HTTPS terminating proxy: browser Origin is https, worker sees http on the same host.
+  // HTTPS terminating proxy: browser Origin is https, server sees http on the same host.
   const scheme = await request.newContext();
-  expect(
-    (await scheme.post(base + "/session", { headers: { Origin: "https://localhost:3000" }, data: { name: "Origin probe" } })).status(),
-  ).toBe(201);
+  expect((await scheme.post(base + "/auth/signup", { headers: { Origin: "https://localhost:3000" }, data: probe() })).status()).toBe(201);
   // Browser-asserted same-origin fetch is trusted even when Origin is rewritten.
   const fetchSite = await request.newContext();
   expect(
-    (await fetchSite.post(base + "/session", { headers: { Origin: "https://wrapper.example", "Sec-Fetch-Site": "same-origin" }, data: { name: "Origin probe" } })).status(),
+    (await fetchSite.post(base + "/auth/signup", { headers: { Origin: "https://wrapper.example", "Sec-Fetch-Site": "same-origin" }, data: probe() })).status(),
   ).toBe(201);
   // Cross-site fetch is refused even if Origin matches nothing.
   const cross = await request.newContext();
   expect(
-    (await cross.post(base + "/session", { headers: { Origin: "https://evil.example", "Sec-Fetch-Site": "cross-site" }, data: { name: "Origin probe" } })).status(),
+    (await cross.post(base + "/auth/signup", { headers: { Origin: "https://evil.example", "Sec-Fetch-Site": "cross-site" }, data: probe() })).status(),
   ).toBe(403);
   await Promise.all([r.dispose(), mismatch.dispose(), scheme.dispose(), fetchSite.dispose(), cross.dispose()]);
 });
@@ -741,29 +728,43 @@ test("standard demo account: one-click owner/barber sign-in, fixed credentials, 
   await Promise.all([owner.dispose(), fresh.dispose(), barber.dispose()]);
 });
 
-test("entry screen is the single project hub: owner, barber, customer booking, manage link; blank shop is secondary", async ({ page }) => {
+test("front door: sign in / create shop tabs, no pre-filled credentials, demo panel only when enabled, sign-in works", async ({ page }) => {
   await page.goto("/workspace");
-  await expect(page.getByRole("heading", { name: "Open the demo shop" })).toBeVisible();
-  const hub = page.getByRole("list", { name: "Pages in this project" });
-  await expect(hub.getByRole("listitem")).toHaveCount(4);
-  await expect(hub).toContainText("Owner / admin");
-  await expect(hub).toContainText("Barber");
-  await expect(hub).toContainText("Customer booking");
-  await expect(hub).toContainText("Customer manage link");
-  await expect(page.getByTestId("open-customer")).toHaveAttribute("href", "/book/demo");
-  // No fixture preview pages any more.
+  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+  // No app chrome while signed out; no credentials pre-filled; no test-shop shortcut.
+  await expect(page.getByRole("navigation", { name: "Workspace sections" })).toHaveCount(0);
+  await expect(page.getByLabel("Email", { exact: true })).toHaveValue("");
+  await expect(page.getByText("test shop")).toHaveCount(0);
+  await page.getByRole("tab", { name: "Create your shop" }).click();
+  await expect(page.getByRole("heading", { name: "Set up your shop" })).toBeVisible();
+  await expect(page.getByLabel("Shop name")).toBeVisible();
+  await page.getByRole("tab", { name: "Sign in" }).click();
+  // Direct URLs work too.
+  await page.goto("/signup");
+  await expect(page.getByRole("heading", { name: "Set up your shop" })).toBeVisible();
+  await page.goto("/signin");
+  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   for (const p of ["/preview/admin", "/preview/book", "/preview/barber"])
     expect((await page.request.get(p)).status()).toBe(404);
   expect((await page.request.get("/", { maxRedirects: 0 })).headers()["location"]).toBe("/workspace");
-  // The blank-shop path is folded away until asked for.
-  await expect(page.getByRole("button", { name: "Create test workspace", exact: true })).not.toBeVisible();
-  await expect(page.getByLabel("Account email")).toHaveValue("owner@demo.test");
-  await page.getByRole("button", { name: "Open as owner", exact: true }).click();
+  // Demo panel is present in this environment (DEMO_ENABLED=1) and opens the shared demo shop.
+  await expect(page.getByRole("heading", { name: "Just looking?" })).toBeVisible();
+  await expect(page.getByTestId("open-customer")).toHaveAttribute("href", "/book/demo");
+  await page.getByTestId("open-demo-owner").click();
   await expect(page.getByText("Demo Barbershop").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
   // The waiting list lives under the hourglass in the top bar; the bell is for schedule issues only.
   await page.getByTestId("queue-chip").click();
   await expect(page.getByRole("heading", { name: "Waiting list" })).toBeVisible();
+  // Sign out returns to the front door; signing in with the demo credentials works from the form.
+  await page.keyboard.press("Escape");
+  await page.getByTestId("account-pill").click();
+  await page.getByTestId("sign-out").click();
+  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+  await page.getByLabel("Email", { exact: true }).fill("owner@demo.test");
+  await page.getByLabel("Password", { exact: true }).fill("Demo1234!");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
 });
 function plus(date: string, n: number) {
   const d = new Date(date + "T12:00:00Z");

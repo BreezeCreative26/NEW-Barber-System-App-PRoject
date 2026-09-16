@@ -30,6 +30,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
   }
 }
 const [, area, param] = location.pathname.split("/");
+const APP_AREAS = new Set(["workspace", "signin", "signup", "forgot", "reset", ""]);
 createRoot(document.getElementById("root")!).render(
   <AppErrorBoundary>
     {area === "book" && param ? (
@@ -38,9 +39,9 @@ createRoot(document.getElementById("root")!).render(
       <ManageBooking token={param} />
     ) : area === "offer" && param ? (
       <OfferPage token={param} />
-    ) : area && area !== "workspace" && param === "me" ? (
+    ) : area && !APP_AREAS.has(area) && param === "me" ? (
       <CustomerArea slug={decodeURIComponent(area)} />
-    ) : area && area !== "workspace" && !param ? (
+    ) : area && !APP_AREAS.has(area) && !param ? (
       <ShopPage slug={decodeURIComponent(area)} />
     ) : (
       <Workspace />

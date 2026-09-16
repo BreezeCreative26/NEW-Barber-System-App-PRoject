@@ -859,6 +859,7 @@ export function Workspace() {
         identity.current = nextIdentity;
         setData({ ...w, bookings });
         setNeedsSession(false);
+        if (/^\/(signin|signup)$/.test(location.pathname)) history.replaceState(null, "", "/workspace");
         setError("");
         setStale(false);
         setDate((d) => d || w.today);

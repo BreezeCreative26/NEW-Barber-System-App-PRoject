@@ -170,12 +170,19 @@ async function matches(
     delta |= actual.charCodeAt(i) ^ expected.charCodeAt(i);
   return !!user && delta === 0;
 }
+// Per-identity cap always; the global cap guards password guessing on login only (a busy
+// launch day must not lock out new shops).
 async function throttle(c: Ctx, action: string, identity: string) {
   const now = Date.now();
-  for (const [key, max] of [
-    [`${action}:${identity}`, 12],
-    [`${action}:global`, 180],
-  ] as const) {
+  const limits: [string, number][] = [[`${action}:${identity}`, 12]];
+  if (action === "login") limits.push([`${action}:global`, 180]);
+  if (action === "signup") {
+    const ip = (c.req.header("x-forwarded-for") || "").split(",")[0].trim() || c.req.header("x-real-ip") || "";
+    // SIGNUP_IP_LIMIT raises the cap for test runners that create hundreds of shops from one host.
+    const cap = Number(process.env.SIGNUP_IP_LIMIT) || 60;
+    if (ip) limits.push([`${action}:ip:${ip}`, cap]);
+  }
+  for (const [key, max] of limits) {
     const row = await c.env.DB.prepare(
       `INSERT INTO auth_throttle(key_hash,attempts,resets_at) VALUES(?,1,?) ON CONFLICT(key_hash) DO UPDATE SET attempts=CASE WHEN auth_throttle.resets_at<=? THEN 1 ELSE auth_throttle.attempts+1 END,resets_at=CASE WHEN auth_throttle.resets_at<=? THEN excluded.resets_at ELSE auth_throttle.resets_at END RETURNING attempts`,
     )

@@ -430,7 +430,8 @@ test("session cookie, same-origin checks and isolation across entity endpoints",
   ).toBe(400);
   const after = await workspace(b);
   expect(after.bookings).toHaveLength(0);
-  expect(after.audit).toHaveLength(1);
+  // Nothing from shop A's forged writes landed in shop B's audit: only its own setup rows remain.
+  expect(after.audit).toHaveLength(wb.audit.length);
   expect((await workspace(a)).staff[0].name).toBe(wa.staff[0].name);
   await Promise.all([a.dispose(), b.dispose(), anonymous.dispose()]);
 });
@@ -616,7 +617,7 @@ test("weekly hours, holidays, shop settings and deactivation flag affected booki
   rows.forEach((h) => (h.enabled = 0));
   expect(
     (
-      await r.put(base + `/staff/${s.id}/hours`, { data: { version: 0, rows } })
+      await r.put(base + `/staff/${s.id}/hours`, { data: { version: s.version, rows } })
     ).status(),
   ).toBe(200);
   let after = await workspace(r);
@@ -631,7 +632,7 @@ test("weekly hours, holidays, shop settings and deactivation flag affected booki
   rows.forEach((h) => (h.enabled = h.weekday === 0 ? 0 : 1));
   expect(
     (
-      await r.put(base + `/staff/${s.id}/hours`, { data: { version: 0, rows } })
+      await r.put(base + `/staff/${s.id}/hours`, { data: { version: s.version, rows } })
     ).status(),
   ).toBe(409);
   expect(
@@ -641,7 +642,7 @@ test("weekly hours, holidays, shop settings and deactivation flag affected booki
   ).toBe(true);
   expect(
     (
-      await r.put(base + `/staff/${s.id}/hours`, { data: { version: 1, rows } })
+      await r.put(base + `/staff/${s.id}/hours`, { data: { version: s.version + 1, rows } })
     ).status(),
   ).toBe(200);
   const holiday = await r.post(base + "/holidays", {
@@ -657,7 +658,7 @@ test("weekly hours, holidays, shop settings and deactivation flag affected booki
   expect(
     (
       await r.put(base + `/staff/${s.id}`, {
-        data: { name: s.name, role: s.role, active: 0, version: 2 },
+        data: { name: s.name, role: s.role, active: 0, version: s.version + 2 },
       })
     ).status(),
   ).toBe(200);

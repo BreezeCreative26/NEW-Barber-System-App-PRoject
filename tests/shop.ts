@@ -9,6 +9,24 @@ export const base = origin + "/api/app";
 export const PASSWORD = "Unique fictional test password 438!";
 export const email = () => `owner-${crypto.randomUUID().slice(0, 8)}@ollo.test`;
 
+
+// Classic fixture hours: Mon–Sat 09:00–18:00 with a 12:45–13:30 break; Sunday off.
+export const FIXTURE_HOURS = Array.from({ length: 7 }, (_, weekday) => ({
+  weekday,
+  enabled: weekday === 0 ? 0 : 1,
+  starts: 540,
+  ends: 1080,
+  break_start: 765,
+  break_end: 810,
+}));
+async function setFixtureHours(r: APIRequestContext, headers?: Record<string, string>) {
+  const w = await (await r.get(base + "/workspace")).json();
+  for (const s of w.staff as { id: string; version: number }[]) {
+    const res = await r.put(base + `/staff/${s.id}/hours`, { headers, data: { version: s.version, rows: FIXTURE_HOURS } });
+    expect(res.status(), await res.text()).toBe(200);
+  }
+}
+
 export type Seeded = { r: APIRequestContext; email: string; shop_id: string };
 
 export async function signup(r: APIRequestContext, name = "API test shop", address = email()) {
@@ -38,6 +56,7 @@ export async function seedCatalogue(r: APIRequestContext) {
     const res = await r.post(base + "/services", { data: { ...s, category: "Hair" } });
     expect(res.status(), await res.text()).toBe(201);
   }
+  await setFixtureHours(r);
 }
 
 // One call: new context (same-origin header), signup, seeded catalogue.
@@ -67,6 +86,7 @@ export async function enterNewShop(page: Page, name = "UI test shop") {
     { name: "Cut & beard", duration_min: 60, price_pence: 4200 },
   ])
     expect((await r.post(base + "/services", { headers: { Origin: origin }, data: { ...s, category: "Hair" } })).status()).toBe(201);
+  await setFixtureHours(r, { Origin: origin });
   await page.goto("/workspace");
   await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
 }
