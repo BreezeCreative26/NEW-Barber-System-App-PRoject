@@ -43,3 +43,8 @@ coverage/
 
 # misc
 .DS_Store
+.next/
+.media/
+public/static/app.js
+public/static/app.css
+.vercel

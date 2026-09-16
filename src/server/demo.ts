@@ -5,7 +5,7 @@
 import type { Context } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "./accounts";
-import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
+import type { Database as D1Database, Statement as D1PreparedStatement } from "../db/client";
 import { digest, passwordHash, newSession, cookies, readInput } from "./accounts";
 import { localInstant, shopToday } from "./domain";
 

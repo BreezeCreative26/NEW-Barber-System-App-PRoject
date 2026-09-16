@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
-import type { D1Database } from "@cloudflare/workers-types";
+import type { Database } from "../db/client";
 import { z } from "zod";
 import { demoRoute } from "./demo";
 
@@ -16,7 +16,7 @@ export type Account = {
   version: number;
 };
 export type AppEnv = {
-  Bindings: { DB: D1Database; APP_MODE?: string; ALLOWED_ORIGINS?: string };
+  Bindings: { DB: Database; APP_MODE?: string; ALLOWED_ORIGINS?: string };
   Variables: { shopId: string; actor: string; account: Account | null };
 };
 type Ctx = Context<AppEnv>;
@@ -177,7 +177,7 @@ async function throttle(c: Ctx, action: string, identity: string) {
     [`${action}:global`, 180],
   ] as const) {
     const row = await c.env.DB.prepare(
-      `INSERT INTO auth_throttle(key_hash,attempts,resets_at) VALUES(?,1,?) ON CONFLICT(key_hash) DO UPDATE SET attempts=CASE WHEN resets_at<=? THEN 1 ELSE attempts+1 END,resets_at=CASE WHEN resets_at<=? THEN excluded.resets_at ELSE resets_at END RETURNING attempts`,
+      `INSERT INTO auth_throttle(key_hash,attempts,resets_at) VALUES(?,1,?) ON CONFLICT(key_hash) DO UPDATE SET attempts=CASE WHEN auth_throttle.resets_at<=? THEN 1 ELSE auth_throttle.attempts+1 END,resets_at=CASE WHEN auth_throttle.resets_at<=? THEN excluded.resets_at ELSE auth_throttle.resets_at END RETURNING attempts`,
     )
       .bind(await digest(key), now + 600000, now, now)
       .first<{ attempts: number }>();

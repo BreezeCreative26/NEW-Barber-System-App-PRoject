@@ -62,7 +62,7 @@ export function clientKey(c: Ctx) {
 export async function throttle(c: Ctx, action: string, identity: string, max = 20) {
   const now = Date.now();
   const row = await c.env.DB.prepare(
-    `INSERT INTO auth_throttle(key_hash,attempts,resets_at) VALUES(?,1,?) ON CONFLICT(key_hash) DO UPDATE SET attempts=CASE WHEN resets_at<=? THEN 1 ELSE attempts+1 END,resets_at=CASE WHEN resets_at<=? THEN excluded.resets_at ELSE resets_at END RETURNING attempts`,
+    `INSERT INTO auth_throttle(key_hash,attempts,resets_at) VALUES(?,1,?) ON CONFLICT(key_hash) DO UPDATE SET attempts=CASE WHEN auth_throttle.resets_at<=? THEN 1 ELSE auth_throttle.attempts+1 END,resets_at=CASE WHEN auth_throttle.resets_at<=? THEN excluded.resets_at ELSE auth_throttle.resets_at END RETURNING attempts`,
   )
     .bind(await digest(`public:${action}:${identity}`), now + 600000, now, now)
     .first<{ attempts: number }>();
@@ -74,7 +74,7 @@ export async function throttle(c: Ctx, action: string, identity: string, max = 2
 export const publicGuard = async (c: Ctx, next: () => Promise<void>) => {
   c.header("Cache-Control", "no-store");
   c.header("X-Content-Type-Options", "nosniff");
-  if (c.env?.APP_MODE !== "sandbox" || !c.env.DB)
+  if (!c.env?.DB)
     return c.json(
       {
         error: "sandbox_disabled",
@@ -518,7 +518,7 @@ pub.post("/shops/:slug/waitlist", async (c) => {
     now = Date.now();
   await c.env.DB.batch([
     c.env.DB.prepare(
-      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,daypart,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shop_id,date,phone,service_id) DO UPDATE SET staff_id=excluded.staff_id,daypart=excluded.daypart,notes=excluded.notes,customer_name=excluded.customer_name,email=excluded.email,status='OPEN',version=version+1,updated_at=excluded.updated_at",
+      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,daypart,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shop_id,date,phone,service_id) DO UPDATE SET staff_id=excluded.staff_id,daypart=excluded.daypart,notes=excluded.notes,customer_name=excluded.customer_name,email=excluded.email,status='OPEN',version=waitlist_entries.version+1,updated_at=excluded.updated_at",
     ).bind(id, shop.id, b.staff_id, b.service_id, b.customer_name, b.phone, b.email, b.date, b.daypart, b.notes, now, now),
     audit(c, "waitlist", id, "WAITLIST_JOINED", `Customer asked to be contacted for ${b.date} (${b.daypart.toLowerCase()}). Confirmation queued, not sent.`),
   ]);

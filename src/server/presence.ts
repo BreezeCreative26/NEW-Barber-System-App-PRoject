@@ -2,7 +2,8 @@
 // See docs/SHOP-PAGE-PLAN.md. Everything here is presentation + moderation; bookings are untouched.
 import type { Context } from "hono";
 import { z } from "zod";
-import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
+import type { Database as D1Database } from "../db/client";
+import type { ObjectStore as R2Bucket } from "../db/storage";
 import type { Shop, ShopPage, StoredBooking } from "./domain";
 import { defaultShopPage } from "./domain";
 import type { AppEnv } from "./accounts";

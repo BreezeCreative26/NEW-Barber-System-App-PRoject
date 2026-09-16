@@ -2,7 +2,7 @@
 // See docs/WAITLIST-PLAN.md. Nothing here sends a message: every intended message is written to the
 // outbox as SKIPPED until a provider exists, and the offer link is surfaced to staff.
 import type { Context } from "hono";
-import type { D1PreparedStatement } from "@cloudflare/workers-types";
+import type { Statement as D1PreparedStatement } from "../db/client";
 import { z } from "zod";
 import { calculateQuote, effectiveHours, localInstant, ref, shopToday, slotReason, weekday, type Addon, type AddonLink, type Holiday, type Hours, type ScheduleOverride, type Service, type Shop, type Staff, type StaffDayOff, type StaffServiceRule, type StoredBooking } from "./domain";
 import type { AppEnv } from "./accounts";

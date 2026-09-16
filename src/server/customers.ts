@@ -94,7 +94,7 @@ async function linkedCustomer(c: Ctx, shop: Shop, account: AccountRow): Promise<
       .run();
     cust = (await c.env.DB.prepare("SELECT * FROM customers WHERE shop_id=? AND id=?").bind(shop.id, id).first<Customer>())!;
   }
-  await c.env.DB.prepare("INSERT OR REPLACE INTO customer_account_links(account_id,shop_id,customer_id,linked_at) VALUES(?,?,?,?)")
+  await c.env.DB.prepare("INSERT INTO customer_account_links(account_id,shop_id,customer_id,linked_at) VALUES(?,?,?,?) ON CONFLICT (account_id,shop_id) DO UPDATE SET customer_id=EXCLUDED.customer_id, linked_at=EXCLUDED.linked_at")
     .bind(account.id, shop.id, cust.id, now)
     .run();
   return cust;

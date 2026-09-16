@@ -1,10 +1,8 @@
 import { Hono, type Context } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
-import type {
-  D1Database,
-  D1PreparedStatement,
-} from "@cloudflare/workers-types";
+import type { Database as D1Database, Statement as D1PreparedStatement } from "../db/client";
+import { putObject, deleteObject, type ObjectStore } from "../db/storage";
 import { z } from "zod";
 import {
   addonSchema,
@@ -63,7 +61,6 @@ import {
 
 import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
-import type { R2Bucket } from "@cloudflare/workers-types";
 import accounts, {
   ACCOUNT_COOKIE,
   resolveAccount,
@@ -147,7 +144,7 @@ export async function checkVersionUpdate(
 sandbox.use("*", async (c, next) => {
   c.header("Cache-Control", "no-store");
   c.header("X-Content-Type-Options", "nosniff");
-  if (c.env?.APP_MODE !== "sandbox" || !c.env.DB)
+  if (!c.env?.DB)
     return c.json(
       {
         error: "sandbox_disabled",
@@ -266,7 +263,7 @@ export function handleError(err: Error, c: Ctx) {
   ];
   const code = known.find((s) => message.includes(s));
   if (code) return c.json({ error: code, message: code }, 409);
-  if (message.includes("UNIQUE constraint"))
+  if (message.includes("UNIQUE constraint") || message.includes("duplicate key"))
     return c.json(
       {
         error: "duplicate_record",
@@ -275,11 +272,9 @@ export function handleError(err: Error, c: Ctx) {
       },
       409,
     );
-  // Never log customer bodies or session credentials.
-  console.error(
-    "Sandbox database operation failed",
-    err instanceof Error ? err.name : "UnknownError",
-  );
+  // Never log customer bodies or session credentials; the SQL text and Postgres code are safe.
+  const pg = err as { code?: string; message?: string; query?: string; constraint_name?: string };
+  console.error("Database operation failed", pg.code ?? (err instanceof Error ? err.name : "UnknownError"), pg.constraint_name ?? "", (pg.message ?? "").slice(0, 300), (pg.query ?? "").slice(0, 200));
   return c.json(
     {
       error: "database_error",
@@ -404,13 +399,13 @@ sandbox.get("/insights", async (c) => {
       `SELECT service_name AS name, COUNT(*) AS n, SUM(CASE WHEN status='COMPLETED' THEN price_pence ELSE 0 END) AS completed_value FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR staff_id=?) GROUP BY service_name ORDER BY n DESC LIMIT 8`,
     ).bind(sid, from, today, assigned, assigned),
     c.env.DB.prepare(
-      `SELECT b.staff_id, s.name, COUNT(*) AS n, SUM(b.duration_min) AS minutes, SUM(CASE WHEN b.status='COMPLETED' THEN b.price_pence ELSE 0 END) AS completed_value, SUM(CASE WHEN b.status='NO_SHOW' THEN 1 ELSE 0 END) AS no_shows FROM bookings b JOIN staff s ON s.shop_id=b.shop_id AND s.id=b.staff_id WHERE b.shop_id=? AND b.date BETWEEN ? AND ? AND b.status NOT IN ('CANCELLED') AND (? IS NULL OR b.staff_id=?) GROUP BY b.staff_id ORDER BY n DESC`,
+      `SELECT b.staff_id, s.name, COUNT(*) AS n, SUM(b.duration_min) AS minutes, SUM(CASE WHEN b.status='COMPLETED' THEN b.price_pence ELSE 0 END) AS completed_value, SUM(CASE WHEN b.status='NO_SHOW' THEN 1 ELSE 0 END) AS no_shows FROM bookings b JOIN staff s ON s.shop_id=b.shop_id AND s.id=b.staff_id WHERE b.shop_id=? AND b.date BETWEEN ? AND ? AND b.status NOT IN ('CANCELLED') AND (? IS NULL OR b.staff_id=?) GROUP BY b.staff_id, s.name ORDER BY n DESC`,
     ).bind(sid, from, today, assigned, assigned),
     c.env.DB.prepare(
       `SELECT (start_min/60) AS hour, COUNT(*) AS n FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR staff_id=?) GROUP BY hour ORDER BY hour`,
     ).bind(sid, from, today, assigned, assigned),
     c.env.DB.prepare(
-      `SELECT CAST(strftime('%w',date) AS INTEGER) AS weekday, COUNT(*) AS n FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR staff_id=?) GROUP BY weekday`,
+      `SELECT ollo_weekday(date) AS weekday, COUNT(*) AS n FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR staff_id=?) GROUP BY weekday`,
     ).bind(sid, from, today, assigned, assigned),
     c.env.DB.prepare(
       `SELECT date, COUNT(*) AS n, SUM(CASE WHEN status='COMPLETED' THEN price_pence ELSE 0 END) AS completed_value FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR staff_id=?) GROUP BY date ORDER BY date`,
@@ -607,7 +602,7 @@ sandbox.get("/workspace", async (c) => {
       "SELECT * FROM bookings WHERE shop_id=? AND (? IS NULL OR staff_id=?) ORDER BY start_at DESC LIMIT 500",
     ),
     c.env.DB.prepare(
-      "SELECT * FROM audit_events WHERE shop_id=? AND ?=1 ORDER BY created_at DESC,rowid DESC LIMIT 200",
+      "SELECT * FROM audit_events WHERE shop_id=? AND ?=1 ORDER BY created_at DESC,id DESC LIMIT 200",
     ).bind(
       sid,
       !account || ["OWNER", "MANAGER"].includes(account.role) ? 1 : 0,
@@ -831,24 +826,27 @@ sandbox.get("/customers", async (c) => {
   const { q, limit, filter, sort } = parsed.data!;
   const assigned = customerScope(c);
   const now = Date.now();
+  // Postgres cannot reference output aliases in HAVING; spell the aggregates out.
   const having = {
-    all: "1",
-    new: "first_visit_at >= ?",
-    regulars: "completed >= 4",
-    lapsed: "completed >= 1 AND last_visit_at < ? AND upcoming = 0",
-    no_shows: "no_shows >= 2",
-    upcoming: "upcoming >= 1",
+    all: "TRUE",
+    new: "MIN(CASE WHEN b.status<>'CANCELLED' THEN b.start_at END) >= ?",
+    regulars: "SUM(CASE WHEN b.status='COMPLETED' THEN 1 ELSE 0 END) >= 4",
+    lapsed: "SUM(CASE WHEN b.status='COMPLETED' THEN 1 ELSE 0 END) >= 1 AND MAX(CASE WHEN b.status='COMPLETED' THEN b.start_at END) < ? AND SUM(CASE WHEN b.start_at>? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') THEN 1 ELSE 0 END) = 0",
+    no_shows: "SUM(CASE WHEN b.status='NO_SHOW' THEN 1 ELSE 0 END) >= 2",
+    upcoming: "SUM(CASE WHEN b.start_at>? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') THEN 1 ELSE 0 END) >= 1",
   }[filter];
   const order = {
-    recent: "COALESCE(last_visit_at, c.created_at) DESC",
+    recent: "COALESCE(MAX(CASE WHEN b.status='COMPLETED' THEN b.start_at END), c.created_at) DESC",
     spend: "completed_value_pence DESC, visits DESC",
     visits: "visits DESC, completed_value_pence DESC",
-    name: "c.name COLLATE NOCASE ASC",
-    next: "CASE WHEN next_visit_at IS NULL THEN 1 ELSE 0 END, next_visit_at ASC",
+    name: "lower(c.name) ASC",
+    next: "(MIN(CASE WHEN b.start_at>? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') THEN b.start_at END) IS NULL), MIN(CASE WHEN b.start_at>? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') THEN b.start_at END) ASC",
   }[sort];
   const binds: unknown[] = [now, now, assigned, assigned, c.get("shopId"), q, q, q, q, q];
   if (filter === "new") binds.push(now - 30 * 86400000);
-  if (filter === "lapsed") binds.push(now - 60 * 86400000);
+  if (filter === "lapsed") binds.push(now - 60 * 86400000, now);
+  if (filter === "upcoming") binds.push(now);
+  if (sort === "next") binds.push(now, now);
   binds.push(limit);
   const rows = await c.env.DB.prepare(
     `SELECT c.id, c.name, c.phone, c.email, c.tags, c.notes, c.preferred_staff_id, c.birthday, c.marketing_opt_in, c.version, c.created_at, ${customerStats},
@@ -857,7 +855,7 @@ sandbox.get("/customers", async (c) => {
      FROM customers c
      LEFT JOIN bookings b ON b.shop_id=c.shop_id AND b.customer_id=c.id AND (? IS NULL OR b.staff_id=?)
      WHERE c.shop_id=? AND c.merged_into IS NULL
-     AND (?='' OR c.name LIKE '%'||?||'%' COLLATE NOCASE OR c.phone LIKE '%'||?||'%' OR c.email LIKE '%'||?||'%' COLLATE NOCASE OR c.tags LIKE '%'||?||'%' COLLATE NOCASE)
+     AND (?='' OR c.name ILIKE '%'||?||'%' OR c.phone LIKE '%'||?||'%' OR c.email ILIKE '%'||?||'%' OR c.tags ILIKE '%'||?||'%')
      GROUP BY c.id HAVING ${having} ORDER BY ${order} LIMIT ?`,
   )
     .bind(...binds)
@@ -906,7 +904,7 @@ sandbox.get("/customers/:id", async (c) => {
       "SELECT * FROM bookings WHERE shop_id=? AND customer_id=? AND (? IS NULL OR staff_id=?) ORDER BY start_at DESC LIMIT 200",
     ).bind(c.get("shopId"), target, assigned, assigned).all<StoredBooking>(),
     c.env.DB.prepare(
-      "SELECT b.staff_id, s.name, COUNT(*) AS n, MAX(b.start_at) AS last_at FROM bookings b JOIN staff s ON s.shop_id=b.shop_id AND s.id=b.staff_id WHERE b.shop_id=? AND b.customer_id=? AND b.status='COMPLETED' GROUP BY b.staff_id ORDER BY n DESC, last_at DESC",
+      "SELECT b.staff_id, s.name, COUNT(*) AS n, MAX(b.start_at) AS last_at FROM bookings b JOIN staff s ON s.shop_id=b.shop_id AND s.id=b.staff_id WHERE b.shop_id=? AND b.customer_id=? AND b.status='COMPLETED' GROUP BY b.staff_id, s.name ORDER BY n DESC, last_at DESC",
     ).bind(c.get("shopId"), target).all(),
     c.env.DB.prepare(
       "SELECT service_name AS name, COUNT(*) AS n, MAX(start_at) AS last_at FROM bookings WHERE shop_id=? AND customer_id=? AND status='COMPLETED' GROUP BY service_name ORDER BY n DESC, last_at DESC LIMIT 5",
@@ -1139,8 +1137,8 @@ sandbox.post("/reviews/:id/reply", async (c) => {
 });
 
 // ---- Media library (R2): upload, list, delete. Served at /media/<id>. ----
-const mediaBucket = (c: Ctx) => {
-  const bucket = (c.env as unknown as { MEDIA?: R2Bucket }).MEDIA;
+const mediaBucket = (c: Ctx): ObjectStore => {
+  const bucket = (c.env as unknown as { MEDIA?: ObjectStore }).MEDIA;
   if (!bucket) fail(409, "Photo uploads are not available in this environment");
   return bucket!;
 };
@@ -1171,7 +1169,7 @@ sandbox.post("/media", async (c) => {
   const size = imageSize(bytes, type!);
   const mid = id();
   const key = `${c.get("shopId")}/${kind}/${mid}`;
-  await bucket.put(key, bytes, { httpMetadata: { contentType: type! } });
+  await putObject(bucket, key, bytes, type!);
   await c.env.DB.batch([
     c.env.DB.prepare("INSERT INTO shop_media(id,shop_id,kind,object_key,content_type,bytes,width,height,alt,uploaded_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)").bind(mid, c.get("shopId"), kind, key, type, bytes.byteLength, size?.width ?? null, size?.height ?? null, alt, c.get("actor"), Date.now()),
     audit(c, "media", mid, "MEDIA_UPLOADED", `${kind} photo, ${Math.round(bytes.byteLength / 1024)} KB${size ? `, ${size.width}×${size.height}` : ""}.`),
@@ -1185,7 +1183,7 @@ sandbox.delete("/media/:id", async (c) => {
   const now = Date.now();
   await scrubMediaReferences(c.env.DB, c.get("shopId"), mediaUrl(m.id), now);
   await c.env.DB.batch([c.env.DB.prepare("DELETE FROM shop_media WHERE id=?").bind(m.id), audit(c, "media", m.id, "MEDIA_DELETED", `${m.kind} photo removed; any cover, gallery or barber photo using it was cleared.`)]);
-  await bucket.delete(m.object_key);
+  await deleteObject(bucket, m.object_key);
   return c.json({ ok: true });
 });
 sandbox.post("/staff", async (c) => {
@@ -1503,7 +1501,7 @@ sandbox.put("/service-rules", async (c) => {
       isDefault
         ? c.env.DB.prepare("DELETE FROM staff_service_rules WHERE shop_id=? AND staff_id=? AND service_id=?").bind(sid, r.staff_id, r.service_id)
         : c.env.DB.prepare(
-            "INSERT INTO staff_service_rules(shop_id,staff_id,service_id,enabled,price_pence,duration_min) VALUES(?,?,?,?,?,?) ON CONFLICT(shop_id,staff_id,service_id) DO UPDATE SET enabled=excluded.enabled,price_pence=excluded.price_pence,duration_min=excluded.duration_min,version=version+1",
+            "INSERT INTO staff_service_rules(shop_id,staff_id,service_id,enabled,price_pence,duration_min) VALUES(?,?,?,?,?,?) ON CONFLICT(shop_id,staff_id,service_id) DO UPDATE SET enabled=excluded.enabled,price_pence=excluded.price_pence,duration_min=excluded.duration_min,version=staff_service_rules.version+1",
           ).bind(sid, r.staff_id, r.service_id, r.enabled, r.price_pence, r.duration_min),
     );
   }
@@ -1920,6 +1918,8 @@ export async function createBooking(
   );
   try {
     await c.env.DB.batch([
+      // Serialise per-shop inserts so the sequence number (MAX+1) cannot collide under load.
+      c.env.DB.prepare("SELECT ollo_lock_shop(?)").bind(sid),
       statement,
       audit(
         c,
