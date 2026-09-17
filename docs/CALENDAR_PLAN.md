@@ -29,7 +29,9 @@ Everything below is ordered by what sells the product first.
 
 ---
 
-## Phase 1 — "It feels like Fresha" (drag, snap, hover, greyed-but-clickable)
+## Phase 1 — "It feels like Fresha" (drag, snap, hover, greyed-but-clickable) — ✅ SHIPPED 17 Sept (commit 907cb33)
+
+Delivered: pointer drag (top edge = start, 15-min snap, haptic/scale tick, live time pill, sideways = barber, long-press on touch, Escape cancels); hover slot time; greyed cells clickable with override notice; deliberate double-booking via `force:true` (owner channel only; public never; past time never) with a transaction-local DB flag `ollo.force_slot` (migration 0010); overlap lanes. Tests: `tests/calendar-drag.spec.ts`.
 
 **Why first:** this is what a barber judges in the first 30 seconds of a demo. It's pure client work — no schema change — and it de-risks everything after.
 
@@ -132,8 +134,13 @@ ALTER TABLE customers ADD COLUMN contact_pref TEXT NOT NULL DEFAULT 'SMS'; -- SM
 - `POST /staff/:id/blocks/preview` → colliding bookings with each customer's channel (Phase 3)
 - `GET /calendar/scheduled?date=` → staff ids rostered that day (Phase 3; cheap, derived)
 
-## Open questions for the owner
+## Owner decisions (17 Sept 2026) — locked
 
-1. Should a **barber** (not owner) be able to block their own time and trigger customer notifications, or is that owner/manager only?
-2. When a price is edited **below the deposit already paid**, refund the difference automatically or leave as credit?
-3. Overlaps: allow deliberate double-booking from the calendar (Fresha does), or keep the collision guard and only render overlaps that arrive via walk-ins/imports?
+1. **Barbers can block their own time and trigger customer notifications.**
+2. Price edited **below a paid deposit → auto-refund the difference**, and the refunded amount is **charged against that barber's wallet** in the next pay run (`payouts.ts` → `walletFor` / `settlementFor` gets a `deposit_refunds_pence` line).
+3. **Deliberate double-booking allowed from the calendar, Fresha-style** (shipped in Phase 1). Public booking keeps the guard.
+4. **Payment modes are a first-class setting**: `PREPAY` (full amount at booking), `DEPOSIT` (existing flow), `PAY_AT_VISIT`. Shop default in Settings → Payments → Policy, with a per-service override on the service editor (e.g. colour work = prepay, kids cut = pay at visit). Public booking reads the effective mode: PREPAY creates a Checkout session for the full price and holds the slot like a deposit; PAY_AT_VISIT skips Stripe entirely. Checkout ceremony shows "Paid online · £X" and only collects tips/extras when prepaid. Schema: `shops.payment_mode TEXT DEFAULT 'DEPOSIT'`, `services.payment_mode TEXT NULL` (null = inherit), `bookings.prepaid_pence INTEGER DEFAULT 0`.
+
+## Next session — start here
+
+Order: **Phase 2 → Payment modes (item 4) → Phase 3 → Phase 4 → rewrite the 7 legacy tests.** Phase 2 and payment modes share the deposit-reconciliation code, so do them together. Everything is specified above; no further decisions are needed from the owner.

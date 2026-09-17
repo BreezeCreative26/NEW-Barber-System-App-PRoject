@@ -551,3 +551,8 @@ Screenshots at phone 390×844 / tablet 820×1180 / desktop 1440×900 across cale
 **Open:** 7 Playwright tests still drive the removed legacy controls and need rewriting against the Checkout ceremony / ⋯ menu:
 calendar.spec.ts:119, :621, :679 · catalogue.spec.ts:403 · public.spec.ts:610 · workspace.spec.ts:75, :348
 (they wait on `Next status`, `Edit booking details`, `Share confirmation with customer`, `Reason / operational note`, `.workspace-booking-detail .workspace-quote-items`). Gate otherwise: 145 passed, 2 skipped.
+
+## Calendar Phase 1 shipped (2026-09-17, 907cb33)
+Pointer drag with 15-min snap + tick + live time label, sideways barber moves, hover slot time, greyed-but-clickable cells with override notice, Fresha-style deliberate double-booking (`force:true`, owner only, DB flag `ollo.force_slot` in migration 0010), overlap lanes. Tests in `tests/calendar-drag.spec.ts`.
+
+**Remaining from the owner's brief** (all specified in `docs/CALENDAR_PLAN.md`, decisions locked): Phase 2 in-place service/price/duration edit with deposit auto-refund charged to the barber's wallet; payment modes PREPAY / DEPOSIT / PAY_AT_VISIT per shop + per service; Phase 3 scheduled team, `staff_blocks` with reason, block → notify customers by contact preference (barbers may do this); Phase 4 resize/now-line/undo; rewrite of the 7 legacy Playwright tests listed above.
