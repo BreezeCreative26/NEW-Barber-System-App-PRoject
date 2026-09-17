@@ -53,7 +53,7 @@ for (const mode of modes) for (const accent of accents) for (const font of fonts
   }
 }
 // restore Northline
-setTheme("dark", "ink", "condensed");
+setTheme("dark", "ink", "condensed"); execSync(`psql "${DB}" -Atqc "update shop_pages set theme_json='{\"font\":\"condensed\",\"mode\":\"dark\",\"corners\":\"sharp\",\"hero\":\"editorial\",\"logo\":\"auto\"}' where shop_id=(select id from shops where slug='demo')"`);
 console.log(failures.length ? failures.join("\n") : "CLEAN");
 console.log(`\n${failures.length} violations across ${modes.length * accents.length * fonts.length * pages.length} page renders (manage: ${!!manageUrl})`);
 await b.close();

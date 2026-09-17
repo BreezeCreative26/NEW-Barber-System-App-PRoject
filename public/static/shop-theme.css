@@ -276,7 +276,7 @@
 .shop-page.mode-dark.accent-ink .booking-hero { background: var(--sp-surface-2); color: var(--sp-ink); }
 .shop-page .booking-hero h1 { font-family: var(--sp-display); font-weight: var(--sp-display-weight); letter-spacing: var(--sp-display-tracking); text-transform: var(--sp-display-case); color: inherit; }
 /* Solid ink on the accent panel: no opacity tricks, they cost AA on mid-tone accents. */
-.shop-page .booking-hero p, .shop-page .hero-details, .shop-page .hero-details span, .shop-page .hero-copy .eyebrow, .shop-page .hero-seal span, .shop-page .hero-seal > strong, .shop-page .hero-seal > strong > span { color: var(--sp-accent-ink); }
+.shop-page .booking-hero p, .shop-page .hero-details, .shop-page .hero-details span, .shop-page .hero-copy .eyebrow, .shop-page .hero-seal span, .shop-page .hero-seal > strong, .shop-page .hero-seal > strong > span { color: inherit; }
 .shop-page .booking-hero a.hero-link, .shop-page .booking-hero a.hero-link:hover { color: var(--sp-accent-ink); text-decoration: underline; text-underline-offset: 3px; }
 .shop-page .art-orbit, .shop-page .hero-seal { border-color: color-mix(in srgb, var(--sp-accent-ink) 35%, transparent); }
 .shop-page .seal-rule { background: color-mix(in srgb, var(--sp-accent-ink) 45%, transparent); }
@@ -393,3 +393,23 @@
 @media (max-width: 740px) {
   .shop-page .booking-actions { background: color-mix(in srgb, var(--sp-surface) 96%, transparent); border-top-color: var(--sp-line); box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.12); }
 }
+
+/* Confirmation + manage page odds and ends the sweep missed on the shared shell. */
+.shop-page .hero-seal, .shop-page .hero-seal > strong, .shop-page .hero-seal > strong > span, .shop-page .hero-seal > span { color: inherit; }
+.shop-page .hero-art .hero-seal { opacity: 1; }
+.shop-page .cancellation-note { background: var(--sp-surface-2); color: var(--sp-ink-2); border-color: var(--sp-line); border-radius: var(--sp-r); }
+.shop-page .cancellation-note p, .shop-page .cancellation-note svg, .shop-page .cancellation-note strong { color: var(--sp-ink-2); }
+.shop-page .cancellation-note strong { color: var(--sp-ink); }
+.shop-page .action-tile { background: var(--sp-surface); color: var(--sp-ink); border-color: var(--sp-line-2); border-radius: var(--sp-r); }
+.shop-page .action-tile svg { color: var(--sp-accent-dark); }
+.shop-page.mode-dark .action-tile svg { color: var(--sp-accent); }
+.shop-page .action-tile:hover { border-color: var(--sp-accent); }
+.shop-page .action-tile small, .shop-page .action-tile span { color: var(--sp-muted); }
+/* Customer account "your usual" card: inverted panel in both looks. */
+.shop-page .ca-usual { background: var(--sp-hero-bg); color: #fff; }
+.shop-page .ca-usual .eyebrow, .shop-page .ca-usual p { color: rgba(255, 255, 255, 0.8); }
+.shop-page .ca-usual h2 { color: #fff; }
+.shop-page.mode-dark .ca-usual { background: var(--sp-surface-2); color: var(--sp-ink); border: 1px solid var(--sp-line); }
+.shop-page.mode-dark .ca-usual .eyebrow, .shop-page.mode-dark .ca-usual p { color: var(--sp-muted); }
+.shop-page.mode-dark .ca-usual h2 { color: var(--sp-ink); }
+.shop-page.mode-dark .ca-usual .button.secondary { background: var(--sp-surface); border-color: var(--sp-line-2); color: var(--sp-ink); }
