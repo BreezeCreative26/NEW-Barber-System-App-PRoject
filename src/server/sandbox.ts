@@ -65,6 +65,7 @@ import {
 import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { optimiseImage } from "./images";
 import { drain, enqueue, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
+import { accountLink, accountStatus, createConnectedAccount, depositsOnline, expireHolds, refundDeposit, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
 import accounts, {
   ACCOUNT_COOKIE,
@@ -201,7 +202,9 @@ sandbox.use("*", async (c, next) => {
       (method === "GET" && ["/bookings/range", "/insights", "/wallet", "/pay-runs", "/shop/page"].includes(path)) ||
       (method === "GET" && path === "/pay-runs/preview") ||
       (method === "POST" && /^\/bookings\/[^/]+\/checkout$/.test(path)) ||
+      (method === "POST" && /^\/bookings\/[^/]+\/deposit\/refund$/.test(path)) ||
       (method === "POST" && /^\/payments\/[^/]+\/void$/.test(path)) ||
+      (method === "GET" && path === "/shop/payments") ||
       (method === "POST" && ["/series/preview", "/series"].includes(path)) ||
       (method === "POST" && /^\/series\/[^/]+\/(cancel|reschedule)$/.test(path)) ||
       (method === "GET" && /^\/bookings\/[^/]+\/timeline$/.test(path)) ||
@@ -213,8 +216,8 @@ sandbox.use("*", async (c, next) => {
           /^\/bookings\/[^/]+\/(status|reschedule)$/.test(path))) ||
       (method === "PATCH" && /^\/bookings\/[^/]+\/details$/.test(path));
     const setup =
-      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist", "/shop/messaging"].includes(path)) ||
-      (method === "POST" && ["/notifications/test", "/notifications/sweep"].includes(path)) ||
+      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist", "/shop/messaging", "/shop/payments"].includes(path)) ||
+      (method === "POST" && ["/notifications/test", "/notifications/sweep", "/shop/payments/connect"].includes(path)) ||
       (method === "POST" && /^\/notifications\/[^/]+\/resend$/.test(path)) ||
       (method === "POST" && /^\/reviews\/[^/]+\/(status|reply)$/.test(path)) ||
       (method === "POST" && path === "/media") ||
@@ -1085,9 +1088,73 @@ sandbox.post("/notifications/sweep", async (c) => {
   requireRole(c, ["OWNER", "MANAGER"]);
   await input(c, z.object({}).strict());
   const origin = new URL(c.req.url).origin;
+  const holds = await expireHolds(c.env.DB);
   const reminders = await sweepReminders(c.env.DB, origin);
   const drained = await drain(c.env.DB, 50);
-  return c.json({ reminders, drained });
+  return c.json({ reminders, drained, holds_released: holds.length });
+});
+
+// ---- Payments (online deposits via the shop's Stripe account) ---------------------------------
+// Status: platform provider, this shop's toggle + connected account, and 30-day deposit totals.
+sandbox.get("/shop/payments", async (c) => {
+  const shop = await readShop(c);
+  const since = Date.now() - 30 * 86400000;
+  const totals = await c.env.DB.prepare(
+    "SELECT COALESCE(SUM(CASE WHEN deposit_status='PAID' THEN deposit_paid_pence ELSE 0 END),0)::int AS paid_pence, COUNT(*) FILTER (WHERE deposit_status='PAID')::int AS paid, COUNT(*) FILTER (WHERE deposit_status='REFUNDED')::int AS refunded, COUNT(*) FILTER (WHERE deposit_status='EXPIRED')::int AS expired, COUNT(*) FILTER (WHERE deposit_status='PENDING')::int AS pending FROM bookings WHERE shop_id=? AND created_at>?",
+  ).bind(shop.id, since).first<{ paid_pence: number; paid: number; refunded: number; expired: number; pending: number }>();
+  let account: Awaited<ReturnType<typeof accountStatus>> | null = null;
+  if (stripeLive() && stripeConnect() && shop.stripe_account_id) account = await accountStatus(shop.stripe_account_id).catch(() => null);
+  return c.json({
+    stripe: stripeStatus(),
+    settings: { deposits_online: shop.deposits_online ?? 0, deposit_hold_min: shop.deposit_hold_min ?? 15, deposit_pence: shop.deposit_pence, stripe_account_id: shop.stripe_account_id || "" },
+    account,
+    active: depositsOnline(shop),
+    totals_30d: totals,
+  });
+});
+const paymentsSchema = z.object({ deposits_online: z.union([z.literal(0), z.literal(1)]), deposit_hold_min: z.number().int().min(5).max(120) }).strict();
+sandbox.put("/shop/payments", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const b = await input(c, paymentsSchema);
+  const shop = await readShop(c);
+  if (b.deposits_online && !stripeLive()) fail(409, "Card payments are not set up on this OLLO deployment yet");
+  if (b.deposits_online && stripeConnect() && !shop.stripe_account_id) fail(409, "Connect your Stripe account first");
+  if (b.deposits_online && shop.deposit_pence <= 0) fail(409, "Set a deposit amount above zero first");
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE shops SET deposits_online=?, deposit_hold_min=?, version=version+1 WHERE id=?").bind(b.deposits_online, b.deposit_hold_min, shop.id),
+    audit(c, "shop", shop.id, b.deposits_online ? "DEPOSITS_ONLINE_ENABLED" : "DEPOSITS_ONLINE_DISABLED", b.deposits_online ? `Deposits taken by card at booking; slot held ${b.deposit_hold_min} min.` : "Deposits payable in the shop."),
+  ]);
+  return c.json({ ok: true, settings: b });
+});
+// Stripe Connect (Express) onboarding: create the shop's account once, then hand back an onboarding link.
+sandbox.post("/shop/payments/connect", async (c) => {
+  requireRole(c, ["OWNER"]);
+  await input(c, z.object({}).strict());
+  if (!stripeLive()) fail(409, "Card payments are not set up on this OLLO deployment yet");
+  if (!stripeConnect()) fail(409, "This deployment charges through the platform account; no connection needed");
+  const shop = await readShop(c);
+  let accountId = shop.stripe_account_id || "";
+  if (!accountId) {
+    const acct = await createConnectedAccount(shop, c.get("account")?.email || "");
+    accountId = acct.id;
+    await c.env.DB.batch([
+      c.env.DB.prepare("UPDATE shops SET stripe_account_id=?, version=version+1 WHERE id=? AND stripe_account_id=''").bind(accountId, shop.id),
+      audit(c, "shop", shop.id, "STRIPE_ACCOUNT_CREATED", `Stripe account ${accountId} created for onboarding.`),
+    ]);
+  }
+  const link = await accountLink(accountId, new URL(c.req.url).origin);
+  return c.json({ ok: true, account_id: accountId, url: link.url }, 201);
+});
+// Owner refunds a paid deposit (e.g. shop cancelled, goodwill).
+sandbox.post("/bookings/:id/deposit/refund", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const body = await input(c, z.object({ reason: z.string().trim().min(3).max(200) }).strict());
+  const b = await readBooking(c, c.req.param("id"));
+  if (b.deposit_status !== "PAID") fail(409, "No paid deposit on this visit");
+  const shop = await readShop(c);
+  const ok = await refundDeposit(c.env.DB, shop, b, c.get("actor"), body.reason);
+  if (!ok) fail(409, "Stripe could not refund this deposit. Try again or refund from the Stripe dashboard.");
+  return c.json({ ok: true, booking: await readBooking(c, b.id) });
 });
 // Owner retrieves or creates the customer's manage link so it can be shared by hand.
 sandbox.post("/bookings/:id/manage-link", async (c) => {
@@ -1843,7 +1910,7 @@ export async function createBooking(
     attendee_name?: string;
   },
   channel: "OWNER" | "ONLINE",
-  options: { minStart?: number; maxDate?: string; seriesId?: string | null; groupId?: string | null } = {},
+  options: { minStart?: number; maxDate?: string; seriesId?: string | null; groupId?: string | null; depositHoldMin?: number } = {},
 ) {
   // Preserve request hashes for pre-add-on bookings with the same normalized payload.
   const { addon_ids, email, customer_id, attendee_name, ...originalPayload } = b as typeof b & { customer_id?: string; attendee_name?: string };
@@ -1914,8 +1981,8 @@ export async function createBooking(
   const now = Date.now();
   const bookingId = id();
   const statement = c.env.DB.prepare(
-    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id)
-  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
+    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id,deposit_status,deposit_hold_until)
+  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
   ).bind(
     bookingId,
     sid,
@@ -1947,6 +2014,9 @@ export async function createBooking(
     customerId,
     attendee_name || "",
     options.groupId ?? null,
+    // Online deposit: the slot is held as PENDING until Stripe confirms or the hold lapses.
+    options.depositHoldMin && Math.min(data.shop.deposit_pence, quote.price_pence) > 0 ? "PENDING" : "NONE",
+    options.depositHoldMin && Math.min(data.shop.deposit_pence, quote.price_pence) > 0 ? now + options.depositHoldMin * 60000 : null,
     sid,
   );
   try {
@@ -1960,7 +2030,9 @@ export async function createBooking(
         bookingId,
         "BOOKING_CREATED",
         channel === "ONLINE"
-          ? "Customer booked online. No deposit or payment collected online; confirmation queued."
+          ? options.depositHoldMin
+            ? `Customer booked online. Slot held ${options.depositHoldMin} min for the deposit.`
+            : "Customer booked online. Deposit payable in the shop; confirmation queued."
           : b.source === "WALK_IN" ? "Walk-in seated." : "Appointment saved by the shop.",
       ),
     ]);
@@ -2036,12 +2108,17 @@ sandbox.post("/bookings/:id/status", async (c) => {
       "booking",
       b.id,
       body.status,
-      body.reason || "Sandbox service status only; no payment recorded.",
+      body.reason || "Status updated by the shop.",
       true,
     ),
   );
-  // A cancelled visit frees a slot: offer it to the queue if the shop has auto-offer on.
-  if (body.status === "CANCELLED") await autoOffer(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "cancel");
+  // A cancelled visit frees a slot: offer it to the queue if the shop has auto-offer on. If the
+  // shop cancels, a paid deposit goes back to the customer; a pending hold is released.
+  if (body.status === "CANCELLED") {
+    if (b.deposit_status === "PAID") await refundDeposit(c.env.DB, await readShop(c), b, c.get("actor"), "cancelled by the shop");
+    else if (b.deposit_status === "PENDING") await c.env.DB.prepare("UPDATE bookings SET deposit_status='EXPIRED', deposit_hold_until=NULL WHERE shop_id=? AND id=?").bind(c.get("shopId"), b.id).run();
+    await autoOffer(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "cancel");
+  }
   // A completed visit earns a review request (outbox only).
   if (body.status === "COMPLETED") await queueReviewRequest(c, c.get("shopId"), b.id);
   return c.json({ booking: await readBooking(c, b.id) });
@@ -2061,12 +2138,18 @@ sandbox.post("/bookings/:id/checkout", async (c) => {
   tillAllowed(c, shop, b.staff_id);
   if (b.version !== body.version) fail(409, "record_changed");
   if (!["IN_SERVICE", "COMPLETED", "CHECKED_IN"].includes(b.status)) fail(409, "Check the customer in before taking payment");
+  // A deposit paid by card online is already the shop's money: it lands in the ledger as an ONLINE
+  // tender the first time the visit is checked out, and counts towards what is due at the chair.
+  const depositRow = b.deposit_status === "PAID" && (b.deposit_paid_pence ?? 0) > 0
+    ? await c.env.DB.prepare("SELECT id FROM payments WHERE shop_id=? AND booking_id=? AND method='ONLINE' AND voided_at IS NULL").bind(c.get("shopId"), b.id).first<{ id: string }>()
+    : { id: "n/a" };
+  const depositToPost = depositRow ? 0 : Math.min(b.deposit_paid_pence ?? 0, b.price_pence);
   const already = await c.env.DB.prepare(
     "SELECT COALESCE(SUM(service_pence),0) AS paid FROM payments WHERE shop_id=? AND booking_id=? AND voided_at IS NULL",
   )
     .bind(c.get("shopId"), b.id)
     .first<{ paid: number }>();
-  const due = Math.max(0, b.price_pence - body.discount_pence - (already?.paid ?? 0));
+  const due = Math.max(0, b.price_pence - body.discount_pence - (already?.paid ?? 0) - depositToPost);
   const service = body.tenders.reduce((n, t) => n + t.service_pence, 0);
   if (body.discount_pence > b.price_pence) fail(400, "Discount cannot exceed the visit price");
   if (service > due) fail(409, `Payment exceeds the amount due (${due}p)`);
@@ -2083,6 +2166,15 @@ sandbox.post("/bookings/:id/checkout", async (c) => {
     );
   let version = b.version + (b.status === "CHECKED_IN" ? 1 : 0);
   const ids: string[] = [];
+  if (depositToPost > 0) {
+    const pid = id();
+    statements.push(
+      c.env.DB.prepare(
+        "INSERT INTO payments(id,shop_id,booking_id,staff_id,customer_id,date,method,service_pence,tip_pence,discount_pence,commission_pct,note,recorded_by,created_at) VALUES(?,?,?,?,?,?,'ONLINE',?,0,0,?,'Deposit paid by card at booking',?,?)",
+      ).bind(pid, c.get("shopId"), b.id, b.staff_id, b.customer_id, shopToday(shop.timezone, now), depositToPost, staff?.commission_pct ?? 50, "stripe", now),
+    );
+    statements.push(audit(c, "payment", pid, "PAYMENT_RECORDED", `ONLINE ${depositToPost}p deposit (paid at booking) for ${ref(b)}`));
+  }
   for (const t of body.tenders) {
     if (t.service_pence === 0 && t.tip_pence === 0) continue;
     const pid = id();
@@ -2094,7 +2186,7 @@ sandbox.post("/bookings/:id/checkout", async (c) => {
     );
     statements.push(audit(c, "payment", pid, "PAYMENT_RECORDED", `${t.method} ${t.service_pence}p service + ${t.tip_pence}p tip for ${ref(b)}`));
   }
-  if (!ids.length) fail(400, "Nothing to record");
+  if (!ids.length && !depositToPost) fail(400, "Nothing to record");
   if (body.complete && b.status !== "COMPLETED") {
     statements.push(
       c.env.DB.prepare("UPDATE bookings SET status='COMPLETED',version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(now, c.get("shopId"), b.id, version),

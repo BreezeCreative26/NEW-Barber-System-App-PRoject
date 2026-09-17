@@ -22,6 +22,8 @@ export type PublicShop = {
     closes: number;
     closed_days: number[];
     deposit_pence: number;
+    deposit_online?: boolean;
+    deposit_hold_min?: number;
     cancel_hours: number;
     lead_time_min: number;
     booking_window_days: number;
@@ -99,6 +101,10 @@ type CustomerBooking = {
   shop: { name: string; address: string; slug: string | null; timezone: string; currency?: string; logo_url?: string; brand?: ShopBrand };
   can_manage: boolean;
   late_change: boolean;
+  deposit_status?: "NONE" | "PENDING" | "PAID" | "REFUNDED" | "EXPIRED";
+  deposit_paid_pence?: number;
+  deposit_hold_until?: number | null;
+  deposit_due_pence?: number;
 };
 class ApiError extends Error {
   constructor(
@@ -457,11 +463,16 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     setBusy(true);
     setSaveError("");
     try {
-      const r = await api<{ booking: CustomerBooking; manage_token: string | null }>(
+      const r = await api<{ booking: CustomerBooking; manage_token: string | null; checkout_url?: string | null }>(
         `/shops/${encodeURIComponent(slug)}/bookings`,
         "POST",
         { request_id: request.current.key, ...payload },
       );
+      // Deposit by card: the slot is held; Stripe brings the customer back to the manage page.
+      if (r.checkout_url && r.booking.deposit_status === "PENDING") {
+        window.location.assign(r.checkout_url);
+        return;
+      }
       try {
         localStorage.setItem(
           "barbershop-os:customer",
@@ -556,6 +567,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   const priceTo = chosenSlot?.price_pence ?? (anyBarber ? est.priceTo : price);
   const duration = chosenSlot?.duration_min ?? availability?.duration_min ?? est.duration;
   const deposit = Math.min(shop.shop.deposit_pence, price);
+  const depositOnline = !!shop.shop.deposit_online && deposit > 0;
   const priceLabel = price === priceTo ? money(price) : `${money(price)}–${money(priceTo)}`;
   const openSlots = (availability?.slots || []).filter((s) => s.available);
   const inDaypart = (m: number, part: string) =>
@@ -1237,8 +1249,10 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   <Notice icon="shield">
                     <strong>Plans change.</strong> Cancel or move online at least{" "}
                     {availability?.cancel_hours ?? shop.shop.cancel_hours} hours ahead. You’ll get a
-                    manage link after confirming. Deposit policy {money(deposit)} is recorded, not
-                    collected.
+                    manage link after confirming.{" "}
+                    {depositOnline
+                      ? `A ${money(deposit)} deposit is taken by card next; it comes off your bill and is refunded if you cancel in time.`
+                      : `Deposit policy ${money(deposit)}, payable in the shop.`}
                   </Notice>
                   {saveError && (
                     <p className="workspace-error" role="alert">
@@ -1276,7 +1290,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   </Button>
                 ) : step === 4 ? (
                   <Button key="confirm" onClick={confirm} disabled={busy || slot === null || !availability || !bookingStaff} aria-busy={busy}>
-                    {busy ? "Confirming…" : "Confirm booking"}
+                    {busy ? "Confirming…" : depositOnline ? `Confirm and pay ${money(deposit)} deposit` : "Confirm booking"}
                     <Icon name="check" />
                   </Button>
                 ) : (
@@ -1394,13 +1408,13 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                 </p>
                 <p className="deposit-line">
                   <span>
-                    Deposit policy<small>Payable in the shop</small>
+                    Deposit<small>{depositOnline ? "By card now" : "Payable in the shop"}</small>
                   </span>
                   <strong>{money(deposit)}</strong>
                 </p>
                 <p className="remaining-line">
                   <span>Pay in the shop</span>
-                  <strong>{priceLabel}</strong>
+                  <strong>{depositOnline ? (price === priceTo ? money(price - deposit) : `${money(price - deposit)}–${money(priceTo - deposit)}`) : priceLabel}</strong>
                 </p>
               </div>
               <div className="cancellation-note">
@@ -1488,8 +1502,14 @@ function ConfirmationCard({
           {booking.email && ` · ${booking.email}`}
         </p>
         <p>
-          Total {money(booking.price_pence)} · pay in the shop. Deposit policy{" "}
-          {money(booking.deposit_policy_pence)} recorded, not collected.
+          Total {money(booking.price_pence)}.{" "}
+          {booking.deposit_status === "PAID"
+            ? `Deposit ${money(booking.deposit_paid_pence ?? 0)} paid by card · ${money(booking.price_pence - (booking.deposit_paid_pence ?? 0))} to pay in the shop.`
+            : booking.deposit_status === "REFUNDED"
+              ? `Deposit ${money(booking.deposit_paid_pence ?? 0)} refunded to your card.`
+              : booking.deposit_status === "PENDING"
+                ? `Deposit ${money(booking.deposit_policy_pence)} due by card to secure this time.`
+                : `Pay in the shop · deposit policy ${money(booking.deposit_policy_pence)}.`}
         </p>
       </section>
       {link ? (
@@ -1558,10 +1578,23 @@ export function ManageBooking({ token }: { token: string }) {
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
   const [meta, setMeta] = useState({ today: "", max_date: "" });
+  const [payUrl, setPayUrl] = useState<string | null>(null);
   async function load() {
     setError("");
     try {
-      const r = await api<{ booking: CustomerBooking; review: OwnReview; can_review: boolean }>(`/manage/${token}`);
+      let r = await api<{ booking: CustomerBooking; review: OwnReview; can_review: boolean }>(`/manage/${token}`);
+      // Back from Stripe (or refreshing while a deposit is pending): confirm against Stripe directly.
+      if (r.booking.deposit_status === "PENDING") {
+        const paid = new URLSearchParams(location.search).get("paid");
+        const d = await api<{ booking: CustomerBooking; changed: boolean; checkout_url?: string | null }>(`/manage/${token}/deposit/confirm`, "POST", {}).catch(() => null);
+        if (d) {
+          r = { ...r, booking: d.booking };
+          setPayUrl(d.checkout_url ?? null);
+          if (d.booking.deposit_status === "PAID") setNotice("Deposit paid. Your time is confirmed.");
+          else if (paid === "0") setNotice("Payment not completed. Your time is held for a short while — pay the deposit to keep it.");
+        }
+        if (paid !== null) history.replaceState(null, "", location.pathname);
+      }
       setBooking(r.booking);
       applyThemeColor(r.booking.shop.brand);
       setReview({ review: r.review ?? null, can: !!r.can_review });
@@ -1682,6 +1715,16 @@ export function ManageBooking({ token }: { token: string }) {
           {notice && (
             <Notice icon="check">
               <span role="status">{notice}</span>
+            </Notice>
+          )}
+          {booking.deposit_status === "PENDING" && payUrl && (
+            <Notice icon="card">
+              <span>
+                <strong>Deposit {money(booking.deposit_policy_pence)} due.</strong> Pay by card to keep this time.{" "}
+                <a className="public-manage-link" href={payUrl} data-testid="pay-deposit">
+                  Pay deposit
+                </a>
+              </span>
             </Notice>
           )}
           <section className="review-customer">

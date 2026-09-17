@@ -6,12 +6,15 @@ import { Button, Icon, StatusPill } from "./ui";
 import { money, currencySymbol } from "./fixtures";
 
 export type Tender = { method: Payment["method"]; service_pence: number; tip_pence: number };
-export const METHODS: { key: Payment["method"]; label: string; icon: string }[] = [
-  { key: "CARD", label: "Card", icon: "card" },
-  { key: "CASH", label: "Cash", icon: "banknote" },
-  { key: "TRANSFER", label: "Transfer", icon: "landmark" },
-  { key: "VOUCHER", label: "Voucher", icon: "gift" },
+export const METHODS: { key: Payment["method"]; label: string; icon: string; till?: boolean }[] = [
+  { key: "CARD", label: "Card", icon: "card", till: true },
+  { key: "CASH", label: "Cash", icon: "banknote", till: true },
+  { key: "TRANSFER", label: "Transfer", icon: "landmark", till: true },
+  { key: "VOUCHER", label: "Voucher", icon: "gift", till: true },
+  // Deposits paid by card online at booking; posted to the ledger automatically, never tendered by hand.
+  { key: "ONLINE", label: "Online deposit", icon: "globe" },
 ];
+export const TILL_METHODS = METHODS.filter((m) => m.till);
 const TIPS = [0, 200, 300, 500];
 
 export function paidFor(payments: Payment[], bookingId: string) {
@@ -40,23 +43,27 @@ export function Checkout({
   onCancel: () => void;
 }) {
   const paid = paidFor(payments, booking.id);
+  // A card deposit paid at booking is posted to the ledger on first checkout; until then it shows
+  // here as already paid so the amount due is right.
+  const depositPosted = payments.some((p) => p.booking_id === booking.id && p.method === "ONLINE" && !p.voided_at);
+  const depositCredit = booking.deposit_status === "PAID" && !depositPosted ? Math.min(booking.deposit_paid_pence ?? 0, booking.price_pence) : 0;
   const [discount, setDiscount] = useState(0);
   const [tip, setTip] = useState(0);
   const [customTip, setCustomTip] = useState("");
   const [method, setMethod] = useState<Payment["method"]>("CARD");
   const [split, setSplit] = useState<Tender[]>([]);
   const [note, setNote] = useState("");
-  const due = Math.max(0, booking.price_pence - discount - paid.service);
+  const due = Math.max(0, booking.price_pence - discount - paid.service - depositCredit);
   const splitPaid = split.reduce((n, t) => n + t.service_pence, 0);
   const remaining = due - splitPaid;
   const tipPence = customTip !== "" ? Math.max(0, Math.round(Number(customTip) * 100) || 0) : tip;
   const barber = w.staff.find((s) => s.id === booking.staff_id);
-  const canRecord = !busy && remaining >= 0 && (remaining > 0 || tipPence > 0 || split.length > 0);
+  const canRecord = !busy && remaining >= 0 && (remaining > 0 || tipPence > 0 || split.length > 0 || depositCredit > 0);
 
   async function record(all: boolean) {
     const tenders: Tender[] = [...split];
     if (remaining > 0 || tipPence > 0) tenders.push({ method, service_pence: all ? remaining : 0, tip_pence: tipPence });
-    if (!tenders.length) return;
+    if (!tenders.length && !depositCredit) return;
     await onRecord({ version: booking.version, discount_pence: discount, note: note.trim(), tenders, complete: all });
   }
 
@@ -66,13 +73,19 @@ export function Checkout({
         <strong>
           <Icon name="wallet" size={16} /> Checkout
         </strong>
-        <StatusPill tone="note">Records the payment only</StatusPill>
+        <StatusPill tone="note">Records what was paid at the chair</StatusPill>
       </header>
       <dl className="checkout-lines">
         <div>
           <dt>{booking.service_name}</dt>
           <dd>{money(booking.price_pence)}</dd>
         </div>
+        {depositCredit > 0 && (
+          <div data-testid="checkout-deposit">
+            <dt>Deposit paid by card at booking</dt>
+            <dd>− {money(depositCredit)}</dd>
+          </div>
+        )}
         {paid.service > 0 && (
           <div>
             <dt>Already recorded</dt>
@@ -134,7 +147,7 @@ export function Checkout({
       <fieldset className="checkout-methods">
         <legend>Paid by</legend>
         <div className="method-grid">
-          {METHODS.map((m) => (
+          {TILL_METHODS.map((m) => (
             <button key={m.key} type="button" className="method-tile" aria-pressed={method === m.key} onClick={() => setMethod(m.key)}>
               <Icon name={m.icon} size={18} />
               <b>{m.label}</b>

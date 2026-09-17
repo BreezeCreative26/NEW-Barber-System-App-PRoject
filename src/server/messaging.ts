@@ -17,6 +17,7 @@ import type { Database } from "../db/client";
 import type { AppEnv } from "./accounts";
 import type { Shop, ShopBrand } from "./domain";
 import { brandOf } from "./domain";
+import { expireHolds } from "./stripe";
 
 type Ctx = Context<AppEnv>;
 type DB = Database;
@@ -348,9 +349,11 @@ export async function maybeSweep(db: DB, origin: string, intervalMs = 5 * 60000,
   if (now - last < intervalMs) return null;
   const claim = await db.prepare("INSERT INTO platform_kv(key,value,updated_at) VALUES('last_sweep',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at WHERE platform_kv.value=?").bind(String(now), now, String(last)).run();
   if (!claim.meta.changes) return null;
+  // Deposit holds run on a much shorter clock than reminders; expire them first so the slots free.
+  const holds = await expireHolds(db, now).catch(() => []);
   const reminders = await sweepReminders(db, origin, now);
   const drained = await drain(db, 50, now);
-  return { reminders, drained };
+  return { reminders, drained, holds_released: holds.length };
 }
 
 export const fmtDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });

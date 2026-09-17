@@ -19,7 +19,12 @@ export type Shop = {
   booking_window_days: number;
   till_access: "OWNER" | "ALL";
   version: number;
+  // Online deposits (Model A — the shop's own Stripe account).
+  stripe_account_id?: string;
+  deposits_online?: number;
+  deposit_hold_min?: number;
 };
+export type DepositStatus = "NONE" | "PENDING" | "PAID" | "REFUNDED" | "EXPIRED";
 export type ShopDay = { enabled: 0 | 1; starts: number; ends: number };
 const DEFAULT_WEEK: ShopDay[] = Array.from({ length: 7 }, (_, wd) => ({ enabled: wd === 0 ? 0 : 1, starts: 540, ends: 1080 }));
 // Per-weekday shop hours. Falls back to the legacy opens/closes/closed_days when week_json is absent
@@ -241,6 +246,12 @@ export type StoredBooking = {
   version: number;
   created_at: number;
   updated_at: number;
+  deposit_status?: DepositStatus;
+  deposit_paid_pence?: number;
+  deposit_hold_until?: number | null;
+  stripe_session_id?: string;
+  stripe_payment_intent?: string;
+  stripe_refund_id?: string;
 };
 export type AuditEvent = {
   id: string;
@@ -760,7 +771,7 @@ export type Payment = {
   staff_id: string;
   customer_id: string | null;
   date: string;
-  method: "CARD" | "CASH" | "TRANSFER" | "VOUCHER";
+  method: "CARD" | "CASH" | "TRANSFER" | "VOUCHER" | "ONLINE";
   service_pence: number;
   tip_pence: number;
   discount_pence: number;
@@ -771,7 +782,7 @@ export type Payment = {
   void_reason: string;
   created_at: number;
 };
-export const paymentMethods = ["CARD", "CASH", "TRANSFER", "VOUCHER"] as const;
+export const paymentMethods = ["CARD", "CASH", "TRANSFER", "VOUCHER", "ONLINE"] as const;
 // Checkout: one or more tenders against a visit. Service amount defaults to the booking price
 // less discount; tips are recorded separately and belong to the barber.
 export const checkoutSchema = z

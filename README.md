@@ -40,6 +40,19 @@ Local dev without Supabase: run Postgres locally and point `DATABASE_URL`/`DIREC
 3. Push to `main` → production. Branches → preview URLs.
 4. Leave `DEMO_ENABLED` unset (or `0`) in production — it exposes the demo sign-in and the dev mailbox.
 
+## Deposits (Stripe Checkout)
+
+Optional per shop. When `STRIPE_SECRET_KEY` is set and the owner switches **Deposits by card** on,
+online bookings hold the slot (`deposit_status=PENDING`, default 15 min) and send the customer to
+Stripe Checkout. The webhook (`POST /api/stripe/webhook`, `STRIPE_WEBHOOK_SECRET`) or the return
+trip marks it `PAID`, releases the confirmation message, and the deposit is posted to the till as an
+`ONLINE` tender at checkout. Cancelling outside the policy window refunds automatically; inside it
+the deposit is kept. Unpaid holds expire via the sweep. `STRIPE_CONNECT=1` charges the shop's own
+Express account (onboarding from Settings). Without keys: preview mode, deposit payable in the shop.
+
+Owner API: `GET/PUT /api/app/shop/payments`, `POST /api/app/shop/payments/connect`,
+`POST /api/app/bookings/:id/deposit/refund`. Customer: `POST /api/public/manage/:token/deposit/confirm`.
+
 ## Messages (email + SMS)
 
 Every customer message — booking confirmed / moved / cancelled, reminders, sign-in codes,

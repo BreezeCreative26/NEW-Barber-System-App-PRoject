@@ -36,6 +36,7 @@ import customerAccounts from "./customers";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, type MessageTemplate } from "./messaging";
 import { autoOffer, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
 import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
+import { createDepositSession, depositView, depositsOnline, expireHolds, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
 import {
   audit,
   availabilityContext,
@@ -137,6 +138,9 @@ const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   closed_days: JSON.parse(s.closed_days) as number[],
   week: shopWeek(s),
   deposit_pence: s.deposit_pence,
+  // True when the deposit is taken by card at booking time (shop toggle + Stripe configured).
+  deposit_online: depositsOnline(s),
+  deposit_hold_min: s.deposit_hold_min ?? 15,
   cancel_hours: s.cancel_hours,
   lead_time_min: s.lead_time_min,
   booking_window_days: s.booking_window_days,
@@ -587,11 +591,14 @@ pub.post("/shops/:slug/bookings", async (c) => {
   await throttle(c, "book", `${shop.id}:${clientKey(c)}`, 120);
   await throttle(c, "book-phone", `${shop.id}:${b.phone}`, 12);
   const { minStart, maxDate } = limits(shop);
+  // Online deposit: hold the slot as PENDING and send the customer to Stripe Checkout. The
+  // confirmation message goes out when the webhook (or the return trip) marks it paid.
+  const holdMin = depositsOnline(shop) ? (shop.deposit_hold_min || 15) : 0;
   const result = await createBooking(
     c,
     { ...b, source: "TEST_BOOKING" },
     "ONLINE",
-    { minStart, maxDate },
+    { minStart, maxDate, depositHoldMin: holdMin || undefined },
   );
   if (result.booking.channel !== "ONLINE")
     fail(409, "idempotency_payload_changed");
@@ -601,18 +608,72 @@ pub.post("/shops/:slug/bookings", async (c) => {
   )
     .bind(shop.id, result.booking.staff_id)
     .first<{ name: string }>();
-  const sent = result.replayed ? [] : await notifyBooking(c, shop.id, result.booking, staff?.name ?? null, "booking_confirmed", token);
+  let booking = result.booking;
+  let checkoutUrl: string | null = null;
+  if (booking.deposit_status === "PENDING" && booking.status === "CONFIRMED") {
+    const origin = new URL(c.req.url).origin;
+    try {
+      // Replay (token null): the session already exists — hand back its URL instead of a new one.
+      const session = token
+        ? await createDepositSession(shop, booking, origin, token, holdMin || shop.deposit_hold_min || 15)
+        : await retrieveSession(booking.stripe_session_id || "", stripeConnect() ? shop.stripe_account_id : undefined);
+      checkoutUrl = session.url;
+      if (!booking.stripe_session_id) {
+        await c.env.DB.prepare("UPDATE bookings SET stripe_session_id=?, updated_at=? WHERE shop_id=? AND id=? AND stripe_session_id=''").bind(session.id, Date.now(), shop.id, booking.id).run();
+        booking = { ...booking, stripe_session_id: session.id };
+      }
+    } catch (err) {
+      // Stripe unreachable: don't strand the customer. Release the hold to a normal booking so the
+      // visit stands and the deposit is payable in the shop; the owner sees why in the audit.
+      await c.env.DB.batch([
+        c.env.DB.prepare("UPDATE bookings SET deposit_status='NONE', deposit_hold_until=NULL, version=version+1, updated_at=? WHERE shop_id=? AND id=? AND deposit_status='PENDING'").bind(Date.now(), shop.id, booking.id),
+        audit(c, "booking", booking.id, "DEPOSIT_SKIPPED", `Card payment unavailable (${err instanceof Error ? err.message : "error"}); deposit payable in the shop.`),
+      ]);
+      booking = await readBooking(c, booking.id);
+    }
+  }
+  const sent = result.replayed || booking.deposit_status === "PENDING" ? [] : await notifyBooking(c, shop.id, booking, staff?.name ?? null, "booking_confirmed", token);
   return c.json(
     {
-      booking: customerView(result.booking, shop, staff?.name ?? null),
+      booking: customerView(booking, shop, staff?.name ?? null),
       replayed: result.replayed,
       manage_token: token,
-      reference: ref(result.booking),
+      reference: ref(booking),
       sent_to: sent,
+      checkout_url: checkoutUrl,
     },
     result.replayed ? 200 : 201,
   );
 });
+
+// Customer returns from Stripe Checkout (or refreshes the manage page): confirm the deposit against
+// Stripe directly so the page is right even before the webhook lands.
+pub.post("/manage/:token/deposit/confirm", async (c) => {
+  const { shop, booking, staffName } = await bookingByToken(c);
+  await throttle(c, "deposit-confirm", booking.id, 30);
+  if (booking.deposit_status !== "PENDING") return c.json({ booking: customerView(booking, shop, staffName), changed: false });
+  if (!booking.stripe_session_id || !stripeLive()) return c.json({ booking: customerView(booking, shop, staffName), changed: false });
+  const s = await retrieveSession(booking.stripe_session_id, stripeConnect() ? shop.stripe_account_id : undefined).catch(() => null);
+  if (s?.payment_status === "paid") {
+    const changed = await markDepositPaid(c.env.DB, shop.id, booking.id, Math.min(shop.deposit_pence, booking.price_pence), typeof s.payment_intent === "string" ? s.payment_intent : "", s.id);
+    if (changed) await afterDepositPaid(c, shop.id, booking.id);
+  } else if (s?.status === "expired") {
+    await expireHolds(c.env.DB);
+  }
+  const after = await readBooking(c, booking.id);
+  return c.json({ booking: customerView(after, shop, staffName), changed: after.deposit_status !== booking.deposit_status, checkout_url: after.deposit_status === "PENDING" ? s?.url ?? null : null });
+});
+// Deposit paid: audit + the confirmation message that was held back.
+export async function afterDepositPaid(c: Ctx, shopId: string, bookingId: string) {
+  const b = await c.env.DB.prepare("SELECT * FROM bookings WHERE shop_id=? AND id=?").bind(shopId, bookingId).first<StoredBooking>();
+  if (!b) return;
+  const staff = await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(shopId, b.staff_id).first<{ name: string }>();
+  await c.env.DB.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
+    .bind(crypto.randomUUID(), shopId, "booking", bookingId, "DEPOSIT_PAID", "stripe", `Deposit ${b.deposit_paid_pence}p paid by card online.`, Date.now())
+    .run();
+  // The raw manage token is never stored, so the confirmation links to /<slug>/me.
+  await notifyBooking(c, shopId, b, staff?.name ?? null, "booking_confirmed");
+}
 
 // Group bookings ------------------------------------------------------------
 // Availability for a party: for every 15-minute start on the day, which members could be seated
@@ -875,6 +936,7 @@ export function customerView(b: StoredBooking, shop: Shop & Partial<BrandedShop>
     shop: { name: shop.name, address: shop.address, slug: shop.slug, timezone: shop.timezone, currency: shop.currency || "GBP", logo_url: shop.logo_url || "", brand: brandOf(shop) },
     can_manage: b.status === "CONFIRMED" && b.start_at > now + shop.lead_time_min * 60000,
     late_change: late,
+    ...depositView(b),
   };
 }
 async function bookingByToken(c: Ctx) {
@@ -1012,18 +1074,30 @@ export async function cancelByCustomer(c: Ctx, shop: Shop, booking: StoredBookin
       "booking",
       booking.id,
       "CANCELLED",
-      late
-        ? `Cancelled by customer online inside the ${booking.cancel_hours_snapshot}-hour policy window. No payment was held.`
-        : "Cancelled by customer online. No payment was held.",
+      booking.deposit_status === "PAID"
+        ? late
+          ? `Cancelled by customer online inside the ${booking.cancel_hours_snapshot}-hour policy window. Deposit ${booking.deposit_paid_pence}p kept under the policy.`
+          : `Cancelled by customer online. Deposit ${booking.deposit_paid_pence}p refunded.`
+        : late
+          ? `Cancelled by customer online inside the ${booking.cancel_hours_snapshot}-hour policy window. No payment was held.`
+          : "Cancelled by customer online. No payment was held.",
       true,
     ),
   );
+  // A pending (unpaid) hold is simply released; a paid deposit is refunded when the customer is
+  // outside the policy window, kept when inside it.
+  if (booking.deposit_status === "PENDING") {
+    await c.env.DB.prepare("UPDATE bookings SET deposit_status='EXPIRED', deposit_hold_until=NULL WHERE shop_id=? AND id=?").bind(shop.id, booking.id).run();
+  } else if (booking.deposit_status === "PAID" && !late) {
+    await refundDeposit(c.env.DB, shop, booking, "customer", "customer cancelled outside the policy window");
+  }
   await autoOffer(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-cancel");
   const after = await readBooking(c, booking.id);
   await notifyBooking(c, shop.id, after, staffName, "booking_cancelled");
   return {
     booking: customerView(after, shop, staffName),
     late,
+    refunded: after.deposit_status === "REFUNDED",
   };
 }
 pub.post("/manage/:token/cancel", async (c) => {

@@ -443,6 +443,7 @@ const publicMutations = [
   ["POST", "/shops/:slug/group-bookings"],
   ["POST", "/shops/:slug/waitlist"],
   ["POST", "/manage/:token/cancel"],
+  ["POST", "/manage/:token/deposit/confirm"],
   ["POST", "/manage/:token/reschedule"],
   ["POST", "/offer/:token/accept"],
   ["POST", "/offer/:token/decline"],

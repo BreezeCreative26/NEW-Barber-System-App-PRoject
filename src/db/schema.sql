@@ -34,7 +34,11 @@ CREATE TABLE shops (
   waitlist_templates_json TEXT NOT NULL DEFAULT '{}',
   msg_sms INTEGER NOT NULL DEFAULT 1, msg_email INTEGER NOT NULL DEFAULT 1, msg_reminders INTEGER NOT NULL DEFAULT 1,
   msg_reminder_hours INTEGER NOT NULL DEFAULT 24, msg_reply_to TEXT NOT NULL DEFAULT '', msg_sms_sender TEXT NOT NULL DEFAULT '',
-  CONSTRAINT shops_msg_flags_check CHECK (msg_sms IN (0,1) AND msg_email IN (0,1) AND msg_reminders IN (0,1) AND msg_reminder_hours BETWEEN 1 AND 72)
+  CONSTRAINT shops_msg_flags_check CHECK (msg_sms IN (0,1) AND msg_email IN (0,1) AND msg_reminders IN (0,1) AND msg_reminder_hours BETWEEN 1 AND 72),
+  -- Online deposits through the shop's own Stripe account (Model A). deposit_hold_min: how long a slot
+  -- stays held while the customer pays.
+  stripe_account_id TEXT NOT NULL DEFAULT '', deposits_online INTEGER NOT NULL DEFAULT 0, deposit_hold_min INTEGER NOT NULL DEFAULT 15,
+  CONSTRAINT shops_deposits_check CHECK (deposits_online IN (0,1) AND deposit_hold_min BETWEEN 5 AND 120)
 );
 CREATE UNIQUE INDEX shops_slug ON shops(slug) WHERE slug IS NOT NULL;
 
@@ -302,6 +306,13 @@ CREATE TABLE bookings (
   customer_id TEXT,
   attendee_name TEXT NOT NULL DEFAULT '',
   group_id TEXT,
+  -- Online deposit lifecycle: NONE, PENDING (held, awaiting card), PAID, REFUNDED, EXPIRED (hold lapsed).
+  deposit_status TEXT NOT NULL DEFAULT 'NONE' CHECK (deposit_status IN ('NONE','PENDING','PAID','REFUNDED','EXPIRED')),
+  deposit_paid_pence INTEGER NOT NULL DEFAULT 0,
+  deposit_hold_until BIGINT,
+  stripe_session_id TEXT NOT NULL DEFAULT '',
+  stripe_payment_intent TEXT NOT NULL DEFAULT '',
+  stripe_refund_id TEXT NOT NULL DEFAULT '',
   UNIQUE(shop_id,id),
   UNIQUE(shop_id,sequence),
   UNIQUE(shop_id,request_id),
@@ -314,6 +325,8 @@ CREATE INDEX booking_days ON bookings(shop_id,date);
 CREATE INDEX booking_group_lookup ON bookings(shop_id, group_id);
 CREATE INDEX booking_intervals ON bookings(shop_id,staff_id,start_at,end_at,status);
 CREATE INDEX booking_series_lookup ON bookings(shop_id,series_id);
+CREATE INDEX bookings_deposit_holds ON bookings(deposit_status, deposit_hold_until) WHERE deposit_status='PENDING';
+CREATE INDEX bookings_stripe_session ON bookings(stripe_session_id) WHERE stripe_session_id<>'';
 CREATE TABLE booking_manage_tokens (
   token_hash TEXT PRIMARY KEY,
   shop_id TEXT NOT NULL,
@@ -330,7 +343,7 @@ CREATE TABLE payments (
   staff_id TEXT NOT NULL,
   customer_id TEXT,
   date TEXT NOT NULL,
-  method TEXT NOT NULL CHECK(method IN ('CARD','CASH','TRANSFER','VOUCHER')),
+  method TEXT NOT NULL CHECK(method IN ('CARD','CASH','TRANSFER','VOUCHER','ONLINE')),
   service_pence INTEGER NOT NULL CHECK(service_pence >= 0),
   tip_pence INTEGER NOT NULL DEFAULT 0 CHECK(tip_pence >= 0),
   discount_pence INTEGER NOT NULL DEFAULT 0 CHECK(discount_pence >= 0),
@@ -425,6 +438,8 @@ CREATE INDEX notifications_due ON notifications(status, next_attempt_at) WHERE s
 CREATE INDEX notifications_related ON notifications(shop_id, related_type, related_id, template);
 CREATE UNIQUE INDEX notifications_once_per_booking ON notifications(shop_id, related_id, template, channel) WHERE template IN ('booking_reminder','booking_reminder_soon','booking_confirmed');
 CREATE TABLE platform_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at BIGINT NOT NULL);
+-- Stripe webhook events already handled (idempotency).
+CREATE TABLE stripe_events (id TEXT PRIMARY KEY, type TEXT NOT NULL, received_at BIGINT NOT NULL);
 CREATE TABLE shop_pages (
   shop_id TEXT PRIMARY KEY REFERENCES shops(id),
   strapline TEXT NOT NULL DEFAULT '', about TEXT NOT NULL DEFAULT '',

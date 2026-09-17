@@ -506,6 +506,14 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
   Not yet run this round: workspace/calendar/pay/payments/visual — run the full gate + refresh visual baselines
   before the next release tag.
 
+## Deposits via Stripe Checkout — server + customer flow done, owner panel pending
+- Migration 0007: shops.stripe_account_id/deposits_online/deposit_hold_min; bookings deposit_status (NONE/PENDING/PAID/REFUNDED/EXPIRED), deposit_paid_pence, hold, stripe ids; payments.method gains ONLINE; stripe_events (webhook idempotency).
+- `src/server/stripe.ts`: REST-over-fetch client (no SDK), Checkout session per booking (idempotent), webhook HMAC verify, refund, Connect Express onboarding, expireHolds() (cancels lapsed holds, frees slot), refundDeposit() (audited; failure audited for dashboard follow-up).
+- Public booking: hold → checkout_url → Stripe → manage page confirms via /deposit/confirm; confirmation message held until paid. Customer cancel: refund outside window, keep inside. Owner cancel: refund. Stripe unreachable → booking stands, deposit payable in shop, audited.
+- Till: paid deposit auto-posted as ONLINE tender on first checkout; Checkout UI shows it as already paid. Health reports `payments`.
+- Copy: "recorded, not collected" replaced on booking summary/review/confirmation.
+- **Still to do**: Settings → Payments owner panel (toggle, hold minutes, Connect button, 30-day totals — API exists at /shop/payments), AppointmentPanel deposit badge + Refund button, `tests/deposits.spec.ts` (needs a Stripe test key or a mocked session), GroupBooking/AppointmentPanel deposit copy, CSV customer import (AUDIT 7).
+
 ## Messages (real delivery) — done
 - Outbox is now a delivery queue: QUEUED → SENDING → SENT/FAILED with backoff (1m, 5m, 30m, 2h, 12h). Providers: Resend (email), Twilio (SMS); dev "mailbox" provider when no keys are set.
 - Every customer message is shop-branded (logo/initials tile, accent, "Sent by <shop>"). OLLO never appears.

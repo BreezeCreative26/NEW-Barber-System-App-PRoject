@@ -7,10 +7,12 @@ import { join } from "node:path";
 import type { Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
+import { expireHolds, markDepositPaid, stripeStatus, verifyWebhook } from "./server/stripe";
+import { afterDepositPaid } from "./server/public";
 import type { Database } from "./db/client";
 import type { ObjectStore } from "./db/storage";
 export type AppBindings = { DB: Database; MEDIA?: ObjectStore; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string };
-const app = new Hono<{ Bindings: AppBindings }>();
+const app = new Hono<{ Bindings: AppBindings; Variables: { shopId: string; actor: string; account: null } }>();
 // Lazy sweep: any public/app API request may trigger the reminder + outbox sweep, at most once per
 // 5 minutes across the deployment (platform_kv claim). Runs after the response so it never slows
 // the request. Vercel Cron hits /api/cron/messages every 5 minutes as the guaranteed path.
@@ -31,9 +33,37 @@ app.get("/api/cron/messages", async (c) => {
   const secret = process.env.CRON_SECRET;
   if (secret && c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
   const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
+  const holds = await expireHolds(c.env.DB);
   const reminders = await sweepReminders(c.env.DB, origin);
   const drained = await drain(c.env.DB, 100);
-  return c.json({ ok: true, reminders, drained, providers: providerStatus() });
+  return c.json({ ok: true, reminders, drained, holds_released: holds.length, providers: providerStatus() });
+});
+// Stripe webhook: the guaranteed path for "deposit paid" (the customer's return trip is the fast
+// path). Signature-verified, idempotent on event id. Always 2xx once verified so Stripe stops retrying.
+app.post("/api/stripe/webhook", async (c) => {
+  const raw = await c.req.text();
+  const v = await verifyWebhook(raw, c.req.header("stripe-signature"));
+  if (!v.ok) return c.json({ error: v.reason }, v.reason === "no_secret" ? 503 : 400);
+  const evt = JSON.parse(raw) as { id: string; type: string; data: { object: { id: string; payment_status?: string; payment_intent?: string | null; amount_total?: number; metadata?: Record<string, string>; client_reference_id?: string | null } } };
+  const seen = await c.env.DB.prepare("INSERT INTO stripe_events(id,type,received_at) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING").bind(evt.id, evt.type, Date.now()).run();
+  if (!seen.meta.changes) return c.json({ ok: true, duplicate: true });
+  const o = evt.data.object;
+  const shopId = o.metadata?.shop_id, bookingId = o.metadata?.booking_id || o.client_reference_id || "";
+  if (evt.type === "checkout.session.completed" || evt.type === "checkout.session.async_payment_succeeded") {
+    if (shopId && bookingId && o.payment_status === "paid") {
+      const changed = await markDepositPaid(c.env.DB, shopId, bookingId, o.amount_total ?? 0, typeof o.payment_intent === "string" ? o.payment_intent : "", o.id);
+      if (changed) {
+        c.set("shopId", shopId);
+        c.set("actor", "stripe");
+        await afterDepositPaid(c as never, shopId, bookingId);
+      }
+    }
+  } else if (evt.type === "checkout.session.expired") {
+    // Release the hold now rather than waiting for the sweep.
+    if (shopId && bookingId) await c.env.DB.prepare("UPDATE bookings SET deposit_hold_until=0 WHERE shop_id=? AND id=? AND deposit_status='PENDING'").bind(shopId, bookingId).run();
+    await expireHolds(c.env.DB);
+  }
+  return c.json({ ok: true });
 });
 app.route("/api/app", sandbox);
 // Legacy path kept for one release so old tabs keep working.
@@ -43,7 +73,8 @@ app.get("/api/health", (c) =>
   c.json({
     status: "ok",
     mode: process.env.NODE_ENV === "production" ? "production" : "development",
-    livePayments: false,
+    livePayments: stripeStatus().provider === "stripe",
+    payments: stripeStatus(),
     messaging: providerStatus(),
     persistence: !!c.env?.DB,
   }),
