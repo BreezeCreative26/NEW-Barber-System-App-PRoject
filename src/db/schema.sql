@@ -12,6 +12,7 @@ CREATE TABLE shops (
   name TEXT NOT NULL,
   address TEXT NOT NULL DEFAULT '',
   timezone TEXT NOT NULL DEFAULT 'Europe/London',
+  currency TEXT NOT NULL DEFAULT 'GBP' CHECK(currency ~ '^[A-Z]{3}$'),
   opens INTEGER NOT NULL DEFAULT 540 CHECK(opens BETWEEN 0 AND 1439),
   closes INTEGER NOT NULL DEFAULT 1080 CHECK(closes BETWEEN 1 AND 1440 AND closes > opens),
   closed_days TEXT NOT NULL DEFAULT '[0]',
@@ -417,7 +418,7 @@ CREATE INDEX notifications_shop ON notifications(shop_id,created_at);
 CREATE TABLE shop_pages (
   shop_id TEXT PRIMARY KEY REFERENCES shops(id),
   strapline TEXT NOT NULL DEFAULT '', about TEXT NOT NULL DEFAULT '',
-  cover_url TEXT NOT NULL DEFAULT '', gallery_json TEXT NOT NULL DEFAULT '[]',
+  cover_url TEXT NOT NULL DEFAULT '', logo_url TEXT NOT NULL DEFAULT '', gallery_json TEXT NOT NULL DEFAULT '[]',
   phone TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '', instagram TEXT NOT NULL DEFAULT '',
   map_url TEXT NOT NULL DEFAULT '', transport_note TEXT NOT NULL DEFAULT '', policy_text TEXT NOT NULL DEFAULT '',
   sections_json TEXT NOT NULL DEFAULT '["hero","next","services","team","hours","gallery","reviews","find","policies"]',

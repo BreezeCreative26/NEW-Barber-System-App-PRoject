@@ -535,6 +535,7 @@ sandbox.get("/workspace", async (c) => {
     scoped(
       "SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND (? IS NULL OR staff_id=?) ORDER BY date",
     ),
+    c.env.DB.prepare("SELECT logo_url FROM shop_pages WHERE shop_id=?").bind(sid),
   ]);
   const staff = result[0].results as Staff[];
   const services = result[1].results as Service[];
@@ -596,6 +597,7 @@ sandbox.get("/workspace", async (c) => {
   ).results;
   return c.json({
     shop,
+    logo_url: (result[11].results[0] as { logo_url?: string } | undefined)?.logo_url || "",
     account,
     staff,
     services,
@@ -622,11 +624,12 @@ sandbox.put("/shop", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE shops SET name=?,address=?,timezone=?,opens=?,closes=?,closed_days=?,week_json=?,deposit_pence=?,cancel_hours=?,no_show_grace=?,till_access=?,version=version+1 WHERE id=? AND version=?",
+      "UPDATE shops SET name=?,address=?,timezone=?,currency=?,opens=?,closes=?,closed_days=?,week_json=?,deposit_pence=?,cancel_hours=?,no_show_grace=?,till_access=?,version=version+1 WHERE id=? AND version=?",
     ).bind(
       b.name,
       b.address,
       b.timezone,
+      b.currency,
       env.opens,
       env.closes,
       JSON.stringify(env.closed_days),
@@ -667,11 +670,11 @@ sandbox.put("/shop/page", async (c) => {
   const sections = JSON.stringify([...new Set(b.sections)]);
   const stmt = existing
     ? c.env.DB.prepare(
-        "UPDATE shop_pages SET strapline=?,about=?,cover_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
-      ).bind(b.strapline, b.about, b.cover_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, b.published, now, sid, b.version)
+        "UPDATE shop_pages SET strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
+      ).bind(b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, b.published, now, sid, b.version)
     : c.env.DB.prepare(
-        "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
-      ).bind(sid, b.strapline, b.about, b.cover_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, b.published, now);
+        "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+      ).bind(sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, b.published, now);
   await checkVersionUpdate(c, stmt, audit(c, "shop", sid, "SHOP_PAGE_UPDATED", `${b.published ? "Published" : "Unpublished"}; ${b.sections.length} sections.`, true));
   const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>();
   return c.json({ page: row });

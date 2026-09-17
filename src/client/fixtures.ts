@@ -1,10 +1,25 @@
 // Shared formatting helpers (money, time, dates). No fixture data lives here any more.
-export const money = (pence: number) =>
-  new Intl.NumberFormat("en-GB", {
+// Display currency for the shop on this page. Every page shows exactly one shop, so the loader sets it
+// once from the shop payload and every money() call picks it up. Prices are always stored in minor units.
+let currentCurrency = "GBP";
+const ZERO_DECIMAL = new Set(["JPY", "KRW", "VND", "CLP", "ISK", "HUF"]);
+export const setCurrency = (code: string | undefined | null) => {
+  if (code && /^[A-Z]{3}$/.test(code)) currentCurrency = code;
+};
+export const currency = () => currentCurrency;
+export const currencySymbol = (code = currentCurrency) =>
+  new Intl.NumberFormat("en-GB", { style: "currency", currency: code, currencyDisplay: "narrowSymbol" })
+    .formatToParts(0)
+    .find((p) => p.type === "currency")?.value ?? code;
+export const money = (pence: number, code = currentCurrency) => {
+  const zero = ZERO_DECIMAL.has(code);
+  return new Intl.NumberFormat("en-GB", {
     style: "currency",
-    currency: "GBP",
-    maximumFractionDigits: pence % 100 ? 2 : 0,
-  }).format(pence / 100);
+    currency: code,
+    currencyDisplay: "narrowSymbol",
+    maximumFractionDigits: zero ? 0 : pence % 100 ? 2 : 0,
+  }).format(zero ? pence : pence / 100);
+};
 export const time = (minute: number) =>
   `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
 export const datePlus = (date: string, days: number) => {

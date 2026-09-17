@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { Payment, StoredBooking, WorkspaceData } from "../server/domain";
 import { Button, Icon, StatusPill } from "./ui";
-import { money } from "./fixtures";
+import { money, currencySymbol } from "./fixtures";
 
 export type Tender = { method: Payment["method"]; service_pence: number; tip_pence: number };
 export const METHODS: { key: Payment["method"]; label: string; icon: string }[] = [
@@ -85,7 +85,7 @@ export function Checkout({
           </dt>
           <dd>
             <span className="checkout-money-input">
-              <span aria-hidden="true">£</span>
+              <span aria-hidden="true">{currencySymbol()}</span>
               <input
                 id="checkout-discount"
                 type="number"
@@ -124,7 +124,7 @@ export function Checkout({
             </button>
           ))}
           <span className="checkout-money-input chip-input">
-            <span aria-hidden="true">£</span>
+            <span aria-hidden="true">{currencySymbol()}</span>
             <input aria-label="Custom tip" type="number" inputMode="decimal" min={0} step="0.5" placeholder="Other" value={customTip} onChange={(e) => setCustomTip(e.target.value)} />
           </span>
         </div>
@@ -192,7 +192,7 @@ function SplitAmount({ max, onAdd }: { max: number; onAdd: (pence: number) => vo
   return (
     <>
       <span className="checkout-money-input">
-        <span aria-hidden="true">£</span>
+        <span aria-hidden="true">{currencySymbol()}</span>
         <input aria-label="Part payment amount" type="number" inputMode="decimal" min={0.5} step="0.5" max={max / 100} value={value} onChange={(e) => setValue(e.target.value)} />
       </span>
       <Button variant="secondary" disabled={pence <= 0 || pence >= max} onClick={() => { onAdd(pence); setValue(""); }}>

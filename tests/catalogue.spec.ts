@@ -8,7 +8,7 @@ import {
 import AxeBuilder from "@axe-core/playwright";
 import { section } from "./fixture";
 import type { WorkspaceData, BookingItem } from "../src/server/domain";
-import { base, origin, newShop, enterNewShop } from "./shop";
+import { base, origin, newShop, enterNewShop, shopPayload } from "./shop";
 import { refreshView } from "./fixture";
 const day = () => {
   const d = new Date();
@@ -640,4 +640,29 @@ test("services empty state and category rename", async ({ page }) => {
   await page.getByLabel("Rename category Cuts & fades").fill("X");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("2 characters");
+});
+
+test("shop currency and logo flow through settings, workspace, and the public page", async ({ page }) => {
+  const res = await page.request.post(base + "/auth/signup", {
+    headers: { Origin: origin },
+    data: { shop_name: "Euro Cuts", name: "Eu Owner", email: `eu-${crypto.randomUUID().slice(0, 8)}@ollo.test`, password: "Unique fictional test password 438!" },
+  });
+  expect(res.status(), await res.text()).toBe(201);
+  const w0 = await (await page.request.get(base + "/workspace")).json();
+  // Currency via the settings API, logo via the shop page API (uploads reuse the media pipeline; a URL is enough here).
+  const put = await page.request.put(base + "/shop", { headers: { Origin: origin }, data: shopPayload(w0.shop, { currency: "EUR" }) });
+  expect(put.status(), await put.text()).toBe(200);
+  const pg = await page.request.put(base + "/shop/page", { headers: { Origin: origin }, data: { logo_url: "https://example.com/logo.png", version: 0 } });
+  expect(pg.status(), await pg.text()).toBe(200);
+  const w = await (await page.request.get(base + "/workspace")).json();
+  expect(w.shop.currency).toBe("EUR");
+  expect(w.logo_url).toBe("https://example.com/logo.png");
+  await page.goto("/workspace");
+  await section(page, "Settings");
+  await expect(page.getByTestId("shop-currency")).toHaveValue("EUR");
+  await expect(page.getByLabel(/Deposit \(€\)/)).toBeVisible();
+  await expect(page.locator("img.avatar-logo").first()).toHaveAttribute("src", "https://example.com/logo.png");
+  await section(page, "Services");
+  await page.getByTestId("add-first-service").click();
+  await expect(page.getByLabel("Price (€)", { exact: true })).toBeVisible();
 });

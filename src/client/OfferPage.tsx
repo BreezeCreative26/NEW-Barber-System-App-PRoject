@@ -1,12 +1,12 @@
 // /offer/<token>: the waiting-list customer's reply page. One held time, two buttons. No sign-in.
 import { useEffect, useState } from "react";
 import { Avatar, Button, Icon, Notice } from "./ui";
-import { dateLabel, money, time } from "./fixtures";
+import { dateLabel, money, time, setCurrency } from "./fixtures";
 
 type Offer = {
   id: string; status: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "SUPERSEDED" | "LOST"; date: string; start_min: number; expires_at: number;
   staff_name: string; service_name: string; price_pence: number; duration_min: number; customer_first: string; booking_id: string | null;
-  shop: { name: string; address: string; slug: string | null; timezone: string; cancel_hours: number };
+  shop: { name: string; address: string; slug: string | null; timezone: string; currency?: string; cancel_hours: number };
 };
 type Accepted = { booking: { reference: string; date: string; start_min: number }; manage_token: string | null };
 class ApiError extends Error {
@@ -32,6 +32,7 @@ export function OfferPage({ token }: { token: string }) {
   useEffect(() => {
     api<{ offer: Offer }>(`/offer/${token}`)
       .then((r) => {
+        setCurrency(r.offer.shop.currency);
         setOffer(r.offer);
         document.title = `A time has opened up · ${r.offer.shop.name}`;
       })

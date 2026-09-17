@@ -262,7 +262,7 @@ acct.get("/me", async (c) => {
     .all();
   return c.json({
     waiting: waiting.results,
-    shop: { name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now) },
+    shop: { name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now) },
     profile: profileOf(a, cust),
     upcoming,
     history,

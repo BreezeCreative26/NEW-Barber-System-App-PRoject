@@ -28,7 +28,7 @@ import { Calendar, WeekStrip, WeekView, type CalendarDraft, type RangeBooking } 
 import { WalletDrawer } from "./Wallet";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
-import { money, time, datePlus, shopWeekOf, shopDayOf, type ShopDayLite } from "./fixtures";
+import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
 
 const reference = (b: StoredBooking) =>
   `BRB-${String(b.sequence).padStart(4, "0")}`;
@@ -708,6 +708,26 @@ const COMMON_TIMEZONES = [
   "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Toronto", "America/Vancouver", "America/Mexico_City", "America/Sao_Paulo",
   "Asia/Dubai", "Asia/Karachi", "Asia/Kolkata", "Asia/Singapore", "Asia/Hong_Kong", "Asia/Tokyo", "Australia/Sydney", "Australia/Melbourne", "Australia/Perth", "Pacific/Auckland", "Africa/Lagos", "Africa/Johannesburg", "Africa/Nairobi",
 ];
+const CURRENCIES = [
+  { code: "GBP", label: "British pound" },
+  { code: "EUR", label: "Euro" },
+  { code: "USD", label: "US dollar" },
+  { code: "CAD", label: "Canadian dollar" },
+  { code: "AUD", label: "Australian dollar" },
+  { code: "NZD", label: "New Zealand dollar" },
+  { code: "CHF", label: "Swiss franc" },
+  { code: "SEK", label: "Swedish krona" },
+  { code: "NOK", label: "Norwegian krone" },
+  { code: "DKK", label: "Danish krone" },
+  { code: "PLN", label: "Polish złoty" },
+  { code: "CZK", label: "Czech koruna" },
+  { code: "AED", label: "UAE dirham" },
+  { code: "ZAR", label: "South African rand" },
+  { code: "INR", label: "Indian rupee" },
+  { code: "SGD", label: "Singapore dollar" },
+  { code: "HKD", label: "Hong Kong dollar" },
+  { code: "JPY", label: "Japanese yen" },
+];
 function timezoneOptions(current: string) {
   const all = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ?? COMMON_TIMEZONES;
   const set = new Set([current, ...COMMON_TIMEZONES, ...all]);
@@ -1185,6 +1205,7 @@ export function Workspace() {
           setStatusFilter("");
         }
         identity.current = nextIdentity;
+        setCurrency(w.shop.currency);
         setData({ ...w, bookings });
         setNeedsSession(false);
         if (/^\/(signin|signup)$/.test(location.pathname)) history.replaceState(null, "", "/workspace");
@@ -1534,6 +1555,7 @@ export function Workspace() {
           w
             ? {
                 initials: initialsOf(w.account?.name || w.shop.name),
+                logo: w.logo_url || undefined,
                 name: w.account?.name || w.shop.name,
                 caption: w.account ? `${w.shop.name} · ${w.account.role.toLowerCase()}` : "Browser test access",
               }
@@ -2050,6 +2072,7 @@ export function Workspace() {
                           name: text(f, "name"),
                           address: text(f, "address"),
                           timezone: text(f, "timezone"),
+                          currency: text(f, "currency") || "GBP",
                           week: days.map((_, i) => ({
                             enabled: f.get(`open_${i}`) ? 1 : 0,
                             starts: minute(text(f, `starts_${i}`) || "09:00"),
@@ -2088,9 +2111,18 @@ export function Workspace() {
                           ))}
                         </select>
                       </Field>
+                      <Field label="Currency · how prices are shown">
+                        <select name="currency" defaultValue={w.shop.currency || "GBP"} data-testid="shop-currency">
+                          {CURRENCIES.map((c) => (
+                            <option key={c.code} value={c.code}>
+                              {c.code} · {c.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
                       <WeekHoursEditor week={shopWeekOf(w.shop)} />
                       <p className="helper">Times between visits include a 10-minute buffer. Each barber has their own hours under Team.</p>
-                      <Field label="Deposit (£) · shown to customers, payable in the shop">
+                      <Field label={`Deposit (${currencySymbol(w.shop.currency || "GBP")}) · shown to customers, payable in the shop`}>
                         <input
                           type="number"
                           name="deposit"
@@ -2541,7 +2573,7 @@ type WaitlistEntry = {
 };
 type QueueMatch = { staff_id: string; staff_name: string; start_min: number; price_pence: number; duration_min: number };
 // Settings → Shop page: content of the public home page at /<slug>. Presentation only.
-type PageForm = { strapline: string; about: string; cover_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; published: number; version: number };
+type PageForm = { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; published: number; version: number };
 const PAGE_SECTIONS: { key: string; label: string }[] = [
   { key: "hero", label: "Hero" },
   { key: "next", label: "Next available" },
@@ -2564,6 +2596,7 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
         strapline: String(p.strapline || ""),
         about: String(p.about || ""),
         cover_url: String(p.cover_url || ""),
+        logo_url: String(p.logo_url || ""),
         gallery: JSON.parse(String(p.gallery_json || "[]")),
         phone: String(p.phone || ""),
         email: String(p.email || ""),
@@ -2642,6 +2675,14 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
                 <input type="text" inputMode="url" value={form.cover_url} maxLength={500} placeholder="https://…/shopfront.jpg" onChange={(e) => set("cover_url", e.target.value)} />
                 <PhotoUpload kind="cover" label="Upload" testId="upload-cover" onUploaded={([u]) => set("cover_url", u)} />
               </div>
+            </Field>
+            <Field label="Logo (square works best)">
+              <div className="photo-field">
+                <PhotoPreview url={form.logo_url} label="logo" onClear={() => set("logo_url", "")} />
+                <input type="text" inputMode="url" value={form.logo_url} maxLength={500} placeholder="https://…/logo.png" onChange={(e) => set("logo_url", e.target.value)} />
+                <PhotoUpload kind="logo" label="Upload" testId="upload-logo" onUploaded={([u]) => set("logo_url", u)} />
+              </div>
+              <p className="helper">Shown on your shop page, the booking flow and your workspace. Leave empty to use your initials.</p>
             </Field>
           </div>
           <Field label="About the shop">
@@ -4695,7 +4736,7 @@ function AddonEditor({
         />
       </Field>
       <div className="workspace-form-grid">
-        <Field label="Add-on price (£)">
+        <Field label={`Add-on price (${currencySymbol()})`}>
           <input
             name="price"
             type="number"

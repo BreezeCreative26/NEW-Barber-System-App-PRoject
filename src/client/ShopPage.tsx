@@ -3,12 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { PublicBooking, type BookingPreset } from "./PublicBooking";
 import { Avatar, Icon } from "./ui";
-import { money, time, dateLabel } from "./fixtures";
+import { money, time, dateLabel, setCurrency } from "./fixtures";
 import { PublicReviews, Stars, type PublicReview } from "./Reviews";
 
 type PageData = {
-  shop: { id: string; name: string; address: string; slug: string; timezone: string; opens: number; closes: number; deposit_pence: number; cancel_hours: number; lead_time_min: number; booking_window_days: number };
-  page: { strapline: string; about: string; cover_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; published: number };
+  shop: { id: string; name: string; address: string; slug: string; timezone: string; currency?: string; opens: number; closes: number; deposit_pence: number; cancel_hours: number; lead_time_min: number; booking_window_days: number };
+  page: { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; published: number };
   staff: { id: string; name: string; role: string; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[];
   services: { id: string; name: string; category: string; duration_min: number; price_pence: number; description?: string; colour?: string; popular?: number }[];
   week: ({ weekday: number; open: false } | { weekday: number; open: true; starts: number; ends: number })[];
@@ -50,6 +50,7 @@ export function ShopPage({ slug }: { slug: string }) {
         return r.json() as Promise<PageData>;
       })
       .then((d) => {
+        setCurrency(d.shop.currency);
         setData(d);
         document.title = `${d.shop.name} · Book online`;
       })
@@ -92,7 +93,7 @@ export function ShopPage({ slug }: { slug: string }) {
       </a>
       <header className="sp-nav">
         <a className="sp-brand" href={`/${shop.slug}`}>
-          <span className="shop-emblem">{initials(shop.name)}</span>
+          {page.logo_url ? <img className="shop-emblem shop-logo" src={page.logo_url} alt="" /> : <span className="shop-emblem">{initials(shop.name)}</span>}
           <strong>{shop.name}</strong>
         </a>
         <nav aria-label="Page sections">

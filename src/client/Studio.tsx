@@ -9,7 +9,7 @@ import type {
   WorkspaceData,
 } from "../server/domain";
 import { Avatar, Badge, Button, Icon, Notice } from "./ui";
-import { money, time } from "./fixtures";
+import { money, time, currencySymbol } from "./fixtures";
 import { PayTermsForm, PayRuns, payFormOf, summariseTerms, type PayForm } from "./Pay";
 import { PhotoUpload } from "./Media";
 import type { PayRun } from "../server/domain";
@@ -201,7 +201,7 @@ export function RuleMatrix({
                 </td>
                 <td>
                   <div className="matrix-input">
-                    <span>£</span>
+                    <span>{currencySymbol()}</span>
                     <input
                       type="number"
                       min={0}
@@ -576,7 +576,7 @@ function ServiceEditor({ w, api, service, onClose, onSaved }: { w: WorkspaceData
               <input type="number" min={5} max={240} step={5} required value={form.duration_min} onChange={(e) => setForm({ ...form, duration_min: Number(e.target.value) })} />
             </label>
             <label className="workspace-field">
-              <span>Price (£)</span>
+              <span>Price ({currencySymbol()})</span>
               <input type="number" min={0} max={1000} step="0.01" required value={(form.price_pence / 100).toString()} onChange={(e) => setForm({ ...form, price_pence: Math.round(Number(e.target.value) * 100) })} />
             </label>
             <label className="workspace-field">

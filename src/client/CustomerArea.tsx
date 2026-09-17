@@ -3,7 +3,7 @@
 // /api/public/shops/:slug/account/*; the shop never sees another shop's history.
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Avatar, Button, Icon, Notice, StatusPill } from "./ui";
-import { dateLabel, datePlus, money, time } from "./fixtures";
+import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { ReviewCard, type OwnReview } from "./Reviews";
 
 type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; notes: string; version: number; member_since: number };
@@ -14,7 +14,7 @@ type Visit = {
   price_pence: number; cancel_hours: number; version: number; can_manage: boolean; late_change: boolean; series_id: string | null; attendee_name?: string; group_id?: string | null; items: { id: string; name: string; price_pence: number }[];
 };
 type Me = {
-  shop: { name: string; slug: string; address: string; timezone: string; cancel_hours: number; lead_time_min: number; today: string };
+  shop: { name: string; slug: string; address: string; timezone: string; currency?: string; cancel_hours: number; lead_time_min: number; today: string };
   profile: Profile;
   upcoming: Visit[];
   history: Visit[];
@@ -63,6 +63,7 @@ export function CustomerArea({ slug }: { slug: string }) {
         return;
       }
       const d = await api<Me>(`${A}/me`);
+      setCurrency(d.shop.currency);
       setMe(d);
       setSignedOut(false);
       document.title = `Your visits · ${d.shop.name}`;

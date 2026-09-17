@@ -5,6 +5,7 @@ export type Shop = {
   name: string;
   address: string;
   timezone: string;
+  currency: string;
   opens: number;
   closes: number;
   closed_days: string;
@@ -253,6 +254,7 @@ export type AuditEvent = {
 export type WorkspaceData = {
   account?: import("./accounts").Account | null;
   shop: Shop;
+  logo_url?: string;
   staff: Staff[];
   services: Service[];
   addons: Addon[];
@@ -412,6 +414,9 @@ const shopDaySchema = z
   .object({ enabled: z.union([z.literal(0), z.literal(1)]), starts: z.number().int().min(0).max(1439), ends: z.number().int().min(1).max(1440) })
   .strict()
   .refine((d) => !d.enabled || d.ends > d.starts, "Closing time must be after opening time");
+// Display currencies a shop can pick. Prices are stored in minor units regardless; this only drives formatting.
+export const currencies = ["GBP", "EUR", "USD", "CAD", "AUD", "NZD", "CHF", "SEK", "NOK", "DKK", "PLN", "CZK", "AED", "ZAR", "INR", "SGD", "HKD", "JPY"] as const;
+export type Currency = (typeof currencies)[number];
 export const shopSchema = z
   .object({
     name,
@@ -430,6 +435,7 @@ export const shopSchema = z
         }
       }, "Unknown timezone"),
     week: z.array(shopDaySchema).length(7).refine((w) => w.some((d) => d.enabled), "Open at least one day"),
+    currency: z.enum(currencies).default("GBP"),
     deposit_pence: z.number().int().min(0).max(10000),
     cancel_hours: z.number().int().min(0).max(168),
     no_show_grace: z.number().int().min(0).max(120),
@@ -456,6 +462,7 @@ export type ShopPage = {
   strapline: string;
   about: string;
   cover_url: string;
+  logo_url: string;
   gallery_json: string;
   phone: string;
   email: string;
@@ -476,6 +483,7 @@ export const shopPageSchema = z
     strapline: z.string().trim().max(120).default(""),
     about: z.string().trim().max(1200).default(""),
     cover_url: imageRef.default(""),
+    logo_url: imageRef.default(""),
     gallery: z.array(imageRef.refine((u) => u !== "", "Empty gallery entry")).max(12).default([]),
     phone: z.union([z.literal(""), z.string().trim().max(20).regex(/^[+0-9 ()-]+$/, "Phone number only")]).default(""),
     email: z.union([z.literal(""), z.string().trim().email().max(254)]).default(""),
@@ -494,6 +502,7 @@ export const defaultShopPage = (shopId: string, now = Date.now()): ShopPage => (
   strapline: "",
   about: "",
   cover_url: "",
+  logo_url: "",
   gallery_json: "[]",
   phone: "",
   email: "",

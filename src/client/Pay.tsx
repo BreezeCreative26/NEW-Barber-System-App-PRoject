@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { PayModel, PayPeriod, PayRun, Staff, WorkspaceData } from "../server/domain";
 import { Button, Icon, Notice, StatusPill } from "./ui";
-import { money, datePlus } from "./fixtures";
+import { money, datePlus, currencySymbol } from "./fixtures";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 
@@ -129,11 +129,11 @@ export function PayTermsForm({ form, setForm, disabled }: { form: PayForm; setFo
           {form.pay_model === "HYBRID" && (
             <>
               <label className="workspace-field">
-                <span>Base per period (£)</span>
+                <span>Base per period ({currencySymbol()})</span>
                 <input type="number" min={0} step="0.01" value={pounds(form.base_pence)} onChange={(e) => set("base_pence", pence(e.target.value))} />
               </label>
               <label className="workspace-field">
-                <span>Commission starts above (£ takings)</span>
+                <span>Commission starts above ({currencySymbol()} takings)</span>
                 <input type="number" min={0} step="0.01" value={pounds(form.commission_threshold_pence)} onChange={(e) => set("commission_threshold_pence", pence(e.target.value))} />
               </label>
             </>
@@ -150,7 +150,7 @@ export function PayTermsForm({ form, setForm, disabled }: { form: PayForm; setFo
           <div className="workspace-section-heading compact">
             <div>
               <strong>Tiered commission (optional)</strong>
-              <p className="workspace-footnote">Marginal bands on the period's service takings, e.g. 40% to £1,000 then 50% above.</p>
+              <p className="workspace-footnote">Marginal bands on the period's service takings, e.g. 40% to {money(100000)} then 50% above.</p>
             </div>
             {form.commission_tiers.length < 6 && (
               <Button
@@ -169,7 +169,7 @@ export function PayTermsForm({ form, setForm, disabled }: { form: PayForm; setFo
           {form.commission_tiers.map((t, i) => (
             <div className="pay-tier-row" key={i}>
               <label className="workspace-field">
-                <span>{i === 0 ? "From £0" : "From £ takings"}</span>
+                <span>{i === 0 ? `From ${money(0)}` : `From ${currencySymbol()} takings`}</span>
                 <input type="number" min={0} step="0.01" value={i === 0 ? "0" : pounds(t.from_pence)} disabled={i === 0} onChange={(e) => set("commission_tiers", form.commission_tiers.map((x, j) => (j === i ? { ...x, from_pence: pence(e.target.value) } : x)))} />
               </label>
               <label className="workspace-field">
@@ -186,7 +186,7 @@ export function PayTermsForm({ form, setForm, disabled }: { form: PayForm; setFo
       {form.pay_model === "CHAIR_RENT" && (
         <div className="workspace-form-grid">
           <label className="workspace-field">
-            <span>Chair rent per period (£)</span>
+            <span>Chair rent per period ({currencySymbol()})</span>
             <input type="number" min={0} step="0.01" value={pounds(form.rent_pence)} onChange={(e) => set("rent_pence", pence(e.target.value))} />
             <small className="field-hint">Pay runs show what the barber owes the shop (rent less any tips the shop collected for them).</small>
           </label>
@@ -195,7 +195,7 @@ export function PayTermsForm({ form, setForm, disabled }: { form: PayForm; setFo
       {form.pay_model === "HOURLY" && (
         <div className="workspace-form-grid">
           <label className="workspace-field">
-            <span>Hourly rate (£)</span>
+            <span>Hourly rate ({currencySymbol()})</span>
             <input type="number" min={0} step="0.01" value={pounds(form.hourly_pence)} onChange={(e) => set("hourly_pence", pence(e.target.value))} />
             <small className="field-hint">Hours come from the roster (weekly hours + dated shifts, less leave, closures and breaks).</small>
           </label>
@@ -204,7 +204,7 @@ export function PayTermsForm({ form, setForm, disabled }: { form: PayForm; setFo
       {form.pay_model === "SALARY" && (
         <div className="workspace-form-grid">
           <label className="workspace-field">
-            <span>Salary per period (£)</span>
+            <span>Salary per period ({currencySymbol()})</span>
             <input type="number" min={0} step="0.01" value={pounds(form.base_pence)} onChange={(e) => set("base_pence", pence(e.target.value))} />
           </label>
         </div>
@@ -325,7 +325,7 @@ export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: Worksp
             <input value={adjLabel} maxLength={60} placeholder="e.g. Product sales bonus · Late fee · Holiday pay" onChange={(e) => setAdjLabel(e.target.value)} />
           </label>
           <label className="workspace-field narrow">
-            <span>Amount (£)</span>
+            <span>Amount ({currencySymbol()})</span>
             <input type="number" step="0.01" value={adjAmount} placeholder="−20 or 35" onChange={(e) => setAdjAmount(e.target.value)} />
           </label>
           <Button

@@ -98,9 +98,9 @@ export async function publicReviews(db: D1Database, shopId: string, limit = 12) 
 }
 
 // ---- Media (R2) -----------------------------------------------------------------------
-export type MediaRow = { id: string; shop_id: string; kind: "cover" | "gallery" | "staff"; object_key: string; content_type: string; bytes: number; width: number | null; height: number | null; alt: string; uploaded_by: string; created_at: number };
+export type MediaRow = { id: string; shop_id: string; kind: "cover" | "gallery" | "staff" | "logo"; object_key: string; content_type: string; bytes: number; width: number | null; height: number | null; alt: string; uploaded_by: string; created_at: number };
 export const MEDIA_MAX_BYTES = 5 * 1024 * 1024;
-export const mediaKinds = ["cover", "gallery", "staff"] as const;
+export const mediaKinds = ["cover", "gallery", "staff", "logo"] as const;
 
 // Sniff the real type from the first bytes; the filename and declared type are not trusted.
 export function sniffImage(bytes: Uint8Array): "image/jpeg" | "image/png" | "image/webp" | null {
@@ -129,12 +129,12 @@ export const mediaUrl = (id: string) => `/media/${id}`;
 
 // Everything that may reference an uploaded image; used to scrub on delete.
 export async function scrubMediaReferences(db: D1Database, shopId: string, url: string, now: number) {
-  const page = await db.prepare("SELECT cover_url,gallery_json FROM shop_pages WHERE shop_id=?").bind(shopId).first<{ cover_url: string; gallery_json: string }>();
+  const page = await db.prepare("SELECT cover_url,logo_url,gallery_json FROM shop_pages WHERE shop_id=?").bind(shopId).first<{ cover_url: string; logo_url: string; gallery_json: string }>();
   const statements = [db.prepare("UPDATE staff SET photo_url='' WHERE shop_id=? AND photo_url=?").bind(shopId, url)];
   if (page) {
     const gallery = (JSON.parse(page.gallery_json || "[]") as string[]).filter((u) => u !== url);
     statements.push(
-      db.prepare("UPDATE shop_pages SET cover_url=CASE WHEN cover_url=? THEN '' ELSE cover_url END, gallery_json=?, updated_at=? WHERE shop_id=?").bind(url, JSON.stringify(gallery), now, shopId),
+      db.prepare("UPDATE shop_pages SET cover_url=CASE WHEN cover_url=? THEN '' ELSE cover_url END, logo_url=CASE WHEN logo_url=? THEN '' ELSE logo_url END, gallery_json=?, updated_at=? WHERE shop_id=?").bind(url, url, JSON.stringify(gallery), now, shopId),
     );
   }
   await db.batch(statements);
@@ -167,9 +167,10 @@ export function shopPageHead(i: HeadInput) {
   const title = `${i.shop.name} · ${town ? `Barbers in ${town}` : "Book online"}`;
   const description = (i.page.strapline || i.page.about || `${i.shop.name}${i.shop.address ? `, ${i.shop.address}` : ""}. Book your next visit online.`).slice(0, 160);
   const abs = (u: string) => (u.startsWith("/") ? i.origin + u : u);
-  const image = abs(i.page.cover_url || "/static/brand/og-default.svg");
+  const image = abs(i.page.cover_url || i.page.logo_url || "/static/brand/og-default.svg");
   const prices = i.services.map((s) => s.price_pence).filter((p) => p > 0);
-  const priceRange = prices.length ? `£${Math.floor(Math.min(...prices) / 100)}–£${Math.ceil(Math.max(...prices) / 100)}` : undefined;
+  const fmt = (n: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: i.shop.currency || "GBP", maximumFractionDigits: 0 }).format(n);
+  const priceRange = prices.length ? `${fmt(Math.floor(Math.min(...prices) / 100))}–${fmt(Math.ceil(Math.max(...prices) / 100))}` : undefined;
   const hours = i.week.filter((d) => d.open && d.starts !== undefined && d.ends !== undefined).map((d) => ({ "@type": "OpeningHoursSpecification", dayOfWeek: DAY_NAMES[d.weekday], opens: hhmm(d.starts!), closes: hhmm(d.ends!) }));
   const ld: Record<string, unknown> = {
     "@context": "https://schema.org",
@@ -194,7 +195,7 @@ export function shopPageHead(i: HeadInput) {
               "@type": "Offer",
               itemOffered: { "@type": "Service", name: s.name, ...(s.description ? { description: s.description } : {}) },
               price: (s.price_pence / 100).toFixed(2),
-              priceCurrency: "GBP",
+              priceCurrency: i.shop.currency || "GBP",
             })),
           },
         }

@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Button, Icon } from "./ui";
 
-export type UploadKind = "cover" | "gallery" | "staff";
+export type UploadKind = "cover" | "gallery" | "staff" | "logo";
 export const MEDIA_MAX_BYTES = 5 * 1024 * 1024;
 
 export async function uploadPhoto(file: File, kind: UploadKind, alt = ""): Promise<{ id: string; url: string }> {

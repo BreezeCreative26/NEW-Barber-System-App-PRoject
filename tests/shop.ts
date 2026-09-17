@@ -107,6 +107,7 @@ export function shopPayload(shop: { name: string; address: string; timezone: str
   return {
     name: shop.name,
     address: shop.address,
+    currency: (shop as { currency?: string }).currency || "GBP",
     timezone: shop.timezone,
     week,
     deposit_pence: shop.deposit_pence,

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { BookingItem } from "../server/domain";
-import { dateLabel, datePlus, money, time } from "./fixtures";
+import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { Avatar, Brand, Button, Icon, Notice } from "./ui";
 import { GroupBooking } from "./GroupBooking";
 import { ReviewCard, type OwnReview } from "./Reviews";
@@ -14,6 +14,8 @@ export type PublicShop = {
     address: string;
     slug: string;
     timezone: string;
+    currency?: string;
+    logo_url?: string;
     opens: number;
     closes: number;
     closed_days: number[];
@@ -92,7 +94,7 @@ type CustomerBooking = {
   attendee_name?: string;
   group_id?: string | null;
   version: number;
-  shop: { name: string; address: string; slug: string | null; timezone: string };
+  shop: { name: string; address: string; slug: string | null; timezone: string; currency?: string; logo_url?: string };
   can_manage: boolean;
   late_change: boolean;
 };
@@ -176,11 +178,11 @@ const gcal = (b: { start_at: number; end_at: number; service_name: string; shop:
 };
 const mapsUrl = (address: string) =>
   `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
-function ShopHeader({ name, address }: { name: string; address: string }) {
+function ShopHeader({ name, address, logo }: { name: string; address: string; logo?: string }) {
   return (
     <header className="shop-header">
       <span className="shop-brand">
-        <span className="shop-emblem">{initials(name)}</span>
+        {logo ? <img className="shop-emblem shop-logo" src={logo} alt="" /> : <span className="shop-emblem">{initials(name)}</span>}
         <div>
           <strong>{name.toUpperCase()}</strong>
           <span>{address || "ONLINE BOOKING"}</span>
@@ -260,6 +262,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     setLoadError("");
     try {
       const s = await api<PublicShop>(`/shops/${encodeURIComponent(slug)}`);
+      setCurrency(s.shop.currency);
       setShop(s);
       onLoaded?.(s);
       setFrom((f) => f || preset?.date || s.today);
@@ -537,7 +540,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     return (
       <div className={`booking-app ${embedded ? "embedded" : ""}`}>
         {!embedded && <TestBanner />}
-        {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} />}
+        {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
         <main id={embedded ? undefined : "main-content"} className="booking-body">
           <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} />
         </main>
@@ -574,7 +577,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   return (
     <div className={`booking-app ${embedded ? "embedded" : ""}`}>
       {!embedded && <TestBanner />}
-      {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} />}
+      {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
       <main id={embedded ? undefined : "main-content"}>
         {!embedded && <section className="booking-hero public-hero">
           <div className="hero-copy">
@@ -1649,7 +1652,7 @@ export function ManageBooking({ token }: { token: string }) {
   return (
     <div className="booking-app">
       <TestBanner />
-      <ShopHeader name={booking.shop.name} address={booking.shop.address} />
+      <ShopHeader name={booking.shop.name} address={booking.shop.address} logo={booking.shop.logo_url} />
       <main id="main-content" className="booking-body">
         <section className="public-confirmation" aria-labelledby="manage-heading">
           <div className="review-appointment">

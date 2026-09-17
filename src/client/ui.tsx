@@ -442,7 +442,7 @@ export function TopBar({
   wallet?: { amount: string; caption: string; open?: boolean } | null;
   queue?: { count: number; offered: number; open?: boolean } | null;
   bell?: { count: number; open?: boolean } | null;
-  account?: { initials: string; name: string; caption: string; online?: boolean } | null;
+  account?: { initials: string; name: string; caption: string; online?: boolean; logo?: string } | null;
   onSearch?: () => void;
   onWallet?: () => void;
   onQueue?: () => void;
@@ -491,7 +491,7 @@ export function TopBar({
       )}
       {account && (
         <button type="button" className="account-pill" onClick={onAccount} aria-haspopup="menu" aria-expanded={accountOpen ? "true" : "false"} aria-label={`Account: ${account.name}, ${account.caption}`} data-testid="account-pill">
-          <span className="avatar-ink">{account.initials}</span>
+          {account.logo ? <img className="avatar-ink avatar-logo" src={account.logo} alt="" /> : <span className="avatar-ink">{account.initials}</span>}
           <span className="account-pill-text">
             <b>{account.name}</b>
             <small>{account.online !== false && <span className="presence-dot" aria-hidden="true" />}{account.caption}</small>

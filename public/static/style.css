@@ -7613,3 +7613,15 @@ details.workspace-welcome > svg { display: none; }
 .studio-category:hover .studio-rename-link, .studio-rename-link:focus-visible { opacity: 1; }
 .studio-rename { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-weight: 400; }
 .studio-rename input { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; min-width: 160px; }
+
+/* Shop logo: replaces the initials emblem wherever a shop identifies itself. */
+img.shop-emblem.shop-logo,
+img.avatar-ink.avatar-logo {
+  object-fit: cover;
+  background: #fff;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+img.avatar-ink.avatar-logo {
+  border-radius: 50%;
+}

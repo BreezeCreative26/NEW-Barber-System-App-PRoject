@@ -455,3 +455,9 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - "Past time" now labels only the first cell of a past run.
 - Schema: `bookingSchema` is a refined object; `seriesSchema` derives from the unrefined base and
   keeps the mandatory phone.
+
+## Shop identity: logo + currency (this round)
+- `shop_pages.logo_url` (migration 0003) uploaded via the media pipeline (`kind=logo`) from Shop page → Logo; shown in the shop page nav, booking header, manage-booking header and the workspace account pill. Falls back to initials. Deleting the media scrubs the reference.
+- `shops.currency` (migration 0004, ISO 4217, 18 options) set under Settings → Currency. All client prices go through `money()`/`currencySymbol()` in `src/client/fixtures.ts` (set once per page from the shop payload); schema.org `priceCurrency` and price range follow it. Prices stay stored in minor units.
+- Workspace polls every 20s on calendar views / 60s elsewhere; Barbers hours dialog has a Break toggle per day and "Copy Monday to all"; Services has an empty state and inline category rename (`POST /services/categories/rename`).
+- Gate: vitest 25, Playwright 137 passed (visual baseline `owner-calendar-tablet` refreshed for the new Settings labels).

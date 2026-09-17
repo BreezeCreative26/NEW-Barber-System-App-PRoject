@@ -58,7 +58,8 @@ const actionLabels: Record<string, string> = {
   NOTE_ADDED: "Note added",
 };
 export const time = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
-export const money = (p: number) => `£${(p / 100).toFixed(p % 100 ? 2 : 0)}`;
+import { money } from "./fixtures";
+export { money };
 const when = (ms: number) =>
   new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }).format(new Date(ms));
 const longDate = (d: string) =>
