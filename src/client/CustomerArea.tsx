@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Avatar, Button, Icon, Notice, StatusPill } from "./ui";
 import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { ReviewCard, type OwnReview } from "./Reviews";
+import { applyThemeColor, themeClass, type ShopBrand } from "./theme";
 
 type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; notes: string; version: number; member_since: number };
 type Visit = {
@@ -14,7 +15,7 @@ type Visit = {
   price_pence: number; cancel_hours: number; version: number; can_manage: boolean; late_change: boolean; series_id: string | null; attendee_name?: string; group_id?: string | null; items: { id: string; name: string; price_pence: number }[];
 };
 type Me = {
-  shop: { name: string; slug: string; address: string; timezone: string; currency?: string; cancel_hours: number; lead_time_min: number; today: string };
+  shop: { name: string; slug: string; address: string; timezone: string; currency?: string; cancel_hours: number; lead_time_min: number; today: string; logo_url?: string; brand?: ShopBrand };
   profile: Profile;
   upcoming: Visit[];
   history: Visit[];
@@ -65,6 +66,7 @@ export function CustomerArea({ slug }: { slug: string }) {
       const d = await api<Me>(`${A}/me`);
       setCurrency(d.shop.currency);
       setMe(d);
+      applyThemeColor(d.shop.brand);
       setSignedOut(false);
       document.title = `Your visits · ${d.shop.name}`;
     } catch (e) {
@@ -98,10 +100,10 @@ export function CustomerArea({ slug }: { slug: string }) {
     );
   const first = me.profile.name.split(" ")[0] || "there";
   return (
-    <div className="customer-area" data-testid="customer-area">
+    <div className={themeClass(me.shop.brand, "customer-area")} data-testid="customer-area">
       <header className="sp-nav">
         <a className="sp-brand" href={`/${me.shop.slug}`}>
-          <span className="shop-emblem">{initials(me.shop.name)}</span>
+          {me.shop.logo_url ? <img className="shop-emblem shop-logo" src={me.shop.logo_url} alt="" /> : <span className="shop-emblem">{initials(me.shop.name)}</span>}
           <strong>{me.shop.name}</strong>
         </a>
         <nav aria-label="Account">
@@ -161,11 +163,19 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [shopName, setShopName] = useState("");
+  const [shopBrand, setShopBrand] = useState<(ShopBrand & { logo_url: string }) | null>(null);
   const codeRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     fetch(`/api/public/shops/${encodeURIComponent(slug)}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d && setShopName(d.shop.name))
+      .then((d) => {
+        if (!d) return;
+        setShopName(d.shop.name);
+        if (d.shop.brand) {
+          setShopBrand({ ...d.shop.brand, logo_url: d.shop.logo_url || "" });
+          applyThemeColor(d.shop.brand);
+        }
+      })
       .catch(() => {});
   }, [slug]);
   async function start(e: FormEvent) {
@@ -197,10 +207,10 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
     }
   }
   return (
-    <div className="customer-area" data-testid="customer-signin">
+    <div className={themeClass(shopBrand, "customer-area")} data-testid="customer-signin">
       <header className="sp-nav">
         <a className="sp-brand" href={`/${slug}`}>
-          <span className="shop-emblem">{shopName ? initials(shopName) : "··"}</span>
+          {shopBrand?.logo_url ? <img className="shop-emblem shop-logo" src={shopBrand.logo_url} alt="" /> : <span className="shop-emblem">{shopName ? initials(shopName) : "··"}</span>}
           <strong>{shopName || "Back to the shop"}</strong>
         </a>
       </header>

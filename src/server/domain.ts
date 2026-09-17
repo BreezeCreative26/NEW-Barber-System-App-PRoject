@@ -503,6 +503,14 @@ export function parseTheme(json: string | null | undefined): ShopTheme {
     return defaultTheme;
   }
 }
+// The shop's public brand travels with every customer-facing payload (shop page, booking, manage,
+// account, waiting-list offer) so each surface renders in the owner's chosen style.
+export type ShopBrand = { logo_url: string; accent: ShopPage["accent"]; theme: ShopTheme };
+export const brandOf = (p: { logo_url?: string | null; accent?: string | null; theme_json?: string | null } | null | undefined): ShopBrand => ({
+  logo_url: p?.logo_url || "",
+  accent: (p?.accent as ShopPage["accent"]) || "ollo",
+  theme: parseTheme(p?.theme_json),
+});
 export const pageSections = ["hero", "next", "services", "team", "hours", "gallery", "reviews", "find", "policies"] as const;
 const httpsUrl = z.union([z.literal(""), z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "Use an https:// address")]);
 export const shopPageSchema = z

@@ -27,6 +27,8 @@ import {
   type ShopPage,
   defaultShopPage,
   parseTheme,
+  brandOf,
+  type ShopBrand,
  shopDay, shopWeek, dayStarts,
 } from "./domain";
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
@@ -102,10 +104,10 @@ pub.route("/shops/:slug/account", customerAccounts);
 
 export async function shopBySlug(c: Ctx, slug: string) {
   const shop = await c.env.DB.prepare(
-    "SELECT s.*, COALESCE(p.logo_url,'') AS logo_url FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1",
+    "SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1",
   )
     .bind(slug.toLowerCase())
-    .first<Shop & { logo_url: string }>();
+    .first<BrandedShop>();
   if (!shop) return fail(404, "This shop is not taking online bookings");
   c.set("shopId", shop.id);
   return shop;
@@ -119,11 +121,13 @@ export function limits(shop: Shop, now = Date.now()) {
     maxDate: datePlus(today, shop.booking_window_days),
   };
 }
-const publicShop = (s: Shop & { logo_url?: string }) => ({
+export type BrandedShop = Shop & { logo_url: string; accent: string; theme_json: string };
+const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   id: s.id,
   name: s.name,
   address: s.address,
   logo_url: s.logo_url || "",
+  brand: brandOf(s),
   slug: s.slug,
   timezone: s.timezone,
   currency: s.currency || "GBP",
@@ -732,7 +736,7 @@ async function offerByToken(c: Ctx) {
   ]);
   return { shop, offer: fresh, entry, staffName: staff?.name ?? "", service };
 }
-const offerView = (o: OfferRow, entry: WaitlistRow, shop: Shop, staffName: string, service: { name: string; price_pence: number; duration_min: number } | null) => ({
+const offerView = (o: OfferRow, entry: WaitlistRow, shop: Shop & Partial<BrandedShop>, staffName: string, service: { name: string; price_pence: number; duration_min: number } | null) => ({
   id: o.id,
   status: o.status,
   date: o.date,
@@ -744,7 +748,7 @@ const offerView = (o: OfferRow, entry: WaitlistRow, shop: Shop, staffName: strin
   duration_min: service?.duration_min ?? 0,
   customer_first: entry.customer_name.split(" ")[0],
   booking_id: o.booking_id,
-  shop: { name: shop.name, address: shop.address, slug: shop.slug, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours },
+  shop: { name: shop.name, address: shop.address, slug: shop.slug, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, logo_url: shop.logo_url || "", brand: brandOf(shop) },
 });
 pub.get("/offer/:token", async (c) => {
   await throttle(c, "offer", clientKey(c), 60);
@@ -812,7 +816,7 @@ pub.post("/offer/:token/decline", async (c) => {
 });
 
 // Customer manage links ---------------------------------------------------
-export function customerView(b: StoredBooking, shop: Shop & { logo_url?: string }, staffName: string | null) {
+export function customerView(b: StoredBooking, shop: Shop & Partial<BrandedShop>, staffName: string | null) {
   const now = Date.now();
   const late = b.start_at - now < b.cancel_hours_snapshot * 3600000;
   return {
@@ -839,7 +843,7 @@ export function customerView(b: StoredBooking, shop: Shop & { logo_url?: string 
     group_id: b.group_id,
     channel: b.channel,
     version: b.version,
-    shop: { name: shop.name, address: shop.address, slug: shop.slug, timezone: shop.timezone, currency: shop.currency || "GBP", logo_url: shop.logo_url || "" },
+    shop: { name: shop.name, address: shop.address, slug: shop.slug, timezone: shop.timezone, currency: shop.currency || "GBP", logo_url: shop.logo_url || "", brand: brandOf(shop) },
     can_manage: b.status === "CONFIRMED" && b.start_at > now + shop.lead_time_min * 60000,
     late_change: late,
   };
@@ -854,9 +858,9 @@ async function bookingByToken(c: Ctx) {
     .first<{ booking_id: string; shop_id: string }>();
   if (!row) return fail(404, "Booking link not found");
   c.set("shopId", row.shop_id);
-  const shop = await c.env.DB.prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?")
+  const shop = await c.env.DB.prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?")
     .bind(row.shop_id)
-    .first<Shop & { logo_url: string }>();
+    .first<BrandedShop>();
   const booking = await readBooking(c, row.booking_id);
   const staff = await c.env.DB.prepare(
     "SELECT name FROM staff WHERE shop_id=? AND id=?",

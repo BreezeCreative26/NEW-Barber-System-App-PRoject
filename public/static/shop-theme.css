@@ -6,14 +6,14 @@
 
 .shop-page {
   /* Surfaces */
-  --sp-bg: #f7f6f3;
+  --sp-bg: #f5f6fb;
   --sp-surface: #ffffff;
-  --sp-surface-2: #f1efea;
-  --sp-ink: #14151a;
-  --sp-ink-2: #3c3f48;
-  --sp-muted: #6b6f7a;
-  --sp-line: rgba(20, 21, 26, 0.09);
-  --sp-line-2: rgba(20, 21, 26, 0.14);
+  --sp-surface-2: #eef0f6;
+  --sp-ink: #181b2a;
+  --sp-ink-2: #292f46;
+  --sp-muted: #5b6178;
+  --sp-line: #e2e4ee;
+  --sp-line-2: #d5d8e5;
   --sp-shadow: 0 1px 2px rgba(20, 21, 26, 0.04), 0 10px 30px -18px rgba(20, 21, 26, 0.25);
   --sp-shadow-2: 0 2px 4px rgba(20, 21, 26, 0.05), 0 18px 40px -20px rgba(20, 21, 26, 0.35);
   /* Hero */
@@ -37,16 +37,44 @@
   font-family: var(--sp-text);
   -webkit-font-smoothing: antialiased;
 }
+/* ---- Token bridge --------------------------------------------------------------
+   Everything customer-facing (booking flow, manage a visit, account, offers) is written against
+   the base design tokens. Inside a themed surface those tokens resolve to the theme, so the whole
+   journey follows the owner's choices without a second stylesheet. */
+.shop-page {
+  --font: var(--sp-text);
+  --canvas: var(--sp-bg);
+  --surface: var(--sp-surface);
+  --ink: var(--sp-ink);
+  --ink-2: var(--sp-ink-2);
+  --muted: var(--sp-muted);
+  --muted-2: var(--sp-muted);
+  --line: var(--sp-line);
+  --line-2: var(--sp-line-2);
+  --accent: var(--sp-accent);
+  --accent-dark: var(--sp-accent-dark);
+  --accent-grad: linear-gradient(135deg, var(--sp-accent-dark) 0%, var(--sp-accent) 100%);
+  --ollo: var(--sp-accent);
+  --ollo-soft: var(--sp-soft);
+  --on-accent: var(--sp-accent-ink);
+  --r-sm: var(--sp-r-sm);
+  --r: var(--sp-r);
+  --r-lg: var(--sp-r-lg);
+  --r-xl: var(--sp-r-lg);
+  --r-pill: var(--sp-r-pill);
+  --shadow-1: var(--sp-shadow);
+  --shadow-2: var(--sp-shadow-2);
+}
+.shop-page.accent-ollo { --sp-accent: #4a5fd9; --sp-accent-dark: #3546b4; --sp-soft: #e6ebfb; }
 .shop-page.mode-dark {
-  /* Remap the base design tokens too, so anything inside that still reads --ink/--muted (bios,
-     nav links, the embedded booking flow, review notes) lands on AA contrast against dark surfaces. */
-  --ink: #f3f2ee;
-  --ink-2: #d6d5cf;
-  --muted: #c2c4cb;
-  --line: rgba(255, 255, 255, 0.1);
-  --line-2: rgba(255, 255, 255, 0.16);
-  --surface: #17181e;
-  --canvas: #1e2027;
+  --good: #7fc79a; --good-bg: rgba(63, 125, 92, 0.22);
+  --warn: #f0a084; --warn-bg: rgba(184, 97, 58, 0.22);
+  --note: #e3c98a; --note-bg: rgba(160, 130, 60, 0.22);
+  --blocked-a: #1e2027; --blocked-b: #23252d; --blocked-line: #3a3d48;
+  --rail: #0a0b0f;
+}
+
+.shop-page.mode-dark {
   --sp-bg: #0f1014;
   --sp-surface: #17181e;
   --sp-surface-2: #1e2027;
@@ -63,7 +91,7 @@
 .shop-page.corners-sharp { --sp-r-sm: 2px; --sp-r: 4px; --sp-r-lg: 6px; --sp-r-pill: 4px; }
 
 /* Accent stays owner-chosen; map it onto the theme. */
-.shop-page { --sp-accent-ink: var(--on-accent); }
+.shop-page { --sp-accent-ink: #ffffff; }
 .shop-page.accent-ink { --sp-accent: #1d1f26; --sp-accent-dark: #000; --sp-soft: rgba(29, 31, 38, 0.08); }
 .shop-page.mode-dark.accent-ink { --sp-accent: #f3f2ee; --sp-accent-dark: #fff; --sp-accent-ink: #14151a; --sp-soft: rgba(243, 242, 238, 0.12); }
 .shop-page.accent-sage { --sp-accent: #3f7d5c; --sp-accent-dark: #2f6247; --sp-soft: rgba(63, 125, 92, 0.12); }
@@ -196,12 +224,6 @@
 .shop-page .sp-footer-links a { color: var(--sp-ink-2); }
 .shop-page .sp-footer-links a:hover { color: var(--sp-accent-dark); }
 
-/* Dark look: the embedded booking flow stays a light island so its forms, steps and confirmation
-   keep their tested contrast; the block itself sits on the page's dark surface. */
-.shop-page.mode-dark .sp-booking { background: #f5f6fb; --ink: #181b2a; --ink-2: #292f46; --muted: #5b6178; --line: #e2e4ee; --line-2: #eef0f6; --surface: #ffffff; --canvas: #f5f6fb; color: var(--ink); color-scheme: light; border-color: transparent; }
-.shop-page.mode-dark .sp-booking h2 { color: var(--ink); }
-.shop-page.mode-dark .sp-booking .sp-section-head p { color: var(--muted); }
-
 /* Phone */
 @media (max-width: 767px) {
   .shop-page .sp-hero-inner { padding: 40px 20px 36px; }
@@ -229,5 +251,141 @@
 .shop-page.mode-dark .sp-review-reply { border-left-color: var(--sp-accent); }
 .shop-page.mode-dark .sp-review-reply strong { color: var(--sp-accent); }
 .shop-page.mode-dark.accent-ink .sp-review-reply strong { color: var(--sp-ink); }
-/* Confirmation manage-link box inside the light booking island. */
-.shop-page.mode-dark .sp-booking .public-manage-link { background: #edeef4; color: #181b2a; }
+
+/* =============================================================================
+   Booking flow · manage a visit · account · offers — themed overrides.
+   style.css draws these with fixed light colours; inside a themed surface every
+   surface, line, chip and control reads the theme instead. Scoped to .shop-page.
+   ============================================================================ */
+.shop-page.booking-app, .shop-page .booking-app, .shop-page.customer-area { background: var(--sp-bg); color: var(--sp-ink); font-family: var(--sp-text); }
+.shop-page .booking-app.embedded { background: transparent; }
+
+/* Standalone header */
+.shop-page .shop-header { color: var(--sp-ink); }
+.shop-page .shop-header h1, .shop-page .shop-header .shop-name { font-family: var(--sp-display); font-weight: var(--sp-display-weight); letter-spacing: var(--sp-display-tracking); text-transform: var(--sp-display-case); color: var(--sp-ink); }
+.shop-page .shop-header .shop-header-right, .shop-page .shop-header small, .shop-page .shop-header p { color: var(--sp-muted); }
+.shop-page .shop-emblem { background: var(--sp-accent); color: var(--sp-accent-ink); border-radius: var(--sp-r-sm); }
+.shop-page .mini-shop-emblem { background: var(--sp-soft); color: var(--sp-accent-dark); border-radius: var(--sp-r-sm); }
+.shop-page.mode-dark.logo-flip .shop-header img.shop-logo,
+.shop-page.mode-dark.logo-flip .mini-shop-emblem.shop-logo,
+.shop-page.mode-dark.logo-flip .customer-area .sp-brand img.shop-logo { filter: invert(1) brightness(1.6) grayscale(1); }
+
+/* Booking hero: accent panel, display face */
+.shop-page .booking-hero { background: var(--sp-accent); color: var(--sp-accent-ink); border-radius: var(--sp-r-lg); }
+.shop-page.accent-ink .booking-hero { background: var(--sp-hero-bg); color: #fff; }
+.shop-page.mode-dark.accent-ink .booking-hero { background: var(--sp-surface-2); color: var(--sp-ink); }
+.shop-page .booking-hero h1 { font-family: var(--sp-display); font-weight: var(--sp-display-weight); letter-spacing: var(--sp-display-tracking); text-transform: var(--sp-display-case); color: inherit; }
+.shop-page .booking-hero p, .shop-page .hero-details, .shop-page .hero-copy .eyebrow, .shop-page .hero-link { color: inherit; opacity: 0.85; }
+.shop-page .hero-link:hover { opacity: 1; }
+.shop-page .art-orbit, .shop-page .hero-seal, .shop-page .seal-rule, .shop-page .hero-seal * { border-color: currentColor; color: inherit; opacity: 0.9; }
+.shop-page .seal-rule { background: currentColor; }
+
+/* Headings inside the flow */
+.shop-page .booking-body h1, .shop-page .booking-body h2, .shop-page .booking-body h3,
+.shop-page .booking-step h2, .shop-page .public-confirmation h1, .shop-page .public-confirmation h2,
+.shop-page .ca-main h1, .shop-page .ca-main h2, .shop-page .ca-main h3, .shop-page .state-card h1 { font-family: var(--sp-display); font-weight: var(--sp-display-weight); letter-spacing: var(--sp-display-tracking); text-transform: var(--sp-display-case); color: var(--sp-ink); }
+.shop-page .eyebrow { color: var(--sp-muted); }
+
+/* Progress */
+.shop-page .booking-progress button > span { background: var(--sp-surface); border-color: var(--sp-line-2); color: var(--sp-muted); }
+.shop-page .booking-progress button > i { background: var(--sp-line-2); }
+.shop-page .booking-progress button[aria-current="step"] > span { background: var(--sp-accent); border-color: var(--sp-accent); color: var(--sp-accent-ink); box-shadow: 0 0 0 4px var(--sp-soft); }
+.shop-page .booking-progress button.done > span { background: var(--sp-soft); border-color: transparent; color: var(--sp-accent-dark); }
+.shop-page .booking-progress button[aria-current="step"] { color: var(--sp-ink); }
+.shop-page .booking-progress button { color: var(--sp-muted); }
+
+/* Search, filters, cards, chips */
+.shop-page .service-search { background: var(--sp-surface); border-color: var(--sp-line-2); color: var(--sp-ink); border-radius: var(--sp-r); }
+.shop-page .service-search input { color: var(--sp-ink); background: transparent; }
+.shop-page .service-search input::placeholder { color: var(--sp-muted); }
+.shop-page .filter-chips button, .shop-page .small-toggles button, .shop-page .tip-chips button { background: var(--sp-surface); border-color: var(--sp-line-2); color: var(--sp-ink-2); border-radius: var(--sp-r-pill); }
+.shop-page .filter-chips button[aria-pressed="true"], .shop-page .small-toggles button[aria-pressed="true"], .shop-page .tip-chips button[aria-pressed="true"] { background: var(--sp-accent); border-color: var(--sp-accent); color: var(--sp-accent-ink); }
+.shop-page .service-choice, .shop-page .addon-choice, .shop-page .barber-choice, .shop-page .booking-summary, .shop-page .review-appointment, .shop-page .state-card, .shop-page .group-card, .shop-page .ca-card, .shop-page .ca-visit, .shop-page .offer-card { background: var(--sp-surface); border-color: var(--sp-line); color: var(--sp-ink); border-radius: var(--sp-r-lg); box-shadow: var(--sp-shadow); }
+.shop-page .service-choice, .shop-page .addon-choice, .shop-page .barber-choice { border-radius: var(--sp-r); }
+.shop-page .service-choice:hover, .shop-page .addon-choice:hover, .shop-page .barber-choice:hover { border-color: var(--sp-line-2); box-shadow: var(--sp-shadow-2); }
+.shop-page .service-choice.chosen, .shop-page .addon-choice.chosen, .shop-page .barber-choice.chosen, .shop-page .barber-choice[aria-pressed="true"] { background: var(--sp-surface); border-color: var(--sp-accent); box-shadow: 0 0 0 1px var(--sp-accent), var(--sp-shadow); }
+.shop-page .service-choice small, .shop-page .service-choice p, .shop-page .addon-choice small, .shop-page .barber-choice small, .shop-page .barber-choice p, .shop-page .booking-summary small, .shop-page .summary-meta, .shop-page .review-appointment > p, .shop-page .review-barber { color: var(--sp-muted); }
+.shop-page .service-thumb, .shop-page .service-thumb.fade, .shop-page .service-thumb.beard, .shop-page .service-thumb.combo, .shop-page .service-thumb.junior, .shop-page .summary-service-icon { background: var(--sp-soft); color: var(--sp-accent-dark); border-radius: var(--sp-r-sm); }
+.shop-page .popular-tag { background: var(--sp-soft); color: var(--sp-accent-dark); border-radius: var(--sp-r-pill); }
+.shop-page .choice-radio { border-color: var(--sp-line-2); background: var(--sp-surface); }
+.shop-page .service-choice.chosen .choice-radio, .shop-page .addon-choice.chosen .choice-radio { background: var(--sp-accent); border-color: var(--sp-accent); color: var(--sp-accent-ink); }
+.shop-page .summary-price .deposit-line { background: var(--sp-soft); color: var(--sp-accent-dark); border-radius: var(--sp-r-sm); }
+.shop-page .summary-price .deposit-line strong, .shop-page .summary-price .deposit-line b { color: var(--sp-accent-dark); }
+.shop-page .portrait-selected { background: var(--sp-accent); color: var(--sp-accent-ink); }
+
+/* Dates + times */
+.shop-page .booking-dates button { background: var(--sp-surface); border-color: var(--sp-line); color: var(--sp-ink); border-radius: var(--sp-r); }
+.shop-page .booking-dates button small { color: var(--sp-muted); }
+.shop-page .booking-dates button.chosen { background: var(--sp-accent); border-color: var(--sp-accent); color: var(--sp-accent-ink); }
+.shop-page .booking-dates button.chosen small, .shop-page .booking-dates button.chosen span { color: inherit; opacity: 0.85; }
+.shop-page .booking-dates button:disabled { background: var(--sp-surface-2); color: var(--sp-muted); border-color: var(--sp-line); }
+.shop-page .time-slots button { background: var(--sp-surface); border-color: var(--sp-line-2); color: var(--sp-ink); border-radius: var(--sp-r-sm); }
+.shop-page .time-slots button:hover { border-color: var(--sp-accent); }
+.shop-page .time-slots button.chosen, .shop-page .time-slots button[aria-pressed="true"] { background: var(--sp-accent); border-color: var(--sp-accent); color: var(--sp-accent-ink); }
+.shop-page .time-slots button:disabled { background: var(--sp-surface-2); border-color: var(--sp-line); color: var(--sp-muted); }
+.shop-page .time-slots[aria-busy="true"]:empty { background: linear-gradient(90deg, var(--sp-surface-2) 25%, var(--sp-surface) 50%, var(--sp-surface-2) 75%); }
+
+/* Forms */
+.shop-page input, .shop-page select, .shop-page textarea, .shop-page .customer-fields textarea { background: var(--sp-surface); color: var(--sp-ink); border-color: var(--sp-line-2); border-radius: var(--sp-r-sm); font-family: var(--sp-text); }
+.shop-page input::placeholder, .shop-page textarea::placeholder { color: var(--sp-muted); }
+.shop-page input:focus, .shop-page select:focus, .shop-page textarea:focus { border-color: var(--sp-accent); box-shadow: 0 0 0 3px var(--sp-soft); outline: none; }
+.shop-page label, .shop-page .field-label { color: var(--sp-ink-2); }
+.shop-page .helper, .shop-page .hint { color: var(--sp-muted); }
+
+/* Confirmation + manage */
+.shop-page .public-manage-link, .shop-page .online-link-row code { background: var(--sp-surface-2); border-color: var(--sp-line-2); color: var(--sp-ink); border-radius: var(--sp-r-sm); }
+.shop-page .booking-footer { color: var(--sp-muted); border-top-color: var(--sp-line); }
+
+/* Buttons + links inside the flow */
+.shop-page .button.primary, .shop-page button.primary { background: var(--sp-accent); border-color: var(--sp-accent); color: var(--sp-accent-ink); border-radius: var(--sp-r); }
+.shop-page .button.primary:hover, .shop-page button.primary:hover { background: var(--sp-accent-dark); border-color: var(--sp-accent-dark); }
+.shop-page .button.secondary, .shop-page button.secondary, .shop-page .button.ghost, .shop-page button.ghost { background: var(--sp-surface); border-color: var(--sp-line-2); color: var(--sp-ink); border-radius: var(--sp-r); }
+.shop-page .button.secondary:hover, .shop-page button.secondary:hover, .shop-page .button.ghost:hover, .shop-page button.ghost:hover { background: var(--sp-surface-2); }
+.shop-page .linklike, .shop-page a:not(.button) { color: var(--sp-accent-dark); }
+.shop-page.mode-dark a:not(.button), .shop-page.mode-dark .linklike { color: var(--sp-accent); }
+
+/* Customer account + offer */
+.shop-page.customer-area .sp-nav { background: color-mix(in srgb, var(--sp-surface) 88%, transparent); border-bottom: 1px solid var(--sp-line); }
+.shop-page.customer-area .sp-brand strong { color: var(--sp-ink); }
+.shop-page .ca-tabs { background: var(--sp-surface); border-color: var(--sp-line); }
+.shop-page .ca-tabs button { color: var(--sp-muted); }
+.shop-page .ca-tabs button[aria-selected="true"], .shop-page .ca-tabs button.active { background: var(--sp-accent); color: var(--sp-accent-ink); }
+.shop-page .ca-hero p, .shop-page .ca-main small, .shop-page .ca-main .muted { color: var(--sp-muted); }
+.shop-page .sp-footer, .shop-page .customer-area > footer { background: var(--sp-surface); border-top: 1px solid var(--sp-line); color: var(--sp-muted); }
+.shop-page .sp-powered { color: var(--sp-muted); }
+
+/* Barber step: the "first available" tile and skill chips follow the accent, not OLLO blue. */
+.shop-page .barber-portrait.forest { background: linear-gradient(135deg, var(--sp-accent-dark), var(--sp-accent)); color: var(--sp-accent-ink); }
+.shop-page .barber-portrait .any-mark { background: color-mix(in srgb, var(--sp-accent-ink) 16%, transparent); }
+.shop-page .barber-choice.any-barber { background: var(--sp-surface); }
+.shop-page .barber-skills em { background: var(--sp-surface-2); color: var(--sp-ink-2); }
+.shop-page .barber-portrait.plum, .shop-page .barber-portrait.slate, .shop-page .barber-portrait.sage, .shop-page .barber-portrait.sand, .shop-page .barber-portrait.blue, .shop-page .barber-portrait.clay,
+.shop-page .service-thumb.plum, .shop-page .service-thumb.slate, .shop-page .service-thumb.sage, .shop-page .service-thumb.sand, .shop-page .service-thumb.blue, .shop-page .service-thumb.clay { background: var(--sp-soft); color: var(--sp-accent-dark); }
+.shop-page .waitlist-card { background: var(--sp-surface-2); border-color: var(--sp-line); }
+.shop-page .waitlist-card h4 { color: var(--sp-ink); }
+.shop-page .waitlist-card p { color: var(--sp-muted); }
+
+/* Date & time step */
+.shop-page .next-available { background: var(--sp-surface); border-color: var(--sp-line); border-radius: var(--sp-r-lg); }
+.shop-page .next-available .eyebrow { color: var(--sp-muted); }
+.shop-page .next-chip { background: var(--sp-surface-2); border-color: var(--sp-line-2); border-radius: var(--sp-r); }
+.shop-page .next-chip strong { color: var(--sp-ink); }
+.shop-page .next-chip span { color: var(--sp-accent-dark); }
+.shop-page.mode-dark .next-chip span { color: var(--sp-accent); }
+.shop-page .next-chip:hover { border-color: var(--sp-accent); }
+.shop-page .next-chip.chosen { background: var(--sp-accent); border-color: var(--sp-accent); }
+.shop-page .next-chip.chosen strong, .shop-page .next-chip.chosen span { color: var(--sp-accent-ink); }
+.shop-page .booking-dates button > strong { color: var(--sp-ink); }
+.shop-page .booking-dates button.chosen > strong, .shop-page .booking-dates button.chosen > span, .shop-page .booking-dates button.chosen > small { color: var(--sp-accent-ink); }
+.shop-page .slot-heading > span { color: var(--sp-muted); }
+.shop-page .available-dot { background: var(--sp-accent); }
+.shop-page .slot-note, .shop-page .booking-body .helper { color: var(--sp-muted); }
+
+/* Initials avatars: pastel tiles vanish on dark, so use the accent tile there. */
+.shop-page.mode-dark .avatar.sage, .shop-page.mode-dark .avatar.sand, .shop-page.mode-dark .avatar.blue, .shop-page.mode-dark .avatar.clay, .shop-page.mode-dark .avatar.plum, .shop-page.mode-dark .avatar.slate { background: var(--sp-soft); color: var(--sp-accent); border-color: transparent; }
+.shop-page.mode-dark.accent-ink .avatar.sage, .shop-page.mode-dark.accent-ink .avatar.sand, .shop-page.mode-dark.accent-ink .avatar.blue, .shop-page.mode-dark.accent-ink .avatar.clay, .shop-page.mode-dark.accent-ink .avatar.plum, .shop-page.mode-dark.accent-ink .avatar.slate { background: var(--sp-surface-2); color: var(--sp-ink); }
+
+/* Phone: the sticky actions bar follows the theme surface. */
+@media (max-width: 740px) {
+  .shop-page .booking-actions { background: color-mix(in srgb, var(--sp-surface) 96%, transparent); border-top-color: var(--sp-line); box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.12); }
+}

@@ -481,3 +481,21 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - Embedded booking summary: shop name + address instead of the tagline; duration line only when add-ons change it; deposit "Payable in the shop".
 - `npm run ux:review` now also writes section-level shop-page shots (`*-40a…e`). Standard §8 added to docs/UX-STANDARD.md.
 - Gate: ux-lint clean, vitest 25, Playwright 137/137.
+
+## Shop theme follows the whole customer journey (in progress)
+- `shop.brand` (`{logo_url, accent, theme}`) now travels with every public payload: `/shops/:slug`, booking
+  `customerView`, `/me`, waiting-list offers (`brandOf()` in domain.ts; `shopBySlug`/`shopWithQueue` join
+  `shop_pages`). Client `src/client/theme.ts` — `themeClass(brand)` + `applyThemeColor()`; applied to
+  ShopPage, standalone PublicBooking, ManageBooking, CustomerArea (incl. sign-in), OfferPage.
+- `shop-theme.css` gained a **token bridge**: inside `.shop-page`, the base tokens (`--ink`, `--muted`,
+  `--surface`, `--accent`, radii, shadows, `--font`) resolve to the theme's `--sp-*` values, so the
+  booking flow/account/manage pages inherit fonts, light/dark, corners and accent with one stylesheet.
+  Plus targeted overrides for the booking hero, progress, cards, chips, dates/times, forms, avatars,
+  phone sticky bar. The embedded flow's "light island" is gone — dark themes are dark all the way.
+- Hard-coded muted greys in style.css (`#51576d`, `#5c6278`) → `var(--muted)`.
+- Demo: Northline Barbers (dark · condensed · sharp · ink). Theme option `logo: auto|original`.
+- Gate so far: 32/37 across public/customer-account/booking-upgrades/waitlist/shop-page/shop-presence.
+  **Remaining (5 axe color-contrast hits, dark theme only):** `.cancellation-note > p`,
+  `.ca-usual-text .eyebrow/p` (rail-fg on --ink; in dark, `.ca-usual` bg = ink = page fg → invert),
+  ~6 nodes on `/book` at 320px (re-probe with `browser.newContext()` + AxeBuilder to get pairs), shop page
+  + presence browser tests (same family). Then refresh visual baselines and re-run the full gate.

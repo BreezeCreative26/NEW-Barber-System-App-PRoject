@@ -2,11 +2,12 @@
 import { useEffect, useState } from "react";
 import { Avatar, Button, Icon, Notice } from "./ui";
 import { dateLabel, money, time, setCurrency } from "./fixtures";
+import { applyThemeColor, themeClass, type ShopBrand } from "./theme";
 
 type Offer = {
   id: string; status: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "SUPERSEDED" | "LOST"; date: string; start_min: number; expires_at: number;
   staff_name: string; service_name: string; price_pence: number; duration_min: number; customer_first: string; booking_id: string | null;
-  shop: { name: string; address: string; slug: string | null; timezone: string; currency?: string; cancel_hours: number };
+  shop: { name: string; address: string; slug: string | null; timezone: string; currency?: string; cancel_hours: number; logo_url?: string; brand?: ShopBrand };
 };
 type Accepted = { booking: { reference: string; date: string; start_min: number }; manage_token: string | null };
 class ApiError extends Error {
@@ -34,6 +35,7 @@ export function OfferPage({ token }: { token: string }) {
       .then((r) => {
         setCurrency(r.offer.shop.currency);
         setOffer(r.offer);
+      applyThemeColor(r.offer.shop.brand);
         document.title = `A time has opened up · ${r.offer.shop.name}`;
       })
       .catch((e) => setError(e instanceof Error ? e.message : "This link is not valid."));
@@ -86,10 +88,10 @@ export function OfferPage({ token }: { token: string }) {
   const expired = offer.status === "EXPIRED" || (offer.status === "PENDING" && offer.expires_at <= Date.now());
   const minutesLeft = Math.max(0, Math.round((offer.expires_at - Date.now()) / 60000));
   return (
-    <div className="customer-area" data-testid="offer-page">
+    <div className={themeClass(offer.shop.brand, "customer-area")} data-testid="offer-page">
       <header className="sp-nav">
         <a className="sp-brand" href={offer.shop.slug ? `/${offer.shop.slug}` : "#"}>
-          <span className="shop-emblem">{initials(offer.shop.name)}</span>
+          {offer.shop.logo_url ? <img className="shop-emblem shop-logo" src={offer.shop.logo_url} alt="" /> : <span className="shop-emblem">{initials(offer.shop.name)}</span>}
           <strong>{offer.shop.name}</strong>
         </a>
       </header>

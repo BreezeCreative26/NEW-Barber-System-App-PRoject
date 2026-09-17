@@ -3347,7 +3347,7 @@ input[aria-invalid="true"] {
   gap: 10px;
   margin: 0;
   font-size: 10px;
-  color: #5c6278;
+  color: var(--muted);
 }
 .summary-appointment svg {
   width: 15px;
@@ -5748,7 +5748,7 @@ input[aria-invalid="true"] {
 .slot-heading > span,
 .slot-note,
 .barber-bottom-nav button {
-  color: #51576d;
+  color: var(--muted);
 }
 .popular-tag {
   color: #333c61;
@@ -5843,7 +5843,7 @@ input[aria-invalid="true"] {
   }
   .mobile-checkout-total > small {
     font-size: 9px;
-    color: #51576d;
+    color: var(--muted);
   }
   .current-payment > span {
     font-size: 11px;
@@ -5863,7 +5863,7 @@ input[aria-invalid="true"] {
   }
 }
 .booking-progress button.done {
-  color: #51576d;
+  color: var(--muted);
 }
 .barber-portrait > span:first-child {
   opacity: 1;

@@ -5,10 +5,11 @@ import { PublicBooking, type BookingPreset } from "./PublicBooking";
 import { Avatar, Icon } from "./ui";
 import { money, time, dateLabel, setCurrency } from "./fixtures";
 import { PublicReviews, Stars, type PublicReview } from "./Reviews";
+import { applyThemeColor, themeClass, type ShopTheme } from "./theme";
 
 type PageData = {
   shop: { id: string; name: string; address: string; slug: string; timezone: string; currency?: string; opens: number; closes: number; deposit_pence: number; cancel_hours: number; lead_time_min: number; booking_window_days: number };
-  page: { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme?: { font: string; mode: string; corners: string; hero: string; logo?: string }; published: number };
+  page: { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme?: ShopTheme; published: number };
   staff: { id: string; name: string; role: string; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[];
   services: { id: string; name: string; category: string; duration_min: number; price_pence: number; description?: string; colour?: string; popular?: number }[];
   week: ({ weekday: number; open: false } | { weekday: number; open: true; starts: number; ends: number })[];
@@ -52,6 +53,7 @@ export function ShopPage({ slug }: { slug: string }) {
       .then((d) => {
         setCurrency(d.shop.currency);
         setData(d);
+        applyThemeColor({ accent: d.page.accent, theme: d.page.theme, logo_url: d.page.logo_url });
         document.title = `${d.shop.name} · Book online`;
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load this shop."));
@@ -85,11 +87,11 @@ export function ShopPage({ slug }: { slug: string }) {
     return "";
   })();
   const categories = [...new Set(data.services.map((s) => s.category))];
-  const theme = page.theme || { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto" };
+  const theme: ShopTheme = { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto", ...(page.theme || {}) };
   const hasContact = !!(shop.address || page.phone || page.email || page.instagram || page.transport_note);
   const mapHref = page.map_url || (shop.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.address)}` : "");
   return (
-    <div className={`shop-page accent-${page.accent} font-${theme.font} mode-${theme.mode} corners-${theme.corners} hero-${theme.hero}${theme.logo !== "original" ? " logo-flip" : ""}`} data-testid="shop-page">
+    <div className={themeClass({ accent: page.accent, theme })} data-testid="shop-page">
       <a className="skip-link" href="#book">
         Skip to booking
       </a>

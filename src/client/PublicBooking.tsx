@@ -4,6 +4,7 @@ import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { Avatar, Button, Icon, Notice } from "./ui";
 import { GroupBooking } from "./GroupBooking";
 import { ReviewCard, type OwnReview } from "./Reviews";
+import { applyThemeColor, themeClass, type ShopBrand } from "./theme";
 
 // Connected customer booking for /book/:slug and /manage/:token.
 // Reads and writes the same local D1 records as the owner workspace.
@@ -16,6 +17,7 @@ export type PublicShop = {
     timezone: string;
     currency?: string;
     logo_url?: string;
+    brand?: ShopBrand;
     opens: number;
     closes: number;
     closed_days: number[];
@@ -94,7 +96,7 @@ type CustomerBooking = {
   attendee_name?: string;
   group_id?: string | null;
   version: number;
-  shop: { name: string; address: string; slug: string | null; timezone: string; currency?: string; logo_url?: string };
+  shop: { name: string; address: string; slug: string | null; timezone: string; currency?: string; logo_url?: string; brand?: ShopBrand };
   can_manage: boolean;
   late_change: boolean;
 };
@@ -257,6 +259,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
       const s = await api<PublicShop>(`/shops/${encodeURIComponent(slug)}`);
       setCurrency(s.shop.currency);
       setShop(s);
+      if (!embedded) applyThemeColor(s.shop.brand);
       onLoaded?.(s);
       setFrom((f) => f || preset?.date || s.today);
       setDate((d) => d || preset?.date || s.today);
@@ -529,9 +532,10 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
         </p>
       </div>
     );
+  const wrap = embedded ? `booking-app embedded` : themeClass(shop.shop.brand, "booking-app standalone");
   if (confirmed)
     return (
-      <div className={`booking-app ${embedded ? "embedded" : ""}`}>
+      <div className={wrap}>
         {!embedded && <TestBanner />}
         {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
         <main id={embedded ? undefined : "main-content"} className="booking-body">
@@ -568,7 +572,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   const dayFull = !!availability && openCount === 0 && !!dayInfo(date) && !dayInfo(date)!.closed;
   const nextElsewhere = next?.filter((n) => n.date !== date) || [];
   return (
-    <div className={`booking-app ${embedded ? "embedded" : ""}`}>
+    <div className={wrap}>
       {!embedded && <TestBanner />}
       {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
       <main id={embedded ? undefined : "main-content"}>
@@ -1555,6 +1559,7 @@ export function ManageBooking({ token }: { token: string }) {
     try {
       const r = await api<{ booking: CustomerBooking; review: OwnReview; can_review: boolean }>(`/manage/${token}`);
       setBooking(r.booking);
+      applyThemeColor(r.booking.shop.brand);
       setReview({ review: r.review ?? null, can: !!r.can_review });
       setDate((d) => d || r.booking.date);
     } catch (e) {
@@ -1643,7 +1648,7 @@ export function ManageBooking({ token }: { token: string }) {
     (d) => !meta.today || d >= meta.today,
   );
   return (
-    <div className="booking-app">
+    <div className={themeClass(booking.shop.brand, "booking-app standalone")}>
       <TestBanner />
       <ShopHeader name={booking.shop.name} address={booking.shop.address} logo={booking.shop.logo_url} />
       <main id="main-content" className="booking-body">

@@ -4,7 +4,7 @@
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
-import { dayStarts, phoneSchema, ref, shopToday, type Customer, type Shop, type StoredBooking } from "./domain";
+import { brandOf, dayStarts, phoneSchema, ref, shopToday, type Customer, type Shop, type StoredBooking } from "./domain";
 import { digest, readInput, type AppEnv } from "./accounts";
 import { audit, checkVersionUpdate, fail, readBooking } from "./sandbox";
 import { leaveReview, ownReviewView, reviewEligibility, reviewSchema, type ReviewRow } from "./presence";
@@ -262,7 +262,7 @@ acct.get("/me", async (c) => {
     .all();
   return c.json({
     waiting: waiting.results,
-    shop: { name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now) },
+    shop: { name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now), logo_url: shop.logo_url || "", brand: brandOf(shop) },
     profile: profileOf(a, cust),
     upcoming,
     history,
