@@ -183,8 +183,8 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
     setBusy(true);
     setError("");
     try {
-      const r = await api<{ sandbox_code: string }>(`${A}/start`, "POST", { phone });
-      setShownCode(r.sandbox_code);
+      const r = await api<{ sandbox_code?: string; delivery: "sms" | "on_screen" }>(`${A}/start`, "POST", { phone });
+      setShownCode(r.delivery === "sms" ? "" : r.sandbox_code || "");
       setStage("code");
       setTimeout(() => codeRef.current?.focus(), 30);
     } catch (err) {
@@ -240,9 +240,15 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
             </form>
           ) : (
             <form onSubmit={verify} className="ca-form">
-              <Notice icon="shield" tone="info">
-                <strong>No SMS provider connected yet:</strong> your code is <code data-testid="shown-code">{shownCode}</code>.
-              </Notice>
+              {shownCode ? (
+                <Notice icon="shield" tone="info">
+                  <strong>Preview mode:</strong> your code is <code data-testid="shown-code">{shownCode}</code>.
+                </Notice>
+              ) : (
+                <Notice icon="message" tone="info">
+                  We've texted a 6-digit code to <strong>{phone}</strong>. It expires in 10 minutes.
+                </Notice>
+              )}
               <label>
                 <span>6-digit code</span>
                 <input ref={codeRef} type="text" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} required data-testid="signin-code" />

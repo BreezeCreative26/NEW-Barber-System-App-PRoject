@@ -194,7 +194,8 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && path === "/customers") ||
       (method === "PUT" && /^\/customers\/[^/]+$/.test(path)) ||
       (method === "POST" && /^\/customers\/[^/]+\/merge$/.test(path)) ||
-      (method === "GET" && ["/waitlist", "/notifications", "/reviews", "/media"].includes(path)) ||
+      (method === "GET" && ["/waitlist", "/notifications", "/reviews", "/media", "/dev/mailbox"].includes(path)) ||
+      (method === "GET" && /^\/notifications\/[^/]+$/.test(path)) ||
       (method === "GET" && /^\/waitlist\/[^/]+\/matches$/.test(path)) ||
       (method === "POST" && /^\/waitlist\/[^/]+\/offer$/.test(path)) ||
       (method === "GET" && ["/bookings/range", "/insights", "/wallet", "/pay-runs", "/shop/page"].includes(path)) ||
@@ -212,7 +213,9 @@ sandbox.use("*", async (c, next) => {
           /^\/bookings\/[^/]+\/(status|reschedule)$/.test(path))) ||
       (method === "PATCH" && /^\/bookings\/[^/]+\/details$/.test(path));
     const setup =
-      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist"].includes(path)) ||
+      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist", "/shop/messaging"].includes(path)) ||
+      (method === "POST" && ["/notifications/test", "/notifications/sweep"].includes(path)) ||
+      (method === "POST" && /^\/notifications\/[^/]+\/resend$/.test(path)) ||
       (method === "POST" && /^\/reviews\/[^/]+\/(status|reply)$/.test(path)) ||
       (method === "POST" && path === "/media") ||
       (method === "DELETE" && /^\/media\/[^/]+$/.test(path)) ||
@@ -1099,7 +1102,7 @@ sandbox.post("/bookings/:id/manage-link", async (c) => {
     c.env.DB.prepare(
       "INSERT INTO booking_manage_tokens(token_hash,shop_id,booking_id,created_at) VALUES(?,?,?,?)",
     ).bind(await hash(raw), b.shop_id, b.id, Date.now()),
-    audit(c, "booking", b.id, "MANAGE_LINK_ISSUED", "Owner generated a customer manage link; previous link revoked. No message sent."),
+    audit(c, "booking", b.id, "MANAGE_LINK_ISSUED", "Owner generated a customer manage link; previous link revoked. Share it by hand."),
   ]);
   return c.json({ token: raw, path: `/manage/${raw}` }, 201);
 });
@@ -1957,7 +1960,7 @@ export async function createBooking(
         bookingId,
         "BOOKING_CREATED",
         channel === "ONLINE"
-          ? "Customer booked online. No deposit or payment collected; no message sent."
+          ? "Customer booked online. No deposit or payment collected online; confirmation queued."
           : b.source === "WALK_IN" ? "Walk-in seated." : "Appointment saved by the shop.",
       ),
     ]);

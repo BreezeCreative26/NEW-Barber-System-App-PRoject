@@ -250,6 +250,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   const [confirmed, setConfirmed] = useState<{
     booking: CustomerBooking;
     manage_token: string | null;
+    sent_to?: string[];
   } | null>(null);
   const request = useRef({ key: crypto.randomUUID(), payload: "" });
   const heading = useRef<HTMLHeadingElement>(null);
@@ -539,7 +540,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
         {!embedded && <TestBanner />}
         {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
         <main id={embedded ? undefined : "main-content"} className="booking-body">
-          <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} />
+          <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} sentTo={confirmed.sent_to || []} />
         </main>
       </div>
     );
@@ -1432,12 +1433,15 @@ function ConfirmationCard({
   booking,
   token,
   slug,
+  sentTo = [],
 }: {
   booking: CustomerBooking;
   token: string | null;
   slug: string;
+  sentTo?: string[];
 }) {
   const link = token ? `${location.origin}/manage/${token}` : "";
+  const sentWhere = [sentTo.includes("SMS") && booking.phone && `by text to ${booking.phone}`, sentTo.includes("EMAIL") && booking.email && `by email to ${booking.email}`].filter(Boolean).join(" and ");
   const [copied, setCopied] = useState("");
   async function copy(value: string, label: string) {
     try {
@@ -1497,8 +1501,8 @@ function ConfirmationCard({
             </Button>
           </div>
           <p>
-            Save this private link to view, move or cancel your visit. No message has been sent,
-            so keep it somewhere safe.
+            {sentWhere ? `We've sent this link ${sentWhere}. ` : ""}
+            Use it any time to view, move or cancel your visit{sentWhere ? "" : " — keep it somewhere safe"}.
           </p>
           <a className="public-manage-link" href={`/manage/${token}`}>
             {link}
@@ -1524,7 +1528,7 @@ function ConfirmationCard({
             <Icon name="pin" /> <span>Directions</span>
           </a>
         )}
-        {link && (
+        {link && !sentTo.includes("SMS") && (
           <a
             className="action-tile"
             href={`sms:?&body=${encodeURIComponent(`${booking.service_name} at ${booking.shop.name}, ${dateLabel(booking.date, { weekday: "short", day: "numeric", month: "short" })} ${time(booking.start_min)}. Manage: ${link}`)}`}

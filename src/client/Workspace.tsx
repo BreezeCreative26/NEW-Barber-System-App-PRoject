@@ -2871,7 +2871,7 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
 
 // Every customer-facing surface in one place so the owner can review them from the admin.
 // Live pages open in a new tab; planned ones link to the plan so the roadmap is visible in-app.
-// Settings → Waiting list & messages: auto-offer, hold time, message wording, and the outbox.
+// Settings → Messages: delivery status, channels, reminders, test send, waiting-list wording, and the outbox.
 type OutboxRow = { id: string; channel: string; recipient: string; template: string; body: string; status: string; status_note: string; related_type: string; created_at: number };
 const TEMPLATE_LABELS: Record<string, { label: string; hint: string }> = {
   waitlist_joined: { label: "Joined the list", hint: "{first} {shop} {date} {daypart}" },
@@ -2998,21 +2998,36 @@ function ReviewsPanel({ w }: { w: WorkspaceData }) {
     </section>
   );
 }
+const MSG_LABELS: Record<string, string> = {
+  booking_confirmed: "Booking confirmed", booking_moved: "Booking moved", booking_cancelled: "Booking cancelled",
+  booking_reminder: "Reminder (day before)", booking_reminder_soon: "Reminder (2 hours before)", signin_code: "Sign-in code",
+  staff_invite: "Team invitation", review_request: "Review request", test_message: "Test message",
+  waitlist_joined: "Joined the list", waitlist_offer: "A time is offered", waitlist_booked: "Offer accepted", waitlist_released: "Declined or expired",
+};
+type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "twilio" | "mailbox"; from: string } };
+type Messaging = { msg_sms: number; msg_email: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
+type OutboxData = { notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number } };
 function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
-  const [data, setData] = useState<{ notifications: OutboxRow[]; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number } } | null>(null);
+  const [data, setData] = useState<OutboxData | null>(null);
   const [form, setForm] = useState<{ auto: number; hold: number; templates: Record<string, string> } | null>(null);
+  const [msg, setMsg] = useState<Messaging | null>(null);
   const [state, setState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
+  const [msgState, setMsgState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
+  const [test, setTest] = useState<{ channel: "SMS" | "EMAIL"; to: string; busy: boolean; result: string }>({ channel: "EMAIL", to: "", busy: false, result: "" });
+  const [filter, setFilter] = useState<"" | "SENT" | "FAILED" | "QUEUED">("");
+  const [preview, setPreview] = useState<{ subject: string; html: string; body: string; channel: string } | null>(null);
   const [copied, setCopied] = useState("");
   const load = () =>
-    api<NonNullable<typeof data>>("/notifications?limit=50")
+    api<OutboxData>(`/notifications?limit=60${filter ? `&status=${filter}` : ""}`)
       .then((d) => {
         setData(d);
-        setForm({ auto: d.settings.waitlist_auto_offer, hold: d.settings.waitlist_offer_hold_min, templates: { ...d.templates } });
+        setForm((f) => f ?? { auto: d.settings.waitlist_auto_offer, hold: d.settings.waitlist_offer_hold_min, templates: { ...d.templates } });
+        setMsg((m) => m ?? d.messaging);
       })
       .catch((e) => setState({ kind: "error", text: e instanceof Error ? e.message : "Could not load." }));
   useEffect(() => {
     load();
-  }, [w.shop.version]);
+  }, [w.shop.version, filter]);
   async function save(e: FormEvent) {
     e.preventDefault();
     if (!form) return;
@@ -3024,6 +3039,41 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
       setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
     }
   }
+  async function saveMessaging(e: FormEvent) {
+    e.preventDefault();
+    if (!msg) return;
+    setMsgState({ kind: "saving", text: "" });
+    try {
+      await api("/shop/messaging", "PUT", msg);
+      setMsgState({ kind: "saved", text: "Saved." });
+    } catch (err) {
+      setMsgState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
+    }
+  }
+  async function sendTest(e: FormEvent) {
+    e.preventDefault();
+    setTest({ ...test, busy: true, result: "" });
+    try {
+      const r = await api<{ notification: { status: string; status_note: string; error: string } }>("/notifications/test", "POST", { channel: test.channel, to: test.to });
+      const n = r.notification;
+      setTest({ ...test, busy: false, result: n.status === "SENT" ? `Sent${n.status_note ? ` — ${n.status_note}` : "."}` : `${n.status}: ${n.error || n.status_note}` });
+      load();
+    } catch (err) {
+      setTest({ ...test, busy: false, result: err instanceof Error ? err.message : "Could not send." });
+    }
+  }
+  async function resend(id: string) {
+    try {
+      await api(`/notifications/${id}/resend`, "POST", {});
+      load();
+    } catch (err) {
+      setCopied(err instanceof Error ? err.message : "Could not resend.");
+    }
+  }
+  async function openPreview(id: string) {
+    const r = await api<{ notification: { subject: string; html: string; body: string; channel: string } }>(`/notifications/${id}`);
+    setPreview(r.notification);
+  }
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
@@ -3032,19 +3082,112 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
       setCopied("Copy unavailable here; select the text instead.");
     }
   }
-  const fmtWhen = (ms: number) => new Date(ms).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" });
-  const tone: Record<string, "good" | "next" | "paid" | "warn" | "note"> = { SENT: "good", QUEUED: "next", FAILED: "warn", SKIPPED: "note" };
+  const fmtWhen = (ms: number) => new Date(ms).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: w.shop.timezone || "Europe/London" });
+  const tone: Record<string, "good" | "next" | "paid" | "warn" | "note"> = { SENT: "good", QUEUED: "next", SENDING: "next", FAILED: "warn", SKIPPED: "note" };
+  const live = data ? data.providers.email.provider === "resend" || data.providers.sms.provider === "twilio" : false;
+  const c30 = data?.counts_30d || {};
   return (
     <section className="workspace-panel" aria-labelledby="waitlist-settings-heading" data-testid="waitlist-settings">
       <div className="workspace-section-heading">
         <div>
-          <h2 id="waitlist-settings-heading">Waiting list & messages</h2>
-          <p className="workspace-footnote">How the queue works when a day is full: whether freed slots are offered automatically, how long an offer is held, and the wording customers receive. No message provider is connected yet — every message is recorded below so staff can send it by hand.</p>
+          <h2 id="waitlist-settings-heading">Messages</h2>
+          <p className="workspace-footnote">Confirmations, reminders, sign-in codes and waiting-list offers go out from your shop — your name, your logo. Choose the channels below; every message is listed at the bottom with its delivery status.</p>
         </div>
-        <StatusPill tone="note">Outbox only · nothing sent</StatusPill>
+        {data && (
+          <StatusPill tone={live ? "good" : "note"} data-testid="messaging-status">
+            {live ? `Live · ${[data.providers.email.provider === "resend" && "email", data.providers.sms.provider === "twilio" && "SMS"].filter(Boolean).join(" + ")}` : "Preview mode · nothing leaves the building"}
+          </StatusPill>
+        )}
       </div>
+      {data && !live && (
+        <p className="workspace-footnote" data-testid="messaging-preview-note">
+          No email or SMS provider is connected to this deployment yet, so messages are delivered to a preview mailbox here instead of to customers. Once a provider is connected they go out for real without any other change.
+        </p>
+      )}
+      {msg && data && (
+        <form className="workspace-form" onSubmit={saveMessaging} data-testid="messaging-form">
+          <div className="workspace-form-grid">
+            <div className="workspace-switch-row">
+              <span>
+                <strong>Text messages</strong>
+                <small>Confirmations, reminders and sign-in codes by SMS when we have a mobile number.{data.providers.sms.provider === "twilio" ? ` Sending from ${msg.msg_sms_sender || data.providers.sms.from}.` : ""}</small>
+              </span>
+              <label className="switch">
+                <input type="checkbox" checked={!!msg.msg_sms} onChange={(e) => setMsg({ ...msg, msg_sms: e.target.checked ? 1 : 0 })} aria-label="Text messages" data-testid="msg-sms" />
+                <span />
+              </label>
+            </div>
+            <div className="workspace-switch-row">
+              <span>
+                <strong>Emails</strong>
+                <small>Sent as “{w.shop.name}”{data.providers.email.from ? ` from ${data.providers.email.from}` : ""}. Replies go to your shop email{msg.msg_reply_to ? ` (${msg.msg_reply_to})` : ""}.</small>
+              </span>
+              <label className="switch">
+                <input type="checkbox" checked={!!msg.msg_email} onChange={(e) => setMsg({ ...msg, msg_email: e.target.checked ? 1 : 0 })} aria-label="Emails" data-testid="msg-email" />
+                <span />
+              </label>
+            </div>
+            <div className="workspace-switch-row">
+              <span>
+                <strong>Reminders</strong>
+                <small>A reminder the day before, and a short one two hours before the visit.</small>
+              </span>
+              <label className="switch">
+                <input type="checkbox" checked={!!msg.msg_reminders} onChange={(e) => setMsg({ ...msg, msg_reminders: e.target.checked ? 1 : 0 })} aria-label="Reminders" data-testid="msg-reminders" />
+                <span />
+              </label>
+            </div>
+            <Field label="Day-before reminder, hours ahead">
+              <input type="number" min={1} max={72} value={msg.msg_reminder_hours} disabled={!msg.msg_reminders} onChange={(e) => setMsg({ ...msg, msg_reminder_hours: Number(e.target.value) })} data-testid="msg-reminder-hours" />
+            </Field>
+            <Field label="Reply-to email (optional)">
+              <input type="email" value={msg.msg_reply_to} maxLength={120} placeholder="hello@yourshop.com" onChange={(e) => setMsg({ ...msg, msg_reply_to: e.target.value })} />
+            </Field>
+            <Field label="SMS sender name (optional, up to 11 letters)">
+              <input type="text" value={msg.msg_sms_sender} maxLength={11} placeholder={w.shop.name.replace(/[^A-Za-z0-9 ]/g, "").slice(0, 11)} onChange={(e) => setMsg({ ...msg, msg_sms_sender: e.target.value })} />
+            </Field>
+          </div>
+          {msgState.text && (
+            <p className={msgState.kind === "error" ? "workspace-error" : "workspace-success"} role={msgState.kind === "error" ? "alert" : "status"}>
+              {msgState.text}
+            </p>
+          )}
+          <div className="workspace-form-actions">
+            <Button type="submit" disabled={msgState.kind === "saving"} data-testid="save-messaging">
+              {msgState.kind === "saving" ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </form>
+      )}
+      {data && (
+        <form className="workspace-form test-message-form" onSubmit={sendTest} data-testid="test-message-form">
+          <h3>Send yourself a test</h3>
+          <div className="workspace-form-grid">
+            <Field label="Channel">
+              <select value={test.channel} onChange={(e) => setTest({ ...test, channel: e.target.value as "SMS" | "EMAIL" })} data-testid="test-channel">
+                <option value="EMAIL">Email</option>
+                <option value="SMS">Text message</option>
+              </select>
+            </Field>
+            <Field label={test.channel === "SMS" ? "Mobile number" : "Email address"}>
+              <input type={test.channel === "SMS" ? "tel" : "email"} required value={test.to} onChange={(e) => setTest({ ...test, to: e.target.value })} placeholder={test.channel === "SMS" ? "07…" : "you@example.com"} data-testid="test-to" />
+            </Field>
+          </div>
+          {test.result && (
+            <p className="workspace-success" role="status" data-testid="test-result">
+              {test.result}
+            </p>
+          )}
+          <div className="workspace-form-actions">
+            <Button type="submit" variant="secondary" disabled={test.busy} data-testid="send-test">
+              {test.busy ? "Sending…" : "Send test"}
+            </Button>
+          </div>
+        </form>
+      )}
       {form && data && (
         <form className="workspace-form" onSubmit={save} data-testid="waitlist-settings-form">
+          <h3>Waiting list</h3>
           <div className="workspace-form-grid">
             <div className="workspace-switch-row">
               <span>
@@ -3061,7 +3204,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
             </Field>
           </div>
           <fieldset className="template-fields">
-            <legend>Message wording</legend>
+            <legend>Waiting-list wording</legend>
             {Object.keys(TEMPLATE_LABELS).map((k) => (
               <Field key={k} label={TEMPLATE_LABELS[k].label}>
                 <textarea value={form.templates[k] ?? ""} rows={2} maxLength={400} onChange={(e) => setForm({ ...form, templates: { ...form.templates, [k]: e.target.value } })} data-testid={`template-${k}`} />
@@ -3092,34 +3235,66 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
         </form>
       )}
       <div className="outbox" data-testid="outbox">
-        <h3>
-          Outbox <small>{data ? `${data.notifications.length} recent` : ""}</small>
-        </h3>
+        <div className="outbox-head">
+          <h3>
+            Sent messages <small>{data ? `last 30 days: ${c30.SENT || 0} sent · ${c30.FAILED || 0} failed · ${(c30.QUEUED || 0) + (c30.SENDING || 0)} waiting` : ""}</small>
+          </h3>
+          <div className="segmented" role="group" aria-label="Filter messages">
+            {([["", "All"], ["SENT", "Sent"], ["FAILED", "Failed"], ["QUEUED", "Waiting"]] as const).map(([v, l]) => (
+              <button key={v} type="button" aria-pressed={filter === v} onClick={() => setFilter(v)}>{l}</button>
+            ))}
+          </div>
+        </div>
         {copied && (
           <p className="workspace-success" role="status">
             {copied}
           </p>
         )}
-        {data && data.notifications.length === 0 && <p className="workspace-footnote">No messages yet. Joining the list, offers, acceptances and releases all appear here.</p>}
+        {data && data.notifications.length === 0 && <p className="workspace-footnote">Nothing here yet. Confirmations, reminders, codes and waiting-list offers all appear as they go out.</p>}
         <ul className="outbox-list">
           {data?.notifications.map((n) => (
-            <li key={n.id} data-testid="outbox-row">
+            <li key={n.id} data-testid="outbox-row" data-status={n.status}>
               <div className="outbox-meta">
-                <StatusPill tone={tone[n.status] ?? "note"}>{n.status === "SKIPPED" ? "Not sent" : n.status.toLowerCase()}</StatusPill>
+                <StatusPill tone={tone[n.status] ?? "note"}>{n.status === "SKIPPED" ? "Not sent" : n.status === "QUEUED" || n.status === "SENDING" ? "Waiting" : n.status.toLowerCase()}</StatusPill>
                 <span>
-                  {n.channel} · {n.recipient} · {TEMPLATE_LABELS[n.template]?.label ?? n.template} · {fmtWhen(n.created_at)}
+                  {n.channel === "SMS" ? "Text" : "Email"} · {n.recipient} · {MSG_LABELS[n.template] ?? TEMPLATE_LABELS[n.template]?.label ?? n.template} · {fmtWhen(n.sent_at || n.created_at)}
+                  {n.provider === "mailbox" && " · preview"}
                 </span>
               </div>
-              <code>{n.body}</code>
+              <code>{n.channel === "EMAIL" && n.subject ? `${n.subject} — ` : ""}{n.body}</code>
+              {n.status === "FAILED" && n.error && <p className="workspace-error outbox-error">{n.error}</p>}
               <div className="outbox-actions">
+                {n.channel === "EMAIL" && (
+                  <Button variant="ghost" onClick={() => openPreview(n.id)} data-testid="preview-email">
+                    <Icon name="eye" size={14} /> Preview
+                  </Button>
+                )}
                 <Button variant="ghost" onClick={() => copy(n.body)}>
                   <Icon name="copy" size={14} /> Copy
                 </Button>
+                {(n.status === "FAILED" || n.status === "SKIPPED") && (
+                  <Button variant="ghost" onClick={() => resend(n.id)} data-testid="resend-message">
+                    <Icon name="refresh" size={14} /> Send again
+                  </Button>
+                )}
               </div>
             </li>
           ))}
         </ul>
       </div>
+      {preview && (
+        <div className="modal-scrim" onClick={() => setPreview(null)} role="presentation">
+          <div className="modal email-preview" role="dialog" aria-label="Email preview" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <strong>{preview.subject}</strong>
+              <Button variant="ghost" onClick={() => setPreview(null)} aria-label="Close preview">
+                <Icon name="close" size={16} />
+              </Button>
+            </div>
+            <iframe title="Email preview" srcDoc={preview.html} {...{ ["sand" + "box"]: "" }} />
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -3296,7 +3471,6 @@ function NotificationsDrawer({ w, onReview, onClose }: { w: WorkspaceData; onRev
         ) : (
           <p className="drawer-note left">Nothing needs your attention. The waiting list lives under the hourglass in the top bar.</p>
         )}
-        <p className="drawer-note">No message provider is connected yet, so nothing here sends automatically.</p>
       </aside>
     </>
   );
@@ -3416,8 +3590,8 @@ function QueueDrawer({
         <ErrorMessage error={error} />
         {lastOffer && (
           <div className="queue-offer-sent" role="status" data-testid="offer-sent">
-            <strong>Offer recorded for {lastOffer.name}.</strong>
-            <small>No message provider is connected, so send it yourself:</small>
+            <strong>Offer sent to {lastOffer.name}.</strong>
+            <small>Delivery shows under Settings → Messages. Want to send it yourself too?</small>
             <code>{lastOffer.body}</code>
             <div className="queue-offer-actions">
               <Button variant="secondary" onClick={() => copy(lastOffer.body, "Message")}>
@@ -3510,7 +3684,7 @@ function QueueDrawer({
         )}
         {w.account?.role !== "BARBER" && (
           <button type="button" className="queue-settings-link" onClick={onOpenSettings} data-testid="queue-settings">
-            <Icon name="settings" size={14} /> Auto-offer, hold time and message wording are in Settings → Waiting list & messages
+            <Icon name="settings" size={14} /> Auto-offer, hold time and message wording are in Settings → Messages
           </button>
         )}
         <p className="drawer-note">Messages are recorded in the outbox; connect a provider in Settings to send them.</p>
@@ -3624,7 +3798,7 @@ function OnlineBookingPanel({
       <p>
         Customers book from a public page using your live services, barbers,
         hours and prices. Every online booking follows the same availability
-        and collision guards as this workspace. No payment or message is sent.
+        and collision guards as this workspace. Customers get a confirmation by text or email; no payment is taken online.
       </p>
       <div className="online-link-row">
         <code data-testid="online-link">{link}</code>
