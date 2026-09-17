@@ -78,8 +78,8 @@ export const publicGuard = async (c: Ctx, next: () => Promise<void>) => {
   if (!c.env?.DB)
     return c.json(
       {
-        error: "sandbox_disabled",
-        message: "Online booking is disabled outside the local sandbox.",
+        error: "database_unavailable",
+        message: "Online booking is temporarily unavailable.",
       },
       404,
     );

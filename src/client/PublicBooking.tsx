@@ -935,7 +935,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                           }}
                           aria-pressed={date === d}
                           aria-label={`${dateLabel(d)}, ${
-                            !info ? "checking" : beyond ? "not yet open" : info.closed ? "closed" : info.available === 0 ? "fully booked" : `${info.available} times`
+                            !info ? "checking" : beyond ? "opens later" : info.closed ? "closed" : info.available === 0 ? "fully booked" : `${info.available} times`
                           }`}
                         >
                           <span>{d === shop.today ? "Today" : dateLabel(d, { weekday: "short" })}</span>
@@ -944,7 +944,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                             {!info
                               ? "…"
                               : beyond
-                                ? "Not yet"
+                                ? "Later"
                                 : info.closed
                                   ? "Closed"
                                   : info.available

@@ -461,3 +461,12 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - `shops.currency` (migration 0004, ISO 4217, 18 options) set under Settings → Currency. All client prices go through `money()`/`currencySymbol()` in `src/client/fixtures.ts` (set once per page from the shop payload); schema.org `priceCurrency` and price range follow it. Prices stay stored in minor units.
 - Workspace polls every 20s on calendar views / 60s elsewhere; Barbers hours dialog has a Break toggle per day and "Copy Monday to all"; Services has an empty state and inline category rename (`POST /services/categories/rename`).
 - Gate: vitest 25, Playwright 137 passed (visual baseline `owner-calendar-tablet` refreshed for the new Settings labels).
+
+## UX standard pass (commercial-grade bar)
+- Reviewed every surface at 1440/390 with `npm run ux:review` (seeds a realistic shop, screenshots to /tmp/ux).
+- Calendar opens scrolled to now (today) / first appointment (other days); gutter shows the shop's real zone (BST/CET…).
+- Refresh icon removed from the calendar toolbar (workspace is live). Phone toolbar cut to two rows; the tab-bar `+` is the only add control on phones; grid starts ~330px from the top.
+- Copy sweep: no "YOUR SHOP /" eyebrow or "Manage your shop…" filler — each section has a one-line purpose. Settings "Customer pages" roadmap panel → "Your links" (live links only, no status pills or plan link). "in this build" / "not yet" / sandbox wording removed from customer-facing text.
+- Team roster cards show live status ("3 visits · £65 today · Next 14:00", "Free today", "Off today").
+- Standard written down in `docs/UX-STANDARD.md`; `npm run ux:lint` (runs inside `test:unit`) fails the build on banned engineering/roadmap language and hard-coded currency symbols.
+- Gate: ux-lint clean, vitest 25, Playwright 137/137 (visual baselines refreshed for the intentional calendar/toolbar changes).

@@ -709,7 +709,7 @@ test("customers tab: filters, add customer with tags, profile stats, picker in b
   await page.getByRole("button", { name: "Regulars", exact: true }).click();
   await expect(list.locator("li", { hasText: "Fresh Face" })).toHaveCount(0);
   await list.locator("li button").first().click();
-  await expect(profile.locator(".customer-favourites strong").first()).not.toHaveText("Not yet");
+  await expect(profile.locator(".customer-favourites strong").first()).not.toHaveText("None yet");
   await expect(profile.locator(".customer-history li").first()).toBeVisible();
   const spend = await profile.locator(".stat-card", { hasText: "Lifetime spend" }).locator(".stat-value").innerText();
   expect(spend).toMatch(/^£\d+/);

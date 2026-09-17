@@ -1680,7 +1680,7 @@ export function Workspace() {
           current={tab}
           onSelect={goTo}
           fab={{
-            label: "Add appointment",
+            label: "New booking",
             disabled: !w || !online,
             onClick: () => {
               if (!w) return;
@@ -3932,14 +3932,14 @@ function CustomersPanel({
               <div className="customer-favourites">
                 <div>
                   <span className="eyebrow">Favourite barber</span>
-                  <strong>{profile.favourite_staff_id ? staffName(profile.favourite_staff_id) : "Not yet"}</strong>
+                  <strong>{profile.favourite_staff_id ? staffName(profile.favourite_staff_id) : "None yet"}</strong>
                   {profile.customer.preferred_staff_id && profile.customer.preferred_staff_id !== profile.favourite_staff_id && (
                     <small>Prefers {staffName(profile.customer.preferred_staff_id)}</small>
                   )}
                 </div>
                 <div>
                   <span className="eyebrow">Usual service</span>
-                  <strong>{profile.favourite_service || "Not yet"}</strong>
+                  <strong>{profile.favourite_service || "None yet"}</strong>
                   {profile.services[1] && <small>also {profile.services[1].name}</small>}
                 </div>
                 <div>

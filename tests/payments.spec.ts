@@ -160,7 +160,7 @@ test("till access: barbers cannot take payment by default; owner setting opens i
   expect(r.status()).toBe(403);
   // Barber's phone view: panel shows the lock note, not a Take payment button; wallet is "My earnings".
   await barber.goto("/workspace");
-  await barber.getByRole("button", { name: "Add appointment", exact: true }).waitFor();
+  await barber.getByRole("button", { name: "New booking", exact: true }).waitFor();
   await barber.getByTestId("wallet-chip").click();
   await expect(barber.getByTestId("wallet-drawer")).toContainText("My earnings");
   await expect(barber.getByTestId("wallet-drawer")).toContainText("Commission");

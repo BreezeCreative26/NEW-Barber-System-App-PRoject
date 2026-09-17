@@ -79,7 +79,7 @@ app.get("/docs/customer-plan", (c) => {
   try {
     customerPlan = readFileSync(join(process.cwd(), "docs", "CUSTOMER-PLAN.md"), "utf8");
   } catch {
-    customerPlan = "Plan not bundled in this deployment. See docs/CUSTOMER-PLAN.md in the repository.";
+    customerPlan = "This page is not available.";
   }
   return c.html(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OLLO · Customer plan</title><link rel="stylesheet" href="/static/design.css"><style>body{font-family:var(--font);max-width:80ch;margin:0 auto;padding:32px 20px;color:var(--ink);line-height:1.55}pre{white-space:pre-wrap;font:inherit;font-size:14px}h1{font-size:24px}a{color:var(--accent-dark)}</style></head><body><a href="/workspace">← Back to OLLO</a><h1>Customer side — plan</h1><pre>${customerPlan.replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[ch] as string)}</pre></body></html>`);
 });
