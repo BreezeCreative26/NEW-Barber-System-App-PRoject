@@ -7627,3 +7627,4 @@ img.avatar-ink.avatar-logo {
 img.avatar-ink.avatar-logo {
   border-radius: 50%;
 }
+img.mini-shop-emblem.shop-logo { object-fit: cover; background: #fff; padding: 0; }

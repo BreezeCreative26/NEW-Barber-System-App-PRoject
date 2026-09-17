@@ -45,7 +45,18 @@ reviewed against the screenshots produced by `node scripts/audit/ux-review.mjs`.
 - Every interactive element has a name. Dialogs trap focus and return it. Axe passes at 320, 390,
   768, 1024 and 1440 (enforced in `tests/workspace.spec.ts`).
 
-## 8. Honesty
+## 8. The shop page is the shop's, not ours
+- The hero carries the shop's identity: logo (or initials mark), name, strapline, open state, rating
+  when it exists, address, Book/Call/Directions. Full-bleed accent gradient when there's no cover photo.
+- Every card is a real affordance: services show price, duration and a book chevron; barbers show
+  their next free time and a full-width Book button; "Next available" leads with the time.
+- Sections that have nothing to show (Find us with no contact details, gallery with no photos)
+  don't render — no half-empty columns.
+- Footer repeats the essentials (name, address, phone, Instagram, hours, Your visits).
+- Review section-by-section at viewport scale (`npm run ux:review` writes `*-40a…e` shots) —
+  full-page thumbnails hide spacing and density problems.
+
+## 9. Honesty
 - Never describe a feature the customer can't use. If deposits aren't taken online, say
   "payable in the shop" — not "not collected in this build".
 - Settings shows what the owner can *do*, not what we plan to build.

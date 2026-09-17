@@ -28,7 +28,7 @@ test("shop page renders the seeded sections and every shortcut re-targets the em
   }
   // Gallery is off in the seed, so its heading must not render.
   await expect(page.getByRole("heading", { name: "Gallery" })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "020 7946 0111" })).toHaveAttribute("href", /^tel:/);
+  await expect(page.locator("#find").getByRole("link", { name: "020 7946 0111" })).toHaveAttribute("href", /^tel:/);
   // Embedded flow starts on the service step with no header/hero/banner of its own.
   const flow = page.locator(".booking-app.embedded");
   await expect(flow.getByRole("heading", { name: "What are we doing today?" })).toBeVisible();
@@ -124,7 +124,7 @@ test("owner edits the shop page in Settings and the public page reflects it", as
   await expect(root).toHaveClass(/accent-sage/);
   await expect(root).toContainText("Walk in a stranger, walk out a regular.");
   await expect(page.getByRole("heading", { name: "The team", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "020 7946 0999" })).toBeVisible();
+  await expect(page.locator("#find").getByRole("link", { name: "020 7946 0999" })).toBeVisible();
 });
 
 test("shop page API validates and guards versions", async () => {

@@ -85,6 +85,14 @@ for (const [label, viewport] of [["desk", { width: 1440, height: 900 }], ["phone
   // Public
   await page.goto(`${origin}/${slug}`);
   await shoot(page, `${label}-40-shop-page`, { full: true, wait: 1500 });
+  // Section-level shots at viewport scale: full-page thumbnails hide density and spacing problems.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await shoot(page, `${label}-40a-shop-hero`);
+  for (const [n, sel] of [["b-services", "#services"], ["c-team", "#team"], ["d-book", "#book"], ["e-hours", "#hours"]]) {
+    if (!(await page.locator(sel).count())) continue;
+    await page.evaluate((s) => { const e = document.querySelector(s); if (e) window.scrollTo(0, e.getBoundingClientRect().top + window.scrollY - 70); }, sel);
+    await shoot(page, `${label}-40${n}`, { wait: 400 });
+  }
   await page.goto(`${origin}/book/${slug}`);
   await shoot(page, `${label}-41-book`, { full: true, wait: 1500 });
   await ctx.close();

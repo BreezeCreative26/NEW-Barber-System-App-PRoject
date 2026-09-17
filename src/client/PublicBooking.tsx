@@ -1320,10 +1320,10 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
             </section>
             <aside className="booking-summary" aria-label="Your visit summary">
               <div className="summary-shop">
-                <span className="mini-shop-emblem">{initials(shop.shop.name)}</span>
+                {shop.shop.logo_url ? <img className="mini-shop-emblem shop-logo" src={shop.shop.logo_url} alt="" /> : <span className="mini-shop-emblem">{initials(shop.shop.name)}</span>}
                 <div>
-                  <strong>Your time, well spent.</strong>
-                  <span>{shop.shop.name}</span>
+                  <strong>{shop.shop.name}</strong>
+                  <span>{shop.shop.address || "Your visit summary"}</span>
                 </div>
               </div>
               <h3>Your visit</h3>
@@ -1382,10 +1382,12 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                       : "Choose your date & time"}
                   </span>
                 </p>
-                <p>
-                  <Icon name="clock" />
-                  <span>{duration} minutes</span>
-                </p>
+                {extraIds.length > 0 && (
+                  <p>
+                    <Icon name="clock" />
+                    <span>{duration} minutes in total</span>
+                  </p>
+                )}
               </div>
               <div className="summary-price">
                 <p>
@@ -1394,7 +1396,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                 </p>
                 <p className="deposit-line">
                   <span>
-                    Deposit policy<small>Recorded, not collected</small>
+                    Deposit policy<small>Payable in the shop</small>
                   </span>
                   <strong>{money(deposit)}</strong>
                 </p>

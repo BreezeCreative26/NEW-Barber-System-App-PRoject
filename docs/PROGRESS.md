@@ -470,3 +470,14 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - Team roster cards show live status ("3 visits · £65 today · Next 14:00", "Free today", "Off today").
 - Standard written down in `docs/UX-STANDARD.md`; `npm run ux:lint` (runs inside `test:unit`) fails the build on banned engineering/roadmap language and hard-coded currency symbols.
 - Gate: ux-lint clean, vitest 25, Playwright 137/137 (visual baselines refreshed for the intentional calendar/toolbar changes).
+
+## Shop page: commercial-grade pass
+- Hero: centred, logo/initials mark, accent radial gradient when no cover (dark scrim when there is), open-state pill, rating + address line, Book/Call/Directions. Dropped the "3 barbers · 09:00–18:00" facts row.
+- Next available: barber-first cards with the time as the hero figure.
+- Services: proper category subheads with rules, book chevron on every card, hover lift, `Tap a service to start booking it.`
+- Team: 72px photo/initials, "Next free today 14:30" pill, full-width Book button.
+- Hours/Find us: cards; Find us hides when the shop has no contact details (no half-empty column).
+- Footer: identity block + phone/Instagram/hours/Your visits links + Powered by OLLO.
+- Embedded booking summary: shop name + address instead of the tagline; duration line only when add-ons change it; deposit "Payable in the shop".
+- `npm run ux:review` now also writes section-level shop-page shots (`*-40a…e`). Standard §8 added to docs/UX-STANDARD.md.
+- Gate: ux-lint clean, vitest 25, Playwright 137/137.

@@ -85,6 +85,7 @@ export function ShopPage({ slug }: { slug: string }) {
     return "";
   })();
   const categories = [...new Set(data.services.map((s) => s.category))];
+  const hasContact = !!(shop.address || page.phone || page.email || page.instagram || page.transport_note);
   const mapHref = page.map_url || (shop.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.address)}` : "");
   return (
     <div className={`shop-page accent-${page.accent}`} data-testid="shop-page">
@@ -100,7 +101,7 @@ export function ShopPage({ slug }: { slug: string }) {
           {has("services") && <a href="#services">Services</a>}
           {has("team") && <a href="#team">Team</a>}
           {has("hours") && <a href="#hours">Hours</a>}
-          {has("find") && <a href="#find">Find us</a>}
+          {has("find") && hasContact && <a href="#find">Find us</a>}
           {has("reviews") && data.reviews.length > 0 && <a href="#reviews">Reviews</a>}
           <a href={`/${shop.slug}/me`} className="sp-me" data-testid="nav-me">
             <Icon name="userRound" size={15} /> {me ? me.name.split(" ")[0] || "Your visits" : "Your visits"}
@@ -113,19 +114,27 @@ export function ShopPage({ slug }: { slug: string }) {
 
       <main id="main-content">
         {has("hero") && (
-          <section className={`sp-hero ${page.cover_url ? "has-cover" : ""}`} style={page.cover_url ? { backgroundImage: `url("${page.cover_url}")` } : undefined}>
+          <section className={`sp-hero ${page.cover_url ? "has-cover" : "no-cover"}`} style={page.cover_url ? { backgroundImage: `url("${page.cover_url}")` } : undefined}>
             <div className="sp-hero-inner">
+              {page.logo_url ? <img className="sp-hero-logo" src={page.logo_url} alt="" /> : <span className="sp-hero-logo sp-hero-initials">{initials(shop.name)}</span>}
               <span className={`sp-open ${data.open_now ? "open" : ""}`} data-testid="open-now">
                 <i aria-hidden="true" />
                 {data.open_now ? `Open now · until ${time((todayHours as { ends: number }).ends)}` : todayHours.open && nextOpen ? `Closed · opens ${nextOpen}` : nextOpen ? `Closed today · opens ${nextOpen}` : "Closed"}
               </span>
               <h1>{shop.name}</h1>
               <p className="sp-strap">{page.strapline || "Book your next visit online in under a minute."}</p>
-              {data.rating.count > 0 && data.rating.average !== null && (
-                <a className="sp-hero-rating" href="#reviews" data-testid="hero-rating">
-                  <Stars value={data.rating.average} size={14} label={`${data.rating.average} out of 5`} /> <strong>{data.rating.average}</strong> · {data.rating.count} review{data.rating.count === 1 ? "" : "s"}
-                </a>
-              )}
+              <div className="sp-hero-meta">
+                {data.rating.count > 0 && data.rating.average !== null && (
+                  <a className="sp-hero-rating" href="#reviews" data-testid="hero-rating">
+                    <Stars value={data.rating.average} size={14} label={`${data.rating.average} out of 5`} /> <strong>{data.rating.average}</strong> · {data.rating.count} review{data.rating.count === 1 ? "" : "s"}
+                  </a>
+                )}
+                {shop.address && (
+                  <span className="sp-hero-address">
+                    <Icon name="pin" size={14} /> {shop.address}
+                  </span>
+                )}
+              </div>
               <div className="sp-hero-actions">
                 <button type="button" className="button primary" onClick={() => book()} data-testid="hero-book">
                   <Icon name="calendar" size={16} /> Book now
@@ -135,25 +144,12 @@ export function ShopPage({ slug }: { slug: string }) {
                     <Icon name="call" size={16} /> Call
                   </a>
                 )}
-                {mapHref && (
+                {mapHref && shop.address && (
                   <a className="button secondary" href={mapHref} target="_blank" rel="noreferrer">
                     <Icon name="pin" size={16} /> Directions
                   </a>
                 )}
               </div>
-              <ul className="sp-facts">
-                <li>
-                  <Icon name="scissors" size={14} /> {data.staff.length} barber{data.staff.length === 1 ? "" : "s"}
-                </li>
-                <li>
-                  <Icon name="clock" size={14} /> {time(shop.opens)}–{time(shop.closes)}
-                </li>
-                {shop.address && (
-                  <li>
-                    <Icon name="pin" size={14} /> {shop.address}
-                  </li>
-                )}
-              </ul>
             </div>
           </section>
         )}
@@ -162,25 +158,24 @@ export function ShopPage({ slug }: { slug: string }) {
           <section className="sp-section sp-next" aria-labelledby="sp-next-heading">
             <div className="sp-section-head">
               <h2 id="sp-next-heading">Next available</h2>
-              <p>{data.services[0]?.name} · tap to book that time</p>
+              <p>Soonest free time with each barber for a {data.services[0]?.name.toLowerCase()}. Tap to book it.</p>
             </div>
             <ul className="sp-next-list">
-              {data.soonest.map((n) => (
-                <li key={n.staff_id}>
-                  <button type="button" onClick={() => book({ service: n.service_id, staff: n.staff_id, date: n.date, start: n.start_min, step: 2 })} data-testid="soonest">
-                    <Avatar initials={initials(n.staff_name)} colour={data.staff.find((s) => s.id === n.staff_id)?.colour || "sage"} />
-                    <span>
-                      <b>
-                        {n.date === data.today ? "Today" : dateLabel(n.date, { weekday: "short", day: "numeric", month: "short" })} · {time(n.start_min)}
-                      </b>
-                      <small>
-                        with {n.staff_name.split(" ")[0]} · {money(n.price_pence)}
-                      </small>
-                    </span>
-                    <Icon name="right" size={16} />
-                  </button>
-                </li>
-              ))}
+              {data.soonest.map((n) => {
+                const member = data.staff.find((s) => s.id === n.staff_id);
+                return (
+                  <li key={n.staff_id}>
+                    <button type="button" onClick={() => book({ service: n.service_id, staff: n.staff_id, date: n.date, start: n.start_min, step: 2 })} data-testid="soonest">
+                      {member?.photo_url ? <img src={member.photo_url} alt="" className="sp-next-photo" /> : <Avatar initials={initials(n.staff_name)} colour={member?.colour || "sage"} />}
+                      <span className="sp-next-text">
+                        <b>{n.staff_name.split(" ")[0]}</b>
+                        <small>{n.date === data.today ? "Today" : dateLabel(n.date, { weekday: "short", day: "numeric", month: "short" })} · {money(n.price_pence)}</small>
+                      </span>
+                      <span className="sp-next-time">{time(n.start_min)}</span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}
@@ -195,7 +190,7 @@ export function ShopPage({ slug }: { slug: string }) {
           <section className="sp-section" id="services" aria-labelledby="sp-services-heading">
             <div className="sp-section-head">
               <h2 id="sp-services-heading">Services</h2>
-              <p>Prices shown are the shop's live prices; some barbers price differently.</p>
+              <p>Tap a service to start booking it.</p>
             </div>
             {categories.map((cat) => (
               <div className="sp-cat" key={cat}>
@@ -217,6 +212,9 @@ export function ShopPage({ slug }: { slug: string }) {
                             <b>{money(s.price_pence)}</b>
                             <small>{s.duration_min} min</small>
                           </span>
+                          <span className="sp-service-go" aria-hidden="true">
+                            <Icon name="right" size={16} />
+                          </span>
                         </button>
                       </li>
                     ))}
@@ -233,12 +231,19 @@ export function ShopPage({ slug }: { slug: string }) {
               <p>Pick who you want; the booking remembers.</p>
             </div>
             <ul className="sp-team">
-              {data.staff.map((b) => (
+              {data.staff.map((b) => {
+                const soon = data.soonest.find((n) => n.staff_id === b.id);
+                return (
                 <li key={b.id} className="sp-barber">
                   {b.photo_url ? <img src={b.photo_url} alt="" className={`sp-photo ${b.colour || ""}`} /> : <Avatar initials={initials(b.name)} colour={b.colour || "sage"} size="large" />}
                   <div className="sp-barber-text">
                     <b>{b.name}</b>
                     <small>{b.title || b.role}</small>
+                    {soon && (
+                      <span className="sp-barber-next">
+                        <Icon name="clock" size={13} /> Next free {soon.date === data.today ? "today" : dateLabel(soon.date, { weekday: "short" })} {time(soon.start_min)}
+                      </span>
+                    )}
                     {b.bio && <p>{b.bio}</p>}
                     {b.skills && JSON.parse(b.skills).length > 0 && (
                       <span className="sp-skills">
@@ -259,7 +264,8 @@ export function ShopPage({ slug }: { slug: string }) {
                     )}
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </section>
         )}
@@ -272,8 +278,8 @@ export function ShopPage({ slug }: { slug: string }) {
           <PublicBooking slug={slug} embedded preset={preset} customer={me} />
         </section>
 
-        {(has("hours") || has("find")) && (
-          <div className="sp-two">
+        {(has("hours") || (has("find") && hasContact)) && (
+          <div className={`sp-two ${has("hours") && has("find") && hasContact ? "" : "single"}`}>
             {has("hours") && (
               <section className="sp-section" id="hours" aria-labelledby="sp-hours-heading">
                 <h2 id="sp-hours-heading">Opening hours</h2>
@@ -297,7 +303,7 @@ export function ShopPage({ slug }: { slug: string }) {
                 )}
               </section>
             )}
-            {has("find") && (
+            {has("find") && hasContact && (
               <section className="sp-section" id="find" aria-labelledby="sp-find-heading">
                 <h2 id="sp-find-heading">Find us</h2>
                 <address className="sp-address">
@@ -371,17 +377,32 @@ export function ShopPage({ slug }: { slug: string }) {
         )}
       </main>
       <footer className="sp-footer">
-        <span>
-          {shop.name}
-          {shop.address ? ` · ${shop.address}` : ""}
-        </span>
-        <span className="powered-by">
-          Powered by{" "}
-          <strong>
-            <img src="/static/brand/ollo-mark.svg" alt="" width={14} height={14} />
-            OLLO
-          </strong>
-        </span>
+        <div className="sp-footer-inner">
+          <div className="sp-footer-brand">
+            {page.logo_url ? <img className="shop-emblem shop-logo" src={page.logo_url} alt="" /> : <span className="shop-emblem">{initials(shop.name)}</span>}
+            <div>
+              <b>{shop.name}</b>
+              {shop.address && <span>{shop.address}</span>}
+            </div>
+          </div>
+          <div className="sp-footer-links">
+            {page.phone && <a href={`tel:${page.phone.replace(/\s/g, "")}`}>{page.phone}</a>}
+            {page.instagram && (
+              <a href={`https://instagram.com/${page.instagram}`} target="_blank" rel="noreferrer">
+                @{page.instagram}
+              </a>
+            )}
+            {has("hours") && <a href="#hours">Opening hours</a>}
+            <a href={`/${shop.slug}/me`}>Your visits</a>
+          </div>
+          <span className="powered-by">
+            Powered by{" "}
+            <strong>
+              <img src="/static/brand/ollo-mark.svg" alt="" width={14} height={14} />
+              OLLO
+            </strong>
+          </span>
+        </div>
       </footer>
     </div>
   );
