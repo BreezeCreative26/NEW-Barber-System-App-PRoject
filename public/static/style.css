@@ -2249,7 +2249,7 @@ input[aria-invalid="true"] {
 }
 .calendar-staff-header {
   display: grid;
-  grid-template-columns: 64px repeat(var(--columns), minmax(0, 1fr));
+  grid-template-columns: var(--gutter, 64px) repeat(var(--columns), minmax(0, 1fr));
   height: 68px;
   position: sticky;
   top: 0;
@@ -2296,7 +2296,7 @@ input[aria-invalid="true"] {
 .calendar-timeline {
   position: relative;
   display: grid;
-  grid-template-columns: 64px repeat(var(--columns), minmax(0, 1fr));
+  grid-template-columns: var(--gutter, 64px) repeat(var(--columns), minmax(0, 1fr));
   height: 804px;
   background: repeating-linear-gradient(
     to bottom,
@@ -7780,10 +7780,36 @@ img.avatar-ink.avatar-logo { border-radius: 8px; width: auto; max-width: 96px; h
 .staff-hours-chip:hover { color: var(--ink); border-color: var(--ink); }
 .staff-hours-chip.edited { border-color: var(--accent); color: var(--accent-dark); background: var(--ollo-soft); }
 .staff-hours-chip.off { text-decoration: line-through; }
-.calendar-event[draggable="true"] { cursor: grab; }
-.calendar-event[data-dragging="true"] { opacity: 0.45; }
+/* ---- Calendar drag, snap, hover, overlap ---- */
+.calendar-event[data-draggable="true"] { cursor: grab; touch-action: pan-y; }
+.calendar-event[data-dragging="true"] { opacity: 0.35; cursor: grabbing; }
+body.is-dragging-appointment, body.is-dragging-appointment * { cursor: grabbing !important; user-select: none; }
+.calendar-board.dragging .timetable-slot { pointer-events: none; }
 .timetable-slot[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--ollo-soft); }
-.calendar-drop-ghost { position: absolute; left: 4px; right: 4px; border: 2px dashed var(--accent); border-radius: var(--r-md); background: color-mix(in srgb, var(--ollo-soft) 70%, transparent); padding: 4px 8px; font-size: var(--fs-11); pointer-events: none; z-index: 3; }
+/* Greyed-but-clickable: soft reasons keep the hatch but invite the click. */
+.workspace .timetable-slot.blocked.soft { cursor: pointer; }
+.workspace .timetable-slot.blocked.soft:hover { background: repeating-linear-gradient(135deg, #e9ebf3, #e9ebf3 5px, #dfe2ee 5px, #dfe2ee 6px); }
+.workspace .timetable-slot.blocked.soft:hover span::after { content: " \00b7 book anyway"; font-weight: 400; color: var(--accent); }
+.workspace .timetable-slot.occupied:not(:disabled) { cursor: pointer; }
+.workspace .timetable-slot.occupied:not(:disabled):hover span::after { content: " \00b7 alongside"; color: var(--accent); }
+.workspace .timetable-slot:disabled { cursor: not-allowed; }
+/* Hover time label: one per column, follows the pointer in 15-min steps. */
+.slot-hover { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--accent); pointer-events: none; z-index: 4; line-height: 0; }
+.slot-hover > b { position: absolute; top: -9px; left: 6px; padding: 1px 7px; border-radius: var(--r-pill); background: var(--accent); color: #fff; font-size: var(--fs-11); font-weight: 600; line-height: 1.5; font-variant-numeric: tabular-nums; }
+/* Ghost: the card that follows the drag. Its top edge = the new start. */
+.calendar-drop-ghost { position: absolute; left: 4px; right: 4px; border: 2px solid var(--accent); border-radius: var(--r-md); background: color-mix(in srgb, var(--ollo-soft) 82%, #fff); padding: 4px 8px; font-size: var(--fs-11); pointer-events: none; z-index: 6; display: grid; align-content: start; gap: 1px; box-shadow: 0 8px 22px rgba(24, 27, 42, 0.18); animation: snap-tick 90ms ease-out; }
+.calendar-drop-ghost .ghost-time { position: absolute; top: -11px; left: 8px; padding: 1px 7px; border-radius: var(--r-pill); background: var(--accent); color: #fff; font-size: var(--fs-11); font-variant-numeric: tabular-nums; line-height: 1.5; }
+.calendar-drop-ghost > span { margin-top: 10px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-drop-ghost small { color: var(--muted); }
+.calendar-drop-ghost.soft { border-style: dashed; border-color: #b8860b; background: #fff8e6; }
+.calendar-drop-ghost.soft .ghost-time { background: #b8860b; }
+.calendar-drop-ghost.refused { border-color: #c0392b; background: #fdecea; }
+.calendar-drop-ghost.refused .ghost-time { background: #c0392b; }
+@keyframes snap-tick { from { transform: scale(1.015); } to { transform: scale(1); } }
+/* Overlaps: cards share the column width. */
+.calendar-event.overlapping { box-shadow: 0 0 0 1px #fff; }
+.calendar-event.overlapping strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.calendar-event[data-lanes="3"] span, .calendar-event[data-lanes="4"] span { display: none; }
 .method-tile small { display: block; font-weight: 400; color: var(--muted); font-size: var(--fs-11); }
 .checkout .method-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .checkout .method-tile { padding: 12px 10px; min-height: 72px; }

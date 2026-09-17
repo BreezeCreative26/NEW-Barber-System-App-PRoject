@@ -5,6 +5,7 @@ import {
   useState,
   type KeyboardEvent,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import type { WorkspaceData, StoredBooking, Staff } from "../server/domain";
 import { Avatar, BlockIcons, Icon } from "./ui";
@@ -24,7 +25,51 @@ export function useCompact() {
   return compact;
 }
 
-export type CalendarDraft = { staffId: string; start: number };
+export type CalendarDraft = { staffId: string; start: number; outside?: string };
+// Where a drag may land and what the shop is knowingly overriding there ("" = clean slot).
+export type MoveTarget = { staffId: string; start: number; override: string };
+
+// Overlapping appointments share the column side by side (Google/Fresha style). Cluster bookings
+// whose intervals touch, then assign each a lane greedily; every card in a cluster gets the same
+// lane count so widths line up.
+export function layoutLanes<T extends { id: string; start_min: number; duration_min: number }>(items: T[]) {
+  const sorted = [...items].sort((a, b) => a.start_min - b.start_min || b.duration_min - a.duration_min);
+  const out = new Map<string, { lane: number; lanes: number }>();
+  let cluster: T[] = [];
+  let clusterEnd = -1;
+  const flush = () => {
+    const laneEnds: number[] = [];
+    const placed: { id: string; lane: number }[] = [];
+    for (const b of cluster) {
+      let lane = laneEnds.findIndex((e) => e <= b.start_min);
+      if (lane === -1) lane = laneEnds.length;
+      laneEnds[lane] = b.start_min + Math.max(b.duration_min, 5);
+      placed.push({ id: b.id, lane });
+    }
+    for (const p of placed) out.set(p.id, { lane: p.lane, lanes: laneEnds.length });
+    cluster = [];
+    clusterEnd = -1;
+  };
+  for (const b of sorted) {
+    if (cluster.length && b.start_min >= clusterEnd) flush();
+    cluster.push(b);
+    clusterEnd = Math.max(clusterEnd, b.start_min + Math.max(b.duration_min, 5));
+  }
+  if (cluster.length) flush();
+  return out;
+}
+
+// Haptic "click" as the drag passes each 15-minute line (touch devices); desktop gets a CSS tick.
+function tick() {
+  try {
+    navigator.vibrate?.(6);
+  } catch {
+    /* not supported */
+  }
+}
+// Slot reasons the shop may knowingly book over from the calendar. Mirrors OVERRIDABLE_REASONS server-side.
+const SOFT_REASONS = new Set(["Outside hours", "Off duty", "Break", "Occupied"]);
+const HARD_REASONS = new Set(["Past time", "Shop closed", "Day off", "Inactive barber"]);
 // Native buttons remain buttons (not an incomplete ARIA grid). One free slot
 // per barber is tabbable; arrows move focus only and never mutate bookings.
 function navigateSlots(event: KeyboardEvent<HTMLButtonElement>) {
@@ -111,9 +156,23 @@ export function Calendar({
   onDraft: (draft: CalendarDraft) => void;
   onOpen: (booking: StoredBooking) => void;
   onHours?: (staff: Staff, date: string) => void;
-  onMove?: (booking: StoredBooking, to: { staffId: string; start: number }) => Promise<void> | void;
+  onMove?: (booking: StoredBooking, to: MoveTarget) => Promise<void> | void;
 }) {
-  const [dragging, setDragging] = useState<{ id: string; overStaff: string; overStart: number } | null>(null);
+  // Pointer-driven drag: the card's TOP edge is the booking time. `overStart` is snapped to 15 min.
+  const [dragging, setDragging] = useState<{ id: string; overStaff: string; overStart: number; tick: number } | null>(null);
+  const dragRef = useRef<{
+    id: string;
+    pointerId: number;
+    grabOffsetY: number; // px from card top to the pointer at grab time
+    originStaff: string;
+    originStart: number;
+    startX: number;
+    startY: number;
+    armed: boolean; // moved past the slop threshold, so this is a drag not a click
+    timer: number | null; // long-press arm on touch
+  } | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState<{ staffId: string; start: number } | null>(null);
   const [focusedSlot, setFocusedSlot] = useState<
     (CalendarDraft & { date: string }) | null
   >(null);
@@ -189,6 +248,138 @@ export function Calendar({
     );
   const gutter = compact ? 44 : 64;
   const columnWidth = compact ? 150 : 190;
+
+  // ---- Drag engine ----------------------------------------------------------------------------
+  // Geometry: the timeline element is positioned; columns share the width after the gutter.
+  function locate(clientX: number, clientY: number, grabOffsetY: number) {
+    const timeline = boardRef.current?.querySelector<HTMLElement>(".calendar-timeline");
+    if (!timeline) return null;
+    const rect = timeline.getBoundingClientRect();
+    const colW = (rect.width - gutter) / staff.length;
+    const col = Math.min(staff.length - 1, Math.max(0, Math.floor((clientX - rect.left - gutter) / colW)));
+    const topPx = clientY - rect.top - grabOffsetY;
+    const minute = begin + Math.round(topPx / step) * 15;
+    return { staffId: staff[col].id, start: Math.min(end - 15, Math.max(begin, minute)) };
+  }
+  function slotState(staffId: string, start: number, excludeId?: string): string {
+    const s = staff.find((x) => x.id === staffId);
+    if (!s) return "Inactive barber";
+    const shift = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date) || w.hours.find((h) => h.staff_id === s.id && h.weekday === new Date(date + "T12:00:00Z").getUTCDay());
+    const leave = w.days_off.some((d) => d.staff_id === s.id && d.date === date);
+    if (!s.active) return "Inactive barber";
+    if (closed) return "Shop closed";
+    if (leave) return "Day off";
+    if (date < today || (date === today && start <= currentMinute)) return "Past time";
+    if (!shift?.enabled) return "Off duty";
+    if (start < Math.max(dayHours.starts, shift.starts) || start >= Math.min(dayHours.ends, shift.ends)) return "Outside hours";
+    if (start >= shift.break_start && start < shift.break_end) return "Break";
+    const moving = excludeId ? dayBookings.find((b) => b.id === excludeId) : null;
+    const dur = moving?.duration_min ?? 15;
+    if (dayBookings.some((b) => b.id !== excludeId && b.staff_id === s.id && start < b.start_min + b.duration_min + b.buffer_min && start + dur > b.start_min)) return "Occupied";
+    return "";
+  }
+  function endDrag(commit: boolean) {
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (d?.timer) window.clearTimeout(d.timer);
+    const live = dragging;
+    setDragging(null);
+    document.body.classList.remove("is-dragging-appointment");
+    if (!commit || !d || !d.armed || !live || !onMove) return;
+    const b = bookings.find((x) => x.id === d.id);
+    if (!b) return;
+    if (live.overStaff === b.staff_id && live.overStart === b.start_min) return;
+    const reason = slotState(live.overStaff, live.overStart, b.id);
+    if (HARD_REASONS.has(reason)) return; // ghost was already red; drop is a no-op
+    void onMove(b, { staffId: live.overStaff, start: live.overStart, override: SOFT_REASONS.has(reason) ? reason : "" });
+  }
+  function onEventPointerDown(e: ReactPointerEvent<HTMLButtonElement>, b: StoredBooking) {
+    if (!onMove || b.status !== "CONFIRMED" || disabled) return;
+    if (e.button !== 0) return;
+    const card = e.currentTarget.getBoundingClientRect();
+    const touch = e.pointerType === "touch";
+    dragRef.current = {
+      id: b.id,
+      pointerId: e.pointerId,
+      grabOffsetY: e.clientY - card.top,
+      originStaff: b.staff_id,
+      originStart: b.start_min,
+      startX: e.clientX,
+      startY: e.clientY,
+      armed: false,
+      timer: touch
+        ? window.setTimeout(() => {
+            // Long-press on touch arms the drag so a plain scroll still scrolls.
+            const d = dragRef.current;
+            if (!d || d.id !== b.id) return;
+            d.armed = true;
+            tick();
+            setDragging({ id: b.id, overStaff: b.staff_id, overStart: b.start_min, tick: 0 });
+            document.body.classList.add("is-dragging-appointment");
+          }, 260)
+        : null,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+  function onEventPointerMove(e: ReactPointerEvent<HTMLButtonElement>) {
+    const d = dragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    if (!d.armed) {
+      const moved = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
+      if (e.pointerType === "touch") {
+        if (moved > 10 && d.timer) {
+          // Finger moved before long-press fired: it's a scroll. Let go.
+          window.clearTimeout(d.timer);
+          dragRef.current = null;
+        }
+        return;
+      }
+      if (moved < 5) return;
+      d.armed = true;
+      setDragging({ id: d.id, overStaff: d.originStaff, overStart: d.originStart, tick: 0 });
+      document.body.classList.add("is-dragging-appointment");
+    }
+    e.preventDefault();
+    const at = locate(e.clientX, e.clientY, d.grabOffsetY);
+    if (!at) return;
+    setDragging((prev) => {
+      if (!prev) return prev;
+      if (prev.overStaff === at.staffId && prev.overStart === at.start) return prev;
+      tick();
+      return { ...prev, overStaff: at.staffId, overStart: at.start, tick: prev.tick + 1 };
+    });
+  }
+  function onEventPointerUp(e: ReactPointerEvent<HTMLButtonElement>) {
+    const d = dragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    const wasArmed = d.armed;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+    endDrag(true);
+    if (wasArmed) {
+      // Swallow the click that follows a drag so the panel doesn't open.
+      const swallow = (ev: Event) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+      };
+      e.currentTarget.addEventListener("click", swallow, { capture: true, once: true });
+    }
+  }
+  useEffect(() => {
+    if (!dragging) return;
+    const cancel = (ev: KeyboardEvent | globalThis.KeyboardEvent) => {
+      if ((ev as globalThis.KeyboardEvent).key === "Escape") endDrag(false);
+    };
+    window.addEventListener("keydown", cancel as EventListener);
+    return () => window.removeEventListener("keydown", cancel as EventListener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging?.id]);
+  const draggingBooking = dragging ? bookings.find((x) => x.id === dragging.id) : null;
+  const dropReason = dragging ? slotState(dragging.overStaff, dragging.overStart, dragging.id) : "";
+
   return (
     <>
       <div
@@ -200,7 +391,8 @@ export function Calendar({
         aria-describedby="timetable-keyboard-help"
       >
         <div
-          className="calendar-board"
+          className={`calendar-board ${dragging ? "dragging" : ""}`}
+          ref={boardRef}
           style={
             {
               "--columns": staff.length,
@@ -311,14 +503,27 @@ export function Calendar({
                   (slot) => slot.start === activeSlots[`${date}:${s.id}`],
                 )?.start ?? enabledSlots[0]?.start;
               const colour = s.colour || ["sage", "sand", "blue", "clay"][w.staff.findIndex((member) => member.id === s.id) % 4];
+              const lanes = layoutLanes(occupied.filter((b) => b.staff_id === s.id));
               return (
-                <div className="barber-column" key={s.id}>
+                <div
+                  className="barber-column"
+                  key={s.id}
+                  onPointerMove={(e) => {
+                    if (dragging || e.pointerType === "touch") return;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const start = begin + Math.floor((e.clientY - rect.top) / step) * 15;
+                    if (hover?.staffId !== s.id || hover.start !== start) setHover({ staffId: s.id, start });
+                  }}
+                  onPointerLeave={() => setHover((h) => (h?.staffId === s.id ? null : h))}
+                >
                   {slots.map(({ start, reason, busy }, n) => {
+                    // Greyed but clickable (Fresha): only truly impossible times are disabled.
+                    const hard = HARD_REASONS.has(reason);
                     return (
                       <button
                         key={start}
                         type="button"
-                        className={`timetable-slot ${reason ? "blocked" : busy ? "occupied" : ""}`}
+                        className={`timetable-slot ${reason ? "blocked" : busy ? "occupied" : ""} ${reason && !hard ? "soft" : ""}`}
                         data-column={i}
                         data-minute={start}
                         tabIndex={start === activeMinute ? 0 : -1}
@@ -332,28 +537,19 @@ export function Calendar({
                           setFocusedSlot({ date, staffId: s.id, start });
                         }}
                         style={{ top: n * step, height: step }}
-                        aria-label={`${time(start)}, ${s.name}${reason ? ` — ${reason}` : busy ? " — occupied or buffer" : " — add booking"}`}
+                        aria-label={`${time(start)}, ${s.name}${reason ? ` — ${reason}${hard ? "" : " (book anyway)"}` : busy ? " — occupied, book alongside" : " — add booking"}`}
                         title={
-                          reason ||
-                          (busy
-                            ? "Appointment / buffer"
-                            : `Add booking at ${time(start)}; service availability is checked next`)
+                          hard
+                            ? reason
+                            : reason
+                              ? `${reason} · click to book anyway`
+                              : busy
+                                ? `Occupied · click to book alongside at ${time(start)}`
+                                : `Add booking at ${time(start)}`
                         }
-                        disabled={disabled || !!reason || busy}
-                        onClick={() => onDraft({ staffId: s.id, start })}
+                        disabled={disabled || hard}
+                        onClick={() => onDraft({ staffId: s.id, start, outside: reason || (busy ? "Occupied" : "") || undefined })}
                         data-drop={dragging && dragging.overStaff === s.id && dragging.overStart === start ? "over" : undefined}
-                        onDragOver={(e) => {
-                          if (!dragging || !onMove || reason === "Past time" || reason === "Shop closed" || reason === "Day off" || reason === "Off duty" || reason === "Inactive barber") return;
-                          e.preventDefault();
-                          if (dragging.overStaff !== s.id || dragging.overStart !== start) setDragging({ ...dragging, overStaff: s.id, overStart: start });
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          if (!dragging || !onMove) return;
-                          const b = bookings.find((x) => x.id === dragging.id);
-                          setDragging(null);
-                          if (b && (b.staff_id !== s.id || b.start_min !== start)) void onMove(b, { staffId: s.id, start });
-                        }}
                       >
                         <span>
                           {reason
@@ -386,39 +582,53 @@ export function Calendar({
                         <span>{b.buffer_min} min buffer</span>
                       </div>
                     ))}
-                  {dragging && dragging.overStaff === s.id && (() => {
-                    const b = bookings.find((x) => x.id === dragging.id);
-                    if (!b) return null;
-                    return (
-                      <div className="calendar-drop-ghost" aria-hidden="true" style={{ top: ((dragging.overStart - begin) / 15) * step, height: Math.max(24, (b.duration_min / 15) * step - 3) }}>
-                        <strong>{time(dragging.overStart)}</strong> {b.attendee_name || b.customer_name}
-                      </div>
-                    );
-                  })()}
+                  {hover && !dragging && hover.staffId === s.id && hover.start >= begin && hover.start < end && (
+                    <div className="slot-hover" aria-hidden="true" data-testid="slot-hover" style={{ top: ((hover.start - begin) / 15) * step }}>
+                      <b>{time(hover.start)}</b>
+                    </div>
+                  )}
+                  {dragging && draggingBooking && dragging.overStaff === s.id && (
+                    <div
+                      key={dragging.tick}
+                      className={`calendar-drop-ghost ${HARD_REASONS.has(dropReason) ? "refused" : dropReason ? "soft" : ""}`}
+                      aria-hidden="true"
+                      data-testid="drop-ghost"
+                      style={{ top: ((dragging.overStart - begin) / 15) * step, height: Math.max(24, (draggingBooking.duration_min / 15) * step - 3) }}
+                    >
+                      <strong className="ghost-time">{time(dragging.overStart)}</strong>
+                      <span>
+                        {draggingBooking.attendee_name || draggingBooking.customer_name}
+                        {s.id !== draggingBooking.staff_id ? ` · ${s.name.split(" ")[0]}` : ""}
+                      </span>
+                      {dropReason && <small>{HARD_REASONS.has(dropReason) ? `Can't: ${dropReason.toLowerCase()}` : `${dropReason} · drop to book anyway`}</small>}
+                    </div>
+                  )}
                   {occupied
                     .filter((b) => b.staff_id === s.id)
-                    .map((b) => (
+                    .map((b) => {
+                      const lane = lanes.get(b.id) ?? { lane: 0, lanes: 1 };
+                      const laneStyle: CSSProperties = lane.lanes > 1 ? { left: `calc(5px + ${(lane.lane / lane.lanes) * 100}% - ${(5 * lane.lane) / lane.lanes}px)`, width: `calc(${100 / lane.lanes}% - ${10 / lane.lanes}px)`, right: "auto" } : {};
+                      return (
                       <button
                         key={b.id}
                         type="button"
-                        className={`calendar-event ${colour} ${b.status === "COMPLETED" ? "finished" : ""} ${b.duration_min < 15 ? "compact-event" : ""}`}
+                        className={`calendar-event ${colour} ${b.status === "COMPLETED" ? "finished" : ""} ${b.duration_min < 15 ? "compact-event" : ""} ${lane.lanes > 1 ? "overlapping" : ""}`}
                         data-status={b.status}
+                        data-lanes={lane.lanes > 1 ? lane.lanes : undefined}
                         style={{
                           top: ((b.start_min - begin) / 15) * step,
                           height: Math.max(
                             24,
                             (b.duration_min / 15) * step - 3,
                           ),
+                          ...laneStyle,
                         }}
                         onClick={() => onOpen(b)}
-                        draggable={!!onMove && b.status === "CONFIRMED" && !disabled}
-                        onDragStart={(e) => {
-                          if (!onMove || b.status !== "CONFIRMED") return;
-                          e.dataTransfer.setData("text/plain", b.id);
-                          e.dataTransfer.effectAllowed = "move";
-                          setDragging({ id: b.id, overStaff: b.staff_id, overStart: b.start_min });
-                        }}
-                        onDragEnd={() => setDragging(null)}
+                        data-draggable={!!onMove && b.status === "CONFIRMED" && !disabled ? "true" : undefined}
+                        onPointerDown={(e) => onEventPointerDown(e, b)}
+                        onPointerMove={onEventPointerMove}
+                        onPointerUp={onEventPointerUp}
+                        onPointerCancel={() => endDrag(false)}
                         data-dragging={dragging?.id === b.id ? "true" : undefined}
                         aria-label={`${b.attendee_name || b.customer_name}, ${b.service_name}, ${time(b.start_min)}, ${labels[b.status]}${b.attendee_name ? `, booked by ${b.customer_name}` : ""}${b.group_id ? ", group booking" : ""}`}
                         title={`${b.attendee_name || b.customer_name}${b.attendee_name ? ` (booked by ${b.customer_name})` : ""} · ${b.service_name} · ${time(b.start_min)}–${time(b.start_min + b.duration_min)} · ${labels[b.status]} · ${money(b.price_pence)}`}
@@ -444,7 +654,8 @@ export function Calendar({
                           </small>
                         )}
                       </button>
-                    ))}
+                      );
+                    })}
                 </div>
               );
             })}
@@ -486,10 +697,12 @@ export function Calendar({
             <Icon name="help" size={14} /> How the timetable works
           </summary>
           <p id="timetable-keyboard-help">
-            Click a free 15-minute cell to book there. Drag a confirmed appointment to another time or
-            barber to move it (you confirm before it saves). Click the hours under a barber's name to
-            change that day's shift. Tab reaches one free slot per barber; arrow keys move between free
-            slots, Home / End jump within a barber.
+            Click any 15-minute cell to book there — greyed cells (outside hours, breaks, occupied) still
+            work, you just confirm you mean it. Press and drag a confirmed appointment to move it: the top
+            edge is the new start time and it snaps every 15 minutes, sideways moves it to another barber.
+            On a phone, hold for a moment first. Overlapping appointments sit side by side. Click the hours
+            under a barber's name to change that day's shift. Tab reaches one free slot per barber; arrow
+            keys move between slots, Home / End jump within a barber.
           </p>
         </details>
       </footer>

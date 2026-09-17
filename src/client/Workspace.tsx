@@ -2010,10 +2010,16 @@ export function Workspace() {
                               ? async (b, to) => {
                                   const who = w.staff.find((x) => x.id === to.staffId)?.name.split(" ")[0] ?? "";
                                   const same = to.staffId === b.staff_id;
-                                  if (!window.confirm(`Move ${b.attendee_name || b.customer_name} to ${String(Math.floor(to.start / 60)).padStart(2, "0")}:${String(to.start % 60).padStart(2, "0")}${same ? "" : ` with ${who}`}?`)) return;
+                                  const at = `${String(Math.floor(to.start / 60)).padStart(2, "0")}:${String(to.start % 60).padStart(2, "0")}`;
+                                  const warn = to.override === "Occupied"
+                                    ? `\n\nThis overlaps another appointment — both will sit side by side.`
+                                    : to.override
+                                      ? `\n\n${who || "The barber"} isn't rostered then (${to.override.toLowerCase()}). Book it anyway?`
+                                      : "";
+                                  if (!window.confirm(`Move ${b.attendee_name || b.customer_name} to ${at}${same ? "" : ` with ${who}`}?${warn}`)) return;
                                   setPanelError("");
                                   try {
-                                    const r = await api<{ booking: StoredBooking }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: to.start, staff_id: to.staffId, reason: "Moved on the calendar", version: b.version });
+                                    const r = await api<{ booking: StoredBooking }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: to.start, staff_id: to.staffId, reason: to.override ? `Moved on the calendar (over: ${to.override.toLowerCase()})` : "Moved on the calendar", version: b.version, ...(to.override ? { force: true } : {}) });
                                     setNotice(`Moved to ${String(Math.floor(to.start / 60)).padStart(2, "0")}:${String(to.start % 60).padStart(2, "0")}.`);
                                     await refresh();
                                     void r;
@@ -5549,6 +5555,9 @@ function BookingForm({
   const [review, setReview] = useState(false);
   const request = useRef({ payload: "", key: crypto.randomUUID() });
   const draftPending = useRef(draft?.start);
+  // Fresha-style override: the clicked cell was outside hours / on a break / already occupied and the
+  // shop chose it anyway. Holds the server's reason so the review step can say what's being overridden.
+  const [override, setOverride] = useState<string>("");
   // Standing bookings: repeat every N weeks; the server previews each date before anything is written.
   const [repeat, setRepeat] = useState(false);
   const [intervalWeeks, setIntervalWeeks] = useState(2);
@@ -5607,13 +5616,18 @@ function BookingForm({
         if (current) {
           setSlots(s);
           if (draftPending.current !== undefined) {
-            const candidate = s.slots.find(
-              (slot) => slot.start_min === draftPending.current && !slot.reason,
-            );
-            if (candidate) setStart(String(candidate.start_min));
-            else
+            const at = s.slots.find((slot) => slot.start_min === draftPending.current);
+            const soft = at?.reason && ["Slot taken", "Outside working hours", "Lunch break", "Barber off duty"].includes(at.reason);
+            if (at && !at.reason) {
+              setStart(String(at.start_min));
+              setOverride("");
+            } else if (at && soft) {
+              // Greyed-but-clickable: keep the time, flag the override, let the review step confirm it.
+              setStart(String(at.start_min));
+              setOverride(at.reason);
+            } else
               setError(
-                "The clicked time does not fit this service and buffer. Choose another time or service.",
+                at?.reason ? `${at.reason}. Choose another time.` : "The clicked time does not fit this service and buffer. Choose another time or service.",
               );
             draftPending.current = undefined;
           }
@@ -5690,6 +5704,7 @@ function BookingForm({
               start_min: Number(start),
               version: b.version,
               reason: text(f, "reason"),
+              ...(override ? { force: true } : {}),
             }
           : {
               staff_id: staff,
@@ -5703,6 +5718,7 @@ function BookingForm({
               quote: slots.quote,
               addon_ids: addonIds,
               ...(pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),
+              ...(override ? { force: true } : {}),
             };
         const serial = JSON.stringify(payload);
         if (request.current.payload !== serial)
@@ -5801,6 +5817,17 @@ function BookingForm({
             show your current selection.
           </p>
         </aside>
+      )}
+      {override && start && (
+        <Notice icon="blocked" tone="warning">
+          <span data-testid="override-notice">
+            <strong>{override === "Slot taken" ? "Double-booking" : override}</strong> at {time(Number(start))}.
+            {override === "Slot taken"
+              ? " This overlaps another appointment; both will show side by side on the calendar."
+              : " The barber isn't rostered then; saving books it regardless."}
+            <Button variant="ghost" onClick={() => { setStart(""); setOverride(""); }}>Pick a free time instead</Button>
+          </span>
+        </Notice>
       )}
       <div className="booking-layout" onChange={() => setReview(false)}>
         <section

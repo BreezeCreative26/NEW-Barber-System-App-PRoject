@@ -39,6 +39,7 @@ import {
   weekEnvelope,
   shopToday,
   slotReason,
+  overridable,
   staffSchema,
   statusSchema,
   checkoutSchema,
@@ -145,10 +146,16 @@ export async function checkVersionUpdate(
   c: Ctx,
   update: D1PreparedStatement,
   event: D1PreparedStatement,
+  before: D1PreparedStatement[] = [],
 ) {
-  const result = await c.env.DB.batch([update, event]);
-  if (!result[0].meta.changes) fail(409, "record_changed");
+  const result = await c.env.DB.batch([...before, update, event]);
+  if (!result[before.length].meta.changes) fail(409, "record_changed");
   return result;
+}
+// Transaction-local flag the booking triggers read: lets the shop double-book or book outside the
+// roster on purpose. Scoped to the batch it's included in, so nothing else is ever relaxed.
+export function forceSlot(c: Ctx): D1PreparedStatement {
+  return c.env.DB.prepare("SELECT set_config('ollo.force_slot', '1', true)");
 }
 sandbox.use("*", async (c, next) => {
   c.header("Cache-Control", "no-store");
@@ -2196,10 +2203,11 @@ export async function createBooking(
     attendee_name?: string;
   },
   channel: "OWNER" | "ONLINE",
-  options: { minStart?: number; maxDate?: string; seriesId?: string | null; groupId?: string | null; depositHoldMin?: number } = {},
+  options: { minStart?: number; maxDate?: string; seriesId?: string | null; groupId?: string | null; depositHoldMin?: number; force?: boolean } = {},
 ) {
   // Preserve request hashes for pre-add-on bookings with the same normalized payload.
-  const { addon_ids, email, customer_id, attendee_name, ...originalPayload } = b as typeof b & { customer_id?: string; attendee_name?: string };
+  // `force` is a shop-side decision, not part of what the customer asked for, so it stays out of the hash.
+  const { addon_ids, email, customer_id, attendee_name, force: _force, ...originalPayload } = b as typeof b & { customer_id?: string; attendee_name?: string; force?: boolean };
   const requestHash = await hash(
     JSON.stringify({
       ...originalPayload,
@@ -2262,7 +2270,12 @@ export async function createBooking(
     undefined,
     data.daysOff,
   );
-  if (reason) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
+  // Shop users may knowingly double-book or book outside hours (Fresha behaviour); customers cannot.
+  // Past time is never overridable, whichever reason slotReason happened to report first.
+  const startInstant = localInstant(b.date, b.start_min, data.shop.timezone);
+  const inPast = startInstant === null || startInstant < (options.minStart ?? Date.now());
+  const overridden = !!reason && channel === "OWNER" && !!options.force && overridable(reason) && !inPast;
+  if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
   const start = localInstant(b.date, b.start_min, data.shop.timezone)!;
   const now = Date.now();
   const bookingId = id();
@@ -2309,6 +2322,7 @@ export async function createBooking(
     await c.env.DB.batch([
       // Serialise per-shop inserts so the sequence number (MAX+1) cannot collide under load.
       c.env.DB.prepare("SELECT ollo_lock_shop(?)").bind(sid),
+      ...(overridden ? [forceSlot(c)] : []),
       statement,
       audit(
         c,
@@ -2319,7 +2333,7 @@ export async function createBooking(
           ? options.depositHoldMin
             ? `Customer booked online. Slot held ${options.depositHoldMin} min for the deposit.`
             : "Customer booked online. Deposit payable in the shop; confirmation queued."
-          : b.source === "WALK_IN" ? "Walk-in seated." : "Appointment saved by the shop.",
+          : (b.source === "WALK_IN" ? "Walk-in seated." : "Appointment saved by the shop.") + (overridden ? ` Overrode: ${reason}.` : ""),
       ),
     ]);
   } catch (err) {
@@ -2337,7 +2351,7 @@ export async function createBooking(
 sandbox.post("/bookings", async (c) => {
   const b = await input(c, bookingSchema);
   // Walk-ins are seated in the current slot: allow a start up to 15 minutes ago.
-  const result = await createBooking(c, { ...b, email: "" }, "OWNER", b.source === "WALK_IN" ? { minStart: Date.now() - 15 * 60000 } : {});
+  const result = await createBooking(c, { ...b, email: "" }, "OWNER", { force: b.force, ...(b.source === "WALK_IN" ? { minStart: Date.now() - 15 * 60000 } : {}) });
   return c.json(result, result.replayed ? 200 : 201);
 });
 sandbox.get("/bookings/:id", async (c) =>
@@ -2766,7 +2780,9 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     b.id,
     data.daysOff,
   );
-  if (reason) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
+  const moveInstant = localInstant(body.date, body.start_min, data.shop.timezone);
+  const overridden = !!reason && body.force && overridable(reason) && moveInstant !== null && moveInstant >= Date.now();
+  if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
   const start = localInstant(body.date, body.start_min, data.shop.timezone)!;
   await checkVersionUpdate(
     c,
@@ -2783,7 +2799,8 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
       b.id,
       body.version,
     ),
-    audit(c, "booking", b.id, "RESCHEDULED", body.reason, true),
+    audit(c, "booking", b.id, "RESCHEDULED", overridden ? `${body.reason} (overrode: ${reason})` : body.reason, true),
+    overridden ? [forceSlot(c)] : [],
   );
   await autoOffer(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "move");
   return c.json({ booking: await readBooking(c, b.id) });

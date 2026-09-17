@@ -672,6 +672,7 @@ const bookingBase = z
     source: z.enum(["TEST_BOOKING", "WALK_IN"]),
     addon_ids: addonIdsSchema.default([]),
     customer_id: z.string().regex(/^[0-9a-f-]{32,36}$/).optional(),
+    force: z.boolean().default(false),
     quote: z
       .object({ service_version: version, shop_version: version })
       .strict(),
@@ -770,8 +771,16 @@ export const moveSchema = z
     staff_id: z.string().uuid(),
     reason: z.string().trim().min(3).max(300),
     version,
+    // Fresha-style override: the shop chooses to double-book or book outside rostered hours.
+    // Only soft reasons yield (see OVERRIDABLE_REASONS); past time / closed shop never do.
+    force: z.boolean().default(false),
   })
   .strict();
+// Reasons a shop user may knowingly override from the calendar. Public booking never can.
+export const OVERRIDABLE_REASONS = new Set(["Slot taken", "Outside working hours", "Lunch break", "Barber off duty"]);
+export function overridable(reason: string) {
+  return OVERRIDABLE_REASONS.has(reason);
+}
 export type Payment = {
   id: string;
   shop_id: string;
