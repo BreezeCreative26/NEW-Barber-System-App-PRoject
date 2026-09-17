@@ -67,6 +67,7 @@ import { optimiseImage } from "./images";
 import { drain, enqueue, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
 import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import QRCode from "qrcode";
+import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
 import { accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, type ConnectedAccount } from "./payouts";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
@@ -198,6 +199,7 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && path === "/customers") ||
       (method === "PUT" && /^\/customers\/[^/]+$/.test(path)) ||
       (method === "POST" && /^\/customers\/[^/]+\/merge$/.test(path)) ||
+      (method === "POST" && ["/customers/import/preview", "/customers/import"].includes(path)) ||
       (method === "GET" && ["/waitlist", "/notifications", "/reviews", "/media", "/dev/mailbox"].includes(path)) ||
       (method === "GET" && /^\/notifications\/[^/]+$/.test(path)) ||
       (method === "GET" && /^\/waitlist\/[^/]+\/matches$/.test(path)) ||
@@ -827,6 +829,67 @@ sandbox.post("/customers", async (c) => {
     audit(c, "customer", customerId, "CUSTOMER_CREATED", "Customer record added."),
   ]);
   return c.json({ customer: await readCustomer(c, customerId) }, 201);
+});
+// CSV import: preview (nothing written) then commit (creates + fills blanks on existing).
+const importBody = z.object({ csv: z.string().min(1).max(2_000_000), mapping: z.record(z.string(), z.string().nullable()).optional() }).strict();
+async function importPreview(c: Ctx, body: z.infer<typeof importBody>) {
+  const table = parseCsv(body.csv);
+  if (table.length < 2) fail(400, "The file needs a header row and at least one customer");
+  const headers = table[0].map((h) => h.trim());
+  const mapping = { ...detectMapping(headers), ...(body.mapping ?? {}) };
+  if (!mapping.phone) fail(400, "Couldn't find a mobile number column — choose it below");
+  if (!mapping.name && !(mapping.first_name || mapping.last_name)) fail(400, "Couldn't find a name column — choose it below");
+  const records = table.slice(1, 5001);
+  const existingRows = (await c.env.DB.prepare("SELECT id, name, phone, email, notes, tags, birthday, marketing_opt_in FROM customers WHERE shop_id=? AND merged_into IS NULL").bind(c.get("shopId")).all<{ id: string; name: string; phone: string; email: string; notes: string; tags: string; birthday: string | null; marketing_opt_in: number }>()).results;
+  const existing = new Map(existingRows.map((r) => [r.phone, r]));
+  const rows = buildRows(records, headers, mapping, existing);
+  const counts = { create: 0, update: 0, skip: 0, invalid: 0, total: rows.length };
+  for (const r of rows) counts[r.action]++;
+  return { columns: headers, mapping, rows, counts } satisfies ImportPreview;
+}
+sandbox.post("/customers/import/preview", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const body = await input(c, importBody);
+  const p = await importPreview(c, body);
+  // Trim the row list for the wire; the client shows the first 200 and the counts.
+  return c.json({ ...p, rows: p.rows.slice(0, 200), truncated: p.rows.length > 200 });
+});
+sandbox.post("/customers/import", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const body = await input(c, importBody);
+  const p = await importPreview(c, body);
+  const now = Date.now();
+  const stmts: D1PreparedStatement[] = [];
+  let created = 0, updated = 0;
+  for (const r of p.rows) {
+    if (r.action === "create") {
+      stmts.push(
+        c.env.DB.prepare("INSERT INTO customers(id,shop_id,name,phone,email,notes,tags,birthday,preferred_staff_id,marketing_opt_in,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,NULL,?,?,?) ON CONFLICT(shop_id,phone) DO NOTHING")
+          .bind(id(), c.get("shopId"), r.name, r.phone, r.email, r.notes, JSON.stringify(r.tags), r.birthday || null, r.marketing_opt_in, now, now),
+      );
+      created++;
+    } else if (r.action === "update" && r.existing_id) {
+      // Fill blanks only; append notes; union tags; never turn marketing off.
+      stmts.push(
+        c.env.DB.prepare(
+          `UPDATE customers SET
+             email=CASE WHEN email='' THEN ? ELSE email END,
+             notes=CASE WHEN ?<>'' AND POSITION(? IN notes)=0 THEN TRIM(BOTH E'\n' FROM notes || E'\n' || ?) ELSE notes END,
+             tags=(SELECT COALESCE(jsonb_agg(DISTINCT t), '[]'::jsonb)::text FROM jsonb_array_elements_text(tags::jsonb || ?::jsonb) AS t),
+             birthday=COALESCE(birthday, ?),
+             marketing_opt_in=GREATEST(marketing_opt_in, ?),
+             version=version+1, updated_at=?
+           WHERE shop_id=? AND id=?`,
+        ).bind(r.email, r.notes, r.notes, r.notes, JSON.stringify(r.tags), r.birthday || null, r.marketing_opt_in, now, c.get("shopId"), r.existing_id),
+      );
+      updated++;
+    }
+  }
+  if (!stmts.length) fail(409, "Nothing to import — every row is invalid or already here");
+  stmts.push(audit(c, "shop", c.get("shopId"), "CUSTOMERS_IMPORTED", `${created} added, ${updated} updated from a ${p.counts.total}-row file (${p.counts.invalid} invalid, ${p.counts.skip} skipped).`));
+  // Batches of 200 keep each transaction small.
+  for (let i = 0; i < stmts.length; i += 200) await c.env.DB.batch(stmts.slice(i, i + 200));
+  return c.json({ ok: true, created, updated, skipped: p.counts.skip, invalid: p.counts.invalid, total: p.counts.total }, 201);
 });
 sandbox.get("/customers/:id", async (c) => {
   const param = c.req.param("id");
@@ -2262,10 +2325,10 @@ export async function createBooking(
   } catch (err) {
     // Same request_id racing itself: the loser may fail on the slot before the winner's row is
     // visible. Look for the winner, once immediately and once after a short pause.
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 4; attempt++) {
       const previous = await replay();
       if (previous) return { booking: previous, replayed: true };
-      if (attempt === 0) await new Promise((r) => setTimeout(r, 150));
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
     }
     throw err;
   }

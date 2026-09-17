@@ -506,6 +506,11 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
   Not yet run this round: workspace/calendar/pay/payments/visual — run the full gate + refresh visual baselines
   before the next release tag.
 
+## Card at the chair + customer CSV import (2026-09-17)
+- **Card at the chair** (`chair.ts`, migration 0009): pay link / QR (Checkout session per visit, shop-branded `pay_link` SMS/email, `/pay/:id` landing) and Stripe Terminal readers (location per shop, pairing by code, `process_payment_intent`, cancel, connection token for Tap to Pay). `payment_requests` lifecycle OPEN→PAID/EXPIRED/CANCELLED; `settleRequest` writes the CARD ledger row with PI/charge/fees, moves the visit to IN_SERVICE/COMPLETED, idempotent; poll (till, 3s) + webhook (`payment_intent.succeeded`, Checkout with `payment_request_id`). Checkout UI: *Take by card* → QR / text / email / copy / reader. Settings → Payments: Card readers card. `StripeError` now maps to 4xx.
+- **CSV import** (`import.ts`): RFC-4180 parser with delimiter + BOM detection; header aliases; UK mobile normalisation (+44 / 44 / 7…); d/m/y birthdays; marketing truthy words; dedupe against directory and within file; preview (first 200 rows + counts) then commit in 200-statement batches; updates fill blanks only (email if empty, notes appended once, tags unioned, birthday if null, marketing never turned off); 409 when nothing to do; audit `CUSTOMERS_IMPORTED`. Owner/manager only. Customers → Import modal with manual column mapping fallback.
+- Tests: payouts.spec +2 (chair routes refuse honestly in preview; browser Take by card), import.spec (3). AUDIT items 6 and 7 closed — **every audit item is now done**.
+
 ## Stripe Connect platform — shops + barbers paid by OLLO (2026-09-17)
 - Decision: OLLO is the Connect platform (merchant of record), not per-shop Stripe. Adyen considered and rejected for this stage. Float-backed FAST tier for same-day barber money; STANDARD waits for settlement.
 - Migration 0008: connected_accounts (SHOP + STAFF Express), platform_payments (fee bps, fast_payouts, float alert), shops payout_tier/payrun_auto/payrun_reserve_bps, payments Stripe refs + fees + pay_run_id, pay_runs card/cash split + transfer/shop_transfer/reserve/cash_residual + TRANSFERRED status + transfer_group, transfers / payouts / disputes tables.

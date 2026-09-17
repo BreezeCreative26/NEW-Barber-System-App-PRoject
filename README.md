@@ -53,6 +53,9 @@ residual to settle by hand. Refunds, voids and disputes create reversals, never 
 | `STRIPE_WEBHOOK_SECRET` | `POST /api/stripe/webhook` (tick *Connected accounts* too) |
 | `STRIPE_CONNECT` | defaults on; `0` for a single-shop deploy |
 
+**Card at the chair:** Checkout → *Take by card* → a QR / pay link the customer scans (no hardware),
+or a paired Stripe reader (WisePOS / Tap to Pay). Both land in the ledger as platform card money.
+
 Without keys the app runs in **preview mode**: deposits payable in the shop, pay runs settled by
 hand, every Settings → Payments control visible but honest about why it's off. Full runbook,
 tiers (STANDARD / FAST float), auto pay runs and the test-mode checklist: **`docs/PAYMENTS.md`**.
@@ -88,7 +91,8 @@ once per booking per channel).
 | `/<slug>/me` · `/manage/<token>` · `/offer/<token>` | Customer account · manage a visit · waiting-list offer |
 | `/api/app/*` (`/api/sandbox/*` legacy alias) | Staff API (session cookie) |
 | `/api/cron/messages` | Sweep: reminders, message queue, deposit holds, scheduled pay runs (Vercel Cron, `CRON_SECRET`) |
-| `/api/stripe/webhook` | Stripe events: deposits, accounts, transfers, payouts, disputes, refunds |
+| `/api/stripe/webhook` | Stripe events: deposits, chair payments, accounts, transfers, payouts, disputes, refunds |
+| `/pay/<id>` | Customer landing after a chair pay link |
 | `/api/public/*` | Customer API (same-origin guard) |
 | `/robots.txt` · `/sitemap.xml` · `/media/<id>` | Search engines · uploaded photos |
 

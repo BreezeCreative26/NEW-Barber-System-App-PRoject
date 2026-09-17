@@ -7720,3 +7720,18 @@ img.avatar-ink.avatar-logo { border-radius: 8px; width: auto; max-width: 96px; h
 .card-link-view, .card-reader-view { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
 .card-qr { width: min(240px, 70vw); height: auto; border-radius: var(--r-md); background: #fff; padding: 8px; border: 1px solid var(--line); }
 .reader-add { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 10px; }
+
+/* ---- Customer import ---- */
+.import-modal { max-width: 760px; width: min(760px, 96vw); max-height: 90vh; overflow: auto; }
+.import-file { display: flex; align-items: center; gap: 10px; padding: 14px; border: 1px dashed var(--line); border-radius: var(--r-md); cursor: pointer; margin: 12px 0; background: var(--surface); }
+.import-file input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.import-file span { font-weight: 600; }
+.import-mapping { margin: 8px 0; }
+.import-mapping-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px 12px; margin-top: 8px; }
+.import-counts { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 8px; }
+.import-table-wrap { max-height: 40vh; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-md); }
+.import-table { width: 100%; border-collapse: collapse; font-size: var(--fs-12); }
+.import-table th, .import-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.import-table th { position: sticky; top: 0; background: var(--surface); font-weight: 600; }
+.import-table tr[data-action="invalid"] td { color: var(--muted); }
+.import-table small { color: var(--muted); display: block; }

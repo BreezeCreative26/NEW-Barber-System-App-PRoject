@@ -3975,6 +3975,7 @@ function CustomersPanel({
   const [rows, setRows] = useState<CustomerRow[] | null>(null);
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [profileError, setProfileError] = useState("");
   const [profileTab, setProfileTab] = useState<"history" | "details" | "notes">("history");
@@ -4045,11 +4046,19 @@ function CustomersPanel({
             </p>
           </div>
           {canEdit && (
-            <Button onClick={() => setAdding(true)}>
-              <Icon name="plus" size={16} /> Add customer
-            </Button>
+            <div className="row-actions">
+              {canMerge && (
+                <Button variant="secondary" onClick={() => setImporting(true)} data-testid="import-customers">
+                  <Icon name="download" size={16} /> Import
+                </Button>
+              )}
+              <Button onClick={() => setAdding(true)}>
+                <Icon name="plus" size={16} /> Add customer
+              </Button>
+            </div>
           )}
         </div>
+        {importing && <ImportCustomers onClose={() => setImporting(false)} onDone={() => { setImporting(false); setReload((n) => n + 1); }} />}
         <div className="customers-toolbar">
           <label className="customers-search">
             <Icon name="search" size={16} />
@@ -6211,5 +6220,125 @@ function BookingForm({
         Times are Europe/London. Data is saved only after confirmation.
       </p>
     </SaveForm>
+  );
+}
+
+// CSV import: pick a file → we detect columns → preview what will happen → import.
+type ImportRowView = { line: number; name: string; phone: string; email: string; tags: string[]; action: "create" | "update" | "skip" | "invalid"; reason: string };
+type ImportPreviewView = { columns: string[]; mapping: Record<string, string | null>; rows: ImportRowView[]; counts: { create: number; update: number; skip: number; invalid: number; total: number }; truncated: boolean };
+const IMPORT_FIELDS: [string, string][] = [["name", "Full name"], ["first_name", "First name"], ["last_name", "Last name"], ["phone", "Mobile"], ["email", "Email"], ["notes", "Notes"], ["tags", "Tags"], ["birthday", "Birthday"], ["marketing", "Marketing consent"]];
+function ImportCustomers({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [csv, setCsv] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [preview, setPreview] = useState<ImportPreviewView | null>(null);
+  const [mapping, setMapping] = useState<Record<string, string | null>>({});
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ created: number; updated: number; skipped: number; invalid: number } | null>(null);
+  async function runPreview(text: string, map?: Record<string, string | null>) {
+    setBusy(true); setError("");
+    try {
+      const p = await api<ImportPreviewView>("/customers/import/preview", "POST", { csv: text, ...(map ? { mapping: map } : {}) });
+      setPreview(p); setMapping(p.mapping);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not read the file.");
+      // Still let the owner map columns by hand when detection failed.
+      if (!preview && text) {
+        const header = text.replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0] || "";
+        const delim = [",", ";", "\t"].sort((a, b) => header.split(b).length - header.split(a).length)[0];
+        setPreview({ columns: header.split(delim).map((h) => h.trim().replace(/^"|"$/g, "")), mapping: map ?? {}, rows: [], counts: { create: 0, update: 0, skip: 0, invalid: 0, total: 0 }, truncated: false });
+      }
+    } finally { setBusy(false); }
+  }
+  async function onFile(f: File | undefined) {
+    if (!f) return;
+    setFileName(f.name); setResult(null);
+    const text = await f.text();
+    setCsv(text);
+    await runPreview(text);
+  }
+  async function commit() {
+    setBusy(true); setError("");
+    try {
+      const r = await api<{ created: number; updated: number; skipped: number; invalid: number }>("/customers/import", "POST", { csv, mapping });
+      setResult(r);
+    } catch (e) { setError(e instanceof Error ? e.message : "Import failed. Nothing was saved."); }
+    finally { setBusy(false); }
+  }
+  const tone = (a: ImportRowView["action"]) => (a === "create" ? "good" : a === "update" ? "next" : a === "skip" ? "note" : "warn");
+  return (
+    <div className="modal-scrim" onClick={onClose} role="presentation">
+      <div className="modal import-modal" role="dialog" aria-label="Import customers" onClick={(e) => e.stopPropagation()} data-testid="import-modal">
+        <header className="modal-head">
+          <h3>Import customers</h3>
+          <Button variant="ghost" onClick={onClose} aria-label="Close import"><Icon name="close" size={16} /></Button>
+        </header>
+        {!result && (
+          <>
+            <p className="workspace-footnote">A CSV export from Fresha, Booksy, Square, Treatwell or a spreadsheet. We match on mobile number: new numbers are added, existing customers only get blanks filled in — nothing is overwritten.</p>
+            <label className="import-file">
+              <input type="file" accept=".csv,text/csv,text/plain" data-testid="import-file" onChange={(e) => onFile(e.target.files?.[0])} />
+              <span>{fileName || "Choose a CSV file"}</span>
+            </label>
+            {preview && (
+              <details className="import-mapping" open={!preview.rows.length}>
+                <summary>Columns {Object.values(mapping).some(Boolean) ? "· detected automatically, change if wrong" : "· choose which column is which"}</summary>
+                <div className="import-mapping-grid">
+                  {IMPORT_FIELDS.map(([field, label]) => (
+                    <label key={field} className="workspace-field narrow">
+                      <span>{label}</span>
+                      <select value={mapping[field] ?? ""} data-testid={`map-${field}`} onChange={(e) => { const m = { ...mapping, [field]: e.target.value || null }; setMapping(m); runPreview(csv, m); }}>
+                        <option value="">—</option>
+                        {preview.columns.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+              </details>
+            )}
+            {error && <p className="workspace-error" role="alert">{error}</p>}
+            {preview && preview.rows.length > 0 && (
+              <>
+                <div className="import-counts" data-testid="import-counts">
+                  <StatusPill tone="good">{preview.counts.create} new</StatusPill>
+                  <StatusPill tone="next">{preview.counts.update} to update</StatusPill>
+                  <StatusPill tone="note">{preview.counts.skip} already here</StatusPill>
+                  <StatusPill tone="warn">{preview.counts.invalid} can't import</StatusPill>
+                </div>
+                <div className="import-table-wrap">
+                  <table className="import-table">
+                    <thead><tr><th>Line</th><th>Name</th><th>Mobile</th><th>Email</th><th>Result</th></tr></thead>
+                    <tbody>
+                      {preview.rows.map((r) => (
+                        <tr key={r.line} data-action={r.action}>
+                          <td>{r.line}</td>
+                          <td>{r.name || <em>—</em>}</td>
+                          <td>{r.phone || <em>—</em>}</td>
+                          <td>{r.email}</td>
+                          <td><StatusPill tone={tone(r.action)}>{r.action === "create" ? "New" : r.action === "update" ? "Update" : r.action === "skip" ? "Skip" : "Invalid"}</StatusPill>{r.reason && <small> {r.reason}</small>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {preview.truncated && <p className="workspace-footnote">Showing the first 200 of {preview.counts.total} rows. All will be imported.</p>}
+                </div>
+              </>
+            )}
+            <div className="workspace-form-actions">
+              <Button disabled={busy || !preview || preview.counts.create + preview.counts.update === 0} data-testid="import-commit" onClick={commit}>
+                {busy ? "Working…" : preview ? `Import ${preview.counts.create + preview.counts.update} customer${preview.counts.create + preview.counts.update === 1 ? "" : "s"}` : "Import"}
+              </Button>
+              <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            </div>
+          </>
+        )}
+        {result && (
+          <div className="import-result" data-testid="import-result">
+            <p className="workspace-success" role="status"><Icon name="check" size={16} /> Imported: {result.created} added, {result.updated} updated. {result.skipped} were already here, {result.invalid} couldn't be read.</p>
+            <div className="workspace-form-actions"><Button onClick={onDone}>Done</Button></div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

@@ -144,6 +144,8 @@ const mutationContracts = [
   ["POST", "/customers"],
   ["PUT", "/customers/:id"],
   ["POST", "/customers/:id/merge"],
+  ["POST", "/customers/import/preview"],
+  ["POST", "/customers/import"],
   ["POST", "/series/:id/cancel"],
   ["POST", "/series/:id/reschedule"],
   ["PUT", "/service-rules"],
