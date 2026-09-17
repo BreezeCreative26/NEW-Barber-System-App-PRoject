@@ -1648,6 +1648,8 @@ sandbox.get("/availability", async (c) => {
       staff_id: z.string().uuid(),
       service_id: z.string().uuid(),
       booking_id: z.string().uuid().optional(),
+      // walk_in=1: the current 15-minute slot counts as free (seating someone now).
+      walk_in: z.enum(["0", "1"]).default("0"),
       addon_ids: z
         .string()
         .default("")
@@ -1658,6 +1660,7 @@ sandbox.get("/availability", async (c) => {
   if (!parsed.success)
     fail(400, "Supply a valid date, staff_id and service_id");
   const p = parsed.data!;
+  const minStart = p.walk_in === "1" ? Date.now() - 15 * 60000 : Date.now();
   const data = await availabilityContext(c, p.staff_id, p.service_id, p.date);
   const booking = p.booking_id ? await readBooking(c, p.booking_id) : null;
   if (booking && booking.service_id !== p.service_id)
@@ -1694,7 +1697,7 @@ sandbox.get("/availability", async (c) => {
               p.date,
               start_min,
               duration,
-              Date.now(),
+              minStart,
               booking?.id,
               data.daysOff,
             ),
@@ -1847,7 +1850,7 @@ export async function createBooking(
         "BOOKING_CREATED",
         channel === "ONLINE"
           ? "Customer booked online. No deposit or payment collected; no message sent."
-          : "Test appointment saved. No deposit or payment collected.",
+          : b.source === "WALK_IN" ? "Walk-in seated." : "Appointment saved by the shop.",
       ),
     ]);
   } catch (err) {
@@ -1864,7 +1867,8 @@ export async function createBooking(
 }
 sandbox.post("/bookings", async (c) => {
   const b = await input(c, bookingSchema);
-  const result = await createBooking(c, { ...b, email: "" }, "OWNER");
+  // Walk-ins are seated in the current slot: allow a start up to 15 minutes ago.
+  const result = await createBooking(c, { ...b, email: "" }, "OWNER", b.source === "WALK_IN" ? { minStart: Date.now() - 15 * 60000 } : {});
   return c.json(result, result.replayed ? 200 : 201);
 });
 sandbox.get("/bookings/:id", async (c) =>

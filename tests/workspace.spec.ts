@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { openFixtureShop, origin, base, section, openFilters } from "./fixture";
 import { enterNewShop } from "./shop";
+import { refreshView } from "./fixture";
 test("initial network failure retries in place and unexpected HTML has a useful recovery message", async ({
   page,
 }) => {
@@ -252,7 +253,7 @@ test("staff and service edits, inactive filters and reactivation survive refresh
     await expect(card).toHaveCount(0);
     await page.getByLabel("Show inactive").check();
     await expect(card).toBeVisible();
-    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await refreshView(page);
     await expect(card).toContainText("Inactive");
     await page.getByLabel(entry.checkbox, { exact: true }).check();
     await page.getByRole("button", { name: entry.save, exact: true }).click();
@@ -603,7 +604,7 @@ test("appointment side panel: contextual actions, note, series ops, customer lin
   });
   expect(created.status(), await created.text()).toBe(201);
   const booking = (await created.json()).booking;
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await refreshView(page);
   await page.getByRole("button", { name: /Panel Client/ }).first().click();
   const panel = page.getByTestId("appointment-panel");
   await expect(panel).toBeVisible();

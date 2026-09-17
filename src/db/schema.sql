@@ -578,7 +578,8 @@ CREATE TRIGGER booking_customer_scope BEFORE INSERT ON bookings FOR EACH ROW EXE
 -- After insert: link (or create) the shop's customer row for this phone.
 CREATE OR REPLACE FUNCTION ollo_booking_customer_link() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NEW.customer_id IS NULL THEN
+  -- Walk-ins without a number stay unlinked: no shared "walk-in" customer record.
+  IF NEW.customer_id IS NULL AND NEW.phone <> '' THEN
     INSERT INTO customers(id,shop_id,name,phone,email,created_at,updated_at)
     VALUES(gen_random_uuid()::text, NEW.shop_id, NEW.customer_name, NEW.phone, NEW.email, NEW.created_at, NEW.created_at)
     ON CONFLICT (shop_id,phone) DO NOTHING;

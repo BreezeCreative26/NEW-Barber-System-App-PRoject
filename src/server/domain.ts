@@ -583,19 +583,19 @@ export const holidaySchema = z
 export const dayOffSchema = z
   .object({ date: dateSchema, reason: z.string().trim().min(3).max(100) })
   .strict();
-export const bookingSchema = z
+// UK mobile, normalised. Walk-ins may leave it empty (checked at the object level).
+export const ukMobileOrEmpty = z
+  .string()
+  .transform((s) => s.replace(/[\s()-]/g, ""))
+  .refine((s) => s === "" || /^(?:\+44|0)7\d{9}$/.test(s), "Enter a valid UK mobile number");
+export const ukMobile = ukMobileOrEmpty.refine((s) => s !== "", "Enter a valid UK mobile number");
+const bookingBase = z
   .object({
     request_id: z.string().uuid(),
     staff_id: z.string().uuid(),
     service_id: z.string().uuid(),
     customer_name: name,
-    phone: z
-      .string()
-      .transform((s) => s.replace(/[\s()-]/g, ""))
-      .refine(
-        (s) => /^(?:\+44|0)7\d{9}$/.test(s),
-        "Enter a valid UK mobile number",
-      ),
+    phone: ukMobileOrEmpty,
     notes: z.string().trim().max(500).default(""),
     date: dateSchema,
     start_min: z
@@ -612,6 +612,11 @@ export const bookingSchema = z
       .strict(),
   })
   .strict();
+// Owner booking: walk-ins may omit the phone; everything else needs one.
+export const bookingSchema = bookingBase.refine((b) => b.phone !== "" || b.source === "WALK_IN", {
+  path: ["phone"],
+  message: "Enter a valid UK mobile number",
+});
 export const publicBookingSchema = z
   .object({
     request_id: z.string().uuid(),
@@ -670,9 +675,10 @@ export const groupBookingSchema = z
       .max(4),
   })
   .strict();
-export const seriesSchema = bookingSchema
+export const seriesSchema = bookingBase
   .omit({ request_id: true })
   .extend({
+    phone: ukMobile,
     interval_weeks: z.number().int().min(1).max(12),
     occurrences: z.number().int().min(2).max(26),
     skip_dates: z.array(dateSchema).max(26).default([]),
@@ -681,7 +687,7 @@ export const seriesSchema = bookingSchema
 export const bookingDetailsSchema = z
   .object({
     customer_name: name,
-    phone: bookingSchema.shape.phone,
+    phone: ukMobile,
     notes: z.string().trim().max(500),
     reason: z.string().trim().min(3).max(300),
     version,

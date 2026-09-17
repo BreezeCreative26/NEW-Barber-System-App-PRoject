@@ -56,3 +56,12 @@ export async function openQueue(page: Page) {
   if ((await chip.getAttribute("aria-expanded")) !== "true") await chip.click();
   await expect(page.getByTestId("queue-drawer")).toBeVisible();
 }
+
+// The workspace has no Refresh button: it re-reads on window focus (and every 60s). Tests trigger
+// that path explicitly and wait for the load to settle.
+export async function refreshView(page: Page) {
+  const done = page.waitForResponse((r) => r.url().includes("/api/app/workspace") && r.request().method() === "GET");
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await done;
+  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+}

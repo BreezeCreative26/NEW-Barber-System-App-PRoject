@@ -303,7 +303,7 @@ export function Calendar({
                           {reason
                             ? n === 0 ||
                               slots[n - 1].reason !== reason ||
-                              n % 4 === 0
+                              (reason !== "Past time" && n % 4 === 0)
                               ? reason
                               : ""
                             : busy

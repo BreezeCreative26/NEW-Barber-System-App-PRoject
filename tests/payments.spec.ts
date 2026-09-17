@@ -3,6 +3,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { shopPayload } from "./shop";
+import { refreshView } from "./fixture";
 import { openFixtureShop, base, origin } from "./fixture";
 
 async function bookToday(page: Page) {
@@ -54,7 +55,7 @@ test("checkout records service + tip by method, completes the visit, updates the
   const chipBefore = await page.getByTestId("wallet-chip").locator("b").innerText();
 
   await page.getByLabel("Appointment date", { exact: true }).fill(booking.date);
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await refreshView(page);
   await page.getByRole("button", { name: /Till Test Client/ }).first().click();
   const panel = page.getByTestId("appointment-panel");
   await panel.getByTestId("take-payment").click();

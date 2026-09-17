@@ -792,6 +792,118 @@ function SlotGrid({
     </div>
   );
 }
+
+// Walk-in: seat someone now. Picks the next free 15-minute start for the chosen barber today;
+// customer details are optional (a name defaults to "Walk-in", no number needed).
+function WalkInForm({ w, saved }: { w: WorkspaceData; saved: EditorProps["saved"] }) {
+  const barbers = w.staff.filter((s) => s.active);
+  const [staff, setStaff] = useState(barbers.length === 1 ? barbers[0].id : "");
+  const [service, setService] = useState("");
+  const [slots, setSlots] = useState<Slots | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [okMsg, setOkMsg] = useState("");
+  const offered = (sid: string, svc: string) => !w.service_rules.some((r) => r.staff_id === sid && r.service_id === svc && !r.enabled);
+  useEffect(() => {
+    if (!staff || !service) {
+      setSlots(null);
+      return;
+    }
+    let cancelled = false;
+    setError("");
+    api<Slots>(`/availability?date=${w.today}&staff_id=${staff}&service_id=${service}&walk_in=1`)
+      .then((r) => !cancelled && setSlots(r))
+      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Could not check availability."));
+    return () => {
+      cancelled = true;
+    };
+  }, [staff, service, w.today]);
+  const next = slots?.slots.find((s) => !s.reason) ?? null;
+  const [start, setStart] = useState<number | null>(null);
+  useEffect(() => setStart(next?.start_min ?? null), [next?.start_min]);
+  const upcoming = slots?.slots.filter((s) => !s.reason).slice(0, 6) ?? [];
+  return (
+    <SaveForm
+      label={busy ? "Seating…" : start !== null ? `Seat now · ${time(start)}` : "Seat now"}
+      onSave={async (f) => {
+        if (!slots || start === null) throw new Error("Choose a barber and a service with a free time.");
+        setBusy(true);
+        try {
+          await saved("/bookings", "POST", {
+            request_id: crypto.randomUUID(),
+            staff_id: staff,
+            service_id: service,
+            customer_name: text(f, "customer_name") || "Walk-in",
+            phone: text(f, "phone"),
+            notes: text(f, "notes"),
+            date: w.today,
+            start_min: start,
+            source: "WALK_IN",
+            addon_ids: [],
+            quote: slots.quote,
+          });
+          setOkMsg("Seated.");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <p className="helper">Books the next free time today for the barber you pick. No message is sent; the customer is in the chair.</p>
+      <div className="workspace-form-grid">
+        <Field label="Barber">
+          <select value={staff} onChange={(e) => setStaff(e.target.value)} required data-testid="walkin-barber">
+            <option value="">Choose barber</option>
+            {barbers.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Service">
+          <select value={service} onChange={(e) => setService(e.target.value)} required data-testid="walkin-service">
+            <option value="">Choose service</option>
+            {w.services
+              .filter((s) => s.active && (!staff || offered(staff, s.id)))
+              .map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} · {money(s.price_pence)} · {s.duration_min} min
+                </option>
+              ))}
+          </select>
+        </Field>
+      </div>
+      <ErrorMessage error={error} />
+      {staff && service && slots && !next && <Notice tone="warning">No free time left today for this barber. Try another barber or add a booking for another day.</Notice>}
+      {upcoming.length > 0 && (
+        <div className="slot-grid" role="group" aria-label="Start time">
+          <div className="slot-grid-group">
+            <h5>Start</h5>
+            <div className="slot-grid-chips">
+              {upcoming.map((s) => (
+                <button type="button" key={s.start_min} className="slot-chip" aria-pressed={start === s.start_min} onClick={() => setStart(s.start_min)}>
+                  {time(s.start_min)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="workspace-form-grid">
+        <Field label="Name (optional)">
+          <input name="customer_name" maxLength={100} placeholder="Walk-in" />
+        </Field>
+        <Field label="Mobile (optional)">
+          <input name="phone" inputMode="tel" maxLength={20} placeholder="07700 900123" />
+        </Field>
+      </div>
+      <Field label="Notes (optional)">
+        <input name="notes" maxLength={500} />
+      </Field>
+      {okMsg && <p role="status">{okMsg}</p>}
+    </SaveForm>
+  );
+}
 type Editor =
   | { kind: "addon"; item?: Addon }
   | { kind: "overrides"; item: Staff }
@@ -807,6 +919,7 @@ type Editor =
       rebook?: StoredBooking;
       waitlist?: WaitlistEntry;
     }
+  | { kind: "walkin" }
   | { kind: "detail"; item: StoredBooking }
   | { kind: "seriesMove"; item: StoredBooking }
   | { kind: "share"; item: StoredBooking }
@@ -839,6 +952,31 @@ export function Workspace() {
       /* Refresh provides honest read recovery; never repeat auth mutation. */
     }
   }
+  // Keep the view current without a Refresh button: re-read when the tab regains focus and every
+  // 60s while idle. Never while a form is dirty or a save is in flight.
+  useEffect(() => {
+    const idle = () => {
+      const main = document.getElementById("workspace-main");
+      return !main?.querySelector('form[data-dirty="true"], form[aria-busy="true"]') && !document.querySelector('[role="dialog"]');
+    };
+    const tick = () => {
+      if (document.visibilityState !== "visible" || !navigator.onLine || !idle()) return;
+      refresh().catch(() => {});
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    window.addEventListener("focus", tick);
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = window.setInterval(tick, 60000);
+    return () => {
+      window.removeEventListener("focus", tick);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(timer);
+    };
+    // refresh is stable enough for this purpose; re-binding on every render would thrash the timer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   function canNavigate() {
     const main = document.getElementById("workspace-main");
     if (main?.querySelector('form[aria-busy="true"]')) {
@@ -1431,18 +1569,6 @@ export function Workspace() {
                 <h1>{tab}</h1>
                 <p>Manage your shop. Changes are saved as you confirm them.</p>
               </div>
-              <Button
-                variant="secondary"
-                disabled={loading || !online}
-                onClick={() =>
-                  refresh()
-                    .then(() => setNotice("View refreshed."))
-                    .catch(() => {})
-                }
-              >
-                <Icon name="refresh" />
-                {loading ? "Refreshing…" : "Refresh"}
-              </Button>
             </header>
           )}
           {!online && (
@@ -1623,6 +1749,17 @@ export function Workspace() {
                         <span className="toolbar-label">Agenda</span>
                       </button>
                     </div>
+                    <Button
+                      variant="secondary"
+                      disabled={!online || stale || loading || date !== w.today}
+                      onClick={() => setEditor({ kind: "walkin" })}
+                      data-testid="walk-in"
+                      className="toolbar-walkin"
+                      title={date !== w.today ? "Walk-ins are for today" : "Seat someone now"}
+                    >
+                      <Icon name="user" />
+                      <span className="toolbar-label">Walk-in</span>
+                    </Button>
                     <Button
                       disabled={!online || stale || loading}
                       onClick={() => setEditor({ kind: "booking" })}
@@ -4050,6 +4187,8 @@ function WorkspaceEditor({
                             ? e.item
                               ? "Reschedule appointment"
                               : "New booking"
+                          : e.kind === "walkin"
+                            ? "Walk-in"
                             : e.kind === "detail"
                               ? reference(e.item)
                               : e.kind === "share"
@@ -4276,6 +4415,7 @@ function WorkspaceEditor({
           </p>
         </SaveForm>
       )}
+      {e.kind === "walkin" && <WalkInForm w={w} saved={saved} />}
       {e.kind === "booking" && (
         <BookingForm
           w={w}

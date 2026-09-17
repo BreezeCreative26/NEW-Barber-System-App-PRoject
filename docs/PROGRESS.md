@@ -444,3 +444,14 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - New booking: free times as tappable chips grouped Morning/Afternoon/Evening; the full select stays
   as a fallback. Dialog copy de-harnessed (New booking, Mobile number, Notes, Phone / in person).
 - Tests: `shopPayload()` helper; per-day availability assertion (Thursday late vs Saturday short).
+
+### Calendar: Walk-in, no Refresh buttons, quieter past shading
+- **Walk-in** button on today's timetable: pick barber + service, offered the current 15-minute
+  slot (or next free), optional name/mobile, "Seat now". `source=WALK_IN` may omit the phone; the
+  customer-link trigger skips empty phones so no shared "Walk-in" customer record appears
+  (migration `0002_walkin_phone.sql`). `/availability?walk_in=1` treats the current slot as free.
+- Header and toolbar **Refresh buttons removed**; the workspace re-reads on window focus and every
+  60s while idle (never during a dirty form, in-flight save, or open dialog). Tests use `refreshView()`.
+- "Past time" now labels only the first cell of a past run.
+- Schema: `bookingSchema` is a refined object; `seriesSchema` derives from the unrefined base and
+  keeps the mandatory phone.

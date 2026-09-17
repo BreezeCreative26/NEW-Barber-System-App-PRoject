@@ -9,6 +9,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { section } from "./fixture";
 import type { WorkspaceData, BookingItem } from "../src/server/domain";
 import { base, origin, newShop, enterNewShop } from "./shop";
+import { refreshView } from "./fixture";
 const day = () => {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + 8);
@@ -512,7 +513,7 @@ test("changing add-ons invalidates a selected slot, preserves contact fields and
     },
   });
   expect(existing.status()).toBe(201);
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await refreshView(page);
   await expect(
     page.getByRole("button", { name: "New booking", exact: true }),
   ).toBeEnabled();
