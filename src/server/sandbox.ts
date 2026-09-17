@@ -63,6 +63,7 @@ import {
 } from "./domain";
 
 import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
+import { optimiseImage } from "./images";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
 import accounts, {
   ACCOUNT_COOKIE,
@@ -670,11 +671,11 @@ sandbox.put("/shop/page", async (c) => {
   const sections = JSON.stringify([...new Set(b.sections)]);
   const stmt = existing
     ? c.env.DB.prepare(
-        "UPDATE shop_pages SET strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
-      ).bind(b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, b.published, now, sid, b.version)
+        "UPDATE shop_pages SET strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
+      ).bind(b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.published, now, sid, b.version)
     : c.env.DB.prepare(
-        "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
-      ).bind(sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, b.published, now);
+        "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+      ).bind(sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.published, now);
   await checkVersionUpdate(c, stmt, audit(c, "shop", sid, "SHOP_PAGE_UPDATED", `${b.published ? "Published" : "Unpublished"}; ${b.sections.length} sections.`, true));
   const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>();
   return c.json({ page: row });
@@ -1084,13 +1085,17 @@ sandbox.post("/media", async (c) => {
   if (!(mediaKinds as readonly string[]).includes(kind)) fail(400, "Unknown photo kind");
   const f = file as File;
   if (f.size > MEDIA_MAX_BYTES) fail(413, "Photos must be 5 MB or smaller");
-  const bytes = new Uint8Array(await f.arrayBuffer());
-  const type = sniffImage(bytes);
-  if (!type) fail(400, "Only JPEG, PNG or WebP photos are accepted");
-  const size = imageSize(bytes, type!);
+  const raw = new Uint8Array(await f.arrayBuffer());
+  const sniffed = sniffImage(raw);
+  if (!sniffed) fail(400, "Only JPEG, PNG or WebP photos are accepted");
+  // Resize + recompress so a 5 MB phone photo becomes a few hundred KB; logos keep their transparency.
+  const opt = await optimiseImage(raw, kind as (typeof mediaKinds)[number], sniffed!);
+  const bytes = opt.bytes;
+  const type = opt.type;
+  const size = opt.width && opt.height ? { width: opt.width, height: opt.height } : imageSize(raw, sniffed!);
   const mid = id();
   const key = `${c.get("shopId")}/${kind}/${mid}`;
-  await putObject(bucket, key, bytes, type!);
+  await putObject(bucket, key, bytes, type);
   await c.env.DB.batch([
     c.env.DB.prepare("INSERT INTO shop_media(id,shop_id,kind,object_key,content_type,bytes,width,height,alt,uploaded_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)").bind(mid, c.get("shopId"), kind, key, type, bytes.byteLength, size?.width ?? null, size?.height ?? null, alt, c.get("actor"), Date.now()),
     audit(c, "media", mid, "MEDIA_UPLOADED", `${kind} photo, ${Math.round(bytes.byteLength / 1024)} KB${size ? `, ${size.width}×${size.height}` : ""}.`),

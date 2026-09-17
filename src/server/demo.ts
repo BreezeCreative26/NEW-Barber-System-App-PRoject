@@ -295,7 +295,7 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
     ).bind(uid(), shopId, services[6].id, customers[9].name, customers[9].phone, customers[9].email, day(1), "MORNING", "", now, now),
     db.prepare("INSERT INTO staff_days_off(id,shop_id,staff_id,date,reason,created_at) VALUES(?,?,?,?,?,?)").bind(uid(), shopId, staff[1].id, day(5), "Annual leave", now),
     db.prepare(
-      "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,published,version,updated_at) VALUES(?,?,?,?,'',?,?,?,?,?,?,?,?,?,1,0,?)",
+      "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,published,version,updated_at) VALUES(?,?,?,?,'',?,?,?,?,?,?,?,?,?,'{}',1,0,?)",
     ).bind(
       shopId,
       "Sharp cuts, straight talk, no fuss.",

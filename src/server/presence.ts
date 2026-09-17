@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { Database as D1Database } from "../db/client";
 import type { ObjectStore as R2Bucket } from "../db/storage";
 import type { Shop, ShopPage, StoredBooking } from "./domain";
-import { defaultShopPage, shopDay } from "./domain";
+import { defaultShopPage, parseTheme, shopDay } from "./domain";
 import type { AppEnv } from "./accounts";
 
 export type MediaEnv = AppEnv & { Bindings: AppEnv["Bindings"] & { MEDIA?: R2Bucket } };
@@ -205,7 +205,24 @@ export function shopPageHead(i: HeadInput) {
   };
   // JSON inside <script> must not be able to close the tag.
   const ldJson = JSON.stringify(ld).replace(/</g, "\\u003c");
+  // First paint matters: preload the hero image and the theme's typefaces so nothing swaps in late.
+  const theme = parseTheme(i.page.theme_json);
+  const fontFiles: Record<string, string[]> = {
+    modern: [],
+    editorial: ["fraunces-latin-opsz-normal", "manrope-latin-wght-normal"],
+    grotesk: ["space-grotesk-latin-wght-normal"],
+    heritage: ["playfair-display-latin-wght-normal", "dm-sans-latin-opsz-normal"],
+    condensed: ["bebas-neue-latin-400-normal", "dm-sans-latin-opsz-normal"],
+    soft: ["dm-sans-latin-opsz-normal"],
+  };
+  const preloads = [
+    ...(i.page.cover_url ? [`<link rel="preload" as="image" href="${esc(i.page.cover_url)}" fetchpriority="high"/>`] : []),
+    ...(fontFiles[theme.font] || []).map((f) => `<link rel="preload" as="font" type="font/woff2" href="/static/fonts/${f}.woff2" crossorigin/>`),
+    `<link rel="stylesheet" href="/static/theme-fonts.css"/>`,
+    `<meta name="theme-color" content="${theme.mode === "dark" ? "#0f1117" : "#ffffff"}"/>`,
+  ];
   const tags = [
+    ...preloads,
     `<title>${esc(title)}</title>`,
     `<meta name="description" content="${esc(description)}"/>`,
     `<meta name="robots" content="${i.page.published ? "index,follow" : "noindex,nofollow"}"/>`,

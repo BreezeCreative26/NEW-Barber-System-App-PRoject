@@ -26,6 +26,7 @@ import {
   type StoredBooking,
   type ShopPage,
   defaultShopPage,
+  parseTheme,
  shopDay, shopWeek, dayStarts,
 } from "./domain";
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
@@ -335,6 +336,7 @@ pub.get("/shops/:slug/page", async (c) => {
       policy_text: content.policy_text,
       sections: JSON.parse(content.sections_json) as string[],
       accent: content.accent,
+      theme: parseTheme(content.theme_json),
       published: content.published,
     },
     staff: staff.results,

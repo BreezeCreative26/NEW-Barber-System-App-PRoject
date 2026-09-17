@@ -1,0 +1,16 @@
+/* Shop page typefaces. Each theme loads only its own files; all SIL OFL (licences in /static/fonts/). */
+@font-face { font-family: "Fraunces"; font-style: normal; font-display: swap; font-weight: 100 900; src: url("/static/fonts/fraunces-latin-opsz-normal.woff2") format("woff2"); }
+@font-face { font-family: "Manrope"; font-style: normal; font-display: swap; font-weight: 200 800; src: url("/static/fonts/manrope-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 300 700; src: url("/static/fonts/space-grotesk-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Sans"; font-style: normal; font-display: swap; font-weight: 100 1000; src: url("/static/fonts/dm-sans-latin-opsz-normal.woff2") format("woff2"); }
+@font-face { font-family: "Playfair Display"; font-style: normal; font-display: swap; font-weight: 400 900; src: url("/static/fonts/playfair-display-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Oswald"; font-style: normal; font-display: swap; font-weight: 200 700; src: url("/static/fonts/oswald-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Bebas Neue"; font-style: normal; font-display: swap; font-weight: 400; src: url("/static/fonts/bebas-neue-latin-400-normal.woff2") format("woff2"); }
+
+/* Font pairings: --sp-display for headings, --sp-text for everything else. */
+.shop-page.font-modern { --sp-display: "Inter Variable", system-ui, sans-serif; --sp-text: "Inter Variable", system-ui, sans-serif; --sp-display-weight: 700; --sp-display-tracking: -0.03em; --sp-display-case: none; }
+.shop-page.font-editorial { --sp-display: "Fraunces", Georgia, serif; --sp-text: "Manrope", system-ui, sans-serif; --sp-display-weight: 600; --sp-display-tracking: -0.02em; --sp-display-case: none; }
+.shop-page.font-grotesk { --sp-display: "Space Grotesk", system-ui, sans-serif; --sp-text: "Space Grotesk", system-ui, sans-serif; --sp-display-weight: 600; --sp-display-tracking: -0.035em; --sp-display-case: none; }
+.shop-page.font-heritage { --sp-display: "Playfair Display", Georgia, serif; --sp-text: "DM Sans", system-ui, sans-serif; --sp-display-weight: 700; --sp-display-tracking: -0.01em; --sp-display-case: none; }
+.shop-page.font-condensed { --sp-display: "Bebas Neue", "Oswald", Impact, sans-serif; --sp-text: "DM Sans", system-ui, sans-serif; --sp-display-weight: 400; --sp-display-tracking: 0.01em; --sp-display-case: uppercase; }
+.shop-page.font-soft { --sp-display: "DM Sans", system-ui, sans-serif; --sp-text: "DM Sans", system-ui, sans-serif; --sp-display-weight: 600; --sp-display-tracking: -0.025em; --sp-display-case: none; }

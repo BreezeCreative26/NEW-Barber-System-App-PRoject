@@ -2568,7 +2568,24 @@ type WaitlistEntry = {
 };
 type QueueMatch = { staff_id: string; staff_name: string; start_min: number; price_pence: number; duration_min: number };
 // Settings → Shop page: content of the public home page at /<slug>. Presentation only.
-type PageForm = { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; published: number; version: number };
+type PageForm = { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme: ThemeForm; published: number; version: number };
+type ThemeForm = { font: string; mode: string; corners: string; hero: string };
+const THEME_FONTS: { id: string; name: string; sample: string; note: string }[] = [
+  { id: "modern", name: "Modern", sample: "Inter", note: "Clean and neutral" },
+  { id: "editorial", name: "Editorial", sample: "Fraunces + Manrope", note: "Warm serif headlines" },
+  { id: "grotesk", name: "Grotesk", sample: "Space Grotesk", note: "Sharp, contemporary" },
+  { id: "heritage", name: "Heritage", sample: "Playfair + DM Sans", note: "Classic barbershop" },
+  { id: "condensed", name: "Condensed", sample: "Bebas Neue + DM Sans", note: "Bold, street" },
+  { id: "soft", name: "Soft", sample: "DM Sans", note: "Friendly and rounded" },
+];
+const STOCK_COVERS: { id: string; name: string }[] = [
+  { id: "brick", name: "Brick & Edison" },
+  { id: "minimal", name: "Bright minimal" },
+  { id: "heritage", name: "Heritage green" },
+  { id: "industrial", name: "Industrial black" },
+  { id: "terracotta", name: "Warm terracotta" },
+  { id: "tools", name: "The tools" },
+];
 const PAGE_SECTIONS: { key: string; label: string }[] = [
   { key: "hero", label: "Hero" },
   { key: "next", label: "Next available" },
@@ -2601,6 +2618,14 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
         policy_text: String(p.policy_text || ""),
         sections: JSON.parse(String(p.sections_json || "[]")),
         accent: String(p.accent || "ollo"),
+        theme: (() => {
+          try {
+            const t = JSON.parse(String(p.theme_json || "{}")) as Partial<ThemeForm>;
+            return { font: t.font || "modern", mode: t.mode || "light", corners: t.corners || "soft", hero: t.hero || "editorial" };
+          } catch {
+            return { font: "modern", mode: "light", corners: "soft", hero: "editorial" };
+          }
+        })(),
         published: Number(p.published ?? 1),
         version: Number(p.version ?? 0),
       };
@@ -2670,6 +2695,18 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
                 <input type="text" inputMode="url" value={form.cover_url} maxLength={500} placeholder="https://…/shopfront.jpg" onChange={(e) => set("cover_url", e.target.value)} />
                 <PhotoUpload kind="cover" label="Upload" testId="upload-cover" onUploaded={([u]) => set("cover_url", u)} />
               </div>
+              <div className="stock-covers" role="group" aria-label="Choose a stock cover">
+                {STOCK_COVERS.map((c) => {
+                  const url = `/static/stock/${c.id}.webp`;
+                  return (
+                    <button key={c.id} type="button" className={`stock-cover ${form.cover_url === url ? "selected" : ""}`} aria-pressed={form.cover_url === url} onClick={() => set("cover_url", url)} title={c.name} data-testid={`stock-${c.id}`}>
+                      <img src={`/static/stock/${c.id}-thumb.webp`} alt={c.name} loading="lazy" />
+                      <span>{c.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="helper">No photo yet? Pick one of ours to start; swap it for your own shopfront any time.</p>
             </Field>
             <Field label="Logo (square works best)">
               <div className="photo-field">
@@ -2727,6 +2764,45 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
                 {["ollo", "ink", "sage", "clay", "plum", "slate"].map((a) => (
                   <button key={a} type="button" className={`accent-swatch ${a}`} aria-label={a} aria-pressed={form.accent === a} onClick={() => set("accent", a)} />
                 ))}
+              </div>
+            </div>
+            <div className="theme-editor" data-testid="theme-editor">
+              <div>
+                <span className="workspace-field"><span>Typeface</span></span>
+                <div className="theme-fonts" role="group" aria-label="Typeface">
+                  {THEME_FONTS.map((f) => (
+                    <button key={f.id} type="button" className={`theme-font font-${f.id} ${form.theme.font === f.id ? "selected" : ""}`} aria-pressed={form.theme.font === f.id} onClick={() => set("theme", { ...form.theme, font: f.id })} data-testid={`font-${f.id}`}>
+                      <b>Aa</b>
+                      <span>
+                        <strong>{f.name}</strong>
+                        <small>{f.note}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="theme-row">
+                <Field label="Look">
+                  <div className="segmented" role="group" aria-label="Look">
+                    {[["light", "Light"], ["dark", "Dark"]].map(([v, l]) => (
+                      <button key={v} type="button" aria-pressed={form.theme.mode === v} onClick={() => set("theme", { ...form.theme, mode: v })}>{l}</button>
+                    ))}
+                  </div>
+                </Field>
+                <Field label="Corners">
+                  <div className="segmented" role="group" aria-label="Corners">
+                    {[["soft", "Soft"], ["sharp", "Sharp"]].map(([v, l]) => (
+                      <button key={v} type="button" aria-pressed={form.theme.corners === v} onClick={() => set("theme", { ...form.theme, corners: v })}>{l}</button>
+                    ))}
+                  </div>
+                </Field>
+                <Field label="Hero layout">
+                  <div className="segmented" role="group" aria-label="Hero layout">
+                    {[["editorial", "Editorial"], ["centred", "Centred"], ["split", "Split"]].map(([v, l]) => (
+                      <button key={v} type="button" aria-pressed={form.theme.hero === v} onClick={() => set("theme", { ...form.theme, hero: v })}>{l}</button>
+                    ))}
+                  </div>
+                </Field>
               </div>
             </div>
             <div>

@@ -472,10 +472,35 @@ export type ShopPage = {
   policy_text: string;
   sections_json: string;
   accent: "ollo" | "ink" | "sage" | "clay" | "plum" | "slate";
+  theme_json: string;
   published: number;
   version: number;
   updated_at: number;
 };
+// Shop page theme. Each option is a curated, named choice so every combination looks designed.
+export const themeFonts = ["modern", "editorial", "grotesk", "heritage", "condensed", "soft"] as const;
+export const themeModes = ["light", "dark"] as const;
+export const themeCorners = ["soft", "sharp"] as const;
+export const themeHeroes = ["editorial", "centred", "split"] as const;
+export const stockCovers = ["brick", "minimal", "tools", "heritage", "industrial", "terracotta"] as const;
+export const themeSchema = z
+  .object({
+    font: z.enum(themeFonts).default("modern"),
+    mode: z.enum(themeModes).default("light"),
+    corners: z.enum(themeCorners).default("soft"),
+    hero: z.enum(themeHeroes).default("editorial"),
+  })
+  .strict();
+export type ShopTheme = z.infer<typeof themeSchema>;
+export const defaultTheme: ShopTheme = { font: "modern", mode: "light", corners: "soft", hero: "editorial" };
+export function parseTheme(json: string | null | undefined): ShopTheme {
+  try {
+    const r = themeSchema.safeParse(JSON.parse(json || "{}"));
+    return r.success ? r.data : defaultTheme;
+  } catch {
+    return defaultTheme;
+  }
+}
 export const pageSections = ["hero", "next", "services", "team", "hours", "gallery", "reviews", "find", "policies"] as const;
 const httpsUrl = z.union([z.literal(""), z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "Use an https:// address")]);
 export const shopPageSchema = z
@@ -493,6 +518,7 @@ export const shopPageSchema = z
     policy_text: z.string().trim().max(1200).default(""),
     sections: z.array(z.enum(pageSections)).max(pageSections.length).default([...pageSections]),
     accent: z.enum(["ollo", "ink", "sage", "clay", "plum", "slate"]).default("ollo"),
+    theme: themeSchema.default(defaultTheme),
     published: active.default(1),
     version,
   })
@@ -512,6 +538,7 @@ export const defaultShopPage = (shopId: string, now = Date.now()): ShopPage => (
   policy_text: "",
   sections_json: JSON.stringify(pageSections),
   accent: "ollo",
+  theme_json: "{}",
   published: 1,
   version: 0,
   updated_at: now,

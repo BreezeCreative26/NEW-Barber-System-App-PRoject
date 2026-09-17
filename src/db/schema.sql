@@ -423,6 +423,7 @@ CREATE TABLE shop_pages (
   map_url TEXT NOT NULL DEFAULT '', transport_note TEXT NOT NULL DEFAULT '', policy_text TEXT NOT NULL DEFAULT '',
   sections_json TEXT NOT NULL DEFAULT '["hero","next","services","team","hours","gallery","reviews","find","policies"]',
   accent TEXT NOT NULL DEFAULT 'ollo' CHECK(accent IN ('ollo','ink','sage','clay','plum','slate')),
+  theme_json TEXT NOT NULL DEFAULT '{}',
   published INTEGER NOT NULL DEFAULT 1 CHECK(published IN (0,1)),
   version INTEGER NOT NULL DEFAULT 0,
   updated_at BIGINT NOT NULL

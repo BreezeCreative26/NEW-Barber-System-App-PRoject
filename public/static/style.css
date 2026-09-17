@@ -7616,15 +7616,30 @@ details.workspace-welcome > svg { display: none; }
 .studio-rename { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-weight: 400; }
 .studio-rename input { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; min-width: 160px; }
 
-/* Shop logo: replaces the initials emblem wherever a shop identifies itself. */
-img.shop-emblem.shop-logo,
-img.avatar-ink.avatar-logo {
-  object-fit: cover;
-  background: #fff;
-  padding: 0;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-}
-img.avatar-ink.avatar-logo {
-  border-radius: 50%;
-}
-img.mini-shop-emblem.shop-logo { object-fit: cover; background: #fff; padding: 0; }
+
+/* Shop page editor: stock covers + theme pickers */
+.stock-covers { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-top: 10px; }
+.stock-cover { position: relative; padding: 0; border: 2px solid transparent; border-radius: 10px; overflow: hidden; background: var(--canvas); cursor: pointer; text-align: left; font: inherit; color: var(--ink); display: grid; }
+.stock-cover img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.stock-cover span { font-size: 11px; padding: 5px 8px; color: var(--muted); }
+.stock-cover:hover { border-color: var(--line-2); }
+.stock-cover.selected { border-color: var(--accent); }
+.stock-cover.selected span { color: var(--accent-dark); font-weight: 600; }
+.theme-editor { display: grid; gap: 16px; grid-column: 1 / -1; }
+.theme-fonts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.theme-font { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; text-align: left; font: inherit; color: var(--ink); }
+.theme-font:hover { border-color: var(--line-2); }
+.theme-font.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ollo-soft); }
+.theme-font b { font-family: var(--sp-display, inherit); font-weight: var(--sp-display-weight, 700); font-size: 26px; line-height: 1; width: 40px; text-align: center; letter-spacing: var(--sp-display-tracking, 0); }
+.theme-font span { display: grid; gap: 1px; min-width: 0; }
+.theme-font strong { font-size: 13px; }
+.theme-font small { font-size: 11px; color: var(--muted); }
+.theme-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.theme-row .segmented { display: inline-flex; padding: 3px; background: var(--canvas); border-radius: 10px; gap: 2px; }
+.theme-row .segmented button { flex: 1; min-height: 34px; padding: 0 12px; border: 0; background: transparent; border-radius: 8px; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; }
+.theme-row .segmented button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1); font-weight: 600; }
+
+/* Transparent logos in the workspace pill and booking header: contain, no white box. */
+img.avatar-ink.avatar-logo, img.shop-emblem.shop-logo, img.mini-shop-emblem.shop-logo { object-fit: contain; background: transparent; border: 0; padding: 0; box-shadow: none; }
+img.avatar-ink.avatar-logo { border-radius: 8px; width: auto; max-width: 96px; height: 32px; }
+.shop-header img.shop-emblem.shop-logo { width: auto; max-width: 140px; height: 40px; border-radius: 0; }
