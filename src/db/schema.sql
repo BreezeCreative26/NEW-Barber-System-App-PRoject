@@ -38,7 +38,11 @@ CREATE TABLE shops (
   -- Online deposits through the shop's own Stripe account (Model A). deposit_hold_min: how long a slot
   -- stays held while the customer pays.
   stripe_account_id TEXT NOT NULL DEFAULT '', deposits_online INTEGER NOT NULL DEFAULT 0, deposit_hold_min INTEGER NOT NULL DEFAULT 15,
-  CONSTRAINT shops_deposits_check CHECK (deposits_online IN (0,1) AND deposit_hold_min BETWEEN 5 AND 120)
+  CONSTRAINT shops_deposits_check CHECK (deposits_online IN (0,1) AND deposit_hold_min BETWEEN 5 AND 120),
+  -- Payouts: STANDARD waits for settlement, FAST transfers against the platform float; payrun_auto
+  -- approves+transfers runs on a schedule; reserve held back against disputes (basis points).
+  payout_tier TEXT NOT NULL DEFAULT 'STANDARD', payrun_auto TEXT NOT NULL DEFAULT 'OFF', payrun_reserve_bps INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT shops_payout_check CHECK (payout_tier IN ('STANDARD','FAST') AND payrun_auto IN ('OFF','DAILY','WEEKLY') AND payrun_reserve_bps BETWEEN 0 AND 5000)
 );
 CREATE UNIQUE INDEX shops_slug ON shops(slug) WHERE slug IS NOT NULL;
 
@@ -353,10 +357,15 @@ CREATE TABLE payments (
   voided_at BIGINT,
   void_reason TEXT NOT NULL DEFAULT '',
   created_at BIGINT NOT NULL,
+  -- Card money through the platform: Stripe refs for refunds/disputes, fees, and the run that settled it.
+  stripe_payment_intent TEXT NOT NULL DEFAULT '', stripe_charge TEXT NOT NULL DEFAULT '',
+  stripe_fee_pence INTEGER NOT NULL DEFAULT 0, platform_fee_pence INTEGER NOT NULL DEFAULT 0,
+  pay_run_id TEXT,
   FOREIGN KEY(shop_id,booking_id) REFERENCES bookings(shop_id,id),
   FOREIGN KEY(shop_id,staff_id) REFERENCES staff(shop_id,id)
 );
 CREATE INDEX payments_booking ON payments(shop_id,booking_id);
+CREATE INDEX payments_unsettled ON payments(shop_id, staff_id, date) WHERE pay_run_id IS NULL AND voided_at IS NULL;
 CREATE INDEX payments_shop_date ON payments(shop_id,date,created_at);
 CREATE INDEX payments_staff_date ON payments(shop_id,staff_id,date);
 CREATE TABLE pay_runs (
@@ -372,7 +381,13 @@ CREATE TABLE pay_runs (
   rent_pence INTEGER NOT NULL DEFAULT 0,
   adjustments_json TEXT NOT NULL DEFAULT '[]', adjustments_pence INTEGER NOT NULL DEFAULT 0,
   net_pence INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT','APPROVED','PAID','VOID')),
+  -- Card vs cash split, and what OLLO moved through Stripe. cash_residual: + owed to barber by hand, − owed to shop.
+  card_service_pence INTEGER NOT NULL DEFAULT 0, card_tips_pence INTEGER NOT NULL DEFAULT 0,
+  cash_service_pence INTEGER NOT NULL DEFAULT 0, cash_tips_pence INTEGER NOT NULL DEFAULT 0,
+  transfer_pence INTEGER NOT NULL DEFAULT 0, shop_transfer_pence INTEGER NOT NULL DEFAULT 0,
+  reserve_pence INTEGER NOT NULL DEFAULT 0, cash_residual_pence INTEGER NOT NULL DEFAULT 0,
+  transfer_group TEXT NOT NULL DEFAULT '', transferred_at BIGINT,
+  status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT','APPROVED','TRANSFERRED','PAID','VOID')),
   paid_method TEXT, paid_reference TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
   created_by TEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
   version INTEGER NOT NULL DEFAULT 0,
@@ -440,6 +455,45 @@ CREATE UNIQUE INDEX notifications_once_per_booking ON notifications(shop_id, rel
 CREATE TABLE platform_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at BIGINT NOT NULL);
 -- Stripe webhook events already handled (idempotency).
 CREATE TABLE stripe_events (id TEXT PRIMARY KEY, type TEXT NOT NULL, received_at BIGINT NOT NULL);
+
+-- ---------- Stripe Connect platform (see docs/PAYMENTS.md) ----------
+CREATE TABLE connected_accounts (
+  id TEXT PRIMARY KEY, shop_id TEXT NOT NULL REFERENCES shops(id),
+  owner_type TEXT NOT NULL CHECK(owner_type IN ('SHOP','STAFF')), owner_id TEXT NOT NULL,
+  email TEXT NOT NULL DEFAULT '',
+  details_submitted INTEGER NOT NULL DEFAULT 0, charges_enabled INTEGER NOT NULL DEFAULT 0, payouts_enabled INTEGER NOT NULL DEFAULT 0,
+  requirements_json TEXT NOT NULL DEFAULT '[]', payout_schedule TEXT NOT NULL DEFAULT 'daily', disabled_reason TEXT NOT NULL DEFAULT '',
+  created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+  UNIQUE(shop_id, owner_type, owner_id)
+);
+CREATE TABLE platform_payments (
+  id INTEGER PRIMARY KEY CHECK(id=1),
+  fee_bps INTEGER NOT NULL DEFAULT 150 CHECK(fee_bps BETWEEN 0 AND 2000), fee_fixed_pence INTEGER NOT NULL DEFAULT 0 CHECK(fee_fixed_pence BETWEEN 0 AND 500),
+  fast_payouts INTEGER NOT NULL DEFAULT 1 CHECK(fast_payouts IN (0,1)), float_alert_pence INTEGER NOT NULL DEFAULT 200000,
+  updated_at BIGINT NOT NULL
+);
+INSERT INTO platform_payments(id, updated_at) VALUES(1, 0);
+CREATE TABLE transfers (
+  id TEXT PRIMARY KEY, shop_id TEXT NOT NULL REFERENCES shops(id), pay_run_id TEXT,
+  account_id TEXT NOT NULL, owner_type TEXT NOT NULL CHECK(owner_type IN ('SHOP','STAFF')), owner_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('PAYOUT','REVERSAL','ADJUSTMENT')), amount_pence INTEGER NOT NULL, currency TEXT NOT NULL DEFAULT 'GBP',
+  transfer_group TEXT NOT NULL DEFAULT '', reverses TEXT, reason TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'CREATED' CHECK(status IN ('CREATED','PAID','FAILED','REVERSED')),
+  created_by TEXT NOT NULL, created_at BIGINT NOT NULL
+);
+CREATE INDEX transfers_run ON transfers(shop_id, pay_run_id);
+CREATE INDEX transfers_owner ON transfers(shop_id, owner_type, owner_id, created_at);
+CREATE TABLE payouts (
+  id TEXT PRIMARY KEY, account_id TEXT NOT NULL, amount_pence INTEGER NOT NULL, currency TEXT NOT NULL DEFAULT 'GBP',
+  status TEXT NOT NULL, arrival_date TEXT NOT NULL DEFAULT '', method TEXT NOT NULL DEFAULT 'standard',
+  created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+);
+CREATE INDEX payouts_account ON payouts(account_id, created_at);
+CREATE TABLE disputes (
+  id TEXT PRIMARY KEY, shop_id TEXT NOT NULL, payment_id TEXT, charge TEXT NOT NULL, amount_pence INTEGER NOT NULL,
+  status TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', reversed INTEGER NOT NULL DEFAULT 0,
+  created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+);
 CREATE TABLE shop_pages (
   shop_id TEXT PRIMARY KEY REFERENCES shops(id),
   strapline TEXT NOT NULL DEFAULT '', about TEXT NOT NULL DEFAULT '',

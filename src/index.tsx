@@ -9,6 +9,7 @@ import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
 import { expireHolds, markDepositPaid, stripeStatus, verifyWebhook } from "./server/stripe";
 import { afterDepositPaid } from "./server/public";
+import { handleConnectEvent, type ConnectEvent } from "./server/payouts";
 import type { Database } from "./db/client";
 import type { ObjectStore } from "./db/storage";
 export type AppBindings = { DB: Database; MEDIA?: ObjectStore; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string };
@@ -62,6 +63,8 @@ app.post("/api/stripe/webhook", async (c) => {
     // Release the hold now rather than waiting for the sweep.
     if (shopId && bookingId) await c.env.DB.prepare("UPDATE bookings SET deposit_hold_until=0 WHERE shop_id=? AND id=? AND deposit_status='PENDING'").bind(shopId, bookingId).run();
     await expireHolds(c.env.DB);
+  } else {
+    await handleConnectEvent(c.env.DB, evt as ConnectEvent);
   }
   return c.json({ ok: true });
 });

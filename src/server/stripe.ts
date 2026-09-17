@@ -15,7 +15,9 @@ import type { Shop, StoredBooking } from "./domain";
 type Env = { STRIPE_SECRET_KEY?: string; STRIPE_WEBHOOK_SECRET?: string; STRIPE_CONNECT?: string; APP_ORIGIN?: string };
 const env = (): Env => (typeof process !== "undefined" ? (process.env as Env) : {});
 export const stripeLive = () => !!env().STRIPE_SECRET_KEY;
-export const stripeConnect = () => env().STRIPE_CONNECT === "1";
+// Connect is the model (platform charges, transfers out). STRIPE_CONNECT=0 turns the shop/barber
+// account layer off for a single-shop deployment where the platform account IS the shop.
+export const stripeConnect = () => (env().STRIPE_CONNECT ?? "1") !== "0";
 
 export type StripeStatus = {
   provider: "stripe" | "none";
@@ -38,7 +40,6 @@ export function stripeStatus(): StripeStatus {
 export function depositsOnline(shop: Pick<Shop, "deposits_online" | "deposit_pence" | "stripe_account_id">) {
   if (!stripeLive()) return false;
   if ((shop.deposits_online ?? 0) !== 1 || shop.deposit_pence <= 0) return false;
-  if (stripeConnect() && !shop.stripe_account_id) return false;
   return true;
 }
 
@@ -98,7 +99,9 @@ export async function createDepositSession(shop: Shop, booking: StoredBooking, o
     "payment_intent_data[description]": `${shop.name} deposit · ${booking.service_name} · ${booking.date}`,
   };
   if (booking.email) body.customer_email = booking.email;
-  return stripe<CheckoutSession>("/checkout/sessions", body, { account: stripeConnect() ? shop.stripe_account_id : undefined, idempotency: `deposit-${booking.id}` });
+  // Platform is the merchant of record: the charge lands on OLLO's balance and the pay run moves the
+  // shop's and barber's shares out with Transfers. No Stripe-Account header.
+  return stripe<CheckoutSession>("/checkout/sessions", body, { idempotency: `deposit-${booking.id}` });
 }
 export async function retrieveSession(sessionId: string, account?: string) {
   return stripe<CheckoutSession>(`/checkout/sessions/${encodeURIComponent(sessionId)}`, undefined, { account });
@@ -110,30 +113,94 @@ export async function refundIntent(paymentIntent: string, account?: string, idem
   return stripe<{ id: string; status: string }>("/refunds", { payment_intent: paymentIntent }, { account, idempotency });
 }
 
-// ---- Connect onboarding (Express) ------------------------------------------------------------------
-export async function createConnectedAccount(shop: Shop, email: string) {
+// ---- Connect platform: Express accounts for shops AND barbers ------------------------------------
+export type OwnerType = "SHOP" | "STAFF";
+export async function createExpressAccount(opts: { shopId: string; ownerType: OwnerType; ownerId: string; email: string; name: string; country?: string; individual?: boolean }) {
   return stripe<{ id: string }>("/accounts", {
     type: "express",
-    country: shop.currency === "GBP" ? "GB" : undefined,
-    email,
-    "business_profile[name]": shop.name,
+    country: opts.country || "GB",
+    email: opts.email || undefined,
+    business_type: opts.individual ? "individual" : undefined,
+    "business_profile[name]": opts.name,
+    "business_profile[mcc]": "7230", // beauty & barber shops
     "capabilities[card_payments][requested]": true,
     "capabilities[transfers][requested]": true,
-    "metadata[shop_id]": shop.id,
-  }, { idempotency: `acct-${shop.id}` });
+    "settings[payouts][schedule][interval]": "daily",
+    "metadata[shop_id]": opts.shopId,
+    "metadata[owner_type]": opts.ownerType,
+    "metadata[owner_id]": opts.ownerId,
+  }, { idempotency: `acct-${opts.ownerType}-${opts.ownerId}` });
 }
-export async function accountLink(accountId: string, origin: string) {
-  return stripe<{ url: string }>("/account_links", {
+export async function accountLink(accountId: string, origin: string, returnPath = "/workspace?stripe=return", refreshPath = "/workspace?stripe=refresh") {
+  return stripe<{ url: string; expires_at: number }>("/account_links", {
     account: accountId,
-    refresh_url: `${origin}/workspace?stripe=refresh`,
-    return_url: `${origin}/workspace?stripe=return`,
+    refresh_url: `${origin}${refreshPath}`,
+    return_url: `${origin}${returnPath}`,
     type: "account_onboarding",
   });
 }
-export async function accountStatus(accountId: string) {
-  const a = await stripe<{ id: string; charges_enabled: boolean; payouts_enabled: boolean; details_submitted: boolean; requirements?: { currently_due?: string[] } }>(`/accounts/${encodeURIComponent(accountId)}`);
-  return { id: a.id, charges_enabled: !!a.charges_enabled, payouts_enabled: !!a.payouts_enabled, details_submitted: !!a.details_submitted, due: a.requirements?.currently_due ?? [] };
+// One-time link into the Express dashboard (balance, payouts, "pay out now").
+export async function loginLink(accountId: string) {
+  return stripe<{ url: string }>(`/accounts/${encodeURIComponent(accountId)}/login_links`, {});
 }
+export type AccountSnapshot = { id: string; charges_enabled: boolean; payouts_enabled: boolean; details_submitted: boolean; due: string[]; disabled_reason: string; payout_schedule: string };
+export function snapshotOf(a: { id: string; charges_enabled?: boolean; payouts_enabled?: boolean; details_submitted?: boolean; requirements?: { currently_due?: string[]; disabled_reason?: string | null }; settings?: { payouts?: { schedule?: { interval?: string } } } }): AccountSnapshot {
+  return {
+    id: a.id,
+    charges_enabled: !!a.charges_enabled,
+    payouts_enabled: !!a.payouts_enabled,
+    details_submitted: !!a.details_submitted,
+    due: a.requirements?.currently_due ?? [],
+    disabled_reason: a.requirements?.disabled_reason ?? "",
+    payout_schedule: a.settings?.payouts?.schedule?.interval ?? "daily",
+  };
+}
+export async function accountStatus(accountId: string): Promise<AccountSnapshot> {
+  return snapshotOf(await stripe<Parameters<typeof snapshotOf>[0]>(`/accounts/${encodeURIComponent(accountId)}`));
+}
+export async function setPayoutSchedule(accountId: string, interval: "daily" | "weekly" | "monthly") {
+  return stripe(`/accounts/${encodeURIComponent(accountId)}`, { "settings[payouts][schedule][interval]": interval, ...(interval === "weekly" ? { "settings[payouts][schedule][weekly_anchor]": "friday" } : {}), ...(interval === "monthly" ? { "settings[payouts][schedule][monthly_anchor]": 1 } : {}) });
+}
+
+// ---- Money movement ---------------------------------------------------------------------------------
+export type Transfer = { id: string; amount: number; destination: string; transfer_group: string | null };
+// Move funds from the platform balance to a connected account. Idempotent per key.
+export async function createTransfer(opts: { amountPence: number; destination: string; currency: string; group: string; description: string; metadata: Record<string, string>; idempotency: string }) {
+  const body: Record<string, string | number> = {
+    amount: opts.amountPence,
+    currency: opts.currency.toLowerCase(),
+    destination: opts.destination,
+    transfer_group: opts.group,
+    description: opts.description,
+  };
+  for (const [k, v] of Object.entries(opts.metadata)) body[`metadata[${k}]`] = v;
+  return stripe<Transfer>("/transfers", body, { idempotency: opts.idempotency });
+}
+export async function reverseTransfer(transferId: string, amountPence: number | undefined, reason: string, idempotency: string) {
+  return stripe<{ id: string; amount: number }>(`/transfers/${encodeURIComponent(transferId)}/reversals`, { ...(amountPence ? { amount: amountPence } : {}), "metadata[reason]": reason.slice(0, 200) }, { idempotency });
+}
+// Platform balance: available (can transfer now) vs pending (still settling). The float is the
+// available figure; FAST payouts spend it ahead of settlement.
+export async function platformBalance() {
+  const b = await stripe<{ available: { amount: number; currency: string }[]; pending: { amount: number; currency: string }[] }>("/balance");
+  const sum = (rows: { amount: number; currency: string }[], cur: string) => rows.filter((r) => r.currency === cur).reduce((n, r) => n + r.amount, 0);
+  return { available_pence: sum(b.available, "gbp"), pending_pence: sum(b.pending, "gbp") };
+}
+// Top up the platform balance from the platform's bank account (UK: Bacs/Faster Payments).
+export async function topUp(amountPence: number, description: string, idempotency: string) {
+  return stripe<{ id: string; status: string; expected_availability_date?: number }>("/topups", { amount: amountPence, currency: "gbp", description }, { idempotency });
+}
+// Fee Stripe took on a charge (for "commission net of fees" policies and honest wallets).
+export async function chargeFee(paymentIntent: string) {
+  const pi = await stripe<{ latest_charge?: string }>(`/payment_intents/${encodeURIComponent(paymentIntent)}`);
+  if (!pi.latest_charge) return { charge: "", fee_pence: 0 };
+  const ch = await stripe<{ id: string; balance_transaction?: string }>(`/charges/${encodeURIComponent(pi.latest_charge)}`);
+  if (!ch.balance_transaction) return { charge: ch.id, fee_pence: 0 };
+  const bt = await stripe<{ fee: number }>(`/balance_transactions/${encodeURIComponent(ch.balance_transaction)}`);
+  return { charge: ch.id, fee_pence: bt.fee };
+}
+// Platform take on a card payment, from platform_payments.
+export const platformFee = (amountPence: number, fee: { fee_bps: number; fee_fixed_pence: number }) => (amountPence <= 0 ? 0 : Math.round((amountPence * fee.fee_bps) / 10000) + fee.fee_fixed_pence);
 
 // ---- Webhook signature (Stripe-Signature: t=…,v1=…) ----------------------------------------------
 export async function verifyWebhook(rawBody: string, header: string | undefined, tolerance = 300) {
@@ -198,7 +265,7 @@ export async function refundDeposit(db: DB, shop: Shop, booking: StoredBooking, 
   if (booking.deposit_status !== "PAID" || !booking.stripe_payment_intent) return false;
   const now = Date.now();
   try {
-    const r = await refundIntent(booking.stripe_payment_intent, stripeConnect() ? shop.stripe_account_id : undefined, `refund-${booking.id}`);
+    const r = await refundIntent(booking.stripe_payment_intent, undefined, `refund-${booking.id}`);
     await db.batch([
       db.prepare("UPDATE bookings SET deposit_status='REFUNDED', stripe_refund_id=?, updated_at=? WHERE shop_id=? AND id=? AND deposit_status='PAID'").bind(r.id, now, shop.id, booking.id),
       db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")

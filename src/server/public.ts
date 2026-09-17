@@ -616,7 +616,7 @@ pub.post("/shops/:slug/bookings", async (c) => {
       // Replay (token null): the session already exists — hand back its URL instead of a new one.
       const session = token
         ? await createDepositSession(shop, booking, origin, token, holdMin || shop.deposit_hold_min || 15)
-        : await retrieveSession(booking.stripe_session_id || "", stripeConnect() ? shop.stripe_account_id : undefined);
+        : await retrieveSession(booking.stripe_session_id || "");
       checkoutUrl = session.url;
       if (!booking.stripe_session_id) {
         await c.env.DB.prepare("UPDATE bookings SET stripe_session_id=?, updated_at=? WHERE shop_id=? AND id=? AND stripe_session_id=''").bind(session.id, Date.now(), shop.id, booking.id).run();
@@ -653,7 +653,7 @@ pub.post("/manage/:token/deposit/confirm", async (c) => {
   await throttle(c, "deposit-confirm", booking.id, 30);
   if (booking.deposit_status !== "PENDING") return c.json({ booking: customerView(booking, shop, staffName), changed: false });
   if (!booking.stripe_session_id || !stripeLive()) return c.json({ booking: customerView(booking, shop, staffName), changed: false });
-  const s = await retrieveSession(booking.stripe_session_id, stripeConnect() ? shop.stripe_account_id : undefined).catch(() => null);
+  const s = await retrieveSession(booking.stripe_session_id).catch(() => null);
   if (s?.payment_status === "paid") {
     const changed = await markDepositPaid(c.env.DB, shop.id, booking.id, Math.min(shop.deposit_pence, booking.price_pence), typeof s.payment_intent === "string" ? s.payment_intent : "", s.id);
     if (changed) await afterDepositPaid(c, shop.id, booking.id);

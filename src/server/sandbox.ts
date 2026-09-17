@@ -65,7 +65,8 @@ import {
 import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { optimiseImage } from "./images";
 import { drain, enqueue, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
-import { accountLink, accountStatus, createConnectedAccount, depositsOnline, expireHolds, refundDeposit, stripeConnect, stripeLive, stripeStatus } from "./stripe";
+import { depositsOnline, expireHolds, platformBalance, platformFee, refundDeposit, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
+import { accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, type ConnectedAccount } from "./payouts";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
 import accounts, {
   ACCOUNT_COOKIE,
@@ -204,7 +205,12 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && /^\/bookings\/[^/]+\/checkout$/.test(path)) ||
       (method === "POST" && /^\/bookings\/[^/]+\/deposit\/refund$/.test(path)) ||
       (method === "POST" && /^\/payments\/[^/]+\/void$/.test(path)) ||
-      (method === "GET" && path === "/shop/payments") ||
+      (method === "GET" && ["/shop/payments", "/payments/wallet", "/payments/balance"].includes(path)) ||
+      (method === "GET" && /^\/pay-runs\/[^/]+\/transfers$/.test(path)) ||
+      (method === "POST" && /^\/pay-runs\/[^/]+\/transfer$/.test(path)) ||
+      (method === "POST" && /^\/staff\/[^/]+\/payments\/connect$/.test(path)) ||
+      (method === "POST" && /^\/payments\/accounts\/[^/]+\/(refresh|dashboard)$/.test(path)) ||
+      (method === "PUT" && /^\/payments\/accounts\/[^/]+\/schedule$/.test(path)) ||
       (method === "POST" && ["/series/preview", "/series"].includes(path)) ||
       (method === "POST" && /^\/series\/[^/]+\/(cancel|reschedule)$/.test(path)) ||
       (method === "GET" && /^\/bookings\/[^/]+\/timeline$/.test(path)) ||
@@ -1094,56 +1100,138 @@ sandbox.post("/notifications/sweep", async (c) => {
   return c.json({ reminders, drained, holds_released: holds.length });
 });
 
-// ---- Payments (online deposits via the shop's Stripe account) ---------------------------------
-// Status: platform provider, this shop's toggle + connected account, and 30-day deposit totals.
+// ---- Payments: OLLO is the Stripe Connect platform ------------------------------------------------
+// Status for Settings → Payments: provider, this shop's account, every barber's account, deposit +
+// payout policy, 30-day totals. Barbers see only their own account.
 sandbox.get("/shop/payments", async (c) => {
   const shop = await readShop(c);
+  const a = c.get("account");
   const since = Date.now() - 30 * 86400000;
   const totals = await c.env.DB.prepare(
-    "SELECT COALESCE(SUM(CASE WHEN deposit_status='PAID' THEN deposit_paid_pence ELSE 0 END),0)::int AS paid_pence, COUNT(*) FILTER (WHERE deposit_status='PAID')::int AS paid, COUNT(*) FILTER (WHERE deposit_status='REFUNDED')::int AS refunded, COUNT(*) FILTER (WHERE deposit_status='EXPIRED')::int AS expired, COUNT(*) FILTER (WHERE deposit_status='PENDING')::int AS pending FROM bookings WHERE shop_id=? AND created_at>?",
-  ).bind(shop.id, since).first<{ paid_pence: number; paid: number; refunded: number; expired: number; pending: number }>();
-  let account: Awaited<ReturnType<typeof accountStatus>> | null = null;
-  if (stripeLive() && stripeConnect() && shop.stripe_account_id) account = await accountStatus(shop.stripe_account_id).catch(() => null);
+    "SELECT COALESCE(SUM(CASE WHEN deposit_status='PAID' THEN deposit_paid_pence ELSE 0 END),0)::int AS deposits_pence, COUNT(*) FILTER (WHERE deposit_status='PAID')::int AS deposits, COUNT(*) FILTER (WHERE deposit_status='REFUNDED')::int AS refunded, COUNT(*) FILTER (WHERE deposit_status='EXPIRED')::int AS expired, COUNT(*) FILTER (WHERE deposit_status='PENDING')::int AS pending FROM bookings WHERE shop_id=? AND created_at>?",
+  ).bind(shop.id, since).first();
+  const moved = await c.env.DB.prepare("SELECT COALESCE(SUM(CASE WHEN kind='PAYOUT' AND owner_type='STAFF' THEN amount_pence ELSE 0 END),0)::int AS to_barbers, COALESCE(SUM(CASE WHEN kind='PAYOUT' AND owner_type='SHOP' THEN amount_pence ELSE 0 END),0)::int AS to_shop, COALESCE(SUM(CASE WHEN kind='REVERSAL' THEN -amount_pence ELSE 0 END),0)::int AS reversed FROM transfers WHERE shop_id=? AND created_at>?").bind(shop.id, since).first();
+  const accounts = await accountsForShop(c.env.DB, shop.id);
+  const staff = (await c.env.DB.prepare("SELECT id,name,role,active FROM staff WHERE shop_id=? ORDER BY sort_order,name").bind(shop.id).all<{ id: string; name: string; role: string; active: number }>()).results;
+  const mine = a?.role === "BARBER" ? a.staff_id : null;
+  const shopAcct = accounts.find((x) => x.owner_type === "SHOP") ?? null;
+  const policy = await platformPolicy(c.env.DB);
   return c.json({
     stripe: stripeStatus(),
-    settings: { deposits_online: shop.deposits_online ?? 0, deposit_hold_min: shop.deposit_hold_min ?? 15, deposit_pence: shop.deposit_pence, stripe_account_id: shop.stripe_account_id || "" },
-    account,
+    platform: { fee_bps: policy.fee_bps, fee_fixed_pence: policy.fee_fixed_pence, fast_payouts: policy.fast_payouts },
+    settings: { deposits_online: shop.deposits_online ?? 0, deposit_hold_min: shop.deposit_hold_min ?? 15, deposit_pence: shop.deposit_pence, payout_tier: shop.payout_tier ?? "STANDARD", payrun_auto: shop.payrun_auto ?? "OFF", payrun_reserve_bps: shop.payrun_reserve_bps ?? 0 },
+    shop_account: mine ? null : shopAcct && { ...shopAcct, state: accountState(shopAcct) },
+    barbers: staff
+      .filter((st) => !mine || st.id === mine)
+      .map((st) => {
+        const acct = accounts.find((x) => x.owner_type === "STAFF" && x.owner_id === st.id) ?? null;
+        return { id: st.id, name: st.name, role: st.role, active: st.active, account: acct && { id: acct.id, email: acct.email, payout_schedule: acct.payout_schedule, details_submitted: acct.details_submitted, payouts_enabled: acct.payouts_enabled }, state: accountState(acct) };
+      }),
     active: depositsOnline(shop),
-    totals_30d: totals,
+    payouts_ready: stripeLive() && stripeConnect() && !!shopAcct?.payouts_enabled,
+    totals_30d: { ...(totals as object), ...(moved as object) },
   });
 });
-const paymentsSchema = z.object({ deposits_online: z.union([z.literal(0), z.literal(1)]), deposit_hold_min: z.number().int().min(5).max(120) }).strict();
+const paymentsSchema = z
+  .object({
+    deposits_online: z.union([z.literal(0), z.literal(1)]),
+    deposit_hold_min: z.number().int().min(5).max(120),
+    payout_tier: z.enum(["STANDARD", "FAST"]).default("STANDARD"),
+    payrun_auto: z.enum(["OFF", "DAILY", "WEEKLY"]).default("OFF"),
+    payrun_reserve_bps: z.number().int().min(0).max(5000).default(0),
+  })
+  .strict();
 sandbox.put("/shop/payments", async (c) => {
   requireRole(c, ["OWNER", "MANAGER"]);
   const b = await input(c, paymentsSchema);
   const shop = await readShop(c);
-  if (b.deposits_online && !stripeLive()) fail(409, "Card payments are not set up on this OLLO deployment yet");
-  if (b.deposits_online && stripeConnect() && !shop.stripe_account_id) fail(409, "Connect your Stripe account first");
+  if (b.deposits_online && !stripeLive()) fail(409, "Card payments are not switched on for OLLO yet");
   if (b.deposits_online && shop.deposit_pence <= 0) fail(409, "Set a deposit amount above zero first");
+  if (b.payrun_auto !== "OFF" && !stripeLive()) fail(409, "Automatic pay runs need card payments switched on");
+  const policy = await platformPolicy(c.env.DB);
+  if (b.payout_tier === "FAST" && !policy.fast_payouts) fail(409, "Fast payouts are not available on this plan");
   await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE shops SET deposits_online=?, deposit_hold_min=?, version=version+1 WHERE id=?").bind(b.deposits_online, b.deposit_hold_min, shop.id),
-    audit(c, "shop", shop.id, b.deposits_online ? "DEPOSITS_ONLINE_ENABLED" : "DEPOSITS_ONLINE_DISABLED", b.deposits_online ? `Deposits taken by card at booking; slot held ${b.deposit_hold_min} min.` : "Deposits payable in the shop."),
+    c.env.DB.prepare("UPDATE shops SET deposits_online=?, deposit_hold_min=?, payout_tier=?, payrun_auto=?, payrun_reserve_bps=?, version=version+1 WHERE id=?").bind(b.deposits_online, b.deposit_hold_min, b.payout_tier, b.payrun_auto, b.payrun_reserve_bps, shop.id),
+    audit(c, "shop", shop.id, "PAYMENTS_UPDATED", `Deposits by card ${b.deposits_online ? `on (hold ${b.deposit_hold_min} min)` : "off"}; payouts ${b.payout_tier.toLowerCase()}; auto pay runs ${b.payrun_auto.toLowerCase()}; reserve ${b.payrun_reserve_bps / 100}%.`),
   ]);
   return c.json({ ok: true, settings: b });
 });
-// Stripe Connect (Express) onboarding: create the shop's account once, then hand back an onboarding link.
+// Onboarding: the shop (owner only) or a barber (owner/manager, or the barber themself).
 sandbox.post("/shop/payments/connect", async (c) => {
   requireRole(c, ["OWNER"]);
   await input(c, z.object({}).strict());
-  if (!stripeLive()) fail(409, "Card payments are not set up on this OLLO deployment yet");
-  if (!stripeConnect()) fail(409, "This deployment charges through the platform account; no connection needed");
+  if (!stripeLive() || !stripeConnect()) fail(409, "Card payments are not switched on for OLLO yet");
   const shop = await readShop(c);
-  let accountId = shop.stripe_account_id || "";
-  if (!accountId) {
-    const acct = await createConnectedAccount(shop, c.get("account")?.email || "");
-    accountId = acct.id;
-    await c.env.DB.batch([
-      c.env.DB.prepare("UPDATE shops SET stripe_account_id=?, version=version+1 WHERE id=? AND stripe_account_id=''").bind(accountId, shop.id),
-      audit(c, "shop", shop.id, "STRIPE_ACCOUNT_CREATED", `Stripe account ${accountId} created for onboarding.`),
-    ]);
-  }
-  const link = await accountLink(accountId, new URL(c.req.url).origin);
-  return c.json({ ok: true, account_id: accountId, url: link.url }, 201);
+  const { account, url } = await beginOnboarding(c.env.DB, shop, { type: "SHOP", id: shop.id, name: shop.name, email: c.get("account")?.email || "" }, new URL(c.req.url).origin, "/workspace?stripe=return&for=shop");
+  await c.env.DB.batch([audit(c, "shop", shop.id, "STRIPE_ONBOARDING_STARTED", `Shop account ${account.id}.`)]);
+  return c.json({ ok: true, account_id: account.id, url }, 201);
+});
+sandbox.post("/staff/:id/payments/connect", async (c) => {
+  await input(c, z.object({ email: z.union([z.literal(""), z.string().trim().email().max(120)]).default("") }).strict()).then(() => null);
+  const a = c.get("account");
+  const staffId = c.req.param("id");
+  if (a && a.role === "BARBER" && a.staff_id !== staffId) fail(403, "You can only set up your own payouts");
+  if (a && !["OWNER", "MANAGER", "BARBER"].includes(a.role)) fail(403, "Owner or manager required");
+  if (!stripeLive() || !stripeConnect()) fail(409, "Card payments are not switched on for OLLO yet");
+  const shop = await readShop(c);
+  const st = await c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND id=?").bind(shop.id, staffId).first<Staff>();
+  if (!st) fail(404, "Barber not found");
+  const email = (await c.env.DB.prepare("SELECT u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.staff_id=? LIMIT 1").bind(shop.id, staffId).first<{ email: string }>())?.email || (a?.staff_id === staffId ? a.email : "");
+  const { account, url } = await beginOnboarding(c.env.DB, shop, { type: "STAFF", id: st!.id, name: st!.name, email }, new URL(c.req.url).origin, `/workspace?stripe=return&for=${st!.id}`);
+  await c.env.DB.batch([audit(c, "staff", st!.id, "STRIPE_ONBOARDING_STARTED", `${st!.name}: account ${account.id}.`)]);
+  return c.json({ ok: true, account_id: account.id, url }, 201);
+});
+// Re-read an account from Stripe (after the return trip, or on demand).
+sandbox.post("/payments/accounts/:id/refresh", async (c) => {
+  await input(c, z.object({}).strict());
+  const acct = await c.env.DB.prepare("SELECT * FROM connected_accounts WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<ConnectedAccount>();
+  if (!acct) fail(404, "Account not found");
+  const a = c.get("account");
+  if (a?.role === "BARBER" && !(acct!.owner_type === "STAFF" && acct!.owner_id === a.staff_id)) fail(403, "Not your account");
+  const snap = await refreshAccount(c.env.DB, acct!.id).catch(() => null);
+  if (!snap) fail(409, "Could not reach Stripe");
+  const fresh = await c.env.DB.prepare("SELECT * FROM connected_accounts WHERE id=?").bind(acct!.id).first<ConnectedAccount>();
+  return c.json({ account: fresh, state: accountState(fresh!) });
+});
+// One-time link into the Express dashboard (balance, payouts, instant payout).
+sandbox.post("/payments/accounts/:id/dashboard", async (c) => {
+  await input(c, z.object({}).strict());
+  const acct = await c.env.DB.prepare("SELECT * FROM connected_accounts WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<ConnectedAccount>();
+  if (!acct) fail(404, "Account not found");
+  const a = c.get("account");
+  if (a?.role === "BARBER" && !(acct!.owner_type === "STAFF" && acct!.owner_id === a.staff_id)) fail(403, "Not your account");
+  if (a && acct!.owner_type === "SHOP" && !["OWNER", "MANAGER"].includes(a.role)) fail(403, "Owner or manager required");
+  const url = await dashboardLink(acct!.id).catch(() => null);
+  if (!url) fail(409, "Could not open the Stripe dashboard right now");
+  return c.json({ url });
+});
+// Payout schedule for an account (daily / weekly / monthly).
+sandbox.put("/payments/accounts/:id/schedule", async (c) => {
+  const b = await input(c, z.object({ interval: z.enum(["daily", "weekly", "monthly"]) }).strict());
+  const acct = await c.env.DB.prepare("SELECT * FROM connected_accounts WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<ConnectedAccount>();
+  if (!acct) fail(404, "Account not found");
+  const a = c.get("account");
+  if (a?.role === "BARBER" && !(acct!.owner_type === "STAFF" && acct!.owner_id === a.staff_id)) fail(403, "Not your account");
+  await setPayoutSchedule(acct!.id, b.interval).catch(() => fail(409, "Stripe rejected the schedule change"));
+  await c.env.DB.prepare("UPDATE connected_accounts SET payout_schedule=?, updated_at=? WHERE id=?").bind(b.interval, Date.now(), acct!.id).run();
+  return c.json({ ok: true, payout_schedule: b.interval });
+});
+// Wallet: earned / transferred / paid out for the shop or one barber over a period.
+sandbox.get("/payments/wallet", async (c) => {
+  const q = z.object({ owner: z.enum(["SHOP", "STAFF"]), id: z.string().optional(), from: dateSchema, to: dateSchema }).safeParse(c.req.query());
+  if (!q.success) fail(400, "Supply owner, from and to");
+  const a = c.get("account");
+  const ownerId = q.data!.owner === "SHOP" ? c.get("shopId") : q.data!.id || a?.staff_id || "";
+  if (q.data!.owner === "STAFF") scopeStaff(c, ownerId);
+  else if (a && !["OWNER", "MANAGER"].includes(a.role)) fail(403, "Owner or manager required");
+  return c.json(await walletFor(c.env.DB, c.get("shopId"), { type: q.data!.owner, id: ownerId }, q.data!.from, q.data!.to));
+});
+// Platform balance (float) — owners see it so "waiting for settlement" makes sense.
+sandbox.get("/payments/balance", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  if (!stripeLive()) return c.json({ available_pence: 0, pending_pence: 0, live: false });
+  const b = await platformBalance().catch(() => null);
+  return c.json({ ...(b ?? { available_pence: 0, pending_pence: 0 }), live: !!b });
 });
 // Owner refunds a paid deposit (e.g. shop cancelled, goodwill).
 sandbox.post("/bookings/:id/deposit/refund", async (c) => {
@@ -2168,10 +2256,11 @@ sandbox.post("/bookings/:id/checkout", async (c) => {
   const ids: string[] = [];
   if (depositToPost > 0) {
     const pid = id();
+    const policy = await platformPolicy(c.env.DB);
     statements.push(
       c.env.DB.prepare(
-        "INSERT INTO payments(id,shop_id,booking_id,staff_id,customer_id,date,method,service_pence,tip_pence,discount_pence,commission_pct,note,recorded_by,created_at) VALUES(?,?,?,?,?,?,'ONLINE',?,0,0,?,'Deposit paid by card at booking',?,?)",
-      ).bind(pid, c.get("shopId"), b.id, b.staff_id, b.customer_id, shopToday(shop.timezone, now), depositToPost, staff?.commission_pct ?? 50, "stripe", now),
+        "INSERT INTO payments(id,shop_id,booking_id,staff_id,customer_id,date,method,service_pence,tip_pence,discount_pence,commission_pct,note,recorded_by,created_at,stripe_payment_intent,platform_fee_pence) VALUES(?,?,?,?,?,?,'ONLINE',?,0,0,?,'Deposit paid by card at booking',?,?,?,?)",
+      ).bind(pid, c.get("shopId"), b.id, b.staff_id, b.customer_id, shopToday(shop.timezone, now), depositToPost, staff?.commission_pct ?? 50, "stripe", now, b.stripe_payment_intent || "", platformFee(depositToPost, policy)),
     );
     statements.push(audit(c, "payment", pid, "PAYMENT_RECORDED", `ONLINE ${depositToPost}p deposit (paid at booking) for ${ref(b)}`));
   }
@@ -2210,7 +2299,10 @@ sandbox.post("/payments/:id/void", async (c) => {
     c.env.DB.prepare("UPDATE payments SET voided_at=?,void_reason=? WHERE shop_id=? AND id=? AND voided_at IS NULL").bind(Date.now(), body.reason, c.get("shopId"), p.id),
     audit(c, "payment", p.id, "PAYMENT_VOIDED", body.reason, true),
   ]);
-  return c.json({ payment: { ...p, voided_at: Date.now(), void_reason: body.reason } });
+  // Already settled through a pay run: claw the shares back with reversals (never edit the run).
+  let reversal: Awaited<ReturnType<typeof reverseForPayment>> | null = null;
+  if (p.pay_run_id && stripeLive()) reversal = await reverseForPayment(c.env.DB, c.get("shopId"), p.id, p.service_pence + p.tip_pence, `void: ${body.reason}`, c.get("actor"));
+  return c.json({ payment: { ...p, voided_at: Date.now(), void_reason: body.reason }, reversal });
 });
 // Wallet: ledger totals for a date range (defaults to today), per method and per barber.
 sandbox.get("/wallet", async (c) => {
@@ -2272,19 +2364,22 @@ sandbox.get("/wallet", async (c) => {
 
 // ---- Pay runs: settle a barber for a period from the ledger + their pay terms ----
 async function payRunFigures(c: Ctx, staffId: string, from: string, to: string) {
-  const sid = c.get("shopId");
-  const [pay, hoursRows, offRows, overrideRows, staff, shop] = await Promise.all([
-    c.env.DB.prepare(
-      "SELECT COALESCE(SUM(service_pence),0) AS service, COALESCE(SUM(tip_pence),0) AS tips, COUNT(DISTINCT booking_id) AS visits FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL",
+  return payRunFiguresDb(c.env.DB, await readShop(c), staffId, from, to);
+}
+// Ctx-free so scheduled runs (sweep) use exactly the same maths as the owner's button.
+export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: string, from: string, to: string) {
+  const sid = shop.id;
+  const [pay, hoursRows, offRows, overrideRows, staff] = await Promise.all([
+    db.prepare(
+      "SELECT COALESCE(SUM(service_pence),0) AS service, COALESCE(SUM(tip_pence),0) AS tips, COUNT(DISTINCT booking_id) AS visits FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND pay_run_id IS NULL",
     ).bind(sid, staffId, from, to).first<{ service: number; tips: number; visits: number }>(),
-    c.env.DB.prepare("SELECT * FROM staff_hours WHERE shop_id=? AND staff_id=?").bind(sid, staffId).all<Hours>(),
-    c.env.DB.prepare("SELECT date FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<{ date: string }>(),
-    c.env.DB.prepare("SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<ScheduleOverride>(),
-    c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND id=?").bind(sid, staffId).first<Staff>(),
-    readShop(c),
+    db.prepare("SELECT * FROM staff_hours WHERE shop_id=? AND staff_id=?").bind(sid, staffId).all<Hours>(),
+    db.prepare("SELECT date FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<{ date: string }>(),
+    db.prepare("SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<ScheduleOverride>(),
+    db.prepare("SELECT * FROM staff WHERE shop_id=? AND id=?").bind(sid, staffId).first<Staff>(),
   ]);
   if (!staff) return fail(404, "Barber not found");
-  const holidays = (await c.env.DB.prepare("SELECT date FROM holidays WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, from, to).all<{ date: string }>()).results.map((h) => h.date);
+  const holidays = (await db.prepare("SELECT date FROM holidays WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, from, to).all<{ date: string }>()).results.map((h) => h.date);
   const off = new Set(offRows.results.map((r) => r.date));
   // Rostered minutes across the period (weekly hours + dated overrides, less leave/closures/breaks).
   let minutes = 0;
@@ -2305,6 +2400,32 @@ async function payRunFigures(c: Ctx, staffId: string, from: string, to: string) 
     input: { service_pence: pay?.service ?? 0, tips_pence: pay?.tips ?? 0, visits: pay?.visits ?? 0, hours_x100: Math.round((minutes / 60) * 100), periods },
   };
 }
+// Used by the sweep: draft a run for a barber/period with the same figures + split as the owner's
+// button, then approve it. Transfers are attempted by executeRun.
+export async function draftAndApproveRun(db: D1Database, shop: Shop, staff: Staff, from: string, to: string): Promise<PayRun | null> {
+  const { terms, input: figures } = await payRunFiguresDb(db, shop, staff.id, from, to);
+  const r = calculatePayRun(terms, figures, []);
+  const split = await splitFigures(db, shop.id, staff.id, from, to);
+  if (!split.payment_ids.length) return null;
+  const st = settlementFor(terms, r, split, { reserve_bps: shop.payrun_reserve_bps ?? 0, cashHeldBy: terms.pay_model === "CHAIR_RENT" ? "BARBER" : "SHOP" });
+  const now = Date.now();
+  const runId = crypto.randomUUID();
+  try {
+    await db.batch([
+      db.prepare(
+        `INSERT INTO pay_runs(id,shop_id,staff_id,period_from,period_to,pay_model,terms_json,service_pence,tips_pence,visits,hours_x100,commission_pence,base_pence,hourly_pence,tip_pence,rent_pence,adjustments_json,adjustments_pence,net_pence,status,note,created_by,created_at,updated_at,
+           card_service_pence,card_tips_pence,cash_service_pence,cash_tips_pence,transfer_pence,shop_transfer_pence,reserve_pence,cash_residual_pence,transfer_group)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',0,?,'APPROVED','Automatic pay run',?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).bind(runId, shop.id, staff.id, from, to, terms.pay_model, JSON.stringify(terms), figures.service_pence, figures.tips_pence, figures.visits, figures.hours_x100, r.commission_pence, r.base_pence, r.hourly_pence, r.tip_pence, r.rent_pence, r.net_pence, "system", now, now,
+        split.card_service_pence, split.card_tips_pence, split.cash_service_pence, split.cash_tips_pence, st.transfer_pence, st.shop_transfer_pence, st.reserve_pence, st.cash_residual_pence, `payrun_${runId}`),
+      db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
+        .bind(crypto.randomUUID(), shop.id, "pay_run", runId, "PAY_RUN_AUTO", "system", `${staff.name} ${from}..${to}: net ${r.net_pence}p · barber ${st.transfer_pence}p, shop ${st.shop_transfer_pence}p by Stripe · settle by hand ${st.cash_residual_pence}p`, now),
+    ]);
+  } catch {
+    return null; // period already has a live run
+  }
+  return db.prepare("SELECT * FROM pay_runs WHERE id=?").bind(runId).first<PayRun>();
+}
 function datePlusServer(d: string, n: number) {
   const x = new Date(d + "T12:00:00Z");
   x.setUTCDate(x.getUTCDate() + n);
@@ -2315,7 +2436,12 @@ sandbox.get("/pay-runs/preview", async (c) => {
   if (!q.success) fail(400, "Supply staff_id, from and to");
   scopeStaff(c, q.data!.staff_id);
   const { terms, input } = await payRunFigures(c, q.data!.staff_id, q.data!.from, q.data!.to);
-  return c.json({ terms, input, result: calculatePayRun(terms, input) });
+  const result = calculatePayRun(terms, input);
+  const shop = await readShop(c);
+  const split = await splitFigures(c.env.DB, c.get("shopId"), q.data!.staff_id, q.data!.from, q.data!.to);
+  const settlement = settlementFor(terms, result, split, { reserve_bps: shop.payrun_reserve_bps ?? 0, cashHeldBy: terms.pay_model === "CHAIR_RENT" ? "BARBER" : "SHOP" });
+  const barberAcct = await c.env.DB.prepare("SELECT payouts_enabled FROM connected_accounts WHERE shop_id=? AND owner_type='STAFF' AND owner_id=?").bind(c.get("shopId"), q.data!.staff_id).first<{ payouts_enabled: number }>();
+  return c.json({ terms, input, result, split, settlement, payouts_ready: stripeLive() && !!barberAcct?.payouts_enabled });
 });
 sandbox.get("/pay-runs", async (c) => {
   const a = c.get("account");
@@ -2331,15 +2457,20 @@ sandbox.post("/pay-runs", async (c) => {
   const b = await input(c, payRunCreateSchema);
   const { staff, terms, input: figures } = await payRunFigures(c, b.staff_id, b.period_from, b.period_to);
   const r = calculatePayRun(terms, figures, b.adjustments);
+  const shopRow = await readShop(c);
+  const split = await splitFigures(c.env.DB, c.get("shopId"), staff.id, b.period_from, b.period_to);
+  const st = settlementFor(terms, r, split, { reserve_bps: shopRow.payrun_reserve_bps ?? 0, cashHeldBy: terms.pay_model === "CHAIR_RENT" ? "BARBER" : "SHOP" });
   const now = Date.now();
   const runId = id();
   try {
     await c.env.DB.batch([
       c.env.DB.prepare(
-        `INSERT INTO pay_runs(id,shop_id,staff_id,period_from,period_to,pay_model,terms_json,service_pence,tips_pence,visits,hours_x100,commission_pence,base_pence,hourly_pence,tip_pence,rent_pence,adjustments_json,adjustments_pence,net_pence,status,note,created_by,created_at,updated_at)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,?)`,
-      ).bind(runId, c.get("shopId"), staff.id, b.period_from, b.period_to, terms.pay_model, JSON.stringify(terms), figures.service_pence, figures.tips_pence, figures.visits, figures.hours_x100, r.commission_pence, r.base_pence, r.hourly_pence, r.tip_pence, r.rent_pence, JSON.stringify(b.adjustments), r.adjustments_pence, r.net_pence, b.note, c.get("actor"), now, now),
-      audit(c, "pay_run", runId, "PAY_RUN_CREATED", `${staff.name} ${b.period_from}..${b.period_to} net ${r.net_pence}p`),
+        `INSERT INTO pay_runs(id,shop_id,staff_id,period_from,period_to,pay_model,terms_json,service_pence,tips_pence,visits,hours_x100,commission_pence,base_pence,hourly_pence,tip_pence,rent_pence,adjustments_json,adjustments_pence,net_pence,status,note,created_by,created_at,updated_at,
+           card_service_pence,card_tips_pence,cash_service_pence,cash_tips_pence,transfer_pence,shop_transfer_pence,reserve_pence,cash_residual_pence,transfer_group)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).bind(runId, c.get("shopId"), staff.id, b.period_from, b.period_to, terms.pay_model, JSON.stringify(terms), figures.service_pence, figures.tips_pence, figures.visits, figures.hours_x100, r.commission_pence, r.base_pence, r.hourly_pence, r.tip_pence, r.rent_pence, JSON.stringify(b.adjustments), r.adjustments_pence, r.net_pence, b.note, c.get("actor"), now, now,
+        split.card_service_pence, split.card_tips_pence, split.cash_service_pence, split.cash_tips_pence, st.transfer_pence, st.shop_transfer_pence, st.reserve_pence, st.cash_residual_pence, `payrun_${runId}`),
+      audit(c, "pay_run", runId, "PAY_RUN_CREATED", `${staff.name} ${b.period_from}..${b.period_to} net ${r.net_pence}p · card ${split.card_service_pence + split.card_tips_pence}p → barber ${st.transfer_pence}p, shop ${st.shop_transfer_pence}p · settle by hand ${st.cash_residual_pence}p`),
     ]);
   } catch (e) {
     if (String(e).includes("UNIQUE")) fail(409, "A pay run already exists for this barber and period");
@@ -2355,11 +2486,12 @@ sandbox.put("/pay-runs/:id", async (c) => {
   if (run.version !== b.version) fail(409, "record_changed");
   if (run.status === "VOID") fail(409, "This pay run is void");
   const next = b.status ?? run.status;
-  const order = ["DRAFT", "APPROVED", "PAID"];
+  const order = ["DRAFT", "APPROVED", "TRANSFERRED", "PAID"];
   if (next !== "VOID" && order.indexOf(next) < order.indexOf(run.status)) fail(409, "Pay runs only move forward: draft → approved → paid");
   if (run.status === "PAID" && next !== "VOID") fail(409, "Paid runs are frozen; void it to redo");
   if (next === "VOID" && b.reason.length < 3) fail(400, "A reason of at least three characters is required to void");
-  if (next === "PAID" && !(b.paid_method ?? run.paid_method)) fail(400, "Record how it was paid (bank, cash or other)");
+  // A transferred run with no cash residual is fully settled by Stripe — no method needed.
+  if (next === "PAID" && !(b.paid_method ?? run.paid_method) && !(run.status === "TRANSFERRED" && !run.cash_residual_pence)) fail(400, "Record how the remainder was settled (bank, cash or other)");
   // Adjustments/note only change on drafts; recompute net.
   const adjustments = run.status === "DRAFT" && b.adjustments ? b.adjustments : (JSON.parse(run.adjustments_json) as { label: string; pence: number }[]);
   const terms = JSON.parse(run.terms_json);
@@ -2373,8 +2505,40 @@ sandbox.put("/pay-runs/:id", async (c) => {
     ).bind(next, b.paid_method ?? run.paid_method, b.paid_reference || run.paid_reference, JSON.stringify(adjustments), r.adjustments_pence, net, b.note ?? run.note, Date.now(), c.get("shopId"), run.id, b.version),
     audit(c, "pay_run", run.id, `PAY_RUN_${next}`, b.reason || (next === "PAID" ? `Paid by ${b.paid_method ?? run.paid_method}${b.paid_reference ? ` · ${b.paid_reference}` : ""}` : ""), true),
   );
+  let fresh = await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), run.id).first<PayRun>();
+  // Approving moves the card money straight away when Stripe is live (STANDARD waits for settlement).
+  let transfer: Awaited<ReturnType<typeof executeRun>> | null = null;
+  if (next === "APPROVED" && fresh && stripeLive() && stripeConnect() && ((fresh.transfer_pence || 0) > 0 || (fresh.shop_transfer_pence || 0) > 0)) {
+    const shop = await readShop(c);
+    const staff = await c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND id=?").bind(shop.id, fresh.staff_id).first<Staff>();
+    if (staff) transfer = await executeRun(c.env.DB, shop, fresh, staff, c.get("actor"));
+    fresh = await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), run.id).first<PayRun>();
+  }
+  return c.json({ pay_run: fresh, transfer });
+});
+// Retry / trigger the Stripe transfers for an approved run (e.g. after settlement, or a barber
+// finished onboarding). Idempotent.
+sandbox.post("/pay-runs/:id/transfer", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  await input(c, z.object({}).strict());
+  const run = await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<PayRun>();
+  if (!run) return fail(404, "Pay run not found");
+  if (run.status !== "APPROVED") fail(409, run.status === "TRANSFERRED" ? "Already transferred" : "Approve the run first");
+  const shop = await readShop(c);
+  const staff = await c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND id=?").bind(shop.id, run.staff_id).first<Staff>();
+  if (!staff) return fail(404, "Barber not found");
+  const r = await executeRun(c.env.DB, shop, run, staff, c.get("actor"));
+  if (!r.ok) fail(409, r.error || "Transfer failed");
   const fresh = await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), run.id).first<PayRun>();
-  return c.json({ pay_run: fresh });
+  return c.json({ pay_run: fresh, transfer: r });
+});
+// Transfers behind a run (for the detail view).
+sandbox.get("/pay-runs/:id/transfers", async (c) => {
+  const run = await c.env.DB.prepare("SELECT staff_id FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<{ staff_id: string }>();
+  if (!run) return fail(404, "Pay run not found");
+  scopeStaff(c, run.staff_id);
+  const rows = await c.env.DB.prepare("SELECT * FROM transfers WHERE shop_id=? AND pay_run_id=? ORDER BY created_at").bind(c.get("shopId"), c.req.param("id")).all();
+  return c.json({ transfers: rows.results });
 });
 sandbox.post("/bookings/:id/reschedule", async (c) => {
   const body = await input(c, moveSchema);

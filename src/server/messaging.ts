@@ -18,6 +18,7 @@ import type { AppEnv } from "./accounts";
 import type { Shop, ShopBrand } from "./domain";
 import { brandOf } from "./domain";
 import { expireHolds } from "./stripe";
+import { scheduledPayRuns } from "./payouts";
 
 type Ctx = Context<AppEnv>;
 type DB = Database;
@@ -353,7 +354,8 @@ export async function maybeSweep(db: DB, origin: string, intervalMs = 5 * 60000,
   const holds = await expireHolds(db, now).catch(() => []);
   const reminders = await sweepReminders(db, origin, now);
   const drained = await drain(db, 50, now);
-  return { reminders, drained, holds_released: holds.length };
+  const runs = await scheduledPayRuns(db, now).catch(() => 0);
+  return { reminders, drained, holds_released: holds.length, pay_runs: runs };
 }
 
 export const fmtDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });

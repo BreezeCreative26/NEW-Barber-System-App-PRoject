@@ -23,6 +23,9 @@ export type Shop = {
   stripe_account_id?: string;
   deposits_online?: number;
   deposit_hold_min?: number;
+  payout_tier?: "STANDARD" | "FAST";
+  payrun_auto?: "OFF" | "DAILY" | "WEEKLY";
+  payrun_reserve_bps?: number;
 };
 export type DepositStatus = "NONE" | "PENDING" | "PAID" | "REFUNDED" | "EXPIRED";
 export type ShopDay = { enabled: 0 | 1; starts: number; ends: number };
@@ -93,7 +96,11 @@ export type PayRun = {
   adjustments_json: string;
   adjustments_pence: number;
   net_pence: number;
-  status: "DRAFT" | "APPROVED" | "PAID" | "VOID";
+  status: "DRAFT" | "APPROVED" | "TRANSFERRED" | "PAID" | "VOID";
+  // Card/cash split and Stripe movement (see payouts.ts).
+  card_service_pence?: number; card_tips_pence?: number; cash_service_pence?: number; cash_tips_pence?: number;
+  transfer_pence?: number; shop_transfer_pence?: number; reserve_pence?: number; cash_residual_pence?: number;
+  transfer_group?: string; transferred_at?: number | null;
   paid_method: string | null;
   paid_reference: string;
   note: string;
@@ -781,6 +788,11 @@ export type Payment = {
   voided_at: number | null;
   void_reason: string;
   created_at: number;
+  stripe_payment_intent?: string;
+  stripe_charge?: string;
+  stripe_fee_pence?: number;
+  platform_fee_pence?: number;
+  pay_run_id?: string | null;
 };
 export const paymentMethods = ["CARD", "CASH", "TRANSFER", "VOUCHER", "ONLINE"] as const;
 // Checkout: one or more tenders against a visit. Service amount defaults to the booking price
@@ -817,7 +829,7 @@ export const payRunUpdateSchema = z
   .object({
     version,
     status: z.enum(["DRAFT", "APPROVED", "PAID", "VOID"]).optional(),
-    paid_method: z.enum(["BANK", "CASH", "OTHER"]).optional(),
+    paid_method: z.enum(["BANK", "CASH", "OTHER", "STRIPE"]).optional(),
     paid_reference: z.string().trim().max(80).default(""),
     adjustments: z.array(z.object({ label: z.string().trim().min(1).max(60), pence: z.number().int().min(-10000000).max(10000000) })).max(10).optional(),
     note: z.string().trim().max(300).optional(),
