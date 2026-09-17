@@ -372,7 +372,7 @@ export function GroupBooking({ shop, slug, customer, onExit }: { shop: PublicSho
             </p>
           </section>
           <Notice icon="shield">
-            <strong>Plans change.</strong> Each visit gets its own reference and can be moved or cancelled online at least {avail?.cancel_hours ?? shop.shop.cancel_hours} hours ahead. Deposit policy {money(Math.min(avail?.deposit_pence ?? shop.shop.deposit_pence, total))} is recorded, not collected.
+            <strong>Plans change.</strong> Each visit gets its own reference and can be moved or cancelled online at least {avail?.cancel_hours ?? shop.shop.cancel_hours} hours ahead. Deposit policy {money(Math.min(avail?.deposit_pence ?? shop.shop.deposit_pence, total))}.
           </Notice>
         </>
       )}

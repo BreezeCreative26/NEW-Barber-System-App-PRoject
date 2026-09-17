@@ -571,9 +571,10 @@ test("status lifecycle, no-show grace, cancellation release and independent paym
       await r.post(path, { data: { status: "CANCELLED", version: 0 } })
     ).status(),
   ).toBe(400);
+  // COMPLETED straight from CONFIRMED is allowed (mark done without payment); a stale version is not.
   expect(
     (
-      await r.post(path, { data: { status: "COMPLETED", version: 0 } })
+      await r.post(path, { data: { status: "COMPLETED", version: 99 } })
     ).status(),
   ).toBe(409);
   for (const [version, status] of [

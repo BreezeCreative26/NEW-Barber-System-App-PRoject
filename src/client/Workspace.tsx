@@ -2001,6 +2001,28 @@ export function Workspace() {
                           onOpen={(item) =>
                             setEditor({ kind: "detail", item })
                           }
+                          onHours={(staffMember, d) => {
+                            setDate(d);
+                            setEditor({ kind: "override", item: staffMember, override: w.schedule_overrides.find((o) => o.staff_id === staffMember.id && o.date === d) });
+                          }}
+                          onMove={
+                            manager || w.shop.till_access === "ALL"
+                              ? async (b, to) => {
+                                  const who = w.staff.find((x) => x.id === to.staffId)?.name.split(" ")[0] ?? "";
+                                  const same = to.staffId === b.staff_id;
+                                  if (!window.confirm(`Move ${b.attendee_name || b.customer_name} to ${String(Math.floor(to.start / 60)).padStart(2, "0")}:${String(to.start % 60).padStart(2, "0")}${same ? "" : ` with ${who}`}?`)) return;
+                                  setPanelError("");
+                                  try {
+                                    const r = await api<{ booking: StoredBooking }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: to.start, staff_id: to.staffId, reason: "Moved on the calendar", version: b.version });
+                                    setNotice(`Moved to ${String(Math.floor(to.start / 60)).padStart(2, "0")}:${String(to.start % 60).padStart(2, "0")}.`);
+                                    await refresh();
+                                    void r;
+                                  } catch (e) {
+                                    setError(e instanceof Error ? e.message : "Could not move the appointment.");
+                                  }
+                                }
+                              : undefined
+                          }
                         />
                       )}
                       {(calendarView === "agenda" ||
@@ -5095,7 +5117,10 @@ function OverrideEditor({
         )
       }
     >
-      <Field label="Override date">
+      <Notice>
+        <strong>{staff.name.split(" ")[0]} · {new Date((o?.date ?? date) + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}.</strong> Changes this day only; the weekly pattern stays as it is. Appointments already booked outside the new hours stay saved and are flagged for you to move.
+      </Notice>
+      <Field label="Date">
         <input
           name="date"
           type="date"
@@ -5109,7 +5134,7 @@ function OverrideEditor({
           type="checkbox"
           defaultChecked={o ? !!o.enabled : true}
         />
-        Working on this date
+        Working this day (untick for a day off)
       </label>
       <div className="workspace-form-grid">
         {(["starts", "ends", "break_start", "break_end"] as const).map(
@@ -5117,7 +5142,7 @@ function OverrideEditor({
             <Field
               key={key}
               label={
-                ["Shift start", "Shift end", "Break start", "Break end"][i]
+                ["Starts", "Finishes", "Break from", "Break until"][i]
               }
             >
               <input
@@ -5130,19 +5155,17 @@ function OverrideEditor({
           ),
         )}
       </div>
-      <Field label="Override reason">
+      <Field label="Why (shows in the audit)">
         <input
           name="reason"
           required
           minLength={3}
           maxLength={100}
-          defaultValue={o?.reason}
+          placeholder="e.g. Late start · Covering Sat · Dentist"
+          defaultValue={o?.reason ?? "Changed on the calendar"}
         />
       </Field>
-      <Notice>
-        This replaces the weekly shift and break for this date. Equal break
-        times mean no break. Shop limits and full-day leave still apply.
-      </Notice>
+      <p className="workspace-footnote">Equal break times mean no break. Shop opening hours still apply.</p>
     </SaveForm>
   );
 }

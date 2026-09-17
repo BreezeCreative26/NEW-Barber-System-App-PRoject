@@ -112,11 +112,13 @@ test("server guards: payment needs a served visit, cannot exceed what is due, sp
   await openFixtureShop(page);
   const { booking } = await bookToday(page);
   const post = (data: any, id = booking.id) => page.request.post(base + `/bookings/${id}/checkout`, { headers: { Origin: origin }, data });
-  // CONFIRMED: not yet checked in.
-  let r = await post({ version: booking.version, tenders: [{ method: "CARD", service_pence: 2800 }] });
+  // Checkout is the only ceremony: a CONFIRMED visit can be paid straight away. Cancelled cannot.
+  const other = await bookToday(page);
+  let r = await page.request.post(base + `/bookings/${other.booking.id}/status`, { headers: { Origin: origin }, data: { status: "CANCELLED", reason: "guard test", version: other.booking.version } });
+  expect(r.status()).toBe(200);
+  r = await post({ version: other.booking.version + 1, tenders: [{ method: "CARD", service_pence: 2800 }] }, other.booking.id);
   expect(r.status()).toBe(409);
-  r = await page.request.post(base + `/bookings/${booking.id}/status`, { headers: { Origin: origin }, data: { status: "CHECKED_IN", reason: "", version: booking.version } });
-  let b = (await r.json()).booking;
+  let b = booking;
   // Over-payment refused.
   r = await post({ version: b.version, tenders: [{ method: "CARD", service_pence: 3000 }] });
   expect(r.status()).toBe(409);

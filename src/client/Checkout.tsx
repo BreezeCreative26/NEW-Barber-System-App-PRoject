@@ -80,7 +80,7 @@ export function Checkout({
         <strong>
           <Icon name="wallet" size={16} /> Checkout
         </strong>
-        <StatusPill tone="note">Records what was paid at the chair</StatusPill>
+        <StatusPill tone="note">Completes the visit</StatusPill>
       </header>
       <dl className="checkout-lines">
         <div>
@@ -152,12 +152,13 @@ export function Checkout({
       </fieldset>
 
       <fieldset className="checkout-methods">
-        <legend>Paid by</legend>
+        <legend>How are they paying?</legend>
         <div className="method-grid">
           {TILL_METHODS.map((m) => (
-            <button key={m.key} type="button" className="method-tile" aria-pressed={method === m.key} onClick={() => setMethod(m.key)}>
+            <button key={m.key} type="button" className="method-tile" aria-pressed={method === m.key} data-testid={`method-${m.key.toLowerCase()}`} onClick={() => { setMethod(m.key); setCard(false); }}>
               <Icon name={m.icon} size={18} />
               <b>{m.label}</b>
+              {m.key === "CARD" && <small>{cardLive ? "Reader or QR" : "Recorded by hand"}</small>}
             </button>
           ))}
         </div>
@@ -184,11 +185,27 @@ export function Checkout({
         <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder="e.g. paid for his son too" />
       </label>
 
+      {api && card && (
+        <CardAtChair api={api} booking={booking} amount={{ service_pence: remaining, tip_pence: tipPence, discount_pence: discount, complete: true, note: note.trim() }} live={!!cardLive} onPaid={async () => { await onPaid?.(); }} onClose={() => setCard(false)} />
+      )}
       <div className="panel-actions-row checkout-actions">
-        <Button disabled={!canRecord} onClick={() => record(true)} data-testid="record-payment">
-          <Icon name="checks" size={16} />
-          {busy ? "Recording…" : `Record ${money(remaining + tipPence)} · complete`}
-        </Button>
+        {method === "CARD" && cardLive && api ? (
+          !card && (
+            <Button disabled={remaining + tipPence <= 0 || busy} onClick={() => setCard(true)} data-testid="take-card">
+              <Icon name="card" size={16} /> Charge {money(remaining + tipPence)} by card
+            </Button>
+          )
+        ) : (
+          <Button disabled={!canRecord} onClick={() => record(true)} data-testid="record-payment">
+            <Icon name="checks" size={16} />
+            {busy ? "Recording…" : `${method === "CARD" ? "Card taken" : method === "CASH" ? "Cash taken" : "Paid"} · ${money(remaining + tipPence)} · complete`}
+          </Button>
+        )}
+        {method === "CARD" && cardLive && !card && (
+          <Button variant="ghost" disabled={!canRecord} onClick={() => record(true)} data-testid="record-payment" title="Card taken on a machine that isn't connected to OLLO">
+            Record card taken elsewhere
+          </Button>
+        )}
         {remaining > 0 && (
           <details className="checkout-more">
             <summary>Split</summary>
@@ -201,18 +218,7 @@ export function Checkout({
           Back
         </Button>
       </div>
-      {api && (
-        <div className="checkout-card-cta">
-          {!card ? (
-            <Button variant="secondary" disabled={remaining + tipPence <= 0 || busy} data-testid="take-card" onClick={() => setCard(true)}>
-              <Icon name="card" size={16} /> Take {money(remaining + tipPence)} by card {cardLive ? "" : "· not switched on yet"}
-            </Button>
-          ) : (
-            <CardAtChair api={api} booking={booking} amount={{ service_pence: remaining, tip_pence: tipPence, discount_pence: discount, complete: true, note: note.trim() }} live={!!cardLive} onPaid={async () => { await onPaid?.(); }} onClose={() => setCard(false)} />
-          )}
-        </div>
-      )}
-      <p className="drawer-note left">{cardLive ? "Cash, transfer and voucher are recorded here; card goes through the reader or a pay link so it reaches the barber's payout automatically." : "Recording writes a ledger row your wallet and pay runs read from. Card through OLLO switches on once Stripe is connected."}</p>
+      <p className="drawer-note left">{cardLive ? "Card goes through the reader or a pay link and reaches the barber's payout automatically. Cash, transfer and voucher are recorded here." : "Completes the visit and writes the ledger your wallet and pay runs read from."}</p>
     </section>
   );
 }

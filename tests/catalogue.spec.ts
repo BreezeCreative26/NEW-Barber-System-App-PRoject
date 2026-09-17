@@ -427,12 +427,12 @@ test("owner edits add-ons, barber pricing and partial shifts; booking items surv
   await page
     .getByRole("button", { name: "Add dated hours", exact: true })
     .click();
-  await page.getByLabel("Override date").fill(day());
-  await page.getByLabel("Shift start", { exact: true }).fill("10:00");
-  await page.getByLabel("Shift end", { exact: true }).fill("17:00");
-  await page.getByLabel("Break start", { exact: true }).fill("12:00");
-  await page.getByLabel("Break end", { exact: true }).fill("12:30");
-  await page.getByLabel("Override reason").fill("Late start test");
+  await page.getByLabel("Date", { exact: true }).fill(day());
+  await page.getByLabel("Starts", { exact: true }).fill("10:00");
+  await page.getByLabel("Finishes", { exact: true }).fill("17:00");
+  await page.getByLabel("Break from", { exact: true }).fill("12:00");
+  await page.getByLabel("Break until", { exact: true }).fill("12:30");
+  await page.getByLabel("Why (shows in the audit)").fill("Late start test");
   await save(page);
   await page.reload();
   await section(page, "Appointments");

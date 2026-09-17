@@ -202,7 +202,7 @@ test("card at the chair (preview mode): routes exist and refuse honestly; reader
   expect((await pub.get(origin + `/pay/${crypto.randomUUID()}`)).status()).toBe(404);
 });
 
-test("browser: checkout offers Take by card; in preview it explains and the pay-link picker is disabled", async ({ page }) => {
+test("browser: checkout is method-first; card shows as hand-recorded until Stripe is live", async ({ page }) => {
   test.setTimeout(90000);
   await openFixtureShop(page);
   const w = await (await page.request.get(base + "/workspace")).json();
@@ -227,11 +227,12 @@ test("browser: checkout offers Take by card; in preview it explains and the pay-
   await page.getByRole("button", { name: /Card Chair Client/ }).first().click();
   const panel = page.getByTestId("appointment-panel");
   await panel.getByTestId("take-payment").click();
-  const take = page.getByTestId("take-card");
-  await expect(take).toBeVisible();
-  await expect(take).toContainText("not switched on yet");
-  await take.click();
-  await expect(page.getByTestId("card-at-chair")).toBeVisible();
-  await expect(page.getByTestId("card-link")).toBeDisabled();
-  await expect(page.getByTestId("card-at-chair")).toContainText("No reader paired");
+  // Preview mode: Card is a hand-recorded tender ("Recorded by hand"); the reader/QR flow appears once Stripe is live.
+  const cardTile = page.getByTestId("method-card");
+  await expect(cardTile).toContainText("Recorded by hand");
+  await cardTile.click();
+  await expect(page.getByTestId("take-card")).toHaveCount(0);
+  await expect(page.getByTestId("record-payment")).toContainText("Card taken");
+  await page.getByTestId("method-cash").click();
+  await expect(page.getByTestId("record-payment")).toContainText("Cash taken");
 });

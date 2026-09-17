@@ -7735,3 +7735,19 @@ img.avatar-ink.avatar-logo { border-radius: 8px; width: auto; max-width: 96px; h
 .import-table th { position: sticky; top: 0; background: var(--surface); font-weight: 600; }
 .import-table tr[data-action="invalid"] td { color: var(--muted); }
 .import-table small { color: var(--muted); display: block; }
+
+/* ---- Calendar: per-day hours chip, drag to move ---- */
+.staff-column-heading { flex-wrap: wrap; }
+.staff-hours-chip { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 2px 8px; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: var(--fs-11); cursor: pointer; }
+.staff-hours-chip:hover { color: var(--ink); border-color: var(--ink); }
+.staff-hours-chip.edited { border-color: var(--accent); color: var(--accent-dark); background: var(--ollo-soft); }
+.staff-hours-chip.off { text-decoration: line-through; }
+.calendar-event[draggable="true"] { cursor: grab; }
+.calendar-event[data-dragging="true"] { opacity: 0.45; }
+.timetable-slot[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--ollo-soft); }
+.calendar-drop-ghost { position: absolute; left: 4px; right: 4px; border: 2px dashed var(--accent); border-radius: var(--r-md); background: color-mix(in srgb, var(--ollo-soft) 70%, transparent); padding: 4px 8px; font-size: var(--fs-11); pointer-events: none; z-index: 3; }
+.method-tile small { display: block; font-weight: 400; color: var(--muted); font-size: var(--fs-11); }
+.checkout .method-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.checkout .method-tile { padding: 12px 10px; min-height: 72px; }
+.checkout .method-tile[aria-pressed="true"] { border-color: var(--accent-dark); background: var(--ollo-soft); box-shadow: inset 0 0 0 1px var(--accent-dark); }
+.checkout-actions .button.primary, .checkout-actions > button:first-child { min-height: 46px; font-size: var(--fs-14); }

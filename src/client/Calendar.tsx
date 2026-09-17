@@ -6,7 +6,7 @@ import {
   type KeyboardEvent,
   type CSSProperties,
 } from "react";
-import type { WorkspaceData, StoredBooking } from "../server/domain";
+import type { WorkspaceData, StoredBooking, Staff } from "../server/domain";
 import { Avatar, BlockIcons, Icon } from "./ui";
 import { time, money, datePlus, shopDayOf } from "./fixtures";
 
@@ -98,6 +98,8 @@ export function Calendar({
   disabled,
   onDraft,
   onOpen,
+  onHours,
+  onMove,
   paid = new Set<string>(),
 }: {
   paid?: Set<string>;
@@ -108,7 +110,10 @@ export function Calendar({
   disabled: boolean;
   onDraft: (draft: CalendarDraft) => void;
   onOpen: (booking: StoredBooking) => void;
+  onHours?: (staff: Staff, date: string) => void;
+  onMove?: (booking: StoredBooking, to: { staffId: string; start: number }) => Promise<void> | void;
 }) {
+  const [dragging, setDragging] = useState<{ id: string; overStaff: string; overStart: number } | null>(null);
   const [focusedSlot, setFocusedSlot] = useState<
     (CalendarDraft & { date: string }) | null
   >(null);
@@ -227,6 +232,18 @@ export function Calendar({
                       {money(taken)} · {mine.length} visit{mine.length === 1 ? "" : "s"}
                     </span>
                   </div>
+                  {onHours && (() => {
+                    const ov = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date);
+                    const wk = w.hours.find((h) => h.staff_id === s.id && h.weekday === new Date(date + "T12:00:00Z").getUTCDay());
+                    const sh = ov ?? wk;
+                    const off = w.days_off.some((d) => d.staff_id === s.id && d.date === date);
+                    const label = off ? "Day off" : !sh?.enabled ? "Off" : `${time(sh.starts)}–${time(sh.ends)}`;
+                    return (
+                      <button type="button" className={`staff-hours-chip ${ov ? "edited" : ""} ${off || !sh?.enabled ? "off" : ""}`} onClick={() => onHours(s, date)} title={ov ? `Hours changed for this day: ${ov.reason}` : "Change this day's hours"} aria-label={`${s.name}: ${label}. Change this day's hours`} data-testid="staff-hours-chip">
+                        <Icon name="clock" size={11} /> {label}
+                      </button>
+                    );
+                  })()}
                 </div>
               );
             })}
@@ -324,6 +341,19 @@ export function Calendar({
                         }
                         disabled={disabled || !!reason || busy}
                         onClick={() => onDraft({ staffId: s.id, start })}
+                        data-drop={dragging && dragging.overStaff === s.id && dragging.overStart === start ? "over" : undefined}
+                        onDragOver={(e) => {
+                          if (!dragging || !onMove || reason === "Past time" || reason === "Shop closed" || reason === "Day off" || reason === "Off duty" || reason === "Inactive barber") return;
+                          e.preventDefault();
+                          if (dragging.overStaff !== s.id || dragging.overStart !== start) setDragging({ ...dragging, overStaff: s.id, overStart: start });
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (!dragging || !onMove) return;
+                          const b = bookings.find((x) => x.id === dragging.id);
+                          setDragging(null);
+                          if (b && (b.staff_id !== s.id || b.start_min !== start)) void onMove(b, { staffId: s.id, start });
+                        }}
                       >
                         <span>
                           {reason
@@ -356,6 +386,15 @@ export function Calendar({
                         <span>{b.buffer_min} min buffer</span>
                       </div>
                     ))}
+                  {dragging && dragging.overStaff === s.id && (() => {
+                    const b = bookings.find((x) => x.id === dragging.id);
+                    if (!b) return null;
+                    return (
+                      <div className="calendar-drop-ghost" aria-hidden="true" style={{ top: ((dragging.overStart - begin) / 15) * step, height: Math.max(24, (b.duration_min / 15) * step - 3) }}>
+                        <strong>{time(dragging.overStart)}</strong> {b.attendee_name || b.customer_name}
+                      </div>
+                    );
+                  })()}
                   {occupied
                     .filter((b) => b.staff_id === s.id)
                     .map((b) => (
@@ -372,6 +411,15 @@ export function Calendar({
                           ),
                         }}
                         onClick={() => onOpen(b)}
+                        draggable={!!onMove && b.status === "CONFIRMED" && !disabled}
+                        onDragStart={(e) => {
+                          if (!onMove || b.status !== "CONFIRMED") return;
+                          e.dataTransfer.setData("text/plain", b.id);
+                          e.dataTransfer.effectAllowed = "move";
+                          setDragging({ id: b.id, overStaff: b.staff_id, overStart: b.start_min });
+                        }}
+                        onDragEnd={() => setDragging(null)}
+                        data-dragging={dragging?.id === b.id ? "true" : undefined}
                         aria-label={`${b.attendee_name || b.customer_name}, ${b.service_name}, ${time(b.start_min)}, ${labels[b.status]}${b.attendee_name ? `, booked by ${b.customer_name}` : ""}${b.group_id ? ", group booking" : ""}`}
                         title={`${b.attendee_name || b.customer_name}${b.attendee_name ? ` (booked by ${b.customer_name})` : ""} · ${b.service_name} · ${time(b.start_min)}–${time(b.start_min + b.duration_min)} · ${labels[b.status]} · ${money(b.price_pence)}`}
                       >
@@ -438,11 +486,10 @@ export function Calendar({
             <Icon name="help" size={14} /> How the timetable works
           </summary>
           <p id="timetable-keyboard-help">
-            Click or press Enter on a free 15-minute cell to start a draft; the service, extras and
-            10-minute buffer are checked before anything is saved. Tab reaches one free slot per barber;
-            arrow keys move between free slots, Home / End jump within a barber. Agenda and New booking
-            are alternatives. Complete selected-day records are loaded from the database; no deposits are
-            collected.
+            Click a free 15-minute cell to book there. Drag a confirmed appointment to another time or
+            barber to move it (you confirm before it saves). Click the hours under a barber's name to
+            change that day's shift. Tab reaches one free slot per barber; arrow keys move between free
+            slots, Home / End jump within a barber.
           </p>
         </details>
       </footer>

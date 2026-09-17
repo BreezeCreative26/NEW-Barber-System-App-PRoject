@@ -376,7 +376,7 @@ export function AppointmentPanel({
               )}
             </div>
             <p className="panel-meta">
-              Deposit policy {money(booking.deposit_policy_pence)} (not collected) · cancel window {booking.cancel_hours_snapshot}h · booked {when(booking.created_at)}
+              {booking.deposit_status === "PAID" ? `Deposit ${money(booking.deposit_paid_pence ?? 0)} paid by card` : booking.deposit_status === "REFUNDED" ? `Deposit ${money(booking.deposit_paid_pence ?? 0)} refunded` : `Deposit policy ${money(booking.deposit_policy_pence)}`} · cancel window {booking.cancel_hours_snapshot}h · booked {when(booking.created_at)}
             </p>
           </section>
 
@@ -507,48 +507,25 @@ export function AppointmentPanel({
 
         {/* Sticky contextual actions */}
         <footer className="panel-actions" aria-label="Appointment actions">
-          {booking.status === "CONFIRMED" && (
-            <>
-              <Button disabled={!!busy} onClick={() => onStatus("CHECKED_IN", "")}>
-                <Icon name="check" size={16} /> {busy === "CHECKED_IN" ? "Saving…" : "Check in"}
-              </Button>
-              <Button variant="secondary" onClick={goMove}>Reschedule</Button>
-              <Button variant="ghost" onClick={() => setConfirm({ status: "CANCELLED" })}>Cancel</Button>
-              {isPast || !noShowEarly ? (
-                <Button variant="ghost" onClick={() => setConfirm({ status: "NO_SHOW" })}>No-show</Button>
-              ) : null}
-            </>
-          )}
-          {booking.status === "CHECKED_IN" && (
-            <>
-              <Button disabled={!!busy} onClick={() => onStatus("IN_SERVICE", "")}>
-                <Icon name="scissors" size={16} /> {busy === "IN_SERVICE" ? "Saving…" : "Start service"}
-              </Button>
-              {canTakePayment && onCheckout && !checkout && (
-                <Button variant="secondary" disabled={!!busy} onClick={() => setCheckout(true)} data-testid="take-payment">
-                  <Icon name="wallet" size={16} /> Take payment
-                </Button>
-              )}
-              <Button variant="ghost" onClick={() => setConfirm({ status: "CANCELLED" })}>Cancel</Button>
-            </>
-          )}
-          {booking.status === "IN_SERVICE" && (
+          {/* One ceremony: Checkout. Payment method (card via reader / QR, cash, transfer, voucher)
+              is chosen on the checkout screen; recording it completes the visit. */}
+          {["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && (
             <>
               {canTakePayment && onCheckout ? (
                 !checkout && (
                   <Button disabled={!!busy} onClick={() => setCheckout(true)} data-testid="take-payment">
-                    <Icon name="wallet" size={16} /> Take payment · {money(outstanding)}
+                    <Icon name="wallet" size={16} /> Checkout · {money(outstanding)}
                   </Button>
                 )
               ) : (
                 <Button disabled={!!busy} onClick={() => onStatus("COMPLETED", "")}>
-                  <Icon name="checks" size={16} /> {busy === "COMPLETED" ? "Saving…" : `Complete · ${money(booking.price_pence)}`}
+                  <Icon name="checks" size={16} /> {busy === "COMPLETED" ? "Saving…" : "Mark done"}
                 </Button>
               )}
-              {canTakePayment && onCheckout && !checkout && (
-                <Button variant="ghost" disabled={!!busy} onClick={() => onStatus("COMPLETED", "")} title="Finish without recording a payment">
-                  {busy === "COMPLETED" ? "Saving…" : "Complete unpaid"}
-                </Button>
+              {booking.status === "CONFIRMED" && <Button variant="secondary" onClick={goMove}>Reschedule</Button>}
+              <Button variant="ghost" onClick={() => setConfirm({ status: "CANCELLED" })}>Cancel</Button>
+              {booking.status === "CONFIRMED" && (isPast || !noShowEarly) && (
+                <Button variant="ghost" onClick={() => setConfirm({ status: "NO_SHOW" })}>No-show</Button>
               )}
             </>
           )}
@@ -564,6 +541,9 @@ export function AppointmentPanel({
             <summary aria-label="More actions"><Icon name="more" size={18} /></summary>
             <div className="panel-more-menu">
               <button type="button" onClick={goEdit}><Icon name="user" size={14} /> Edit name and phone</button>
+              {["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && canTakePayment && onCheckout && (
+                <button type="button" onClick={() => onStatus("COMPLETED", "")}><Icon name="checks" size={14} /> Mark done without payment</button>
+              )}
               <button type="button" onClick={goShare}><Icon name="message" size={14} /> Share confirmation</button>
               <button type="button" onClick={copyDetails}><Icon name="external" size={14} /> {copied ? "Copied" : "Copy details"}</button>
               {!canTakePayment && <span className="panel-more-note"><Icon name="lock" size={14} /> Payments are taken on the shop device</span>}

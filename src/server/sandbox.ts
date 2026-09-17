@@ -2367,9 +2367,9 @@ sandbox.post("/bookings/:id/status", async (c) => {
   const body = await input(c, statusSchema);
   const b = await readBooking(c, c.req.param("id"));
   const allowed: Record<string, string[]> = {
-    CONFIRMED: ["CHECKED_IN", "CANCELLED", "NO_SHOW"],
-    CHECKED_IN: ["IN_SERVICE", "CANCELLED"],
-    IN_SERVICE: ["COMPLETED"],
+    CONFIRMED: ["CHECKED_IN", "IN_SERVICE", "COMPLETED", "CANCELLED", "NO_SHOW"],
+    CHECKED_IN: ["IN_SERVICE", "COMPLETED", "CANCELLED"],
+    IN_SERVICE: ["COMPLETED", "CANCELLED"],
     COMPLETED: [],
     CANCELLED: [],
     NO_SHOW: [],
@@ -2423,7 +2423,7 @@ sandbox.post("/bookings/:id/checkout", async (c) => {
   const shop = await readShop(c);
   tillAllowed(c, shop, b.staff_id);
   if (b.version !== body.version) fail(409, "record_changed");
-  if (!["IN_SERVICE", "COMPLETED", "CHECKED_IN"].includes(b.status)) fail(409, "Check the customer in before taking payment");
+  if (!["CONFIRMED", "IN_SERVICE", "COMPLETED", "CHECKED_IN"].includes(b.status)) fail(409, "This visit was cancelled or marked no-show");
   // A deposit paid by card online is already the shop's money: it lands in the ledger as an ONLINE
   // tender the first time the visit is checked out, and counts towards what is due at the chair.
   const depositRow = b.deposit_status === "PAID" && (b.deposit_paid_pence ?? 0) > 0
@@ -2446,11 +2446,13 @@ sandbox.post("/bookings/:id/checkout", async (c) => {
   const now = Date.now();
   const statements: D1PreparedStatement[] = [];
   // Move the visit forward so the ledger trigger sees a served visit, then record each tender.
-  if (b.status === "CHECKED_IN")
+  // Checkout is the only ceremony: no separate check-in / start-service steps.
+  const advance = b.status === "CHECKED_IN" || b.status === "CONFIRMED";
+  if (advance)
     statements.push(
       c.env.DB.prepare("UPDATE bookings SET status='IN_SERVICE',version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(now, c.get("shopId"), b.id, b.version),
     );
-  let version = b.version + (b.status === "CHECKED_IN" ? 1 : 0);
+  let version = b.version + (advance ? 1 : 0);
   const ids: string[] = [];
   if (depositToPost > 0) {
     const pid = id();
