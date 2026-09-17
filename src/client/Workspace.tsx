@@ -370,7 +370,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
         <aside className="workspace-panel auth-demo" aria-labelledby="demo-heading">
           <Badge>Demo</Badge>
           <h3 id="demo-heading">Just looking?</h3>
-          <p>Open a fully seeded demo barbershop — 3 barbers, 8 services, a month of appointments. Anyone can reset it.</p>
+          <p>Open Northline Barbers, a fully seeded demo shop — 3 barbers, 8 services, a month of appointments. Anyone can reset it.</p>
           <div className="demo-actions">
             <Button variant="secondary" disabled={!!demoBusy} onClick={() => openDemo("owner")} data-testid="open-demo-owner">
               {demoBusy === "owner" ? "Opening…" : "Open as owner"}
@@ -2569,7 +2569,7 @@ type WaitlistEntry = {
 type QueueMatch = { staff_id: string; staff_name: string; start_min: number; price_pence: number; duration_min: number };
 // Settings → Shop page: content of the public home page at /<slug>. Presentation only.
 type PageForm = { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme: ThemeForm; published: number; version: number };
-type ThemeForm = { font: string; mode: string; corners: string; hero: string };
+type ThemeForm = { font: string; mode: string; corners: string; hero: string; logo: string };
 const THEME_FONTS: { id: string; name: string; sample: string; note: string }[] = [
   { id: "modern", name: "Modern", sample: "Inter", note: "Clean and neutral" },
   { id: "editorial", name: "Editorial", sample: "Fraunces + Manrope", note: "Warm serif headlines" },
@@ -2621,9 +2621,9 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
         theme: (() => {
           try {
             const t = JSON.parse(String(p.theme_json || "{}")) as Partial<ThemeForm>;
-            return { font: t.font || "modern", mode: t.mode || "light", corners: t.corners || "soft", hero: t.hero || "editorial" };
+            return { font: t.font || "modern", mode: t.mode || "light", corners: t.corners || "soft", hero: t.hero || "editorial", logo: t.logo || "auto" };
           } catch {
-            return { font: "modern", mode: "light", corners: "soft", hero: "editorial" };
+            return { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto" };
           }
         })(),
         published: Number(p.published ?? 1),
@@ -2803,6 +2803,16 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
                     ))}
                   </div>
                 </Field>
+                {form.logo_url && (
+                  <Field label="Logo on dark backgrounds">
+                    <div className="segmented" role="group" aria-label="Logo on dark backgrounds">
+                      {[["auto", "Auto"], ["original", "Keep colours"]].map(([v, l]) => (
+                        <button key={v} type="button" aria-pressed={form.theme.logo === v} onClick={() => set("theme", { ...form.theme, logo: v })}>{l}</button>
+                      ))}
+                    </div>
+                    <span className="helper">Auto turns a dark one-colour logo white where it would otherwise disappear. Choose Keep colours for a full-colour logo.</span>
+                  </Field>
+                )}
               </div>
             </div>
             <div>

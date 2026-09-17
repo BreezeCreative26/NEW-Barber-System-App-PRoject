@@ -13,3 +13,9 @@ Creative-Commons / public-domain photographs used only for the seeded *Demo Barb
 | barber-jay.jpg | Barber, PxHere — https://pxhere.com/en/photo/1538511 |
 | barber-marcus.jpg | Hairdresser, PxHere — https://pxhere.com/en/photo/560196 |
 | barber-dani.jpg | Barber at work, PickPik — https://www.pickpik.com/administration-adult-barber-black-and-white-blur-bokeh-97294 |
+
+## Northline Barbers (current demo shop)
+
+Everything under `northline/` — logo, cover, barber portraits and gallery — is AI-generated
+artwork made for this project. The shop, the people and the address are fictional. No stock or
+third-party photography is used, so there is nothing to credit or license.

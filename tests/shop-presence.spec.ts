@@ -56,7 +56,7 @@ test("shop page head is rendered on the server: title, description, canonical, O
   expect(ld["@type"]).toBe("HairSalon");
   expect(ld.name).toBe(w.shop.name);
   expect(ld.telephone).toBe("020 7946 0111");
-  expect(ld.address).toMatchObject({ "@type": "PostalAddress", streetAddress: "12 Market Row", addressLocality: "London", addressCountry: "GB" });
+  expect(ld.address).toMatchObject({ "@type": "PostalAddress", streetAddress: "14 Northline Road", addressLocality: "London", addressCountry: "GB" });
   expect(ld.openingHoursSpecification.length).toBeGreaterThanOrEqual(5);
   expect(ld.openingHoursSpecification[0]).toMatchObject({ "@type": "OpeningHoursSpecification", opens: expect.stringMatching(/^\d{2}:\d{2}$/) });
   expect(ld.hasOfferCatalog.itemListElement.length).toBe(w.services.filter((s: { active: number; online_bookable: number }) => s.active && s.online_bookable).length);

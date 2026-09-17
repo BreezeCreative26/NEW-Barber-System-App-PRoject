@@ -670,7 +670,7 @@ test("standard demo account: one-click owner/barber sign-in, fixed credentials, 
   expect(body.email).toBe("owner@demo.test");
   expect(body.slug).toBe("demo");
   const w = await (await owner.get(base + "/workspace")).json();
-  expect(w.shop.name).toBe("Demo Barbershop");
+  expect(w.shop.name).toBe("Northline Barbers");
   expect(w.account.role).toBe("OWNER");
   expect(w.staff).toHaveLength(3);
   expect(w.services).toHaveLength(8);
@@ -751,7 +751,7 @@ test("front door: sign in / create shop tabs, no pre-filled credentials, demo pa
   await expect(page.getByRole("heading", { name: "Just looking?" })).toBeVisible();
   await expect(page.getByTestId("open-customer")).toHaveAttribute("href", "/book/demo");
   await page.getByTestId("open-demo-owner").click();
-  await expect(page.getByText("Demo Barbershop").first()).toBeVisible();
+  await expect(page.getByText("Northline Barbers").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
   // The waiting list lives under the hourglass in the top bar; the bell is for schedule issues only.
   await page.getByTestId("queue-chip").click();

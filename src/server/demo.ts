@@ -85,7 +85,7 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   const slug = options.isolated ? `demo${tag}` : DEMO_SLUG;
   const ownerEmail = options.isolated ? `owner${tag}@demo.test` : DEMO_OWNER_EMAIL;
   const barberEmail = options.isolated ? `jay${tag}@demo.test` : DEMO_BARBER_EMAIL;
-  const shopName = options.isolated ? `Demo Barbershop ${tag.slice(1)}` : "Demo Barbershop";
+  const shopName = options.isolated ? `Northline Barbers ${tag.slice(1)}` : "Northline Barbers";
   if (!options.isolated) await retirePrevious(db);
   const now = Date.now();
   const today = shopToday("Europe/London", now);
@@ -95,9 +95,9 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   const salt = uid() + uid();
   const encoded = await passwordHash(DEMO_PASSWORD, salt);
   const staff = [
-    { id: uid(), name: "Jay Carter", role: "Senior barber", hours: [1, 2, 3, 4, 5, 6], colour: "sage", title: "Senior barber & owner's right hand", bio: "Twelve years behind the chair. Precision fades and classic scissor work; loves a proper consultation.", skills: ["Skin fades", "Scissor work", "Kids"], instagram: "jaycuts", photo: "/static/demo/barber-jay.jpg", commission: 60, pay: { model: "COMMISSION", period: "WEEKLY", tiers: [{ from_pence: 0, pct: 55 }, { from_pence: 100000, pct: 65 }] } },
-    { id: uid(), name: "Marcus Reed", role: "Barber", hours: [1, 2, 3, 4, 5], colour: "sand", title: "Barber", bio: "Fast, tidy and great with regulars who know exactly what they want.", skills: ["Skin fades", "Afro hair"], instagram: "", photo: "/static/demo/barber-marcus.jpg", commission: 50, pay: { model: "CHAIR_RENT", period: "WEEKLY", rent: 18000 } },
-    { id: uid(), name: "Dani Okoro", role: "Barber & beard specialist", hours: [2, 3, 4, 5, 6], colour: "blue", title: "Beard specialist", bio: "Hot towel shaves, beard sculpting and grey blending. Book the full works for the complete reset.", skills: ["Beards", "Hot towel shaves", "Colour"], instagram: "dani.beards", photo: "/static/demo/barber-dani.jpg", commission: 55, pay: { model: "HYBRID", period: "MONTHLY", base: 120000, threshold: 200000 } },
+    { id: uid(), name: "Jay Carter", role: "Senior barber", hours: [1, 2, 3, 4, 5, 6], colour: "sage", title: "Head barber", bio: "Twelve years behind the chair and Northline's first hire. Precision fades and classic scissor work; loves a proper consultation.", skills: ["Skin fades", "Scissor work", "Kids"], instagram: "jay.northline", photo: "/static/demo/northline/barber-1.webp", commission: 60, pay: { model: "COMMISSION", period: "WEEKLY", tiers: [{ from_pence: 0, pct: 55 }, { from_pence: 100000, pct: 65 }] } },
+    { id: uid(), name: "Marcus Reed", role: "Barber", hours: [1, 2, 3, 4, 5], colour: "sand", title: "Barber", bio: "Fast, tidy and great with regulars who know exactly what they want. Slick-backs and textured crops are his thing.", skills: ["Skin fades", "Textured crops", "Slick-backs"], instagram: "marcus.cuts", photo: "/static/demo/northline/barber-2.webp", commission: 50, pay: { model: "CHAIR_RENT", period: "WEEKLY", rent: 18000 } },
+    { id: uid(), name: "Dani Okoro", role: "Barber & beard specialist", hours: [2, 3, 4, 5, 6], colour: "blue", title: "Beard specialist", bio: "Hot towel shaves, beard sculpting and grey blending. Book the full works for the complete reset.", skills: ["Beards", "Hot towel shaves", "Grey blending"], instagram: "dani.beards", photo: "/static/demo/northline/barber-3.webp", commission: 55, pay: { model: "HYBRID", period: "MONTHLY", base: 120000, threshold: 200000 } },
   ];
   const services = [
     { id: uid(), name: "Signature cut", category: "Hair", duration: 30, price: 2800, colour: "sage", popular: 1, description: "Consultation, clipper or scissor cut, sharp neckline and a styled finish." },
@@ -118,9 +118,9 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   const s: D1PreparedStatement[] = [
     db.prepare(
       "INSERT INTO shops(id,name,address,created_at,slug,online_booking,lead_time_min,booking_window_days) VALUES(?,?,?,?,?,1,60,42)",
-    ).bind(shopId, shopName, "12 Market Row, London E8 4QJ", now, slug),
+    ).bind(shopId, shopName, "14 Northline Road, London E8 4QJ", now, slug),
     db.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)")
-      .bind(ownerUser, ownerEmail, "Demo Owner", encoded, salt, now),
+      .bind(ownerUser, ownerEmail, "Sam Okafor", encoded, salt, now),
     db.prepare("INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?)").bind(shopId, ownerUser),
     db.prepare("INSERT INTO app_memberships(id,shop_id,user_id,role) VALUES(?,?,?,'OWNER')").bind(ownerMembership, shopId, ownerUser),
   ];
@@ -295,21 +295,23 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
     ).bind(uid(), shopId, services[6].id, customers[9].name, customers[9].phone, customers[9].email, day(1), "MORNING", "", now, now),
     db.prepare("INSERT INTO staff_days_off(id,shop_id,staff_id,date,reason,created_at) VALUES(?,?,?,?,?,?)").bind(uid(), shopId, staff[1].id, day(5), "Annual leave", now),
     db.prepare(
-      "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,published,version,updated_at) VALUES(?,?,?,?,'',?,?,?,?,?,?,?,?,?,'{}',1,0,?)",
+      "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,0,?)",
     ).bind(
       shopId,
-      "Sharp cuts, straight talk, no fuss.",
-      "Three chairs on the high street since 2019. Walk-ins welcome when the board says so; booking online gets you the barber and time you actually want. Kids, beards, hot towels and a proper consultation every time.",
-      "/static/demo/cover.jpg",
-      JSON.stringify(["/static/demo/gallery-1.jpg", "/static/demo/gallery-2.jpg", "/static/demo/gallery-3.jpg", "/static/demo/gallery-4.jpg"]),
+      "Sharp cuts. Straight talk. No fuss.",
+      "Three chairs on Northline Road since 2019. Walk-ins welcome when the board says so; booking online gets you the barber and time you actually want. Kids, beards, hot towels and a proper consultation every time.",
+      "/static/demo/northline/cover.webp",
+      "/static/demo/northline/logo.png",
+      JSON.stringify(["/static/demo/northline/gallery-1.webp", "/static/demo/northline/gallery-2.webp", "/static/demo/northline/gallery-3.webp", "/static/demo/northline/gallery-4.webp"]),
       "020 7946 0111",
-      "hello@demo-barbershop.test",
-      "demobarbershop",
+      "hello@northlinebarbers.test",
+      "northlinebarbers",
       "",
-      "Two minutes from the station; free parking on Mill Lane after 6pm.",
+      "Two minutes from Dalston Junction; free parking on Mill Lane after 6pm.",
       "Please give us 24 hours to cancel or move a visit. Running late? Call and we will do our best, but after 10 minutes the slot may go to a walk-in. No-shows twice in a row and we will ask for a deposit next time.",
       JSON.stringify(["hero", "next", "services", "team", "hours", "gallery", "reviews", "find", "policies"]),
-      "ollo",
+      "ink",
+      JSON.stringify({ font: "condensed", mode: "dark", corners: "sharp", hero: "editorial", logo: "auto" }),
       now,
     ),
     db.prepare(

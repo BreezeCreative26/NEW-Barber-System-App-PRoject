@@ -76,7 +76,7 @@ r = await fetch(O + "/api/sandbox/media", { method: "POST", headers: { Origin: O
 ok("media upload", r.status === 201, JSON.stringify(r.body).slice(0, 80));
 if (r.body.media) { const g = await fetch(O + r.body.media.url); ok("media served", g.status === 200 && g.headers.get("content-type") === "image/png"); }
 const html = await fetch(`${O}/${w.shop.slug}`).then((x) => x.text());
-ok("SEO head", html.includes("<title>Demo Barbershop · Barbers in London</title>") && html.includes("aggregateRating"));
+ok("SEO head", html.includes("<title>Northline Barbers · Barbers in London</title>") && html.includes("aggregateRating"));
 r = await j("/api/sandbox/auth/login", { method: "POST", body: JSON.stringify({ email: "owner@demo.test", password: "wrong" }) });
 ok("bad password → 401 (throttle upsert)", r.status === 401);
 console.log(process.exitCode ? "\nSMOKE FAILED" : "\nSMOKE PASSED");

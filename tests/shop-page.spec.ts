@@ -20,8 +20,8 @@ test("shop page renders the seeded sections and every shortcut re-targets the em
   await page.goto(`/${slug}`);
   const root = page.getByTestId("shop-page");
   await expect(root).toBeVisible();
-  await expect(page.getByRole("heading", { level: 1, name: "Demo Barbershop" })).toBeVisible();
-  await expect(root).toContainText("Sharp cuts, straight talk, no fuss.");
+  await expect(page.getByRole("heading", { level: 1, name: "Northline Barbers" })).toBeVisible();
+  await expect(root).toContainText("Sharp cuts. Straight talk. No fuss.");
   await expect(page.getByTestId("open-now")).toBeVisible();
   for (const h of ["Next available", "Services", "The team", "Book a visit", "Opening hours", "Find us", "Good to know"]) {
     await expect(page.getByRole("heading", { name: h, exact: true })).toBeVisible();
@@ -99,7 +99,7 @@ test("owner edits the shop page in Settings and the public page reflects it", as
   const panel = page.getByTestId("shop-page-panel");
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId("view-shop-page")).toHaveAttribute("href", new RegExp(`/${slug}$`));
-  await expect(panel.getByLabel("Strapline")).toHaveValue("Sharp cuts, straight talk, no fuss.");
+  await expect(panel.getByLabel("Strapline")).toHaveValue("Sharp cuts. Straight talk. No fuss.");
   await panel.getByLabel("Strapline").fill("Walk in a stranger, walk out a regular.");
   await panel.getByLabel("Phone").fill("020 7946 0999");
   await panel.getByRole("group", { name: "Sections shown" }).getByLabel("Team", { exact: true }).uncheck();

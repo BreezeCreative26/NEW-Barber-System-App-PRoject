@@ -482,6 +482,7 @@ export const themeFonts = ["modern", "editorial", "grotesk", "heritage", "conden
 export const themeModes = ["light", "dark"] as const;
 export const themeCorners = ["soft", "sharp"] as const;
 export const themeHeroes = ["editorial", "centred", "split"] as const;
+export const themeLogos = ["auto", "original"] as const; // auto: dark single-colour logos flip to white on dark surfaces
 export const stockCovers = ["brick", "minimal", "tools", "heritage", "industrial", "terracotta"] as const;
 export const themeSchema = z
   .object({
@@ -489,10 +490,11 @@ export const themeSchema = z
     mode: z.enum(themeModes).default("light"),
     corners: z.enum(themeCorners).default("soft"),
     hero: z.enum(themeHeroes).default("editorial"),
+    logo: z.enum(themeLogos).default("auto"),
   })
   .strict();
 export type ShopTheme = z.infer<typeof themeSchema>;
-export const defaultTheme: ShopTheme = { font: "modern", mode: "light", corners: "soft", hero: "editorial" };
+export const defaultTheme: ShopTheme = { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto" };
 export function parseTheme(json: string | null | undefined): ShopTheme {
   try {
     const r = themeSchema.safeParse(JSON.parse(json || "{}"));

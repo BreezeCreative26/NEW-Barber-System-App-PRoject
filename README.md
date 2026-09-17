@@ -18,7 +18,7 @@ cp .env.example .env          # fill in DATABASE_URL (pooler :6543), DIRECT_URL 
 npm install
 npm run db:schema             # applies src/db/schema.sql (add -- --force to drop and recreate)
 npm run build && npm run start
-node scripts/db-seed.mjs      # builds the Demo Barbershop: owner@demo.test / Demo1234!
+node scripts/db-seed.mjs      # builds Northline Barbers (the demo shop): owner@demo.test / Demo1234!
 node scripts/smoke.mjs        # 29 end-to-end checks against the running server
 ```
 

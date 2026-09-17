@@ -38,12 +38,21 @@
   -webkit-font-smoothing: antialiased;
 }
 .shop-page.mode-dark {
+  /* Remap the base design tokens too, so anything inside that still reads --ink/--muted (bios,
+     nav links, the embedded booking flow, review notes) lands on AA contrast against dark surfaces. */
+  --ink: #f3f2ee;
+  --ink-2: #d6d5cf;
+  --muted: #c2c4cb;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-2: rgba(255, 255, 255, 0.16);
+  --surface: #17181e;
+  --canvas: #1e2027;
   --sp-bg: #0f1014;
   --sp-surface: #17181e;
   --sp-surface-2: #1e2027;
   --sp-ink: #f3f2ee;
-  --sp-ink-2: #c9c8c2;
-  --sp-muted: #8d8f99;
+  --sp-ink-2: #d6d5cf;
+  --sp-muted: #c2c4cb;
   --sp-line: rgba(255, 255, 255, 0.08);
   --sp-line-2: rgba(255, 255, 255, 0.14);
   --sp-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -18px rgba(0, 0, 0, 0.7);
@@ -85,7 +94,7 @@
 .shop-page .sp-nav { background: color-mix(in srgb, var(--sp-surface) 88%, transparent); backdrop-filter: saturate(1.4) blur(12px); border-bottom: 1px solid var(--sp-line); }
 .shop-page .sp-brand { color: var(--sp-ink); font-family: var(--sp-display); font-weight: var(--sp-display-weight); letter-spacing: var(--sp-display-tracking); text-transform: var(--sp-display-case); font-size: 17px; }
 .shop-page .sp-brand .shop-emblem { border-radius: var(--sp-r-sm); background: var(--sp-accent); color: var(--sp-accent-ink); }
-.shop-page .sp-nav nav a { color: var(--sp-muted); }
+.shop-page .sp-nav nav a { color: var(--sp-ink-2); }
 .shop-page .sp-nav nav a:hover { color: var(--sp-ink); }
 
 /* Logos: transparent PNG/SVG must sit on the page, never in a white box. */
@@ -181,16 +190,17 @@
 
 /* Footer */
 .shop-page .sp-footer { background: var(--sp-surface); border-top: 1px solid var(--sp-line); }
-.shop-page .sp-footer-inner { color: var(--sp-muted); }
+.shop-page .sp-footer-inner { color: var(--sp-ink-2); }
 .shop-page .sp-footer-brand { color: var(--sp-ink); }
 .shop-page .sp-footer-brand .shop-emblem { border-radius: var(--sp-r-sm); background: var(--sp-accent); color: var(--sp-accent-ink); }
 .shop-page .sp-footer-links a { color: var(--sp-ink-2); }
 .shop-page .sp-footer-links a:hover { color: var(--sp-accent-dark); }
 
-/* Dark mode: embedded booking flow + reviews inherit the theme surfaces. */
-.shop-page.mode-dark .booking-app.embedded, .shop-page.mode-dark .booking-app.embedded * { --surface: var(--sp-surface); --canvas: var(--sp-surface-2); --ink: var(--sp-ink); --ink-2: var(--sp-ink-2); --muted: var(--sp-muted); --line: var(--sp-line); --line-2: var(--sp-line-2); --ollo-soft: var(--sp-soft); --accent: var(--sp-accent); --accent-dark: var(--sp-accent-dark); }
-.shop-page.mode-dark .booking-app.embedded input, .shop-page.mode-dark .booking-app.embedded select, .shop-page.mode-dark .booking-app.embedded textarea { background: var(--sp-surface-2); color: var(--sp-ink); border-color: var(--sp-line-2); }
-.shop-page.mode-dark .booking-app.embedded .button.primary { color: var(--sp-accent-ink); }
+/* Dark look: the embedded booking flow stays a light island so its forms, steps and confirmation
+   keep their tested contrast; the block itself sits on the page's dark surface. */
+.shop-page.mode-dark .sp-booking { background: #f5f6fb; --ink: #181b2a; --ink-2: #292f46; --muted: #5b6178; --line: #e2e4ee; --line-2: #eef0f6; --surface: #ffffff; --canvas: #f5f6fb; color: var(--ink); color-scheme: light; border-color: transparent; }
+.shop-page.mode-dark .sp-booking h2 { color: var(--ink); }
+.shop-page.mode-dark .sp-booking .sp-section-head p { color: var(--muted); }
 
 /* Phone */
 @media (max-width: 767px) {
@@ -205,3 +215,19 @@
   .shop-page .sp-hero-actions { width: 100%; }
   .shop-page .sp-hero-actions .button { flex: 1 1 auto; justify-content: center; }
 }
+
+/* Dark look: a dark single-colour logo would vanish, so flip it to white there. Photo heroes are
+   dark too (scrim), so the hero logo flips whenever there is a cover. Full-colour logos stay as they
+   are by turning this off under Shop page → Logo. */
+.shop-page.mode-dark.logo-flip .sp-brand img.shop-emblem,
+.shop-page.mode-dark.logo-flip .sp-footer-brand img.shop-emblem,
+.shop-page.mode-dark.logo-flip img.sp-hero-logo,
+.shop-page.mode-light.logo-flip .sp-hero.has-cover:not(.split-light) img.sp-hero-logo { filter: invert(1) brightness(1.6) grayscale(1); }
+.shop-page.mode-light.hero-split.logo-flip .sp-hero.has-cover img.sp-hero-logo { filter: none; }
+
+/* Accent-coloured text on dark surfaces uses the theme's lifted accent, not the light-mode one. */
+.shop-page.mode-dark .sp-review-reply { border-left-color: var(--sp-accent); }
+.shop-page.mode-dark .sp-review-reply strong { color: var(--sp-accent); }
+.shop-page.mode-dark.accent-ink .sp-review-reply strong { color: var(--sp-ink); }
+/* Confirmation manage-link box inside the light booking island. */
+.shop-page.mode-dark .sp-booking .public-manage-link { background: #edeef4; color: #181b2a; }
