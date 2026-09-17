@@ -708,6 +708,17 @@ const COMMON_TIMEZONES = [
   "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Toronto", "America/Vancouver", "America/Mexico_City", "America/Sao_Paulo",
   "Asia/Dubai", "Asia/Karachi", "Asia/Kolkata", "Asia/Singapore", "Asia/Hong_Kong", "Asia/Tokyo", "Australia/Sydney", "Australia/Melbourne", "Australia/Perth", "Pacific/Auckland", "Africa/Lagos", "Africa/Johannesburg", "Africa/Nairobi",
 ];
+// One-line purpose per section, shown under the title. Sections without a line show none.
+const SECTION_BLURB: Record<string, string> = {
+  Customers: "Everyone who has booked with you, with visits, spend and what's next.",
+  Team: "Barbers, their hours, breaks and pricing.",
+  Services: "What you offer, grouped by category, with prices and durations.",
+  Settings: "Opening hours, online booking, shop page and policies.",
+  Insights: "How the shop is doing, from saved appointments.",
+  Pay: "Barber earnings by period, from completed visits and payments.",
+  Accounts: "Who can sign in to this workspace and what they can do.",
+  Audit: "A record of every change made in this workspace.",
+};
 const CURRENCIES = [
   { code: "GBP", label: "British pound" },
   { code: "EUR", label: "Euro" },
@@ -1676,7 +1687,7 @@ export function Workspace() {
               if (tab !== "Appointments" && !canNavigate()) return;
               setTab("Appointments");
               if (tab === "Appointments" && !stale && !loading) setEditor({ kind: "booking" });
-              else setTimeout(() => document.querySelector<HTMLButtonElement>('[data-testid="new-booking"]')?.click(), 120);
+              else setTimeout(() => setEditor({ kind: "booking" }), 150);
             },
           }}
         />
@@ -1686,9 +1697,8 @@ export function Workspace() {
           ) : (
             <header className="workspace-heading">
               <div>
-                <p className="eyebrow">{"YOUR SHOP / " + tab.toUpperCase()}</p>
                 <h1>{tab}</h1>
-                <p>Manage your shop. Changes are saved as you confirm them.</p>
+                {SECTION_BLURB[tab] && <p>{SECTION_BLURB[tab]}</p>}
               </div>
             </header>
           )}
@@ -1826,21 +1836,6 @@ export function Workspace() {
                       )}
                     </Button>
                     <span className="toolbar-grow" />
-                    <Button
-                      variant="ghost"
-                      className="icon-only toolbar-refresh"
-                      aria-label="Refresh"
-                      title="Refresh"
-                      aria-busy={loading}
-                      disabled={loading || !online}
-                      onClick={() =>
-                        refresh()
-                          .then(() => setNotice("View refreshed."))
-                          .catch(() => {})
-                      }
-                    >
-                      <Icon name="refresh" size={16} />
-                    </Button>
                     <div className="segmented" aria-label="Calendar view">
                       <button
                         type="button"
@@ -2287,7 +2282,7 @@ export function Workspace() {
           onVoidPayment={(payment, reason) => panelAction("VOID", () => api(`/payments/${payment.id}/void`, "POST", { reason }))}
         >
           <details className="panel-card panel-advanced" open>
-            <summary>Status with note, edit details, share confirmation</summary>
+            <summary>More actions</summary>
             <section className="workspace-booking-detail">
               <BookingItems items={JSON.parse(editor.item.items_json) as BookingItem[]} />
             </section>
@@ -3086,7 +3081,7 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
     {
       icon: "store",
       title: "Direct booking link",
-      note: live ? `${bookUrl} · booking flow only, for Instagram bios and QR codes` : w.shop.slug ? "Online booking is switched off above" : "Choose a public address above to enable",
+      note: live ? `${bookUrl} · straight to booking, for Instagram bios and QR codes` : w.shop.slug ? "Online booking is switched off above" : "Choose a public address above to enable",
       status: "live",
       action: live ? (
         <a className="button secondary" href={bookUrl} target="_blank" rel="noreferrer" data-testid="view-booking-page">
@@ -3097,7 +3092,7 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
     {
       icon: "calendar",
       title: "Manage-my-visit link",
-      note: sample ? `Reschedule / cancel / add to calendar · sample uses ${sample.customer_name}'s next visit` : "Needs an upcoming appointment",
+      note: sample ? `What customers get after booking: reschedule, cancel, add to calendar. Preview uses ${sample.customer_name}'s next visit.` : "Appears once there is an upcoming appointment",
       status: "live",
       action: sample ? (
         manageLink ? (
@@ -3115,11 +3110,11 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
         </Button>
       ),
     },
-    { icon: "hourglass", title: "Waiting list & offers", note: "Customers join from the booking page when a day is full; you work the queue from the hourglass in the top bar. Freed slots are offered automatically; customers reply at /offer/<link>. Messages sit in the outbox until a provider is connected.", status: "live" },
+    { icon: "hourglass", title: "Waiting list & offers", note: "Customers join from the booking page when a day is full; you work the queue from the hourglass in the top bar. Freed slots are offered automatically.", status: "live" },
     {
       icon: "globe",
       title: "Shop home page",
-      note: live ? `${location.origin}/${w.shop.slug} · the front door: hero, next available, services, team, booking, hours, find us, house rules` : "Publishes with online booking",
+      note: live ? `${location.origin}/${w.shop.slug} · your public page: next available, services, team, hours and booking` : "Publishes when online booking is on",
       status: "live",
       action: live ? (
         <a className="button secondary" href={`${location.origin}/${w.shop.slug}`} target="_blank" rel="noreferrer" data-testid="view-home-page">
@@ -3130,7 +3125,7 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
     {
       icon: "userRound",
       title: "Customer accounts",
-      note: "Passwordless sign-in by one-time code (shown on screen in this build) · upcoming visits with move/cancel · your usual, one tap · history · profile · export/delete my data",
+      note: "Customers sign in with a one-time code to see upcoming visits, move or cancel, rebook their usual and manage their details.",
       status: "live",
       action: live ? (
         <a className="button secondary" href={`${location.origin}/${w.shop.slug}/me`} target="_blank" rel="noreferrer" data-testid="view-customer-area">
@@ -3138,23 +3133,14 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
         </a>
       ) : undefined,
     },
-    { icon: "repeat", title: "Booking flow upgrades", note: "Any barber shortcut · book for someone else · group bookings (together or back to back) · prefilled when signed in", status: "live" },
-    { icon: "star", title: "Reviews, photos & search", note: "Verified reviews from completed visits (moderate below); uploaded cover, gallery and barber photos; the shop page carries a search-engine head, robots.txt and sitemap", status: "live" },
-    { icon: "message", title: "Reminders", note: "24h / 2h reminders with confirm links; review requests already queue to the outbox", status: "later" },
-    { icon: "card", title: "Deposits, loyalty, vouchers", note: "Card deposit at booking (Stripe), stamp card, gift vouchers bought online", status: "later" },
   ];
-  const tone: Record<string, "good" | "next" | "note"> = { live: "good", next: "next", later: "note" };
-  const label: Record<string, string> = { live: "Live", next: "Planned next", later: "Later · needs provider" };
   return (
     <section className="workspace-panel" aria-labelledby="customer-pages-heading" data-testid="customer-pages">
       <div className="workspace-section-heading">
         <div>
-          <h2 id="customer-pages-heading">Customer pages</h2>
-          <p className="workspace-footnote">Everything a customer sees, live and planned. Full plan: docs/CUSTOMER-PLAN.md.</p>
+          <h2 id="customer-pages-heading">Your links</h2>
+          <p className="workspace-footnote">Everything your customers see. Share these on Instagram, Google and in the shop.</p>
         </div>
-        <a className="button ghost" href="/docs/customer-plan" target="_blank" rel="noreferrer">
-          <Icon name="file" size={15} /> Read the plan
-        </a>
       </div>
       <ErrorMessage error={error} />
       <ul className="customer-pages">
@@ -3164,9 +3150,7 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
               <Icon name={r.icon} size={16} />
             </span>
             <span className="customer-page-text">
-              <b>
-                {r.title} <StatusPill tone={tone[r.status]}>{label[r.status]}</StatusPill>
-              </b>
+              <b>{r.title}</b>
               <small>{r.note}</small>
             </span>
             <span className="customer-page-action">{r.action}</span>
@@ -3328,7 +3312,7 @@ function QueueDrawer({
           <IconButton name="close" label="Close waiting list" onClick={onClose} />
         </h2>
         <p className="drawer-note left">
-          Customers who asked to be contacted when a full day opens up. Offer a time and the message is queued for them (shown here to copy — nothing is sent in this build); a freed slot is offered automatically when auto-offer is on.
+          Customers who asked to be contacted when a full day opens up. Offer a time and the message is prepared for them; a freed slot is offered automatically when auto-offer is on.
         </p>
         <div className="queue-filters" role="group" aria-label="Filter waiting list">
           {(

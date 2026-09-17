@@ -362,7 +362,7 @@ export function ShopPage({ slug }: { slug: string }) {
               </li>
               {shop.deposit_pence > 0 && (
                 <li>
-                  <Icon name="wallet" size={15} /> Deposit policy {money(shop.deposit_pence)} (not collected online in this build).
+                  <Icon name="wallet" size={15} /> Deposit policy {money(shop.deposit_pence)}, payable in the shop.
                 </li>
               )}
               {page.policy_text && <li className="sp-policy-text">{page.policy_text}</li>}

@@ -682,9 +682,15 @@ export function BarberStudio({
     .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
     .filter((s) => showInactive || s.active)
     .filter((s) => !query || `${s.name} ${s.title} ${s.role} ${s.skills}`.toLowerCase().includes(query.toLowerCase()));
-  const weekLoad = (s: Staff) => {
-    const mine = w.bookings.filter((b) => b.staff_id === s.id && !["CANCELLED", "NO_SHOW"].includes(b.status));
-    return mine.length;
+  // Today's live load for the roster card: confirmed / seated / completed visits dated today.
+  const todayLoad = (s: Staff) => {
+    const mine = w.bookings.filter((b) => b.staff_id === s.id && b.date === w.today && !["CANCELLED", "NO_SHOW"].includes(b.status));
+    return { count: mine.length, value: mine.reduce((n, b) => n + b.price_pence, 0) };
+  };
+  const workingToday = (s: Staff) => {
+    const row = w.hours.find((h) => h.staff_id === s.id && h.weekday === new Date(`${w.today}T12:00:00Z`).getUTCDay());
+    const off = w.days_off.some((d) => d.staff_id === s.id && d.date === w.today);
+    return !!row?.enabled && !off;
   };
   const nextVisit = (s: Staff) =>
     w.bookings.filter((b) => b.staff_id === s.id && b.start_at > w.now && ["CONFIRMED", "CHECKED_IN"].includes(b.status)).sort((a, b) => a.start_at - b.start_at)[0];
@@ -735,8 +741,17 @@ export function BarberStudio({
                   <span className="team-card-side">
                     {!s.active && <span className="tag warn">Inactive</span>}
                     {s.active && !s.online_visible && <span className="tag">Hidden online</span>}
-                    <small>{weekLoad(s)} today</small>
-                    <small>{next ? `next ${time(next.start_min)}` : "no upcoming"}</small>
+                    {(() => {
+                      const load = todayLoad(s);
+                      if (!s.active) return null;
+                      if (!workingToday(s)) return <small className="team-status off">Off today</small>;
+                      return (
+                        <>
+                          <small className="team-status">{load.count ? `${load.count} visit${load.count === 1 ? "" : "s"} · ${money(load.value)} today` : "Free today"}</small>
+                          <small>{next ? `Next ${next.date === w.today ? "" : `${next.date.slice(8)}/${next.date.slice(5, 7)} `}${time(next.start_min)}` : "Nothing booked ahead"}</small>
+                        </>
+                      );
+                    })()}
                   </span>
                 </button>
               </li>

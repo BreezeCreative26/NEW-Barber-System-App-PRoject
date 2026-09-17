@@ -1,5 +1,7 @@
 import {
   useEffect,
+  useLayoutEffect,
+  useRef,
   useState,
   type KeyboardEvent,
   type CSSProperties,
@@ -79,6 +81,15 @@ const labels: Record<string, string> = {
 };
 
 // Presentation only: a timetable click is a draft, never a reservation or availability guarantee.
+// "BST" / "GMT" / "CET" style short name for the timezone gutter; falls back to the region.
+function tzShort(tz: string, at: number) {
+  try {
+    const part = new Intl.DateTimeFormat("en-GB", { timeZone: tz, timeZoneName: "short" }).formatToParts(at).find((p) => p.type === "timeZoneName")?.value;
+    return part && part.length <= 5 ? part : tz.split("/")[0];
+  } catch {
+    return tz.split("/")[0];
+  }
+}
 export function Calendar({
   w,
   date,
@@ -104,6 +115,7 @@ export function Calendar({
   const [activeSlots, setActiveSlots] = useState<Record<string, number>>({});
   const [now, setNow] = useState(Date.now());
   const compact = useCompact();
+  const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60000);
     return () => clearInterval(timer);
@@ -151,6 +163,19 @@ export function Calendar({
     month: "2-digit",
     day: "2-digit",
   }).format(now);
+  // Open on what matters: today lands a little above the current time, other days on the first
+  // appointment (or opening time). Runs once per mounted day; a user's own scrolling is not overridden.
+  const firstStart = dayBookings.length ? Math.min(...dayBookings.map((b) => b.start_min)) : dayHours.starts;
+  const positioned = useRef<string>("");
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    const key = `${date}:${barber}`;
+    if (!el || positioned.current === key) return;
+    const anchor = date === today && currentMinute >= begin && currentMinute < end ? currentMinute - 30 : firstStart - 15;
+    el.scrollTop = Math.max(0, ((anchor - begin) / 15) * step);
+    positioned.current = key;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, barber, begin, staff.length]);
   if (!staff.length)
     return (
       <p className="calendar-empty">
@@ -163,6 +188,7 @@ export function Calendar({
     <>
       <div
         className={`calendar-scroll connected-scroll ${compact ? "compact" : ""}`}
+        ref={scroller}
         tabIndex={0}
         role="region"
         aria-label="Saved appointment timetable"
@@ -179,8 +205,8 @@ export function Calendar({
           }
         >
           <div className="calendar-staff-header">
-            <div className="timezone-label">
-              UK<span>London</span>
+            <div className="timezone-label" title={w.shop.timezone}>
+              {tzShort(w.shop.timezone, now)}<span>{w.shop.timezone.split("/").pop()?.replace(/_/g, " ")}</span>
             </div>
             {staff.map((s) => {
               const mine = occupied.filter((b) => b.staff_id === s.id);

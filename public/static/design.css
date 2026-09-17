@@ -795,27 +795,31 @@
 /* Phone: two-row toolbar, timetable scrolls sideways, tighter board */
 @media (max-width: 767px) {
   .workspace .connected-calendar { border-radius: var(--r-lg); }
-  .workspace .calendar-toolbar-row { padding: 10px var(--s-3); gap: 6px; }
-  .workspace .calendar-toolbar-row .toolbar-today { order: 1; }
-  .workspace .calendar-toolbar-row .toolbar-date-group { order: 2; flex: 1; justify-content: center; }
+  /* Phone: two tight rows. Row 1: Today · ‹ date › · Walk-in · filters. Row 2: Day/Week/Agenda + barber.
+     The tab-bar FAB is the one "add" control; the toolbar's New booking is hidden here. */
+  .workspace .calendar-toolbar-row { padding: 8px var(--s-3); gap: 6px; }
+  .workspace .calendar-toolbar-row .toolbar-today { order: 1; padding: 0 10px; }
+  .workspace .calendar-toolbar-row .toolbar-date-group { order: 2; flex: 1; justify-content: center; min-width: 0; }
   .workspace .calendar-toolbar-row .toolbar-date { min-width: 0; flex: 1; }
-  .workspace .calendar-toolbar-row .toolbar-add { order: 3; width: 36px; min-width: 36px; padding: 0; font-size: 0; gap: 0; }
-  .workspace .calendar-toolbar-row .toolbar-add svg { width: 18px; height: 18px; }
-  .workspace .calendar-toolbar-row .toolbar-grow { display: none; }
-  .workspace .calendar-toolbar-row .toolbar-select { order: 4; flex: 1; min-width: 0; }
-  .workspace .calendar-toolbar-row .toolbar-select select { max-width: none; width: 100%; }
-  .workspace .calendar-toolbar-row .toolbar-filters { order: 5; }
+  .workspace .calendar-toolbar-row .toolbar-walkin { order: 3; width: 36px; min-width: 36px; padding: 0; }
+  .workspace .calendar-toolbar-row .toolbar-walkin .toolbar-label { display: none; }
+  .workspace .calendar-toolbar-row .toolbar-filters { order: 4; width: 36px; min-width: 36px; padding: 0; }
   .workspace .calendar-toolbar-row .toolbar-filters .toolbar-label { display: none; }
-  .workspace .calendar-toolbar-row .toolbar-filters { width: 36px; min-width: 36px; padding: 0; }
-  .workspace .calendar-toolbar-row .toolbar-refresh { display: none; }
-  .workspace .calendar-toolbar-row .segmented { order: 6; }
+  .workspace .calendar-toolbar-row .toolbar-add { display: none; }
+  .workspace .calendar-toolbar-row .toolbar-grow { display: none; }
+  .workspace .calendar-toolbar-row .segmented { order: 5; flex: 1 1 180px; }
   .workspace .calendar-toolbar-row .segmented button { padding: 0 8px; flex: 1; justify-content: center; }
   .workspace .calendar-toolbar-row .segmented .toolbar-label { display: inline; }
+  .workspace .calendar-toolbar-row .toolbar-select { order: 6; flex: 1 1 120px; min-width: 0; }
+  .workspace .calendar-toolbar-row .toolbar-select select { max-width: none; width: 100%; }
+  .workspace .calendar-toolbar-row .toolbar-refresh { display: none; }
   .workspace .workspace-main { padding-top: 10px; }
   .calendar-filters-panel { grid-template-columns: 1fr; padding: var(--s-3); }
-  .calendar-summary { padding: 6px var(--s-3); }
+  .calendar-summary { padding: 4px var(--s-3); min-height: 0; gap: 2px var(--s-3); font-size: var(--fs-11); }
+  .calendar-summary > span:first-child { display: none; }
   .calendar-summary-stats { width: 100%; }
-  .workspace .connected-scroll { max-height: calc(100vh - var(--topbar-h) - var(--tabbar-h) - 200px); min-height: 320px; }
+  .calendar-summary-stats > span + span::before { margin: 0 6px; }
+  .workspace .connected-scroll { max-height: calc(100vh - var(--topbar-h) - var(--tabbar-h) - 150px); min-height: 360px; }
   .workspace .connected-calendar .calendar-staff-header { min-height: 52px; }
   .workspace .connected-calendar .staff-column-heading { padding: 8px; gap: 6px; }
   .workspace .connected-calendar .staff-column-heading .avatar { width: 26px; height: 26px; font-size: 10px; }
