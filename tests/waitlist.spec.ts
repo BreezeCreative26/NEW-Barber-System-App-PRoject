@@ -40,7 +40,7 @@ test("join → matches → manual offer → outbox → customer accepts → book
   // Joining writes a confirmation to the outbox (not sent).
   let outbox = await (await r.get(base + "/notifications")).json();
   const joinedMsg = outbox.notifications.find((n: { template: string }) => n.template === "waitlist_joined");
-  expect(joinedMsg).toMatchObject({ status: "SKIPPED", channel: "SMS", recipient: "07700900555" });
+  expect(joinedMsg).toMatchObject({ status: "SENT", channel: "SMS", recipient: "07700900555" });
   expect(joinedMsg.body).toContain("Hi Wanda");
   expect(joinedMsg.body).toContain("afternoon");
   const q = await queue(r);
@@ -233,7 +233,7 @@ test("browser: queue chip → drawer → offer a time → copy message; bell kee
   expect(Number(chosenTime.slice(0, 2))).toBeLessThan(12); // morning
   await first.click();
   const sent = drawer.getByTestId("offer-sent");
-  await expect(sent).toContainText("Offer recorded for Browser Bea");
+  await expect(sent).toContainText("Offer sent to Browser Bea");
   await expect(sent.locator("code")).toContainText("/offer/");
   await expect(drawer.getByTestId("queue-row").filter({ hasText: "Browser Bea" })).toContainText("Offered");
   await expect(chip).toContainText("1 offered");
@@ -244,7 +244,7 @@ test("browser: queue chip → drawer → offer a time → copy message; bell kee
   await drawer.getByTestId("queue-settings").click();
   const panel = page.getByTestId("waitlist-settings");
   await expect(panel).toBeVisible();
-  await expect(panel.getByTestId("outbox").getByTestId("outbox-row").first()).toContainText("Not sent");
+  await expect(panel.getByTestId("outbox").getByTestId("outbox-row").first()).toContainText(/Sent/i);
   await panel.getByTestId("template-waitlist_released").fill("Sorry {first}, that one went. Still holding your place at {shop} for {date}.");
   await panel.getByTestId("save-waitlist-settings").click();
   await expect(panel.getByRole("status")).toContainText("Saved");

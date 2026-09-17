@@ -178,7 +178,7 @@ test("reviews: only completed visits, once per booking, via manage link; hidden 
     const msg = outbox.notifications.find((n: { template: string; related_id: string }) => n.template === "review_request" && n.related_id === confirmed.id);
     expect(msg).toBeTruthy();
     expect(msg.body).toMatch(/How was your .* Leave a quick rating: http/);
-    expect(msg.status).toBe("SKIPPED");
+    expect(["SENT", "QUEUED"]).toContain(msg.status);
   }
   // Barber account sees only their own visits' reviews and cannot moderate.
   const barber = await request.newContext({ extraHTTPHeaders: { Origin: origin } });

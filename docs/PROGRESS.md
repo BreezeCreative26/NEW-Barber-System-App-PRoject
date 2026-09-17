@@ -505,3 +505,13 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - Gate: customer-facing suites 37/37 (public, customer-account, booking-upgrades, waitlist, shop-page, shop-presence).
   Not yet run this round: workspace/calendar/pay/payments/visual — run the full gate + refresh visual baselines
   before the next release tag.
+
+## Messages (real delivery) — done
+- Outbox is now a delivery queue: QUEUED → SENDING → SENT/FAILED with backoff (1m, 5m, 30m, 2h, 12h). Providers: Resend (email), Twilio (SMS); dev "mailbox" provider when no keys are set.
+- Every customer message is shop-branded (logo/initials tile, accent, "Sent by <shop>"). OLLO never appears.
+- Send sites: booking confirmed/moved/cancelled, reminders (configurable hours + 2h, idempotent via unique index), sign-in code, waitlist joined/offer/expired, review request, staff invite.
+- Sweep: lazy once per 5 min on any /api request + Vercel Cron `/api/cron/messages` (CRON_SECRET).
+- Owner: Settings → Messages — provider status, SMS/email/reminder toggles, reply-to, SMS sender, test send, outbox filter/preview/copy/resend.
+- Env: RESEND_API_KEY, MAIL_FROM, TWILIO_ACCOUNT_SID/AUTH_TOKEN/FROM (or MESSAGING_SERVICE_SID), CRON_SECRET — see .env.example.
+- Gate: 137 tests green after updating assertions from "SKIPPED/recorded" to "SENT". AUDIT item 3 complete.
+- Still to add: `tests/messaging.spec.ts` (drain backoff, reminder idempotency, OTP delivery modes, resend), README messaging section.

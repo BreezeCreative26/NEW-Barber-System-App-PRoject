@@ -3095,7 +3095,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
         </div>
         {data && (
           <StatusPill tone={live ? "good" : "note"} data-testid="messaging-status">
-            {live ? `Live · ${[data.providers.email.provider === "resend" && "email", data.providers.sms.provider === "twilio" && "SMS"].filter(Boolean).join(" + ")}` : "Preview mode · nothing leaves the building"}
+            {live ? `Live · ${[data.providers.email.provider === "resend" && "email", data.providers.sms.provider === "twilio" && "SMS"].filter(Boolean).join(" + ")}` : "Preview mode · nothing is sent"}
           </StatusPill>
         )}
       </div>
