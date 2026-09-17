@@ -544,3 +544,10 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - `tests/messaging.spec.ts` (7): confirmation on both channels, shop-branded, never OLLO; cancel notifies; channel toggles honoured (and `sent_to` now reports the channels actually queued — bug found by the test); reminder sweep idempotent + reminders-off; owner test send / resend rules / validation; OTP delivery mode; cron route + health; browser Settings → Messages (status pill, save, test send, preview modal, filter).
 - Fixed: Settings tab overflowed at 320px (status pill `nowrap` in a non-wrapping heading) — heading wraps and pill text wraps on small screens; pill copy shortened to "Preview mode · nothing is sent". `StatusPill` now forwards `data-testid`/`title`.
 - Gate: **142 passed, 2 skipped, 0 failed** (full Playwright suite). README has a Messages section (env vars, preview mode, cron). AUDIT item 3 complete.
+
+## Visual QA sweep (2026-09-17)
+Screenshots at phone 390×844 / tablet 820×1180 / desktop 1440×900 across calendar, appointment panel, checkout, customers, team, services, settings (incl. Payments), barber Pay tab, /book/:slug and /:slug. Fixed: barber-column header wrap with hours chip; `.workspace-footnote` was flex (inline `strong`/icons rendered as blocks; 8–9px on phone); deposit toggle and "Allow customers to book online" checkbox stacked above label; opening-hours time inputs clipped on phone; customer-row chevron on its own line; payments policy/reader forms on phone; oversized heading gaps. Removed the legacy "More actions" block from the appointment panel (its "Next status" select contradicted the single Checkout ceremony).
+
+**Open:** 7 Playwright tests still drive the removed legacy controls and need rewriting against the Checkout ceremony / ⋯ menu:
+calendar.spec.ts:119, :621, :679 · catalogue.spec.ts:403 · public.spec.ts:610 · workspace.spec.ts:75, :348
+(they wait on `Next status`, `Edit booking details`, `Share confirmation with customer`, `Reason / operational note`, `.workspace-booking-detail .workspace-quote-items`). Gate otherwise: 145 passed, 2 skipped.
