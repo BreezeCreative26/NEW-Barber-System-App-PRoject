@@ -60,6 +60,12 @@ Without keys the app runs in **preview mode**: deposits payable in the shop, pay
 hand, every Settings → Payments control visible but honest about why it's off. Full runbook,
 tiers (STANDARD / FAST float), auto pay runs and the test-mode checklist: **`docs/PAYMENTS.md`**.
 
+## Calendar roadmap
+
+The Fresha/Booksy-parity plan for the calendar — snap drag-and-drop, in-place price/service/duration
+edits, scheduled team, block time with customer notification — is phased and costed in
+**`docs/CALENDAR_PLAN.md`**.
+
 ## Messages (email + SMS)
 
 Every customer message — booking confirmed / moved / cancelled, reminders, sign-in codes,
