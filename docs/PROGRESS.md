@@ -482,7 +482,7 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - `npm run ux:review` now also writes section-level shop-page shots (`*-40a…e`). Standard §8 added to docs/UX-STANDARD.md.
 - Gate: ux-lint clean, vitest 25, Playwright 137/137.
 
-## Shop theme follows the whole customer journey (in progress)
+## Shop theme follows the whole customer journey
 - `shop.brand` (`{logo_url, accent, theme}`) now travels with every public payload: `/shops/:slug`, booking
   `customerView`, `/me`, waiting-list offers (`brandOf()` in domain.ts; `shopBySlug`/`shopWithQueue` join
   `shop_pages`). Client `src/client/theme.ts` — `themeClass(brand)` + `applyThemeColor()`; applied to
@@ -494,8 +494,14 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
   phone sticky bar. The embedded flow's "light island" is gone — dark themes are dark all the way.
 - Hard-coded muted greys in style.css (`#51576d`, `#5c6278`) → `var(--muted)`.
 - Demo: Northline Barbers (dark · condensed · sharp · ink). Theme option `logo: auto|original`.
-- Gate so far: 32/37 across public/customer-account/booking-upgrades/waitlist/shop-page/shop-presence.
-  **Remaining (5 axe color-contrast hits, dark theme only):** `.cancellation-note > p`,
-  `.ca-usual-text .eyebrow/p` (rail-fg on --ink; in dark, `.ca-usual` bg = ink = page fg → invert),
-  ~6 nodes on `/book` at 320px (re-probe with `browser.newContext()` + AxeBuilder to get pairs), shop page
-  + presence browser tests (same family). Then refresh visual baselines and re-run the full gate.
+- **Contrast, every theme:** `scripts/audit/theme-sweep.mjs` runs axe (WCAG 2A/AA) on shop page, /book
+  (service, barber, time, details steps), /me sign-in — across light/dark × 6 accents × 3 font pairings =
+  108 renders at 390px. **0 violations.** Fixes it drove: booking hero + seal text solid/inherit (no opacity on
+  accent), clay accent → #a8552f (AA on white), chosen date/time tile text solid, cancellation note, action tiles,
+  "your usual" card, dark avatars, hard-coded muted greys → `var(--muted)`.
+- **Barber photos:** booking tiles were a fixed 142px strip that cut heads off. Now `aspect-ratio: 4/3` (16/10,
+  single column on phones) with a face-biased crop (`object-position: 50% 25–30%`); team cards biased too. Upload
+  guidance added under staff photo / cover / logo fields. Server already normalises staff uploads to ≤800×800.
+- Gate: customer-facing suites 37/37 (public, customer-account, booking-upgrades, waitlist, shop-page, shop-presence).
+  Not yet run this round: workspace/calendar/pay/payments/visual — run the full gate + refresh visual baselines
+  before the next release tag.
