@@ -2,5 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "regions": ["lhr1"],
-  "functions": { "app/[[...path]]/route.ts": { "maxDuration": 30 } }
+  "functions": { "app/[[...path]]/route.ts": { "maxDuration": 30 } },
+  "crons": [{ "path": "/api/cron/messages", "schedule": "*/5 * * * *" }]
 }

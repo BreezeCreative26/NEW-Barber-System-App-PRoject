@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { drain, enqueue, msgShop, providerStatus } from "./messaging";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import type { Database } from "../db/client";
@@ -451,8 +452,15 @@ accounts.post("/invites", async (c) => {
     ),
     event(c, a.shop_id, `user:${a.user_id}`, id, "STAFF_INVITED"),
   ]);
+  // Email the invitation from the shop. The link is still returned so the owner can share it by
+  // hand (WhatsApp, in person) — invites are for team, not customers.
+  const ms = await msgShop(c, a.shop_id);
+  const origin = new URL(c.req.url).origin;
+  const inviter = await c.env.DB.prepare("SELECT name FROM app_users WHERE id=?").bind(a.user_id).first<{ name: string }>();
+  const stmts = enqueue(c.env.DB, ms, { email: b.email }, "staff_invite", { inviter: inviter?.name || ms.name, role: b.role, link: `${origin}/workspace?invite=${token}` }, { related: { type: "invite", id }, origin, channel: "EMAIL" });
+  if (stmts.length) { await c.env.DB.batch(stmts); await drain(c.env.DB, 1).catch(() => {}); }
   return c.json(
-    { id, token, expires_in_hours: 48, delivery: "manual-local-test" },
+    { id, token, expires_in_hours: 48, delivery: providerStatus().email.provider === "resend" ? "email" : "manual" },
     201,
   );
 });

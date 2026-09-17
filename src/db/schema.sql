@@ -31,7 +31,10 @@ CREATE TABLE shops (
   till_access TEXT NOT NULL DEFAULT 'OWNER' CHECK(till_access IN ('OWNER','ALL')),
   waitlist_auto_offer INTEGER NOT NULL DEFAULT 1 CHECK(waitlist_auto_offer IN (0,1)),
   waitlist_offer_hold_min INTEGER NOT NULL DEFAULT 120 CHECK(waitlist_offer_hold_min BETWEEN 15 AND 1440),
-  waitlist_templates_json TEXT NOT NULL DEFAULT '{}'
+  waitlist_templates_json TEXT NOT NULL DEFAULT '{}',
+  msg_sms INTEGER NOT NULL DEFAULT 1, msg_email INTEGER NOT NULL DEFAULT 1, msg_reminders INTEGER NOT NULL DEFAULT 1,
+  msg_reminder_hours INTEGER NOT NULL DEFAULT 24, msg_reply_to TEXT NOT NULL DEFAULT '', msg_sms_sender TEXT NOT NULL DEFAULT '',
+  CONSTRAINT shops_msg_flags_check CHECK (msg_sms IN (0,1) AND msg_email IN (0,1) AND msg_reminders IN (0,1) AND msg_reminder_hours BETWEEN 1 AND 72)
 );
 CREATE UNIQUE INDEX shops_slug ON shops(slug) WHERE slug IS NOT NULL;
 
@@ -409,12 +412,19 @@ CREATE TABLE notifications (
   shop_id TEXT NOT NULL REFERENCES shops(id),
   channel TEXT NOT NULL CHECK(channel IN ('SMS','EMAIL')),
   recipient TEXT NOT NULL, template TEXT NOT NULL, body TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'QUEUED' CHECK(status IN ('QUEUED','SENT','FAILED','SKIPPED')),
+  status TEXT NOT NULL DEFAULT 'QUEUED' CHECK(status IN ('QUEUED','SENDING','SENT','FAILED','SKIPPED')),
   status_note TEXT NOT NULL DEFAULT '',
   related_type TEXT NOT NULL DEFAULT '', related_id TEXT NOT NULL DEFAULT '',
-  created_at BIGINT NOT NULL, sent_at BIGINT
+  created_at BIGINT NOT NULL, sent_at BIGINT,
+  subject TEXT NOT NULL DEFAULT '', html TEXT NOT NULL DEFAULT '',
+  provider TEXT NOT NULL DEFAULT '', provider_id TEXT NOT NULL DEFAULT '',
+  attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at BIGINT, error TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX notifications_shop ON notifications(shop_id,created_at);
+CREATE INDEX notifications_due ON notifications(status, next_attempt_at) WHERE status IN ('QUEUED','SENDING');
+CREATE INDEX notifications_related ON notifications(shop_id, related_type, related_id, template);
+CREATE UNIQUE INDEX notifications_once_per_booking ON notifications(shop_id, related_id, template, channel) WHERE template IN ('booking_reminder','booking_reminder_soon','booking_confirmed');
+CREATE TABLE platform_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at BIGINT NOT NULL);
 CREATE TABLE shop_pages (
   shop_id TEXT PRIMARY KEY REFERENCES shops(id),
   strapline TEXT NOT NULL DEFAULT '', about TEXT NOT NULL DEFAULT '',

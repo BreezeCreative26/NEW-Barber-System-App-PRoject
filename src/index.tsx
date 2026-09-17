@@ -6,10 +6,35 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
+import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
 import type { Database } from "./db/client";
 import type { ObjectStore } from "./db/storage";
 export type AppBindings = { DB: Database; MEDIA?: ObjectStore; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string };
 const app = new Hono<{ Bindings: AppBindings }>();
+// Lazy sweep: any public/app API request may trigger the reminder + outbox sweep, at most once per
+// 5 minutes across the deployment (platform_kv claim). Runs after the response so it never slows
+// the request. Vercel Cron hits /api/cron/messages every 5 minutes as the guaranteed path.
+app.use("/api/*", async (c, next) => {
+  await next();
+  if (!c.env?.DB || c.req.path.startsWith("/api/cron")) return;
+  const origin = new URL(c.req.url).origin;
+  // Fire and forget. On Node (Vercel) the promise runs to completion after the response; on
+  // Workers, executionCtx.waitUntil keeps the isolate alive — Hono throws when there is none.
+  const job = maybeSweep(c.env.DB, origin).catch(() => null);
+  try {
+    c.executionCtx.waitUntil(job);
+  } catch {
+    /* no execution context: Node runtime, promise continues on its own */
+  }
+});
+app.get("/api/cron/messages", async (c) => {
+  const secret = process.env.CRON_SECRET;
+  if (secret && c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
+  const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
+  const reminders = await sweepReminders(c.env.DB, origin);
+  const drained = await drain(c.env.DB, 100);
+  return c.json({ ok: true, reminders, drained, providers: providerStatus() });
+});
 app.route("/api/app", sandbox);
 // Legacy path kept for one release so old tabs keep working.
 app.route("/api/sandbox", sandbox);
@@ -19,6 +44,7 @@ app.get("/api/health", (c) =>
     status: "ok",
     mode: process.env.NODE_ENV === "production" ? "production" : "development",
     livePayments: false,
+    messaging: providerStatus(),
     persistence: !!c.env?.DB,
   }),
 );

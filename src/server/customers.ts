@@ -8,6 +8,7 @@ import { brandOf, dayStarts, phoneSchema, ref, shopToday, type Customer, type Sh
 import { digest, readInput, type AppEnv } from "./accounts";
 import { audit, checkVersionUpdate, fail, readBooking } from "./sandbox";
 import { leaveReview, ownReviewView, reviewEligibility, reviewSchema, type ReviewRow } from "./presence";
+import { drain, enqueue, msgShop, providerStatus } from "./messaging";
 import {
   calendarResponse,
   cancelBody,
@@ -128,13 +129,21 @@ acct.post("/start", async (c) => {
   await throttle(c, "otp-phone", `${shop.id}:${b.phone}`, 8);
   const code = String(Math.floor(100000 + Math.random() * 900000));
   const now = Date.now();
+  // Live SMS provider → the code goes by text. Otherwise (local dev, tests, no Twilio yet) it is
+  // shown on screen, and the outbox still records it so the dev mailbox shows the message.
+  const live = providerStatus().sms.provider !== "mailbox";
+  const ms = await msgShop(c, shop.id);
+  const origin = new URL(c.req.url).origin;
+  const stmts = enqueue(c.env.DB, ms, { phone: b.phone }, "signin_code", { code }, { related: { type: "customer_account", id: b.phone.slice(-4) }, origin, channel: "SMS", now });
   await c.env.DB.batch([
     c.env.DB.prepare(
       "INSERT INTO customer_otp(shop_id,phone,code_hash,expires_at,attempts,created_at) VALUES(?,?,?,?,0,?) ON CONFLICT(shop_id,phone) DO UPDATE SET code_hash=excluded.code_hash,expires_at=excluded.expires_at,attempts=0,created_at=excluded.created_at",
     ).bind(shop.id, b.phone, await digest(`${shop.id}:${b.phone}:${code}`), now + CODE_TTL, now),
-    audit(c, "customer_account", b.phone.slice(-4), "SIGN_IN_CODE_ISSUED", `Local test: one-time code shown on screen for a mobile ending ${b.phone.slice(-4)}. No message sent.`),
+    ...stmts,
+    audit(c, "customer_account", b.phone.slice(-4), "SIGN_IN_CODE_ISSUED", live ? `One-time code sent by SMS to a mobile ending ${b.phone.slice(-4)}.` : `One-time code shown on screen for a mobile ending ${b.phone.slice(-4)} (no live SMS provider).`),
   ]);
-  return c.json({ ok: true, phone: b.phone, expires_at: now + CODE_TTL, sandbox_code: code, delivery: "on_screen" }, 201);
+  if (stmts.length) await drain(c.env.DB, stmts.length).catch(() => {});
+  return c.json({ ok: true, phone: b.phone, expires_at: now + CODE_TTL, delivery: live ? "sms" : "on_screen", ...(live ? {} : { sandbox_code: code }) }, 201);
 });
 
 // Step 2: verify. Creates the global account on first use and links it to this shop's customer row.

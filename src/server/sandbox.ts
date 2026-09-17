@@ -64,6 +64,7 @@ import {
 
 import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { optimiseImage } from "./images";
+import { drain, enqueue, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
 import accounts, {
   ACCOUNT_COOKIE,
@@ -996,10 +997,94 @@ sandbox.put("/shop/waitlist", async (c) => {
   return c.json({ shop: await readShop(c), templates: templatesOf(shop), defaults: DEFAULT_TEMPLATES });
 });
 sandbox.get("/notifications", async (c) => {
-  const p = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) }).safeParse(c.req.query());
-  const rows = await c.env.DB.prepare("SELECT * FROM notifications WHERE shop_id=? ORDER BY created_at DESC LIMIT ?").bind(c.get("shopId"), p.success ? p.data.limit : 50).all();
+  const p = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50), status: z.enum(["QUEUED", "SENDING", "SENT", "FAILED", "SKIPPED"]).optional() }).safeParse(c.req.query());
+  const lim = p.success ? p.data.limit : 50;
+  const st = p.success ? p.data.status : undefined;
+  const rows = await (st
+    ? c.env.DB.prepare("SELECT id,shop_id,channel,recipient,template,body,subject,status,status_note,provider,provider_id,attempts,error,related_type,related_id,created_at,sent_at FROM notifications WHERE shop_id=? AND status=? ORDER BY created_at DESC LIMIT ?").bind(c.get("shopId"), st, lim)
+    : c.env.DB.prepare("SELECT id,shop_id,channel,recipient,template,body,subject,status,status_note,provider,provider_id,attempts,error,related_type,related_id,created_at,sent_at FROM notifications WHERE shop_id=? ORDER BY created_at DESC LIMIT ?").bind(c.get("shopId"), lim)
+  ).all();
+  const counts = await c.env.DB.prepare("SELECT status, COUNT(*)::int AS n FROM notifications WHERE shop_id=? AND created_at>? GROUP BY status").bind(c.get("shopId"), Date.now() - 30 * 86400000).all<{ status: string; n: number }>();
   const shop = await shopWithQueue(c, c.get("shopId"));
-  return c.json({ notifications: rows.results, templates: templatesOf(shop), defaults: DEFAULT_TEMPLATES, settings: { waitlist_auto_offer: shop.waitlist_auto_offer, waitlist_offer_hold_min: shop.waitlist_offer_hold_min } });
+  const ms = await msgShop(c, c.get("shopId"));
+  return c.json({
+    notifications: rows.results,
+    counts_30d: Object.fromEntries(counts.results.map((r) => [r.status, r.n])),
+    providers: providerStatus(),
+    messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "" },
+    templates: templatesOf(shop),
+    defaults: DEFAULT_TEMPLATES,
+    settings: { waitlist_auto_offer: shop.waitlist_auto_offer, waitlist_offer_hold_min: shop.waitlist_offer_hold_min },
+  });
+});
+const requireRole = (c: Ctx, roles: string[]) => {
+  const a = c.get("account");
+  if (a && !roles.includes(a.role)) fail(403, "Owner or manager required");
+};
+// Owner reads one message in full (email HTML) — for the preview drawer.
+sandbox.get("/notifications/:id", async (c) => {
+  const row = await c.env.DB.prepare("SELECT * FROM notifications WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first();
+  if (!row) fail(404, "Message not found");
+  return c.json({ notification: row });
+});
+const messagingSchema = z
+  .object({
+    msg_sms: z.union([z.literal(0), z.literal(1)]),
+    msg_email: z.union([z.literal(0), z.literal(1)]),
+    msg_reminders: z.union([z.literal(0), z.literal(1)]),
+    msg_reminder_hours: z.number().int().min(1).max(72),
+    msg_reply_to: z.union([z.literal(""), z.string().trim().email().max(120)]),
+    msg_sms_sender: z.string().trim().max(11).regex(/^[A-Za-z0-9 ]*$/, "Letters and numbers only"),
+  })
+  .strict();
+sandbox.put("/shop/messaging", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const b = await input(c, messagingSchema);
+  const sid = c.get("shopId");
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE shops SET msg_sms=?,msg_email=?,msg_reminders=?,msg_reminder_hours=?,msg_reply_to=?,msg_sms_sender=?,version=version+1 WHERE id=?").bind(b.msg_sms, b.msg_email, b.msg_reminders, b.msg_reminder_hours, b.msg_reply_to, b.msg_sms_sender, sid),
+    audit(c, "shop", sid, "MESSAGING_UPDATED", `SMS ${b.msg_sms ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
+  ]);
+  return c.json({ ok: true, messaging: b });
+});
+// Send a test message to the signed-in owner (or a given address/mobile).
+sandbox.post("/notifications/test", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const b = await input(c, z.object({ channel: z.enum(["SMS", "EMAIL"]), to: z.string().trim().min(5).max(120) }).strict());
+  const ms = await msgShop(c, c.get("shopId"));
+  const origin = new URL(c.req.url).origin;
+  const stmts = enqueue(c.env.DB, ms, b.channel === "SMS" ? { phone: b.to } : { email: b.to }, "test_message", {}, { related: { type: "test", id: c.get("actor") }, origin, channel: b.channel });
+  if (!stmts.length) fail(409, b.channel === "SMS" ? "SMS is switched off for this shop" : "Email is switched off for this shop");
+  await c.env.DB.batch(stmts);
+  const r = await drain(c.env.DB, 1);
+  const row = await c.env.DB.prepare("SELECT id,status,status_note,provider,error FROM notifications WHERE shop_id=? AND template='test_message' ORDER BY created_at DESC LIMIT 1").bind(c.get("shopId")).first();
+  return c.json({ ok: true, result: r, notification: row }, 201);
+});
+// Retry a FAILED message now.
+sandbox.post("/notifications/:id/resend", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  await input(c, z.object({}).strict());
+  const r = await c.env.DB.prepare("UPDATE notifications SET status='QUEUED', next_attempt_at=?, attempts=0, error='', status_note='Resend requested.' WHERE shop_id=? AND id=? AND status IN ('FAILED','SKIPPED')").bind(Date.now(), c.get("shopId"), c.req.param("id")).run();
+  if (!r.meta.changes) fail(409, "Only failed messages can be resent");
+  await drain(c.env.DB, 1);
+  const row = await c.env.DB.prepare("SELECT id,status,status_note,provider,error FROM notifications WHERE id=?").bind(c.req.param("id")).first();
+  return c.json({ ok: true, notification: row });
+});
+// Dev mailbox: every message this shop would have sent, with rendered email HTML. Only when the demo
+// is enabled (never in a production deployment with the demo off).
+sandbox.get("/dev/mailbox", async (c) => {
+  if ((process.env.DEMO_ENABLED ?? "") !== "1") fail(404, "Not found");
+  const rows = await c.env.DB.prepare("SELECT id,channel,recipient,template,body,subject,html,status,provider,created_at,sent_at FROM notifications WHERE shop_id=? ORDER BY created_at DESC LIMIT 100").bind(c.get("shopId")).all();
+  return c.json({ messages: rows.results, templates: MESSAGE_TEMPLATES });
+});
+// Manual sweep (also what the cron route calls).
+sandbox.post("/notifications/sweep", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  await input(c, z.object({}).strict());
+  const origin = new URL(c.req.url).origin;
+  const reminders = await sweepReminders(c.env.DB, origin);
+  const drained = await drain(c.env.DB, 50);
+  return c.json({ reminders, drained });
 });
 // Owner retrieves or creates the customer's manage link so it can be shared by hand.
 sandbox.post("/bookings/:id/manage-link", async (c) => {

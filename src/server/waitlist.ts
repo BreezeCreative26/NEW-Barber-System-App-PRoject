@@ -1,12 +1,14 @@
 // Waiting list procedure: matching, offers, auto-offer on freed slots, and the notifications outbox.
-// See docs/WAITLIST-PLAN.md. Nothing here sends a message: every intended message is written to the
-// outbox as SKIPPED until a provider exists, and the offer link is surfaced to staff.
+// See docs/WAITLIST-PLAN.md. Messages are queued through messaging.ts (shop-branded SMS/email) and
+// drained right after each batch; the offer link is also surfaced to staff.
 import type { Context } from "hono";
 import type { Statement as D1PreparedStatement } from "../db/client";
 import { z } from "zod";
 import { calculateQuote, dayStarts, effectiveHours, localInstant, ref, shopToday, slotReason, weekday, type Addon, type AddonLink, type Holiday, type Hours, type ScheduleOverride, type Service, type Shop, type Staff, type StaffDayOff, type StaffServiceRule, type StoredBooking } from "./domain";
 import type { AppEnv } from "./accounts";
 import { digest } from "./accounts";
+import { drain, emailHtml, type MessageTemplate } from "./messaging";
+import { brandOf } from "./domain";
 
 type Ctx = Context<AppEnv>;
 const uid = () => crypto.randomUUID();
@@ -51,13 +53,34 @@ const fmtTime = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:$
 const fmtStamp = (ms: number, tz: string) => new Date(ms).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: tz });
 const daypartLabel: Record<string, string> = { ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" };
 
-// Outbox write. Channel is SMS when we have a mobile, EMAIL otherwise. Status is SKIPPED (no provider).
-export function queueMessage(c: Ctx, shopId: string, to: { phone: string; email: string }, template: TemplateKey, body: string, related: { type: string; id: string }) {
-  const channel = to.phone ? "SMS" : "EMAIL";
+// Outbox write. The owner's editable template is the SMS text; email wraps the same text in the
+// shop-branded shell. Channel is SMS when we have a mobile, EMAIL otherwise. Row is QUEUED; callers
+// run drainSoon() after their batch so it goes out within the request.
+type MsgShopLite = { id: string; name: string; address: string; slug: string | null; msg_sms?: number; msg_email?: number; logo_url?: string; accent?: string; theme_json?: string; phone?: string; email?: string };
+const SUBJECTS: Record<TemplateKey, (shop: string) => string> = {
+  waitlist_joined: (s) => `You're on the list at ${s}`,
+  waitlist_offer: (s) => `A time has opened at ${s}`,
+  waitlist_booked: (s) => `You're booked at ${s}`,
+  waitlist_released: (s) => `Back on the list at ${s}`,
+  review_request: (s) => `How was your visit to ${s}?`,
+};
+export function queueMessage(c: Ctx, shop: MsgShopLite | string, to: { phone: string; email: string }, template: TemplateKey, body: string, related: { type: string; id: string }) {
+  const sh: MsgShopLite = typeof shop === "string" ? { id: shop, name: "", address: "", slug: null } : shop;
+  const sms = !!to.phone && (sh.msg_sms ?? 1) === 1;
+  const email = !!to.email && (sh.msg_email ?? 1) === 1;
+  const channel = sms ? "SMS" : email ? "EMAIL" : to.phone ? "SMS" : "EMAIL";
+  const link = body.match(/https?:\/\/\S+/)?.[0];
+  const subject = channel === "EMAIL" ? SUBJECTS[template](sh.name || "the shop") : "";
+  const html = channel === "EMAIL"
+    ? emailHtml(sh, brandOf(sh), new URL(c.req.url).origin, { sms: body, subject, heading: subject, lines: [body.replace(/https?:\/\/\S+/g, "").trim()], cta: link ? { label: "Open", href: link } : undefined }, { phone: sh.phone, email: sh.email })
+    : "";
+  const now = Date.now();
   return c.env.DB.prepare(
-    "INSERT INTO notifications(id,shop_id,channel,recipient,template,body,status,status_note,related_type,related_id,created_at) VALUES(?,?,?,?,?,?,'SKIPPED','No message provider connected; copy and send by hand.',?,?,?)",
-  ).bind(uid(), shopId, channel, to.phone || to.email, template, body, related.type, related.id, Date.now());
+    "INSERT INTO notifications(id,shop_id,channel,recipient,template,body,subject,html,status,status_note,related_type,related_id,created_at,next_attempt_at) VALUES(?,?,?,?,?,?,?,?,'QUEUED','',?,?,?,?)",
+  ).bind(uid(), sh.id, channel, channel === "SMS" ? to.phone : to.email, template, body, subject, html, related.type, related.id, now, now);
 }
+export const drainSoon = (c: Ctx, n = 5) => drain(c.env.DB, n).catch(() => undefined);
+export type { MessageTemplate };
 
 // ---- Matching ----------------------------------------------------------------
 const inDaypart = (m: number, part: string) => part === "ANY" || (part === "MORNING" && m < 720) || (part === "AFTERNOON" && m >= 720 && m < 1020) || (part === "EVENING" && m >= 1020);
@@ -112,12 +135,13 @@ export async function sweep(c: Ctx, shop: Shop & ShopQueueSettings, now = Date.n
     statements.push(
       c.env.DB.prepare("UPDATE waitlist_offers SET status='EXPIRED',responded_at=? WHERE id=? AND status='PENDING'").bind(now, o.id),
       c.env.DB.prepare("UPDATE waitlist_entries SET status='OPEN',offer_id=NULL,version=version+1,updated_at=? WHERE id=? AND status='OFFERED' AND offer_id=?").bind(now, o.entry_id, o.id),
-      queueMessage(c, shop.id, o, "waitlist_released", render(templates.waitlist_released, { first: o.customer_name.split(" ")[0], shop: shop.name, date: fmtDate(o.entry_date) }), { type: "waitlist", id: o.entry_id }),
+      queueMessage(c, shop, o, "waitlist_released", render(templates.waitlist_released, { first: o.customer_name.split(" ")[0], shop: shop.name, date: fmtDate(o.entry_date) }), { type: "waitlist", id: o.entry_id }),
       c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shop.id, "waitlist", o.entry_id, "WAITLIST_OFFER_EXPIRED", "system:waitlist", `Offer for ${o.date} ${fmtTime(o.start_min)} expired unanswered; customer returned to the queue.`, now),
     );
   }
   statements.push(c.env.DB.prepare("UPDATE waitlist_entries SET status='EXPIRED',version=version+1,updated_at=? WHERE shop_id=? AND status IN ('OPEN','OFFERED') AND date<?").bind(now, shop.id, today));
   await c.env.DB.batch(statements);
+  if (expired.results.length) await drainSoon(c, expired.results.length);
   // Re-offer freed slots to the next in line if auto-offer is on.
   if (shop.waitlist_auto_offer) for (const o of expired.results) await autoOffer(c, shop, { staff_id: o.staff_id, date: o.date, start_min: o.start_min }, "expiry");
 }
@@ -137,9 +161,10 @@ export async function makeOffer(c: Ctx, shop: Shop & ShopQueueSettings, entry: W
     c.env.DB.prepare("UPDATE waitlist_offers SET status='SUPERSEDED',responded_at=? WHERE shop_id=? AND entry_id=? AND status='PENDING'").bind(now, shop.id, entry.id),
     c.env.DB.prepare("INSERT INTO waitlist_offers(id,shop_id,entry_id,staff_id,service_id,date,start_min,token_hash,status,source,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,'PENDING',?,?,?)").bind(offerId, shop.id, entry.id, slot.staff_id, entry.service_id, entry.date, slot.start_min, await digest(raw), source, expires, now),
     c.env.DB.prepare("UPDATE waitlist_entries SET status='OFFERED',offer_id=?,offers_made=offers_made+1,version=version+1,updated_at=? WHERE id=? AND status IN ('OPEN','OFFERED')").bind(offerId, now, entry.id),
-    queueMessage(c, shop.id, entry, "waitlist_offer", body, { type: "waitlist_offer", id: offerId }),
+    queueMessage(c, shop, entry, "waitlist_offer", body, { type: "waitlist_offer", id: offerId }),
     c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shop.id, "waitlist", entry.id, source === "AUTO" ? "WAITLIST_AUTO_OFFERED" : "WAITLIST_OFFERED", actor, `${service.name} with ${staff.name} on ${entry.date} at ${fmtTime(slot.start_min)} offered until ${fmtStamp(expires, shop.timezone)}. Message queued, not sent.`, now),
   ]);
+  await drainSoon(c, 2);
   return { offer_id: offerId, link, expires_at: expires, body, staff_name: staff.name, service_name: service.name };
 }
 
@@ -167,7 +192,7 @@ export async function autoOffer(c: Ctx, shop: Shop & ShopQueueSettings, freed: {
 
 // Load a shop with its queue settings.
 export async function shopWithQueue(c: Ctx, shopId: string) {
-  return (await c.env.DB.prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?").bind(shopId).first<Shop & ShopQueueSettings & { logo_url: string; accent: string; theme_json: string }>())!;
+  return (await c.env.DB.prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.phone,'') AS page_phone, COALESCE(p.email,'') AS page_email FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?").bind(shopId).first<Shop & ShopQueueSettings & { logo_url: string; accent: string; theme_json: string; page_phone: string; page_email: string }>())!;
 }
 
 export const helpers = { fmtDate, fmtTime, fmtStamp, daypartLabel, ref, localInstant };
@@ -192,6 +217,7 @@ export async function queueReviewRequest(c: Ctx, shopId: string, bookingId: stri
   // account area instead, where the customer can review from their history.
   const link = raw ? `${new URL(c.req.url).origin}/manage/${raw}` : `${new URL(c.req.url).origin}/${shop.slug}/me`;
   const body = render(templatesOf(shop).review_request, { first: (b.attendee_name || b.customer_name).split(" ")[0], shop: shop.name, service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], link });
-  await queueMessage(c, shopId, b, "review_request", body, { type: "booking", id: bookingId }).run();
+  await queueMessage(c, shop, b, "review_request", body, { type: "booking", id: bookingId }).run();
+  await drainSoon(c, 2);
   return body;
 }

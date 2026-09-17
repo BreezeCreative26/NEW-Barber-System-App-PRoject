@@ -33,7 +33,8 @@ import {
 } from "./domain";
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
 import customerAccounts from "./customers";
-import { autoOffer, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
+import { drain, enqueue, fmtDate, fmtTime, msgShop, type MessageTemplate } from "./messaging";
+import { autoOffer, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
 import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
 import {
   audit,
@@ -536,7 +537,8 @@ pub.post("/shops/:slug/waitlist", async (c) => {
   ]);
   const q = await shopWithQueue(c, shop.id);
   const stored = await c.env.DB.prepare("SELECT id FROM waitlist_entries WHERE shop_id=? AND date=? AND phone=? AND service_id=?").bind(shop.id, b.date, b.phone, b.service_id).first<{ id: string }>();
-  await queueMessage(c, shop.id, b, "waitlist_joined", render(templatesOf(q).waitlist_joined, { first: b.customer_name.split(" ")[0], shop: shop.name, date: wl.fmtDate(b.date), daypart: wl.daypartLabel[b.daypart] }), { type: "waitlist", id: stored?.id ?? id }).run();
+  await queueMessage(c, q, b, "waitlist_joined", render(templatesOf(q).waitlist_joined, { first: b.customer_name.split(" ")[0], shop: shop.name, date: wl.fmtDate(b.date), daypart: wl.daypartLabel[b.daypart] }), { type: "waitlist", id: stored?.id ?? id }).run();
+  await drainSoon(c, 1);
   return c.json({ ok: true, date: b.date, daypart: b.daypart, auto_offer: !!q.waitlist_auto_offer, hold_min: q.waitlist_offer_hold_min }, 201);
 });
 
@@ -554,6 +556,26 @@ async function issueManageToken(c: Ctx, booking: StoredBooking) {
     .first<{ token_hash: string }>();
   // A replayed request keeps the original link; only the first issue returns a raw token.
   return stored?.token_hash === (await digest(raw)) ? raw : null;
+}
+// Customer messages about a booking (confirmed / moved / cancelled). Renders shop-branded copy,
+// queues SMS and/or email, then drains immediately so the customer gets it in seconds; anything the
+// provider bounces retries from the sweep.
+export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooking, staffName: string | null, template: MessageTemplate, manageToken?: string | null) {
+  const shop = await msgShop(c, shopId);
+  const origin = new URL(c.req.url).origin;
+  const link = manageToken ? `${origin}/manage/${manageToken}` : `${origin}/${shop.slug}/me`;
+  const to = { name: booking.attendee_name || booking.customer_name, phone: booking.phone, email: booking.email };
+  const vars = {
+    service: booking.service_name, barber: (staffName || "us").split(" ")[0], date: fmtDate(booking.date), time: fmtTime(booking.start_min), ref: ref(booking),
+    address: shop.address, link, book_link: `${origin}/book/${shop.slug}`, cancel_hours: booking.cancel_hours_snapshot,
+    price: new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.price_pence / 100),
+    deposit_note: booking.deposit_policy_pence > 0 ? `deposit ${new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.deposit_policy_pence / 100)} payable in the shop` : "pay in the shop",
+  };
+  const stmts = enqueue(c.env.DB, shop, to, template, vars, { related: { type: "booking", id: booking.id }, origin });
+  if (!stmts.length) return 0;
+  await c.env.DB.batch(stmts);
+  await drain(c.env.DB, stmts.length).catch(() => {});
+  return stmts.length;
 }
 pub.post("/shops/:slug/bookings", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug"));
@@ -576,12 +598,14 @@ pub.post("/shops/:slug/bookings", async (c) => {
   )
     .bind(shop.id, result.booking.staff_id)
     .first<{ name: string }>();
+  const sent = result.replayed ? 0 : await notifyBooking(c, shop.id, result.booking, staff?.name ?? null, "booking_confirmed", token);
   return c.json(
     {
       booking: customerView(result.booking, shop, staff?.name ?? null),
       replayed: result.replayed,
       manage_token: token,
       reference: ref(result.booking),
+      sent_to: sent ? [result.booking.phone && "SMS", result.booking.email && "EMAIL"].filter(Boolean) : [],
     },
     result.replayed ? 200 : 201,
   );
@@ -789,9 +813,10 @@ pub.post("/offer/:token/accept", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE waitlist_offers SET status='ACCEPTED',booking_id=?,responded_at=? WHERE id=? AND status='PENDING'").bind(result!.booking.id, now, offer.id),
     c.env.DB.prepare("UPDATE waitlist_entries SET status='BOOKED',booking_id=?,version=version+1,updated_at=? WHERE id=?").bind(result!.booking.id, now, entry.id),
-    queueMessage(c, shop.id, entry, "waitlist_booked", render(templates.waitlist_booked, { service: service?.name ?? "", barber: staffName.split(" ")[0], shop: shop.name, date: wl.fmtDate(offer.date), time: wl.fmtTime(offer.start_min), ref: ref(result!.booking), manage: manage ? `${new URL(c.req.url).origin}/manage/${manage}` : "(see the shop)" }), { type: "booking", id: result!.booking.id }),
+    queueMessage(c, shop, entry, "waitlist_booked", render(templates.waitlist_booked, { service: service?.name ?? "", barber: staffName.split(" ")[0], shop: shop.name, date: wl.fmtDate(offer.date), time: wl.fmtTime(offer.start_min), ref: ref(result!.booking), manage: manage ? `${new URL(c.req.url).origin}/manage/${manage}` : "(see the shop)" }), { type: "booking", id: result!.booking.id }),
     audit(c, "waitlist", entry.id, "WAITLIST_OFFER_ACCEPTED", `Customer accepted the offer online; booking ${ref(result!.booking)} created.`),
   ]);
+  await drainSoon(c, 2);
   const fresh = (await c.env.DB.prepare("SELECT * FROM waitlist_offers WHERE id=?").bind(offer.id).first<OfferRow>())!;
   return c.json({ offer: offerView(fresh, entry, shop, staffName, service), booking: customerView(result!.booking, shop, staffName), manage_token: manage, replayed: result!.replayed }, 201);
 });
@@ -806,9 +831,10 @@ pub.post("/offer/:token/decline", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE waitlist_offers SET status='DECLINED',responded_at=? WHERE id=? AND status='PENDING'").bind(now, offer.id),
     c.env.DB.prepare("UPDATE waitlist_entries SET status=?,offer_id=NULL,version=version+1,updated_at=? WHERE id=?").bind(leave ? "CLOSED" : "OPEN", now, entry.id),
-    ...(leave ? [] : [queueMessage(c, shop.id, entry, "waitlist_released", render(templates.waitlist_released, { first: entry.customer_name.split(" ")[0], shop: shop.name, date: wl.fmtDate(entry.date) }), { type: "waitlist", id: entry.id })]),
+    ...(leave ? [] : [queueMessage(c, shop, entry, "waitlist_released", render(templates.waitlist_released, { first: entry.customer_name.split(" ")[0], shop: shop.name, date: wl.fmtDate(entry.date) }), { type: "waitlist", id: entry.id })]),
     audit(c, "waitlist", entry.id, leave ? "WAITLIST_LEFT" : "WAITLIST_OFFER_DECLINED", leave ? "Customer declined the offer and left the list." : "Customer declined the offer; still waiting."),
   ]);
+  await drainSoon(c, 2);
   // The freed slot goes to the next in line.
   await autoOffer(c, shop, { staff_id: offer.staff_id, date: offer.date, start_min: offer.start_min }, "decline");
   const fresh = (await c.env.DB.prepare("SELECT * FROM waitlist_offers WHERE id=?").bind(offer.id).first<OfferRow>())!;
@@ -990,8 +1016,10 @@ export async function cancelByCustomer(c: Ctx, shop: Shop, booking: StoredBookin
     ),
   );
   await autoOffer(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-cancel");
+  const after = await readBooking(c, booking.id);
+  await notifyBooking(c, shop.id, after, staffName, "booking_cancelled");
   return {
-    booking: customerView(await readBooking(c, booking.id), shop, staffName),
+    booking: customerView(after, shop, staffName),
     late,
   };
 }
@@ -1053,8 +1081,10 @@ export async function moveByCustomer(c: Ctx, shop: Shop, booking: StoredBooking,
     ),
   );
   await autoOffer(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-move");
+  const after = await readBooking(c, booking.id);
+  await notifyBooking(c, shop.id, after, staffName, "booking_moved");
   return {
-    booking: customerView(await readBooking(c, booking.id), shop, staffName),
+    booking: customerView(after, shop, staffName),
   };
 }
 pub.post("/manage/:token/reschedule", async (c) => {

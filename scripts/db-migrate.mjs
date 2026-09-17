@@ -1,7 +1,11 @@
 // Apply src/db/migrations/*.sql in order against DIRECT_URL, tracking applied files in ollo_migrations.
+// Loads .env.local first (sandbox Postgres) then .env (Supabase) — the same precedence Next uses —
+// so `npm run db:migrate` hits the database the running app is using.
 import { readFileSync, readdirSync } from "node:fs";
 import postgres from "postgres";
-import "dotenv/config";
+import { config } from "dotenv";
+config({ path: ".env.local" });
+config();
 const url = process.env.DIRECT_URL || process.env.DATABASE_URL;
 if (!url) throw new Error("DIRECT_URL / DATABASE_URL not set");
 const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
