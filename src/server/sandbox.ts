@@ -65,7 +65,9 @@ import {
 import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { optimiseImage } from "./images";
 import { drain, enqueue, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
-import { depositsOnline, expireHolds, platformBalance, platformFee, refundDeposit, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
+import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
+import QRCode from "qrcode";
+import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
 import { accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, type ConnectedAccount } from "./payouts";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
 import accounts, {
@@ -203,7 +205,13 @@ sandbox.use("*", async (c, next) => {
       (method === "GET" && ["/bookings/range", "/insights", "/wallet", "/pay-runs", "/shop/page"].includes(path)) ||
       (method === "GET" && path === "/pay-runs/preview") ||
       (method === "POST" && /^\/bookings\/[^/]+\/checkout$/.test(path)) ||
-      (method === "POST" && /^\/bookings\/[^/]+\/deposit\/refund$/.test(path)) ||
+      (method === "POST" && /^\/bookings\/[^/]+\/(deposit\/refund|pay-link|terminal)$/.test(path)) ||
+      (method === "GET" && /^\/payment-requests\/[^/]+$/.test(path)) ||
+      (method === "POST" && /^\/payment-requests\/[^/]+\/(send|cancel)$/.test(path)) ||
+      (method === "GET" && path === "/terminal/readers") ||
+      (method === "POST" && ["/terminal/readers", "/terminal/connection-token"].includes(path)) ||
+      (method === "POST" && /^\/terminal\/readers\/[^/]+\/refresh$/.test(path)) ||
+      (method === "DELETE" && /^\/terminal\/readers\/[^/]+$/.test(path)) ||
       (method === "POST" && /^\/payments\/[^/]+\/void$/.test(path)) ||
       (method === "GET" && ["/shop/payments", "/payments/wallet", "/payments/balance"].includes(path)) ||
       (method === "GET" && /^\/pay-runs\/[^/]+\/transfers$/.test(path)) ||
@@ -241,6 +249,11 @@ sandbox.use("*", async (c, next) => {
 export function handleError(err: Error, c: Ctx) {
   if (err instanceof HTTPException)
     return c.json({ error: err.message, message: err.message }, err.status);
+  // Stripe refused, or is switched off: surface its status and message (never a 500 for these).
+  if (err instanceof StripeError) {
+    const status = err.status === 503 || err.code === "stripe_off" ? 409 : err.status >= 400 && err.status < 500 ? (err.status as 400 | 402 | 404 | 409) : 409;
+    return c.json({ error: err.code || "stripe_error", message: err.message }, status);
+  }
   const message = String(err);
   const known = [
     "account_changed",
@@ -1232,6 +1245,128 @@ sandbox.get("/payments/balance", async (c) => {
   if (!stripeLive()) return c.json({ available_pence: 0, pending_pence: 0, live: false });
   const b = await platformBalance().catch(() => null);
   return c.json({ ...(b ?? { available_pence: 0, pending_pence: 0 }), live: !!b });
+});
+// ---- Card at the chair: pay link / QR and Terminal readers ---------------------------------------
+const chairAmounts = z
+  .object({
+    version: z.number().int().min(0),
+    service_pence: z.number().int().min(0).max(1000000),
+    tip_pence: z.number().int().min(0).max(100000).default(0),
+    discount_pence: z.number().int().min(0).max(100000).default(0),
+    complete: z.boolean().default(true),
+    note: z.string().trim().max(300).default(""),
+    reader_id: z.string().trim().max(60).optional(),
+  })
+  .strict();
+async function chairPrecheck(c: Ctx, bookingId: string, body: z.infer<typeof chairAmounts>) {
+  const b = await readBooking(c, bookingId);
+  const shop = await readShop(c);
+  tillAllowed(c, shop, b.staff_id);
+  if (b.version !== body.version) fail(409, "record_changed");
+  if (!["IN_SERVICE", "COMPLETED", "CHECKED_IN", "CONFIRMED"].includes(b.status)) fail(409, "This visit cannot take payment");
+  const already = await c.env.DB.prepare("SELECT COALESCE(SUM(service_pence),0) AS paid FROM payments WHERE shop_id=? AND booking_id=? AND voided_at IS NULL").bind(shop.id, b.id).first<{ paid: number }>();
+  const depositCredit = b.deposit_status === "PAID" ? Math.min(b.deposit_paid_pence ?? 0, b.price_pence) : 0;
+  const due = Math.max(0, b.price_pence - body.discount_pence - (already?.paid ?? 0) - depositCredit);
+  if (body.service_pence > due) fail(409, `Payment exceeds the amount due (${due}p)`);
+  if (body.complete && body.service_pence < due) fail(409, `Amount short by ${due - body.service_pence}p; charge the full amount or leave the visit open`);
+  const open = await c.env.DB.prepare("SELECT id FROM payment_requests WHERE shop_id=? AND booking_id=? AND status='OPEN'").bind(shop.id, b.id).first<{ id: string }>();
+  if (open) fail(409, "A card request is already open for this visit — cancel it first");
+  return { b, shop };
+}
+// Pay link / QR: the customer pays on their own phone (or scans the shop device).
+sandbox.post("/bookings/:id/pay-link", async (c) => {
+  const body = await input(c, chairAmounts);
+  const { b, shop } = await chairPrecheck(c, c.req.param("id"), body);
+  const req = await createLinkRequest(c.env.DB, shop, b, body, c.get("actor"), new URL(c.req.url).origin);
+  await c.env.DB.batch([audit(c, "booking", b.id, "PAY_LINK_CREATED", `${body.service_pence + body.tip_pence}p card request via link (${req.id.slice(0, 8)}).`)]);
+  const qr = await QRCode.toDataURL(req.url, { margin: 1, width: 320 });
+  return c.json({ request: req, qr }, 201);
+});
+// Send the open link to the customer's phone/email (shop-branded message).
+sandbox.post("/payment-requests/:id/send", async (c) => {
+  const body = await input(c, z.object({ channel: z.enum(["SMS", "EMAIL"]) }).strict());
+  const req = await c.env.DB.prepare("SELECT * FROM payment_requests WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<PaymentRequest>();
+  if (!req) return fail(404, "Request not found");
+  if (req.status !== "OPEN") fail(409, "This request is no longer open");
+  const b = await readBooking(c, req.booking_id);
+  const to = body.channel === "SMS" ? { phone: b.phone, name: b.customer_name } : { email: b.email, name: b.customer_name };
+  if (!(body.channel === "SMS" ? b.phone : b.email)) fail(409, `No ${body.channel === "SMS" ? "mobile number" : "email"} on this visit`);
+  const ms = await msgShop(c, c.get("shopId"));
+  const stmts = enqueue(c.env.DB, ms, to, "pay_link", { service: b.service_name, amount: new Intl.NumberFormat("en-GB", { style: "currency", currency: ms.currency || "GBP" }).format((req.service_pence + req.tip_pence) / 100), link: req.url }, { related: { type: "payment_request", id: req.id }, origin: new URL(c.req.url).origin, channel: body.channel });
+  if (!stmts.length) fail(409, `${body.channel} is switched off for this shop`);
+  await c.env.DB.batch([...stmts, c.env.DB.prepare("UPDATE payment_requests SET sent_to=? WHERE id=?").bind(body.channel === "SMS" ? b.phone : b.email, req.id)]);
+  await drain(c.env.DB, 1).catch(() => null);
+  return c.json({ ok: true, sent_to: body.channel === "SMS" ? b.phone : b.email });
+});
+// Terminal: hand the amount to a reader (or "sdk" for Tap to Pay driven from the browser/app).
+sandbox.post("/bookings/:id/terminal", async (c) => {
+  const body = await input(c, chairAmounts);
+  if (!body.reader_id) fail(400, "Choose a reader");
+  const { b, shop } = await chairPrecheck(c, c.req.param("id"), body);
+  if (body.reader_id !== "sdk") {
+    const reader = await c.env.DB.prepare("SELECT id FROM terminal_readers WHERE shop_id=? AND id=?").bind(shop.id, body.reader_id).first();
+    if (!reader) fail(404, "Reader not found");
+  }
+  const { request: req, client_secret } = await createTerminalRequest(c.env.DB, shop, b, body.reader_id!, body, c.get("actor"));
+  await c.env.DB.batch([audit(c, "booking", b.id, "TERMINAL_REQUEST", `${body.service_pence + body.tip_pence}p sent to reader ${body.reader_id}.`)]);
+  return c.json({ request: req, client_secret }, 201);
+});
+// Poll a request (the till does this every few seconds while the QR / reader is showing).
+sandbox.get("/payment-requests/:id", async (c) => {
+  const req = await c.env.DB.prepare("SELECT * FROM payment_requests WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<PaymentRequest>();
+  if (!req) return fail(404, "Request not found");
+  scopeStaff(c, req.staff_id);
+  const fresh = stripeLive() ? await pollRequest(c.env.DB, req, c.get("actor")) : req;
+  const payments = fresh.status === "PAID" ? (await c.env.DB.prepare("SELECT * FROM payments WHERE shop_id=? AND booking_id=? ORDER BY created_at").bind(c.get("shopId"), req.booking_id).all<Payment>()).results : [];
+  const booking = fresh.status === "PAID" ? await readBooking(c, req.booking_id) : null;
+  return c.json({ request: fresh, booking, payments });
+});
+sandbox.post("/payment-requests/:id/cancel", async (c) => {
+  await input(c, z.object({}).strict());
+  const req = await c.env.DB.prepare("SELECT * FROM payment_requests WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<PaymentRequest>();
+  if (!req) return fail(404, "Request not found");
+  scopeStaff(c, req.staff_id);
+  if (req.status !== "OPEN") return c.json({ request: req });
+  if (req.kind === "TERMINAL" && req.url && req.url !== "sdk") await cancelReaderAction(req.url);
+  if (req.kind === "LINK" && req.stripe_session_id && stripeLive()) await expireSession(req.stripe_session_id).catch(() => null);
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE payment_requests SET status='CANCELLED' WHERE id=? AND status='OPEN'").bind(req.id),
+    audit(c, "booking", req.booking_id, "PAY_REQUEST_CANCELLED", `Card request ${req.id.slice(0, 8)} cancelled.`),
+  ]);
+  return c.json({ request: { ...req, status: "CANCELLED" } });
+});
+// Readers: register (pairing code shown on the device), list, refresh, remove; connection token for Tap to Pay.
+sandbox.get("/terminal/readers", async (c) => c.json({ readers: await listReaders(c.env.DB, c.get("shopId")), live: stripeLive() }));
+sandbox.post("/terminal/readers", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const b = await input(c, z.object({ code: z.string().trim().min(3).max(60), label: z.string().trim().min(1).max(60) }).strict());
+  if (!stripeLive()) fail(409, "Card payments are not switched on for OLLO yet");
+  const shop = await readShop(c);
+  const r = await registerReader(c.env.DB, shop, b.code, b.label).catch((e) => fail(409, e instanceof Error ? e.message : "Stripe rejected the reader"));
+  await c.env.DB.batch([audit(c, "shop", shop.id, "READER_ADDED", `${b.label} (${(r as { id: string }).id}).`)]);
+  return c.json({ reader: r }, 201);
+});
+sandbox.post("/terminal/readers/:id/refresh", async (c) => {
+  await input(c, z.object({}).strict());
+  const row = await c.env.DB.prepare("SELECT id FROM terminal_readers WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first();
+  if (!row) return fail(404, "Reader not found");
+  const r = await refreshReader(c.env.DB, c.req.param("id")).catch(() => fail(409, "Could not reach Stripe"));
+  return c.json({ reader: r });
+});
+sandbox.delete("/terminal/readers/:id", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const row = await c.env.DB.prepare("SELECT id FROM terminal_readers WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first();
+  if (!row) return fail(404, "Reader not found");
+  await removeReader(c.env.DB, c.get("shopId"), c.req.param("id"));
+  return c.json({ ok: true });
+});
+sandbox.post("/terminal/connection-token", async (c) => {
+  await input(c, z.object({}).strict());
+  if (!stripeLive()) fail(409, "Card payments are not switched on for OLLO yet");
+  const shop = await readShop(c);
+  const location = await ensureLocation(c.env.DB, shop).catch(() => "");
+  const t = await connectionToken(location).catch(() => fail(409, "Could not get a Terminal token"));
+  return c.json({ secret: (t as { secret: string }).secret, location });
 });
 // Owner refunds a paid deposit (e.g. shop cancelled, goodwill).
 sandbox.post("/bookings/:id/deposit/refund", async (c) => {

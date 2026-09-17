@@ -1436,6 +1436,11 @@ export function Workspace() {
     (b) => !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
   const manager = !w?.account || ["OWNER", "MANAGER"].includes(w.account.role);
+  // Card at the chair is available once OLLO's Stripe keys are live (checked once per session).
+  const [cardLive, setCardLive] = useState(false);
+  useEffect(() => {
+    fetch("/api/health").then((r) => r.json()).then((h: { livePayments?: boolean }) => setCardLive(!!h.livePayments)).catch(() => null);
+  }, []);
   const navItems: NavItem[] = [
     { key: "Appointments", label: "Appointments", icon: "calendar" },
     { key: "Insights", label: "Insights", icon: "trend" },
@@ -2282,6 +2287,9 @@ export function Workspace() {
           canVoid={manager}
           onCheckout={(body) => panelAction("CHECKOUT", () => api(`/bookings/${editor.item.id}/checkout`, "POST", body))}
           onVoidPayment={(payment, reason) => panelAction("VOID", () => api(`/payments/${payment.id}/void`, "POST", { reason }))}
+          api={api}
+          cardLive={cardLive}
+          onPaid={() => panelAction("CARD", async () => undefined)}
         >
           <details className="panel-card panel-advanced" open>
             <summary>More actions</summary>

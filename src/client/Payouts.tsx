@@ -2,6 +2,7 @@
 // shop's Stripe account, every barber's account, deposit + payout policy and 30-day money moved.
 // BarberPayoutCard (Team → barber → Pay) lets a barber be set up and see their own wallet.
 import { useEffect, useState } from "react";
+import type React from "react";
 import { Button, Icon, Notice, StatusPill } from "./ui";
 import { money } from "./fixtures";
 
@@ -221,6 +222,9 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
         </section>
       )}
 
+      {/* Card readers */}
+      {data && canEdit && <ReadersCard api={api} live={live} />}
+
       {/* Policy */}
       {form && canEdit && (
         <form
@@ -398,6 +402,50 @@ export function BarberPayoutCard({ api, staffId, staffName, canEdit, from, to, e
           </ul>
         </details>
       )}
+    </section>
+  );
+}
+
+// Terminal readers paired to the shop (WisePOS / Tap to Pay registers as a reader).
+function ReadersCard({ api, live }: { api: Api; live: boolean }) {
+  const [readers, setReaders] = useState<{ id: string; label: string; device_type: string; status: string }[]>([]);
+  const [code, setCode] = useState("");
+  const [label, setLabel] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = () => api<{ readers: typeof readers }>("/terminal/readers").then((r) => setReaders(r.readers)).catch(() => null);
+  useEffect(() => { load(); }, []);
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError("");
+    try { await api("/terminal/readers", "POST", { code: code.trim(), label: label.trim() }); setCode(""); setLabel(""); await load(); }
+    catch (err) { setError(err instanceof Error ? err.message : "Could not add the reader."); }
+    finally { setBusy(false); }
+  }
+  return (
+    <section className="payments-barbers" aria-label="Card readers" data-testid="readers-card">
+      <h3>Card readers</h3>
+      <p className="workspace-footnote">Pair a Stripe reader (WisePOS E, or Tap to Pay on a phone) by typing the code it shows. At checkout the amount goes to the reader and the customer taps. No reader? Use <strong>Pay link / QR</strong> at checkout — works on any phone.</p>
+      {readers.length > 0 && (
+        <ul className="payments-barber-list">
+          {readers.map((r) => (
+            <li key={r.id}>
+              <div><strong>{r.label}</strong><small>{r.device_type || "reader"} · {r.id}</small></div>
+              <StatusPill tone={r.status === "online" ? "good" : "note"}>{r.status}</StatusPill>
+              <div className="row-actions">
+                <Button variant="ghost" disabled={!live || busy} onClick={() => api(`/terminal/readers/${r.id}/refresh`, "POST", {}).then(load).catch(() => null)}>Refresh</Button>
+                <Button variant="ghost" disabled={busy} onClick={() => { if (confirm(`Remove ${r.label}?`)) api(`/terminal/readers/${r.id}`, "DELETE").then(load).catch(() => null); }}>Remove</Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="reader-add" onSubmit={add} data-testid="reader-form">
+        <label className="workspace-field narrow"><span>Pairing code</span><input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. sepia-cerulean-orynx" disabled={!live} data-testid="reader-code" /></label>
+        <label className="workspace-field narrow"><span>Name</span><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Front desk" disabled={!live} data-testid="reader-label" /></label>
+        <Button type="submit" variant="secondary" disabled={!live || busy || !code.trim() || !label.trim()} data-testid="reader-add">Add reader</Button>
+      </form>
+      {error && <p className="workspace-error" role="alert">{error}</p>}
     </section>
   );
 }

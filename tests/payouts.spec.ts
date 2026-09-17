@@ -3,7 +3,7 @@
 // that would move money refuses honestly until Stripe is switched on. Live transfers are covered
 // by the Stripe test-mode runbook in docs/PAYMENTS.md once keys exist.
 import { test, expect, request, type APIRequestContext } from "@playwright/test";
-import { base, origin, openFixtureShop, section } from "./fixture";
+import { base, origin, openFixtureShop, refreshView, section } from "./fixture";
 import { newShop } from "./shop";
 
 async function jayAndWeek(r: APIRequestContext) {
@@ -171,4 +171,67 @@ test("browser: Settings → Payments panel and barber Pay tab show the honest pr
   await expect(page.getByTestId("barber-payout-state")).toContainText(/Not connected|Finish|Active|Restricted/);
   await expect(page.getByTestId("pay-settlement")).toBeVisible();
   await expect(page.getByTestId("settle-barber")).toHaveText("£0");
+});
+
+test("card at the chair (preview mode): routes exist and refuse honestly; readers list empty; pay page 404s for unknown id", async () => {
+  const r = await fixtureCtx();
+  const w = await (await r.get(base + "/workspace")).json();
+  const today = w.today;
+  const range = await (await r.get(base + `/bookings/range?from=${today}&to=${today}`)).json();
+  const hit = (range.bookings as { id: string; status: string }[]).find((x) => ["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(x.status));
+  expect(hit).toBeTruthy();
+  const b = (await (await r.get(base + `/bookings/${hit!.id}`)).json()).booking as { id: string; version: number; status: string };
+  const readers = await (await r.get(base + "/terminal/readers")).json();
+  expect(readers.readers).toEqual([]);
+  expect(readers.live).toBe(false);
+  // Pay link + terminal both need Stripe.
+  let res = await r.post(base + `/bookings/${b!.id}/pay-link`, { data: { version: b!.version, service_pence: 100, tip_pence: 0, discount_pence: 0, complete: false, note: "" } });
+  expect(res.status(), await res.text()).toBe(409);
+  res = await r.post(base + `/bookings/${b!.id}/terminal`, { data: { version: b!.version, service_pence: 100, tip_pence: 0, discount_pence: 0, complete: false, note: "", reader_id: "sdk" } });
+  expect(res.status()).toBe(409);
+  res = await r.post(base + "/terminal/readers", { data: { code: "sepia-cerulean-orynx", label: "Front desk" } });
+  expect(res.status()).toBe(409);
+  res = await r.post(base + "/terminal/connection-token", { data: {} });
+  expect(res.status()).toBe(409);
+  // Validation before Stripe: stale version, over-payment.
+  res = await r.post(base + `/bookings/${b!.id}/pay-link`, { data: { version: b!.version + 99, service_pence: 100, tip_pence: 0, discount_pence: 0, complete: false, note: "" } });
+  expect(res.status()).toBe(409);
+  expect((await r.get(base + `/payment-requests/${crypto.randomUUID()}`)).status()).toBe(404);
+  // Public landing for an unknown request.
+  const pub = await request.newContext();
+  expect((await pub.get(origin + `/pay/${crypto.randomUUID()}`)).status()).toBe(404);
+});
+
+test("browser: checkout offers Take by card; in preview it explains and the pay-link picker is disabled", async ({ page }) => {
+  test.setTimeout(90000);
+  await openFixtureShop(page);
+  const w = await (await page.request.get(base + "/workspace")).json();
+  const staff = w.staff.find((s: { name: string }) => s.name === "Jay Carter") || w.staff[0];
+  const service = w.services[0];
+  let date = w.today, start: number | undefined, quote: unknown;
+  for (let i = 0; i < 8 && start === undefined; i++) {
+    const d = new Date(w.today + "T12:00:00Z");
+    d.setUTCDate(d.getUTCDate() + i);
+    date = d.toISOString().slice(0, 10);
+    const avail = await (await page.request.get(base + `/availability?date=${date}&staff_id=${staff.id}&service_id=${service.id}`)).json();
+    const slot = avail.slots.find((s: { reason?: string }) => !s.reason);
+    if (slot) { start = slot.start_min; quote = avail.quote; }
+  }
+  expect(start).toBeDefined();
+  const created = await page.request.post(base + "/bookings", { headers: { Origin: origin }, data: { request_id: crypto.randomUUID(), staff_id: staff.id, service_id: service.id, customer_name: "Card Chair Client", phone: "07700 900321", notes: "", date, start_min: start, source: "TEST_BOOKING", quote } });
+  expect(created.status(), await created.text()).toBe(201);
+  const booking = (await created.json()).booking;
+  await page.request.post(base + `/bookings/${booking.id}/status`, { headers: { Origin: origin }, data: { status: "CHECKED_IN", reason: "", version: booking.version } });
+  await page.getByLabel("Appointment date", { exact: true }).fill(date);
+  await refreshView(page);
+  await page.getByRole("button", { name: /Card Chair Client/ }).first().click();
+  const panel = page.getByTestId("appointment-panel");
+  await panel.getByTestId("take-payment").click();
+  const take = page.getByTestId("take-card");
+  await expect(take).toBeVisible();
+  await expect(take).toContainText("not switched on yet");
+  await take.click();
+  await expect(page.getByTestId("card-at-chair")).toBeVisible();
+  await expect(page.getByTestId("card-link")).toBeDisabled();
+  await expect(page.getByTestId("card-at-chair")).toContainText("No reader paired");
 });

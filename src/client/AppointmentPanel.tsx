@@ -88,6 +88,9 @@ export function AppointmentPanel({
   canVoid = false,
   onCheckout,
   onVoidPayment,
+  api,
+  onPaid,
+  cardLive,
   children,
 }: {
   booking: StoredBooking;
@@ -111,6 +114,9 @@ export function AppointmentPanel({
   canVoid?: boolean;
   onCheckout?: (body: { version: number; discount_pence: number; note: string; tenders: Tender[]; complete: boolean }) => Promise<void>;
   onVoidPayment?: (payment: Payment, reason: string) => Promise<void>;
+  api?: <T>(path: string, method?: string, body?: unknown) => Promise<T>;
+  onPaid?: () => Promise<void> | void;
+  cardLive?: boolean;
   children?: ReactNode;
 }) {
   const ref = useRef<HTMLElement>(null);
@@ -409,6 +415,12 @@ export function AppointmentPanel({
                 setCheckout(false);
               }}
               onCancel={() => setCheckout(false)}
+              api={api}
+              cardLive={cardLive}
+              onPaid={async () => {
+                await onPaid?.();
+                setCheckout(false);
+              }}
             />
           )}
           {/* Confirm step for status changes */}

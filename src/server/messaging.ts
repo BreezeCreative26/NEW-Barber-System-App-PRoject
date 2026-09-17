@@ -19,6 +19,7 @@ import type { Shop, ShopBrand } from "./domain";
 import { brandOf } from "./domain";
 import { expireHolds } from "./stripe";
 import { scheduledPayRuns } from "./payouts";
+import { expireRequests } from "./chair";
 
 type Ctx = Context<AppEnv>;
 type DB = Database;
@@ -34,7 +35,7 @@ export type Recipient = { name?: string; phone?: string; email?: string };
 // ---- Template catalogue --------------------------------------------------------
 export const MESSAGE_TEMPLATES = [
   "booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon",
-  "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_booked", "waitlist_released", "review_request", "test_message",
+  "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
 
@@ -144,6 +145,14 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         heading: `Thanks for coming in, ${who}.`,
         lines: [`How was your ${v.service} with ${v.barber}? A quick rating helps the team and other customers.`],
         cta: { label: "Leave a rating", href: String(v.link) },
+      };
+    case "pay_link":
+      return {
+        sms: `${s}: pay ${v.amount} for your ${v.service} by card here: ${v.link}`,
+        subject: `Pay ${v.amount} to ${s}`,
+        heading: `${v.amount} for your ${v.service}`,
+        lines: ["Tap the button to pay by card. The link is valid for 30 minutes."],
+        cta: { label: `Pay ${v.amount}`, href: v.link as string },
       };
     case "test_message":
       return {
@@ -355,6 +364,7 @@ export async function maybeSweep(db: DB, origin: string, intervalMs = 5 * 60000,
   const reminders = await sweepReminders(db, origin, now);
   const drained = await drain(db, 50, now);
   const runs = await scheduledPayRuns(db, now).catch(() => 0);
+  await expireRequests(db, now).catch(() => 0);
   return { reminders, drained, holds_released: holds.length, pay_runs: runs };
 }
 

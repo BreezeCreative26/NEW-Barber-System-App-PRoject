@@ -1,6 +1,6 @@
 // Checkout: record how a visit was paid at the chair. The wallet is a ledger, not a balance —
 // nothing here moves money. Flow: amount (price − discount) → tip → method → record.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Payment, StoredBooking, WorkspaceData } from "../server/domain";
 import { Button, Icon, StatusPill } from "./ui";
 import { money, currencySymbol } from "./fixtures";
@@ -34,6 +34,9 @@ export function Checkout({
   busy,
   onRecord,
   onCancel,
+  api,
+  onPaid,
+  cardLive,
 }: {
   booking: StoredBooking;
   w: WorkspaceData;
@@ -41,6 +44,9 @@ export function Checkout({
   busy: boolean;
   onRecord: (body: { version: number; discount_pence: number; note: string; tenders: Tender[]; complete: boolean }) => Promise<void>;
   onCancel: () => void;
+  api?: <T>(path: string, method?: string, body?: unknown) => Promise<T>;
+  onPaid?: () => Promise<void> | void;
+  cardLive?: boolean;
 }) {
   const paid = paidFor(payments, booking.id);
   // A card deposit paid at booking is posted to the ledger on first checkout; until then it shows
@@ -53,6 +59,7 @@ export function Checkout({
   const [method, setMethod] = useState<Payment["method"]>("CARD");
   const [split, setSplit] = useState<Tender[]>([]);
   const [note, setNote] = useState("");
+  const [card, setCard] = useState(false);
   const due = Math.max(0, booking.price_pence - discount - paid.service - depositCredit);
   const splitPaid = split.reduce((n, t) => n + t.service_pence, 0);
   const remaining = due - splitPaid;
@@ -194,7 +201,118 @@ export function Checkout({
           Back
         </Button>
       </div>
-      <p className="drawer-note left">No card reader or live payment is connected. This writes a ledger row your wallet and payouts read from.</p>
+      {api && (
+        <div className="checkout-card-cta">
+          {!card ? (
+            <Button variant="secondary" disabled={remaining + tipPence <= 0 || busy} data-testid="take-card" onClick={() => setCard(true)}>
+              <Icon name="card" size={16} /> Take {money(remaining + tipPence)} by card {cardLive ? "" : "· not switched on yet"}
+            </Button>
+          ) : (
+            <CardAtChair api={api} booking={booking} amount={{ service_pence: remaining, tip_pence: tipPence, discount_pence: discount, complete: true, note: note.trim() }} live={!!cardLive} onPaid={async () => { await onPaid?.(); }} onClose={() => setCard(false)} />
+          )}
+        </div>
+      )}
+      <p className="drawer-note left">{cardLive ? "Cash, transfer and voucher are recorded here; card goes through the reader or a pay link so it reaches the barber's payout automatically." : "Recording writes a ledger row your wallet and pay runs read from. Card through OLLO switches on once Stripe is connected."}</p>
+    </section>
+  );
+}
+
+// Card at the chair: a pay link / QR the customer scans, or a Terminal reader. Polls until paid.
+type PayRequest = { id: string; kind: "LINK" | "TERMINAL"; status: "OPEN" | "PAID" | "EXPIRED" | "CANCELLED"; url: string; service_pence: number; tip_pence: number; expires_at: number; sent_to: string };
+export function CardAtChair({ api, booking, amount, live, onPaid, onClose }: { api: <T>(path: string, method?: string, body?: unknown) => Promise<T>; booking: StoredBooking; amount: { service_pence: number; tip_pence: number; discount_pence: number; complete: boolean; note: string }; live: boolean; onPaid: () => Promise<void>; onClose: () => void }) {
+  const [mode, setMode] = useState<"pick" | "link" | "reader">("pick");
+  const [readers, setReaders] = useState<{ id: string; label: string; status: string }[]>([]);
+  const [req, setReq] = useState<PayRequest | null>(null);
+  const [qr, setQr] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState("");
+  const timer = useRef<number | null>(null);
+  useEffect(() => {
+    api<{ readers: { id: string; label: string; status: string }[] }>("/terminal/readers").then((r) => setReaders(r.readers)).catch(() => null);
+    return () => { if (timer.current) window.clearInterval(timer.current); };
+  }, []);
+  useEffect(() => {
+    if (!req || req.status !== "OPEN") return;
+    timer.current = window.setInterval(async () => {
+      try {
+        const r = await api<{ request: PayRequest }>(`/payment-requests/${req.id}`);
+        setReq(r.request);
+        if (r.request.status === "PAID") { if (timer.current) window.clearInterval(timer.current); await onPaid(); }
+        if (r.request.status !== "OPEN" && timer.current) window.clearInterval(timer.current);
+      } catch { /* keep polling */ }
+    }, 3000);
+    return () => { if (timer.current) window.clearInterval(timer.current); };
+  }, [req?.id, req?.status]);
+  async function startLink() {
+    setBusy(true); setError("");
+    try {
+      const r = await api<{ request: PayRequest; qr: string }>(`/bookings/${booking.id}/pay-link`, "POST", { version: booking.version, ...amount });
+      setReq(r.request); setQr(r.qr); setMode("link");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not create the link."); } finally { setBusy(false); }
+  }
+  async function startReader(readerId: string) {
+    setBusy(true); setError("");
+    try {
+      const r = await api<{ request: PayRequest }>(`/bookings/${booking.id}/terminal`, "POST", { version: booking.version, ...amount, reader_id: readerId });
+      setReq(r.request); setMode("reader");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not reach the reader."); } finally { setBusy(false); }
+  }
+  async function cancel() {
+    if (req && req.status === "OPEN") await api(`/payment-requests/${req.id}/cancel`, "POST", {}).catch(() => null);
+    onClose();
+  }
+  async function send(channel: "SMS" | "EMAIL") {
+    if (!req) return;
+    try { const r = await api<{ sent_to: string }>(`/payment-requests/${req.id}/send`, "POST", { channel }); setSent(r.sent_to); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not send."); }
+  }
+  const total = money(amount.service_pence + amount.tip_pence);
+  return (
+    <section className="card-at-chair" aria-label="Card payment" data-testid="card-at-chair">
+      {!live && <p className="workspace-footnote">Card through OLLO isn’t switched on yet. Once Stripe is connected this shows a QR the customer scans, or sends the amount to your reader.</p>}
+      {error && <p className="workspace-error" role="alert">{error}</p>}
+      {mode === "pick" && (
+        <div className="card-pick">
+          <Button disabled={!live || busy} onClick={startLink} data-testid="card-link">
+            <Icon name="globe" size={16} /> Pay link / QR
+          </Button>
+          {readers.length > 0 ? readers.map((r) => (
+            <Button key={r.id} variant="secondary" disabled={!live || busy || r.status === "offline"} onClick={() => startReader(r.id)} data-testid="card-reader">
+              <Icon name="card" size={16} /> {r.label}{r.status === "offline" ? " · offline" : ""}
+            </Button>
+          )) : <span className="workspace-footnote">No reader paired. Add one in Settings → Payments.</span>}
+          <Button variant="ghost" onClick={onClose}>Back</Button>
+        </div>
+      )}
+      {mode === "link" && req && (
+        <div className="card-link-view">
+          {req.status === "OPEN" && (
+            <>
+              <img src={qr} alt={`QR code to pay ${total}`} className="card-qr" />
+              <p><strong>{total}</strong> · scan to pay, or send the link</p>
+              <div className="panel-actions-row">
+                {booking.phone && <Button variant="secondary" onClick={() => send("SMS")}>Text it</Button>}
+                {booking.email && <Button variant="secondary" onClick={() => send("EMAIL")}>Email it</Button>}
+                <Button variant="ghost" onClick={() => navigator.clipboard?.writeText(req.url)}>Copy link</Button>
+              </div>
+              {sent && <p className="workspace-success" role="status">Sent to {sent}.</p>}
+              <p className="workspace-footnote"><Icon name="hourglass" size={13} /> Waiting for the customer… valid 30 minutes.</p>
+            </>
+          )}
+          {req.status === "PAID" && <p className="workspace-success" role="status" data-testid="card-paid"><Icon name="check" size={14} /> Paid {total} by card. Recorded and checked out.</p>}
+          {(req.status === "EXPIRED" || req.status === "CANCELLED") && <p className="workspace-error" role="alert">This link is no longer valid.</p>}
+          <Button variant="ghost" onClick={cancel}>{req.status === "OPEN" ? "Cancel" : "Done"}</Button>
+        </div>
+      )}
+      {mode === "reader" && req && (
+        <div className="card-reader-view">
+          {req.status === "OPEN" && <p><Icon name="card" size={16} /> <strong>{total}</strong> on the reader — ask the customer to tap.</p>}
+          {req.status === "PAID" && <p className="workspace-success" role="status" data-testid="card-paid"><Icon name="check" size={14} /> Paid {total} by card. Recorded and checked out.</p>}
+          {(req.status === "EXPIRED" || req.status === "CANCELLED") && <p className="workspace-error" role="alert">The reader didn’t complete the payment.</p>}
+          <Button variant="ghost" onClick={cancel}>{req.status === "OPEN" ? "Cancel on reader" : "Done"}</Button>
+        </div>
+      )}
     </section>
   );
 }

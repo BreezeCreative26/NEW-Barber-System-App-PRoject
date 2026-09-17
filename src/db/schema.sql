@@ -42,6 +42,7 @@ CREATE TABLE shops (
   -- Payouts: STANDARD waits for settlement, FAST transfers against the platform float; payrun_auto
   -- approves+transfers runs on a schedule; reserve held back against disputes (basis points).
   payout_tier TEXT NOT NULL DEFAULT 'STANDARD', payrun_auto TEXT NOT NULL DEFAULT 'OFF', payrun_reserve_bps INTEGER NOT NULL DEFAULT 0,
+  stripe_location_id TEXT NOT NULL DEFAULT '',
   CONSTRAINT shops_payout_check CHECK (payout_tier IN ('STANDARD','FAST') AND payrun_auto IN ('OFF','DAILY','WEEKLY') AND payrun_reserve_bps BETWEEN 0 AND 5000)
 );
 CREATE UNIQUE INDEX shops_slug ON shops(slug) WHERE slug IS NOT NULL;
@@ -489,6 +490,24 @@ CREATE TABLE payouts (
   created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
 );
 CREATE INDEX payouts_account ON payouts(account_id, created_at);
+-- Card at the chair: pay-by-link/QR Checkout sessions and Terminal intents per visit.
+CREATE TABLE payment_requests (
+  id TEXT PRIMARY KEY, shop_id TEXT NOT NULL REFERENCES shops(id), booking_id TEXT NOT NULL, staff_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('LINK','TERMINAL')),
+  service_pence INTEGER NOT NULL CHECK(service_pence >= 0), tip_pence INTEGER NOT NULL DEFAULT 0 CHECK(tip_pence >= 0), discount_pence INTEGER NOT NULL DEFAULT 0,
+  complete INTEGER NOT NULL DEFAULT 1, note TEXT NOT NULL DEFAULT '',
+  stripe_session_id TEXT NOT NULL DEFAULT '', stripe_payment_intent TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'OPEN' CHECK(status IN ('OPEN','PAID','EXPIRED','CANCELLED')),
+  payment_id TEXT, sent_to TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL, created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, paid_at BIGINT,
+  FOREIGN KEY(shop_id,booking_id) REFERENCES bookings(shop_id,id)
+);
+CREATE INDEX payment_requests_booking ON payment_requests(shop_id, booking_id, created_at);
+CREATE INDEX payment_requests_open ON payment_requests(status, expires_at) WHERE status='OPEN';
+CREATE INDEX payment_requests_session ON payment_requests(stripe_session_id) WHERE stripe_session_id<>'';
+CREATE TABLE terminal_readers (
+  id TEXT PRIMARY KEY, shop_id TEXT NOT NULL REFERENCES shops(id), label TEXT NOT NULL DEFAULT '', device_type TEXT NOT NULL DEFAULT '',
+  location_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'offline', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+);
 CREATE TABLE disputes (
   id TEXT PRIMARY KEY, shop_id TEXT NOT NULL, payment_id TEXT, charge TEXT NOT NULL, amount_pence INTEGER NOT NULL,
   status TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', reversed INTEGER NOT NULL DEFAULT 0,

@@ -50,7 +50,8 @@ percentage of the barber's card share against disputes.
    `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.expired`,
    `account.updated`, `transfer.created`, `transfer.reversed`,
    `payout.created`, `payout.updated`, `payout.paid`, `payout.failed`, `payout.canceled`,
-   `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed`, `charge.refunded`.
+   `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed`, `charge.refunded`,
+   `payment_intent.succeeded` (card at the chair).
    **Tick "Listen to events on Connected accounts"** as well — payouts arrive from the connected accounts.
 4. **Platform fee** — `UPDATE platform_payments SET fee_bps = 150, fee_fixed_pence = 0` (1.5 %). Set
    `fast_payouts = 0` to disable FAST for everyone; `float_alert_pence` for the low-float warning.
@@ -93,10 +94,29 @@ percentage of the barber's card share against disputes.
 | Schema | `src/db/migrations/0007_deposits.sql`, `0008_connect_payouts.sql` |
 | Tests (preview mode) | `tests/payouts.spec.ts`, `tests/pay.spec.ts`, `tests/payments.spec.ts` |
 
+## Card at the chair
+
+Two ways, both charging the platform so the pay run treats them as card money:
+
+- **Pay link / QR** — Checkout → *Take by card* → *Pay link / QR*. A QR appears on the shop device;
+  the customer scans and pays on their own phone, or the shop texts/emails the link (shop-branded
+  `pay_link` message). Valid 30 minutes. Lands on `/pay/<id>` afterwards. No hardware needed.
+- **Reader** — pair a Stripe reader (WisePOS E, or Tap to Pay on a phone) in Settings → Payments →
+  Card readers with the code it displays. At checkout choose the reader; the amount appears and the
+  customer taps. Server-driven (`process_payment_intent`); the till polls until paid.
+
+Both write the ledger row (`method CARD`, `stripe_payment_intent`, `stripe_charge`,
+`stripe_fee_pence`, `platform_fee_pence`), move the visit to IN_SERVICE / COMPLETED, and audit. The
+webhook (`payment_intent.succeeded`, `checkout.session.completed` with `payment_request_id`
+metadata) is the guaranteed path; polling is the fast path. Open requests expire via the sweep.
+
+Card recorded **by hand** (no Stripe ref) is still treated as cash in the pay-run split — because it
+is: the money went to whoever held the machine.
+
 ## Not built yet
 
-- Stripe Terminal / Tap to Pay at the chair (card takings still recorded by hand as `CARD` without a
-  Stripe ref → treated as cash in the split).
+- Tap to Pay driven from OLLO's own screen (needs the Terminal JS SDK + a native wrapper; the
+  server side — `/terminal/connection-token`, `reader_id: "sdk"` — is ready for it).
 - Instant Payouts upsell (barbers can already trigger them from their Express dashboard; the fee
   is Stripe's).
 - Platform-admin screen for `platform_payments` and top-ups (SQL for now).

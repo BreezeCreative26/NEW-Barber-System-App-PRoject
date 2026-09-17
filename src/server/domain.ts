@@ -26,6 +26,7 @@ export type Shop = {
   payout_tier?: "STANDARD" | "FAST";
   payrun_auto?: "OFF" | "DAILY" | "WEEKLY";
   payrun_reserve_bps?: number;
+  stripe_location_id?: string;
 };
 export type DepositStatus = "NONE" | "PENDING" | "PAID" | "REFUNDED" | "EXPIRED";
 export type ShopDay = { enabled: 0 | 1; starts: number; ends: number };
