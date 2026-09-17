@@ -2313,19 +2313,7 @@ export function Workspace() {
           cardLive={cardLive}
           onPaid={() => panelAction("CARD", async () => undefined)}
         >
-          <details className="panel-card panel-advanced" open>
-            <summary>More actions</summary>
-            <section className="workspace-booking-detail">
-              <BookingItems items={JSON.parse(editor.item.items_json) as BookingItem[]} />
-            </section>
-            <div className="appointment-detail-actions">
-              <Button variant="ghost" onClick={() => setEditor({ kind: "contacts", item: editor.item })}>
-                Edit booking details
-              </Button>
-            </div>
-            <StatusForm booking={editor.item} w={w} saved={saved} />
-            <ShareBooking booking={editor.item} w={w} />
-          </details>
+          {/* Status changes, edits and sharing live in the panel footer / ⋯ menu; nothing duplicated here. */}
         </AppointmentPanel>
       )}
       {w && editor && editor.kind !== "detail" && (
