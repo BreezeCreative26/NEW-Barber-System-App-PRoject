@@ -97,6 +97,7 @@ const mutationContracts = [
   ["POST", "/staff/:id/days-off"],
   ["DELETE", "/staff/:id/days-off/:leaveId"],
   ["POST", "/services"],
+  ["POST", "/services/categories/rename"],
   ["PUT", "/services/:id"],
   ["POST", "/addons"],
   ["PUT", "/addons/:id"],

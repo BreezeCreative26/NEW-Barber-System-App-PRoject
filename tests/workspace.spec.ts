@@ -359,10 +359,27 @@ test("saved setup and appointment workflow survives reload, move and completion"
     .getByRole("button", { name: "Schedule", exact: true })
     .click();
   await page.getByRole("button", { name: "Edit weekly hours" }).click();
+  const monday = page.getByRole("dialog").getByRole("group", { name: "Monday" });
+  const breakToggle = monday.getByRole("checkbox", { name: "Break" });
+  if (!(await breakToggle.isChecked())) await breakToggle.check();
   await page.getByLabel("Monday break start", { exact: true }).fill("12:00");
   await page.getByLabel("Monday break end", { exact: true }).fill("12:30");
+  // Copy Monday to all keeps each day's Working flag but mirrors the times and break.
+  await page.getByTestId("copy-monday").click();
+  await expect(page.getByLabel("Friday break start", { exact: true })).toHaveValue("12:00");
   await save(page);
-  await expect(page.getByRole("list", { name: "Weekly hours" })).toContainText("12:00");
+  const strip = page.getByRole("list", { name: "Weekly hours" });
+  await expect(strip).toContainText("12:00");
+  // Turning a break off saves as no break (start == end).
+  await page.getByRole("button", { name: "Edit weekly hours" }).click();
+  await page.getByRole("dialog").getByRole("group", { name: "Tuesday" }).getByRole("checkbox", { name: "Break" }).uncheck();
+  await save(page);
+  const hrs = (await (await page.request.get(base + "/workspace")).json()).hours as { weekday: number; break_start: number; break_end: number; staff_id: string }[];
+  const casey = (await (await page.request.get(base + "/workspace")).json()).staff.find((x: any) => x.name === "Casey Test");
+  const tue = hrs.find((h) => h.staff_id === casey.id && h.weekday === 2)!;
+  expect(tue.break_end).toBe(tue.break_start);
+  const mon = hrs.find((h) => h.staff_id === casey.id && h.weekday === 1)!;
+  expect([mon.break_start, mon.break_end]).toEqual([720, 750]);
   await section(page, "Services");
   await page.getByRole("button", { name: "New service", exact: true }).click();
   await page.getByLabel("Service name").fill("Test tidy-up");

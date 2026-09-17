@@ -609,3 +609,35 @@ for (const width of [390, 1440])
     ).toBe(true);
     await context.close();
   });
+
+test("services empty state and category rename", async ({ page }) => {
+  // Fresh shop straight from signup: no services yet.
+  const res = await page.request.post(base + "/auth/signup", {
+    headers: { Origin: origin },
+    data: { shop_name: "Empty Cuts", name: "Em Owner", email: `em-${crypto.randomUUID().slice(0, 8)}@ollo.test`, password: "Unique fictional test password 438!" },
+  });
+  expect(res.status(), await res.text()).toBe(201);
+  await page.goto("/workspace");
+  await section(page, "Services");
+  await expect(page.getByTestId("services-empty")).toBeVisible();
+  await page.getByTestId("add-first-service").click();
+  await page.getByLabel("Service name").fill("Skin fade");
+  await page.getByLabel("Category", { exact: true }).fill("Hair");
+  await page.getByLabel("Price (£)", { exact: true }).fill("30");
+  await page.getByRole("button", { name: "Create service", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Skin fade" })).toBeVisible();
+  await expect(page.getByTestId("services-empty")).toHaveCount(0);
+  // Rename the category from the list header.
+  await page.getByRole("button", { name: "Rename category Hair" }).click();
+  await page.getByLabel("Rename category Hair").fill("Cuts & fades");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Cuts & fades" })).toBeVisible();
+  const w = await (await page.request.get(base + "/workspace")).json();
+  expect(w.services.every((s: any) => s.category === "Cuts & fades")).toBe(true);
+  expect(w.audit.some((a: any) => a.action === "CATEGORY_RENAMED")).toBe(true);
+  // Too-short name is refused inline.
+  await page.getByRole("button", { name: "Rename category Cuts & fades" }).click();
+  await page.getByLabel("Rename category Cuts & fades").fill("X");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("2 characters");
+});

@@ -1300,6 +1300,21 @@ sandbox.post("/services", async (c) => {
   ]);
   return c.json({ id: serviceId }, 201);
 });
+// Rename a service category across the shop (services keep their versions bumped so open
+// editors notice). Empty result when nothing matched.
+sandbox.post("/services/categories/rename", async (c) => {
+  const b = await input(
+    c,
+    z.object({ from: z.string().trim().min(2).max(40), to: z.string().trim().min(2).max(40) }).strict(),
+  );
+  if (b.from === b.to) return c.json({ ok: true, renamed: 0 });
+  const sid = c.get("shopId");
+  const r = await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE services SET category=?, version=version+1 WHERE shop_id=? AND category=?").bind(b.to, sid, b.from),
+    audit(c, "service", sid, "CATEGORY_RENAMED", `"${b.from}" → "${b.to}"`, true),
+  ]);
+  return c.json({ ok: true, renamed: r[0].meta.changes ?? 0 });
+});
 sandbox.put("/services/:id", async (c) => {
   const b = await input(c, serviceSchema);
   if (b.version === undefined) fail(400, "version is required");

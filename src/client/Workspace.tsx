@@ -904,6 +904,95 @@ function WalkInForm({ w, saved }: { w: WorkspaceData; saved: EditorProps["saved"
     </SaveForm>
   );
 }
+
+// Barber weekly hours: Monday first, a working toggle, start/end, and an explicit break toggle
+// (the API encodes "no break" as break_start == break_end == starts). "Copy Monday to all" fills
+// the week from the first row.
+function WeeklyHoursFields({ staff, hours, shop }: { staff: Staff; hours: Hours[]; shop: WorkspaceData["shop"] }) {
+  const order = [1, 2, 3, 4, 5, 6, 0];
+  const initial = (i: number) => {
+    const h = hours.find((x) => x.weekday === i);
+    const day = shopWeekOf(shop)[i];
+    return h ?? { weekday: i, enabled: day.enabled, starts: day.starts, ends: day.ends, break_start: day.starts, break_end: day.starts };
+  };
+  type Row = { enabled: boolean; starts: string; ends: string; hasBreak: boolean; break_start: string; break_end: string };
+  const [rows, setRows] = useState<Row[]>(() =>
+    days.map((_, i) => {
+      const h = initial(i);
+      const hasBreak = h.break_end > h.break_start;
+      return {
+        enabled: !!h.enabled,
+        starts: clock(h.starts),
+        ends: clock(h.ends),
+        hasBreak,
+        break_start: clock(hasBreak ? h.break_start : Math.min(h.ends - 30, Math.max(h.starts, 12 * 60 + 45))),
+        break_end: clock(hasBreak ? h.break_end : Math.min(h.ends, Math.max(h.starts, 13 * 60 + 30))),
+      };
+    }),
+  );
+  const set = (i: number, patch: Partial<Row>) => setRows((r) => r.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+  // Copies Monday's times and break to every day; each day keeps its own Working flag.
+  const copyMonday = () => setRows((r) => r.map((x) => ({ ...r[1], enabled: x.enabled })));
+  return (
+    <div className="weekly-hours">
+      <div className="weekly-hours-head">
+        <p className="helper">
+          {staff.name.split(" ")[0]}’s working week. Shop opening hours still cap what customers can book.
+        </p>
+        <Button variant="ghost" onClick={copyMonday} data-testid="copy-monday">
+          Copy Monday to all
+        </Button>
+      </div>
+      {order.map((i) => {
+        const r = rows[i];
+        const day = days[i];
+        return (
+          <fieldset className="workspace-hours weekly-hours-row" key={day} data-working={r.enabled}>
+            <legend>{day}</legend>
+            <label className="workspace-check">
+              <input name={`enabled-${i}`} type="checkbox" checked={r.enabled} onChange={(e) => set(i, { enabled: e.target.checked })} />
+              Working
+            </label>
+            {r.enabled ? (
+              <>
+                <div className="weekly-hours-times">
+                  <Field label={`${day} start`}>
+                    <input type="time" required name={`starts-${i}`} step={900} value={r.starts} onChange={(e) => set(i, { starts: e.target.value })} />
+                  </Field>
+                  <span className="week-hours-dash">–</span>
+                  <Field label={`${day} end`}>
+                    <input type="time" required name={`ends-${i}`} step={900} value={r.ends} onChange={(e) => set(i, { ends: e.target.value })} />
+                  </Field>
+                </div>
+                <label className="workspace-check">
+                  <input name={`break-${i}`} type="checkbox" checked={r.hasBreak} onChange={(e) => set(i, { hasBreak: e.target.checked })} />
+                  Break
+                </label>
+                {r.hasBreak && (
+                  <div className="weekly-hours-times">
+                    <Field label={`${day} break start`}>
+                      <input type="time" required name={`break_start-${i}`} step={900} value={r.break_start} onChange={(e) => set(i, { break_start: e.target.value })} />
+                    </Field>
+                    <span className="week-hours-dash">–</span>
+                    <Field label={`${day} break end`}>
+                      <input type="time" required name={`break_end-${i}`} step={900} value={r.break_end} onChange={(e) => set(i, { break_end: e.target.value })} />
+                    </Field>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <span className="week-hours-closed">Day off</span>
+                <input type="hidden" name={`starts-${i}`} value={r.starts} />
+                <input type="hidden" name={`ends-${i}`} value={r.ends} />
+              </>
+            )}
+          </fieldset>
+        );
+      })}
+    </div>
+  );
+}
 type Editor =
   | { kind: "addon"; item?: Addon }
   | { kind: "overrides"; item: Staff }
@@ -954,6 +1043,7 @@ export function Workspace() {
   }
   // Keep the view current without a Refresh button: re-read when the tab regains focus and every
   // 60s while idle. Never while a form is dirty or a save is in flight.
+  const lastTick = useRef(0);
   useEffect(() => {
     const idle = () => {
       const main = document.getElementById("workspace-main");
@@ -968,7 +1058,16 @@ export function Workspace() {
     };
     window.addEventListener("focus", tick);
     document.addEventListener("visibilitychange", onVisible);
-    const timer = window.setInterval(tick, 60000);
+    // Live view: the timetable polls every 20s (online bookings appear without any action);
+    // other sections every 60s.
+    const timer = window.setInterval(() => {
+      const onCalendar = !!document.querySelector(".timetable-slot, .week-view, .calendar-event");
+      const due = onCalendar ? 20000 : 60000;
+      if (Date.now() - lastTick.current >= due - 500) {
+        lastTick.current = Date.now();
+        tick();
+      }
+    }, 20000);
     return () => {
       window.removeEventListener("focus", tick);
       document.removeEventListener("visibilitychange", onVisible);
@@ -4275,56 +4374,22 @@ function WorkspaceEditor({
           onSave={(f) =>
             saved(`/staff/${e.item.id}/hours`, "PUT", {
               version: e.item.version,
-              rows: days.map((_, i) => ({
-                weekday: i,
-                enabled: f.has(`enabled-${i}`) ? 1 : 0,
-                starts: minute(text(f, `starts-${i}`)),
-                ends: minute(text(f, `ends-${i}`)),
-                break_start: minute(text(f, `break_start-${i}`)),
-                break_end: minute(text(f, `break_end-${i}`)),
-              })),
+              rows: days.map((_, i) => {
+                const hasBreak = f.has(`break-${i}`);
+                const starts = minute(text(f, `starts-${i}`));
+                return {
+                  weekday: i,
+                  enabled: f.has(`enabled-${i}`) ? 1 : 0,
+                  starts,
+                  ends: minute(text(f, `ends-${i}`)),
+                  break_start: hasBreak ? minute(text(f, `break_start-${i}`)) : starts,
+                  break_end: hasBreak ? minute(text(f, `break_end-${i}`)) : starts,
+                };
+              }),
             })
           }
         >
-          <Notice>
-            Use equal break start/end times for no break. Shop opening hours
-            still apply.
-          </Notice>
-          {days.map((day, i) => {
-            const h = w.hours.find(
-              (h) => h.staff_id === e.item.id && h.weekday === i,
-            )!;
-            return (
-              <fieldset className="workspace-hours" key={day}>
-                <legend>{day}</legend>
-                <label className="workspace-check">
-                  <input
-                    name={`enabled-${i}`}
-                    type="checkbox"
-                    defaultChecked={!!h.enabled}
-                  />
-                  Working
-                </label>
-                <div className="workspace-form-grid">
-                  {(
-                    ["starts", "ends", "break_start", "break_end"] as const
-                  ).map((key, j) => (
-                    <Field
-                      key={key}
-                      label={`${day} ${["start", "end", "break start", "break end"][j]}`}
-                    >
-                      <input
-                        type="time"
-                        required
-                        name={`${key}-${i}`}
-                        defaultValue={clock(h[key])}
-                      />
-                    </Field>
-                  ))}
-                </div>
-              </fieldset>
-            );
-          })}
+          <WeeklyHoursFields staff={e.item} hours={w.hours.filter((h) => h.staff_id === e.item.id)} shop={w.shop} />
         </SaveForm>
       )}
       {e.kind === "daysOff" && (

@@ -291,6 +291,19 @@ export function ServiceStudio({
   }, [w.services]);
   const [query, setQuery] = useState("");
   const [showInactive, setShowInactive] = useState(false);
+  const [renaming, setRenaming] = useState<{ from: string; to: string; error?: string } | null>(null);
+  async function renameCategory() {
+    if (!renaming) return;
+    const to = renaming.to.trim();
+    if (to.length < 2) return setRenaming({ ...renaming, error: "Use at least 2 characters." });
+    try {
+      await api("/services/categories/rename", "POST", { from: renaming.from, to });
+      setRenaming(null);
+      await refresh();
+    } catch (e) {
+      setRenaming({ ...renaming, error: e instanceof Error ? e.message : "Could not rename." });
+    }
+  }
   const categories = useMemo(() => {
     const seen = new Map<string, Service[]>();
     for (const s of [...w.services].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))) {
@@ -326,11 +339,50 @@ export function ServiceStudio({
             <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> Show inactive
           </label>
         </div>
-        {categories.length === 0 && <p className="workspace-footnote">No services match.</p>}
+        {categories.length === 0 && w.services.length === 0 && (
+          <div className="studio-empty" data-testid="services-empty">
+            <Icon name="scissors" size={28} />
+            <h3>Add your first service</h3>
+            <p>Customers book a service, not a time. Start with what you do most — a cut, a fade, a beard trim — with its price and how long it takes. You can add barber-specific prices and add-ons later.</p>
+            <Button onClick={() => setSelected("new")} data-testid="add-first-service">
+              <Icon name="plus" size={16} /> Add a service
+            </Button>
+          </div>
+        )}
+        {categories.length === 0 && w.services.length > 0 && <p className="workspace-footnote">No services match.</p>}
         {categories.map(([cat, list]) => (
           <section key={cat} className="studio-category" aria-label={cat}>
-            <h3>
-              {cat} <small>{list.length}</small>
+            <h3 className="studio-category-head">
+              {renaming?.from === cat ? (
+                <form
+                  className="studio-rename"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void renameCategory();
+                  }}
+                >
+                  <input
+                    aria-label={`Rename category ${cat}`}
+                    value={renaming.to}
+                    autoFocus
+                    maxLength={40}
+                    onChange={(e) => setRenaming({ from: cat, to: e.target.value })}
+                    onKeyDown={(e) => e.key === "Escape" && setRenaming(null)}
+                  />
+                  <Button type="submit" variant="secondary">Save</Button>
+                  <Button variant="ghost" onClick={() => setRenaming(null)}>Cancel</Button>
+                  {renaming.error && <span className="workspace-error" role="alert">{renaming.error}</span>}
+                </form>
+              ) : (
+                <>
+                  <span>
+                    {cat} <small>{list.length}</small>
+                  </span>
+                  <button type="button" className="linklike studio-rename-link" onClick={() => setRenaming({ from: cat, to: cat })} aria-label={`Rename category ${cat}`}>
+                    Rename
+                  </button>
+                </>
+              )}
             </h3>
             <ul className="service-cards">
               {list.map((s) => (

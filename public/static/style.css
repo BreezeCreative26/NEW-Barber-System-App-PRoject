@@ -7592,3 +7592,24 @@ details.workspace-welcome > svg { display: none; }
 .booking-time-fallback > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
 .workspace .week-hours .week-hours-day { flex-direction: row; align-items: center; gap: 8px; }
 .workspace .week-hours .week-hours-day input[type="checkbox"] { margin: 0; width: 18px; height: 18px; }
+
+/* ---- Barber weekly hours dialog ---- */
+.weekly-hours { display: grid; gap: 10px; }
+.weekly-hours-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.weekly-hours-row { display: grid; grid-template-columns: 110px 1fr; gap: 8px 14px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+.weekly-hours-row > legend { float: left; font-weight: 600; width: 100%; margin-bottom: 4px; }
+.weekly-hours-row[data-working="false"] { color: var(--muted); }
+.weekly-hours-times { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; gap: 8px; }
+.weekly-hours-times .workspace-field { margin: 0; }
+.weekly-hours-times .week-hours-dash { padding-bottom: 12px; }
+@media (max-width: 640px) { .weekly-hours-row { grid-template-columns: 1fr; } .weekly-hours-head { flex-direction: column; align-items: flex-start; } }
+
+/* ---- Services: empty state + category rename ---- */
+.studio-empty { display: grid; justify-items: center; text-align: center; gap: 8px; padding: 36px 20px; border: 1px dashed var(--line); border-radius: 16px; margin: 12px 0; color: var(--muted); }
+.studio-empty h3 { margin: 4px 0 0; color: var(--ink, #181b2a); }
+.studio-empty p { max-width: 46ch; margin: 0 0 6px; line-height: 1.55; }
+.studio-category-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.studio-rename-link { font-size: 12px; opacity: 0; transition: opacity .12s; }
+.studio-category:hover .studio-rename-link, .studio-rename-link:focus-visible { opacity: 1; }
+.studio-rename { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-weight: 400; }
+.studio-rename input { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; min-width: 160px; }
