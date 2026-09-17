@@ -151,8 +151,10 @@ audit trail, insights, customer directory/merge, shop page SEO/reviews/moderatio
 1. **Front door** — real signin/signup/forgot pages; demo gated by env; blank-test-shop removed;
    cookies + `/api/sandbox` → `/api/app` renamed. Unblocks a real owner.
 2. **Copy sweep** — kill all 55 harness strings; remove "Refresh" buttons (auto-refresh on focus).
-3. **Messages** — Twilio + Resend providers; cron drainer; confirmation, moved, cancelled, OTP,
-   invite, reset, waitlist offer, review request; reminders 24h/2h; owner sees Sent/Failed in outbox.
+3. ~~**Messages**~~ — **done 2026-09-17.** Twilio + Resend providers; lazy sweep + Vercel Cron drainer;
+   confirmation, moved, cancelled, OTP, invite, waitlist offer, review request; reminders (configurable
+   + 2h); owner Settings → Messages with Sent/Failed/Waiting outbox, test send, preview, resend.
+   Covered by `tests/messaging.spec.ts`. Password reset email still pending (no reset flow yet).
 4. **Shop setup** — onboarding checklist; per-day hours + breaks; timezone/currency pickers;
    logo; no fictional seed staff for a new shop (an "add your first barber" empty state instead).
 5. **Owner booking UX** — slot grid in New booking; click-empty-slot to book; Walk-in now button;

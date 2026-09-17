@@ -610,8 +610,12 @@ export function TxRow({ icon, title, caption, amount, sub, onClick }: { icon: st
   );
 }
 
-export function StatusPill({ tone = "good", children }: { tone?: "good" | "next" | "paid" | "warn" | "note"; children: ReactNode }) {
-  return <span className={`status-pill ${tone}`}>{children}</span>;
+export function StatusPill({ tone = "good", children, ...rest }: { tone?: "good" | "next" | "paid" | "warn" | "note"; children: ReactNode; "data-testid"?: string; title?: string }) {
+  return (
+    <span className={`status-pill ${tone}`} {...rest}>
+      {children}
+    </span>
+  );
 }
 
 export function BlockIcons({ online, regular, series, walkIn, paid }: { online?: boolean; regular?: boolean; series?: boolean; walkIn?: boolean; paid?: boolean }) {

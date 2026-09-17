@@ -33,7 +33,7 @@ import {
 } from "./domain";
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
 import customerAccounts from "./customers";
-import { drain, enqueue, fmtDate, fmtTime, msgShop, type MessageTemplate } from "./messaging";
+import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, type MessageTemplate } from "./messaging";
 import { autoOffer, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
 import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
 import {
@@ -560,7 +560,9 @@ async function issueManageToken(c: Ctx, booking: StoredBooking) {
 // Customer messages about a booking (confirmed / moved / cancelled). Renders shop-branded copy,
 // queues SMS and/or email, then drains immediately so the customer gets it in seconds; anything the
 // provider bounces retries from the sweep.
-export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooking, staffName: string | null, template: MessageTemplate, manageToken?: string | null) {
+// Returns the channels actually queued (respects the shop's SMS/email toggles) so callers can
+// tell the customer exactly where the confirmation went.
+export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooking, staffName: string | null, template: MessageTemplate, manageToken?: string | null): Promise<("SMS" | "EMAIL")[]> {
   const shop = await msgShop(c, shopId);
   const origin = new URL(c.req.url).origin;
   const link = manageToken ? `${origin}/manage/${manageToken}` : `${origin}/${shop.slug}/me`;
@@ -571,11 +573,12 @@ export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooki
     price: new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.price_pence / 100),
     deposit_note: booking.deposit_policy_pence > 0 ? `deposit ${new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.deposit_policy_pence / 100)} payable in the shop` : "pay in the shop",
   };
+  const channels = channelsFor(shop, to, "AUTO", template === "booking_confirmed");
   const stmts = enqueue(c.env.DB, shop, to, template, vars, { related: { type: "booking", id: booking.id }, origin });
-  if (!stmts.length) return 0;
+  if (!stmts.length) return [];
   await c.env.DB.batch(stmts);
   await drain(c.env.DB, stmts.length).catch(() => {});
-  return stmts.length;
+  return channels;
 }
 pub.post("/shops/:slug/bookings", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug"));
@@ -598,14 +601,14 @@ pub.post("/shops/:slug/bookings", async (c) => {
   )
     .bind(shop.id, result.booking.staff_id)
     .first<{ name: string }>();
-  const sent = result.replayed ? 0 : await notifyBooking(c, shop.id, result.booking, staff?.name ?? null, "booking_confirmed", token);
+  const sent = result.replayed ? [] : await notifyBooking(c, shop.id, result.booking, staff?.name ?? null, "booking_confirmed", token);
   return c.json(
     {
       booking: customerView(result.booking, shop, staff?.name ?? null),
       replayed: result.replayed,
       manage_token: token,
       reference: ref(result.booking),
-      sent_to: sent ? [result.booking.phone && "SMS", result.booking.email && "EMAIL"].filter(Boolean) : [],
+      sent_to: sent,
     },
     result.replayed ? 200 : 201,
   );

@@ -513,5 +513,6 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - Sweep: lazy once per 5 min on any /api request + Vercel Cron `/api/cron/messages` (CRON_SECRET).
 - Owner: Settings → Messages — provider status, SMS/email/reminder toggles, reply-to, SMS sender, test send, outbox filter/preview/copy/resend.
 - Env: RESEND_API_KEY, MAIL_FROM, TWILIO_ACCOUNT_SID/AUTH_TOKEN/FROM (or MESSAGING_SERVICE_SID), CRON_SECRET — see .env.example.
-- Gate: 137 tests green after updating assertions from "SKIPPED/recorded" to "SENT". AUDIT item 3 complete.
-- Still to add: `tests/messaging.spec.ts` (drain backoff, reminder idempotency, OTP delivery modes, resend), README messaging section.
+- `tests/messaging.spec.ts` (7): confirmation on both channels, shop-branded, never OLLO; cancel notifies; channel toggles honoured (and `sent_to` now reports the channels actually queued — bug found by the test); reminder sweep idempotent + reminders-off; owner test send / resend rules / validation; OTP delivery mode; cron route + health; browser Settings → Messages (status pill, save, test send, preview modal, filter).
+- Fixed: Settings tab overflowed at 320px (status pill `nowrap` in a non-wrapping heading) — heading wraps and pill text wraps on small screens; pill copy shortened to "Preview mode · nothing is sent". `StatusPill` now forwards `data-testid`/`title`.
+- Gate: **142 passed, 2 skipped, 0 failed** (full Playwright suite). README has a Messages section (env vars, preview mode, cron). AUDIT item 3 complete.
