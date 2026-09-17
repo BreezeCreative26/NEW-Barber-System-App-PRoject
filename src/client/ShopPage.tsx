@@ -404,13 +404,7 @@ export function ShopPage({ slug }: { slug: string }) {
             {has("hours") && <a href="#hours">Opening hours</a>}
             <a href={`/${shop.slug}/me`}>Your visits</a>
           </div>
-          <span className="powered-by">
-            Powered by{" "}
-            <strong>
-              <img src="/static/brand/ollo-mark.svg" alt="" width={14} height={14} />
-              OLLO
-            </strong>
-          </span>
+          <span className="powered-by">Powered by OLLO</span>
         </div>
       </footer>
     </div>

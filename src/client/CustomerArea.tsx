@@ -147,9 +147,7 @@ export function CustomerArea({ slug }: { slug: string }) {
           {me.shop.name}
           {me.shop.address && ` · ${me.shop.address}`}
         </span>
-        <span className="sp-powered">
-          Powered by <Icon name="scissors" size={12} /> OLLO
-        </span>
+        <span className="sp-powered">Powered by OLLO</span>
       </footer>
     </div>
   );

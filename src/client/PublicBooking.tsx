@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { BookingItem } from "../server/domain";
 import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
-import { Avatar, Brand, Button, Icon, Notice } from "./ui";
+import { Avatar, Button, Icon, Notice } from "./ui";
 import { GroupBooking } from "./GroupBooking";
 import { ReviewCard, type OwnReview } from "./Reviews";
 
@@ -172,7 +172,7 @@ const gcal = (b: { start_at: number; end_at: number; service_name: string; shop:
     text: `${b.service_name} at ${b.shop.name}`,
     dates: `${f(b.start_at)}/${f(b.end_at)}`,
     location: b.shop.address || b.shop.name,
-    details: "Booked with OLLO.",
+    details: `Booked online with ${b.shop.name}.`,
   });
   return `https://calendar.google.com/calendar/render?${q}`;
 };
@@ -195,13 +195,6 @@ function ShopHeader({ name, address, logo }: { name: string; address: string; lo
             {address}
           </span>
         )}
-        <span className="powered-by">
-          Powered by{" "}
-          <strong>
-            <img src="/static/brand/ollo-mark.svg" alt="" width={14} height={14} />
-            OLLO
-          </strong>
-        </span>
       </div>
     </header>
   );
@@ -1422,8 +1415,6 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
           )}
           {!embedded && (
             <footer className="booking-footer">
-              <Brand />
-              <span>Good hair. Good company.</span>
               <span>Powered by OLLO</span>
             </footer>
           )}
@@ -1866,8 +1857,6 @@ export function ManageBooking({ token }: { token: string }) {
           )}
         </section>
         <footer className="booking-footer">
-          <Brand />
-          <span>Good hair. Good company.</span>
           <span>Powered by OLLO</span>
         </footer>
       </main>

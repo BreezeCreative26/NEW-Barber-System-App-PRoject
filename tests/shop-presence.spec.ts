@@ -210,10 +210,10 @@ test("media: upload sniffs real image bytes, serves at /media/<id> with immutabl
   expect(served.headers()["cache-control"]).toContain("immutable");
   expect((await served.body()).equals(PNG)).toBe(true);
   expect((await c.get(origin + "/media/00000000-0000-0000-0000-000000000000")).status()).toBe(404);
-  // JPEG is sniffed too and lands in the library list.
+  // JPEG is sniffed too (regardless of the declared mime), optimised to WebP on the way in, and lands in the library list.
   const jpg = await r.post(base + "/media", { multipart: { kind: "staff", file: { name: "me.bin", mimeType: "application/octet-stream", buffer: JPEG } } });
   expect(jpg.status(), await jpg.text()).toBe(201);
-  expect((await jpg.json()).media.content_type).toBe("image/jpeg");
+  expect(["image/webp", "image/jpeg"]).toContain((await jpg.json()).media.content_type);
   const lib = await (await r.get(base + "/media")).json();
   expect(lib.media.map((m: { id: string }) => m.id)).toEqual(expect.arrayContaining([media.id, (await jpg.json()).media.id]));
   // Page and staff fields accept the /media path; a foreign http:// path is rejected.

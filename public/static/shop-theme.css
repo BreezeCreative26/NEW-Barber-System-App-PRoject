@@ -162,7 +162,7 @@
 .shop-page .sp-popular { background: var(--sp-soft); color: var(--sp-accent-dark); border-radius: var(--sp-r-pill); }
 .shop-page .sp-barber .avatar.large, .shop-page .sp-photo, .shop-page .sp-barber-next { border-radius: var(--sp-r); }
 .shop-page .sp-barber-next { background: var(--sp-soft); color: var(--sp-accent-dark); border-radius: var(--sp-r-pill); }
-.shop-page .sp-skills em { background: var(--sp-surface-2); border-color: var(--sp-line); color: var(--sp-muted); border-radius: var(--sp-r-pill); }
+.shop-page .sp-skills em { background: var(--sp-surface-2); border-color: var(--sp-line); color: var(--sp-ink-2); border-radius: var(--sp-r-pill); }
 .shop-page .sp-ig { color: var(--sp-muted); }
 
 /* Booking block */
