@@ -11,6 +11,7 @@ import type {
 import { Avatar, Badge, Button, Icon, Notice } from "./ui";
 import { money, time, currencySymbol } from "./fixtures";
 import { PayTermsForm, PayRuns, payFormOf, summariseTerms, type PayForm } from "./Pay";
+import { BarberPayoutCard } from "./Payouts";
 import { PhotoUpload } from "./Media";
 import type { PayRun } from "../server/domain";
 
@@ -1085,6 +1086,16 @@ function BarberEditor({
             </div>
           </section>
           <PayRuns w={w} api={api} staff={staff} canEdit={canEdit} runs={payRuns} onChanged={loadPayRuns} />
+          <BarberPayoutCard
+            api={api}
+            staffId={staff.id}
+            staffName={staff.name}
+            canEdit={canEdit}
+            from={new Date(Date.parse(w.today) - 89 * 86400000).toISOString().slice(0, 10)}
+            to={w.today}
+            earned={payRuns.filter((r) => r.staff_id === staff.id && r.status !== "VOID").reduce((n, r) => n + Math.max(0, r.net_pence), 0)}
+            cash={payRuns.filter((r) => r.staff_id === staff.id && r.status !== "VOID").reduce((n, r) => n + (r.cash_service_pence ?? 0) + (r.cash_tips_pence ?? 0), 0)}
+          />
         </div>
       )}
       {tab === "performance" && staff && (

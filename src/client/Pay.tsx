@@ -225,6 +225,9 @@ type Preview = {
   terms: PayForm;
   input: { service_pence: number; tips_pence: number; visits: number; hours_x100: number; periods: number };
   result: { commission_pence: number; base_pence: number; hourly_pence: number; tip_pence: number; rent_pence: number; adjustments_pence: number; net_pence: number };
+  split?: { card_service_pence: number; card_tips_pence: number; cash_service_pence: number; cash_tips_pence: number; platform_fee_pence: number };
+  settlement?: { transfer_pence: number; shop_transfer_pence: number; reserve_pence: number; cash_residual_pence: number };
+  payouts_ready?: boolean;
 };
 function periodBounds(period: PayPeriod, today: string, offset = 0) {
   if (period === "MONTHLY") {
@@ -239,7 +242,8 @@ function periodBounds(period: PayPeriod, today: string, offset = 0) {
   const monday = datePlus(today, -dow + offset * len);
   return { from: monday, to: datePlus(monday, len - 1) };
 }
-const statusTone: Record<PayRun["status"], "good" | "next" | "paid" | "warn" | "note"> = { DRAFT: "note", APPROVED: "next", PAID: "good", VOID: "warn" };
+const statusTone: Record<PayRun["status"], "good" | "next" | "paid" | "warn" | "note"> = { DRAFT: "note", APPROVED: "next", TRANSFERRED: "good", PAID: "good", VOID: "warn" };
+const statusLabel: Record<PayRun["status"], string> = { DRAFT: "draft", APPROVED: "approved", TRANSFERRED: "sent to Stripe", PAID: "settled", VOID: "void" };
 
 export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: WorkspaceData; api: Api; staff: Staff; canEdit: boolean; runs: PayRun[]; onChanged: () => void }) {
   const [offset, setOffset] = useState(-1); // previous period by default: it is complete
@@ -293,7 +297,7 @@ export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: Worksp
           <Icon name="right" />
         </Button>
         <span className="toolbar-grow" />
-        {existing && <StatusPill tone={statusTone[existing.status]}>{existing.status.toLowerCase()}</StatusPill>}
+        {existing && <StatusPill tone={statusTone[existing.status]} data-testid="pay-run-status">{statusLabel[existing.status]}</StatusPill>}
       </div>
       {error && (
         <p className="workspace-error" role="alert">
@@ -317,6 +321,19 @@ export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: Worksp
             <dd data-testid="pay-net">{money(Math.abs(existing ? existing.net_pence : net))}</dd>
           </div>
         </dl>
+      )}
+      {preview && (
+        <Settlement
+          card={existing ? (existing.card_service_pence ?? 0) + (existing.card_tips_pence ?? 0) : (preview.split?.card_service_pence ?? 0) + (preview.split?.card_tips_pence ?? 0)}
+          cash={existing ? (existing.cash_service_pence ?? 0) + (existing.cash_tips_pence ?? 0) : (preview.split?.cash_service_pence ?? 0) + (preview.split?.cash_tips_pence ?? 0)}
+          toBarber={existing ? existing.transfer_pence ?? 0 : preview.settlement?.transfer_pence ?? 0}
+          toShop={existing ? existing.shop_transfer_pence ?? 0 : preview.settlement?.shop_transfer_pence ?? 0}
+          reserve={existing ? existing.reserve_pence ?? 0 : preview.settlement?.reserve_pence ?? 0}
+          residual={existing ? existing.cash_residual_pence ?? 0 : preview.settlement?.cash_residual_pence ?? 0}
+          barber={staff.name.split(" ")[0]}
+          status={existing?.status}
+          ready={!!preview.payouts_ready}
+        />
       )}
       {canEdit && !existing && preview && (
         <div className="pay-adjust">
@@ -353,7 +370,14 @@ export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: Worksp
               <Icon name="check" size={16} /> Approve
             </Button>
           )}
-          {existing?.status === "APPROVED" && <MarkPaid run={existing} busy={!!busy} onPaid={(method, ref) => act("paid", () => api(`/pay-runs/${existing.id}`, "PUT", { version: existing.version, status: "PAID", paid_method: method, paid_reference: ref }))} />}
+          {existing?.status === "APPROVED" && ((existing.transfer_pence ?? 0) > 0 || (existing.shop_transfer_pence ?? 0) > 0) && (
+            <Button variant="secondary" disabled={!!busy} data-testid="transfer-pay-run" onClick={() => act("transfer", () => api(`/pay-runs/${existing.id}/transfer`, "POST", {}))}>
+              <Icon name="send" size={16} /> {busy === "transfer" ? "Sending…" : "Send card money now"}
+            </Button>
+          )}
+          {(existing?.status === "APPROVED" || existing?.status === "TRANSFERRED") && (
+            <MarkPaid run={existing} busy={!!busy} onPaid={(method, ref) => act("paid", () => api(`/pay-runs/${existing.id}`, "PUT", { version: existing.version, status: "PAID", paid_method: method, paid_reference: ref }))} />
+          )}
           {existing && existing.status !== "PAID" && (
             <Button variant="ghost" disabled={!!busy} onClick={() => {
               const reason = window.prompt("Why void this pay run?");
@@ -364,7 +388,8 @@ export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: Worksp
           )}
           {existing?.status === "PAID" && (
             <span className="workspace-footnote">
-              Paid by {existing.paid_method?.toLowerCase()}
+              {existing.transferred_at ? "Card money sent by Stripe" : ""}
+              {existing.paid_method ? `${existing.transferred_at ? " · remainder " : "Settled "}by ${existing.paid_method.toLowerCase()}` : ""}
               {existing.paid_reference ? ` · ${existing.paid_reference}` : ""} · frozen
             </span>
           )}
@@ -398,7 +423,7 @@ export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: Worksp
                     {money(Math.abs(r.net_pence))}
                   </td>
                   <td>
-                    <StatusPill tone={statusTone[r.status]}>{r.status.toLowerCase()}</StatusPill>
+                    <StatusPill tone={statusTone[r.status]}>{statusLabel[r.status]}</StatusPill>
                   </td>
                 </tr>
               ))}
@@ -427,7 +452,62 @@ function Line({ label, value, sub, onRemove }: { label: string; value: string; s
     </div>
   );
 }
-function MarkPaid({ run, busy, onPaid }: { run: PayRun; busy: boolean; onPaid: (method: "BANK" | "CASH" | "OTHER", ref: string) => void }) {
+// What OLLO moves by card versus what changes hands at the chair.
+function Settlement({ card, cash, toBarber, toShop, reserve, residual, barber, status, ready }: { card: number; cash: number; toBarber: number; toShop: number; reserve: number; residual: number; barber: string; status?: PayRun["status"]; ready: boolean }) {
+  if (card === 0 && cash === 0) return null;
+  const sent = status === "TRANSFERRED" || status === "PAID";
+  return (
+    <section className="pay-settlement" aria-label="How this is settled" data-testid="pay-settlement">
+      <div className="pay-settlement-col">
+        <h4>
+          <Icon name="card" size={14} /> By card · {money(card)}
+        </h4>
+        <p className="workspace-footnote">Held on OLLO's Stripe balance. {sent ? "Sent" : "Approving sends it"} to each Stripe account; their bank gets it on their payout schedule.</p>
+        <dl>
+          <div>
+            <dt>{barber}</dt>
+            <dd data-testid="settle-barber">{money(toBarber)}</dd>
+          </div>
+          <div>
+            <dt>Shop</dt>
+            <dd data-testid="settle-shop">{money(toShop)}</dd>
+          </div>
+          {reserve > 0 && (
+            <div>
+              <dt>Held back (reserve)</dt>
+              <dd>{money(reserve)}</dd>
+            </div>
+          )}
+        </dl>
+        {!ready && toBarber > 0 && !sent && (
+          <p className="workspace-footnote pay-settlement-warn">
+            <Icon name="hourglass" size={13} /> {barber} hasn’t finished Stripe setup — their share stays on OLLO until they do. Team → {barber} → Set up payouts.
+          </p>
+        )}
+      </div>
+      <div className="pay-settlement-col">
+        <h4>
+          <Icon name="banknote" size={14} /> In cash · {money(cash)}
+        </h4>
+        <p className="workspace-footnote">Already in someone's hand. Nothing moves online.</p>
+        <dl>
+          <div>
+            <dt>{residual === 0 ? "Nothing to settle by hand" : residual > 0 ? `Shop still owes ${barber}` : `${barber} owes the shop`}</dt>
+            <dd data-testid="settle-residual">{residual === 0 ? "—" : money(Math.abs(residual))}</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+  );
+}
+function MarkPaid({ run, busy, onPaid }: { run: PayRun; busy: boolean; onPaid: (method: "BANK" | "CASH" | "OTHER" | "STRIPE", ref: string) => void }) {
+  const stripeOnly = run.status === "TRANSFERRED" && !(run.cash_residual_pence ?? 0);
+  if (stripeOnly)
+    return (
+      <Button disabled={busy} data-testid="mark-paid" onClick={() => onPaid("STRIPE", run.transfer_group ?? "")}>
+        <Icon name="check" size={16} /> Mark settled
+      </Button>
+    );
   const [method, setMethod] = useState<"BANK" | "CASH" | "OTHER">("BANK");
   const [ref, setRef] = useState("");
   return (

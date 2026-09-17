@@ -26,6 +26,7 @@ import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { WalletDrawer } from "./Wallet";
+import { PaymentsPanel } from "./Payouts";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
 import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
@@ -2159,6 +2160,7 @@ export function Workspace() {
                   <OnlineBookingPanel w={w} saved={saved} />
                   <ShopPagePanel w={w} />
                   <WaitlistSettingsPanel w={w} />
+                  <PaymentsPanel api={api} canEdit={manager} isOwner={!w.account || w.account.role === "OWNER"} />
                   <ReviewsPanel w={w} />
                   <CustomerPagesPanel w={w} onOpenBooking={openBooking} />
                   <section className="workspace-panel">

@@ -40,18 +40,22 @@ Local dev without Supabase: run Postgres locally and point `DATABASE_URL`/`DIREC
 3. Push to `main` → production. Branches → preview URLs.
 4. Leave `DEMO_ENABLED` unset (or `0`) in production — it exposes the demo sign-in and the dev mailbox.
 
-## Deposits (Stripe Checkout)
+## Payments (Stripe Connect platform)
 
-Optional per shop. When `STRIPE_SECRET_KEY` is set and the owner switches **Deposits by card** on,
-online bookings hold the slot (`deposit_status=PENDING`, default 15 min) and send the customer to
-Stripe Checkout. The webhook (`POST /api/stripe/webhook`, `STRIPE_WEBHOOK_SECRET`) or the return
-trip marks it `PAID`, releases the confirmation message, and the deposit is posted to the till as an
-`ONLINE` tender at checkout. Cancelling outside the policy window refunds automatically; inside it
-the deposit is kept. Unpaid holds expire via the sweep. `STRIPE_CONNECT=1` charges the shop's own
-Express account (onboarding from Settings). Without keys: preview mode, deposit payable in the shop.
+OLLO is the merchant of record. Card money — online deposits now, Terminal later — lands on OLLO's
+Stripe balance; **approving a pay run transfers each barber's share to their own Stripe Express
+account and the shop's share to the shop's**, tagged per run. Cash never enters and shows as a
+residual to settle by hand. Refunds, voids and disputes create reversals, never edits.
 
-Owner API: `GET/PUT /api/app/shop/payments`, `POST /api/app/shop/payments/connect`,
-`POST /api/app/bookings/:id/deposit/refund`. Customer: `POST /api/public/manage/:token/deposit/confirm`.
+| Env var | Purpose |
+| --- | --- |
+| `STRIPE_SECRET_KEY` | platform key (`sk_test_…` / `sk_live_…`) |
+| `STRIPE_WEBHOOK_SECRET` | `POST /api/stripe/webhook` (tick *Connected accounts* too) |
+| `STRIPE_CONNECT` | defaults on; `0` for a single-shop deploy |
+
+Without keys the app runs in **preview mode**: deposits payable in the shop, pay runs settled by
+hand, every Settings → Payments control visible but honest about why it's off. Full runbook,
+tiers (STANDARD / FAST float), auto pay runs and the test-mode checklist: **`docs/PAYMENTS.md`**.
 
 ## Messages (email + SMS)
 
@@ -83,7 +87,8 @@ once per booking per channel).
 | `/<slug>` · `/book/<slug>` | Shop home page with embedded booking · booking-only page |
 | `/<slug>/me` · `/manage/<token>` · `/offer/<token>` | Customer account · manage a visit · waiting-list offer |
 | `/api/app/*` (`/api/sandbox/*` legacy alias) | Staff API (session cookie) |
-| `/api/cron/messages` | Message sweep: reminders + delivery queue drain (Vercel Cron, `CRON_SECRET`) |
+| `/api/cron/messages` | Sweep: reminders, message queue, deposit holds, scheduled pay runs (Vercel Cron, `CRON_SECRET`) |
+| `/api/stripe/webhook` | Stripe events: deposits, accounts, transfers, payouts, disputes, refunds |
 | `/api/public/*` | Customer API (same-origin guard) |
 | `/robots.txt` · `/sitemap.xml` · `/media/<id>` | Search engines · uploaded photos |
 

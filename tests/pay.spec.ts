@@ -33,7 +33,7 @@ test("pay terms: every model saves, summary reflects it, and the deal is snapsho
   await page.getByTestId("approve-pay-run").click();
   await page.getByLabel("Payment reference").fill("BACS 0912");
   await page.getByTestId("mark-paid").click();
-  await expect(runs).toContainText("Paid by bank · BACS 0912 · frozen");
+  await expect(runs).toContainText("Settled by bank · BACS 0912 · frozen");
   const list = await (await page.request.get(base + "/pay-runs")).json();
   const run = list.pay_runs.find((r: any) => r.staff_id === jay.id && r.status === "PAID");
   expect(run).toBeTruthy();
