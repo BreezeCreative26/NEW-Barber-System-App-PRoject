@@ -961,6 +961,7 @@ function BarberEditor({
                   <input type="text" inputMode="url" aria-labelledby="barber-photo-label" value={form.photo_url} onChange={(e) => setForm({ ...form, photo_url: e.target.value })} placeholder="https://…/photo.jpg" maxLength={500} />
                   <PhotoUpload kind="staff" label="Upload" testId="upload-staff-photo" onUploaded={([u]) => setForm({ ...form, photo_url: u })} />
                 </div>
+                <span className="helper">Head and shoulders, face in the upper half, plain background. Square or portrait works best — we crop to fit each card and keep the face in frame.</span>
               </div>
               <label className="workspace-field">
                 <span>Instagram</span>

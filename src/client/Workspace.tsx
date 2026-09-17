@@ -2706,9 +2706,9 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
                   );
                 })}
               </div>
-              <p className="helper">No photo yet? Pick one of ours to start; swap it for your own shopfront any time.</p>
+              <p className="helper">No photo yet? Pick one of ours to start; swap it for your own shopfront any time. Landscape, at least 1600×900; keep the subject centred — the hero crops the edges on tall phones.</p>
             </Field>
-            <Field label="Logo (square works best)">
+            <Field label="Logo (transparent PNG or SVG, square or wide)">
               <div className="photo-field">
                 <PhotoPreview url={form.logo_url} label="logo" onClear={() => set("logo_url", "")} />
                 <input type="text" inputMode="url" value={form.logo_url} maxLength={500} placeholder="https://…/logo.png" onChange={(e) => set("logo_url", e.target.value)} />

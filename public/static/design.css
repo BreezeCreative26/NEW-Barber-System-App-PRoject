@@ -1081,7 +1081,7 @@
 .sp-team { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--s-3); }
 .sp-barber { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-xl); padding: var(--s-4); display: grid; grid-template-columns: auto 1fr; gap: var(--s-3); align-content: start; }
 .sp-barber .avatar.large { width: 72px; height: 72px; font-size: var(--fs-18); border-radius: 20px; }
-.sp-photo { width: 72px; height: 72px; border-radius: 20px; object-fit: cover; }
+.sp-photo { width: 72px; height: 72px; border-radius: 20px; object-fit: cover; object-position: 50% 30%; }
 .sp-barber-next { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; font-size: var(--fs-12); font-weight: 600; color: var(--sp-accent-dark); background: var(--sp-soft); border-radius: var(--r-pill); padding: 3px 10px; width: fit-content; }
 .sp-barber-text { display: grid; gap: 4px; min-width: 0; }
 .sp-barber-text b { font-size: var(--fs-16); }

@@ -95,7 +95,7 @@
 .shop-page.accent-ink { --sp-accent: #1d1f26; --sp-accent-dark: #000; --sp-soft: rgba(29, 31, 38, 0.08); }
 .shop-page.mode-dark.accent-ink { --sp-accent: #f3f2ee; --sp-accent-dark: #fff; --sp-accent-ink: #14151a; --sp-soft: rgba(243, 242, 238, 0.12); }
 .shop-page.accent-sage { --sp-accent: #3f7d5c; --sp-accent-dark: #2f6247; --sp-soft: rgba(63, 125, 92, 0.12); }
-.shop-page.accent-clay { --sp-accent: #b8613a; --sp-accent-dark: #964a29; --sp-soft: rgba(184, 97, 58, 0.12); }
+.shop-page.accent-clay { --sp-accent: #a8552f; --sp-accent-dark: #8a4323; --sp-soft: rgba(168, 85, 47, 0.12); }
 .shop-page.accent-plum { --sp-accent: #6e3b7a; --sp-accent-dark: #562c60; --sp-soft: rgba(110, 59, 122, 0.12); }
 .shop-page.accent-slate { --sp-accent: #4a5568; --sp-accent-dark: #364152; --sp-soft: rgba(74, 85, 104, 0.12); }
 .shop-page.mode-dark.accent-sage { --sp-accent: #6fb98f; --sp-accent-dark: #86c9a2; --sp-accent-ink: #0f1014; }
@@ -275,10 +275,13 @@
 .shop-page.accent-ink .booking-hero { background: var(--sp-hero-bg); color: #fff; }
 .shop-page.mode-dark.accent-ink .booking-hero { background: var(--sp-surface-2); color: var(--sp-ink); }
 .shop-page .booking-hero h1 { font-family: var(--sp-display); font-weight: var(--sp-display-weight); letter-spacing: var(--sp-display-tracking); text-transform: var(--sp-display-case); color: inherit; }
-.shop-page .booking-hero p, .shop-page .hero-details, .shop-page .hero-copy .eyebrow, .shop-page .hero-link { color: inherit; opacity: 0.85; }
-.shop-page .hero-link:hover { opacity: 1; }
-.shop-page .art-orbit, .shop-page .hero-seal, .shop-page .seal-rule, .shop-page .hero-seal * { border-color: currentColor; color: inherit; opacity: 0.9; }
-.shop-page .seal-rule { background: currentColor; }
+/* Solid ink on the accent panel: no opacity tricks, they cost AA on mid-tone accents. */
+.shop-page .booking-hero p, .shop-page .hero-details, .shop-page .hero-details span, .shop-page .hero-copy .eyebrow, .shop-page .hero-seal span, .shop-page .hero-seal > strong, .shop-page .hero-seal > strong > span { color: var(--sp-accent-ink); }
+.shop-page .booking-hero a.hero-link, .shop-page .booking-hero a.hero-link:hover { color: var(--sp-accent-ink); text-decoration: underline; text-underline-offset: 3px; }
+.shop-page .art-orbit, .shop-page .hero-seal { border-color: color-mix(in srgb, var(--sp-accent-ink) 35%, transparent); }
+.shop-page .seal-rule { background: color-mix(in srgb, var(--sp-accent-ink) 45%, transparent); }
+.shop-page.accent-ink .booking-hero, .shop-page.accent-ink .booking-hero p, .shop-page.accent-ink .booking-hero span, .shop-page.accent-ink .booking-hero a.hero-link { color: #fff; }
+.shop-page.mode-dark.accent-ink .booking-hero, .shop-page.mode-dark.accent-ink .booking-hero p, .shop-page.mode-dark.accent-ink .booking-hero span, .shop-page.mode-dark.accent-ink .booking-hero a.hero-link { color: var(--sp-ink); }
 
 /* Headings inside the flow */
 .shop-page .booking-body h1, .shop-page .booking-body h2, .shop-page .booking-body h3,
@@ -317,11 +320,12 @@
 .shop-page .booking-dates button { background: var(--sp-surface); border-color: var(--sp-line); color: var(--sp-ink); border-radius: var(--sp-r); }
 .shop-page .booking-dates button small { color: var(--sp-muted); }
 .shop-page .booking-dates button.chosen { background: var(--sp-accent); border-color: var(--sp-accent); color: var(--sp-accent-ink); }
-.shop-page .booking-dates button.chosen small, .shop-page .booking-dates button.chosen span { color: inherit; opacity: 0.85; }
+.shop-page .booking-dates button.chosen small, .shop-page .booking-dates button.chosen span, .shop-page .booking-dates button.chosen > strong { color: var(--sp-accent-ink); opacity: 1; }
 .shop-page .booking-dates button:disabled { background: var(--sp-surface-2); color: var(--sp-muted); border-color: var(--sp-line); }
 .shop-page .time-slots button { background: var(--sp-surface); border-color: var(--sp-line-2); color: var(--sp-ink); border-radius: var(--sp-r-sm); }
 .shop-page .time-slots button:hover { border-color: var(--sp-accent); }
 .shop-page .time-slots button.chosen, .shop-page .time-slots button[aria-pressed="true"] { background: var(--sp-accent); border-color: var(--sp-accent); color: var(--sp-accent-ink); }
+.shop-page .time-slots button.chosen small, .shop-page .time-slots button.chosen span, .shop-page .time-slots button[aria-pressed="true"] small { color: var(--sp-accent-ink); opacity: 1; }
 .shop-page .time-slots button:disabled { background: var(--sp-surface-2); border-color: var(--sp-line); color: var(--sp-muted); }
 .shop-page .time-slots[aria-busy="true"]:empty { background: linear-gradient(90deg, var(--sp-surface-2) 25%, var(--sp-surface) 50%, var(--sp-surface-2) 75%); }
 
