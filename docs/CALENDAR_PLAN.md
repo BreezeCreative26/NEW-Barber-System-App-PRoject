@@ -172,9 +172,14 @@ Order now: **Phase 3 (scheduled team, `staff_blocks`, block → notify) → Phas
 - Touch resize handle is small (8 px); consider a long-press grip on phones.
 - Repeat-client detection uses the workspace snapshot (500 rows); switch to a server flag if shops outgrow it.
 
-## Full gate 2026-09-18 (after Phases 3+4 and test-debt fixes): 154/161
-Remaining 7 — none are calendar regressions; investigate next session:
-- `tests/sandbox.spec.ts:157` endpoint registry — FIXED in this commit (added `/staff/:id/blocks*`, `PATCH /bookings/:id/items`); not yet re-run.
-- `tests/messaging.spec.ts:54` (0 messages queued on booking create) and `:89` (409 slot_taken → fixture slot collision). `:54` fails in isolation too, so it is not parallel interference — check `enqueue` on `POST /bookings` (did the payment-mode / `dueAtBooking` change alter the confirmation-queue path or `msgShop` channel flags for the fixture shop?).
-- `tests/waitlist.spec.ts:35` and `:209` expect messages `SENT`; same messaging root cause most likely.
-- `tests/visual.spec.ts` owner-calendar-phone + owner-calendar-tablet: intentional UI change (⋯ menus, Scheduled team button, block legend). Refresh snapshots: `npx playwright test tests/visual.spec.ts --update-snapshots`, eyeball, commit.
+## Full gate 2026-09-18 — 161/161 green
+All items from the 154/161 run are resolved:
+- sandbox endpoint registry updated (blocks + items routes).
+- **Messaging root cause**: the in-request `drain()` after queueing a confirmation pulled the *oldest*
+  due rows across the whole table, so once a backlog existed (286 QUEUED rows locally) a fresh
+  booking's confirmation never went out in-request and stayed QUEUED until the sweep. `drain()` now
+  takes an optional `related {type,id}` and every in-request caller (booking confirm/cancel/move,
+  test send, resend, pay link, waitlist joined/offer/booked/released, review request) passes the
+  record it just queued for. The 5-min sweep still drains the backlog oldest-first.
+- messaging toggles test picks a free slot instead of a hardcoded minute.
+- visual snapshots for owner-calendar phone/tablet refreshed and reviewed.

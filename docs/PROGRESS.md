@@ -588,3 +588,9 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
   was on 24.x).
 - Still unset (features stay in preview mode until provided): `RESEND_API_KEY`, `MAIL_FROM`,
   `TWILIO_*`, `CRON_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`.
+
+## Gate 161/161 + messaging drain fix (2026-09-18)
+- `drain(db, limit, now, related?)` scopes the in-request drain to the record just queued; sweep
+  unchanged. Fixes confirmations stuck QUEUED whenever a backlog existed.
+- Visual snapshots refreshed for the Phase 3/4 calendar chrome.
+- Production (Vercel) on `bb2a13b`, `/api/diag?ping=1` healthy.
