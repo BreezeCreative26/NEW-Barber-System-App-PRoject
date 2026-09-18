@@ -2317,6 +2317,20 @@ export function Workspace() {
           onVoidPayment={(payment, reason) => panelAction("VOID", () => api(`/payments/${payment.id}/void`, "POST", { reason }))}
           api={api}
           cardLive={cardLive}
+          onItems={async (body) => {
+            // Errors must reach the editor (it offers "save anyway" on overlap), so no panelAction wrapper.
+            setPanelBusy("items");
+            setPanelError("");
+            try {
+              const r = await api<{ booking: StoredBooking; refunded_pence: number }>(`/bookings/${editor.item.id}/items`, "PATCH", body);
+              setNotice(r.refunded_pence > 0 ? `Saved · ${money(r.refunded_pence)} refunded to the customer.` : "Saved.");
+              await refresh().catch(() => {});
+              setEditor({ kind: "detail", item: r.booking });
+              return { refunded_pence: r.refunded_pence };
+            } finally {
+              setPanelBusy("");
+            }
+          }}
           onPaid={() => panelAction("CARD", async () => undefined)}
         >
           {/* Status changes, edits and sharing live in the panel footer / ⋯ menu; nothing duplicated here. */}

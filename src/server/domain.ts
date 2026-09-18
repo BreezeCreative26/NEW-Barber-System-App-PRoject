@@ -260,6 +260,22 @@ export type StoredBooking = {
   stripe_session_id?: string;
   stripe_payment_intent?: string;
   stripe_refund_id?: string;
+  items_edited_at?: number | null;
+  prepaid_pence?: number;
+};
+export type BookingAdjustment = {
+  id: string;
+  shop_id: string;
+  booking_id: string;
+  staff_id: string;
+  kind: "DEPOSIT_REFUND";
+  pence: number;
+  label: string;
+  date: string;
+  stripe_refund_id: string;
+  pay_run_id: string | null;
+  created_by: string;
+  created_at: number;
 };
 export type AuditEvent = {
   id: string;
@@ -757,6 +773,20 @@ export const bookingDetailsSchema = z
     notes: z.string().trim().max(500),
     reason: z.string().trim().min(3).max(300),
     version,
+  })
+  .strict();
+// Edit the visit itself: service, add-ons, price per line, duration of the service line.
+// Prices/durations are optional overrides; omitted = current catalogue value for that barber.
+export const bookingItemsSchema = z
+  .object({
+    service_id: z.string().uuid(),
+    addon_ids: addonIdsSchema.default([]),
+    service_price_pence: z.number().int().min(0).max(1000000).optional(),
+    service_duration_min: z.number().int().min(5).max(480).refine((v) => v % 5 === 0, "Use 5-minute steps").optional(),
+    addon_prices: z.record(z.string().uuid(), z.number().int().min(0).max(1000000)).default({}),
+    reason: z.string().trim().min(3).max(300),
+    version,
+    force: z.boolean().default(false),
   })
   .strict();
 export const moveSchema = z

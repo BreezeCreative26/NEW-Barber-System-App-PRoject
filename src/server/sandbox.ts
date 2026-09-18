@@ -24,6 +24,7 @@ import {
   ruleMatrixSchema,
   type Customer,
   bookingDetailsSchema,
+  bookingItemsSchema,
   dayOffSchema,
   type StaffDayOff,
   dateSchema,
@@ -53,6 +54,7 @@ import {
   type ShopPage,
   type Payment,
   type PayRun,
+  type BookingAdjustment,
   weekday,
   type Shop,
   type Staff,
@@ -66,7 +68,7 @@ import {
 import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { optimiseImage } from "./images";
 import { drain, enqueue, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
-import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
+import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import QRCode from "qrcode";
 import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
@@ -237,7 +239,7 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" &&
         (path === "/bookings" ||
           /^\/bookings\/[^/]+\/(status|reschedule)$/.test(path))) ||
-      (method === "PATCH" && /^\/bookings\/[^/]+\/details$/.test(path));
+      (method === "PATCH" && /^\/bookings\/[^/]+\/(details|items)$/.test(path));
     const setup =
       (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist", "/shop/messaging", "/shop/payments"].includes(path)) ||
       (method === "POST" && ["/notifications/test", "/notifications/sweep", "/shop/payments/connect"].includes(path)) ||
@@ -2377,6 +2379,74 @@ sandbox.patch("/bookings/:id/details", async (c) => {
   );
   return c.json({ booking: await readBooking(c, b.id) });
 });
+// ---- Edit the visit: service, add-ons, price, duration -------------------------------------------
+// Rewrites the items snapshot under a transaction-local flag. Same roster/overlap checks as a
+// reschedule for the new end time (force works the same way). Refuses once the visit is paid or
+// closed. If the new total falls below a deposit already taken, the difference is refunded to the
+// card now and recovered from the barber's next pay run (owner decision).
+sandbox.patch("/bookings/:id/items", async (c) => {
+  const body = await input(c, bookingItemsSchema);
+  const b = await readBooking(c, c.req.param("id"));
+  if (b.version !== body.version) fail(409, "record_changed");
+  if (!["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(b.status)) fail(409, "Only open appointments can be edited");
+  const paid = await c.env.DB.prepare("SELECT id FROM payments WHERE shop_id=? AND booking_id=? AND voided_at IS NULL").bind(c.get("shopId"), b.id).first();
+  if (paid) fail(409, "This visit has been paid; adjust it as a refund instead");
+  const data = await availabilityContext(c, b.staff_id, body.service_id, b.date);
+  if (!data.service.active) fail(409, "service_unavailable");
+  if (data.rule?.enabled === 0) fail(409, "service_ineligible");
+  const quote = calculateQuote(data.service, data.rule, data.addons, data.links, body.addon_ids);
+  const items: BookingItem[] = quote.items.map((it, i) => {
+    if (i === 0)
+      return { ...it, price_pence: body.service_price_pence ?? it.price_pence, duration_min: body.service_duration_min ?? it.duration_min };
+    return { ...it, price_pence: body.addon_prices[it.id] ?? it.price_pence };
+  });
+  const price = items.reduce((n, it) => n + it.price_pence, 0);
+  const duration = items.reduce((n, it) => n + it.duration_min, 0);
+  const edited = items.some((it, i) => it.price_pence !== quote.items[i].price_pence || it.duration_min !== quote.items[i].duration_min);
+  // Roster + overlap for the new footprint (only re-checked when it grows or moves service).
+  const reason = duration !== b.duration_min || body.service_id !== b.service_id
+    ? slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, b.date, b.start_min, duration, 0, b.id, data.daysOff)
+    : "";
+  const overridden = !!reason && body.force && overridable(reason);
+  if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
+  const now = Date.now();
+  const start = localInstant(b.date, b.start_min, data.shop.timezone)!;
+  const before = JSON.parse(b.items_json) as BookingItem[];
+  const summary = `${b.service_name} £${(b.price_pence / 100).toFixed(2)} ${b.duration_min}min → ${items[0].name}${items.length > 1 ? ` +${items.length - 1}` : ""} £${(price / 100).toFixed(2)} ${duration}min`;
+  await c.env.DB.batch([
+    c.env.DB.prepare("SELECT set_config('ollo.edit_items', '1', true)"),
+    ...(overridden ? [forceSlot(c)] : []),
+    c.env.DB.prepare(
+      "UPDATE bookings SET service_id=?,service_name=?,price_pence=?,duration_min=?,items_json=?,end_at=?,items_edited_at=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
+    ).bind(body.service_id, items[0].name, price, duration, JSON.stringify(items), start + duration * 60000, edited ? now : null, now, c.get("shopId"), b.id, body.version),
+    audit(c, "booking", b.id, "ITEMS_UPDATED", `${summary}. ${body.reason}${overridden ? ` (overrode: ${reason})` : ""}`, true),
+  ]);
+  const fresh = await readBooking(c, b.id);
+  if (fresh.version === b.version) fail(409, "record_changed");
+  // Deposit reconciliation: re-priced below what the customer already paid → refund the difference now.
+  let refunded_pence = 0;
+  const depositPaid = b.deposit_status === "PAID" ? b.deposit_paid_pence ?? 0 : 0;
+  if (depositPaid > price) {
+    refunded_pence = depositPaid - price;
+    try {
+      // Card deposit through OLLO → partial refund on Stripe. Otherwise (preview mode / deposit taken
+      // by hand) the money is owed back in the shop; the adjustment still charges the barber.
+      const r = stripeLive() && b.stripe_payment_intent
+        ? await refundIntent(b.stripe_payment_intent, undefined, `refund-${b.id}-${b.version}`, refunded_pence)
+        : { id: "" };
+      await c.env.DB.batch([
+        c.env.DB.prepare("UPDATE bookings SET deposit_paid_pence=?, stripe_refund_id=?, updated_at=? WHERE shop_id=? AND id=?").bind(price, r.id, Date.now(), c.get("shopId"), b.id),
+        c.env.DB.prepare("INSERT INTO booking_adjustments (id,shop_id,booking_id,staff_id,kind,pence,label,date,stripe_refund_id,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+          .bind(crypto.randomUUID(), c.get("shopId"), b.id, b.staff_id, "DEPOSIT_REFUND", -refunded_pence, `Deposit refund · ${b.customer_name} · ${b.date}`, b.date, r.id, c.get("actor"), Date.now()),
+        audit(c, "booking", b.id, "DEPOSIT_REFUNDED", `£${(refunded_pence / 100).toFixed(2)} ${r.id ? "refunded to card" : "owed back to the customer (refund in the shop)"}: visit re-priced below the deposit. Recovered from ${data.staff.name}'s next pay run.`),
+      ]);
+    } catch (err) {
+      await c.env.DB.batch([audit(c, "booking", b.id, "DEPOSIT_REFUND_FAILED", `Refund of £${(refunded_pence / 100).toFixed(2)} failed: ${err instanceof Error ? err.message : "error"}. Refund from the Stripe dashboard.`)]);
+      refunded_pence = 0;
+    }
+  }
+  return c.json({ booking: await readBooking(c, b.id), before, refunded_pence });
+});
 sandbox.post("/bookings/:id/status", async (c) => {
   const body = await input(c, statusSchema);
   const b = await readBooking(c, c.req.param("id"));
@@ -2608,17 +2678,27 @@ export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: strin
   const terms = payTermsOf(staff);
   const periodDays = terms.pay_period === "WEEKLY" ? 7 : terms.pay_period === "FORTNIGHTLY" ? 14 : 30;
   const periods = Math.max(1, Math.round(days / periodDays));
+  // Deposit refunds caused by re-pricing a visit below the deposit: recovered from the barber here.
+  const openAdj = (await db.prepare("SELECT * FROM booking_adjustments WHERE shop_id=? AND staff_id=? AND pay_run_id IS NULL AND date<=?").bind(sid, staffId, to).all<BookingAdjustment>()).results;
   return {
     staff,
     terms,
     input: { service_pence: pay?.service ?? 0, tips_pence: pay?.tips ?? 0, visits: pay?.visits ?? 0, hours_x100: Math.round((minutes / 60) * 100), periods },
+    auto_adjustments: openAdj.map((a) => ({ label: a.label, pence: a.pence, adjustment_id: a.id })),
   };
+}
+// Merge operator adjustments with the automatic ones (deposit refunds) for a run.
+function withAuto(manual: { label: string; pence: number }[], auto: { label: string; pence: number; adjustment_id: string }[]) {
+  return [...auto.map(({ label, pence }) => ({ label, pence })), ...manual];
+}
+function claimAdjustments(db: D1Database, ids: string[], runId: string) {
+  return ids.length ? [db.prepare(`UPDATE booking_adjustments SET pay_run_id=? WHERE id IN (${ids.map(() => "?").join(",")}) AND pay_run_id IS NULL`).bind(runId, ...ids)] : [];
 }
 // Used by the sweep: draft a run for a barber/period with the same figures + split as the owner's
 // button, then approve it. Transfers are attempted by executeRun.
 export async function draftAndApproveRun(db: D1Database, shop: Shop, staff: Staff, from: string, to: string): Promise<PayRun | null> {
-  const { terms, input: figures } = await payRunFiguresDb(db, shop, staff.id, from, to);
-  const r = calculatePayRun(terms, figures, []);
+  const { terms, input: figures, auto_adjustments } = await payRunFiguresDb(db, shop, staff.id, from, to);
+  const r = calculatePayRun(terms, figures, withAuto([], auto_adjustments));
   const split = await splitFigures(db, shop.id, staff.id, from, to);
   if (!split.payment_ids.length) return null;
   const st = settlementFor(terms, r, split, { reserve_bps: shop.payrun_reserve_bps ?? 0, cashHeldBy: terms.pay_model === "CHAIR_RENT" ? "BARBER" : "SHOP" });
@@ -2629,9 +2709,10 @@ export async function draftAndApproveRun(db: D1Database, shop: Shop, staff: Staf
       db.prepare(
         `INSERT INTO pay_runs(id,shop_id,staff_id,period_from,period_to,pay_model,terms_json,service_pence,tips_pence,visits,hours_x100,commission_pence,base_pence,hourly_pence,tip_pence,rent_pence,adjustments_json,adjustments_pence,net_pence,status,note,created_by,created_at,updated_at,
            card_service_pence,card_tips_pence,cash_service_pence,cash_tips_pence,transfer_pence,shop_transfer_pence,reserve_pence,cash_residual_pence,transfer_group)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',0,?,'APPROVED','Automatic pay run',?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).bind(runId, shop.id, staff.id, from, to, terms.pay_model, JSON.stringify(terms), figures.service_pence, figures.tips_pence, figures.visits, figures.hours_x100, r.commission_pence, r.base_pence, r.hourly_pence, r.tip_pence, r.rent_pence, r.net_pence, "system", now, now,
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'APPROVED','Automatic pay run',?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).bind(runId, shop.id, staff.id, from, to, terms.pay_model, JSON.stringify(terms), figures.service_pence, figures.tips_pence, figures.visits, figures.hours_x100, r.commission_pence, r.base_pence, r.hourly_pence, r.tip_pence, r.rent_pence, JSON.stringify(withAuto([], auto_adjustments)), r.adjustments_pence, r.net_pence, "system", now, now,
         split.card_service_pence, split.card_tips_pence, split.cash_service_pence, split.cash_tips_pence, st.transfer_pence, st.shop_transfer_pence, st.reserve_pence, st.cash_residual_pence, `payrun_${runId}`),
+      ...claimAdjustments(db, auto_adjustments.map((a) => a.adjustment_id), runId),
       db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
         .bind(crypto.randomUUID(), shop.id, "pay_run", runId, "PAY_RUN_AUTO", "system", `${staff.name} ${from}..${to}: net ${r.net_pence}p · barber ${st.transfer_pence}p, shop ${st.shop_transfer_pence}p by Stripe · settle by hand ${st.cash_residual_pence}p`, now),
     ]);
@@ -2649,13 +2730,13 @@ sandbox.get("/pay-runs/preview", async (c) => {
   const q = z.object({ staff_id: z.string().uuid(), from: dateSchema, to: dateSchema }).safeParse(c.req.query());
   if (!q.success) fail(400, "Supply staff_id, from and to");
   scopeStaff(c, q.data!.staff_id);
-  const { terms, input } = await payRunFigures(c, q.data!.staff_id, q.data!.from, q.data!.to);
-  const result = calculatePayRun(terms, input);
+  const { terms, input, auto_adjustments } = await payRunFigures(c, q.data!.staff_id, q.data!.from, q.data!.to);
+  const result = calculatePayRun(terms, input, withAuto([], auto_adjustments));
   const shop = await readShop(c);
   const split = await splitFigures(c.env.DB, c.get("shopId"), q.data!.staff_id, q.data!.from, q.data!.to);
   const settlement = settlementFor(terms, result, split, { reserve_bps: shop.payrun_reserve_bps ?? 0, cashHeldBy: terms.pay_model === "CHAIR_RENT" ? "BARBER" : "SHOP" });
   const barberAcct = await c.env.DB.prepare("SELECT payouts_enabled FROM connected_accounts WHERE shop_id=? AND owner_type='STAFF' AND owner_id=?").bind(c.get("shopId"), q.data!.staff_id).first<{ payouts_enabled: number }>();
-  return c.json({ terms, input, result, split, settlement, payouts_ready: stripeLive() && !!barberAcct?.payouts_enabled });
+  return c.json({ terms, input, result, split, settlement, auto_adjustments, payouts_ready: stripeLive() && !!barberAcct?.payouts_enabled });
 });
 sandbox.get("/pay-runs", async (c) => {
   const a = c.get("account");
@@ -2669,8 +2750,9 @@ sandbox.get("/pay-runs", async (c) => {
 });
 sandbox.post("/pay-runs", async (c) => {
   const b = await input(c, payRunCreateSchema);
-  const { staff, terms, input: figures } = await payRunFigures(c, b.staff_id, b.period_from, b.period_to);
-  const r = calculatePayRun(terms, figures, b.adjustments);
+  const { staff, terms, input: figures, auto_adjustments } = await payRunFigures(c, b.staff_id, b.period_from, b.period_to);
+  const allAdjustments = withAuto(b.adjustments, auto_adjustments);
+  const r = calculatePayRun(terms, figures, allAdjustments);
   const shopRow = await readShop(c);
   const split = await splitFigures(c.env.DB, c.get("shopId"), staff.id, b.period_from, b.period_to);
   const st = settlementFor(terms, r, split, { reserve_bps: shopRow.payrun_reserve_bps ?? 0, cashHeldBy: terms.pay_model === "CHAIR_RENT" ? "BARBER" : "SHOP" });
@@ -2682,8 +2764,9 @@ sandbox.post("/pay-runs", async (c) => {
         `INSERT INTO pay_runs(id,shop_id,staff_id,period_from,period_to,pay_model,terms_json,service_pence,tips_pence,visits,hours_x100,commission_pence,base_pence,hourly_pence,tip_pence,rent_pence,adjustments_json,adjustments_pence,net_pence,status,note,created_by,created_at,updated_at,
            card_service_pence,card_tips_pence,cash_service_pence,cash_tips_pence,transfer_pence,shop_transfer_pence,reserve_pence,cash_residual_pence,transfer_group)
          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).bind(runId, c.get("shopId"), staff.id, b.period_from, b.period_to, terms.pay_model, JSON.stringify(terms), figures.service_pence, figures.tips_pence, figures.visits, figures.hours_x100, r.commission_pence, r.base_pence, r.hourly_pence, r.tip_pence, r.rent_pence, JSON.stringify(b.adjustments), r.adjustments_pence, r.net_pence, b.note, c.get("actor"), now, now,
+      ).bind(runId, c.get("shopId"), staff.id, b.period_from, b.period_to, terms.pay_model, JSON.stringify(terms), figures.service_pence, figures.tips_pence, figures.visits, figures.hours_x100, r.commission_pence, r.base_pence, r.hourly_pence, r.tip_pence, r.rent_pence, JSON.stringify(allAdjustments), r.adjustments_pence, r.net_pence, b.note, c.get("actor"), now, now,
         split.card_service_pence, split.card_tips_pence, split.cash_service_pence, split.cash_tips_pence, st.transfer_pence, st.shop_transfer_pence, st.reserve_pence, st.cash_residual_pence, `payrun_${runId}`),
+      ...claimAdjustments(c.env.DB, auto_adjustments.map((a) => a.adjustment_id), runId),
       audit(c, "pay_run", runId, "PAY_RUN_CREATED", `${staff.name} ${b.period_from}..${b.period_to} net ${r.net_pence}p · card ${split.card_service_pence + split.card_tips_pence}p → barber ${st.transfer_pence}p, shop ${st.shop_transfer_pence}p · settle by hand ${st.cash_residual_pence}p`),
     ]);
   } catch (e) {

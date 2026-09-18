@@ -109,8 +109,8 @@ export async function retrieveSession(sessionId: string, account?: string) {
 export async function expireSession(sessionId: string, account?: string) {
   return stripe<CheckoutSession>(`/checkout/sessions/${encodeURIComponent(sessionId)}/expire`, {}, { account });
 }
-export async function refundIntent(paymentIntent: string, account?: string, idempotency?: string) {
-  return stripe<{ id: string; status: string }>("/refunds", { payment_intent: paymentIntent }, { account, idempotency });
+export async function refundIntent(paymentIntent: string, account?: string, idempotency?: string, amountPence?: number) {
+  return stripe<{ id: string; status: string }>("/refunds", { payment_intent: paymentIntent, ...(amountPence ? { amount: amountPence } : {}) }, { account, idempotency });
 }
 
 // ---- Connect platform: Express accounts for shops AND barbers ------------------------------------
