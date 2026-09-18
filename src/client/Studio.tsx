@@ -461,6 +461,7 @@ const serviceForm = (service: Service | null, fallbackCategory: string) => ({
   price_pence: service?.price_pence ?? 2800,
   colour: service?.colour || "sage",
   online_bookable: service ? service.online_bookable : 1,
+  payment_mode: (service?.payment_mode ?? null) as "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" | null,
   popular: service?.popular ?? 0,
   active: service ? service.active : 1,
   sort_order: service?.sort_order ?? 0,
@@ -489,6 +490,7 @@ function ServiceEditor({ w, api, service, onClose, onSaved }: { w: WorkspaceData
         price_pence: service.price_pence,
         colour: service.colour,
         online_bookable: service.online_bookable,
+        payment_mode: service.payment_mode ?? null,
         popular: service.popular,
         active: service.active,
         sort_order: service.sort_order,
@@ -594,6 +596,15 @@ function ServiceEditor({ w, api, service, onClose, onSaved }: { w: WorkspaceData
               </span>
               <label className="switch"><input type="checkbox" checked={!!form.online_bookable} onChange={(e) => setForm({ ...form, online_bookable: e.target.checked ? 1 : 0 })} aria-label="Bookable online" /><span /></label>
             </div>
+            <label className="workspace-field">
+              <span>Payment when booked online</span>
+              <select value={form.payment_mode ?? ""} onChange={(e) => setForm({ ...form, payment_mode: (e.target.value || null) as "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" | null })} data-testid="service-payment-mode">
+                <option value="">Shop default (Settings → Payments)</option>
+                <option value="DEPOSIT">Deposit at booking</option>
+                <option value="PREPAY">Pay in full at booking</option>
+                <option value="PAY_AT_VISIT">Pay at the visit</option>
+              </select>
+            </label>
             <div className="switch-row">
               <span>
                 <strong>Mark as popular</strong>

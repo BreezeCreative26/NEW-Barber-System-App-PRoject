@@ -23,6 +23,7 @@ export type PublicShop = {
     closed_days: number[];
     deposit_pence: number;
     deposit_online?: boolean;
+    payment_mode?: "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT";
     deposit_hold_min?: number;
     cancel_hours: number;
     lead_time_min: number;
@@ -40,6 +41,7 @@ export type PublicShop = {
     description?: string;
     colour?: string;
     popular?: number;
+    payment_mode?: "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" | null;
   }[];
   addons: { id: string; name: string; price_pence: number; duration_min: number }[];
   addon_links: { addon_id: string; service_id: string }[];
@@ -566,8 +568,12 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   const price = chosenSlot?.price_pence ?? (anyBarber ? est.price : availability?.price_pence ?? est.price);
   const priceTo = chosenSlot?.price_pence ?? (anyBarber ? est.priceTo : price);
   const duration = chosenSlot?.duration_min ?? availability?.duration_min ?? est.duration;
-  const deposit = Math.min(shop.shop.deposit_pence, price);
+  // Payment mode: the chosen service may override the shop's default.
+  const payMode: "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" =
+    (shop.services.find((s) => s.id === service)?.payment_mode as "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" | null | undefined) || shop.shop.payment_mode || "DEPOSIT";
+  const deposit = payMode === "PREPAY" ? price : payMode === "PAY_AT_VISIT" ? 0 : Math.min(shop.shop.deposit_pence, price);
   const depositOnline = !!shop.shop.deposit_online && deposit > 0;
+  const upfrontLabel = payMode === "PREPAY" ? "Pay now" : "Deposit";
   const priceLabel = price === priceTo ? money(price) : `${money(price)}–${money(priceTo)}`;
   const openSlots = (availability?.slots || []).filter((s) => s.available);
   const inDaypart = (m: number, part: string) =>
@@ -1250,9 +1256,15 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                     <strong>Plans change.</strong> Cancel or move online at least{" "}
                     {availability?.cancel_hours ?? shop.shop.cancel_hours} hours ahead. You’ll get a
                     manage link after confirming.{" "}
-                    {depositOnline
-                      ? `A ${money(deposit)} deposit is taken by card next; it comes off your bill and is refunded if you cancel in time.`
-                      : `Deposit policy ${money(deposit)}, payable in the shop.`}
+                    {payMode === "PAY_AT_VISIT"
+                      ? "Nothing to pay now — settle up in the shop."
+                      : payMode === "PREPAY"
+                        ? depositOnline
+                          ? `The full ${money(deposit)} is taken by card next; it's refunded if you cancel in time.`
+                          : `Payment of ${money(deposit)} is taken in the shop.`
+                        : depositOnline
+                          ? `A ${money(deposit)} deposit is taken by card next; it comes off your bill and is refunded if you cancel in time.`
+                          : `Deposit policy ${money(deposit)}, payable in the shop.`}
                   </Notice>
                   {saveError && (
                     <p className="workspace-error" role="alert">
@@ -1406,14 +1418,16 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   <span>Total</span>
                   <strong>{priceLabel}</strong>
                 </p>
-                <p className="deposit-line">
-                  <span>
-                    Deposit<small>{depositOnline ? "By card now" : "Payable in the shop"}</small>
-                  </span>
-                  <strong>{money(deposit)}</strong>
-                </p>
+                {payMode !== "PAY_AT_VISIT" && (
+                  <p className="deposit-line" data-testid="upfront-line">
+                    <span>
+                      {upfrontLabel}<small>{depositOnline ? "By card now" : "Payable in the shop"}</small>
+                    </span>
+                    <strong>{money(deposit)}</strong>
+                  </p>
+                )}
                 <p className="remaining-line">
-                  <span>Pay in the shop</span>
+                  <span>{payMode === "PREPAY" && depositOnline ? "Left to pay in the shop" : "Pay in the shop"}</span>
                   <strong>{depositOnline ? (price === priceTo ? money(price - deposit) : `${money(price - deposit)}–${money(priceTo - deposit)}`) : priceLabel}</strong>
                 </p>
               </div>
@@ -1504,12 +1518,16 @@ function ConfirmationCard({
         <p>
           Total {money(booking.price_pence)}.{" "}
           {booking.deposit_status === "PAID"
-            ? `Deposit ${money(booking.deposit_paid_pence ?? 0)} paid by card · ${money(booking.price_pence - (booking.deposit_paid_pence ?? 0))} to pay in the shop.`
+            ? (booking.deposit_paid_pence ?? 0) >= booking.price_pence
+              ? "Paid in full by card. Nothing to pay in the shop."
+              : `Deposit ${money(booking.deposit_paid_pence ?? 0)} paid by card · ${money(booking.price_pence - (booking.deposit_paid_pence ?? 0))} to pay in the shop.`
             : booking.deposit_status === "REFUNDED"
-              ? `Deposit ${money(booking.deposit_paid_pence ?? 0)} refunded to your card.`
+              ? `${money(booking.deposit_paid_pence ?? 0)} refunded to your card.`
               : booking.deposit_status === "PENDING"
-                ? `Deposit ${money(booking.deposit_policy_pence)} due by card to secure this time.`
-                : `Pay in the shop · deposit policy ${money(booking.deposit_policy_pence)}.`}
+                ? `${booking.deposit_policy_pence >= booking.price_pence ? "Payment" : "Deposit"} ${money(booking.deposit_policy_pence)} due by card to secure this time.`
+                : booking.deposit_policy_pence > 0
+                  ? `Pay in the shop · deposit policy ${money(booking.deposit_policy_pence)}.`
+                  : "Pay in the shop."}
         </p>
       </section>
       {link ? (
@@ -1720,9 +1738,9 @@ export function ManageBooking({ token }: { token: string }) {
           {booking.deposit_status === "PENDING" && payUrl && (
             <Notice icon="card">
               <span>
-                <strong>Deposit {money(booking.deposit_policy_pence)} due.</strong> Pay by card to keep this time.{" "}
+                <strong>{booking.deposit_policy_pence >= booking.price_pence ? "Payment" : "Deposit"} {money(booking.deposit_policy_pence)} due.</strong> Pay by card to keep this time.{" "}
                 <a className="public-manage-link" href={payUrl} data-testid="pay-deposit">
-                  Pay deposit
+                  {booking.deposit_policy_pence >= booking.price_pence ? "Pay now" : "Pay deposit"}
                 </a>
               </span>
             </Notice>

@@ -41,6 +41,8 @@ import {
   shopToday,
   slotReason,
   overridable,
+  dueAtBooking,
+  paymentModeFor,
   staffSchema,
   statusSchema,
   checkoutSchema,
@@ -1204,7 +1206,7 @@ sandbox.get("/shop/payments", async (c) => {
   return c.json({
     stripe: stripeStatus(),
     platform: { fee_bps: policy.fee_bps, fee_fixed_pence: policy.fee_fixed_pence, fast_payouts: policy.fast_payouts },
-    settings: { deposits_online: shop.deposits_online ?? 0, deposit_hold_min: shop.deposit_hold_min ?? 15, deposit_pence: shop.deposit_pence, payout_tier: shop.payout_tier ?? "STANDARD", payrun_auto: shop.payrun_auto ?? "OFF", payrun_reserve_bps: shop.payrun_reserve_bps ?? 0 },
+    settings: { deposits_online: shop.deposits_online ?? 0, deposit_hold_min: shop.deposit_hold_min ?? 15, payment_mode: shop.payment_mode ?? "DEPOSIT", deposit_pence: shop.deposit_pence, payout_tier: shop.payout_tier ?? "STANDARD", payrun_auto: shop.payrun_auto ?? "OFF", payrun_reserve_bps: shop.payrun_reserve_bps ?? 0 },
     shop_account: mine ? null : shopAcct && { ...shopAcct, state: accountState(shopAcct) },
     barbers: staff
       .filter((st) => !mine || st.id === mine)
@@ -1221,6 +1223,7 @@ const paymentsSchema = z
   .object({
     deposits_online: z.union([z.literal(0), z.literal(1)]),
     deposit_hold_min: z.number().int().min(5).max(120),
+    payment_mode: z.enum(["PREPAY", "DEPOSIT", "PAY_AT_VISIT"]).default("DEPOSIT"),
     payout_tier: z.enum(["STANDARD", "FAST"]).default("STANDARD"),
     payrun_auto: z.enum(["OFF", "DAILY", "WEEKLY"]).default("OFF"),
     payrun_reserve_bps: z.number().int().min(0).max(5000).default(0),
@@ -1231,13 +1234,14 @@ sandbox.put("/shop/payments", async (c) => {
   const b = await input(c, paymentsSchema);
   const shop = await readShop(c);
   if (b.deposits_online && !stripeLive()) fail(409, "Card payments are not switched on for OLLO yet");
-  if (b.deposits_online && shop.deposit_pence <= 0) fail(409, "Set a deposit amount above zero first");
+  if (b.deposits_online && b.payment_mode === "DEPOSIT" && shop.deposit_pence <= 0) fail(409, "Set a deposit amount above zero first");
+  if (b.payment_mode === "PREPAY" && !b.deposits_online) fail(409, "Pre-payment needs card payments at booking switched on");
   if (b.payrun_auto !== "OFF" && !stripeLive()) fail(409, "Automatic pay runs need card payments switched on");
   const policy = await platformPolicy(c.env.DB);
   if (b.payout_tier === "FAST" && !policy.fast_payouts) fail(409, "Fast payouts are not available on this plan");
   await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE shops SET deposits_online=?, deposit_hold_min=?, payout_tier=?, payrun_auto=?, payrun_reserve_bps=?, version=version+1 WHERE id=?").bind(b.deposits_online, b.deposit_hold_min, b.payout_tier, b.payrun_auto, b.payrun_reserve_bps, shop.id),
-    audit(c, "shop", shop.id, "PAYMENTS_UPDATED", `Deposits by card ${b.deposits_online ? `on (hold ${b.deposit_hold_min} min)` : "off"}; payouts ${b.payout_tier.toLowerCase()}; auto pay runs ${b.payrun_auto.toLowerCase()}; reserve ${b.payrun_reserve_bps / 100}%.`),
+    c.env.DB.prepare("UPDATE shops SET deposits_online=?, deposit_hold_min=?, payment_mode=?, payout_tier=?, payrun_auto=?, payrun_reserve_bps=?, version=version+1 WHERE id=?").bind(b.deposits_online, b.deposit_hold_min, b.payment_mode, b.payout_tier, b.payrun_auto, b.payrun_reserve_bps, shop.id),
+    audit(c, "shop", shop.id, "PAYMENTS_UPDATED", `Online payment: ${b.payment_mode.toLowerCase().replace(/_/g, " ")}; deposits by card ${b.deposits_online ? `on (hold ${b.deposit_hold_min} min)` : "off"}; payouts ${b.payout_tier.toLowerCase()}; auto pay runs ${b.payrun_auto.toLowerCase()}; reserve ${b.payrun_reserve_bps / 100}%.`),
   ]);
   return c.json({ ok: true, settings: b });
 });
@@ -1739,7 +1743,7 @@ sandbox.post("/services", async (c) => {
   const serviceId = id();
   await c.env.DB.batch([
     c.env.DB.prepare(
-      "INSERT INTO services(id,shop_id,name,category,duration_min,price_pence,active,description,colour,online_bookable,popular,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO services(id,shop_id,name,category,duration_min,price_pence,active,description,colour,online_bookable,popular,sort_order,payment_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
     ).bind(
       serviceId,
       c.get("shopId"),
@@ -1753,6 +1757,7 @@ sandbox.post("/services", async (c) => {
       b.online_bookable,
       b.popular,
       b.sort_order,
+      b.payment_mode,
     ),
     audit(c, "service", serviceId, "SERVICE_CREATED"),
   ]);
@@ -1779,7 +1784,7 @@ sandbox.put("/services/:id", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE services SET name=?,category=?,duration_min=?,price_pence=?,active=?,description=?,colour=?,online_bookable=?,popular=?,sort_order=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
+      "UPDATE services SET name=?,category=?,duration_min=?,price_pence=?,active=?,description=?,colour=?,online_bookable=?,popular=?,sort_order=?,payment_mode=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
     ).bind(
       b.name,
       b.category,
@@ -1791,6 +1796,7 @@ sandbox.put("/services/:id", async (c) => {
       b.online_bookable,
       b.popular,
       b.sort_order,
+      b.payment_mode,
       c.get("shopId"),
       c.req.param("id"),
       b.version,
@@ -2186,7 +2192,7 @@ sandbox.get("/availability", async (c) => {
     service_name: booking?.service_name ?? data.service.name,
     deposit_policy_pence:
       booking?.deposit_policy_pence ??
-      Math.min(data.shop.deposit_pence, quote.price_pence),
+      dueAtBooking(data.shop, data.service, quote.price_pence),
     cancel_hours: booking?.cancel_hours_snapshot ?? data.shop.cancel_hours,
     timezone: data.shop.timezone,
     quote: {
@@ -2282,8 +2288,8 @@ export async function createBooking(
   const now = Date.now();
   const bookingId = id();
   const statement = c.env.DB.prepare(
-    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id,deposit_status,deposit_hold_until)
-  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
+    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id,deposit_status,deposit_hold_until,payment_mode)
+  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
   ).bind(
     bookingId,
     sid,
@@ -2301,7 +2307,7 @@ export async function createBooking(
     quote.duration_min,
     data.service.name,
     quote.price_pence,
-    Math.min(data.shop.deposit_pence, quote.price_pence),
+    dueAtBooking(data.shop, data.service, quote.price_pence),
     data.shop.cancel_hours,
     b.source,
     now,
@@ -2316,8 +2322,9 @@ export async function createBooking(
     attendee_name || "",
     options.groupId ?? null,
     // Online deposit: the slot is held as PENDING until Stripe confirms or the hold lapses.
-    options.depositHoldMin && Math.min(data.shop.deposit_pence, quote.price_pence) > 0 ? "PENDING" : "NONE",
-    options.depositHoldMin && Math.min(data.shop.deposit_pence, quote.price_pence) > 0 ? now + options.depositHoldMin * 60000 : null,
+    options.depositHoldMin && dueAtBooking(data.shop, data.service, quote.price_pence) > 0 ? "PENDING" : "NONE",
+    options.depositHoldMin && dueAtBooking(data.shop, data.service, quote.price_pence) > 0 ? now + options.depositHoldMin * 60000 : null,
+    paymentModeFor(data.shop, data.service),
     sid,
   );
   try {

@@ -1,5 +1,18 @@
 import { z } from "zod";
 
+// How a visit is paid for when booked online. Shop default; a service may override.
+export type PaymentMode = "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT";
+export const PAYMENT_MODES: PaymentMode[] = ["PREPAY", "DEPOSIT", "PAY_AT_VISIT"];
+export function paymentModeFor(shop: Pick<Shop, "payment_mode">, service?: Pick<Service, "payment_mode"> | null): PaymentMode {
+  return (service?.payment_mode as PaymentMode | null | undefined) || shop.payment_mode || "DEPOSIT";
+}
+// Amount due up front for a visit (what deposit_policy_pence records). Mirrors ollo_due_at_booking().
+export function dueAtBooking(shop: Pick<Shop, "payment_mode" | "deposit_pence">, service: Pick<Service, "payment_mode"> | null | undefined, pricePence: number): number {
+  const mode = paymentModeFor(shop, service);
+  if (mode === "PREPAY") return pricePence;
+  if (mode === "PAY_AT_VISIT") return 0;
+  return Math.min(shop.deposit_pence, pricePence);
+}
 export type Shop = {
   id: string;
   name: string;
@@ -23,6 +36,7 @@ export type Shop = {
   stripe_account_id?: string;
   deposits_online?: number;
   deposit_hold_min?: number;
+  payment_mode?: PaymentMode;
   payout_tier?: "STANDARD" | "FAST";
   payrun_auto?: "OFF" | "DAILY" | "WEEKLY";
   payrun_reserve_bps?: number;
@@ -151,6 +165,7 @@ export type Service = {
   description: string;
   colour: string;
   online_bookable: number;
+  payment_mode?: PaymentMode | null;
   popular: number;
   sort_order: number;
 };
@@ -261,7 +276,7 @@ export type StoredBooking = {
   stripe_payment_intent?: string;
   stripe_refund_id?: string;
   items_edited_at?: number | null;
-  prepaid_pence?: number;
+  payment_mode?: PaymentMode;
 };
 export type BookingAdjustment = {
   id: string;
@@ -400,6 +415,7 @@ export const serviceSchema = z
     description: z.string().trim().max(400).default(""),
     colour: colourSchema.default("sage"),
     online_bookable: active.default(1),
+    payment_mode: z.enum(["PREPAY", "DEPOSIT", "PAY_AT_VISIT"]).nullable().default(null),
     popular: active.default(0),
     sort_order: z.number().int().min(0).max(999).default(0),
   })

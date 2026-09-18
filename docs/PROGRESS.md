@@ -556,3 +556,8 @@ calendar.spec.ts:119, :621, :679 · catalogue.spec.ts:403 · public.spec.ts:610 
 Pointer drag with 15-min snap + tick + live time label, sideways barber moves, hover slot time, greyed-but-clickable cells with override notice, Fresha-style deliberate double-booking (`force:true`, owner only, DB flag `ollo.force_slot` in migration 0010), overlap lanes. Tests in `tests/calendar-drag.spec.ts`.
 
 **Remaining from the owner's brief** (all specified in `docs/CALENDAR_PLAN.md`, decisions locked): Phase 2 in-place service/price/duration edit with deposit auto-refund charged to the barber's wallet; payment modes PREPAY / DEPOSIT / PAY_AT_VISIT per shop + per service; Phase 3 scheduled team, `staff_blocks` with reason, block → notify customers by contact preference (barbers may do this); Phase 4 resize/now-line/undo; rewrite of the 7 legacy Playwright tests listed above.
+
+## Phase 2 + payment modes shipped (2026-09-18)
+In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, migration 0011) with deposit over-payment auto-refunded and charged to the barber's pay run via `booking_adjustments`. Payment modes PREPAY / DEPOSIT / PAY_AT_VISIT per shop with per-service override (migration 0012), honoured by public booking, manage page, Stripe session and Checkout. Tests: `tests/edit-items.spec.ts`; drag/payments/payouts suites still green (14 passed).
+
+**Still to do** (specified in `docs/CALENDAR_PLAN.md`): Phase 3 scheduled team + `staff_blocks` + block→notify by contact preference; Phase 4 resize/undo/icons; update the 11 known-failing tests (7 legacy + 4 from Phase 1's intended behaviour change).

@@ -39,6 +39,7 @@ CREATE TABLE shops (
   -- stays held while the customer pays.
   stripe_account_id TEXT NOT NULL DEFAULT '', deposits_online INTEGER NOT NULL DEFAULT 0, deposit_hold_min INTEGER NOT NULL DEFAULT 15,
   CONSTRAINT shops_deposits_check CHECK (deposits_online IN (0,1) AND deposit_hold_min BETWEEN 5 AND 120),
+  payment_mode TEXT NOT NULL DEFAULT 'DEPOSIT' CHECK (payment_mode IN ('PREPAY','DEPOSIT','PAY_AT_VISIT')),
   -- Payouts: STANDARD waits for settlement, FAST transfers against the platform float; payrun_auto
   -- approves+transfers runs on a schedule; reserve held back against disputes (basis points).
   payout_tier TEXT NOT NULL DEFAULT 'STANDARD', payrun_auto TEXT NOT NULL DEFAULT 'OFF', payrun_reserve_bps INTEGER NOT NULL DEFAULT 0,
@@ -90,6 +91,7 @@ CREATE TABLE services (
   description TEXT NOT NULL DEFAULT '',
   colour TEXT NOT NULL DEFAULT 'sage' CHECK(colour IN ('sage','sand','blue','clay','plum','slate')),
   online_bookable INTEGER NOT NULL DEFAULT 1 CHECK(online_bookable IN (0,1)),
+  payment_mode TEXT CHECK (payment_mode IS NULL OR payment_mode IN ('PREPAY','DEPOSIT','PAY_AT_VISIT')),
   popular INTEGER NOT NULL DEFAULT 0 CHECK(popular IN (0,1)),
   sort_order INTEGER NOT NULL DEFAULT 0,
   UNIQUE(shop_id,id)
@@ -313,6 +315,7 @@ CREATE TABLE bookings (
   group_id TEXT,
   -- Online deposit lifecycle: NONE, PENDING (held, awaiting card), PAID, REFUNDED, EXPIRED (hold lapsed).
   deposit_status TEXT NOT NULL DEFAULT 'NONE' CHECK (deposit_status IN ('NONE','PENDING','PAID','REFUNDED','EXPIRED')),
+  payment_mode TEXT NOT NULL DEFAULT 'DEPOSIT' CHECK (payment_mode IN ('PREPAY','DEPOSIT','PAY_AT_VISIT')),
   deposit_paid_pence INTEGER NOT NULL DEFAULT 0,
   deposit_hold_until BIGINT,
   stripe_session_id TEXT NOT NULL DEFAULT '',
@@ -734,10 +737,15 @@ BEGIN
   ) THEN PERFORM ollo_abort('slot_taken'); END IF;
 END $$;
 
+CREATE OR REPLACE FUNCTION ollo_due_at_booking(shop_mode TEXT, service_mode TEXT, deposit INTEGER, price INTEGER) RETURNS INTEGER LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE COALESCE(service_mode, shop_mode)
+    WHEN 'PREPAY' THEN price
+    WHEN 'PAY_AT_VISIT' THEN 0
+    ELSE LEAST(deposit, price) END $$;
+
 CREATE OR REPLACE FUNCTION ollo_validate_booking_insert() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE items jsonb; first jsonb;
 BEGIN
-  -- Items snapshot must be a non-empty array whose head is the service and whose totals match.
   BEGIN items := NEW.items_json::jsonb; EXCEPTION WHEN others THEN PERFORM ollo_abort('invalid_booking_items'); END;
   IF jsonb_typeof(items)<>'array' OR jsonb_array_length(items) NOT BETWEEN 1 AND 11 THEN PERFORM ollo_abort('invalid_booking_items'); END IF;
   first := items->0;
@@ -762,10 +770,12 @@ BEGIN
         WHERE a.shop_id=NEW.shop_id AND a.id=v->>'id' AND a.active=1 AND l.service_id=NEW.service_id
           AND a.name=v->>'name' AND a.price_pence=(v->>'price_pence')::int AND a.duration_min=(v->>'duration_min')::int))
   ) THEN PERFORM ollo_abort('addon_unavailable'); END IF;
-  -- Quote must match the current service and shop versions and policy snapshot.
   IF NOT EXISTS (SELECT 1 FROM services WHERE id=NEW.service_id AND shop_id=NEW.shop_id AND version=NEW.quoted_service_version) THEN PERFORM ollo_abort('quote_changed'); END IF;
-  IF NOT EXISTS (SELECT 1 FROM shops WHERE id=NEW.shop_id AND version=NEW.quoted_shop_version
-                 AND LEAST(deposit_pence, NEW.price_pence)=NEW.deposit_policy_pence AND cancel_hours=NEW.cancel_hours_snapshot) THEN PERFORM ollo_abort('quote_changed'); END IF;
+  IF NOT EXISTS (SELECT 1 FROM shops sh JOIN services sv ON sv.id=NEW.service_id AND sv.shop_id=sh.id
+                 WHERE sh.id=NEW.shop_id AND sh.version=NEW.quoted_shop_version
+                   AND ollo_due_at_booking(sh.payment_mode, sv.payment_mode, sh.deposit_pence, NEW.price_pence)=NEW.deposit_policy_pence
+                   AND COALESCE(sv.payment_mode, sh.payment_mode)=NEW.payment_mode
+                   AND sh.cancel_hours=NEW.cancel_hours_snapshot) THEN PERFORM ollo_abort('quote_changed'); END IF;
   PERFORM ollo_booking_slot_checks(NEW);
   RETURN NEW;
 END $$;

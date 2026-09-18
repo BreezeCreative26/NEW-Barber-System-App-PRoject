@@ -89,7 +89,7 @@ export function Checkout({
         </div>
         {depositCredit > 0 && (
           <div data-testid="checkout-deposit">
-            <dt>Deposit paid by card at booking</dt>
+            <dt>{depositCredit >= booking.price_pence ? "Paid in full by card at booking" : "Deposit paid by card at booking"}</dt>
             <dd>− {money(depositCredit)}</dd>
           </div>
         )}

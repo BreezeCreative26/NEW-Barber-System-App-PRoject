@@ -11,6 +11,8 @@ import {
   ref,
   shopToday,
   slotReason,
+  dueAtBooking,
+  paymentModeFor,
   weekday,
   type Addon,
   type AddonLink,
@@ -140,6 +142,7 @@ const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   deposit_pence: s.deposit_pence,
   // True when the deposit is taken by card at booking time (shop toggle + Stripe configured).
   deposit_online: depositsOnline(s),
+  payment_mode: s.payment_mode ?? "DEPOSIT",
   deposit_hold_min: s.deposit_hold_min ?? 15,
   cancel_hours: s.cancel_hours,
   lead_time_min: s.lead_time_min,
@@ -155,7 +158,7 @@ pub.get("/shops/:slug", async (c) => {
       "SELECT id,name,role,title,bio,colour,photo_url,skills,instagram FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name",
     ).bind(sid),
     c.env.DB.prepare(
-      "SELECT id,name,category,duration_min,price_pence,version,description,colour,popular FROM services WHERE shop_id=? AND active=1 AND online_bookable=1 ORDER BY popular DESC,sort_order,category,name",
+      "SELECT id,name,category,duration_min,price_pence,version,description,colour,popular,payment_mode FROM services WHERE shop_id=? AND active=1 AND online_bookable=1 ORDER BY popular DESC,sort_order,category,name",
     ).bind(sid),
     c.env.DB.prepare(
       "SELECT id,name,price_pence,duration_min FROM addons WHERE shop_id=? AND active=1 ORDER BY name",
@@ -491,7 +494,8 @@ pub.get("/shops/:slug/availability", async (c) => {
     price_pence: quote.price_pence,
     items: quote.items,
     overridden: !!rule && (rule.price_pence != null || rule.duration_min != null),
-    deposit_policy_pence: Math.min(shop.deposit_pence, quote.price_pence),
+    deposit_policy_pence: dueAtBooking(shop, ctx.service, quote.price_pence),
+    payment_mode: paymentModeFor(shop, ctx.service),
     cancel_hours: shop.cancel_hours,
     timezone: shop.timezone,
     quote: { service_version: ctx.service.version, shop_version: shop.version },
@@ -655,7 +659,7 @@ pub.post("/manage/:token/deposit/confirm", async (c) => {
   if (!booking.stripe_session_id || !stripeLive()) return c.json({ booking: customerView(booking, shop, staffName), changed: false });
   const s = await retrieveSession(booking.stripe_session_id).catch(() => null);
   if (s?.payment_status === "paid") {
-    const changed = await markDepositPaid(c.env.DB, shop.id, booking.id, Math.min(shop.deposit_pence, booking.price_pence), typeof s.payment_intent === "string" ? s.payment_intent : "", s.id);
+    const changed = await markDepositPaid(c.env.DB, shop.id, booking.id, booking.deposit_policy_pence, typeof s.payment_intent === "string" ? s.payment_intent : "", s.id);
     if (changed) await afterDepositPaid(c, shop.id, booking.id);
   } else if (s?.status === "expired") {
     await expireHolds(c.env.DB);

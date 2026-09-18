@@ -37,9 +37,11 @@ export function stripeStatus(): StripeStatus {
 
 // Whether this shop can take a deposit online right now: toggled on, a deposit amount, live keys, and
 // (with Connect) a connected account.
-export function depositsOnline(shop: Pick<Shop, "deposits_online" | "deposit_pence" | "stripe_account_id">) {
+export function depositsOnline(shop: Pick<Shop, "deposits_online" | "deposit_pence" | "stripe_account_id" | "payment_mode">) {
   if (!stripeLive()) return false;
-  if ((shop.deposits_online ?? 0) !== 1 || shop.deposit_pence <= 0) return false;
+  if ((shop.deposits_online ?? 0) !== 1) return false;
+  // PREPAY takes the full price so a zero deposit is fine; DEPOSIT needs an amount.
+  if ((shop.payment_mode ?? "DEPOSIT") === "DEPOSIT" && shop.deposit_pence <= 0) return false;
   return true;
 }
 
@@ -77,7 +79,10 @@ export type CheckoutSession = { id: string; url: string; payment_intent?: string
 // Create a Checkout session for the booking's deposit. The slot is already held (booking row exists
 // with deposit_status=PENDING); Checkout returns to the manage page which confirms.
 export async function createDepositSession(shop: Shop, booking: StoredBooking, origin: string, manageToken: string, holdMinutes: number) {
-  const amount = Math.min(shop.deposit_pence, booking.price_pence);
+  // deposit_policy_pence already reflects the payment mode: full price for PREPAY, the shop's
+  // deposit otherwise (never more than the price).
+  const amount = Math.min(booking.deposit_policy_pence || Math.min(shop.deposit_pence, booking.price_pence), booking.price_pence);
+  const prepay = amount >= booking.price_pence;
   const currency = (shop.currency || "GBP").toLowerCase();
   const manage = `${origin}/manage/${manageToken}`;
   const expires = Math.floor(Date.now() / 1000) + Math.max(30, holdMinutes) * 60; // Stripe minimum 30 min
@@ -86,7 +91,7 @@ export async function createDepositSession(shop: Shop, booking: StoredBooking, o
     "line_items[0][quantity]": 1,
     "line_items[0][price_data][currency]": currency,
     "line_items[0][price_data][unit_amount]": amount,
-    "line_items[0][price_data][product_data][name]": `Deposit · ${booking.service_name}`,
+    "line_items[0][price_data][product_data][name]": `${prepay ? "Payment" : "Deposit"} · ${booking.service_name}`,
     "line_items[0][price_data][product_data][description]": `${shop.name} · ${booking.date} · ref ${booking.id.slice(0, 6).toUpperCase()}`,
     success_url: `${manage}?paid=1&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${manage}?paid=0`,
@@ -96,7 +101,7 @@ export async function createDepositSession(shop: Shop, booking: StoredBooking, o
     "metadata[booking_id]": booking.id,
     "payment_intent_data[metadata][shop_id]": shop.id,
     "payment_intent_data[metadata][booking_id]": booking.id,
-    "payment_intent_data[description]": `${shop.name} deposit · ${booking.service_name} · ${booking.date}`,
+    "payment_intent_data[description]": `${shop.name} ${prepay ? "payment" : "deposit"} · ${booking.service_name} · ${booking.date}`,
   };
   if (booking.email) body.customer_email = booking.email;
   // Platform is the merchant of record: the charge lands on OLLO's balance and the pay run moves the

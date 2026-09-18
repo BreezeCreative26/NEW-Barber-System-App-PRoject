@@ -48,7 +48,13 @@ Delivered: pointer drag (top edge = start, 15-min snap, haptic/scale tick, live 
 
 *Effort:* ~2 days. *Tests:* rewrite drag tests for pointer events; add overlap-lane unit test; hover label test.
 
-## Phase 2 — Edit the appointment itself (service, price, duration)
+## Phase 2 — Edit the appointment itself (service, price, duration) — ✅ SHIPPED 18 Sept (commit e975c5c)
+
+Delivered: `PATCH /bookings/:id/items`, inline panel editor (service, add-ons, £ per line, 5-min stepper, live total, refund warning, reason), `booking_adjustments` table, deposit over-payment refunded (Stripe partial refund when live) and charged as an automatic negative adjustment on the barber's next pay run (preview/create/auto runs claim it once). Tests: `tests/edit-items.spec.ts`.
+
+## Payment modes — ✅ SHIPPED 18 Sept
+
+`shops.payment_mode` (PREPAY / DEPOSIT / PAY_AT_VISIT), `services.payment_mode` override (NULL = inherit), `bookings.payment_mode` snapshot; `dueAtBooking()` + DB `ollo_due_at_booking()` keep app and trigger in step (migration 0012). Settings → Payments → Policy has the picker; Services → edit has the per-service override; public booking summary, manage page and Checkout copy follow the mode (PREPAY shows "Pay now", Checkout shows "Paid in full by card at booking", PAY_AT_VISIT hides the up-front line). Stripe Checkout session titles say Payment vs Deposit.
 
 **Why:** "customer came in for a skin fade but we did a cut & beard" happens every day. Today the only route is cancel + rebook, which destroys history and the deposit link.
 
@@ -143,4 +149,4 @@ ALTER TABLE customers ADD COLUMN contact_pref TEXT NOT NULL DEFAULT 'SMS'; -- SM
 
 ## Next session — start here
 
-Order: **Phase 2 → Payment modes (item 4) → Phase 3 → Phase 4 → rewrite the 7 legacy tests.** Phase 2 and payment modes share the deposit-reconciliation code, so do them together. Everything is specified above; no further decisions are needed from the owner.
+Order now: **Phase 3 (scheduled team, `staff_blocks`, block → notify) → Phase 4 → fix the 11 failing tests** (7 legacy tests driving removed controls + 3 E1 calendar tests asserting greyed cells are disabled + 1 phone visual snapshot; all expected changes, update the assertions to the new behaviour). No further decisions are needed from the owner. Not yet tested end-to-end: a public PREPAY booking in Stripe test mode (needs keys) — the code path is the deposit path with amount = price.

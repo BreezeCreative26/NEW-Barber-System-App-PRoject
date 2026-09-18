@@ -12,7 +12,7 @@ type BarberRow = { id: string; name: string; role: string; active: number; accou
 export type PaymentsData = {
   stripe: { provider: "stripe" | "none"; mode: "live" | "test" | "preview"; connect: boolean; webhook: boolean };
   platform: { fee_bps: number; fee_fixed_pence: number; fast_payouts: number };
-  settings: { deposits_online: number; deposit_hold_min: number; deposit_pence: number; payout_tier: "STANDARD" | "FAST"; payrun_auto: "OFF" | "DAILY" | "WEEKLY"; payrun_reserve_bps: number };
+  settings: { deposits_online: number; deposit_hold_min: number; payment_mode: "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT"; deposit_pence: number; payout_tier: "STANDARD" | "FAST"; payrun_auto: "OFF" | "DAILY" | "WEEKLY"; payrun_reserve_bps: number };
   shop_account: ({ id: string; payout_schedule: string; details_submitted: number; payouts_enabled: number; state: AcctState }) | null;
   barbers: BarberRow[];
   active: boolean;
@@ -237,10 +237,19 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
         >
           <h3>Policy</h3>
           <div className="workspace-form-grid">
+            <label className="workspace-field">
+              <span>How customers pay when booking online</span>
+              <select data-testid="payment-mode" value={form.payment_mode} onChange={(e) => setForm({ ...form, payment_mode: e.target.value as "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" })}>
+                <option value="DEPOSIT">Deposit — {money(data!.settings.deposit_pence)} now, the rest at the chair</option>
+                <option value="PREPAY">Pay in full — whole price by card at booking</option>
+                <option value="PAY_AT_VISIT">Pay at the visit — nothing taken online</option>
+              </select>
+              <small className="workspace-footnote">Shop default. Any service can override it in Services → edit → Payment.</small>
+            </label>
             <label className="workspace-toggle">
               <input type="checkbox" data-testid="deposits-online" checked={form.deposits_online === 1} disabled={!live} onChange={(e) => setForm({ ...form, deposits_online: e.target.checked ? 1 : 0 })} />
               <span>
-                <strong>Take the deposit by card at booking</strong>
+                <strong>Take {form.payment_mode === "PREPAY" ? "the payment" : "the deposit"} by card at booking</strong>
                 <small>{money(data!.settings.deposit_pence)} from Settings → Shop. Refunded automatically if the customer cancels in time; kept if they don't.</small>
               </span>
             </label>
