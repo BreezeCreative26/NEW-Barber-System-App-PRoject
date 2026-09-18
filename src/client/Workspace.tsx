@@ -20,11 +20,13 @@ import type {
   StoredBooking,
   Holiday,
   StaffDayOff,
+  StaffBlock,
 } from "../server/domain";
 import { Brand, Button, Icon, IconButton, Modal, Notice, Badge, Avatar, TopBar, Rail, TabBar, StatusPill, type NavItem } from "./ui";
 import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio } from "./Studio";
-import { Calendar, WeekStrip, WeekView, type CalendarDraft, type RangeBooking } from "./Calendar";
+import { Calendar, WeekStrip, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
+import { BlockDialog } from "./BlockDialog";
 import { WalletDrawer } from "./Wallet";
 import { PaymentsPanel } from "./Payouts";
 import { SearchPalette, AccountMenu } from "./Palette";
@@ -1040,7 +1042,9 @@ type Editor =
       rebook?: StoredBooking;
       waitlist?: WaitlistEntry;
     }
-  | { kind: "walkin" }
+  | { kind: "walkin"; staffId?: string }
+  | { kind: "block"; item: Staff; at?: number }
+  | { kind: "removeBlock"; item: StaffBlock }
   | { kind: "detail"; item: StoredBooking }
   | { kind: "seriesMove"; item: StoredBooking }
   | { kind: "share"; item: StoredBooking }
@@ -1172,6 +1176,40 @@ export function Workspace() {
   }, [calendarView, weekKey, data?.now, data?.bookings.length]);
   const [search, setSearch] = useState("");
   const [barber, setBarber] = useState("");
+  // Scheduled team (Fresha): rostered barbers show by default; extra barbers added per date live
+  // here (and in localStorage so a page reload keeps the day as arranged).
+  const [team, setTeam] = useState<Record<string, string[]>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("ollo.team") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const [teamOpen, setTeamOpen] = useState(false);
+  function toggleTeam(d: string, staffId: string, on: boolean) {
+    setTeam((prev) => {
+      const list = new Set(prev[d] ?? []);
+      if (on) list.add(staffId);
+      else list.delete(staffId);
+      const next = { ...prev, [d]: [...list] };
+      // Keep the store small: only today onwards.
+      for (const k of Object.keys(next)) if (k < (dateRef.current || d) && k !== d) delete next[k];
+      try {
+        localStorage.setItem("ollo.team", JSON.stringify(next));
+      } catch {
+        /* private mode */
+      }
+      return next;
+    });
+  }
+  useEffect(() => {
+    if (!teamOpen) return;
+    const close = (e: Event) => {
+      if (!(e.target as HTMLElement).closest?.(".team-picker")) setTeamOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [teamOpen]);
   const [statusFilter, setStatusFilter] = useState("");
   const [directorySearch, setDirectorySearch] = useState("");
   const [directoryStatus, setDirectoryStatus] = useState("");
@@ -1824,6 +1862,45 @@ export function Workspace() {
                         ))}
                       </select>
                     </span>
+                    {calendarView === "day" && !barber && date && (() => {
+                      const wd = new Date(date + "T12:00:00Z").getUTCDay();
+                      const rostered = (s: Staff) => {
+                        const sh = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date) || w.hours.find((h) => h.staff_id === s.id && h.weekday === wd);
+                        return !!sh?.enabled && !w.days_off.some((d) => d.staff_id === s.id && d.date === date);
+                      };
+                      const extra = new Set(team[date] ?? []);
+                      const active = w.staff.filter((s) => s.active);
+                      const shown = active.filter((s) => rostered(s) || extra.has(s.id));
+                      return (
+                        <span className="team-picker">
+                          <Button variant={extra.size ? "secondary" : "ghost"} aria-haspopup="dialog" aria-expanded={teamOpen} onClick={() => setTeamOpen((v) => !v)} data-testid="team-picker" title="Who shows on today's timetable">
+                            <Icon name="contact" size={15} />
+                            <span className="toolbar-label">Scheduled team · {shown.length}/{active.length}</span>
+                          </Button>
+                          {teamOpen && (
+                            <div className="team-picker-list" role="dialog" aria-label="Scheduled team">
+                              <header>Working {new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(date + "T12:00:00Z"))}</header>
+                              {active.map((s, i) => {
+                                const on = rostered(s);
+                                return (
+                                  <label key={s.id} className={on ? "" : "off"}>
+                                    <input type="checkbox" checked={on || extra.has(s.id)} disabled={on} onChange={(e) => toggleTeam(date, s.id, e.target.checked)} />
+                                    <Avatar initials={s.name.split(" ").map((n) => n[0]).slice(0, 2).join("")} colour={s.colour || ["sage", "sand", "blue", "clay"][i % 4]} />
+                                    {s.name}
+                                    <small>{on ? "Rostered" : extra.has(s.id) ? "Added" : "Not working"}</small>
+                                  </label>
+                                );
+                              })}
+                              <footer>
+                                <Button variant="ghost" onClick={() => setTeamOpen(false)}>
+                                  Done
+                                </Button>
+                              </footer>
+                            </div>
+                          )}
+                        </span>
+                      );
+                    })()}
                     <Button
                       variant={filtersOpen || statusFilter || search ? "secondary" : "ghost"}
                       className="toolbar-filters"
@@ -2005,6 +2082,15 @@ export function Workspace() {
                             setDate(d);
                             setEditor({ kind: "override", item: staffMember, override: w.schedule_overrides.find((o) => o.staff_id === staffMember.id && o.date === d) });
                           }}
+                          team={barber ? undefined : new Set(team[date] ?? [])}
+                          onAction={(action, staffMember, at) => {
+                            if (action === "hours") setEditor({ kind: "override", item: staffMember, override: w.schedule_overrides.find((o) => o.staff_id === staffMember.id && o.date === date) });
+                            else if (action === "block") setEditor({ kind: "block", item: staffMember, at });
+                            else if (action === "dayOff") setEditor({ kind: "daysOff", item: staffMember });
+                            else setEditor({ kind: "walkin", staffId: staffMember.id });
+                          }}
+                          onBlock={(k) => setEditor({ kind: "block", item: w.staff.find((s) => s.id === k.staff_id)!, at: k.start_min })}
+                          onRemoveBlock={(k) => setEditor({ kind: "removeBlock", item: k })}
                           onMove={
                             manager || w.shop.till_access === "ALL"
                               ? async (b, to) => {
@@ -2336,7 +2422,22 @@ export function Workspace() {
           {/* Status changes, edits and sharing live in the panel footer / ⋯ menu; nothing duplicated here. */}
         </AppointmentPanel>
       )}
-      {w && editor && editor.kind !== "detail" && (
+      {w && editor?.kind === "block" && (
+        <BlockDialog
+          staff={editor.item}
+          date={date || w.today}
+          at={editor.at}
+          w={w}
+          api={api}
+          onClose={() => setEditor(null)}
+          onDone={(block, outcome) => {
+            const failed = outcome.filter((o) => !o.ok).length;
+            setNotice(failed ? `Blocked ${blockLabel(block)} · ${failed} appointment${failed === 1 ? "" : "s"} could not be changed.` : `Blocked · ${blockLabel(block)}.`);
+            void refresh().catch(() => {});
+          }}
+        />
+      )}
+      {w && editor && editor.kind !== "detail" && editor.kind !== "block" && (
         <WorkspaceEditor
           key={
             editor.kind +
@@ -4622,6 +4723,8 @@ function WorkspaceEditor({
                               : "New booking"
                           : e.kind === "walkin"
                             ? "Walk-in"
+                            : e.kind === "removeBlock"
+                              ? "Remove blocked time"
                             : e.kind === "detail"
                               ? reference(e.item)
                               : e.kind === "share"
@@ -4689,6 +4792,13 @@ function WorkspaceEditor({
           w={w}
           saved={saved}
         />
+      )}
+      {e.kind === "removeBlock" && (
+        <SaveForm label="Remove block" onSave={() => saved(`/staff/${e.item.staff_id}/blocks/${e.item.id}`, "DELETE")}>
+          <p>
+            Remove <strong>{blockLabel(e.item)}</strong> on {e.item.date}, {clock(e.item.start_min)}–{clock(e.item.end_min)}? The time opens up again online straight away. Appointments that were moved or cancelled stay as they are.
+          </p>
+        </SaveForm>
       )}
       {e.kind === "removeOverride" && (
         <SaveForm
@@ -5631,7 +5741,7 @@ function BookingForm({
           setSlots(s);
           if (draftPending.current !== undefined) {
             const at = s.slots.find((slot) => slot.start_min === draftPending.current);
-            const soft = at?.reason && ["Slot taken", "Outside working hours", "Lunch break", "Barber off duty"].includes(at.reason);
+            const soft = at?.reason && ["Slot taken", "Outside working hours", "Lunch break", "Barber off duty", "Blocked time"].includes(at.reason);
             if (at && !at.reason) {
               setStart(String(at.start_min));
               setOverride("");
@@ -5838,7 +5948,9 @@ function BookingForm({
             <strong>{override === "Slot taken" ? "Double-booking" : override}</strong> at {time(Number(start))}.
             {override === "Slot taken"
               ? " This overlaps another appointment; both will show side by side on the calendar."
-              : " The barber isn't rostered then; saving books it regardless."}
+              : override === "Blocked time"
+                ? " The barber blocked this time; saving books over the block regardless."
+                : " The barber isn't rostered then; saving books it regardless."}
             <Button variant="ghost" onClick={() => { setStart(""); setOverride(""); }}>Pick a free time instead</Button>
           </span>
         </Notice>

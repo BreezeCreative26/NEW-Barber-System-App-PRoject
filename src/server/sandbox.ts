@@ -2321,6 +2321,7 @@ sandbox.get("/availability", async (c) => {
               minStart,
               booking?.id,
               data.daysOff,
+              data.blocks,
             ),
     }));
   return c.json({

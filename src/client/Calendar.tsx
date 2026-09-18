@@ -7,7 +7,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import type { WorkspaceData, StoredBooking, Staff } from "../server/domain";
+import type { WorkspaceData, StoredBooking, Staff, StaffBlock } from "../server/domain";
 import { Avatar, BlockIcons, Icon } from "./ui";
 import { time, money, datePlus, shopDayOf } from "./fixtures";
 
@@ -68,8 +68,14 @@ function tick() {
   }
 }
 // Slot reasons the shop may knowingly book over from the calendar. Mirrors OVERRIDABLE_REASONS server-side.
-const SOFT_REASONS = new Set(["Outside hours", "Off duty", "Break", "Occupied"]);
+const SOFT_REASONS = new Set(["Outside hours", "Off duty", "Break", "Occupied", "Blocked"]);
 const HARD_REASONS = new Set(["Past time", "Shop closed", "Day off", "Inactive barber"]);
+export const BLOCK_LABELS: Record<StaffBlock["kind"], string> = { LUNCH: "Lunch", TRAINING: "Training", PERSONAL: "Personal", SICK: "Off sick", OTHER: "Blocked" };
+export function blockLabel(b: Pick<StaffBlock, "kind" | "reason">) {
+  return b.reason || BLOCK_LABELS[b.kind];
+}
+// What a barber may do from the ⋯ menu beside their name on the timetable.
+export type StaffAction = "hours" | "block" | "dayOff" | "walkIn";
 // Native buttons remain buttons (not an incomplete ARIA grid). One free slot
 // per barber is tabbable; arrows move focus only and never mutate bookings.
 function navigateSlots(event: KeyboardEvent<HTMLButtonElement>) {
@@ -145,6 +151,10 @@ export function Calendar({
   onOpen,
   onHours,
   onMove,
+  onAction,
+  onBlock,
+  onRemoveBlock,
+  team,
   paid = new Set<string>(),
 }: {
   paid?: Set<string>;
@@ -157,6 +167,12 @@ export function Calendar({
   onOpen: (booking: StoredBooking) => void;
   onHours?: (staff: Staff, date: string) => void;
   onMove?: (booking: StoredBooking, to: MoveTarget) => Promise<void> | void;
+  // Per-barber ⋯ menu. `block` may carry the slot that was right-clicked / chosen.
+  onAction?: (action: StaffAction, staff: Staff, at?: number) => void;
+  onBlock?: (block: StaffBlock) => void;
+  onRemoveBlock?: (block: StaffBlock) => void;
+  // Extra (non-rostered) barbers the user added to the day via "Scheduled team".
+  team?: Set<string>;
 }) {
   // Pointer-driven drag: the card's TOP edge is the booking time. `overStart` is snapped to 15 min.
   const [dragging, setDragging] = useState<{ id: string; overStaff: string; overStart: number; tick: number } | null>(null);
@@ -184,11 +200,34 @@ export function Calendar({
     const timer = window.setInterval(() => setNow(Date.now()), 60000);
     return () => clearInterval(timer);
   }, []);
+  const [menu, setMenu] = useState<string | null>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: Event) => {
+      if (!(e.target as HTMLElement).closest?.(".staff-menu")) setMenu(null);
+    };
+    const esc = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setMenu(null);
+    document.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [menu]);
+  const weekdayOf = new Date(date + "T12:00:00Z").getUTCDay();
+  // Scheduled team (Fresha): rostered barbers show by default; others only when the user adds them
+  // for the day (or when they hold an appointment). A barber filter overrides all of that.
+  const rostered = (s: Staff) => {
+    const shift = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date) || w.hours.find((h) => h.staff_id === s.id && h.weekday === weekdayOf);
+    return !!shift?.enabled && !w.days_off.some((d) => d.staff_id === s.id && d.date === date);
+  };
   const staff = w.staff.filter(
     (s) =>
       (!barber || s.id === barber) &&
-      (s.active || bookings.some((b) => b.staff_id === s.id)),
+      (s.active || bookings.some((b) => b.staff_id === s.id)) &&
+      (barber || !team || rostered(s) || team.has(s.id) || bookings.some((b) => b.staff_id === s.id)),
   );
+  const dayBlocks = w.blocks.filter((b) => b.date === date);
   const occupied = bookings.filter(
     (b) => !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
@@ -198,7 +237,7 @@ export function Calendar({
   const dayHours = shopDayOf(w.shop, date);
   const begin =
     Math.floor(
-      Math.min(dayHours.starts, ...dayBookings.map((b) => b.start_min)) / 60,
+      Math.min(dayHours.starts, ...dayBookings.map((b) => b.start_min), ...dayBlocks.map((k) => k.start_min)) / 60,
     ) * 60;
   const end = Math.min(
     1440,
@@ -206,6 +245,7 @@ export function Calendar({
       Math.max(
         dayHours.ends,
         ...dayBookings.map((b) => b.start_min + b.duration_min + b.buffer_min),
+        ...dayBlocks.map((k) => k.end_min),
       ) / 60,
     ) * 60,
   );
@@ -275,6 +315,7 @@ export function Calendar({
     if (start >= shift.break_start && start < shift.break_end) return "Break";
     const moving = excludeId ? dayBookings.find((b) => b.id === excludeId) : null;
     const dur = moving?.duration_min ?? 15;
+    if (dayBlocks.some((k) => k.staff_id === s.id && start < k.end_min && start + dur > k.start_min)) return "Blocked";
     if (dayBookings.some((b) => b.id !== excludeId && b.staff_id === s.id && start < b.start_min + b.duration_min + b.buffer_min && start + dur > b.start_min)) return "Occupied";
     return "";
   }
@@ -426,7 +467,7 @@ export function Calendar({
                   </div>
                   {onHours && (() => {
                     const ov = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date);
-                    const wk = w.hours.find((h) => h.staff_id === s.id && h.weekday === new Date(date + "T12:00:00Z").getUTCDay());
+                    const wk = w.hours.find((h) => h.staff_id === s.id && h.weekday === weekdayOf);
                     const sh = ov ?? wk;
                     const off = w.days_off.some((d) => d.staff_id === s.id && d.date === date);
                     const label = off ? "Day off" : !sh?.enabled ? "Off" : `${time(sh.starts)}–${time(sh.ends)}`;
@@ -436,6 +477,37 @@ export function Calendar({
                       </button>
                     );
                   })()}
+                  {onAction && (
+                    <div className="staff-menu">
+                      <button
+                        type="button"
+                        className="staff-menu-button"
+                        aria-label={`${s.name}: day actions`}
+                        aria-haspopup="menu"
+                        aria-expanded={menu === s.id}
+                        data-testid="staff-menu"
+                        onClick={() => setMenu((m) => (m === s.id ? null : s.id))}
+                      >
+                        <Icon name="more" size={16} />
+                      </button>
+                      {menu === s.id && (
+                        <div className="staff-menu-list" role="menu" aria-label={`${s.name} day actions`}>
+                          <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("hours", s); }}>
+                            <Icon name="clock" size={14} /> Edit today's hours
+                          </button>
+                          <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("block", s); }} disabled={date < today}>
+                            <Icon name="blocked" size={14} /> Block time…
+                          </button>
+                          <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("dayOff", s); }}>
+                            <Icon name="sun" size={14} /> Day off
+                          </button>
+                          <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("walkIn", s); }} disabled={date !== today}>
+                            <Icon name="footprints" size={14} /> Add walk-in
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -485,7 +557,9 @@ export function Calendar({
                               : date < today ||
                                   (date === today && start <= currentMinute)
                                 ? "Past time"
-                                : "";
+                                : dayBlocks.some((k) => k.staff_id === s.id && start >= k.start_min && start < k.end_min)
+                                  ? "Blocked"
+                                  : "";
                   const busy = dayBookings.some(
                     (b) =>
                       b.staff_id === s.id &&
@@ -549,6 +623,14 @@ export function Calendar({
                         }
                         disabled={disabled || hard}
                         onClick={() => onDraft({ staffId: s.id, start, outside: reason || (busy ? "Occupied" : "") || undefined })}
+                        onContextMenu={
+                          onAction && !hard && date >= today
+                            ? (e) => {
+                                e.preventDefault();
+                                onAction("block", s, start);
+                              }
+                            : undefined
+                        }
                         data-drop={dragging && dragging.overStaff === s.id && dragging.overStart === start ? "over" : undefined}
                       >
                         <span>
@@ -580,6 +662,38 @@ export function Calendar({
                         title={`${time(b.start_min + b.duration_min)}–${time(b.start_min + b.duration_min + b.buffer_min)} · Buffer`}
                       >
                         <span>{b.buffer_min} min buffer</span>
+                      </div>
+                    ))}
+                  {dayBlocks
+                    .filter((k) => k.staff_id === s.id)
+                    .map((k) => (
+                      <div
+                        key={k.id}
+                        className={`calendar-block kind-${k.kind.toLowerCase()}`}
+                        data-testid="calendar-block"
+                        style={{ top: ((k.start_min - begin) / 15) * step, height: Math.max(24, ((k.end_min - k.start_min) / 15) * step - 3) }}
+                        title={`${time(k.start_min)}–${time(k.end_min)} · ${blockLabel(k)}${k.kind !== "OTHER" ? ` (${BLOCK_LABELS[k.kind].toLowerCase()})` : ""}`}
+                      >
+                        <button
+                          type="button"
+                          className="calendar-block-body"
+                          onClick={() => onBlock?.(k)}
+                          aria-label={`${s.name}: blocked ${time(k.start_min)} to ${time(k.end_min)}, ${blockLabel(k)}`}
+                        >
+                          <strong>
+                            <Icon name="blocked" size={11} /> {blockLabel(k)}
+                          </strong>
+                          {k.end_min - k.start_min >= 30 && (
+                            <span>
+                              {time(k.start_min)}–{time(k.end_min)}
+                            </span>
+                          )}
+                        </button>
+                        {onRemoveBlock && !disabled && (
+                          <button type="button" className="calendar-block-remove" aria-label={`Remove block: ${blockLabel(k)} ${time(k.start_min)}–${time(k.end_min)}`} title="Remove this block" onClick={() => onRemoveBlock(k)}>
+                            <Icon name="close" size={12} />
+                          </button>
+                        )}
                       </div>
                     ))}
                   {hover && !dragging && hover.staffId === s.id && hover.start >= begin && hover.start < end && (
@@ -688,6 +802,9 @@ export function Calendar({
             <i className="legend-unavailable" aria-hidden="true" /> Break / leave / closed
           </span>
           <span>
+            <i className="legend-block" aria-hidden="true" /> Blocked time
+          </span>
+          <span>
             <i className="legend-buffer" aria-hidden="true" /> Buffer
           </span>
           <span className="legend-note">Card colour = barber</span>
@@ -701,8 +818,9 @@ export function Calendar({
             work, you just confirm you mean it. Press and drag a confirmed appointment to move it: the top
             edge is the new start time and it snaps every 15 minutes, sideways moves it to another barber.
             On a phone, hold for a moment first. Overlapping appointments sit side by side. Click the hours
-            under a barber's name to change that day's shift. Tab reaches one free slot per barber; arrow
-            keys move between slots, Home / End jump within a barber.
+            under a barber's name to change that day's shift; the ⋯ beside it blocks time with a reason,
+            books a day off or seats a walk-in. Right-click a cell to block from that time. Tab reaches
+            one free slot per barber; arrow keys move between slots, Home / End jump within a barber.
           </p>
         </details>
       </footer>
