@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
+import { report, telemetryStatus } from "./server/telemetry";
 import { expireHolds, markDepositPaid, stripeStatus, verifyWebhook } from "./server/stripe";
 import { afterDepositPaid } from "./server/public";
 import { handleConnectEvent, type ConnectEvent } from "./server/payouts";
@@ -86,9 +87,37 @@ app.get("/api/health", (c) =>
     livePayments: stripeStatus().provider === "stripe",
     payments: stripeStatus(),
     messaging: providerStatus(),
+    telemetry: telemetryStatus(),
     persistence: !!c.env?.DB,
   }),
 );
+// Browser error reports (from the React boundary / window.onerror). Tiny schema, same-origin only,
+// 30 per client per 10 minutes, forwarded to the same sink as server errors.
+const clientErrorSchema = (b: unknown) => {
+  const o = (b ?? {}) as Record<string, unknown>;
+  const str = (k: string, max: number) => (typeof o[k] === "string" ? (o[k] as string).slice(0, max) : undefined);
+  const message = str("message", 500);
+  if (!message) return null;
+  return { message, stack: str("stack", 4000), route: str("route", 200), tags: { ua: str("ua", 200) ?? "", screen: str("screen", 40) ?? "" } };
+};
+const clientErrorHits = new Map<string, { n: number; until: number }>();
+app.post("/api/telemetry/error", async (c) => {
+  const origin = new URL(c.req.url).origin;
+  const from = c.req.header("origin") ?? "";
+  if (from && from !== origin) return c.json({ ok: false }, 403);
+  const ip = (c.req.header("x-forwarded-for") || "").split(",")[0].trim() || "anon";
+  const now = Date.now();
+  const hit = clientErrorHits.get(ip);
+  if (hit && hit.until > now) {
+    if (hit.n >= 30) return c.json({ ok: false }, 429);
+    hit.n++;
+  } else clientErrorHits.set(ip, { n: 1, until: now + 600000 });
+  if (clientErrorHits.size > 5000) clientErrorHits.clear();
+  const body = clientErrorSchema(await c.req.json().catch(() => null));
+  if (!body) return c.json({ ok: false }, 400);
+  void report({ ...body, method: "GET", status: 0, source: "client" });
+  return c.json({ ok: true });
+});
 // Diagnostic: shows what the worker sees so proxy/origin problems can be verified.
 app.all("/api/origin-check", (c) => {
   const url = new URL(c.req.url);

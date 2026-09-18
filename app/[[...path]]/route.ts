@@ -4,6 +4,7 @@
 import app, { type AppBindings } from "../../src/index";
 import { getDb } from "../../src/db/client";
 import { getStore } from "../../src/db/storage";
+import { report, telemetryStatus } from "../../src/server/telemetry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,6 +57,7 @@ async function diag(req: Request) {
     db_host: dbHost,
     db_ping: dbPing,
     boot_error: bootError,
+    telemetry: telemetryStatus(),
   });
 }
 const handle = async (req: Request) => {
@@ -65,7 +67,7 @@ const handle = async (req: Request) => {
     return await app.fetch(req, env());
   } catch (err) {
     // Last resort: a readable 500 instead of an empty one.
-    console.error("unhandled", err);
+    void report({ message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined, route: path, method: req.method, status: 500, source: "server", tags: { boot_error: bootError ?? "" } });
     return Response.json({ error: "server_error", message: err instanceof Error ? err.message : String(err), boot_error: bootError }, { status: 500 });
   }
 };

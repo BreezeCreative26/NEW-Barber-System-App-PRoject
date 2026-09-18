@@ -176,7 +176,12 @@ async function matches(
 async function throttle(c: Ctx, action: string, identity: string) {
   const now = Date.now();
   const limits: [string, number][] = [[`${action}:${identity}`, 12]];
-  if (action === "login") limits.push([`${action}:global`, 180]);
+  if (action === "login") {
+    limits.push([`${action}:global`, 180]);
+    // Per-IP cap too, so one host cannot spray many emails at 12 attempts each.
+    const ip = (c.req.header("x-forwarded-for") || "").split(",")[0].trim() || c.req.header("x-real-ip") || "";
+    if (ip) limits.push([`${action}:ip:${ip}`, Number(process.env.LOGIN_IP_LIMIT) || 60]);
+  }
   if (action === "signup") {
     const ip = (c.req.header("x-forwarded-for") || "").split(",")[0].trim() || c.req.header("x-real-ip") || "";
     // SIGNUP_IP_LIMIT raises the cap for test runners that create hundreds of shops from one host.

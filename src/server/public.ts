@@ -80,9 +80,32 @@ export async function throttle(c: Ctx, action: string, identity: string, max = 2
     fail(429, "Too many attempts. Wait ten minutes before retrying.");
   }
 }
+// Per-client ceiling on public reads (availability polling, shop pages): 600 requests per 10
+// minutes per IP — far above any real customer, low enough to blunt a scraper. In-memory sliding
+// window so it costs no database round-trip; each serverless instance enforces its own share.
+const readHits = new Map<string, { n: number; until: number }>();
+function readCeiling(c: Ctx): boolean {
+  const key = clientKey(c);
+  if (key === "local") return true; // direct (no proxy) = local dev / test runner
+  const cap = Number(process.env.PUBLIC_READ_LIMIT) || 600;
+  const now = Date.now();
+  const hit = readHits.get(key);
+  if (hit && hit.until > now) {
+    if (hit.n >= cap) return false;
+    hit.n++;
+    return true;
+  }
+  if (readHits.size > 20000) readHits.clear();
+  readHits.set(key, { n: 1, until: now + 600000 });
+  return true;
+}
 export const publicGuard = async (c: Ctx, next: () => Promise<void>) => {
   c.header("Cache-Control", "no-store");
   c.header("X-Content-Type-Options", "nosniff");
+  if (["GET", "HEAD"].includes(c.req.method) && !readCeiling(c)) {
+    c.header("Retry-After", "600");
+    return c.json({ error: "rate_limited", message: "Too many requests. Wait a few minutes and try again." }, 429);
+  }
   if (!c.env?.DB)
     return c.json(
       {

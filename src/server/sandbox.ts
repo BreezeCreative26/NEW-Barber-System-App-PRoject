@@ -1,3 +1,4 @@
+import { reportRequestError } from "./telemetry";
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
@@ -305,6 +306,7 @@ export function handleError(err: Error, c: Ctx) {
   // Never log customer bodies or session credentials; the SQL text and Postgres code are safe.
   const pg = err as { code?: string; message?: string; query?: string; constraint_name?: string };
   console.error("Database operation failed", pg.code ?? (err instanceof Error ? err.name : "UnknownError"), pg.constraint_name ?? "", (pg.message ?? "").slice(0, 300), (pg.query ?? "").slice(0, 200));
+  reportRequestError(err, c, 500);
   return c.json(
     {
       error: "database_error",
