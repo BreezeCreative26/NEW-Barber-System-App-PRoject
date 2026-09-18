@@ -24,6 +24,7 @@ import {
   type Shop,
   type Staff,
   type StaffDayOff,
+  type StaffBlock,
   type StaffServiceRule,
   type StoredBooking,
   type ShopPage,
@@ -217,6 +218,7 @@ export async function rangeContext(
     c.env.DB.prepare("SELECT * FROM staff_service_rules WHERE shop_id=? AND service_id=?").bind(sid, serviceId),
     c.env.DB.prepare("SELECT * FROM addons WHERE shop_id=?").bind(sid),
     c.env.DB.prepare("SELECT * FROM addon_services WHERE shop_id=? AND service_id=?").bind(sid, serviceId),
+    c.env.DB.prepare("SELECT * FROM staff_blocks WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, from, to),
   ]);
   const service = r[1].results[0] as Service | undefined;
   if (!service) fail(404, "Service is not available");
@@ -248,6 +250,7 @@ export async function rangeContext(
     holidays: r[4].results as Holiday[],
     daysOff: r[5].results as StaffDayOff[],
     bookings: r[6].results as StoredBooking[],
+    blocks: r[10].results as StaffBlock[],
   };
 }
 export type Range = Awaited<ReturnType<typeof rangeContext>>;
@@ -268,9 +271,12 @@ export function slotFor(shop: Shop, ctx: Range, staff: Staff, date: string, minu
     minStart,
     undefined,
     ctx.daysOff,
+    ctx.blocks,
   );
 }
 const closedReasons = ["Shop closed", "Barber off duty", "Barber has a day off"];
+// Never disclose who holds a slot or why a barber blocked their time.
+const hiddenReasons = ["Slot taken", "Blocked time"];
 const staffQuery = z
   .string()
   .default("any")
@@ -477,9 +483,9 @@ pub.get("/shops/:slug/availability", async (c) => {
         };
       }
       const reasons = ctx.staff.map((s) => slotFor(shop, ctx, s, q.date, start_min, minStart));
-      const reason = reasons.find((r) => !closedReasons.includes(r) && r !== "Slot taken") || reasons[0];
-      // Customers see whether a time is open, never who holds it.
-      return { start_min, available: false, reason: reason === "Slot taken" ? "Unavailable" : reason, barbers: 0 };
+      const reason = reasons.find((r) => !closedReasons.includes(r) && !hiddenReasons.includes(r)) || reasons[0];
+      // Customers see whether a time is open, never who holds it or why.
+      return { start_min, available: false, reason: hiddenReasons.includes(reason) ? "Unavailable" : reason, barbers: 0 };
     });
   const primary = ctx.staff[0];
   const quote = ctx.quotes.get(primary.id)!;
@@ -1033,11 +1039,12 @@ export async function moveOptions(c: Ctx, shop: Shop, booking: StoredBooking, da
         minStart,
         booking.id,
         data.daysOff,
+        data.blocks,
       );
       return {
         start_min,
         available: !reason,
-        reason: reason === "Slot taken" ? "Unavailable" : reason,
+        reason: hiddenReasons.includes(reason) ? "Unavailable" : reason,
       };
     });
   return { slots, duration_min: booking.duration_min, max_date: maxDate, today };
@@ -1135,8 +1142,9 @@ export async function moveByCustomer(c: Ctx, shop: Shop, booking: StoredBooking,
     minStart,
     booking.id,
     data.daysOff,
+    data.blocks,
   );
-  if (reason) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
+  if (reason) fail(409, hiddenReasons.includes(reason) ? "slot_taken" : reason);
   const start = localInstant(body.date, body.start_min, shop.timezone)!;
   await checkVersionUpdate(
     c,

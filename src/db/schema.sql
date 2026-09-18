@@ -143,6 +143,22 @@ CREATE TABLE staff_days_off (
   FOREIGN KEY(shop_id,staff_id) REFERENCES staff(shop_id,id)
 );
 CREATE INDEX staff_days_off_dates ON staff_days_off(shop_id,date,staff_id);
+CREATE TABLE IF NOT EXISTS staff_blocks (
+  id TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL,
+  staff_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  start_min INTEGER NOT NULL CHECK (start_min BETWEEN 0 AND 1425 AND start_min % 15 = 0),
+  end_min INTEGER NOT NULL CHECK (end_min BETWEEN 15 AND 1440 AND end_min % 15 = 0),
+  reason TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT 'OTHER' CHECK (kind IN ('LUNCH','TRAINING','PERSONAL','SICK','OTHER')),
+  created_by TEXT NOT NULL,
+  created_at BIGINT NOT NULL,
+  CHECK (end_min > start_min),
+  FOREIGN KEY(shop_id,staff_id) REFERENCES staff(shop_id,id)
+);
+CREATE INDEX IF NOT EXISTS staff_blocks_day ON staff_blocks(shop_id, date, staff_id);
+
 CREATE TABLE staff_service_rules (
   shop_id TEXT NOT NULL, staff_id TEXT NOT NULL, service_id TEXT NOT NULL,
   enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
@@ -224,6 +240,7 @@ CREATE TABLE customers (
   birthday TEXT,
   preferred_staff_id TEXT,
   marketing_opt_in INTEGER NOT NULL DEFAULT 0 CHECK(marketing_opt_in IN (0,1)),
+  contact_pref TEXT NOT NULL DEFAULT 'AUTO' CHECK (contact_pref IN ('AUTO','SMS','EMAIL','NONE')),
   merged_into TEXT,
   version INTEGER NOT NULL DEFAULT 0,
   created_at BIGINT NOT NULL,
@@ -723,7 +740,10 @@ BEGIN
                AND b.start_min + b.duration_min + b.buffer_min > COALESCE(o.break_start,h.break_start))
       AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(s.closed_days::jsonb) d WHERE d::int = h.weekday)
   ) THEN PERFORM ollo_abort('outside_hours'); END IF;
-  -- Even when forced, the shop must be open that weekday: forcing covers the barber's roster, not the shop's.
+  IF NOT ollo_force_slot() AND EXISTS (
+    SELECT 1 FROM staff_blocks k WHERE k.shop_id=b.shop_id AND k.staff_id=b.staff_id AND k.date=b.date
+      AND b.start_min < k.end_min AND b.start_min + b.duration_min + b.buffer_min > k.start_min
+  ) THEN PERFORM ollo_abort('outside_hours'); END IF;
   IF ollo_force_slot() AND NOT EXISTS (
     SELECT 1 FROM shops s WHERE s.id=b.shop_id
       AND ((s.week_json::jsonb)->ollo_weekday(b.date)->>'enabled')::int = 1
@@ -736,12 +756,6 @@ BEGIN
       AND b.start_at < x.end_at + x.buffer_min * 60000
   ) THEN PERFORM ollo_abort('slot_taken'); END IF;
 END $$;
-
-CREATE OR REPLACE FUNCTION ollo_due_at_booking(shop_mode TEXT, service_mode TEXT, deposit INTEGER, price INTEGER) RETURNS INTEGER LANGUAGE sql IMMUTABLE AS $$
-  SELECT CASE COALESCE(service_mode, shop_mode)
-    WHEN 'PREPAY' THEN price
-    WHEN 'PAY_AT_VISIT' THEN 0
-    ELSE LEAST(deposit, price) END $$;
 
 CREATE OR REPLACE FUNCTION ollo_validate_booking_insert() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE items jsonb; first jsonb;

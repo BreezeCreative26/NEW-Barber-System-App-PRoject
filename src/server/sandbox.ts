@@ -57,6 +57,8 @@ import {
   type Payment,
   type PayRun,
   type BookingAdjustment,
+  type StaffBlock,
+  blockSchema,
   weekday,
   type Shop,
   type Staff,
@@ -69,7 +71,7 @@ import {
 
 import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { optimiseImage } from "./images";
-import { drain, enqueue, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
+import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
 import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import QRCode from "qrcode";
 import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
@@ -241,7 +243,9 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" &&
         (path === "/bookings" ||
           /^\/bookings\/[^/]+\/(status|reschedule)$/.test(path))) ||
-      (method === "PATCH" && /^\/bookings\/[^/]+\/(details|items)$/.test(path));
+      (method === "PATCH" && /^\/bookings\/[^/]+\/(details|items)$/.test(path)) ||
+      (["GET", "POST"].includes(method) && /^\/staff\/[^/]+\/blocks(\/preview)?$/.test(path)) ||
+      (method === "DELETE" && /^\/staff\/[^/]+\/blocks\/[^/]+$/.test(path));
     const setup =
       (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist", "/shop/messaging", "/shop/payments"].includes(path)) ||
       (method === "POST" && ["/notifications/test", "/notifications/sweep", "/shop/payments/connect"].includes(path)) ||
@@ -423,6 +427,7 @@ async function seriesPreview(c: Ctx, b: z.infer<typeof seriesSchema>) {
       Date.now(),
       undefined,
       data.daysOff,
+      data.blocks,
     );
     out.push({ date, reason, skipped: false });
   }
@@ -538,8 +543,8 @@ sandbox.get("/workspace", async (c) => {
   const shop = await readShop(c);
   const account = c.get("account");
   const assigned = account?.role === "BARBER" ? account.staff_id : null;
-  const scoped = (sql: string) =>
-    c.env.DB.prepare(sql).bind(sid, assigned, assigned);
+  const scoped = (sql: string, extra: unknown[] = []) =>
+    c.env.DB.prepare(sql).bind(sid, assigned, assigned, ...extra);
   const result = await c.env.DB.batch([
     scoped(
       "SELECT * FROM staff WHERE shop_id=? AND (? IS NULL OR id=?) ORDER BY name",
@@ -576,6 +581,7 @@ sandbox.get("/workspace", async (c) => {
       "SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND (? IS NULL OR staff_id=?) ORDER BY date",
     ),
     c.env.DB.prepare("SELECT logo_url FROM shop_pages WHERE shop_id=?").bind(sid),
+    scoped("SELECT * FROM staff_blocks WHERE shop_id=? AND (? IS NULL OR staff_id=?) AND date>=? ORDER BY date,start_min", [shopToday(shop.timezone)]),
   ]);
   const staff = result[0].results as Staff[];
   const services = result[1].results as Service[];
@@ -647,6 +653,7 @@ sandbox.get("/workspace", async (c) => {
     payments,
     audit: result[5].results as AuditEvent[],
     days_off: daysOff,
+    blocks: (result[12]?.results ?? []) as StaffBlock[],
     addons: result[7].results as Addon[],
     addon_links: result[8].results as AddonLink[],
     service_rules: rules,
@@ -1719,6 +1726,139 @@ sandbox.post("/staff/:id/days-off", async (c) => {
   ]);
   return c.json({ id: leaveId }, 201);
 });
+// ---- Blocked time (lunch, training, sick, personal) with a reason on the calendar --------------
+// Barbers may block their own time and choose what happens to affected customers (owner decision).
+// Preview lists every appointment the block lands on with each customer's contact channel; create
+// applies the per-booking decision (keep / cancel / move) and queues the messages.
+async function blockCollisions(c: Ctx, staffId: string, date: string, start: number, end: number, excludeBlockId?: string) {
+  const rows = (
+    await c.env.DB.prepare(
+      "SELECT b.*, cu.contact_pref, cu.email AS customer_email FROM bookings b LEFT JOIN customers cu ON cu.id=b.customer_id WHERE b.shop_id=? AND b.staff_id=? AND b.date=? AND b.status IN ('CONFIRMED','CHECKED_IN') AND b.start_min<? AND b.start_min+b.duration_min>? ORDER BY b.start_min",
+    ).bind(c.get("shopId"), staffId, date, end, start).all<StoredBooking & { contact_pref: string | null; customer_email: string | null }>()
+  ).results;
+  void excludeBlockId;
+  const shop = await msgShop(c, c.get("shopId"));
+  return rows.map((b) => {
+    const pref = (b.contact_pref || "AUTO") as "AUTO" | "SMS" | "EMAIL" | "NONE";
+    const to = { name: b.attendee_name || b.customer_name, phone: b.phone, email: b.email || b.customer_email || "" };
+    const channel = pref === "NONE" ? null : (channelsFor(shop, to, pref === "AUTO" ? "AUTO" : pref)[0] ?? null);
+    return {
+      id: b.id, customer_name: b.customer_name, attendee_name: b.attendee_name, phone: b.phone, email: to.email, service_name: b.service_name, start_min: b.start_min, duration_min: b.duration_min, price_pence: b.price_pence, version: b.version, status: b.status,
+      deposit_status: b.deposit_status ?? "NONE", deposit_paid_pence: b.deposit_paid_pence ?? 0, channel, service_id: b.service_id, contact_pref: pref,
+    };
+  });
+}
+sandbox.get("/staff/:id/blocks", async (c) => {
+  const staffId = c.req.param("id");
+  scopeStaff(c, staffId);
+  const q = z.object({ from: dateSchema.optional(), to: dateSchema.optional() }).safeParse(c.req.query());
+  const from = q.success ? q.data.from : undefined, to = q.success ? q.data.to : undefined;
+  const rows = await c.env.DB.prepare("SELECT * FROM staff_blocks WHERE shop_id=? AND staff_id=? AND (? IS NULL OR date>=?) AND (? IS NULL OR date<=?) ORDER BY date,start_min")
+    .bind(c.get("shopId"), staffId, from ?? null, from ?? null, to ?? null, to ?? null).all<StaffBlock>();
+  return c.json({ blocks: rows.results });
+});
+sandbox.post("/staff/:id/blocks/preview", async (c) => {
+  const staffId = c.req.param("id");
+  scopeStaff(c, staffId);
+  const b = await input(c, z.object({ date: dateSchema, start_min: z.number().int().min(0).max(1425), end_min: z.number().int().min(15).max(1440) }).strict());
+  const affected = await blockCollisions(c, staffId, b.date, b.start_min, b.end_min);
+  // Suggest the next free time with any active barber for each affected visit (same service).
+  const suggestions: Record<string, { staff_id: string; staff_name: string; date: string; start_min: number } | null> = {};
+  const staffRows = (await c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND active=1 ORDER BY (id=?) DESC, name").bind(c.get("shopId"), staffId).all<Staff>()).results;
+  for (const a of affected) {
+    suggestions[a.id] = null;
+    outer: for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+      const date = datePlusServer(b.date, dayOffset);
+      for (const s of staffRows) {
+        const data = await availabilityContext(c, s.id, a.service_id, date).catch(() => null);
+        if (!data || data.rule?.enabled === 0) continue;
+        const blocks = s.id === staffId ? [...data.blocks, { staff_id: staffId, date: b.date, start_min: b.start_min, end_min: b.end_min }] : data.blocks;
+        for (let m = dayOffset === 0 ? a.start_min : Math.max(data.shop.opens, 0); m < 1440; m += 15) {
+          if (!slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, date, m, a.duration_min, Date.now(), a.id, data.daysOff, blocks)) {
+            suggestions[a.id] = { staff_id: s.id, staff_name: s.name, date, start_min: m };
+            break outer;
+          }
+        }
+      }
+    }
+  }
+  return c.json({ affected, suggestions });
+});
+sandbox.post("/staff/:id/blocks", async (c) => {
+  const staffId = c.req.param("id");
+  scopeStaff(c, staffId);
+  const b = await input(c, blockSchema);
+  const staff = await c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND id=?").bind(c.get("shopId"), staffId).first<Staff>();
+  if (!staff) fail(404, "Barber not found");
+  const shop = await msgShop(c, c.get("shopId"));
+  const origin = new URL(c.req.url).origin;
+  const affected = await blockCollisions(c, staffId, b.date, b.start_min, b.end_min);
+  const decided = new Map(b.resolutions.map((r) => [r.booking_id, r]));
+  for (const a of affected) if (!decided.has(a.id)) fail(409, `Decide what happens to ${a.customer_name}'s ${fmtTime(a.start_min)} visit first`);
+  const blockId = id();
+  const label = b.reason || { LUNCH: "Lunch", TRAINING: "Training", PERSONAL: "Personal", SICK: "Off sick", OTHER: "Blocked" }[b.kind];
+  const now = Date.now();
+  const stmts: D1PreparedStatement[] = [
+    c.env.DB.prepare("INSERT INTO staff_blocks(id,shop_id,staff_id,date,start_min,end_min,reason,kind,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)").bind(blockId, c.get("shopId"), staffId, b.date, b.start_min, b.end_min, b.reason, b.kind, c.get("actor"), now),
+    audit(c, "staff_block", blockId, "BLOCK_ADDED", `${staff!.name} ${b.date} ${fmtTime(b.start_min)}–${fmtTime(b.end_min)}: ${label}. ${affected.length} appointment${affected.length === 1 ? "" : "s"} affected.`),
+  ];
+  const outcome: { booking_id: string; action: string; ok: boolean; note: string; notified: string[] }[] = [];
+  await c.env.DB.batch(stmts);
+  for (const a of affected) {
+    const r = decided.get(a.id)!;
+    const booking = await readBooking(c, a.id);
+    const to = { name: a.attendee_name || a.customer_name, phone: a.phone, email: a.email };
+    const vars = { service: a.service_name, barber: staff!.name.split(" ")[0], date: fmtDate(b.date), time: fmtTime(a.start_min), ref: ref(booking), link: `${origin}/${shop.slug}/me`, book_link: `${origin}/book/${shop.slug}`, address: shop.address };
+    const pref = a.contact_pref === "NONE" ? null : a.contact_pref === "AUTO" ? "AUTO" : a.contact_pref;
+    let notified: string[] = [];
+    try {
+      if (r.action === "CANCEL") {
+        await c.env.DB.batch([
+          c.env.DB.prepare("UPDATE bookings SET status='CANCELLED', version=version+1, updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(Date.now(), c.get("shopId"), a.id, booking.version),
+          audit(c, "booking", a.id, "STATUS_CANCELLED", `Cancelled by the shop: ${staff!.name} unavailable (${label}).`, true),
+        ]);
+        if (booking.deposit_status === "PAID") await refundDeposit(c.env.DB, await readShop(c), booking, c.get("actor"), "cancelled: barber unavailable");
+        if (r.notify && pref) {
+          const q = enqueue(c.env.DB, shop, to, "booking_cancelled", vars, { related: { type: "booking", id: a.id }, origin, channel: pref });
+          if (q.length) { await c.env.DB.batch(q); notified = channelsFor(shop, to, pref); }
+        }
+        outcome.push({ booking_id: a.id, action: "CANCEL", ok: true, note: booking.deposit_status === "PAID" ? "Cancelled · deposit refunded" : "Cancelled", notified });
+      } else if (r.action === "MOVE" && r.move_to) {
+        const data = await availabilityContext(c, r.move_to.staff_id, booking.service_id, r.move_to.date);
+        const why = slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, r.move_to.date, r.move_to.start_min, booking.duration_min, Date.now(), booking.id, data.daysOff, r.move_to.staff_id === staffId ? [...data.blocks, { staff_id: staffId, date: b.date, start_min: b.start_min, end_min: b.end_min }] : data.blocks);
+        if (why) throw new Error(why);
+        const start = localInstant(r.move_to.date, r.move_to.start_min, data.shop.timezone)!;
+        await checkVersionUpdate(
+          c,
+          c.env.DB.prepare("UPDATE bookings SET staff_id=?,date=?,start_min=?,start_at=?,end_at=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(r.move_to.staff_id, r.move_to.date, r.move_to.start_min, start, start + booking.duration_min * 60000, Date.now(), c.get("shopId"), a.id, booking.version),
+          audit(c, "booking", a.id, "RESCHEDULED", `Moved by the shop: ${staff!.name} unavailable (${label}).`, true),
+        );
+        const newBarber = data.staff.name.split(" ")[0];
+        if (r.notify && pref) {
+          const q = enqueue(c.env.DB, shop, to, "booking_moved", { ...vars, barber: newBarber, date: fmtDate(r.move_to.date), time: fmtTime(r.move_to.start_min) }, { related: { type: "booking", id: a.id }, origin, channel: pref });
+          if (q.length) { await c.env.DB.batch(q); notified = channelsFor(shop, to, pref); }
+        }
+        outcome.push({ booking_id: a.id, action: "MOVE", ok: true, note: `Moved to ${fmtDate(r.move_to.date)} ${fmtTime(r.move_to.start_min)} with ${newBarber}`, notified });
+      } else {
+        outcome.push({ booking_id: a.id, action: "KEEP", ok: true, note: "Kept — sits on top of the block", notified: [] });
+      }
+    } catch (err) {
+      outcome.push({ booking_id: a.id, action: r.action, ok: false, note: err instanceof Error ? err.message : "Failed", notified: [] });
+    }
+  }
+  await drain(c.env.DB, 10).catch(() => {});
+  const block = await c.env.DB.prepare("SELECT * FROM staff_blocks WHERE id=?").bind(blockId).first<StaffBlock>();
+  return c.json({ block, outcome }, 201);
+});
+sandbox.delete("/staff/:id/blocks/:blockId", async (c) => {
+  scopeStaff(c, c.req.param("id"));
+  const result = await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM staff_blocks WHERE shop_id=? AND staff_id=? AND id=?").bind(c.get("shopId"), c.req.param("id"), c.req.param("blockId")),
+    audit(c, "staff_block", c.req.param("blockId"), "BLOCK_REMOVED", "Blocked time removed.", true),
+  ]);
+  if (!result[0].meta.changes) fail(404, "Block not found");
+  return c.json({ ok: true });
+});
 sandbox.delete("/staff/:id/days-off/:leaveId", async (c) => {
   const leaveId = c.req.param("leaveId");
   const result = await c.env.DB.batch([
@@ -2099,6 +2239,7 @@ export async function availabilityContext(
     c.env.DB.prepare(
       "SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND staff_id=? AND date=?",
     ).bind(sid, staffId, date),
+    c.env.DB.prepare("SELECT * FROM staff_blocks WHERE shop_id=? AND staff_id=? AND date=?").bind(sid, staffId, date),
   ]);
   const staff = result[0].results[0] as Staff | undefined;
   const service = result[1].results[0] as Service | undefined;
@@ -2118,6 +2259,7 @@ export async function availabilityContext(
     holidays: result[3].results as Holiday[],
     bookings: result[4].results as StoredBooking[],
     daysOff: result[5].results as StaffDayOff[],
+    blocks: result[10].results as StaffBlock[],
   };
 }
 sandbox.get("/availability", async (c) => {
@@ -2277,6 +2419,7 @@ export async function createBooking(
     options.minStart ?? Date.now(),
     undefined,
     data.daysOff,
+    data.blocks,
   );
   // Shop users may knowingly double-book or book outside hours (Fresha behaviour); customers cannot.
   // Past time is never overridable, whichever reason slotReason happened to report first.
@@ -2412,7 +2555,7 @@ sandbox.patch("/bookings/:id/items", async (c) => {
   const edited = items.some((it, i) => it.price_pence !== quote.items[i].price_pence || it.duration_min !== quote.items[i].duration_min);
   // Roster + overlap for the new footprint (only re-checked when it grows or moves service).
   const reason = duration !== b.duration_min || body.service_id !== b.service_id
-    ? slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, b.date, b.start_min, duration, 0, b.id, data.daysOff)
+    ? slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, b.date, b.start_min, duration, 0, b.id, data.daysOff, data.blocks)
     : "";
   const overridden = !!reason && body.force && overridable(reason);
   if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
@@ -2869,6 +3012,7 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     Date.now(),
     b.id,
     data.daysOff,
+    data.blocks,
   );
   const moveInstant = localInstant(body.date, body.start_min, data.shop.timezone);
   const overridden = !!reason && body.force && overridable(reason) && moveInstant !== null && moveInstant >= Date.now();
@@ -2988,7 +3132,7 @@ sandbox.post("/series/:id/reschedule", async (c) => {
     try {
       const data = await availabilityContext(c, body.staff_id, b.service_id, date);
       if (data.rule?.enabled === 0) throw new Error("service_ineligible");
-      const reason = slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, date, body.start_min, b.duration_min, Date.now(), b.id, data.daysOff);
+      const reason = slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, date, body.start_min, b.duration_min, Date.now(), b.id, data.daysOff, data.blocks);
       if (reason) throw new Error(reason);
       const start = localInstant(date, body.start_min, data.shop.timezone)!;
       await checkVersionUpdate(

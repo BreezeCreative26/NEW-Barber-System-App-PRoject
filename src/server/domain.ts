@@ -236,6 +236,18 @@ export type StaffDayOff = {
   reason: string;
   created_at: number;
 };
+export type StaffBlock = {
+  id: string;
+  shop_id: string;
+  staff_id: string;
+  date: string;
+  start_min: number;
+  end_min: number;
+  reason: string;
+  kind: "LUNCH" | "TRAINING" | "PERSONAL" | "SICK" | "OTHER";
+  created_by: string;
+  created_at: number;
+};
 export type StoredBooking = {
   customer_id: string | null;
   id: string;
@@ -314,6 +326,7 @@ export type WorkspaceData = {
   hours: Hours[];
   holidays: Holiday[];
   days_off: StaffDayOff[];
+  blocks: StaffBlock[];
   bookings: StoredBooking[];
   payments: Payment[];
   audit: AuditEvent[];
@@ -348,6 +361,7 @@ export type Customer = {
   birthday: string | null;
   preferred_staff_id: string | null;
   marketing_opt_in: number;
+  contact_pref?: "AUTO" | "SMS" | "EMAIL" | "NONE";
   merged_into: string | null;
   version: number;
   created_at: number;
@@ -791,6 +805,22 @@ export const bookingDetailsSchema = z
     version,
   })
   .strict();
+export const BLOCK_KINDS = ["LUNCH", "TRAINING", "PERSONAL", "SICK", "OTHER"] as const;
+export const blockSchema = z
+  .object({
+    date: dateSchema,
+    start_min: z.number().int().min(0).max(1425).refine((v) => v % 15 === 0, "Use 15-minute steps"),
+    end_min: z.number().int().min(15).max(1440).refine((v) => v % 15 === 0, "Use 15-minute steps"),
+    kind: z.enum(BLOCK_KINDS).default("OTHER"),
+    reason: z.string().trim().max(120).default(""),
+    // What to do with appointments the block lands on. Decided per booking by the shop.
+    resolutions: z
+      .array(z.object({ booking_id: z.string().uuid(), action: z.enum(["KEEP", "CANCEL", "MOVE"]), notify: z.boolean().default(true), move_to: z.object({ staff_id: z.string().uuid(), date: dateSchema, start_min: z.number().int().min(0).max(1425) }).optional() }))
+      .max(50)
+      .default([]),
+  })
+  .strict()
+  .refine((b) => b.end_min > b.start_min, "Block must end after it starts");
 // Edit the visit itself: service, add-ons, price per line, duration of the service line.
 // Prices/durations are optional overrides; omitted = current catalogue value for that barber.
 export const bookingItemsSchema = z
@@ -823,7 +853,7 @@ export const moveSchema = z
   })
   .strict();
 // Reasons a shop user may knowingly override from the calendar. Public booking never can.
-export const OVERRIDABLE_REASONS = new Set(["Slot taken", "Outside working hours", "Lunch break", "Barber off duty"]);
+export const OVERRIDABLE_REASONS = new Set(["Slot taken", "Outside working hours", "Lunch break", "Barber off duty", "Blocked time"]);
 export function overridable(reason: string) {
   return OVERRIDABLE_REASONS.has(reason);
 }
@@ -1096,6 +1126,7 @@ export function slotReason(
   now = Date.now(),
   excludeId?: string,
   daysOff: StaffDayOff[] = [],
+  blocks: Pick<StaffBlock, "staff_id" | "date" | "start_min" | "end_min">[] = [],
 ): string {
   if (!staff?.active) return "Barber unavailable";
   if (
@@ -1119,6 +1150,7 @@ export function slotReason(
     start + duration + 10 > hours.break_start
   )
     return "Lunch break";
+  if (blocks.some((k) => k.staff_id === staff.id && k.date === date && start < k.end_min && start + duration + 10 > k.start_min)) return "Blocked time";
   const instant = localInstant(date, start, shop.timezone);
   if (instant === null) return "Ambiguous or invalid local time";
   if (instant < now) return "Time has passed";
