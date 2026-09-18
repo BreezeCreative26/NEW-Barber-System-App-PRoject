@@ -60,11 +60,26 @@ Without keys the app runs in **preview mode**: deposits payable in the shop, pay
 hand, every Settings → Payments control visible but honest about why it's off. Full runbook,
 tiers (STANDARD / FAST float), auto pay runs and the test-mode checklist: **`docs/PAYMENTS.md`**.
 
-## Calendar roadmap
+## Calendar (Fresha-grade) — all four phases shipped
 
-The Fresha/Booksy-parity plan for the calendar — snap drag-and-drop, in-place price/service/duration
-edits, scheduled team, block time with customer notification — is phased and costed in
-**`docs/CALENDAR_PLAN.md`**.
+- **Move**: press-and-drag a confirmed card; the top edge is the new start, snapping every 15 min with a
+  haptic/CSS tick and a live time label. Sideways = another barber. Greyed cells (outside hours, break,
+  blocked, occupied) are still clickable — the shop confirms and books over them (`force`); past time,
+  closures and days off never are. Overlapping cards share the column in lanes.
+- **Resize**: drag the bottom edge to change the length (15-min snap, live end-time label); saves through
+  `PATCH /bookings/:id/items` with the price untouched.
+- **Undo**: after a move or resize the green notice offers one-step Undo for 20 s.
+- **Edit in place**: appointment panel → *Edit* changes service, add-ons, price and duration; re-pricing
+  below a paid deposit refunds the difference, charged against the barber's pay run.
+- **Blocked time**: ⋯ beside each barber (or right-click a cell) → *Block time…* with a type and reason.
+  Affected customers are listed with their contact channel; choose Move (next free slot suggested),
+  Cancel & refund, or Keep, and whether to tell them. Public availability shows blocks only as
+  "Unavailable". Barbers may block their own time.
+- **Scheduled team**: rostered barbers show by default; the *Scheduled team · n/N* picker adds others for
+  the day (kept in `localStorage`).
+- **Card icons**: online · walk-in · standing · returning customer · deposit paid · paid.
+
+Full plan, decisions and status: **`docs/CALENDAR_PLAN.md`**.
 
 ## Messages (email + SMS)
 

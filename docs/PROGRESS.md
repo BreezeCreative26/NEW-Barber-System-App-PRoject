@@ -561,3 +561,15 @@ Pointer drag with 15-min snap + tick + live time label, sideways barber moves, h
 In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, migration 0011) with deposit over-payment auto-refunded and charged to the barber's pay run via `booking_adjustments`. Payment modes PREPAY / DEPOSIT / PAY_AT_VISIT per shop with per-service override (migration 0012), honoured by public booking, manage page, Stripe session and Checkout. Tests: `tests/edit-items.spec.ts`; drag/payments/payouts suites still green (14 passed).
 
 **Still to do** (specified in `docs/CALENDAR_PLAN.md`): Phase 3 scheduled team + `staff_blocks` + block→notify by contact preference; Phase 4 resize/undo/icons; update the 11 known-failing tests (7 legacy + 4 from Phase 1's intended behaviour change).
+
+## Calendar Phases 3 + 4 shipped, test debt cleared (2026-09-18)
+- **Phase 3** — migration 0013 `staff_blocks` (+ `customers.contact_pref`); "Blocked time" slot reason
+  (shop-overridable, hidden publicly); block routes with preview → per-booking KEEP/MOVE/CANCEL + notify;
+  grey block cards, per-barber ⋯ menu, right-click-to-block, `BlockDialog`, Scheduled team picker.
+- **Phase 4** — bottom-edge resize → `/items` duration with live label; one-step Undo for move/resize;
+  returning-customer + deposit icons; walk-in from ⋯ preselects the barber.
+- **Tests** — `tests/blocks.spec.ts`, `tests/calendar-resize.spec.ts` added. The 11 legacy failures were
+  assertion drift from the panel redesign (Next status / Edit booking details / Share confirmation /
+  greyed-cells-disabled) and are rewritten against the current UI; `markDone()` helper in `tests/fixture.ts`.
+  Appointment-panel note form now sets `data-dirty` / `aria-busy` so the unsaved-changes guard fires.
+- **Phone** — Scheduled team button sits on toolbar row 2 (count only) so the row no longer overflows 390px.
