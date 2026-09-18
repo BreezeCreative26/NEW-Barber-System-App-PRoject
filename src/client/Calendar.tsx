@@ -28,6 +28,8 @@ export function useCompact() {
 export type CalendarDraft = { staffId: string; start: number; outside?: string };
 // Where a drag may land and what the shop is knowingly overriding there ("" = clean slot).
 export type MoveTarget = { staffId: string; start: number; override: string };
+// New length after dragging the bottom edge (15-min steps) and what it overrides, if anything.
+export type ResizeTarget = { duration: number; override: string };
 
 // Overlapping appointments share the column side by side (Google/Fresha style). Cluster bookings
 // whose intervals touch, then assign each a lane greedily; every card in a cluster gets the same
@@ -154,10 +156,12 @@ export function Calendar({
   onAction,
   onBlock,
   onRemoveBlock,
+  onResize,
   team,
   paid = new Set<string>(),
 }: {
   paid?: Set<string>;
+  onResize?: (booking: StoredBooking, to: ResizeTarget) => Promise<void> | void;
   w: WorkspaceData;
   date: string;
   barber: string;
@@ -176,6 +180,9 @@ export function Calendar({
 }) {
   // Pointer-driven drag: the card's TOP edge is the booking time. `overStart` is snapped to 15 min.
   const [dragging, setDragging] = useState<{ id: string; overStaff: string; overStart: number; tick: number } | null>(null);
+  // Bottom-edge resize: the card's END snaps to 15 minutes; duration = end - start.
+  const [resizing, setResizing] = useState<{ id: string; duration: number; tick: number } | null>(null);
+  const resizeRef = useRef<{ id: string; pointerId: number; origin: number } | null>(null);
   const dragRef = useRef<{
     id: string;
     pointerId: number;
@@ -228,6 +235,12 @@ export function Calendar({
       (barber || !team || rostered(s) || team.has(s.id) || bookings.some((b) => b.staff_id === s.id)),
   );
   const dayBlocks = w.blocks.filter((b) => b.date === date);
+  // Returning customers: the same customer record holds more than one saved visit in the workspace snapshot.
+  const regulars = (() => {
+    const seen = new Map<string, number>();
+    for (const b of w.bookings) if (b.customer_id && b.status !== "CANCELLED") seen.set(b.customer_id, (seen.get(b.customer_id) ?? 0) + 1);
+    return new Set([...seen].filter(([, n]) => n > 1).map(([id]) => id));
+  })();
   const occupied = bookings.filter(
     (b) => !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
@@ -319,6 +332,63 @@ export function Calendar({
     if (dayBookings.some((b) => b.id !== excludeId && b.staff_id === s.id && start < b.start_min + b.duration_min + b.buffer_min && start + dur > b.start_min)) return "Occupied";
     return "";
   }
+  // Would this footprint (start..start+dur) for barber `staffId` collide with something soft/hard?
+  function footprintState(staffId: string, start: number, dur: number, excludeId: string): string {
+    const s = staff.find((x) => x.id === staffId);
+    if (!s) return "Inactive barber";
+    const shift = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date) || w.hours.find((h) => h.staff_id === s.id && h.weekday === weekdayOf);
+    const endAt = start + dur;
+    if (shift?.enabled && endAt > Math.min(dayHours.ends, shift.ends)) return "Outside hours";
+    if (shift?.enabled && start < shift.break_end && endAt > shift.break_start && shift.break_end > shift.break_start) return "Break";
+    if (dayBlocks.some((k) => k.staff_id === s.id && start < k.end_min && endAt > k.start_min)) return "Blocked";
+    if (dayBookings.some((b) => b.id !== excludeId && b.staff_id === s.id && start < b.start_min + b.duration_min + b.buffer_min && endAt > b.start_min)) return "Occupied";
+    return "";
+  }
+  function onResizePointerDown(e: ReactPointerEvent<HTMLSpanElement>, b: StoredBooking) {
+    if (!onResize || b.status !== "CONFIRMED" || disabled || e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    resizeRef.current = { id: b.id, pointerId: e.pointerId, origin: b.duration_min };
+    setResizing({ id: b.id, duration: b.duration_min, tick: 0 });
+    document.body.classList.add("is-dragging-appointment");
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+  function onResizePointerMove(e: ReactPointerEvent<HTMLSpanElement>, b: StoredBooking) {
+    const r = resizeRef.current;
+    if (!r || r.pointerId !== e.pointerId) return;
+    const timeline = boardRef.current?.querySelector<HTMLElement>(".calendar-timeline");
+    if (!timeline) return;
+    const rect = timeline.getBoundingClientRect();
+    const endMinute = begin + Math.round((e.clientY - rect.top) / step) * 15;
+    const duration = Math.max(15, Math.min(end - b.start_min, endMinute - b.start_min));
+    setResizing((prev) => {
+      if (!prev || prev.duration === duration) return prev;
+      tick();
+      return { ...prev, duration, tick: prev.tick + 1 };
+    });
+  }
+  function onResizePointerUp(e: ReactPointerEvent<HTMLSpanElement>, b: StoredBooking) {
+    const r = resizeRef.current;
+    if (!r || r.pointerId !== e.pointerId) return;
+    resizeRef.current = null;
+    const live = resizing;
+    setResizing(null);
+    document.body.classList.remove("is-dragging-appointment");
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+    const swallow = (ev: Event) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+    };
+    e.currentTarget.closest("button")?.addEventListener("click", swallow, { capture: true, once: true });
+    if (!live || !onResize || live.duration === b.duration_min) return;
+    const reason = footprintState(b.staff_id, b.start_min, live.duration, b.id);
+    if (HARD_REASONS.has(reason)) return;
+    void onResize(b, { duration: live.duration, override: SOFT_REASONS.has(reason) ? reason : "" });
+  }
   function endDrag(commit: boolean) {
     const d = dragRef.current;
     dragRef.current = null;
@@ -337,6 +407,7 @@ export function Calendar({
   function onEventPointerDown(e: ReactPointerEvent<HTMLButtonElement>, b: StoredBooking) {
     if (!onMove || b.status !== "CONFIRMED" || disabled) return;
     if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest(".resize-handle")) return;
     const card = e.currentTarget.getBoundingClientRect();
     const touch = e.pointerType === "touch";
     dragRef.current = {
@@ -733,10 +804,11 @@ export function Calendar({
                           top: ((b.start_min - begin) / 15) * step,
                           height: Math.max(
                             24,
-                            (b.duration_min / 15) * step - 3,
+                            ((resizing?.id === b.id ? resizing.duration : b.duration_min) / 15) * step - 3,
                           ),
                           ...laneStyle,
                         }}
+                        data-resizing={resizing?.id === b.id ? "true" : undefined}
                         onClick={() => onOpen(b)}
                         data-draggable={!!onMove && b.status === "CONFIRMED" && !disabled ? "true" : undefined}
                         onPointerDown={(e) => onEventPointerDown(e, b)}
@@ -764,8 +836,35 @@ export function Calendar({
                               series={!!b.series_id}
                               walkIn={b.source === "WALK_IN"}
                               paid={paid.has(b.id)}
+                              regular={!!b.customer_id && regulars.has(b.customer_id)}
+                              deposit={b.deposit_status === "PAID"}
                             />
                           </small>
+                        )}
+                        {resizing?.id === b.id && (
+                          <span className="resize-label" aria-hidden="true" data-testid="resize-label" key={resizing.tick}>
+                            {time(b.start_min + resizing.duration)} · {resizing.duration} min
+                            {(() => {
+                              const why = footprintState(b.staff_id, b.start_min, resizing.duration, b.id);
+                              return why ? <small>{HARD_REASONS.has(why) ? `Can't: ${why.toLowerCase()}` : `${why} · release to save anyway`}</small> : null;
+                            })()}
+                          </span>
+                        )}
+                        {onResize && b.status === "CONFIRMED" && !disabled && (
+                          <span
+                            className="resize-handle"
+                            data-testid="resize-handle"
+                            role="presentation"
+                            title="Drag to change the length"
+                            onPointerDown={(e) => onResizePointerDown(e, b)}
+                            onPointerMove={(e) => onResizePointerMove(e, b)}
+                            onPointerUp={(e) => onResizePointerUp(e, b)}
+                            onPointerCancel={() => {
+                              resizeRef.current = null;
+                              setResizing(null);
+                              document.body.classList.remove("is-dragging-appointment");
+                            }}
+                          />
                         )}
                       </button>
                       );
@@ -816,7 +915,8 @@ export function Calendar({
           <p id="timetable-keyboard-help">
             Click any 15-minute cell to book there — greyed cells (outside hours, breaks, occupied) still
             work, you just confirm you mean it. Press and drag a confirmed appointment to move it: the top
-            edge is the new start time and it snaps every 15 minutes, sideways moves it to another barber.
+            edge is the new start time and it snaps every 15 minutes, sideways moves it to another barber;
+            drag the bottom edge to change its length. Undo sits in the green message after each change.
             On a phone, hold for a moment first. Overlapping appointments sit side by side. Click the hours
             under a barber's name to change that day's shift; the ⋯ beside it blocks time with a reason,
             books a day off or seats a walk-in. Right-click a cell to block from that time. Tab reaches

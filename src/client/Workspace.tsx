@@ -829,9 +829,9 @@ function SlotGrid({
 
 // Walk-in: seat someone now. Picks the next free 15-minute start for the chosen barber today;
 // customer details are optional (a name defaults to "Walk-in", no number needed).
-function WalkInForm({ w, saved }: { w: WorkspaceData; saved: EditorProps["saved"] }) {
+function WalkInForm({ w, saved, staffId }: { w: WorkspaceData; saved: EditorProps["saved"]; staffId?: string }) {
   const barbers = w.staff.filter((s) => s.active);
-  const [staff, setStaff] = useState(barbers.length === 1 ? barbers[0].id : "");
+  const [staff, setStaff] = useState(staffId && barbers.some((b) => b.id === staffId) ? staffId : barbers.length === 1 ? barbers[0].id : "");
   const [service, setService] = useState("");
   const [slots, setSlots] = useState<Slots | null>(null);
   const [error, setError] = useState("");
@@ -1126,6 +1126,15 @@ export function Workspace() {
   const [needsSession, setNeedsSession] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // One-step undo for calendar gestures (move / resize): the inverse call, offered beside the notice
+  // until the next change or 20 s pass.
+  const [undo, setUndo] = useState<{ label: string; run: () => Promise<void> } | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  useEffect(() => {
+    if (!undo) return;
+    const t = window.setTimeout(() => setUndo(null), 20000);
+    return () => window.clearTimeout(t);
+  }, [undo]);
   const [tab, setTab] = useState("Appointments");
   const [editor, setEditor] = useState<Editor | null>(null);
   const [editorRevision, setEditorRevision] = useState(0);
@@ -1765,6 +1774,30 @@ export function Workspace() {
           {notice && (
             <p className="workspace-success" role="status">
               {notice}
+              {undo && (
+                <button
+                  type="button"
+                  className="undo-button"
+                  data-testid="undo"
+                  disabled={undoBusy || !online}
+                  onClick={async () => {
+                    const u = undo;
+                    setUndo(null);
+                    setUndoBusy(true);
+                    try {
+                      await u.run();
+                      setNotice(`Undone · ${u.label}.`);
+                      await refresh();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Could not undo.");
+                    } finally {
+                      setUndoBusy(false);
+                    }
+                  }}
+                >
+                  {undoBusy ? "Undoing…" : "Undo"}
+                </button>
+              )}
             </p>
           )}
           {!w && !needsSession && !error && (
@@ -2089,6 +2122,48 @@ export function Workspace() {
                             else if (action === "dayOff") setEditor({ kind: "daysOff", item: staffMember });
                             else setEditor({ kind: "walkin", staffId: staffMember.id });
                           }}
+                          onResize={
+                            manager || w.shop.till_access === "ALL"
+                              ? async (b, to) => {
+                                  if (w.payments.some((p) => p.booking_id === b.id && !p.voided_at)) {
+                                    setError("This visit has been paid; change its length from the appointment panel as a refund instead.");
+                                    return;
+                                  }
+                                  const items = JSON.parse(b.items_json || "[]") as BookingItem[];
+                                  const svc = items.find((i) => i.kind === "SERVICE");
+                                  const addons = items.filter((i) => i.kind === "ADDON");
+                                  const addonMinutes = addons.reduce((n, i) => n + i.duration_min, 0);
+                                  const serviceDuration = Math.max(5, to.duration - addonMinutes);
+                                  if (to.override && !window.confirm(`Make ${b.attendee_name || b.customer_name} ${to.duration} min?\n\n${to.override === "Occupied" ? "It will overlap the next appointment — both sit side by side." : `${to.override} — save it anyway?`}`)) return;
+                                  setPanelError("");
+                                  const body = (dur: number, version: number) => ({
+                                    service_id: b.service_id,
+                                    addon_ids: addons.map((a) => a.id),
+                                    service_price_pence: svc?.price_pence ?? b.price_pence,
+                                    service_duration_min: dur,
+                                    addon_prices: Object.fromEntries(addons.map((a) => [a.id, a.price_pence])),
+                                    reason: "Length changed on the calendar",
+                                    version,
+                                    force: true,
+                                  });
+                                  try {
+                                    await api(`/bookings/${b.id}/items`, "PATCH", body(serviceDuration, b.version));
+                                    setNotice(`${b.attendee_name || b.customer_name} is now ${to.duration} min (until ${time(b.start_min + to.duration)}).`);
+                                    const before = (svc?.duration_min ?? b.duration_min) as number;
+                                    setUndo({
+                                      label: `back to ${b.duration_min} min`,
+                                      run: async () => {
+                                        const cur = (await api<{ booking: StoredBooking }>(`/bookings/${b.id}`)).booking;
+                                        await api(`/bookings/${b.id}/items`, "PATCH", { ...body(before, cur.version), reason: "Undo calendar resize" });
+                                      },
+                                    });
+                                    await refresh();
+                                  } catch (e) {
+                                    setError(e instanceof Error ? e.message : "Could not change the length.");
+                                  }
+                                }
+                              : undefined
+                          }
                           onBlock={(k) => setEditor({ kind: "block", item: w.staff.find((s) => s.id === k.staff_id)!, at: k.start_min })}
                           onRemoveBlock={(k) => setEditor({ kind: "removeBlock", item: k })}
                           onMove={
@@ -2106,7 +2181,15 @@ export function Workspace() {
                                   setPanelError("");
                                   try {
                                     const r = await api<{ booking: StoredBooking }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: to.start, staff_id: to.staffId, reason: to.override ? `Moved on the calendar (over: ${to.override.toLowerCase()})` : "Moved on the calendar", version: b.version, ...(to.override ? { force: true } : {}) });
-                                    setNotice(`Moved to ${String(Math.floor(to.start / 60)).padStart(2, "0")}:${String(to.start % 60).padStart(2, "0")}.`);
+                                    setNotice(`Moved to ${at}${same ? "" : ` with ${who}`}.`);
+                                    const from = { date: b.date, start_min: b.start_min, staff_id: b.staff_id };
+                                    setUndo({
+                                      label: `back to ${time(from.start_min)}`,
+                                      run: async () => {
+                                        const cur = (await api<{ booking: StoredBooking }>(`/bookings/${b.id}`)).booking;
+                                        await api(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo calendar move", version: cur.version, force: true });
+                                      },
+                                    });
                                     await refresh();
                                     void r;
                                   } catch (e) {
@@ -4924,7 +5007,7 @@ function WorkspaceEditor({
           </p>
         </SaveForm>
       )}
-      {e.kind === "walkin" && <WalkInForm w={w} saved={saved} />}
+      {e.kind === "walkin" && <WalkInForm w={w} saved={saved} staffId={e.staffId} />}
       {e.kind === "booking" && (
         <BookingForm
           w={w}

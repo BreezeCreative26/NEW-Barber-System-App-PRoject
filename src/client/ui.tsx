@@ -618,12 +618,13 @@ export function StatusPill({ tone = "good", children, ...rest }: { tone?: "good"
   );
 }
 
-export function BlockIcons({ online, regular, series, walkIn, paid }: { online?: boolean; regular?: boolean; series?: boolean; walkIn?: boolean; paid?: boolean }) {
+export function BlockIcons({ online, regular, series, walkIn, paid, deposit }: { online?: boolean; regular?: boolean; series?: boolean; walkIn?: boolean; paid?: boolean; deposit?: boolean }) {
   const items: [boolean | undefined, string, string][] = [
     [regular, "heart", "Returning customer"],
     [series, "repeat", "Standing booking"],
     [online, "cloud", "Booked online"],
     [walkIn, "footprints", "Walk-in"],
+    [deposit && !paid, "wallet", "Deposit paid"],
     [paid, "paid", "Paid"],
   ];
   const shown = items.filter(([on]) => on);
@@ -631,7 +632,7 @@ export function BlockIcons({ online, regular, series, walkIn, paid }: { online?:
   return (
     <span className="block-icons" aria-label={shown.map(([, , l]) => l).join(", ")}>
       {shown.map(([, icon, label]) => (
-        <Icon key={icon} name={icon} size={12} className={icon === "paid" ? "paid" : ""} />
+        <Icon key={icon} name={icon} size={12} className={icon === "paid" ? "paid" : icon === "wallet" ? "deposit" : icon === "heart" ? "regular" : ""} />
       ))}
       <span className="visually-hidden">{shown.map(([, , l]) => l).join(", ")}</span>
     </span>
