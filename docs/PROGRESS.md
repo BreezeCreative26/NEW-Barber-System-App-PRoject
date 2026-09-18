@@ -594,3 +594,11 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
   unchanged. Fixes confirmations stuck QUEUED whenever a backlog existed.
 - Visual snapshots refreshed for the Phase 3/4 calendar chrome.
 - Production (Vercel) on `bb2a13b`, `/api/diag?ping=1` healthy.
+
+## Hardening + landing page (2026-09-18)
+- Error telemetry (server + browser → Sentry envelope when `SENTRY_DSN` set; log otherwise), per-IP
+  public read ceiling and login cap, 180-day notification retention, feature register reconciled
+  (51 rows moved to `implementing`, 4 kept `not_started` with notes).
+- `/` is now a marketing landing page for visitors (signed-in → workspace). Sign-up journey verified
+  in a browser on a phone; new owners get the "Get your shop live" checklist. `tests/landing.spec.ts`.
+- To turn on error delivery in production: add `SENTRY_DSN` to the Vercel project.

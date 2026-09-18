@@ -67,6 +67,26 @@ Without keys the app runs in **preview mode**: deposits payable in the shop, pay
 hand, every Settings → Payments control visible but honest about why it's off. Full runbook,
 tiers (STANDARD / FAST float), auto pay runs and the test-mode checklist: **`docs/PAYMENTS.md`**.
 
+## Front door and sign-up
+
+`/` is a server-rendered marketing page (no JS, indexable, JSON-LD) with five "Create your shop"
+CTAs → `/signup`. Visitors with an `ollo_session` cookie are sent straight to `/workspace`. A new
+owner lands on an empty calendar with a **"Get {shop} live"** checklist (services → hours/team →
+booking link) that ticks itself off and disappears once the shop is bookable. Copy lives in
+`src/server/landing.ts`, styles in `public/static/landing.css`, hero in `public/static/landing/`.
+
+## Operations
+
+- **Errors**: `src/server/telemetry.ts` posts unexpected server errors and browser errors
+  (`POST /api/telemetry/error`, from the React boundary / `window.onerror`) to Sentry's envelope
+  endpoint when `SENTRY_DSN` is set; otherwise they go to the server log. No SDK, no request bodies
+  or cookies in payloads. `/api/health` and `/api/diag` show which sink is active.
+- **Abuse controls**: sign-up 60/IP/10 min, login 12/email + 60/IP, public GETs 600/IP/10 min
+  (in-memory per instance), public writes throttled per shop/phone in the database. Override with
+  `SIGNUP_IP_LIMIT`, `LOGIN_IP_LIMIT`, `PUBLIC_READ_LIMIT` (test runners raise them).
+- **Retention**: the 5-minute sweep deletes delivered/skipped/failed notifications older than 180
+  days; queued rows are never touched.
+
 ## Calendar (Fresha-grade) — all four phases shipped
 
 - **Move**: press-and-drag a confirmed card; the top edge is the new start, snapping every 15 min with a
