@@ -8,6 +8,9 @@ import type { Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
 import { report, telemetryStatus } from "./server/telemetry";
+import { landingPage } from "./server/landing";
+import { getCookie } from "hono/cookie";
+import { ACCOUNT_COOKIE } from "./server/accounts";
 import { expireHolds, markDepositPaid, stripeStatus, verifyWebhook } from "./server/stripe";
 import { afterDepositPaid } from "./server/public";
 import { handleConnectEvent, type ConnectEvent } from "./server/payouts";
@@ -133,7 +136,6 @@ app.all("/api/origin-check", (c) => {
     sec_fetch_site: pick("sec-fetch-site"),
   });
 });
-app.get("/", (c) => c.redirect("/workspace"));
 app.get("/workspace", workspaceShell);
 app.get("/signin", workspaceShell);
 app.get("/signup", workspaceShell);
@@ -160,6 +162,21 @@ const publicOrigin = (c: { req: { url: string; header: (k: string) => string | u
   const proto = c.req.header("x-forwarded-proto") || u.protocol.replace(":", "");
   return `${proto}://${host}`;
 };
+// Front door: owners with a session go straight to work; everyone else sees the marketing page.
+// The cookie's presence is only a routing hint — the workspace validates it and shows sign-in if
+// it is stale, so a forged cookie buys nothing.
+app.get("/", (c) => {
+  if (getCookie(c, ACCOUNT_COOKIE)) return c.redirect("/workspace");
+  c.header("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
+  c.header("Vary", "Cookie");
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  c.header(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
+  );
+  return c.html(landingPage(publicOrigin(c)));
+});
 const secure = (c: { header: (k: string, v: string) => void }) => {
   c.header("Cache-Control", "no-store");
   c.header("X-Content-Type-Options", "nosniff");

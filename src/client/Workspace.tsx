@@ -1808,6 +1808,48 @@ export function Workspace() {
           {!w && !needsSession && !error && (
             <p role="status">Loading local workspace…</p>
           )}
+          {w && !inviteToken && manager && (() => {
+            // First-run checklist (the landing page promised "live in two minutes"). Shows until the
+            // shop has services, hours and a live booking link, or the owner hides it for this browser.
+            const steps = [
+              { key: "services", done: w.services.some((x) => x.active), label: "Add your services", hint: "Prices, lengths, add-ons.", go: () => goTo("Services") },
+              // Signup seeds default Mon–Sat hours, so "done" means the owner has looked at them or added a colleague.
+              { key: "team", done: w.staff.length > 1 || localStorage.getItem(`ollo.setup.team.${w.shop.id}`) === "1", label: "Check your hours, add your barbers", hint: "Weekly hours per barber; invite the team.", go: () => { localStorage.setItem(`ollo.setup.team.${w.shop.id}`, "1"); goTo("Team"); } },
+              { key: "online", done: !!w.shop.slug && !!w.shop.online_booking, label: "Switch on your booking link", hint: "Pick your web address and share it.", go: () => goTo("Settings") },
+            ];
+            const left = steps.filter((x) => !x.done).length;
+            const hidden = localStorage.getItem(`ollo.setup.hidden.${w.shop.id}`) === "1";
+            if (!left || hidden || tab !== "Appointments") return null;
+            return (
+              <section className="setup-checklist" aria-labelledby="setup-heading" data-testid="setup-checklist">
+                <div className="setup-head">
+                  <div>
+                    <h2 id="setup-heading">Get {w.shop.name} live</h2>
+                    <p>{left === 3 ? "Three quick steps and customers can book you." : `${3 - left} of 3 done — ${left} to go.`}</p>
+                  </div>
+                  <button type="button" className="linklike" onClick={() => { localStorage.setItem(`ollo.setup.hidden.${w.shop.id}`, "1"); setNotice("Checklist hidden. Everything is still in the sidebar."); }}>
+                    Hide
+                  </button>
+                </div>
+                <ol className="setup-steps">
+                  {steps.map((x, i) => (
+                    <li key={x.key} data-done={x.done}>
+                      <span className="setup-num" aria-hidden="true">{x.done ? <Icon name="checks" size={14} /> : i + 1}</span>
+                      <div>
+                        <strong>{x.label}</strong>
+                        <span>{x.hint}</span>
+                      </div>
+                      {!x.done && (
+                        <Button variant={steps.findIndex((y) => !y.done) === i ? "primary" : "secondary"} onClick={x.go} data-testid={`setup-${x.key}`}>
+                          {x.key === "online" ? "Open settings" : x.key === "team" ? "Open team" : "Add services"}
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            );
+          })()}
           {w && !inviteToken && (
             <>
               {w.issues.length > 0 && (
