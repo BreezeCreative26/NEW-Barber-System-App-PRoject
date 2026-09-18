@@ -141,7 +141,11 @@ test("reminders sweep is idempotent: one reminder per booking per window, honour
   // Never more than one per channel, regardless of how many sweeps ran.
   expect(reminders.filter((n) => n.channel === "SMS").length).toBeLessThanOrEqual(1);
   expect(reminders.filter((n) => n.channel === "EMAIL").length).toBeLessThanOrEqual(1);
-  if (first.reminders.queued > 0) {
+  // The sweep is platform-wide (other shops in parallel tests count too); only assert when the
+  // booked slot actually sits inside this shop's 23–24h window.
+  const startsAt = new Date(`${date}T00:00:00Z`).getTime() + start_min * 60000;
+  const hoursAhead = (startsAt - Date.now()) / 3600000;
+  if (first.reminders.queued > 0 && hoursAhead > 23 && hoursAhead <= 24) {
     expect(reminders.length).toBeGreaterThanOrEqual(1);
     expect(reminders[0].body).toMatch(/tomorrow|reminder|see you/i);
     expect(reminders[0].body).toContain(`/${slug}/me`);

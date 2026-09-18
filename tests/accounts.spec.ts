@@ -746,7 +746,10 @@ test("front door: sign in / create shop tabs, no pre-filled credentials, demo pa
   await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   for (const p of ["/preview/admin", "/preview/book", "/preview/barber"])
     expect((await page.request.get(p)).status()).toBe(404);
-  expect((await page.request.get("/", { maxRedirects: 0 })).headers()["location"]).toBe("/workspace");
+  // Signed out, "/" is the marketing page; a session cookie sends you to the workspace instead.
+  const root = await page.request.get("/", { maxRedirects: 0 });
+  expect(root.status()).toBe(200);
+  expect(await root.text()).toContain("Create your shop");
   // Demo panel is present in this environment (DEMO_ENABLED=1) and opens the shared demo shop.
   await expect(page.getByRole("heading", { name: "Just looking?" })).toBeVisible();
   await expect(page.getByTestId("open-customer")).toHaveAttribute("href", "/book/demo");
