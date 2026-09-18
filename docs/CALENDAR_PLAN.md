@@ -150,3 +150,14 @@ ALTER TABLE customers ADD COLUMN contact_pref TEXT NOT NULL DEFAULT 'SMS'; -- SM
 ## Next session — start here
 
 Order now: **Phase 3 (scheduled team, `staff_blocks`, block → notify) → Phase 4 → fix the 11 failing tests** (7 legacy tests driving removed controls + 3 E1 calendar tests asserting greyed cells are disabled + 1 phone visual snapshot; all expected changes, update the assertions to the new behaviour). No further decisions are needed from the owner. Not yet tested end-to-end: a public PREPAY booking in Stripe test mode (needs keys) — the code path is the deposit path with amount = price.
+
+## Status — 2026-09-18 (Phase 3 shipped, commits 8da2423 and earlier)
+- **Server**: migration 0013 `staff_blocks` + `customers.contact_pref`; `slotReason` returns "Blocked time" (overridable by the shop with `force`, hidden as "Unavailable" in the public API); routes `GET/POST /staff/:id/blocks`, `POST /staff/:id/blocks/preview` (affected visits + each customer's channel + next-free suggestion), `DELETE /staff/:id/blocks/:blockId`. Resolutions per booking: KEEP / MOVE / CANCEL (deposit auto-refunded, charged to the barber's pay run), `notify` per row through the customer's preferred channel.
+- **Client**: grey hatched block cards with reason (hover × to remove), "Blocked" as a soft (clickable) cell reason, per-barber ⋯ menu (Edit today's hours / Block time… / Day off / Add walk-in), right-click a cell → block from that time, `BlockDialog` (when → who's affected → outcome), "Scheduled team · n/N" picker (rostered by default, add others; persisted in localStorage `ollo.team`).
+- **Tests**: `tests/blocks.spec.ts` (API + browser) passing; `calendar-drag`, `edit-items` still green.
+
+## Next session — start here
+1. Phase 4: resize by dragging the bottom edge (→ `/items` duration), undo toast after move/block, repeat-client / deposit-paid card icons.
+2. Walk-in from the ⋯ menu passes `staffId` in the editor but `WalkInForm` does not preselect it yet.
+3. Test debt (11 known failures, update assertions not behaviour): calendar.spec.ts:119/:313/:383/:432/:621/:679, catalogue.spec.ts:403, public.spec.ts:610, workspace.spec.ts:75/:348, visual owner-calendar-phone snapshot. Phase 3 may add: `.staff-column-heading` count assertions on non-rostered days (scheduled team hides them now).
+4. Run the full gate detached, fix, commit, push.
