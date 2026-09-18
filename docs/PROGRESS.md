@@ -573,3 +573,18 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
   greyed-cells-disabled) and are rewritten against the current UI; `markDone()` helper in `tests/fixture.ts`.
   Appointment-panel note form now sets `data-dirty` / `aria-busy` so the unsaved-changes guard fires.
 - **Phone** — Scheduled team button sits on toolbar row 2 (count only) so the row no longer overflows 390px.
+
+## Vercel outage fixed (2026-09-18)
+- **Symptom**: every route (incl. `/api/health`) returned an empty 500 while the build was green.
+- **Cause**: all 17 environment variables in the Vercel project existed but had **empty values**, so
+  `getDb()` threw `DATABASE_URL is not set` before Hono ran. Separately, Supabase was 7 migrations
+  behind (0007–0013 unapplied).
+- **Fix**: values set via the Vercel API from the sandbox `.env` (`DATABASE_URL`, `DIRECT_URL`,
+  Supabase URL/anon/service keys, `SESSION_SECRET`, `APP_ORIGIN`, `DEMO_ENABLED=0`,
+  `SIGNUP_IP_LIMIT=60`); migrations applied; redeployed. `/api/diag?ping=1` → `env_missing: []`,
+  `db_ping: ok`.
+- **Hardening** (commit 4c1f7b6): bindings are built defensively and remembered as `boot_error`;
+  unhandled errors return JSON not an empty body; `/api/diag` added; Node pinned to 22.x (project
+  was on 24.x).
+- Still unset (features stay in preview mode until provided): `RESEND_API_KEY`, `MAIL_FROM`,
+  `TWILIO_*`, `CRON_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`.

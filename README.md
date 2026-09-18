@@ -39,6 +39,13 @@ Local dev without Supabase: run Postgres locally and point `DATABASE_URL`/`DIREC
    `ALLOWED_ORIGINS` (comma-separated extra origins for the same-origin guard).
 3. Push to `main` → production. Branches → preview URLs.
 4. Leave `DEMO_ENABLED` unset (or `0`) in production — it exposes the demo sign-in and the dev mailbox.
+5. **Check `/api/diag?ping=1` after every deploy.** It reports the Node version, region, commit,
+   any missing required env vars, the database host and a live `SELECT 1` — a deploy that "builds
+   fine but every page is a blank 500" is almost always an empty env var, and this tells you which.
+6. Run `npm run db:migrate` against Supabase whenever `src/db/migrations/` gains a file; the app does
+   not migrate on boot.
+
+Production: https://new-barber-system-app-p-roject.vercel.app
 
 ## Payments (Stripe Connect platform)
 
