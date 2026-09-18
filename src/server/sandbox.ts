@@ -1162,7 +1162,7 @@ sandbox.post("/notifications/test", async (c) => {
   const stmts = enqueue(c.env.DB, ms, b.channel === "SMS" ? { phone: b.to } : { email: b.to }, "test_message", {}, { related: { type: "test", id: c.get("actor") }, origin, channel: b.channel });
   if (!stmts.length) fail(409, b.channel === "SMS" ? "SMS is switched off for this shop" : "Email is switched off for this shop");
   await c.env.DB.batch(stmts);
-  const r = await drain(c.env.DB, 1);
+  const r = await drain(c.env.DB, 1, Date.now(), { type: "test", id: c.get("actor") });
   const row = await c.env.DB.prepare("SELECT id,status,status_note,provider,error FROM notifications WHERE shop_id=? AND template='test_message' ORDER BY created_at DESC LIMIT 1").bind(c.get("shopId")).first();
   return c.json({ ok: true, result: r, notification: row }, 201);
 });
@@ -1172,7 +1172,8 @@ sandbox.post("/notifications/:id/resend", async (c) => {
   await input(c, z.object({}).strict());
   const r = await c.env.DB.prepare("UPDATE notifications SET status='QUEUED', next_attempt_at=?, attempts=0, error='', status_note='Resend requested.' WHERE shop_id=? AND id=? AND status IN ('FAILED','SKIPPED')").bind(Date.now(), c.get("shopId"), c.req.param("id")).run();
   if (!r.meta.changes) fail(409, "Only failed messages can be resent");
-  await drain(c.env.DB, 1);
+  const target = await c.env.DB.prepare("SELECT related_type, related_id FROM notifications WHERE id=?").bind(c.req.param("id")).first<{ related_type: string; related_id: string }>();
+  await drain(c.env.DB, 5, Date.now(), target ? { type: target.related_type, id: target.related_id } : undefined);
   const row = await c.env.DB.prepare("SELECT id,status,status_note,provider,error FROM notifications WHERE id=?").bind(c.req.param("id")).first();
   return c.json({ ok: true, notification: row });
 });
@@ -1378,7 +1379,7 @@ sandbox.post("/payment-requests/:id/send", async (c) => {
   const stmts = enqueue(c.env.DB, ms, to, "pay_link", { service: b.service_name, amount: new Intl.NumberFormat("en-GB", { style: "currency", currency: ms.currency || "GBP" }).format((req.service_pence + req.tip_pence) / 100), link: req.url }, { related: { type: "payment_request", id: req.id }, origin: new URL(c.req.url).origin, channel: body.channel });
   if (!stmts.length) fail(409, `${body.channel} is switched off for this shop`);
   await c.env.DB.batch([...stmts, c.env.DB.prepare("UPDATE payment_requests SET sent_to=? WHERE id=?").bind(body.channel === "SMS" ? b.phone : b.email, req.id)]);
-  await drain(c.env.DB, 1).catch(() => null);
+  await drain(c.env.DB, 1, Date.now(), { type: "payment_request", id: req.id }).catch(() => null);
   return c.json({ ok: true, sent_to: body.channel === "SMS" ? b.phone : b.email });
 });
 // Terminal: hand the amount to a reader (or "sdk" for Tap to Pay driven from the browser/app).

@@ -79,7 +79,8 @@ export function queueMessage(c: Ctx, shop: MsgShopLite | string, to: { phone: st
     "INSERT INTO notifications(id,shop_id,channel,recipient,template,body,subject,html,status,status_note,related_type,related_id,created_at,next_attempt_at) VALUES(?,?,?,?,?,?,?,?,'QUEUED','',?,?,?,?)",
   ).bind(uid(), sh.id, channel, channel === "SMS" ? to.phone : to.email, template, body, subject, html, related.type, related.id, now, now);
 }
-export const drainSoon = (c: Ctx, n = 5) => drain(c.env.DB, n).catch(() => undefined);
+// Scoped to the record whose message was just queued, so a backlog can never starve it.
+export const drainSoon = (c: Ctx, n = 5, related?: { type: string; id: string }) => drain(c.env.DB, n, Date.now(), related).catch(() => undefined);
 export type { MessageTemplate };
 
 // ---- Matching ----------------------------------------------------------------
@@ -164,7 +165,7 @@ export async function makeOffer(c: Ctx, shop: Shop & ShopQueueSettings, entry: W
     queueMessage(c, shop, entry, "waitlist_offer", body, { type: "waitlist_offer", id: offerId }),
     c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shop.id, "waitlist", entry.id, source === "AUTO" ? "WAITLIST_AUTO_OFFERED" : "WAITLIST_OFFERED", actor, `${service.name} with ${staff.name} on ${entry.date} at ${fmtTime(slot.start_min)} offered until ${fmtStamp(expires, shop.timezone)}. Message queued, not sent.`, now),
   ]);
-  await drainSoon(c, 2);
+  await drainSoon(c, 2, { type: "waitlist_offer", id: offerId });
   return { offer_id: offerId, link, expires_at: expires, body, staff_name: staff.name, service_name: service.name };
 }
 
@@ -218,6 +219,6 @@ export async function queueReviewRequest(c: Ctx, shopId: string, bookingId: stri
   const link = raw ? `${new URL(c.req.url).origin}/manage/${raw}` : `${new URL(c.req.url).origin}/${shop.slug}/me`;
   const body = render(templatesOf(shop).review_request, { first: (b.attendee_name || b.customer_name).split(" ")[0], shop: shop.name, service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], link });
   await queueMessage(c, shop, b, "review_request", body, { type: "booking", id: bookingId }).run();
-  await drainSoon(c, 2);
+  await drainSoon(c, 2, { type: "booking", id: bookingId });
   return body;
 }

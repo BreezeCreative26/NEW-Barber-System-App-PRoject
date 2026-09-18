@@ -277,16 +277,20 @@ async function sendSms(row: Row): Promise<Delivery> {
 
 // ---- Drain ---------------------------------------------------------------------
 const BACKOFF_MIN = [1, 5, 30, 120, 720]; // minutes between attempts; after the last, FAILED.
-export async function drain(db: DB, limit = 25, now = Date.now()) {
+// `related` narrows the drain to one record's messages: the in-request drain after a booking must
+// send *that* customer's confirmation now, not the oldest rows of a backlog (which starved fresh
+// confirmations whenever the sweep fell behind). The sweep drains everything oldest-first.
+export async function drain(db: DB, limit = 25, now = Date.now(), related?: { type: string; id: string }) {
   // Claim due rows. Rows stuck in SENDING for >10 min (crashed worker) are reclaimed.
   const due = await db
     .prepare(
       `SELECT n.id,n.shop_id,n.channel,n.recipient,n.template,n.body,n.subject,n.html,n.attempts,s.name AS shop_name,s.msg_reply_to,s.msg_sms_sender
        FROM notifications n JOIN shops s ON s.id=n.shop_id
-       WHERE (n.status='QUEUED' AND (n.next_attempt_at IS NULL OR n.next_attempt_at<=?)) OR (n.status='SENDING' AND n.next_attempt_at<=?)
+       WHERE ((n.status='QUEUED' AND (n.next_attempt_at IS NULL OR n.next_attempt_at<=?)) OR (n.status='SENDING' AND n.next_attempt_at<=?))
+         AND (? IS NULL OR (n.related_type=? AND n.related_id=?))
        ORDER BY n.created_at LIMIT ?`,
     )
-    .bind(now, now - 10 * 60000, limit)
+    .bind(now, now - 10 * 60000, related?.type ?? null, related?.type ?? null, related?.id ?? null, limit)
     .all<Row>();
   let sent = 0, failed = 0, retried = 0;
   for (const row of due.results) {

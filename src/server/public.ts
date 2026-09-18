@@ -552,7 +552,7 @@ pub.post("/shops/:slug/waitlist", async (c) => {
   const q = await shopWithQueue(c, shop.id);
   const stored = await c.env.DB.prepare("SELECT id FROM waitlist_entries WHERE shop_id=? AND date=? AND phone=? AND service_id=?").bind(shop.id, b.date, b.phone, b.service_id).first<{ id: string }>();
   await queueMessage(c, q, b, "waitlist_joined", render(templatesOf(q).waitlist_joined, { first: b.customer_name.split(" ")[0], shop: shop.name, date: wl.fmtDate(b.date), daypart: wl.daypartLabel[b.daypart] }), { type: "waitlist", id: stored?.id ?? id }).run();
-  await drainSoon(c, 1);
+  await drainSoon(c, 1, { type: "waitlist", id: stored?.id ?? id });
   return c.json({ ok: true, date: b.date, daypart: b.daypart, auto_offer: !!q.waitlist_auto_offer, hold_min: q.waitlist_offer_hold_min }, 201);
 });
 
@@ -591,7 +591,7 @@ export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooki
   const stmts = enqueue(c.env.DB, shop, to, template, vars, { related: { type: "booking", id: booking.id }, origin });
   if (!stmts.length) return [];
   await c.env.DB.batch(stmts);
-  await drain(c.env.DB, stmts.length).catch(() => {});
+  await drain(c.env.DB, stmts.length, Date.now(), { type: "booking", id: booking.id }).catch(() => {});
   return channels;
 }
 pub.post("/shops/:slug/bookings", async (c) => {
@@ -890,7 +890,7 @@ pub.post("/offer/:token/accept", async (c) => {
     queueMessage(c, shop, entry, "waitlist_booked", render(templates.waitlist_booked, { service: service?.name ?? "", barber: staffName.split(" ")[0], shop: shop.name, date: wl.fmtDate(offer.date), time: wl.fmtTime(offer.start_min), ref: ref(result!.booking), manage: manage ? `${new URL(c.req.url).origin}/manage/${manage}` : "(see the shop)" }), { type: "booking", id: result!.booking.id }),
     audit(c, "waitlist", entry.id, "WAITLIST_OFFER_ACCEPTED", `Customer accepted the offer online; booking ${ref(result!.booking)} created.`),
   ]);
-  await drainSoon(c, 2);
+  await drainSoon(c, 2, { type: "booking", id: result!.booking.id });
   const fresh = (await c.env.DB.prepare("SELECT * FROM waitlist_offers WHERE id=?").bind(offer.id).first<OfferRow>())!;
   return c.json({ offer: offerView(fresh, entry, shop, staffName, service), booking: customerView(result!.booking, shop, staffName), manage_token: manage, replayed: result!.replayed }, 201);
 });
@@ -908,7 +908,7 @@ pub.post("/offer/:token/decline", async (c) => {
     ...(leave ? [] : [queueMessage(c, shop, entry, "waitlist_released", render(templates.waitlist_released, { first: entry.customer_name.split(" ")[0], shop: shop.name, date: wl.fmtDate(entry.date) }), { type: "waitlist", id: entry.id })]),
     audit(c, "waitlist", entry.id, leave ? "WAITLIST_LEFT" : "WAITLIST_OFFER_DECLINED", leave ? "Customer declined the offer and left the list." : "Customer declined the offer; still waiting."),
   ]);
-  await drainSoon(c, 2);
+  await drainSoon(c, 2, { type: "waitlist", id: entry.id });
   // The freed slot goes to the next in line.
   await autoOffer(c, shop, { staff_id: offer.staff_id, date: offer.date, start_min: offer.start_min }, "decline");
   const fresh = (await c.env.DB.prepare("SELECT * FROM waitlist_offers WHERE id=?").bind(offer.id).first<OfferRow>())!;

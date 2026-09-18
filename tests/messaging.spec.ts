@@ -45,7 +45,12 @@ async function outbox(r: APIRequestContext): Promise<Outbox> {
 async function bookOnline(c: APIRequestContext, slug: string, w: WorkspaceData, date: string, start_min = 600, extra: Record<string, unknown> = {}) {
   const staff = w.staff[0].id, service = w.services[0].id;
   const avail = await (await c.get(`${pub}/shops/${slug}/availability?date=${date}&staff_id=${staff}&service_id=${service}`)).json();
-  const data = { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: "Message Customer", phone: "07700 900333", email: "msg-customer@example.test", date, start_min, quote: avail.quote, ...extra };
+  // Prefer the requested minute; fall back to the first free slot so a demo-seed appointment on
+  // that day cannot turn this into a slot_taken failure.
+  const wanted = avail.slots.find((x: { start_min: number; reason?: string }) => x.start_min === start_min && !x.reason);
+  const free = wanted ?? avail.slots.find((x: { reason?: string }) => !x.reason);
+  expect(free, `no free slot on ${date}`).toBeTruthy();
+  const data = { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: "Message Customer", phone: "07700 900333", email: "msg-customer@example.test", date, start_min: free.start_min, quote: avail.quote, ...extra };
   const res = await c.post(`${pub}/shops/${slug}/bookings`, { data });
   expect(res.status(), await res.text()).toBe(201);
   return res.json() as Promise<{ booking: { id: string; version: number }; manage_token: string; sent_to: string[] }>;
