@@ -163,11 +163,12 @@ test("timetable click prefills saved booking; reschedule and cancellation update
   await page
     .getByRole("button", { name: /Calendar saved client,.*10:00/ })
     .click();
-  await page.getByLabel("Next status").selectOption("CANCELLED");
-  await page
-    .getByLabel("Reason / operational note")
-    .fill("Customer cancellation");
-  await page.getByRole("button", { name: "Update appointment status" }).click();
+  const panel = page.getByTestId("appointment-panel");
+  await panel.getByRole("button", { name: "Cancel", exact: true }).click();
+  await panel.getByLabel("Reason (required)", { exact: true }).fill("Customer cancellation");
+  await panel.getByRole("button", { name: "Confirm cancelled", exact: true }).click();
+  await expect(panel).toContainText("Cancelled");
+  await page.keyboard.press("Escape");
   await expect(
     page.getByRole("heading", { name: "Cancelled and no-show history" }),
   ).toBeVisible();
@@ -394,9 +395,10 @@ test("E1 filters preserve barber colour and hidden occupancy; navigation keeps f
   await openFilters(page);
   await page.getByLabel("Search appointments").fill("not a saved customer");
   await expect(page.locator(".calendar-event")).toHaveCount(0);
-  await expect(
-    page.locator('.timetable-slot[data-minute="540"]'),
-  ).toBeDisabled();
+  // Hidden occupancy stays visible as "Occupied" cells; since the Fresha-style calendar they remain
+  // clickable (book alongside) rather than disabled.
+  await expect(page.locator('.timetable-slot[data-minute="540"]')).toHaveClass(/occupied/);
+  await expect(page.locator('.timetable-slot[data-minute="540"]').first()).toHaveAttribute("title", /Occupied/);
   await expect(page.locator(".calendar-buffer")).toHaveCount(2);
   await page.getByRole("button", { name: "Agenda", exact: true }).click();
   await expect(page.getByLabel("Search appointments")).toHaveValue(
@@ -448,15 +450,22 @@ test("E1 unavailable chair time distinguishes past, leave, breaks and shop closu
   );
   expect(result.status()).toBe(201);
   await page.getByLabel("Appointment date", { exact: true }).fill(day());
+  // A day off hides the barber from the scheduled team by default; add them back to see the greyed column.
+  await page.getByTestId("team-picker").click();
+  await page.getByRole("dialog", { name: "Scheduled team" }).getByLabel(new RegExp(w.staff[0].name)).check();
+  await page.getByRole("dialog", { name: "Scheduled team" }).getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("dialog", { name: "Scheduled team" })).toHaveCount(0);
   await expect(
     page.locator('.timetable-slot[data-column="0"]:enabled'),
   ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: /09:00,.*Day off/ }),
   ).toHaveCount(1);
+  // Breaks are greyed but clickable (book anyway), so they are enabled buttons.
   await expect(page.getByRole("button", { name: /12:45,.*Break/ })).toHaveCount(
     1,
   );
+  await expect(page.getByRole("button", { name: /12:45,.*Break/ })).toBeEnabled();
   const closure = await page.request.post(base + "/holidays", {
     headers: { Origin: origin },
     data: { date: day(), label: "Fictional E1 closure" },
@@ -490,11 +499,14 @@ for (const width of [320, 390, 768, 1024, 1440])
     expect(
       await page.locator(".calendar-event").evaluateAll((events) =>
         events.every((e) => {
-          return Array.from(e.children).every(
-            (child) =>
-              child.getBoundingClientRect().bottom <=
-              e.getBoundingClientRect().bottom + 1,
-          );
+          // The resize grip hugs the bottom edge; everything else must stay inside the card.
+          return Array.from(e.children)
+            .filter((child) => !child.classList.contains("resize-handle"))
+            .every(
+              (child) =>
+                child.getBoundingClientRect().bottom <=
+                e.getBoundingClientRect().bottom + 1,
+            );
         }),
       ),
     ).toBe(true);
@@ -640,13 +652,15 @@ test("rebooking unavailable service requires a replacement and appointment actio
   await page
     .getByRole("button", { name: /^5 minute fictional client with/ })
     .click();
-  await page.getByLabel("Reason / operational note").fill("Draft status note");
+  const panel = page.getByTestId("appointment-panel");
+  await panel.getByRole("button", { name: "Add note" }).click();
+  await panel.getByLabel("Appointment note").fill("Draft status note");
   await page.getByRole("button", { name: "Book again", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText(
     "unsaved appointment changes",
   );
   await page.getByRole("button", { name: "Keep editing appointment" }).click();
-  await expect(page.getByLabel("Reason / operational note")).toHaveValue(
+  await expect(panel.getByLabel("Appointment note")).toHaveValue(
     "Draft status note",
   );
   await page.getByRole("button", { name: "Book again", exact: true }).click();
@@ -685,7 +699,7 @@ test("pending status save blocks action switching and first-time shortcut never 
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route("**/api/app/bookings/*/status", async (route) => {
+  await page.route("**/api/app/bookings/*/details", async (route) => {
     const response = await route.fetch();
     await gate;
     await route.fulfill({ response });
@@ -693,20 +707,19 @@ test("pending status save blocks action switching and first-time shortcut never 
   await page
     .getByRole("button", { name: /^5 minute fictional client with/ })
     .click();
-  await page
-    .getByRole("button", { name: "Update appointment status", exact: true })
-    .click();
+  const panel = page.getByTestId("appointment-panel");
+  await panel.getByRole("button", { name: "Add note" }).click();
+  await panel.getByLabel("Appointment note").fill("Slow save");
+  await panel.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Saving…", exact: true }),
+    panel.getByRole("button", { name: "Saving…", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Book again", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("save is in progress");
   await expect(page.getByLabel("Previous visit")).toHaveCount(0);
   release();
-  await expect(page.getByRole("dialog")).not.toBeVisible();
-  await page
-    .getByRole("button", { name: /^5 minute fictional client with/ })
-    .click();
+  // The note lands and the panel stays open; "Book again" is now free to switch.
+  await expect(panel.locator(".panel-notes p")).toContainText("Slow save");
   await page.getByRole("button", { name: "Book again", exact: true }).click();
   const sunday = new Date(original.date + "T12:00:00Z");
   sunday.setUTCDate(sunday.getUTCDate() + ((7 - sunday.getUTCDay()) % 7) + 7);

@@ -94,9 +94,10 @@ function navigateSlots(event: KeyboardEvent<HTMLButtonElement>) {
   event.preventDefault();
   const button = event.currentTarget;
   const board = button.closest(".calendar-board");
+  // Arrow keys hop between free cells only; greyed/occupied cells stay reachable by pointer.
   const slots = Array.from(
     board?.querySelectorAll<HTMLButtonElement>(
-      ".timetable-slot:not(:disabled)",
+      ".timetable-slot:not(:disabled):not(.blocked):not(.occupied)",
     ) || [],
   );
   const column = Number(button.dataset.column);
@@ -611,23 +612,23 @@ export function Calendar({
                 { length: Math.ceil((end - begin) / 15) },
                 (_, n) => {
                   const start = begin + n * 15;
+                  // Hard reasons first (never bookable), then the soft ones the shop may book over.
                   const reason = !s.active
                     ? "Inactive barber"
                     : closed
                       ? "Shop closed"
                       : leave
                         ? "Day off"
-                        : !shift?.enabled
-                          ? "Off duty"
-                          : start < Math.max(dayHours.starts, shift.starts) ||
-                              start >= Math.min(dayHours.ends, shift.ends)
-                            ? "Outside hours"
-                            : start >= shift.break_start &&
-                                start < shift.break_end
-                              ? "Break"
-                              : date < today ||
-                                  (date === today && start <= currentMinute)
-                                ? "Past time"
+                        : date < today || (date === today && start <= currentMinute)
+                          ? "Past time"
+                          : !shift?.enabled
+                            ? "Off duty"
+                            : start < Math.max(dayHours.starts, shift.starts) ||
+                                start >= Math.min(dayHours.ends, shift.ends)
+                              ? "Outside hours"
+                              : start >= shift.break_start &&
+                                  start < shift.break_end
+                                ? "Break"
                                 : dayBlocks.some((k) => k.staff_id === s.id && start >= k.start_min && start < k.end_min)
                                   ? "Blocked"
                                   : "";

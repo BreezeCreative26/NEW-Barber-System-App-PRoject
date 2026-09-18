@@ -474,9 +474,8 @@ test("owner edits add-ons, barber pricing and partial shifts; booking items surv
     .filter({ hasText: "Combined quote client" })
     .click();
   await expect(page.getByRole("dialog")).toContainText("£39.50");
-  await expect(
-    page.locator(".workspace-booking-detail .workspace-quote-items"),
-  ).toContainText("£6.50");
+  // The saved snapshot keeps the add-on at the price it was booked, not the later catalogue edit.
+  await expect(page.getByTestId("appointment-panel").locator(".panel-items")).toContainText("£6.50");
 });
 
 test("changing add-ons invalidates a selected slot, preserves contact fields and recovers from a refreshed-price conflict", async ({

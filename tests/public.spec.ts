@@ -672,7 +672,8 @@ test.describe("public booking v2 UI", () => {
     await page.getByRole("button", { name: "Customers", exact: true }).click();
     await page.getByRole("button", { name: "Waiting Wanda" }).click();
     await page.locator(".customer-history").getByRole("button").first().click();
-    await page.getByText("Share confirmation with customer").click();
+    await page.getByTestId("appointment-panel").locator(".panel-more summary").click();
+    await page.getByRole("button", { name: "Share confirmation", exact: true }).click();
     await page.getByRole("button", { name: "Create manage link" }).click();
     await expect(page.locator(".share-booking code")).toContainText("/manage/");
     await expect(page.getByLabel("Confirmation message")).toHaveValue(/Need to change it\?/);

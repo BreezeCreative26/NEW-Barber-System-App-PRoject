@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { openFixtureShop, origin, base, section, openFilters } from "./fixture";
+import { openFixtureShop, origin, base, section, openFilters, markDone } from "./fixture";
 import { enterNewShop } from "./shop";
 import { refreshView } from "./fixture";
 test("initial network failure retries in place and unexpected HTML has a useful recovery message", async ({
@@ -103,9 +103,9 @@ test("interrupted booking response retries idempotently and details/status filte
     .getByRole("button")
     .filter({ hasText: "Recovery test client" })
     .click();
-  await page
-    .getByRole("button", { name: "Edit booking details", exact: true })
-    .click();
+  // Details editing lives behind the panel's ⋯ menu.
+  await page.getByTestId("appointment-panel").locator(".panel-more summary").click();
+  await page.getByRole("button", { name: "Edit name and phone", exact: true }).click();
   await page
     .getByLabel("Customer name", { exact: true })
     .fill("Updated recovery client");
@@ -444,17 +444,14 @@ test("saved setup and appointment workflow survives reload, move and completion"
   await expect(
     page.getByRole("button").filter({ hasText: "Morgan Fictional" }),
   ).toContainText("15:00");
-  for (const status of ["CHECKED_IN", "IN_SERVICE", "COMPLETED"]) {
-    await page
-      .getByRole("button")
-      .filter({ hasText: "Morgan Fictional" })
-      .click();
-    await page.getByLabel("Next status").selectOption(status);
-    await page
-      .getByRole("button", { name: "Update appointment status" })
-      .click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
-  }
+  // The panel has one completion ceremony: Checkout (or "Mark done without payment" in ⋯).
+  await page
+    .getByRole("button")
+    .filter({ hasText: "Morgan Fictional" })
+    .click();
+  await markDone(page);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(
     page.getByRole("button").filter({ hasText: "Morgan Fictional" }),
   ).toContainText("Completed");
@@ -637,12 +634,8 @@ test("appointment side panel: contextual actions, note, series ops, customer lin
   await panel.getByRole("button", { name: "Save note" }).click();
   await expect(panel.locator(".panel-notes p")).toContainText("Prefers a 2");
   await expect(panel.locator(".panel-timeline li")).toHaveCount(2);
-  // Check in → Start → Complete via footer actions.
-  await panel.getByRole("button", { name: "Check in" }).click();
-  await expect(panel.getByText("Checked in", { exact: true }).first()).toBeVisible();
-  await panel.getByRole("button", { name: "Start service" }).click();
-  await panel.getByRole("button", { name: /^Complete/ }).click();
-  await expect(panel.getByText("Completed", { exact: true }).first()).toBeVisible();
+  // Complete via the ⋯ menu (Checkout is the paid path; this visit records no payment).
+  await markDone(page);
   await expect(panel.getByRole("button", { name: "Book again" })).toBeVisible();
   // Customer card links through to the profile.
   await panel.getByRole("button", { name: /Profile/ }).click();

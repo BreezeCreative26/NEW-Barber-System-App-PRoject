@@ -65,3 +65,16 @@ export async function refreshView(page: Page) {
   await done;
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
 }
+
+// Complete a visit from the appointment panel without taking money. With till access the footer
+// shows "Checkout" and completion lives in the ⋯ menu; without it the footer shows "Mark done".
+export async function markDone(page: Page) {
+  const panel = page.getByTestId("appointment-panel");
+  const direct = panel.getByRole("button", { name: "Mark done", exact: true });
+  if (await direct.count()) await direct.click();
+  else {
+    await panel.locator(".panel-more summary").click();
+    await panel.getByRole("button", { name: "Mark done without payment", exact: true }).click();
+  }
+  await expect(panel.getByText("Completed", { exact: true }).first()).toBeVisible();
+}

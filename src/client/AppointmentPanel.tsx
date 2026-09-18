@@ -391,6 +391,8 @@ export function AppointmentPanel({
               {noteOpen ? (
                 <form
                   className="panel-note-form"
+                  data-dirty={note !== booking.notes ? "true" : undefined}
+                  aria-busy={busy === "note"}
                   onSubmit={async (e) => {
                     e.preventDefault();
                     await onNote(note.trim());

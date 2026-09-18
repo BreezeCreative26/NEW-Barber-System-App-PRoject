@@ -1216,8 +1216,13 @@ export function Workspace() {
     const close = (e: Event) => {
       if (!(e.target as HTMLElement).closest?.(".team-picker")) setTeamOpen(false);
     };
+    const esc = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setTeamOpen(false);
     document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
+    window.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", esc);
+    };
   }, [teamOpen]);
   const [statusFilter, setStatusFilter] = useState("");
   const [directorySearch, setDirectorySearch] = useState("");
@@ -1908,7 +1913,7 @@ export function Workspace() {
                         <span className="team-picker">
                           <Button variant={extra.size ? "secondary" : "ghost"} aria-haspopup="dialog" aria-expanded={teamOpen} onClick={() => setTeamOpen((v) => !v)} data-testid="team-picker" title="Who shows on today's timetable">
                             <Icon name="contact" size={15} />
-                            <span className="toolbar-label">Scheduled team · {shown.length}/{active.length}</span>
+                            <span className="toolbar-label"><span className="team-word">Scheduled team · </span>{shown.length}/{active.length}</span>
                           </Button>
                           {teamOpen && (
                             <div className="team-picker-list" role="dialog" aria-label="Scheduled team">
@@ -3946,7 +3951,7 @@ function ShareBooking({ booking, w }: { booking: StoredBooking; w: WorkspaceData
   }
   if (["CANCELLED", "NO_SHOW", "COMPLETED"].includes(booking.status)) return null;
   return (
-    <details className="share-booking">
+    <details className="share-booking" open>
       <summary>
         <Icon name="message" /> Share confirmation with customer
       </summary>
