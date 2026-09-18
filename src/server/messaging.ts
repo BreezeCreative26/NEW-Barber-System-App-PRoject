@@ -369,6 +369,9 @@ export async function maybeSweep(db: DB, origin: string, intervalMs = 5 * 60000,
   const drained = await drain(db, 50, now);
   const runs = await scheduledPayRuns(db, now).catch(() => 0);
   await expireRequests(db, now).catch(() => 0);
+  // Retention: delivered/skipped/failed rows older than 180 days go; the outbox shows 30 days and the
+  // audit trail keeps the fact a message was sent. Anything still QUEUED is never touched.
+  await db.prepare("DELETE FROM notifications WHERE status IN ('SENT','SKIPPED','FAILED') AND created_at < ?").bind(now - 180 * 86400000).run().catch(() => null);
   return { reminders, drained, holds_released: holds.length, pay_runs: runs };
 }
 
