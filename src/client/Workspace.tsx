@@ -507,9 +507,9 @@ function AccountSettings({
       loadAccess().catch((e) => setError(e.message));
   }, [account?.id]);
   async function mutate(path: string, method: string, body: unknown) {
-    const result = await api<{ token?: string }>(path, method, body);
-    if (result.token)
-      setLink(`${location.origin}/workspace#invite=${result.token}`);
+    const result = await api<{ token?: string; link?: string }>(path, method, body);
+    if (result.link || result.token)
+      setLink(result.link || `${location.origin}/workspace?invite=${result.token}`);
     setNotice("Access change saved.");
     try {
       await loadAccess();
@@ -600,8 +600,9 @@ function AccountSettings({
           <section className="workspace-panel">
             <h3>Invite staff</h3>
             <p>
-              Choose an existing active team profile. Links expire after 48
-              hours and can be accepted once. No email is sent.
+              Choose an existing active team profile. The invitation is emailed from the shop and the
+              link (7 days, one use) is shown here too. For texts, resends and a per-person view, use
+              Setup → Team.
             </p>
             <SaveForm
               label="Create invitation"

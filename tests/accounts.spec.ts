@@ -83,9 +83,12 @@ const mutations = [
   ["POST", "/login"],
   ["POST", "/logout"],
   ["POST", "/invites"],
+  ["POST", "/invites/:id/resend"],
   ["POST", "/invites/:id/revoke"],
   ["POST", "/accept"],
   ["PUT", "/members/:id"],
+  ["POST", "/forgot"],
+  ["POST", "/reset"],
   ["POST", "/password"],
   ["POST", "/demo"],
 ];
@@ -112,7 +115,7 @@ test("account mutation inventory enforces origin and anonymous authorization", a
         ).status(),
       ).toBe(403);
     }
-    if (!["/login", "/signup", "/logout", "/accept", "/demo"].includes(path))
+    if (!["/login", "/signup", "/logout", "/accept", "/demo", "/forgot", "/reset"].includes(path))
       expect(
         (
           await anonymous.fetch(
@@ -270,6 +273,8 @@ for (const role of ["MANAGER", "RECEPTION"])
     expect((await staff.post(base + "/services", { data: {} })).status()).toBe(
       role === "MANAGER" ? 400 : 403,
     );
+    // Managers can invite (so an empty body is a 400, not a 403) and read the access list; role
+    // changes stay owner-only. Reception has none of it.
     for (const path of ["/invites", "/members/" + crypto.randomUUID()])
       expect(
         (
@@ -278,8 +283,8 @@ for (const role of ["MANAGER", "RECEPTION"])
             data: {},
           })
         ).status(),
-      ).toBe(403);
-    expect((await staff.get(base + "/auth/access")).status()).toBe(403);
+      ).toBe(role === "MANAGER" && path === "/invites" ? 400 : 403);
+    expect((await staff.get(base + "/auth/access")).status()).toBe(role === "MANAGER" ? 200 : 403);
     await Promise.all([r, staff].map((r) => r.dispose()));
   });
 test("invites reject revoked replaced wrong-email and replayed tokens", async () => {
@@ -519,6 +524,9 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     await page.getByLabel("Email", { exact: true }).fill(email());
     await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Create shop", exact: true }).click();
+    // Signup lands in the guided setup; leave it for the calendar.
+    await expect(page.getByTestId("setup-wizard")).toBeVisible();
+    await page.getByTestId("setup-exit").click();
     await expect(
       page.getByRole("button", { name: "New booking", exact: true }),
     ).toBeVisible();
@@ -537,7 +545,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
       .getByRole("button", { name: "Create invitation", exact: true })
       .click();
     const link = await page.getByLabel("Staff invitation link").inputValue();
-    expect(link).toContain("#invite=");
+    expect(link).toContain("?invite=");
     await expect(page.locator(".workspace-error")).toHaveCount(0);
     expect(
       await page.evaluate(
@@ -561,13 +569,15 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     const staffPage = await staffContext.newPage();
     await staffPage.goto(link);
     await expect(staffPage).toHaveURL(origin + "/workspace");
+    // The invite card names the shop and the address is fixed to the one invited.
+    await expect(staffPage.getByTestId("invite-peek")).toContainText("UI Signup Shop");
+    await expect(staffPage.getByLabel("Email", { exact: true })).toHaveValue(staffEmail);
     await staffPage
       .getByLabel("Your name", { exact: true })
       .fill("Fictional UI Barber");
-    await staffPage.getByLabel("Email", { exact: true }).fill(staffEmail);
     await staffPage.getByLabel("Password", { exact: true }).fill(password);
     await staffPage
-      .getByRole("button", { name: "Accept invitation", exact: true })
+      .getByRole("button", { name: "Join the team", exact: true })
       .click();
     await expect(
       staffPage.getByRole("button", { name: "New booking", exact: true }),

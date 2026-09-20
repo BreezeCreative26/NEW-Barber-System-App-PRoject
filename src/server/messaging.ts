@@ -292,7 +292,9 @@ type Delivery = { ok: true; provider: string; id: string } | { ok: false; provid
 async function sendEmail(row: Row): Promise<Delivery> {
   const e = env();
   if (!e.RESEND_API_KEY) return { ok: true, provider: "mailbox", id: `mbx_${uid().slice(0, 8)}` };
-  const fromAddr = e.MAIL_FROM || "bookings@ollo.app";
+  // Until a sending domain is verified in Resend, its shared test sender is the only address that
+  // delivers (and only to the account owner's inbox). Set MAIL_FROM once DNS is in place.
+  const fromAddr = e.MAIL_FROM || "onboarding@resend.dev";
   const from = `${row.shop_name.replace(/["<>]/g, "")} <${fromAddr}>`;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",

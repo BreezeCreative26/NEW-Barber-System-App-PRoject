@@ -91,6 +91,7 @@ const mutationContracts = [
   ["PUT", "/shop"],
   ["PUT", "/shop/online"],
   ["PUT", "/shop/messaging"],
+  ["PUT", "/shop/alerts"],
   ["PUT", "/shop/payments"],
   ["POST", "/shop/payments/connect"],
   ["POST", "/bookings/:id/deposit/refund"],

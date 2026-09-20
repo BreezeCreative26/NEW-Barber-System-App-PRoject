@@ -174,6 +174,8 @@ test("browser: Settings → Payments panel and barber Pay tab show the honest pr
 });
 
 test("card at the chair (preview mode): routes exist and refuse honestly; readers list empty; pay page 404s for unknown id", async () => {
+  // The fixture shop is closed on Sundays, so "a visit today" does not exist then.
+  test.skip(new Date().getUTCDay() === 0, "fixture shop is closed on Sundays");
   const r = await fixtureCtx();
   const w = await (await r.get(base + "/workspace")).json();
   const today = w.today;

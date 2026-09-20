@@ -38,7 +38,7 @@ test("landing page: SEO head, CTAs → /signup, no horizontal overflow on a phon
   await expect(page).toHaveURL(/\/workspace/);
 });
 
-test("sign up from the landing page → workspace with the first-run checklist; steps complete as the shop is set up", async ({ page }) => {
+test("sign up from the landing page → guided setup opens; leaving it shows the continue banner; dismissing hides it", async ({ page }) => {
   test.setTimeout(90000);
   await page.goto("/");
   await page.getByTestId("landing-cta-header").click();
@@ -48,25 +48,23 @@ test("sign up from the landing page → workspace with the first-run checklist; 
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill("a-long-passphrase-123");
   await page.getByRole("button", { name: "Create shop", exact: true }).click();
-  await page.waitForURL(/\/workspace/);
-  const list = page.getByTestId("setup-checklist");
-  await expect(list).toBeVisible();
-  await expect(list).toContainText("Get Landing Test Barbers live");
-  await expect(list.locator("li[data-done='false']")).toHaveCount(3);
-  // Services step: add one service via the API and the step ticks.
-  const w = await (await page.request.get(base + "/workspace")).json();
-  const svc = await page.request.post(base + "/services", { headers: { Origin: origin }, data: { name: "Skin fade", category: "Hair", duration_min: 30, price_pence: 2500, active: 1, description: "", colour: "sage", online_bookable: 1, popular: 0, sort_order: 0, payment_mode: null } });
-  expect(svc.status(), await svc.text()).toBe(201);
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect(list.locator("li[data-done='true']")).toHaveCount(1);
-  await expect(list).toContainText("1 of 3 done");
-  // Team step ticks when opened.
-  await list.getByTestId("setup-team").click();
-  await page.getByRole("navigation", { name: "Workspace sections" }).getByRole("button", { name: /Appointments|Today/ }).first().click();
-  await expect(list.locator("li[data-done='true']")).toHaveCount(2);
-  // Online step: switch the booking link on and the checklist disappears.
-  const on = await page.request.put(base + "/shop/online", { headers: { Origin: origin }, data: { slug: `landing-${crypto.randomUUID().slice(0, 8)}`, online_booking: 1, lead_time_min: 60, booking_window_days: 42, version: w.shop.version } });
-  expect(on.status(), await on.text()).toBe(200);
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect(page.getByTestId("setup-checklist")).toHaveCount(0);
+  await page.waitForURL(/\/workspace\/setup/);
+  const wiz = page.getByTestId("setup-wizard");
+  await expect(wiz).toBeVisible();
+  await expect(wiz).toContainText("Step 1 of 7");
+  // Finish later → calendar with the banner offering the way back.
+  await page.getByTestId("setup-exit").click();
+  await page.waitForURL(/\/workspace$/);
+  const banner = page.getByTestId("setup-banner");
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("Get Landing Test Barbers live");
+  await banner.getByTestId("setup-continue").click();
+  await expect(page.getByTestId("setup-wizard")).toBeVisible();
+  await page.getByTestId("setup-exit").click();
+  // Hide persists server-side (survives a reload).
+  await banner.getByRole("button", { name: "Hide" }).click();
+  await expect(page.getByTestId("setup-banner")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator("#workspace-main")).toBeVisible();
+  await expect(page.getByTestId("setup-banner")).toHaveCount(0);
 });

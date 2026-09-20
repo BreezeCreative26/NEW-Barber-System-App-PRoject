@@ -103,13 +103,15 @@ test("channel toggles are respected: SMS off → email only; both off → nothin
   expect(a.sent_to).toEqual(["EMAIL"]);
   let box = await outbox(r);
   expect(box.messaging.msg_sms).toBe(0);
-  expect(box.notifications.filter((n) => n.related_id === a.booking.id).map((n) => n.channel)).toEqual(["EMAIL"]);
+  // Owner alerts share the booking's related_id; this test is about the customer's channels.
+  const customerRows = (rows: typeof box.notifications, id: string) => rows.filter((n) => n.related_id === id && !n.template.startsWith("owner_"));
+  expect(customerRows(box.notifications, a.booking.id).map((n) => n.channel)).toEqual(["EMAIL"]);
 
   await set(0, 0);
   const b = await bookOnline(c, slug, w, futureDate(10), 600);
   expect(b.sent_to).toEqual([]);
   box = await outbox(r);
-  expect(box.notifications.filter((n) => n.related_id === b.booking.id)).toEqual([]);
+  expect(customerRows(box.notifications, b.booking.id)).toEqual([]);
 
   // Validation: reply-to must be an email, sender max 11 alphanumerics.
   const bad = await r.put(base + "/shop/messaging", { data: { msg_sms: 1, msg_email: 1, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "not-an-email", msg_sms_sender: "Way Too Long Sender!" } });

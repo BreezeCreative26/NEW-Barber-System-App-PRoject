@@ -409,7 +409,7 @@ test.describe("public booking pages", () => {
     await page.goto("/workspace");
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Online booking" })).toBeVisible();
-    await expect(page.getByText("Off", { exact: true })).toBeVisible();
+    await expect(page.locator('section[aria-labelledby="online-booking-heading"]').getByText("Off", { exact: true })).toBeVisible();
     const slug = slugFor();
     await page.getByLabel("Public address (letters, numbers, hyphens)").fill(slug);
     await page.getByLabel("Allow customers to book online").check();
