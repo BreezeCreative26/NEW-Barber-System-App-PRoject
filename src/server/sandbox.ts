@@ -76,6 +76,7 @@ import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus,
 import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import QRCode from "qrcode";
 import setup from "./setup";
+import { ALERT_KINDS, DEFAULT_PREFS, alertOwners, prefsOf, type AlertPrefs } from "./alerts";
 import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
 import { accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, type ConnectedAccount } from "./payouts";
@@ -251,7 +252,8 @@ sandbox.use("*", async (c, next) => {
     const setup =
       // The setup wizard (owner/manager): its own routes enforce the role again.
       path.startsWith("/setup") ||
-      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist", "/shop/messaging", "/shop/payments"].includes(path)) ||
+      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist", "/shop/messaging", "/shop/payments", "/shop/alerts"].includes(path)) ||
+      (method === "GET" && path === "/shop/alerts") ||
       (method === "POST" && ["/notifications/test", "/notifications/sweep", "/shop/payments/connect"].includes(path)) ||
       (method === "POST" && /^\/notifications\/[^/]+\/resend$/.test(path)) ||
       (method === "POST" && /^\/reviews\/[^/]+\/(status|reply)$/.test(path)) ||
@@ -1158,6 +1160,25 @@ sandbox.put("/shop/messaging", async (c) => {
     audit(c, "shop", sid, "MESSAGING_UPDATED", `SMS ${b.msg_sms ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
   ]);
   return c.json({ ok: true, messaging: b });
+});
+// Owner/manager alert preferences (shops.notify_json).
+sandbox.get("/shop/alerts", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const shop = await readShop(c);
+  const owner = await c.env.DB.prepare("SELECT u.email FROM shop_owners o JOIN app_users u ON u.id=o.user_id WHERE o.shop_id=?").bind(shop.id).first<{ email: string }>();
+  const managers = (await c.env.DB.prepare("SELECT u.name,u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.active=1 AND m.role='MANAGER'").bind(shop.id).all<{ name: string; email: string }>()).results;
+  return c.json({ prefs: prefsOf(shop.notify_json), kinds: ALERT_KINDS, defaults: DEFAULT_PREFS, recipients: { owner_email: owner?.email || "", owner_phone: shop.phone_verified_at ? shop.phone : "", phone_unverified: !!shop.phone && !shop.phone_verified_at, managers } });
+});
+sandbox.put("/shop/alerts", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const ch = z.enum(["OFF", "EMAIL", "SMS", "BOTH"]);
+  const b = await input(c, z.object({ new_booking: ch, cancelled: ch, no_show: ch, daily_summary: ch, managers: z.boolean(), summary_hour: z.number().int().min(5).max(12) }).strict());
+  const sid = c.get("shopId");
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE shops SET notify_json=?, version=version+1 WHERE id=?").bind(JSON.stringify(b satisfies AlertPrefs), sid),
+    audit(c, "shop", sid, "ALERTS_UPDATED", `Booking ${b.new_booking.toLowerCase()}, cancel ${b.cancelled.toLowerCase()}, no-show ${b.no_show.toLowerCase()}, summary ${b.daily_summary.toLowerCase()}${b.daily_summary !== "OFF" ? ` at ${b.summary_hour}:00` : ""}; managers ${b.managers ? "included" : "excluded"}.`),
+  ]);
+  return c.json({ ok: true, prefs: b });
 });
 // Send a test message to the signed-in owner (or a given address/mobile).
 sandbox.post("/notifications/test", async (c) => {
@@ -2644,6 +2665,11 @@ sandbox.post("/bookings/:id/status", async (c) => {
       true,
     ),
   );
+  if (body.status === "NO_SHOW") {
+    const count = await c.env.DB.prepare("SELECT COUNT(*)::int AS n FROM bookings WHERE shop_id=? AND phone=? AND status='NO_SHOW'").bind(c.get("shopId"), b.phone).first<{ n: number }>();
+    const st = await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(c.get("shopId"), b.staff_id).first<{ name: string }>();
+    await alertOwners(c.env.DB, c.get("shopId"), "no_show", { ...b, status: "NO_SHOW" }, { staffName: st?.name, origin: new URL(c.req.url).origin, extra: { count: count?.n ?? 0 } }).catch(() => 0);
+  }
   // A cancelled visit frees a slot: offer it to the queue if the shop has auto-offer on. If the
   // shop cancels, a paid deposit goes back to the customer; a pending hold is released.
   if (body.status === "CANCELLED") {

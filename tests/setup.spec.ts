@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, request } from "@playwright/test";
 const origin = "http://localhost:3000";
 test("shop setup: signup → 7-step wizard → done; invite accepted by SMS+email link; forgot/reset password", async ({ page }) => {
   page.on("pageerror", (e) => console.log("PAGEERROR", e.message));
@@ -100,4 +100,36 @@ test("shop setup: signup → 7-step wizard → done; invite accepted by SMS+emai
     await p3.waitForTimeout(1200);
     
   } else console.log("NO SANDBOX RESET LINK (DEMO_ENABLED off?)");
+});
+
+test("owner alerts: new online booking and no-show land in the outbox for the owner; prefs save", async () => {
+  const r = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
+  const email = `alert-${Date.now()}@example.com`;
+  expect((await r.post(origin + "/api/app/auth/signup", { data: { shop_name: "Alert Shop", name: "Ava Owner", email, password: "Passw0rd!passw0rd", kind: "BARBER" } })).status()).toBe(201);
+  const base = origin + "/api/app";
+  // Prefs: default email-on for bookings; switch no-show to email too.
+  const prefs = await (await r.get(base + "/shop/alerts")).json();
+  expect(prefs.prefs.new_booking).toBe("EMAIL");
+  expect((await r.put(base + "/shop/alerts", { data: { ...prefs.prefs, no_show: "EMAIL" } })).status()).toBe(200);
+  // Service + online.
+  await r.post(base + "/services", { data: { name: "Haircut", duration_min: 30, price_pence: 2000, category: "Hair" } });
+  const w = await (await r.get(base + "/workspace")).json();
+  const slug = "alert-" + Date.now().toString(36);
+  expect((await r.put(base + "/shop/online", { data: { slug, online_booking: 1, lead_time_min: 0, booking_window_days: 42, version: w.shop.version } })).status()).toBe(200);
+  const d = new Date(Date.now() + 3 * 86400000); if (d.getUTCDay() === 0) d.setUTCDate(d.getUTCDate() + 1); const date = d.toISOString().slice(0, 10);
+  const staff = w.staff[0].id, svc = (await (await r.get(base + "/workspace")).json()).services[0].id;
+  const c = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
+  const avail = await (await c.get(`${origin}/api/public/shops/${slug}/availability?date=${date}&staff_id=${staff}&service_id=${svc}`)).json();
+  const slot = avail.slots?.[0]?.start_min ?? avail.slots?.[0] ?? 600;
+  const bk = await c.post(`${origin}/api/public/shops/${slug}/bookings`, { data: { request_id: crypto.randomUUID(), staff_id: staff, service_id: svc, customer_name: "Cal Customer", phone: "07700 900888", email: "cal@example.test", date, start_min: typeof slot === "number" ? slot : 600, quote: avail.quote } });
+  expect(bk.status(), await bk.text()).toBe(201);
+  const box = await (await r.get(base + "/notifications?limit=60")).json();
+  const alert = box.notifications.find((n: { template: string; recipient: string }) => n.template === "owner_new_booking" && n.recipient === email);
+  expect(alert, JSON.stringify(box.notifications.map((n: { template: string }) => n.template))).toBeTruthy();
+  expect(alert.body).toContain("Cal Customer");
+  // Cancel online → owner_cancelled.
+  const created = await bk.json();
+  expect((await c.post(`${origin}/api/public/manage/${created.manage_token}/cancel`, { data: { version: created.booking.version } })).status()).toBe(200);
+  const box2 = await (await r.get(base + "/notifications?limit=60")).json();
+  expect(box2.notifications.some((n: { template: string }) => n.template === "owner_cancelled")).toBe(true);
 });

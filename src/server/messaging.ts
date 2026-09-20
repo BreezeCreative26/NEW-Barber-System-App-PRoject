@@ -21,6 +21,7 @@ import { brandOf } from "./domain";
 import { expireHolds } from "./stripe";
 import { scheduledPayRuns } from "./payouts";
 import { expireRequests } from "./chair";
+import { sweepDailySummaries } from "./alerts";
 
 type Ctx = Context<AppEnv>;
 type DB = Database;
@@ -28,6 +29,7 @@ const uid = () => crypto.randomUUID();
 
 export type MsgShop = Shop & {
   msg_sms?: number; msg_email?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reply_to?: string; msg_sms_sender?: string;
+  notify_json?: string;
   logo_url?: string; accent?: string; theme_json?: string;
   email?: string; phone?: string; // from shop_pages when joined
 };
@@ -446,10 +448,11 @@ export async function maybeSweep(db: DB, origin: string, intervalMs = 5 * 60000,
   const drained = await drain(db, 50, now);
   const runs = await scheduledPayRuns(db, now).catch(() => 0);
   await expireRequests(db, now).catch(() => 0);
+  const summaries = await sweepDailySummaries(db, origin, now).catch(() => 0);
   // Retention: delivered/skipped/failed rows older than 180 days go; the outbox shows 30 days and the
   // audit trail keeps the fact a message was sent. Anything still QUEUED is never touched.
   await db.prepare("DELETE FROM notifications WHERE status IN ('SENT','SKIPPED','FAILED') AND created_at < ?").bind(now - 180 * 86400000).run().catch(() => null);
-  return { reminders, drained, holds_released: holds.length, pay_runs: runs };
+  return { reminders, drained, holds_released: holds.length, pay_runs: runs, summaries };
 }
 
 export const fmtDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });

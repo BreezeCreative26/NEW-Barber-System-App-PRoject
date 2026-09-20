@@ -8074,3 +8074,11 @@ li[data-done="true"] .setup-wiz-num { background: var(--good); color: #fff; bord
   .setup-wiz-actions { justify-content: stretch; }
   .setup-wiz-actions .button { flex: 1; }
 }
+/* alerts */
+.alerts-grid { display: grid; gap: 10px; }
+.alerts-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r); background: var(--surface); }
+.alerts-row > span { display: grid; gap: 1px; }
+.alerts-row strong { font-size: 14px; }
+.alerts-row small { font-size: 12.5px; color: var(--muted); }
+.alerts-row .segmented button[disabled] { opacity: .4; cursor: not-allowed; }
+@media (max-width: 600px) { .alerts-row { grid-template-columns: 1fr; } }

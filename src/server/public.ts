@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
+import { alertOwners } from "./alerts";
 import {
   addonIdsSchema,
   calculateQuote,
@@ -666,6 +667,7 @@ pub.post("/shops/:slug/bookings", async (c) => {
     }
   }
   const sent = result.replayed || booking.deposit_status === "PENDING" ? [] : await notifyBooking(c, shop.id, booking, staff?.name ?? null, "booking_confirmed", token);
+  if (!result.replayed && booking.deposit_status !== "PENDING") await alertOwners(c.env.DB, shop.id, "new_booking", booking, { staffName: staff?.name, origin: new URL(c.req.url).origin }).catch(() => 0);
   return c.json(
     {
       booking: customerView(booking, shop, staff?.name ?? null),
@@ -706,6 +708,7 @@ export async function afterDepositPaid(c: Ctx, shopId: string, bookingId: string
     .run();
   // The raw manage token is never stored, so the confirmation links to /<slug>/me.
   await notifyBooking(c, shopId, b, staff?.name ?? null, "booking_confirmed");
+  await alertOwners(c.env.DB, shopId, "new_booking", b, { staffName: staff?.name, origin: new URL(c.req.url).origin }).catch(() => 0);
 }
 
 // Group bookings ------------------------------------------------------------
@@ -1128,6 +1131,7 @@ export async function cancelByCustomer(c: Ctx, shop: Shop, booking: StoredBookin
   await autoOffer(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-cancel");
   const after = await readBooking(c, booking.id);
   await notifyBooking(c, shop.id, after, staffName, "booking_cancelled");
+  await alertOwners(c.env.DB, shop.id, "cancelled", after, { staffName, origin: new URL(c.req.url).origin }).catch(() => 0);
   return {
     booking: customerView(after, shop, staffName),
     late,

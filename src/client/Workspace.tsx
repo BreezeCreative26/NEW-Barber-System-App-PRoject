@@ -3330,7 +3330,58 @@ const MSG_LABELS: Record<string, string> = {
   booking_reminder: "Reminder (day before)", booking_reminder_soon: "Reminder (2 hours before)", signin_code: "Sign-in code",
   staff_invite: "Team invitation", review_request: "Review request", test_message: "Test message",
   waitlist_joined: "Joined the list", waitlist_offer: "A time is offered", waitlist_booked: "Offer accepted", waitlist_released: "Declined or expired",
+  pay_link: "Pay link", verify_contact: "Verification code", password_reset: "Password reset",
+  owner_new_booking: "Alert · new booking", owner_cancelled: "Alert · cancellation", owner_no_show: "Alert · no-show", owner_daily_summary: "Alert · morning summary",
 };
+// Owner/manager alert preferences (Settings → Messages).
+type AlertCh = "OFF" | "EMAIL" | "SMS" | "BOTH";
+type AlertPrefs = { new_booking: AlertCh; cancelled: AlertCh; no_show: AlertCh; daily_summary: AlertCh; managers: boolean; summary_hour: number };
+type AlertsData = { prefs: AlertPrefs; kinds: { key: keyof AlertPrefs; label: string; hint: string }[]; recipients: { owner_email: string; owner_phone: string; phone_unverified: boolean; managers: { name: string; email: string }[] } };
+function AlertsPanel({ smsLive }: { smsLive: boolean }) {
+  const [d, setD] = useState<AlertsData | null>(null);
+  const [p, setP] = useState<AlertPrefs | null>(null);
+  const [st, setSt] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
+  useEffect(() => { api<AlertsData>("/shop/alerts").then((r) => { setD(r); setP(r.prefs); }).catch((e) => setSt({ kind: "error", text: e.message })); }, []);
+  if (!d || !p) return null;
+  const dirty = JSON.stringify(p) !== JSON.stringify(d.prefs);
+  const r = d.recipients;
+  return (
+    <form className="workspace-form" data-testid="alerts-form" onSubmit={async (e) => {
+      e.preventDefault(); setSt({ kind: "saving", text: "" });
+      try { await api("/shop/alerts", "PUT", p); setD({ ...d, prefs: p }); setSt({ kind: "saved", text: "Alert settings saved." }); } catch (err) { setSt({ kind: "error", text: err instanceof Error ? err.message : "Could not save." }); }
+    }}>
+      <h3>Alerts for you and your managers</h3>
+      <p className="workspace-footnote">
+        Go to <strong>{r.owner_email}</strong>{r.owner_phone ? <> and <strong>{r.owner_phone}</strong></> : r.phone_unverified ? <> — verify the shop mobile in setup to get texts</> : <> — add a shop mobile in setup to get texts</>}
+        {r.managers.length ? <>; managers ({r.managers.map((m) => m.name).join(", ")}) get the emails too.</> : "."}
+      </p>
+      <div className="alerts-grid">
+        {d.kinds.map((k) => (
+          <div className="alerts-row" key={k.key}>
+            <span><strong>{k.label}</strong><small>{k.hint}</small></span>
+            <div className="segmented" role="group" aria-label={k.label}>
+              {(["OFF", "EMAIL", "SMS", "BOTH"] as AlertCh[]).map((v) => (
+                <button key={v} type="button" aria-pressed={p[k.key] === v} disabled={(v === "SMS" || v === "BOTH") && !r.owner_phone} title={(v === "SMS" || v === "BOTH") && !r.owner_phone ? "Needs a verified shop mobile" : undefined} onClick={() => setP({ ...p, [k.key]: v })} data-testid={`alert-${k.key}-${v}`}>
+                  {v === "OFF" ? "Off" : v === "EMAIL" ? "Email" : v === "SMS" ? "Text" : "Both"}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        {p.daily_summary !== "OFF" && (
+          <div className="alerts-row">
+            <span><strong>Summary time</strong><small>Shop local time, only on days with visits.</small></span>
+            <select value={p.summary_hour} onChange={(e) => setP({ ...p, summary_hour: Number(e.target.value) })}>{[5, 6, 7, 8, 9, 10, 11, 12].map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}</select>
+          </div>
+        )}
+        <label className="setup-check"><input type="checkbox" checked={p.managers} onChange={(e) => setP({ ...p, managers: e.target.checked })} /> <span>Managers get these alerts too (email only)</span></label>
+      </div>
+      {!smsLive && (p.new_booking.includes("SMS") || p.new_booking === "BOTH") && <p className="workspace-footnote">Texting isn't connected on this deployment yet; text alerts show in the list below until it is.</p>}
+      {st.text && <p className={st.kind === "error" ? "workspace-error" : "workspace-success"} role="status">{st.text}</p>}
+      <div className="workspace-save-actions"><Button type="submit" disabled={!dirty || st.kind === "saving"}>{st.kind === "saving" ? "Saving…" : "Save alerts"}</Button></div>
+    </form>
+  );
+}
 type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "twilio" | "clicksend" | "mailbox"; from: string } };
 type Messaging = { msg_sms: number; msg_email: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
 type OutboxData = { notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number } };
@@ -3562,6 +3613,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
           </div>
         </form>
       )}
+      {data && <AlertsPanel smsLive={smsLive} />}
       <div className="outbox" data-testid="outbox">
         <div className="outbox-head">
           <h3>
