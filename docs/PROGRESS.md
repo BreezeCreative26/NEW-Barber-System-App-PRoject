@@ -602,3 +602,12 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - `/` is now a marketing landing page for visitors (signed-in → workspace). Sign-up journey verified
   in a browser on a phone; new owners get the "Get your shop live" checklist. `tests/landing.spec.ts`.
 - To turn on error delivery in production: add `SENTRY_DSN` to the Vercel project.
+
+## 2026-09-20 — Shop setup (Phases A + B of the setup plan)
+- **Guided setup wizard** at `/workspace/setup` (`src/client/Setup.tsx`, `Setup2.tsx`; server `src/server/setup.ts`, mounted at `/api/app/setup/*`). Seven optional steps, state in `shops.setup_json`: shop contact + SMS/email verification codes (`contact_codes`), hours + bank-holiday closures, starter service menus per shop kind (BARBER/HAIR/SALON), team + invites, message preview + "text/email me a test", slug check + QR/share card, deposit policy + Stripe Connect. Signup lands in the wizard; a banner on Appointments offers "Continue setup" until finished or dismissed (replaces the 3-step checklist).
+- **Invites**: owner *or* manager; channel EMAIL / SMS / BOTH / LINK; resend (fresh token, 1/min, max 10) and revoke; pending list carries channel + sent count; links are `?invite=` (client accepts `#invite=` too); `GET /auth/invites/peek` shows shop/inviter/role before the password form; SMS-only invites accept any email at signup. Expiry now 7 days.
+- **Forgot / reset password**: `POST /auth/forgot` (always 200; email + SMS to the verified owner mobile; 30-min single-use token in `password_resets`), `GET /auth/reset/peek`, `POST /auth/reset` (signs in, kills other sessions). Pages `/forgot`, `/reset?token=`.
+- Messaging: new templates `verify_contact`, `password_reset`, `owner_new_booking`, `owner_cancelled`, `owner_no_show`, `owner_daily_summary`; `enqueue(..., { force: true })` bypasses the shop's customer SMS/email toggles for shop-side messages. Templates for owner alerts exist but are **not yet wired** (Phase C).
+- Migration `0014_shop_setup.sql` applied locally and to Supabase.
+- Test: `tests/setup.spec.ts` — full signup → wizard → invite accept → forgot/reset (passes).
+- Not done: Phase C (owner alerts wiring + prefs UI), Phase D (Messages delivery health / Resend domain), Phase E (full gate, README, register). Transfer ownership not built.
