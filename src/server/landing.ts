@@ -16,6 +16,8 @@ const ICO = {
   team: svg('<circle cx="12" cy="6" r="3"/><circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M12 9v3M12 12L7 14.5M12 12l5 2.5"/>'),
   bolt: svg('<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>'),
   chart: svg('<path d="M4 19h16M6 16l4-5 3 3 5-7"/>'),
+  phone: svg('<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>'),
+  card: svg('<rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 10h19M6.5 15h4"/>'),
   pin: svg('<path d="M12 21s7-6.5 7-11.5A7 7 0 0 0 5 9.5C5 14.5 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>'),
   ig: svg('<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/>'),
   tt: svg('<path d="M15 3v9.5a3.5 3.5 0 1 1-3.5-3.5M15 3a5 5 0 0 0 5 5"/>'),
@@ -24,7 +26,7 @@ const ICO = {
 };
 const QUOTES = [
   { img: "dan", name: "Dan", role: "Barber Shop Owner", where: "London", quote: "OLLO has completely changed the way we run our shop. It’s simple, reliable and our clients love the WhatsApp confirmations." },
-  { img: "jess", name: "Jess", role: "Hairdresser", where: "Manchester", quote: "We tried a few booking systems and OLLO is by far the best. It’s so easy to use and the fixed fee is a game-changer." },
+  { img: "jess", name: "Jess", role: "Hairdresser", where: "Manchester", quote: "We tried a few booking systems and OLLO is by far the best. It’s so easy to use and knowing exactly what we pay each month is a game-changer." },
   { img: "sam", name: "Sam", role: "Salon Owner", where: "Birmingham", quote: "The support team are unreal. They helped us move everything across from our old system and made it stress free." },
   { img: "ria", name: "Ria", role: "Barber", where: "Leeds", quote: "Finally a booking system that actually understands the industry. Made by people who get it." },
 ];
@@ -84,13 +86,13 @@ export function landingPage(origin: string) {
       <div class="l-hero-copy">
         <p class="l-eyebrow">Booking software for barbers, hairdressers &amp; salons</p>
         <h1 id="hero-heading">Built by barbers.<br/>For the industry.</h1>
-        <p class="l-lede">OLLO is the all-in-one booking system designed specifically for barbers, hairdressers and salons. With a fixed monthly fee, WhatsApp confirmations and everything you need to run your business — we’ve taken the best bits from other platforms and removed all the things you don’t want.</p>
+        <p class="l-lede">OLLO is the all-in-one booking system designed specifically for barbers, hairdressers and salons. With one clear monthly price, WhatsApp confirmations and everything you need to run your business — we’ve taken the best bits from other platforms and removed all the things you don’t want.</p>
         <div class="l-ctas">
           <a class="l-btn l-btn-green" href="/signup" data-testid="landing-cta-hero">Start Free Trial</a>
           <a class="l-btn l-btn-outline" href="/signin#demo">Book a Demo</a>
         </div>
         <ul class="l-trust">
-          <li><i class="l-ico">${ICO.check}</i>Fixed Monthly Fee</li>
+          <li><i class="l-ico">${ICO.check}</i>No Commission</li>
           <li><i class="l-ico">${ICO.chat}</i>WhatsApp Integration</li>
           <li><i class="l-ico">${ICO.slash}</i>No Hidden Costs</li>
         </ul>
@@ -163,7 +165,7 @@ export function landingPage(origin: string) {
         <p class="l-script" aria-hidden="true">Built by barbers.</p>
       </div>
       <ul class="l-grid6">
-        <li><i class="l-ico">${ICO.pound}</i><b>Fixed Monthly Fee</b><p>One simple price. No surprises. No extra charges as you grow.</p></li>
+        <li><i class="l-ico">${ICO.pound}</i><b>Fair Monthly Price</b><p>From £24.99 a month. Never a fee per booking, never a cut of your clients.</p></li>
         <li><i class="l-ico">${ICO.people}</i><b>Client Management</b><p>Keep track of appointments, notes, preferences and more.</p></li>
         <li><i class="l-ico">${ICO.chat}</i><b>WhatsApp Integration</b><p>Confirmations, reminders and client communication — all via WhatsApp.</p></li>
         <li><i class="l-ico">${ICO.team}</i><b>Staff &amp; Multi-Location</b><p>Manage your team, multiple chairs or multiple locations from one dashboard.</p></li>
@@ -206,42 +208,89 @@ export function landingPage(origin: string) {
     </div>
   </section>
 
-  <!-- 5. One fixed fee -->
-  <section id="pricing" class="l-dark l-fee" aria-labelledby="fee-heading">
+  <!-- 5. Fair pricing -->
+  <section class="l-dark l-fee" aria-labelledby="fee-heading">
     <div class="l-wrap l-two">
       <div>
         <figure class="l-photo-card">
           <img src="/static/landing/shop-interior.webp" alt="" width="800" height="600" loading="lazy"/>
           <figcaption>More<br/>appointments.<br/>Less admin.</figcaption>
         </figure>
-        <p class="l-eyebrow">One fixed fee</p>
-        <h2 id="fee-heading">Your business grows.<br/>Our price doesn’t.</h2>
-        <p class="l-lede">Unlike other booking systems, we don’t charge you more as you get busier. One simple fixed monthly fee. No hidden costs, no percentage charges. Just a fair price.</p>
-        <a class="l-btn l-btn-outline" href="/signup" data-testid="landing-cta-pricing">View Pricing</a>
+        <p class="l-eyebrow">Fair pricing</p>
+        <h2 id="fee-heading">Your business grows.<br/>We don’t take a cut.</h2>
+        <p class="l-lede">Unlike other booking systems, we never charge per booking and never take commission on your clients. One clear monthly price for the system, and you only pay for the extras you actually use — at prices you can see up front.</p>
+        <a class="l-btn l-btn-outline" href="#pricing" data-testid="landing-cta-pricing">View Pricing</a>
       </div>
       <div class="l-compare">
         <div class="l-compare-card">
           <p class="l-compare-h">Other platforms</p>
           <ul>
             <li><i class="l-x">${ICO.x}</i>Charge per booking</li>
-            <li><i class="l-x">${ICO.x}</i>Increase with your team</li>
-            <li><i class="l-x">${ICO.x}</i>Add extra fees for features</li>
-            <li><i class="l-x">${ICO.x}</i>Take a cut of your payments</li>
+            <li><i class="l-x">${ICO.x}</i>Take 20% of new clients</li>
+            <li><i class="l-x">${ICO.x}</i>Lock features behind higher tiers</li>
+            <li><i class="l-x">${ICO.x}</i>Hide the real cost of texts</li>
           </ul>
         </div>
         <div class="l-compare-card l-compare-ollo">
           <p class="l-compare-h"><img src="/static/brand/ollo-wordmark.svg" alt="OLLO" width="76" height="22"/></p>
           <ul>
-            <li><i class="l-tick">${ICO.check}</i>One fixed fee</li>
-            <li><i class="l-tick">${ICO.check}</i>No hidden charges</li>
-            <li><i class="l-tick">${ICO.check}</i>Everything included</li>
+            <li><i class="l-tick">${ICO.check}</i>No commission, ever</li>
+            <li><i class="l-tick">${ICO.check}</i>Every feature on every plan</li>
+            <li><i class="l-tick">${ICO.check}</i>Extras priced in plain sight</li>
           </ul>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- 6. Testimonials -->
+  <!-- 6. Pricing -->
+  <section id="pricing" class="l-light l-pricing" aria-labelledby="pricing-heading">
+    <div class="l-wrap">
+      <div class="l-center">
+        <p class="l-eyebrow">Pricing</p>
+        <h2 id="pricing-heading">Simple, honest pricing.</h2>
+        <p class="l-lede l-lede-center">One price for the system. Add the extras you want. Cancel any time.</p>
+      </div>
+      <div class="l-price-grid">
+        <article class="l-price-main">
+          <p class="l-price-label">The system</p>
+          <p class="l-price-big"><span class="l-price-from">from</span>£24.99<small>/month</small></p>
+          <p class="l-price-sub">+ <strong>£7.99</strong> per barber or stylist</p>
+          <ul class="l-price-list">
+            <li><i class="l-tick">${ICO.check}</i>Online booking page with your name and logo</li>
+            <li><i class="l-tick">${ICO.check}</i>Drag-and-drop calendar for the whole team</li>
+            <li><i class="l-tick">${ICO.check}</i>Unlimited bookings — never a per-booking fee</li>
+            <li><i class="l-tick">${ICO.check}</i>Client records, notes and history</li>
+            <li><i class="l-tick">${ICO.check}</i>Email confirmations and reminders included</li>
+            <li><i class="l-tick">${ICO.check}</i>Deposits, no-show protection and pay runs</li>
+            <li><i class="l-tick">${ICO.check}</i>A login for every barber</li>
+            <li><i class="l-tick">${ICO.check}</i>Reports and daily summaries</li>
+          </ul>
+          <p class="l-price-example">A 3-barber shop: <strong>£48.96 a month</strong>. A solo barber: <strong>£32.98</strong>.</p>
+          <a class="l-btn l-btn-green" href="/signup" data-testid="landing-cta-pricing-main">Start Free Trial</a>
+          <p class="l-tiny">14 days free · no card needed · no contract</p>
+        </article>
+        <div class="l-price-extras">
+          <p class="l-price-label">Extras — only if you use them</p>
+          <article class="l-extra">
+            <i class="l-ico">${ICO.chat}</i>
+            <div><b>Messages</b><p>Text confirmations and reminders <strong>6p</strong> each · WhatsApp <strong>3p</strong> each · email always free. Your clients choose how they hear from you.</p></div>
+          </article>
+          <article class="l-extra l-extra-hi">
+            <i class="l-ico l-ico-fill">${ICO.phone}</i>
+            <div><b>AI Concierge <span class="l-pill">New</span></b><p><strong>£49/month</strong> · Answers your phone 24/7 in your shop’s name, checks the diary, books, moves and cancels appointments and takes messages. 300 call minutes included, then 12p a minute.</p></div>
+          </article>
+          <article class="l-extra">
+            <i class="l-ico">${ICO.card}</i>
+            <div><b>Card payments</b><p><strong>2.2% + 20p</strong> per payment, all in. Deposits at booking, prepay, or pay at the chair. Money goes straight to each barber.</p></div>
+          </article>
+          <p class="l-tiny">All prices exclude VAT. Extras are billed monthly on what you used — shown live in your settings, no surprises.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. Testimonials -->
   <section id="testimonials" class="l-light l-testi" aria-labelledby="testi-heading">
     <div class="l-wrap">
       <div class="l-center">
@@ -259,7 +308,7 @@ export function landingPage(origin: string) {
     </div>
   </section>
 
-  <!-- 7. FAQ (kept: barbers ask these) -->
+  <!-- 8. FAQ -->
   <section id="faq" class="l-light l-faq" aria-labelledby="faq-heading">
     <div class="l-wrap l-faq-in">
       <div><p class="l-eyebrow">FAQ</p><h2 id="faq-heading">Questions barbers ask</h2></div>
@@ -268,12 +317,13 @@ export function landingPage(origin: string) {
         <details><summary>Can I bring my existing customers over?</summary><p>Yes — import a CSV from your old system in Settings → Customers and their history comes with them.</p></details>
         <details><summary>Do barbers get their own login?</summary><p>Yes. Invite each barber; they see their own day, take payments at the chair, block their own time and watch their wallet.</p></details>
         <details><summary>What about deposits and no‑shows?</summary><p>Set a deposit, ask for full prepayment, or let people pay at the chair — shop‑wide or per service. No‑shows can be charged; refunds are automatic when you cancel on them.</p></details>
+        <details><summary>What does it really cost?</summary><p>£24.99 a month plus £7.99 for each barber or stylist — so a three-chair shop pays £48.96. Texts are 6p, WhatsApp 3p, email is free. Card payments are 2.2% + 20p all in. The AI Concierge is an optional £49 a month. Nothing per booking, no commission, and you can see exactly what you’ve used in your settings.</p></details>
         <details><summary>Is my data safe?</summary><p>Hosted in the EU, encrypted in transit, backed up daily. You can export everything at any time.</p></details>
       </div>
     </div>
   </section>
 
-  <!-- 8. Final CTA -->
+  <!-- 9. Final CTA -->
   <section class="l-dark l-final" aria-labelledby="final-heading">
     <div class="l-wrap l-two l-final-in">
       <div>

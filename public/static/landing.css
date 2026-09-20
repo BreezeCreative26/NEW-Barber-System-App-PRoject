@@ -22,6 +22,7 @@ body.landing img { display: block; max-width: 100%; }
 body.landing a { color: inherit; text-decoration: none; }
 body.landing ul, body.landing ol { margin: 0; padding: 0; list-style: none; }
 body.landing h1, body.landing h2, body.landing h3, body.landing p { margin: 0; }
+body.landing section[id] { scroll-margin-top: 84px; }
 
 .l-wrap { width: min(1180px, 100% - 48px); margin: 0 auto; }
 .l-two { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; }
@@ -158,6 +159,34 @@ body.landing h2 { font-size: clamp(30px, 3.4vw, 44px); line-height: 1.08; letter
 .l-x { background: rgba(248,113,113,.15); color: #f87171; } .l-x svg { width: 12px; height: 12px; }
 .l-tick { background: rgba(74,222,128,.18); color: var(--l-green); } .l-tick svg { width: 13px; height: 13px; }
 
+/* Pricing */
+.l-lede-center { margin: 0 auto; text-align: center; }
+.l-price-grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: 24px; align-items: start; }
+.l-price-main { background: var(--l-ink); color: #fff; border-radius: 22px; padding: 34px 32px 28px; box-shadow: 0 30px 70px rgba(11,26,23,.18); }
+.l-price-label { font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--l-green); margin-bottom: 10px; }
+.l-price-extras .l-price-label { color: #15803d; margin-bottom: 14px; }
+.l-price-big { font-size: 56px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; display: flex; align-items: baseline; gap: 6px; }
+.l-price-from { font-size: 16px; font-weight: 600; color: var(--l-muted); letter-spacing: 0; }
+.l-price-big small { font-size: 16px; font-weight: 600; color: var(--l-muted); letter-spacing: 0; }
+.l-price-main .l-price-sub { margin: 8px 0 22px; color: #d7ded9; font-size: 16px; }
+.l-price-sub strong { color: #fff; }
+.l-price-main .l-price-list { display: grid; gap: 10px; margin: 0 0 22px; }
+.l-price-list li { display: flex; align-items: flex-start; gap: 10px; font-size: 14.5px; color: #e3e9e5; }
+.l-price-list .l-tick { margin-top: 1px; }
+.l-price-main .l-price-example { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); border-radius: 12px; padding: 12px 14px; font-size: 14px; color: #d7ded9; margin-bottom: 18px; }
+.l-price-example strong { color: var(--l-green); }
+.l-price-main .l-tiny { margin-top: 12px; }
+.l-price-extras { display: grid; gap: 14px; align-content: start; }
+.l-extra { display: grid; grid-template-columns: 40px 1fr; gap: 14px; background: #fff; border: 1px solid #e1e4de; border-radius: 16px; padding: 18px 20px; }
+.l-extra .l-ico { width: 40px; height: 40px; }
+.l-extra .l-ico svg { width: 18px; height: 18px; }
+.l-extra b { display: flex; align-items: center; gap: 8px; font-size: 16px; margin-bottom: 4px; }
+.l-extra p { font-size: 14px; line-height: 1.55; color: #3f4a46; }
+.l-extra p strong { color: var(--l-text-dark); }
+.l-extra-hi { border: 1.5px solid #15803d; box-shadow: 0 0 0 5px rgba(21,128,61,.07); }
+.l-pill { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; background: var(--l-green); color: #07130f; border-radius: 999px; padding: 2px 8px; }
+.l-price-extras .l-tiny { color: var(--l-muted-dark); }
+
 /* Testimonials */
 .l-quotes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
 .l-quotes li { background: #fff; border-radius: 18px; padding: 22px; box-shadow: 0 8px 30px rgba(20,33,29,.06); display: flex; flex-direction: column; gap: 10px; }
@@ -196,6 +225,7 @@ body.landing h2 { font-size: clamp(30px, 3.4vw, 44px); line-height: 1.08; letter
 @media (max-width: 980px) {
   .l-two, .l-two-wide, .l-faq-in { grid-template-columns: 1fr; gap: 44px; }
   .l-quotes { grid-template-columns: 1fr 1fr; }
+  .l-price-grid { grid-template-columns: 1fr; }
   .l-nav { display: none; }
   .l-footer-in { grid-template-columns: 1fr; text-align: center; }
   .l-footer-right { align-items: center; }
@@ -217,6 +247,8 @@ body.landing h2 { font-size: clamp(30px, 3.4vw, 44px); line-height: 1.08; letter
   .l-laptop-screen { height: 260px; grid-template-columns: 1fr; }
   .l-cal-side { display: none; }
   .l-photo-card figcaption { font-size: 22px; }
+  .l-price-big { font-size: 44px; }
+  .l-price-main { padding: 26px 22px 22px; }
   .l-header .l-signin { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .l-btn { transition: none; } }
