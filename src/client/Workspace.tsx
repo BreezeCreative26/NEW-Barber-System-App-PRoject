@@ -29,6 +29,7 @@ import { Calendar, WeekStrip, WeekView, blockLabel, type CalendarDraft, type Ran
 import { BlockDialog } from "./BlockDialog";
 import { WalletDrawer } from "./Wallet";
 import { PaymentsPanel } from "./Payouts";
+import { SetupWizard } from "./Setup";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
 import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
@@ -246,12 +247,25 @@ function SaveForm({
   );
 }
 const DEMO_ENABLED_KEY = "ollo:demo";
-type AuthMode = "signin" | "signup" | "invite";
+type AuthMode = "signin" | "signup" | "invite" | "forgot" | "reset";
+type InvitePeek = { shop_name: string; logo_url: string; staff_name: string; role: string; inviter: string; email: string; email_fixed: boolean; phone_hint: string; expires_at: number };
 // Real front door. `/signin` and `/signup` render this; `/workspace` shows it when signed out.
 // The demo shortcut appears only when the server reports DEMO_ENABLED=1.
 function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Promise<void> }) {
-  const initial: AuthMode = token ? "invite" : location.pathname === "/signup" ? "signup" : "signin";
+  const resetToken = new URLSearchParams(location.search).get("token") || "";
+  const initial: AuthMode = token ? "invite" : location.pathname === "/signup" ? "signup" : location.pathname === "/forgot" ? "forgot" : location.pathname === "/reset" && resetToken ? "reset" : "signin";
   const [mode, setMode] = useState<AuthMode>(initial);
+  const [kind, setKind] = useState<"BARBER" | "HAIR" | "SALON">("BARBER");
+  const [peek, setPeek] = useState<InvitePeek | null>(null);
+  const [peekError, setPeekError] = useState("");
+  const [forgotSent, setForgotSent] = useState<{ delivery: string[]; sandbox_token?: string } | null>(null);
+  const [resetState, setResetState] = useState<{ email_hint: string } | { error: string } | null>(null);
+  useEffect(() => {
+    if (token) api<InvitePeek>(`/auth/invites/peek?token=${encodeURIComponent(token)}`).then(setPeek).catch((e) => setPeekError(e.message));
+  }, [token]);
+  useEffect(() => {
+    if (mode === "reset" && resetToken) api<{ email_hint: string }>(`/auth/reset/peek?token=${encodeURIComponent(resetToken)}`).then(setResetState).catch((e) => setResetState({ error: e.message }));
+  }, [mode, resetToken]);
   const [demo, setDemo] = useState<boolean>(() => sessionStorage.getItem(DEMO_ENABLED_KEY) === "1");
   const [demoBusy, setDemoBusy] = useState("");
   const [demoError, setDemoError] = useState("");
@@ -264,8 +278,8 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
       .catch(() => {});
   }, []);
   useEffect(() => {
-    if (mode !== "invite") {
-      const path = mode === "signup" ? "/signup" : "/signin";
+    if (mode !== "invite" && mode !== "reset") {
+      const path = mode === "signup" ? "/signup" : mode === "forgot" ? "/forgot" : "/signin";
       if (location.pathname !== path && location.pathname !== "/workspace") history.replaceState(null, "", path);
     }
   }, [mode]);
@@ -302,19 +316,44 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
             </button>
           </div>
         )}
+        {mode === "invite" && peek && (
+          <div className="auth-invite-card" data-testid="invite-peek">
+            {peek.logo_url ? <img src={peek.logo_url} alt="" width={44} height={44} /> : <span className="auth-invite-mark" aria-hidden="true">{peek.shop_name.slice(0, 1)}</span>}
+            <div>
+              <strong>{peek.shop_name}</strong>
+              <span>{peek.inviter ? `${peek.inviter} invited you` : "You've been invited"} as <b>{peek.staff_name}</b> · {peek.role.charAt(0) + peek.role.slice(1).toLowerCase()}</span>
+            </div>
+          </div>
+        )}
         <h2 id="auth-heading">
-          {mode === "invite" ? "Accept your invitation" : mode === "signup" ? "Set up your shop" : "Welcome back"}
+          {mode === "invite" ? (peek ? `Join ${peek.shop_name}` : "Accept your invitation") : mode === "signup" ? "Set up your shop" : mode === "forgot" ? "Forgot your password?" : mode === "reset" ? "Choose a new password" : "Welcome back"}
         </h2>
         <p>
           {mode === "invite"
-            ? "Use the email on your invitation. Your owner chose your role and which barber profile is yours."
+            ? peekError || (peek?.email_fixed ? "Choose a password. Your login is the email the invitation went to." : "Enter the email you'd like to sign in with and choose a password.")
             : mode === "signup"
-              ? "Your shop, your team and online booking in a couple of minutes. You’ll be added as the first barber; add the rest of the team from Team."
-              : "Sign in to your shop’s workspace."}
+              ? "Your shop, your team and online booking in a few minutes. You'll be added as the first person on the team."
+              : mode === "forgot"
+                ? "Enter your login email. We'll send a link to choose a new password — it works for 30 minutes."
+                : mode === "reset"
+                  ? resetState && "error" in resetState ? resetState.error : resetState ? `For ${resetState.email_hint}. At least 12 characters.` : "Checking your link…"
+                  : "Sign in to your shop's workspace."}
         </p>
+        {mode === "forgot" && forgotSent ? (
+          <div className="auth-sent" role="status" data-testid="forgot-sent">
+            <Icon name="send" />
+            <p>If that address has an account, a reset link is on its way{forgotSent.delivery.includes("sms") ? " by email and text" : ""}. Check spam if it hasn't arrived in a minute.</p>
+            {forgotSent.sandbox_token && <p className="helper">No email provider is connected here, so: <a href={`/reset?token=${forgotSent.sandbox_token}`} data-testid="sandbox-reset-link">open the reset link</a>.</p>}
+            <button type="button" className="linklike" onClick={() => setMode("signin")}>Back to sign in</button>
+          </div>
+        ) : mode === "reset" && resetState && "error" in resetState ? (
+          <p className="helper auth-switch"><button type="button" className="linklike" onClick={() => { history.replaceState(null, "", "/forgot"); setMode("forgot"); }}>Request a new link</button></p>
+        ) : mode === "invite" && peekError ? (
+          <p className="helper auth-switch"><button type="button" className="linklike" onClick={() => { history.replaceState(null, "", "/signin"); location.reload(); }}>Go to sign in</button></p>
+        ) : (
         <SaveForm
           key={mode}
-          label={mode === "invite" ? "Accept invitation" : mode === "signup" ? "Create shop" : "Sign in"}
+          label={mode === "invite" ? "Join the team" : mode === "signup" ? "Create shop" : mode === "forgot" ? "Send reset link" : mode === "reset" ? "Set password and sign in" : "Sign in"}
           onSave={async (f) => {
             if (mode === "signup")
               await api("/auth/signup", "POST", {
@@ -323,45 +362,71 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
                 email: text(f, "email"),
                 password: text(f, "password"),
                 timezone: tz,
+                kind,
               });
             else if (mode === "invite")
-              await api("/auth/accept", "POST", { email: text(f, "email"), password: text(f, "password"), name: text(f, "name"), token });
+              await api("/auth/accept", "POST", { email: peek?.email_fixed ? peek.email : text(f, "email"), password: text(f, "password"), name: text(f, "name"), token });
+            else if (mode === "forgot") {
+              const r = await api<{ delivery: string[]; sandbox_token?: string }>("/auth/forgot", "POST", { email: text(f, "email") });
+              setForgotSent(r);
+              return;
+            } else if (mode === "reset") await api("/auth/reset", "POST", { token: resetToken, password: text(f, "password") });
             else await api("/auth/login", "POST", { email: text(f, "email"), password: text(f, "password") });
-            history.replaceState(null, "", "/workspace");
+            history.replaceState(null, "", mode === "signup" ? "/workspace/setup" : "/workspace");
             await onDone();
           }}
         >
           {mode === "signup" && (
-            <Field label="Shop name">
-              <input name="shop_name" autoComplete="organization" required minLength={2} maxLength={100} placeholder="e.g. Fade Society" />
-            </Field>
+            <>
+              <Field label="Shop name">
+                <input name="shop_name" autoComplete="organization" required minLength={2} maxLength={100} placeholder="e.g. Fade Society" />
+              </Field>
+              <div className="auth-kind" role="radiogroup" aria-label="What kind of shop">
+                {(["BARBER", "HAIR", "SALON"] as const).map((k) => (
+                  <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => setKind(k)} data-testid={`signup-kind-${k}`}>
+                    <Icon name={k === "BARBER" ? "razor" : k === "HAIR" ? "scissors" : "sparkles"} size={16} /> {k === "BARBER" ? "Barbershop" : k === "HAIR" ? "Hairdresser" : "Salon"}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
-          {mode !== "signin" && (
+          {(mode === "signup" || mode === "invite") && (
             <Field label="Your name">
               <input name="name" autoComplete="name" required minLength={2} maxLength={100} />
             </Field>
           )}
-          <Field label="Email">
-            <input name="email" type="email" autoComplete="username" required maxLength={254} inputMode="email" />
-          </Field>
-          <Field label="Password">
-            <input
-              name="password"
-              type="password"
-              autoComplete={mode === "signin" ? "current-password" : "new-password"}
-              required
-              minLength={mode === "signin" ? 1 : 12}
-              maxLength={128}
-            />
-          </Field>
-          {mode !== "signin" && <p className="helper">At least 12 characters. Timezone will be set to {tz}; change it later in Settings.</p>}
+          {mode !== "reset" && !(mode === "invite" && peek?.email_fixed) && (
+            <Field label="Email">
+              <input name="email" type="email" autoComplete="username" required maxLength={254} inputMode="email" />
+            </Field>
+          )}
+          {mode === "invite" && peek?.email_fixed && (
+            <Field label="Email"><input value={peek.email} readOnly aria-readonly /></Field>
+          )}
+          {mode !== "forgot" && (
+            <Field label={mode === "reset" ? "New password" : "Password"}>
+              <input
+                name="password"
+                type="password"
+                autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                required
+                minLength={mode === "signin" ? 1 : 12}
+                maxLength={128}
+              />
+            </Field>
+          )}
+          {(mode === "signup" || mode === "invite") && <p className="helper">At least 12 characters.{mode === "signup" ? ` Timezone will be set to ${tz}; change it in setup.` : ""}</p>}
         </SaveForm>
+        )}
         {mode === "signin" && (
           <p className="helper auth-switch">
             New here? <button type="button" className="linklike" onClick={() => setMode("signup")}>Create your shop</button>
             {" · "}
-            <span title="Password reset arrives with email in the next release">Forgot password? Contact support for now.</span>
+            <button type="button" className="linklike" onClick={() => setMode("forgot")} data-testid="forgot-link">Forgot password?</button>
           </p>
+        )}
+        {mode === "forgot" && !forgotSent && (
+          <p className="helper auth-switch"><button type="button" className="linklike" onClick={() => setMode("signin")}>Back to sign in</button></p>
         )}
         {mode === "signup" && (
           <p className="helper auth-switch">
@@ -1055,10 +1120,11 @@ type Editor =
 export function Workspace() {
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [inviteToken, setInviteToken] = useState(
-    () => new URLSearchParams(location.hash.slice(1)).get("invite") || "",
+    // Emailed/texted links use ?invite=; the in-app "copy link" historically used #invite=. Accept both.
+    () => new URLSearchParams(location.search).get("invite") || new URLSearchParams(location.hash.slice(1)).get("invite") || "",
   );
   useEffect(() => {
-    if (location.hash.startsWith("#invite="))
+    if (location.hash.startsWith("#invite=") || new URLSearchParams(location.search).has("invite"))
       history.replaceState(null, "", location.pathname);
   }, []);
   async function accountChanged() {
@@ -1066,6 +1132,7 @@ export function Workspace() {
     setData(null);
     setEditor(null);
     setTab("Appointments");
+    setSetupOpen(location.pathname === "/workspace/setup");
     setBarber("");
     setSearch("");
     setStatusFilter("");
@@ -1136,6 +1203,14 @@ export function Workspace() {
     return () => window.clearTimeout(t);
   }, [undo]);
   const [tab, setTab] = useState("Appointments");
+  // /workspace/setup opens the guided setup over the Appointments tab; the URL is the state so a
+  // refresh or a link from the landing page lands back in it.
+  const [setupOpen, setSetupOpen] = useState(() => location.pathname === "/workspace/setup");
+  function openSetup(on: boolean) {
+    setSetupOpen(on);
+    history.replaceState(null, "", on ? "/workspace/setup" : "/workspace");
+    if (on) setTab("Appointments");
+  }
   const [editor, setEditor] = useState<Editor | null>(null);
   const [editorRevision, setEditorRevision] = useState(0);
   const [date, setDate] = useState("");
@@ -1514,6 +1589,7 @@ export function Workspace() {
   ];
   const phoneMore = navItems.filter((n) => !phoneNav.some((p) => p.key === n.key));
   function goTo(name: string) {
+    if (setupOpen) { setSetupOpen(false); history.replaceState(null, "", "/workspace"); }
     if (name === tab || !canNavigate()) return;
     setTab(name);
     setNotice("");
@@ -1808,49 +1884,29 @@ export function Workspace() {
           {!w && !needsSession && !error && (
             <p role="status">Loading local workspace…</p>
           )}
-          {w && !inviteToken && manager && (() => {
-            // First-run checklist (the landing page promised "live in two minutes"). Shows until the
-            // shop has services, hours and a live booking link, or the owner hides it for this browser.
-            const steps = [
-              { key: "services", done: w.services.some((x) => x.active), label: "Add your services", hint: "Prices, lengths, add-ons.", go: () => goTo("Services") },
-              // Signup seeds default Mon–Sat hours, so "done" means the owner has looked at them or added a colleague.
-              { key: "team", done: w.staff.length > 1 || localStorage.getItem(`ollo.setup.team.${w.shop.id}`) === "1", label: "Check your hours, add your barbers", hint: "Weekly hours per barber; invite the team.", go: () => { localStorage.setItem(`ollo.setup.team.${w.shop.id}`, "1"); goTo("Team"); } },
-              { key: "online", done: !!w.shop.slug && !!w.shop.online_booking, label: "Switch on your booking link", hint: "Pick your web address and share it.", go: () => goTo("Settings") },
-            ];
-            const left = steps.filter((x) => !x.done).length;
-            const hidden = localStorage.getItem(`ollo.setup.hidden.${w.shop.id}`) === "1";
-            if (!left || hidden || tab !== "Appointments") return null;
+          {w && !inviteToken && manager && setupOpen && (
+            <SetupWizard w={w} api={api} refresh={async () => { await refresh(); }} goTo={goTo} onExit={() => { openSetup(false); refresh().catch(() => {}); }} />
+          )}
+          {w && !inviteToken && manager && !setupOpen && tab === "Appointments" && (() => {
+            // Until setup is finished (or dismissed) a one-line banner offers the way back in.
+            let st: { completed_at?: number | null; dismissed?: boolean; done?: string[] } = {};
+            try { st = JSON.parse((w.shop as { setup_json?: string }).setup_json || "{}"); } catch { /* none */ }
+            if (st.completed_at || st.dismissed) return null;
+            const done = (st.done || []).length;
             return (
-              <section className="setup-checklist" aria-labelledby="setup-heading" data-testid="setup-checklist">
-                <div className="setup-head">
-                  <div>
-                    <h2 id="setup-heading">Get {w.shop.name} live</h2>
-                    <p>{left === 3 ? "Three quick steps and customers can book you." : `${3 - left} of 3 done — ${left} to go.`}</p>
-                  </div>
-                  <button type="button" className="linklike" onClick={() => { localStorage.setItem(`ollo.setup.hidden.${w.shop.id}`, "1"); setNotice("Checklist hidden. Everything is still in the sidebar."); }}>
-                    Hide
-                  </button>
+              <section className="setup-banner" data-testid="setup-banner">
+                <div>
+                  <strong>{done ? `Setup: ${done} of 7 steps done.` : `Get ${w.shop.name} live in a few minutes.`}</strong>
+                  <span>{done ? "Pick up where you left off." : "Services, team, texts, your booking link — one screen at a time."}</span>
                 </div>
-                <ol className="setup-steps">
-                  {steps.map((x, i) => (
-                    <li key={x.key} data-done={x.done}>
-                      <span className="setup-num" aria-hidden="true">{x.done ? <Icon name="checks" size={14} /> : i + 1}</span>
-                      <div>
-                        <strong>{x.label}</strong>
-                        <span>{x.hint}</span>
-                      </div>
-                      {!x.done && (
-                        <Button variant={steps.findIndex((y) => !y.done) === i ? "primary" : "secondary"} onClick={x.go} data-testid={`setup-${x.key}`}>
-                          {x.key === "online" ? "Open settings" : x.key === "team" ? "Open team" : "Add services"}
-                        </Button>
-                      )}
-                    </li>
-                  ))}
-                </ol>
+                <div className="setup-banner-actions">
+                  <Button onClick={() => openSetup(true)} data-testid="setup-continue">{done ? "Continue setup" : "Start setup"}</Button>
+                  <button type="button" className="linklike" onClick={() => { api("/setup/state", "PUT", { dismissed: true }).then(() => refresh()).catch(() => {}); setNotice("Setup hidden. Run it again any time from Settings."); }}>Hide</button>
+                </div>
               </section>
             );
           })()}
-          {w && !inviteToken && (
+          {w && !inviteToken && !setupOpen && (
             <>
               {w.issues.length > 0 && (
                 <Notice tone="warning">

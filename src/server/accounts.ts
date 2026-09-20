@@ -173,7 +173,7 @@ async function matches(
 }
 // Per-identity cap always; the global cap guards password guessing on login only (a busy
 // launch day must not lock out new shops).
-async function throttle(c: Ctx, action: string, identity: string) {
+export async function throttle(c: Ctx, action: string, identity: string) {
   const now = Date.now();
   const limits: [string, number][] = [[`${action}:${identity}`, 12]];
   if (action === "login") {
@@ -303,6 +303,7 @@ const signup = z
     email,
     password,
     timezone: timezone.default("Europe/London"),
+    kind: z.enum(["BARBER", "HAIR", "SALON"]).default("BARBER"),
   })
   .strict();
 // POST /auth/signup — the only way a real shop starts. Creates the shop, the owner's user +
@@ -323,7 +324,7 @@ accounts.post("/signup", async (c) => {
   const encoded = await passwordHash(b.password, salt);
   const session = await newSession(c, membership);
   const writes = [
-    c.env.DB.prepare("INSERT INTO shops(id,name,timezone,created_at) VALUES(?,?,?,?)").bind(shop, b.shop_name, b.timezone, now),
+    c.env.DB.prepare("INSERT INTO shops(id,name,timezone,kind,email,setup_json,created_at) VALUES(?,?,?,?,?,?,?)").bind(shop, b.shop_name, b.timezone, b.kind, b.email, JSON.stringify({ step: "shop", done: [], skipped: [], started_at: now }), now),
     c.env.DB.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)").bind(user, b.email, b.name, encoded, salt, now),
     c.env.DB.prepare("INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?)").bind(shop, user),
     c.env.DB.prepare("INSERT INTO staff(id,shop_id,name,role,title,start_date) VALUES(?,?,?,?,?,?)").bind(staffId, shop, b.name, "Owner", "Owner & barber", new Date(now).toISOString().slice(0, 10)),
@@ -399,30 +400,75 @@ accounts.post("/logout", async (c) => {
 accounts.get("/me", (c) =>
   c.json({ account: c.get("account") || null, demo: demoEnabled(c) }),
 );
+// Owners and managers see the team's access; only owners change roles or transfer ownership.
+function managerOrOwner(c: Ctx) {
+  const a = c.get("account");
+  if (!a || !["OWNER", "MANAGER"].includes(a.role)) return reject(403, "Owner or manager account required");
+  return a;
+}
 accounts.get("/access", async (c) => {
-  const a = owner(c);
+  const a = managerOrOwner(c);
   const [members, invitations] = await c.env.DB.batch([
     c.env.DB.prepare(
       "SELECT m.id,m.role,m.staff_id,m.active,m.version,u.name,u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? ORDER BY u.name",
     ).bind(a.shop_id),
     c.env.DB.prepare(
-      "SELECT id,staff_id,email,role,expires_at,accepted_at,revoked FROM staff_invitations WHERE shop_id=? ORDER BY created_at DESC LIMIT 100",
+      "SELECT id,staff_id,email,phone,role,channel,sent_count,last_sent_at,expires_at,accepted_at,revoked,created_at FROM staff_invitations WHERE shop_id=? ORDER BY created_at DESC LIMIT 100",
     ).bind(a.shop_id),
   ]);
-  return c.json({ members: members.results, invitations: invitations.results });
+  return c.json({ members: members.results, invitations: invitations.results, providers: providerStatus() });
 });
+// UK mobile → E.164, or null.
+const ukMobile = (raw: string) => {
+  const d = raw.replace(/[^\d+]/g, "");
+  if (/^07\d{9}$/.test(d)) return `+44${d.slice(1)}`;
+  if (/^\+447\d{9}$/.test(d)) return d;
+  if (/^447\d{9}$/.test(d)) return `+${d}`;
+  return null;
+};
+// Deliver (or re-deliver) an invitation on the requested channel. Returns what actually went out.
+async function sendInvite(c: Ctx, shopId: string, inviterUserId: string, inv: { id: string; email: string; phone: string; role: string; channel: string }, token: string) {
+  const ms = await msgShop(c, shopId);
+  const origin = new URL(c.req.url).origin;
+  const inviter = await c.env.DB.prepare("SELECT name FROM app_users WHERE id=?").bind(inviterUserId).first<{ name: string }>();
+  const vars = { inviter: inviter?.name || ms.name, role: inv.role.charAt(0) + inv.role.slice(1).toLowerCase(), link: `${origin}/workspace?invite=${token}` };
+  const opts = { related: { type: "invite", id: inv.id }, origin, force: true as const };
+  const stmts = [
+    ...(inv.channel === "EMAIL" || inv.channel === "BOTH" ? enqueue(c.env.DB, ms, { email: inv.email }, "staff_invite", vars, { ...opts, channel: "EMAIL" }) : []),
+    ...((inv.channel === "SMS" || inv.channel === "BOTH") && inv.phone ? enqueue(c.env.DB, ms, { phone: inv.phone }, "staff_invite", vars, { ...opts, channel: "SMS" }) : []),
+  ];
+  if (stmts.length) {
+    await c.env.DB.batch(stmts);
+    await drain(c.env.DB, stmts.length, Date.now(), { type: "invite", id: inv.id }).catch(() => {});
+  }
+  const ps = providerStatus();
+  const sent: string[] = [];
+  if ((inv.channel === "EMAIL" || inv.channel === "BOTH") && ps.email.provider !== "mailbox") sent.push("email");
+  if ((inv.channel === "SMS" || inv.channel === "BOTH") && inv.phone && ps.sms.provider !== "mailbox") sent.push("sms");
+  return { sent, queued: stmts.length };
+}
+// Invite someone onto a team profile. channel: EMAIL (default), SMS, BOTH, or LINK (nothing sent —
+// the owner shares the link themselves, e.g. WhatsApp). The link is always returned once.
 accounts.post("/invites", async (c) => {
-  const a = owner(c);
+  const a = managerOrOwner(c);
   const b = await readInput(
     c,
     z
       .object({
-        email,
+        email: z.union([z.literal(""), email]).default(""),
+        phone: z.string().trim().max(20).default(""),
         staff_id: z.string().uuid(),
         role: z.enum(["MANAGER", "RECEPTION", "BARBER"]),
+        channel: z.enum(["EMAIL", "SMS", "BOTH", "LINK"]).default("EMAIL"),
       })
       .strict(),
   );
+  if (b.role === "MANAGER" && a.role !== "OWNER") return reject(403, "Only the owner can invite a manager");
+  const phone = b.phone ? ukMobile(b.phone) : "";
+  if (b.phone && !phone) return reject(400, "Enter a UK mobile number (07… or +447…)");
+  if (!b.email && !phone) return reject(400, "Add an email address or a mobile number");
+  if ((b.channel === "EMAIL" || b.channel === "BOTH") && !b.email) return reject(400, "An email address is needed to invite by email");
+  if ((b.channel === "SMS" || b.channel === "BOTH") && !phone) return reject(400, "A mobile number is needed to invite by text");
   const staff = await c.env.DB.prepare(
     "SELECT id FROM staff WHERE shop_id=? AND id=? AND active=1",
   )
@@ -438,46 +484,48 @@ accounts.post("/invites", async (c) => {
   )
     return reject(409, "This staff profile already has an account");
   const token = uid() + uid(),
-    id = uid();
+    id = uid(),
+    now = Date.now();
   await c.env.DB.batch([
     c.env.DB.prepare(
       "UPDATE staff_invitations SET revoked=1 WHERE shop_id=? AND staff_id=? AND accepted_at IS NULL",
     ).bind(a.shop_id, b.staff_id),
     c.env.DB.prepare(
-      "INSERT INTO staff_invitations(id,shop_id,staff_id,email,role,token_hash,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?)",
-    ).bind(
-      id,
-      a.shop_id,
-      b.staff_id,
-      b.email,
-      b.role,
-      await digest(token),
-      Date.now() + 48 * 3600000,
-      Date.now(),
-    ),
+      "INSERT INTO staff_invitations(id,shop_id,staff_id,email,phone,role,channel,token_hash,expires_at,created_at,sent_count,last_sent_at,invited_by) VALUES(?,?,?,?,?,?,?,?,?,?,1,?,?)",
+    ).bind(id, a.shop_id, b.staff_id, b.email || `${phone}@sms.invite`, phone || "", b.role, b.channel, await digest(token), now + 7 * 86400000, now, now, `user:${a.user_id}`),
     event(c, a.shop_id, `user:${a.user_id}`, id, "STAFF_INVITED"),
   ]);
-  // Email the invitation from the shop. The link is still returned so the owner can share it by
-  // hand (WhatsApp, in person) — invites are for team, not customers.
-  const ms = await msgShop(c, a.shop_id);
-  const origin = new URL(c.req.url).origin;
-  const inviter = await c.env.DB.prepare("SELECT name FROM app_users WHERE id=?").bind(a.user_id).first<{ name: string }>();
-  const stmts = enqueue(c.env.DB, ms, { email: b.email }, "staff_invite", { inviter: inviter?.name || ms.name, role: b.role, link: `${origin}/workspace?invite=${token}` }, { related: { type: "invite", id }, origin, channel: "EMAIL" });
-  if (stmts.length) { await c.env.DB.batch(stmts); await drain(c.env.DB, 1).catch(() => {}); }
-  return c.json(
-    { id, token, expires_in_hours: 48, delivery: providerStatus().email.provider === "resend" ? "email" : "manual" },
-    201,
-  );
+  const delivery = await sendInvite(c, a.shop_id, a.user_id, { id, email: b.email, phone: phone || "", role: b.role, channel: b.channel }, token);
+  return c.json({ id, token, link: `${new URL(c.req.url).origin}/workspace?invite=${token}`, expires_in_hours: 7 * 24, delivery: delivery.sent.length ? delivery.sent.join("+") : "manual", sent: delivery.sent }, 201);
+});
+// Send it again (same channel by default, or a different one). Issues a fresh token — the old link
+// stops working — so a lost email doesn't leave a live link lying around.
+accounts.post("/invites/:id/resend", async (c) => {
+  const a = managerOrOwner(c);
+  const b = await readInput(c, z.object({ channel: z.enum(["EMAIL", "SMS", "BOTH", "LINK"]).optional() }).strict());
+  const inv = await c.env.DB.prepare("SELECT * FROM staff_invitations WHERE id=? AND shop_id=? AND accepted_at IS NULL AND revoked=0").bind(c.req.param("id"), a.shop_id).first<{ id: string; email: string; phone: string; role: string; channel: string; sent_count: number; last_sent_at: number | null }>();
+  if (!inv) return reject(404, "Pending invitation not found");
+  if (inv.last_sent_at && Date.now() - inv.last_sent_at < 60000) return reject(429, "Just sent — wait a minute before resending");
+  if (inv.sent_count >= 10) return reject(429, "This invitation has been sent 10 times. Revoke it and create a new one.");
+  const channel = b.channel || inv.channel;
+  const token = uid() + uid(), now = Date.now();
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE staff_invitations SET token_hash=?, expires_at=?, channel=?, sent_count=sent_count+1, last_sent_at=? WHERE id=?").bind(await digest(token), now + 7 * 86400000, channel, now, inv.id),
+    event(c, a.shop_id, `user:${a.user_id}`, inv.id, "STAFF_INVITE_RESENT"),
+  ]);
+  const email = inv.email.endsWith("@sms.invite") ? "" : inv.email;
+  const delivery = await sendInvite(c, a.shop_id, a.user_id, { id: inv.id, email, phone: inv.phone, role: inv.role, channel }, token);
+  return c.json({ id: inv.id, token, link: `${new URL(c.req.url).origin}/workspace?invite=${token}`, expires_in_hours: 7 * 24, delivery: delivery.sent.length ? delivery.sent.join("+") : "manual", sent: delivery.sent }, 201);
 });
 accounts.post("/invites/:id/revoke", async (c) => {
-  const a = owner(c);
+  const a = managerOrOwner(c);
   await readInput(c, z.object({}).strict());
   const r = await c.env.DB.batch([
     c.env.DB.prepare(
       "UPDATE staff_invitations SET revoked=1 WHERE id=? AND shop_id=? AND accepted_at IS NULL AND revoked=0",
     ).bind(c.req.param("id"), a.shop_id),
     c.env.DB.prepare(
-      "INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) SELECT ?,?,'account',?,'INVITATION_REVOKED',?,'Local invitation revoked',? WHERE changes()>0",
+      "INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) SELECT ?,?,'account',?,'INVITATION_REVOKED',?,'Invitation revoked',? WHERE changes()>0",
     ).bind(
       uid(),
       a.shop_id,
@@ -489,19 +537,37 @@ accounts.post("/invites/:id/revoke", async (c) => {
   if (!r[0].meta.changes) return reject(404, "Pending invitation not found");
   return c.json({ ok: true });
 });
+// What an invite link points at, before the person commits to a password: shop name/logo, who
+// invited them, role, whether the address is fixed. Public (token is the secret).
+accounts.get("/invites/peek", async (c) => {
+  const token = c.req.query("token") || "";
+  if (token.length < 60) return reject(404, "Invitation not found");
+  const inv = await c.env.DB.prepare(
+    "SELECT i.email,i.phone,i.role,i.expires_at,i.invited_by,s.name AS staff_name,sh.name AS shop_name,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent FROM staff_invitations i JOIN staff s ON s.shop_id=i.shop_id AND s.id=i.staff_id JOIN shops sh ON sh.id=i.shop_id LEFT JOIN shop_pages p ON p.shop_id=i.shop_id WHERE i.token_hash=? AND i.revoked=0 AND i.accepted_at IS NULL",
+  ).bind(await digest(token)).first<{ email: string; phone: string; role: string; expires_at: number; invited_by: string; staff_name: string; shop_name: string; logo_url: string; accent: string }>();
+  if (!inv) return reject(404, "This invitation has been used or withdrawn. Ask the shop for a new one.");
+  if (inv.expires_at <= Date.now()) return reject(409, "This invitation has expired. Ask the shop to send it again.");
+  const inviter = inv.invited_by.startsWith("user:") ? await c.env.DB.prepare("SELECT name FROM app_users WHERE id=?").bind(inv.invited_by.slice(5)).first<{ name: string }>() : null;
+  const smsOnly = inv.email.endsWith("@sms.invite");
+  return c.json({ shop_name: inv.shop_name, logo_url: inv.logo_url, accent: inv.accent, staff_name: inv.staff_name, role: inv.role, inviter: inviter?.name || "", email: smsOnly ? "" : inv.email, email_fixed: !smsOnly, phone_hint: inv.phone ? `••••${inv.phone.slice(-3)}` : "", expires_at: inv.expires_at });
+});
 accounts.post("/accept", async (c) => {
   const b = await readInput(
     c,
     registration.extend({ token: z.string().min(60).max(100) }).strict(),
   );
   await throttle(c, "accept", b.email);
+  // Email invites are bound to the address they went to; SMS/link invites take whatever address
+  // the person signs up with (recorded on the invitation for the audit trail).
   const invite = await c.env.DB.prepare(
-    "SELECT i.* FROM staff_invitations i JOIN staff s ON s.shop_id=i.shop_id AND s.id=i.staff_id WHERE i.token_hash=? AND i.email=? AND i.revoked=0 AND i.accepted_at IS NULL AND i.expires_at>? AND s.active=1",
+    "SELECT i.* FROM staff_invitations i JOIN staff s ON s.shop_id=i.shop_id AND s.id=i.staff_id WHERE i.token_hash=? AND (i.email=? OR i.email LIKE '%@sms.invite') AND i.revoked=0 AND i.accepted_at IS NULL AND i.expires_at>? AND s.active=1",
   )
     .bind(await digest(b.token), b.email, Date.now())
-    .first<{ id: string; shop_id: string; staff_id: string; role: string }>();
+    .first<{ id: string; shop_id: string; staff_id: string; role: string; invited_by: string }>();
   if (!invite)
     return reject(400, "Invitation is unavailable or details do not match");
+  if (await c.env.DB.prepare("SELECT 1 AS x FROM app_users WHERE email=?").bind(b.email).first())
+    return reject(409, "An account with this email already exists. Sign in instead.");
   const user = uid(),
     membership = uid(),
     salt = uid() + uid(),
@@ -513,20 +579,19 @@ accounts.post("/accept", async (c) => {
       "INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)",
     ).bind(user, b.email, b.name, encoded, salt, Date.now()),
     c.env.DB.prepare(
-      "INSERT INTO app_memberships(id,shop_id,user_id,role,staff_id) SELECT ?,shop_id,?,role,staff_id FROM staff_invitations WHERE id=? AND token_hash=? AND email=? AND revoked=0 AND accepted_at IS NULL AND expires_at>?",
+      "INSERT INTO app_memberships(id,shop_id,user_id,role,staff_id) SELECT ?,shop_id,?,role,staff_id FROM staff_invitations WHERE id=? AND token_hash=? AND revoked=0 AND accepted_at IS NULL AND expires_at>?"
     ).bind(
       membership,
       user,
       invite.id,
       await digest(b.token),
-      b.email,
       Date.now(),
     ),
     c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
     c.env.DB.prepare("DELETE FROM account_assertions"),
     c.env.DB.prepare(
-      "UPDATE staff_invitations SET accepted_at=? WHERE id=? AND accepted_at IS NULL AND revoked=0 AND expires_at>?",
-    ).bind(Date.now(), invite.id, Date.now()),
+      "UPDATE staff_invitations SET accepted_at=?, email=? WHERE id=? AND accepted_at IS NULL AND revoked=0 AND expires_at>?",
+    ).bind(Date.now(), b.email, invite.id, Date.now()),
     session.write,
     c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
     c.env.DB.prepare("DELETE FROM account_assertions"),
@@ -575,6 +640,73 @@ accounts.put("/members/:id", async (c) => {
       409,
       "Access changed elsewhere or owner is protected. Reload access.",
     );
+  return c.json({ ok: true });
+});
+// Forgot password. Always answers 200 so the form can't be used to discover accounts. Delivery:
+// email to the account address, plus SMS to the shop's verified mobile when the account is the
+// owner. Token: 30 min, single use; requesting again voids earlier links.
+accounts.post("/forgot", async (c) => {
+  const b = await readInput(c, z.object({ email }).strict());
+  await throttle(c, "forgot", b.email);
+  const user = await c.env.DB.prepare(
+    "SELECT u.id,u.name,m.shop_id,m.role FROM app_users u JOIN app_memberships m ON m.user_id=u.id WHERE u.email=? AND m.active=1 LIMIT 1",
+  ).bind(b.email).first<{ id: string; name: string; shop_id: string; role: string }>();
+  const now = Date.now();
+  let delivery: string[] = [];
+  let sandboxToken: string | undefined;
+  if (user) {
+    const token = uid() + uid();
+    const shop = await msgShop(c, user.shop_id);
+    const origin = new URL(c.req.url).origin;
+    const link = `${origin}/reset?token=${token}`;
+    // msgShop's `phone` is the public shop-page number; the verified owner mobile lives on shops.
+    const own = user.role === "OWNER" ? await c.env.DB.prepare("SELECT phone, phone_verified_at FROM shops WHERE id=?").bind(user.shop_id).first<{ phone: string; phone_verified_at: number | null }>() : null;
+    const ownerPhone = own?.phone_verified_at ? own.phone : "";
+    const stmts = [
+      ...enqueue(c.env.DB, shop, { email: b.email, name: user.name }, "password_reset", { link }, { related: { type: "password_reset", id: user.id }, origin, channel: "EMAIL", now, force: true }),
+      ...(ownerPhone ? enqueue(c.env.DB, shop, { phone: ownerPhone, name: user.name }, "password_reset", { link }, { related: { type: "password_reset", id: user.id }, origin, channel: "SMS", now, force: true }) : []),
+    ];
+    await c.env.DB.batch([
+      c.env.DB.prepare("UPDATE password_resets SET used_at=? WHERE user_id=? AND used_at IS NULL").bind(now, user.id),
+      c.env.DB.prepare("INSERT INTO password_resets(token_hash,user_id,created_at,expires_at) VALUES(?,?,?,?)").bind(await digest(token), user.id, now, now + 30 * 60000),
+      ...stmts,
+      event(c, user.shop_id, `user:${user.id}`, user.id, "PASSWORD_RESET_REQUESTED"),
+    ]);
+    if (stmts.length) await drain(c.env.DB, stmts.length, now, { type: "password_reset", id: user.id }).catch(() => {});
+    const ps = providerStatus();
+    if (ps.email.provider !== "mailbox") delivery.push("email");
+    if (ownerPhone && ps.sms.provider !== "mailbox") delivery.push("sms");
+    if (!delivery.length && demoEnabled(c)) sandboxToken = token;
+  }
+  return c.json({ ok: true, delivery, ...(sandboxToken ? { sandbox_token: sandboxToken } : {}) });
+});
+// Is this reset link still good? (Shown before the new-password form.)
+accounts.get("/reset/peek", async (c) => {
+  const token = c.req.query("token") || "";
+  if (token.length < 60) return reject(404, "This reset link is not valid.");
+  const row = await c.env.DB.prepare("SELECT r.expires_at,r.used_at,u.email FROM password_resets r JOIN app_users u ON u.id=r.user_id WHERE r.token_hash=?").bind(await digest(token)).first<{ expires_at: number; used_at: number | null; email: string }>();
+  if (!row || row.used_at) return reject(404, "This reset link has already been used. Request a new one.");
+  if (row.expires_at <= Date.now()) return reject(409, "This reset link has expired. Request a new one.");
+  const [l, d] = row.email.split("@");
+  return c.json({ ok: true, email_hint: `${l.slice(0, 2)}•••@${d}`, expires_at: row.expires_at });
+});
+accounts.post("/reset", async (c) => {
+  const b = await readInput(c, z.object({ token: z.string().min(60).max(100), password }).strict());
+  await throttle(c, "reset", b.token.slice(0, 16));
+  const now = Date.now();
+  const row = await c.env.DB.prepare("SELECT r.user_id,r.expires_at,r.used_at,m.id AS membership_id,m.shop_id FROM password_resets r JOIN app_memberships m ON m.user_id=r.user_id WHERE r.token_hash=? AND m.active=1").bind(await digest(b.token)).first<{ user_id: string; expires_at: number; used_at: number | null; membership_id: string; shop_id: string }>();
+  if (!row || row.used_at || row.expires_at <= now) return reject(409, "This reset link is no longer valid. Request a new one.");
+  const salt = uid() + uid();
+  const encoded = await passwordHash(b.password, salt);
+  const session = await newSession(c, row.membership_id);
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE app_users SET password_hash=?, password_salt=? WHERE id=?").bind(encoded, salt, row.user_id),
+    c.env.DB.prepare("UPDATE password_resets SET used_at=? WHERE token_hash=?").bind(now, await digest(b.token)),
+    c.env.DB.prepare("DELETE FROM app_sessions WHERE membership_id=?").bind(row.membership_id),
+    session.write,
+    event(c, row.shop_id, `user:${row.user_id}`, row.user_id, "PASSWORD_RESET"),
+  ]);
+  cookies(c, session.raw);
   return c.json({ ok: true });
 });
 accounts.post("/password", async (c) => {

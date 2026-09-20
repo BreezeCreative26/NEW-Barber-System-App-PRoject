@@ -37,6 +37,7 @@ export type Recipient = { name?: string; phone?: string; email?: string };
 export const MESSAGE_TEMPLATES = [
   "booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon",
   "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
+  "verify_contact", "password_reset", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary",
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
 
@@ -162,6 +163,53 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         heading: "Messages are working.",
         lines: ["This is a test from your booking system's Settings → Messages panel.", `Sent ${new Date().toLocaleString("en-GB")}.`],
       };
+    // ---- Shop-side (owner/manager) messages. Same branding rule: the shop's name, never OLLO. ----
+    case "verify_contact":
+      return {
+        sms: `${s}: ${v.code} is your verification code. It expires in 10 minutes.`,
+        subject: `${v.code} is your ${s} verification code`,
+        heading: `${v.code}`,
+        lines: [`Enter this code to confirm this is ${s}'s ${v.kind === "PHONE" ? "mobile number" : "email address"}. It expires in 10 minutes.`, "If you didn't ask for it, ignore this message."],
+      };
+    case "password_reset":
+      return {
+        sms: `${s}: reset your booking system password here (30 min): ${v.link}`,
+        subject: `Reset your ${s} password`,
+        heading: "Reset your password.",
+        lines: ["Someone asked to reset the password for this address. If it was you, use the button below within 30 minutes.", "If it wasn't you, ignore this message — your password has not changed."],
+        cta: { label: "Choose a new password", href: String(v.link) },
+      };
+    case "owner_new_booking":
+      return {
+        sms: `${s}: new booking — ${v.customer}, ${v.service} with ${v.barber}, ${when}. Ref ${v.ref}.`,
+        subject: `New booking: ${v.customer} · ${when}`,
+        heading: `${v.customer} booked online.`,
+        lines: [`${v.service} with ${v.barber}`, `${when} · ref ${v.ref}`, v.deposit ? `Deposit: ${v.deposit}` : ""].filter(Boolean),
+        cta: v.link ? { label: "Open the calendar", href: String(v.link) } : undefined,
+      };
+    case "owner_cancelled":
+      return {
+        sms: `${s}: ${v.customer} cancelled ${v.service} with ${v.barber}, ${when}. Ref ${v.ref}.${v.deposit ? ` Deposit ${v.deposit}.` : ""}`,
+        subject: `Cancelled: ${v.customer} · ${when}`,
+        heading: `${v.customer} cancelled.`,
+        lines: [`${v.service} with ${v.barber}`, `${when} · ref ${v.ref}`, v.deposit ? `Deposit: ${v.deposit}` : "", v.waitlist ? `${v.waitlist} on the waitlist for that day.` : ""].filter(Boolean),
+        cta: v.link ? { label: "Open the calendar", href: String(v.link) } : undefined,
+      };
+    case "owner_no_show":
+      return {
+        sms: `${s}: no-show — ${v.customer}, ${v.service} with ${v.barber}, ${when}.`,
+        subject: `No-show: ${v.customer} · ${when}`,
+        heading: `${v.customer} didn't turn up.`,
+        lines: [`${v.service} with ${v.barber}`, `${when} · ref ${v.ref}`, v.count ? `That's ${v.count} no-shows from this customer.` : ""].filter(Boolean),
+      };
+    case "owner_daily_summary":
+      return {
+        sms: `${s} today: ${v.count} booked, first at ${v.first_time}, ${v.online} online. ${v.gaps ? `${v.gaps} free slots.` : "Full day."}`,
+        subject: `${s} — today, ${v.date}`,
+        heading: `${v.count} visits today.`,
+        lines: [`First at ${v.first_time}, last at ${v.last_time}.`, `${v.online} booked online, ${v.walkin} in the shop.`, `${v.gaps ? `${v.gaps} slots still free.` : "No gaps."}`, v.deposits ? `Deposits taken: ${v.deposits}.` : ""].filter(Boolean),
+        cta: v.link ? { label: "Open today", href: String(v.link) } : undefined,
+      };
   }
 }
 
@@ -189,13 +237,15 @@ export function emailHtml(shop: { name: string; address?: string; slug?: string 
 }
 
 // ---- Enqueue -------------------------------------------------------------------
-export type EnqueueOpts = { related: { type: string; id: string }; channel?: "SMS" | "EMAIL" | "AUTO"; origin: string; now?: number };
+// `force`: shop-side messages (verification codes, password resets, owner alerts) ignore the shop's
+// customer-facing SMS/email toggles — those switches are about what customers receive.
+export type EnqueueOpts = { related: { type: string; id: string }; channel?: "SMS" | "EMAIL" | "AUTO"; origin: string; now?: number; force?: boolean };
 
 // Channel choice: SMS when we have a mobile and the shop sends SMS; email when we have an address
 // and the shop sends email; both when the shop wants both and we have both (confirmations).
-export function channelsFor(shop: MsgShop, to: Recipient, prefer: "SMS" | "EMAIL" | "AUTO" = "AUTO", both = false): ("SMS" | "EMAIL")[] {
-  const sms = !!to.phone && (shop.msg_sms ?? 1) === 1;
-  const email = !!to.email && (shop.msg_email ?? 1) === 1;
+export function channelsFor(shop: MsgShop, to: Recipient, prefer: "SMS" | "EMAIL" | "AUTO" = "AUTO", both = false, force = false): ("SMS" | "EMAIL")[] {
+  const sms = !!to.phone && (force || (shop.msg_sms ?? 1) === 1);
+  const email = !!to.email && (force || (shop.msg_email ?? 1) === 1);
   if (prefer === "SMS") return sms ? ["SMS"] : email ? ["EMAIL"] : [];
   if (prefer === "EMAIL") return email ? ["EMAIL"] : sms ? ["SMS"] : [];
   if (both && sms && email) return ["SMS", "EMAIL"];
@@ -209,7 +259,7 @@ export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageT
   const r = copyFor(template, { first: to.name, ...vars }, shop);
   const html = emailHtml(shop, brand, opts.origin, r, { phone: shop.phone, email: shop.email });
   const out = [];
-  for (const channel of channelsFor(shop, to, opts.channel || "AUTO", both)) {
+  for (const channel of channelsFor(shop, to, opts.channel || "AUTO", both, opts.force)) {
     out.push(
       db.prepare(
         "INSERT INTO notifications(id,shop_id,channel,recipient,template,body,subject,html,status,status_note,related_type,related_id,created_at,next_attempt_at) VALUES(?,?,?,?,?,?,?,?,'QUEUED','',?,?,?,?) ON CONFLICT DO NOTHING",

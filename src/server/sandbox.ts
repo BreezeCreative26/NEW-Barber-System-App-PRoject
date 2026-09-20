@@ -75,6 +75,7 @@ import { optimiseImage } from "./images";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
 import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import QRCode from "qrcode";
+import setup from "./setup";
 import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
 import { accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, type ConnectedAccount } from "./payouts";
@@ -193,8 +194,8 @@ sandbox.use("*", async (c, next) => {
     method = c.req.method;
   const publicAuth =
     (method === "POST" &&
-      ["/auth/login", "/auth/signup", "/auth/accept", "/auth/logout", "/auth/demo"].includes(path)) ||
-    (method === "GET" && path === "/auth/me");
+      ["/auth/login", "/auth/signup", "/auth/accept", "/auth/logout", "/auth/demo", "/auth/forgot", "/auth/reset"].includes(path)) ||
+    (method === "GET" && ["/auth/me", "/auth/invites/peek", "/auth/reset/peek"].includes(path));
   if (!account && !publicAuth)
     return c.json(
       {
@@ -248,6 +249,8 @@ sandbox.use("*", async (c, next) => {
       (["GET", "POST"].includes(method) && /^\/staff\/[^/]+\/blocks(\/preview)?$/.test(path)) ||
       (method === "DELETE" && /^\/staff\/[^/]+\/blocks\/[^/]+$/.test(path));
     const setup =
+      // The setup wizard (owner/manager): its own routes enforce the role again.
+      path.startsWith("/setup") ||
       (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist", "/shop/messaging", "/shop/payments"].includes(path)) ||
       (method === "POST" && ["/notifications/test", "/notifications/sweep", "/shop/payments/connect"].includes(path)) ||
       (method === "POST" && /^\/notifications\/[^/]+\/resend$/.test(path)) ||
@@ -319,6 +322,7 @@ export function handleError(err: Error, c: Ctx) {
 sandbox.onError(handleError);
 
 sandbox.route("/auth", accounts);
+sandbox.route("/setup", setup);
 
 // Range read for week view: compact rows for up to 31 days, barber-scoped.
 sandbox.get("/bookings/range", async (c) => {

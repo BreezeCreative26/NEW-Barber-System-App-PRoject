@@ -41,6 +41,14 @@ export type Shop = {
   payrun_auto?: "OFF" | "DAILY" | "WEEKLY";
   payrun_reserve_bps?: number;
   stripe_location_id?: string;
+  // Setup (0014): shop contact + verification, kind drives starter menus, wizard state, owner alerts.
+  phone?: string;
+  email?: string;
+  phone_verified_at?: number | null;
+  email_verified_at?: number | null;
+  kind?: "BARBER" | "HAIR" | "SALON";
+  setup_json?: string;
+  notify_json?: string;
 };
 export type DepositStatus = "NONE" | "PENDING" | "PAID" | "REFUNDED" | "EXPIRED";
 export type ShopDay = { enabled: 0 | 1; starts: number; ends: number };

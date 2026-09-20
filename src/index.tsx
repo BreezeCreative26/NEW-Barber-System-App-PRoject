@@ -137,8 +137,11 @@ app.all("/api/origin-check", (c) => {
   });
 });
 app.get("/workspace", workspaceShell);
+app.get("/workspace/setup", workspaceShell);
 app.get("/signin", workspaceShell);
 app.get("/signup", workspaceShell);
+app.get("/forgot", workspaceShell);
+app.get("/reset", workspaceShell);
 function workspaceShell(c: Context<{ Bindings: AppBindings }>) {
   c.header("Cache-Control", "no-store");
   c.header("X-Content-Type-Options", "nosniff");
