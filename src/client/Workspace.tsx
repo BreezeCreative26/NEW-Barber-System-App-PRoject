@@ -3383,8 +3383,9 @@ function AlertsPanel({ smsLive }: { smsLive: boolean }) {
     </form>
   );
 }
-type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "twilio" | "clicksend" | "mailbox"; from: string } };
-type Messaging = { msg_sms: number; msg_email: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
+type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "twilio" | "clicksend" | "mailbox"; from: string }; wa?: { provider: "infobip" | "mailbox"; sender: string; test_sender: boolean; keyword: string } };
+type Messaging = { msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
+const CHANNEL_LABEL: Record<string, string> = { SMS: "Text", EMAIL: "Email", WA: "WhatsApp" };
 type OutboxData = { notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number } };
 function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
   const [data, setData] = useState<OutboxData | null>(null);
@@ -3464,7 +3465,8 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
   const fmtWhen = (ms: number) => new Date(ms).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: w.shop.timezone || "Europe/London" });
   const tone: Record<string, "good" | "next" | "paid" | "warn" | "note"> = { SENT: "good", QUEUED: "next", SENDING: "next", FAILED: "warn", SKIPPED: "note" };
   const smsLive = data ? data.providers.sms.provider !== "mailbox" : false;
-  const live = data ? data.providers.email.provider === "resend" || smsLive : false;
+  const waLive = data ? data.providers.wa?.provider === "infobip" : false;
+  const live = data ? data.providers.email.provider === "resend" || smsLive || waLive : false;
   const c30 = data?.counts_30d || {};
   return (
     <section className="workspace-panel" aria-labelledby="waitlist-settings-heading" data-testid="waitlist-settings">
@@ -3475,7 +3477,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
         </div>
         {data && (
           <StatusPill tone={live ? "good" : "note"} data-testid="messaging-status">
-            {live ? `Live · ${[data.providers.email.provider === "resend" && "email", smsLive && "SMS"].filter(Boolean).join(" + ")}` : "Preview mode · nothing is sent"}
+            {live ? `Live · ${[data.providers.email.provider === "resend" && "email", smsLive && "SMS", waLive && "WhatsApp"].filter(Boolean).join(" + ")}` : "Preview mode · nothing is sent"}
           </StatusPill>
         )}
       </div>
@@ -3494,6 +3496,19 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
               </span>
               <label className="switch">
                 <input type="checkbox" checked={!!msg.msg_sms} onChange={(e) => setMsg({ ...msg, msg_sms: e.target.checked ? 1 : 0 })} aria-label="Text messages" data-testid="msg-sms" />
+                <span />
+              </label>
+            </div>
+            <div className="workspace-switch-row">
+              <span>
+                <strong>WhatsApp</strong>
+                <small>
+                  Customers who pick WhatsApp when booking get their confirmation and reminder there, from OLLO’s WhatsApp number with your shop name in the message. Falls back to a text if WhatsApp cannot deliver.
+                  {waLive && data.providers.wa?.test_sender ? ` Test sender: customers must first text “${data.providers.wa.keyword}” to +${data.providers.wa.sender} on WhatsApp.` : waLive ? ` Sending from +${data.providers.wa?.sender}.` : " Not connected on this deployment yet."}
+                </small>
+              </span>
+              <label className="switch">
+                <input type="checkbox" checked={(msg.msg_wa ?? 1) === 1} onChange={(e) => setMsg({ ...msg, msg_wa: e.target.checked ? 1 : 0 })} aria-label="WhatsApp messages" data-testid="msg-wa" />
                 <span />
               </label>
             </div>
@@ -3638,7 +3653,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
               <div className="outbox-meta">
                 <StatusPill tone={tone[n.status] ?? "note"}>{n.status === "SKIPPED" ? "Not sent" : n.status === "QUEUED" || n.status === "SENDING" ? "Waiting" : n.status.toLowerCase()}</StatusPill>
                 <span>
-                  {n.channel === "SMS" ? "Text" : "Email"} · {n.recipient} · {MSG_LABELS[n.template] ?? TEMPLATE_LABELS[n.template]?.label ?? n.template} · {fmtWhen(n.sent_at || n.created_at)}
+                  {CHANNEL_LABEL[n.channel] ?? n.channel} · {n.recipient} · {MSG_LABELS[n.template] ?? TEMPLATE_LABELS[n.template]?.label ?? n.template} · {fmtWhen(n.sent_at || n.created_at)}
                   {n.provider === "mailbox" && " · preview"}
                 </span>
               </div>

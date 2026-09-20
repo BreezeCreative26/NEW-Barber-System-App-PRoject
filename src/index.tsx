@@ -15,6 +15,7 @@ import { expireHolds, markDepositPaid, stripeStatus, verifyWebhook } from "./ser
 import { afterDepositPaid } from "./server/public";
 import { handleConnectEvent, type ConnectEvent } from "./server/payouts";
 import { settleByMetadata, type PaymentRequest } from "./server/chair";
+import { applyDeliveryReports, applyInbound, waWebhookOk } from "./server/whatsapp";
 import type { Database } from "./db/client";
 import type { ObjectStore } from "./db/storage";
 export type AppBindings = { DB: Database; MEDIA?: ObjectStore; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string };
@@ -103,6 +104,22 @@ const clientErrorSchema = (b: unknown) => {
   if (!message) return null;
   return { message, stack: str("stack", 4000), route: str("route", 200), tags: { ua: str("ua", 200) ?? "", screen: str("screen", 40) ?? "" } };
 };
+// Infobip WhatsApp webhooks. Delivery reports mark outbox rows delivered/failed; inbound replies
+// are stored against the shop that last messaged that number (and STOP/START toggle the opt-out).
+// Always 200 so Infobip does not retry a report we could not parse; a shared secret in the URL
+// (`?key=`) or the X-Ollo-Webhook header keeps strangers out when one is configured.
+app.post("/api/whatsapp/status", async (c) => {
+  if (!waWebhookOk(c.req.query("key"), c.req.header("x-ollo-webhook"))) return c.json({ ok: false }, 403);
+  const body = await c.req.json().catch(() => null);
+  const n = body ? await applyDeliveryReports(c.env.DB, body).catch(() => 0) : 0;
+  return c.json({ ok: true, applied: n });
+});
+app.post("/api/whatsapp/inbound", async (c) => {
+  if (!waWebhookOk(c.req.query("key"), c.req.header("x-ollo-webhook"))) return c.json({ ok: false }, 403);
+  const body = await c.req.json().catch(() => null);
+  const n = body ? await applyInbound(c.env.DB, body).catch(() => 0) : 0;
+  return c.json({ ok: true, stored: n });
+});
 const clientErrorHits = new Map<string, { n: number; until: number }>();
 app.post("/api/telemetry/error", async (c) => {
   const origin = new URL(c.req.url).origin;

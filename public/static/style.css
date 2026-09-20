@@ -8082,3 +8082,32 @@ li[data-done="true"] .setup-wiz-num { background: var(--good); color: #fff; bord
 .alerts-row small { font-size: 12.5px; color: var(--muted); }
 .alerts-row .segmented button[disabled] { opacity: .4; cursor: not-allowed; }
 @media (max-width: 600px) { .alerts-row { grid-template-columns: 1fr; } }
+
+/* Booking form: how should we message you? (text / WhatsApp / email) */
+.contact-pref {
+  border: 1px solid #e6e7ee;
+  border-radius: 8px;
+  padding: 10px 12px 8px;
+  margin: 0;
+  min-width: 0;
+}
+.contact-pref legend {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3a3d4d;
+  padding: 0 4px;
+}
+.contact-pref .filter-chips {
+  margin-bottom: 6px;
+}
+.contact-pref .filter-chips button[aria-checked="true"] {
+  background: #e2e5f0;
+  color: #4c5ca0;
+  border-color: #b4bad1;
+  font-weight: 600;
+}
+.contact-pref-hint {
+  display: block;
+  font-size: 11px;
+  color: #6b6f80;
+}

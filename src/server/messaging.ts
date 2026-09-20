@@ -22,6 +22,7 @@ import { expireHolds } from "./stripe";
 import { scheduledPayRuns } from "./payouts";
 import { expireRequests } from "./chair";
 import { sweepDailySummaries } from "./alerts";
+import { sendWhatsApp, waLive, waPayload, waStatus } from "./whatsapp";
 
 type Ctx = Context<AppEnv>;
 type DB = Database;
@@ -30,10 +31,11 @@ const uid = () => crypto.randomUUID();
 export type MsgShop = Shop & {
   msg_sms?: number; msg_email?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reply_to?: string; msg_sms_sender?: string;
   notify_json?: string;
+  msg_wa?: number;
   logo_url?: string; accent?: string; theme_json?: string;
   email?: string; phone?: string; // from shop_pages when joined
 };
-export type Recipient = { name?: string; phone?: string; email?: string };
+export type Recipient = { name?: string; phone?: string; email?: string; pref?: "AUTO" | "SMS" | "WA" | "EMAIL" | "NONE" };
 
 // ---- Template catalogue --------------------------------------------------------
 export const MESSAGE_TEMPLATES = [
@@ -241,18 +243,31 @@ export function emailHtml(shop: { name: string; address?: string; slug?: string 
 // ---- Enqueue -------------------------------------------------------------------
 // `force`: shop-side messages (verification codes, password resets, owner alerts) ignore the shop's
 // customer-facing SMS/email toggles — those switches are about what customers receive.
-export type EnqueueOpts = { related: { type: string; id: string }; channel?: "SMS" | "EMAIL" | "AUTO"; origin: string; now?: number; force?: boolean };
+export type Channel = "SMS" | "EMAIL" | "WA";
+export type EnqueueOpts = { related: { type: string; id: string }; channel?: Channel | "AUTO"; origin: string; now?: number; force?: boolean };
 
-// Channel choice: SMS when we have a mobile and the shop sends SMS; email when we have an address
-// and the shop sends email; both when the shop wants both and we have both (confirmations).
-export function channelsFor(shop: MsgShop, to: Recipient, prefer: "SMS" | "EMAIL" | "AUTO" = "AUTO", both = false, force = false): ("SMS" | "EMAIL")[] {
+// Channel choice. Customer preference first: WA (when the shop sends WhatsApp and the recipient has
+// a mobile), then SMS, then email. AUTO = SMS if there's a mobile, else email; both for confirmations.
+// WA needs a template for the message — templates without one fall back to SMS.
+export const waAvailable = () => waLive() || providerStatus().sms.provider === "mailbox";
+export function channelsFor(shop: MsgShop, to: Recipient, prefer: Channel | "AUTO" = "AUTO", both = false, force = false, template?: MessageTemplate): Channel[] {
+  if (to.pref === "NONE" && !force) return [];
   const sms = !!to.phone && (force || (shop.msg_sms ?? 1) === 1);
   const email = !!to.email && (force || (shop.msg_email ?? 1) === 1);
+  // WhatsApp is only "real" with the OLLO sender configured. In preview mode (no SMS provider
+  // either) it still queues to the mailbox like the other channels, so the flow can be exercised;
+  // with live SMS but no WhatsApp, a stored WA preference falls back to a real text.
+  const waOk = !!to.phone && (force || (shop.msg_wa ?? 1) === 1) && (!template || WA_CAPABLE.has(template)) && waAvailable();
+  if (prefer === "WA") return waOk ? ["WA"] : sms ? ["SMS"] : email ? ["EMAIL"] : [];
   if (prefer === "SMS") return sms ? ["SMS"] : email ? ["EMAIL"] : [];
   if (prefer === "EMAIL") return email ? ["EMAIL"] : sms ? ["SMS"] : [];
+  // AUTO: honour the customer's stored preference.
+  if (to.pref === "WA" && waOk) return both && email ? ["WA", "EMAIL"] : ["WA"];
+  if (to.pref === "EMAIL" && email) return ["EMAIL"];
   if (both && sms && email) return ["SMS", "EMAIL"];
   return sms ? ["SMS"] : email ? ["EMAIL"] : [];
 }
+const WA_CAPABLE = new Set<MessageTemplate>(["booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon", "signin_code", "verify_contact", "waitlist_offer", "pay_link", "staff_invite", "password_reset"]);
 
 // Returns prepared statements so callers can batch them with their own writes.
 export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageTemplate, vars: MessageVars, opts: EnqueueOpts, both = template === "booking_confirmed") {
@@ -261,11 +276,21 @@ export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageT
   const r = copyFor(template, { first: to.name, ...vars }, shop);
   const html = emailHtml(shop, brand, opts.origin, r, { phone: shop.phone, email: shop.email });
   const out = [];
-  for (const channel of channelsFor(shop, to, opts.channel || "AUTO", both, opts.force)) {
+  const chosen = channelsFor(shop, to, opts.channel || "AUTO", both, opts.force, template);
+  for (let channel of chosen) {
+    // WA rows keep the SMS text as the readable body; the template payload rides in `html` as JSON.
+    let wa = channel === "WA" ? waPayload(template, { first: to.name, ...vars }, shop.name, r.sms) : null;
+    if (channel === "WA" && !wa) {
+      // No WhatsApp template for this message (e.g. only stock templates on the test sender): the
+      // customer still hears from us — by text, if the shop sends texts.
+      if ((shop.msg_sms ?? 1) === 0 || chosen.includes("SMS") || !to.phone) continue;
+      channel = "SMS";
+      wa = null;
+    }
     out.push(
       db.prepare(
         "INSERT INTO notifications(id,shop_id,channel,recipient,template,body,subject,html,status,status_note,related_type,related_id,created_at,next_attempt_at) VALUES(?,?,?,?,?,?,?,?,'QUEUED','',?,?,?,?) ON CONFLICT DO NOTHING",
-      ).bind(uid(), shop.id, channel, channel === "SMS" ? to.phone! : to.email!, template, r.sms, channel === "EMAIL" ? r.subject : "", channel === "EMAIL" ? html : "", opts.related.type, opts.related.id, now, now),
+      ).bind(uid(), shop.id, channel, channel === "EMAIL" ? to.email! : to.phone!, template, r.sms, channel === "EMAIL" ? r.subject : "", channel === "EMAIL" ? html : channel === "WA" ? JSON.stringify(wa) : "", opts.related.type, opts.related.id, now, now),
     );
   }
   return out;
@@ -274,7 +299,7 @@ export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageT
 // ---- Providers -----------------------------------------------------------------
 type Env = Record<string, string | undefined>;
 const env = (): Env => (typeof process !== "undefined" ? (process.env as Env) : {});
-export type ProviderStatus = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "twilio" | "clicksend" | "mailbox"; from: string } };
+export type ProviderStatus = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "twilio" | "clicksend" | "mailbox"; from: string }; wa: ReturnType<typeof waStatus> };
 const clicksendOn = (e: Record<string, string | undefined>) => !!(e.CLICKSEND_USERNAME && e.CLICKSEND_API_KEY);
 export function providerStatus(): ProviderStatus {
   const e = env();
@@ -283,10 +308,11 @@ export function providerStatus(): ProviderStatus {
     sms: clicksendOn(e)
       ? { provider: "clicksend", from: e.CLICKSEND_FROM || "" }
       : e.TWILIO_ACCOUNT_SID && e.TWILIO_AUTH_TOKEN && (e.TWILIO_FROM || e.TWILIO_MESSAGING_SERVICE_SID) ? { provider: "twilio", from: e.TWILIO_FROM || e.TWILIO_MESSAGING_SERVICE_SID || "" } : { provider: "mailbox", from: "" },
+    wa: waStatus(),
   };
 }
 
-type Row = { id: string; shop_id: string; channel: "SMS" | "EMAIL"; recipient: string; template: string; body: string; subject: string; html: string; attempts: number; shop_name: string; msg_reply_to: string; msg_sms_sender: string };
+type Row = { id: string; shop_id: string; channel: Channel; recipient: string; template: string; body: string; subject: string; html: string; attempts: number; shop_name: string; msg_reply_to: string; msg_sms_sender: string; msg_sms?: number };
 type Delivery = { ok: true; provider: string; id: string } | { ok: false; provider: string; error: string; permanent?: boolean };
 
 async function sendEmail(row: Row): Promise<Delivery> {
@@ -356,6 +382,17 @@ async function sendClickSend(row: Row, e: Record<string, string>): Promise<Deliv
   return { ok: false, provider: "clicksend", error: `${status} ${j.response_msg || "send failed"}`.trim(), permanent: /INVALID_RECIPIENT|INVALID_SENDER|BODY_TOO_LONG/.test(status) };
 }
 
+async function sendWa(db: DB, row: Row): Promise<Delivery> {
+  const provider = waLive() ? "infobip" : "mailbox";
+  let payload: import("./whatsapp").WaPayload | null = null;
+  try { payload = JSON.parse(row.html || "null"); } catch { payload = null; }
+  if (!payload) return { ok: false, provider, error: "No WhatsApp template for this message", permanent: true };
+  const to = toE164(row.recipient);
+  if (!to) return { ok: false, provider, error: "Not a valid mobile number", permanent: true };
+  // sendWhatsApp handles opt-outs and the preview mailbox itself.
+  return sendWhatsApp(db, to, payload);
+}
+
 // ---- Drain ---------------------------------------------------------------------
 const BACKOFF_MIN = [1, 5, 30, 120, 720]; // minutes between attempts; after the last, FAILED.
 // `related` narrows the drain to one record's messages: the in-request drain after a booking must
@@ -365,7 +402,7 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
   // Claim due rows. Rows stuck in SENDING for >10 min (crashed worker) are reclaimed.
   const due = await db
     .prepare(
-      `SELECT n.id,n.shop_id,n.channel,n.recipient,n.template,n.body,n.subject,n.html,n.attempts,s.name AS shop_name,s.msg_reply_to,s.msg_sms_sender
+      `SELECT n.id,n.shop_id,n.channel,n.recipient,n.template,n.body,n.subject,n.html,n.attempts,s.name AS shop_name,s.msg_reply_to,s.msg_sms_sender,s.msg_sms
        FROM notifications n JOIN shops s ON s.id=n.shop_id
        WHERE ((n.status='QUEUED' AND (n.next_attempt_at IS NULL OR n.next_attempt_at<=?)) OR (n.status='SENDING' AND n.next_attempt_at<=?))
          AND (? IS NULL OR (n.related_type=? AND n.related_id=?))
@@ -380,9 +417,23 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
     const attempt = row.attempts + 1;
     let d: Delivery;
     try {
-      d = row.channel === "EMAIL" ? await sendEmail(row) : await sendSms(row);
+      d = row.channel === "EMAIL" ? await sendEmail(row) : row.channel === "WA" ? await sendWa(db, row) : await sendSms(row);
     } catch (e) {
-      d = { ok: false, provider: row.channel === "EMAIL" ? "resend" : "twilio", error: e instanceof Error ? e.message : "network error" };
+      d = { ok: false, provider: row.channel === "EMAIL" ? "resend" : row.channel === "WA" ? "infobip" : "sms", error: e instanceof Error ? e.message : "network error" };
+    }
+    // A WhatsApp message that can't be delivered (not on WhatsApp, opted out, template not approved)
+    // falls back to SMS once, so the customer still hears from the shop.
+    if (!d.ok && row.channel === "WA" && d.permanent && row.msg_sms !== 0) {
+      const fid = uid();
+      const ins = await db.prepare("INSERT INTO notifications(id,shop_id,channel,recipient,template,body,subject,html,status,status_note,related_type,related_id,created_at,next_attempt_at,attempts) SELECT ?,shop_id,'SMS',recipient,template,body,'','','SENDING','Fallback: WhatsApp failed',related_type,related_id,?,?,1 FROM notifications WHERE id=?").bind(fid, now, now, row.id).run().catch(() => null);
+      if (ins?.meta.changes) {
+        // Send the text now rather than waiting for the next sweep; a failure here just retries on the usual backoff.
+        let f: Delivery;
+        try { f = await sendSms({ ...row, id: fid, channel: "SMS", html: "", subject: "" }); } catch (e) { f = { ok: false, provider: "sms", error: e instanceof Error ? e.message : "network error" }; }
+        if (f.ok) await db.prepare("UPDATE notifications SET status='SENT', sent_at=?, provider=?, provider_id=?, status_note=? WHERE id=?").bind(now, f.provider, f.id, f.provider === "mailbox" ? "Fallback from WhatsApp · dev mailbox" : "Fallback: WhatsApp failed", fid).run();
+        else if (f.permanent) await db.prepare("UPDATE notifications SET status='FAILED', provider=?, error=? WHERE id=?").bind(f.provider, f.error.slice(0, 400), fid).run();
+        else await db.prepare("UPDATE notifications SET status='QUEUED', next_attempt_at=?, provider=?, error=? WHERE id=?").bind(now + BACKOFF_MIN[0] * 60000, f.provider, f.error.slice(0, 400), fid).run();
+      }
     }
     if (d.ok) {
       await db.prepare("UPDATE notifications SET status='SENT', sent_at=?, provider=?, provider_id=?, error='', status_note=? WHERE id=?").bind(now, d.provider, d.id, d.provider === "mailbox" ? "Delivered to the dev mailbox (no live provider configured)." : "", row.id).run();

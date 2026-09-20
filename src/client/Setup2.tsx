@@ -128,15 +128,15 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
 }
 
 // ---- 5. Messages ---------------------------------------------------------------------------------
-type Msg = { msg_sms: number; msg_email: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
+type Msg = { msg_sms: number; msg_email: number; msg_wa: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
 export function StepMessages({ w, api, refresh, data, setNotice, setError, onNext, onSkip }: StepProps) {
-  const shop = w.shop as typeof w.shop & { phone?: string; email?: string; msg_sms?: number; msg_email?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reply_to?: string; msg_sms_sender?: string };
+  const shop = w.shop as typeof w.shop & { phone?: string; email?: string; msg_sms?: number; msg_email?: number; msg_wa?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reply_to?: string; msg_sms_sender?: string };
   const suggested = shop.name.replace(/[^A-Za-z0-9 ]/g, "").replace(/\s+/g, " ").trim().slice(0, 11).trim();
-  const [m, setM] = useState<Msg>({ msg_sms: shop.msg_sms ?? 1, msg_email: shop.msg_email ?? 1, msg_reminders: shop.msg_reminders ?? 1, msg_reminder_hours: shop.msg_reminder_hours ?? 24, msg_reply_to: shop.msg_reply_to || shop.email || "", msg_sms_sender: shop.msg_sms_sender || suggested });
+  const [m, setM] = useState<Msg>({ msg_sms: shop.msg_sms ?? 1, msg_email: shop.msg_email ?? 1, msg_wa: shop.msg_wa ?? 1, msg_reminders: shop.msg_reminders ?? 1, msg_reminder_hours: shop.msg_reminder_hours ?? 24, msg_reply_to: shop.msg_reply_to || shop.email || "", msg_sms_sender: shop.msg_sms_sender || suggested });
   const [test, setTest] = useState<{ channel: string; ok: boolean; note: string } | null>(null);
   const { busy, run } = useBusy();
   const ps = data.progress.messages.providers;
-  const smsLive = ps.sms.provider !== "mailbox", emailLive = ps.email.provider !== "mailbox";
+  const smsLive = ps.sms.provider !== "mailbox", emailLive = ps.email.provider !== "mailbox", waLive = ps.wa?.provider === "infobip";
   const sender = m.msg_sms_sender || "OLLO";
   const barber = w.staff[0]?.name.split(" ")[0] || "Sam";
   const svc = w.services[0]?.name || "Haircut";
@@ -174,6 +174,7 @@ export function StepMessages({ w, api, refresh, data, setNotice, setError, onNex
           </F>
           <div className="setup-toggles">
             <label className="setup-check"><input type="checkbox" checked={!!m.msg_sms} onChange={(e) => setM({ ...m, msg_sms: e.target.checked ? 1 : 0 })} /><span>Send texts {smsLive ? "" : <small className="helper">(texting isn't connected on this deployment yet — they'll show in the dev mailbox)</small>}</span></label>
+            <label className="setup-check"><input type="checkbox" checked={!!m.msg_wa} onChange={(e) => setM({ ...m, msg_wa: e.target.checked ? 1 : 0 })} data-testid="setup-msg-wa" /><span>Offer WhatsApp <small className="helper">{waLive ? (ps.wa?.test_sender ? `(from OLLO's WhatsApp number — while we're on the test sender, a customer must first message “${ps.wa.keyword}” to +${ps.wa.sender})` : `(customers who choose it get messages from OLLO on WhatsApp, +${ps.wa?.sender}, with your shop name)`) : "(WhatsApp isn't connected on this deployment yet)"}</small></span></label>
             <label className="setup-check"><input type="checkbox" checked={!!m.msg_email} onChange={(e) => setM({ ...m, msg_email: e.target.checked ? 1 : 0 })} /><span>Send emails {emailLive ? "" : <small className="helper">(email isn't connected on this deployment yet)</small>}</span></label>
           </div>
           <div className="setup-test">

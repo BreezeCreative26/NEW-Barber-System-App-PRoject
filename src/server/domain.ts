@@ -284,6 +284,7 @@ export type StoredBooking = {
   email: string;
   series_id: string | null;
   attendee_name: string;
+  contact_pref?: "AUTO" | "SMS" | "WA" | "EMAIL";
   group_id: string | null;
   status: string;
   version: number;
@@ -369,7 +370,7 @@ export type Customer = {
   birthday: string | null;
   preferred_staff_id: string | null;
   marketing_opt_in: number;
-  contact_pref?: "AUTO" | "SMS" | "EMAIL" | "NONE";
+  contact_pref?: "AUTO" | "SMS" | "WA" | "EMAIL" | "NONE";
   merged_into: string | null;
   version: number;
   created_at: number;
@@ -753,6 +754,9 @@ export const publicBookingSchema = z
         "Enter a valid UK mobile number",
       ),
     email: emailSchema.default(""),
+    // How the customer wants to hear from the shop about this booking. AUTO = text, falling back
+    // to email; WA = WhatsApp (falls back to text if the shop has WhatsApp off).
+    contact_pref: z.enum(["AUTO", "SMS", "WA", "EMAIL"]).default("AUTO"),
     notes: z.string().trim().max(500).default(""),
     date: dateSchema,
     start_min: z
@@ -776,6 +780,7 @@ export const groupBookingSchema = z
     customer_name: name,
     phone: publicBookingSchema.shape.phone,
     email: publicBookingSchema.shape.email,
+    contact_pref: publicBookingSchema.shape.contact_pref,
     notes: z.string().trim().max(500).default(""),
     date: dateSchema,
     members: z

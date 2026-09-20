@@ -12,7 +12,7 @@ type Progress = {
   shop: { saved: boolean; phone: string; email: string; phone_verified: boolean; email_verified: boolean };
   services: { count: number };
   team: { staff: number; invited: number; joined: number };
-  messages: { sms_sender: string; providers: { email: { provider: string; from: string }; sms: { provider: string; from: string } } };
+  messages: { sms_sender: string; providers: { email: { provider: string; from: string }; sms: { provider: string; from: string }; wa?: { provider: string; sender: string; test_sender: boolean; keyword: string } } };
   online: { slug: string; live: boolean };
   payments: { deposits_online: boolean; mode: string; connected: boolean };
 };

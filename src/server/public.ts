@@ -37,7 +37,7 @@ import {
 } from "./domain";
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
 import customerAccounts from "./customers";
-import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, type MessageTemplate } from "./messaging";
+import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, waAvailable, type Channel, type MessageTemplate, type Recipient } from "./messaging";
 import { autoOffer, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
 import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
 import { createDepositSession, depositView, depositsOnline, expireHolds, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
@@ -173,6 +173,13 @@ const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   lead_time_min: s.lead_time_min,
   booking_window_days: s.booking_window_days,
   version: s.version,
+  // Which ways this shop can message the customer, so the booking form only offers real choices.
+  // WhatsApp needs the OLLO sender configured and the shop's toggle on.
+  channels: {
+    sms: (s as { msg_sms?: number }).msg_sms !== 0,
+    email: (s as { msg_email?: number }).msg_email !== 0,
+    wa: waAvailable() && (s as { msg_wa?: number }).msg_wa !== 0,
+  },
 });
 
 pub.get("/shops/:slug", async (c) => {
@@ -600,11 +607,17 @@ async function issueManageToken(c: Ctx, booking: StoredBooking) {
 // provider bounces retries from the sweep.
 // Returns the channels actually queued (respects the shop's SMS/email toggles) so callers can
 // tell the customer exactly where the confirmation went.
-export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooking, staffName: string | null, template: MessageTemplate, manageToken?: string | null): Promise<("SMS" | "EMAIL")[]> {
+export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooking, staffName: string | null, template: MessageTemplate, manageToken?: string | null): Promise<Channel[]> {
   const shop = await msgShop(c, shopId);
   const origin = new URL(c.req.url).origin;
   const link = manageToken ? `${origin}/manage/${manageToken}` : `${origin}/${shop.slug}/me`;
-  const to = { name: booking.attendee_name || booking.customer_name, phone: booking.phone, email: booking.email };
+  // The booking's own choice wins (picked at checkout); otherwise the customer record's standing preference.
+  let pref: Recipient["pref"] = booking.contact_pref && booking.contact_pref !== "AUTO" ? booking.contact_pref : undefined;
+  if (!pref && booking.customer_id) {
+    const cu = await c.env.DB.prepare("SELECT contact_pref FROM customers WHERE id=?").bind(booking.customer_id).first<{ contact_pref: string | null }>();
+    if (cu?.contact_pref && cu.contact_pref !== "AUTO") pref = cu.contact_pref as Recipient["pref"];
+  }
+  const to: Recipient = { name: booking.attendee_name || booking.customer_name, phone: booking.phone, email: booking.email, pref };
   const vars = {
     service: booking.service_name, barber: (staffName || "us").split(" ")[0], date: fmtDate(booking.date), time: fmtTime(booking.start_min), ref: ref(booking),
     address: shop.address, link, book_link: `${origin}/book/${shop.slug}`, cancel_hours: booking.cancel_hours_snapshot,
@@ -818,7 +831,7 @@ pub.post("/shops/:slug/group-bookings", async (c) => {
     try {
       const result = await createBooking(
         c,
-        { request_id: `${b.request_id}:${i}`, staff_id: m.staff_id, service_id: m.service_id, customer_name: b.customer_name, attendee_name: m.attendee_name, phone: b.phone, email: b.email, notes: b.notes, date: b.date, start_min: m.start_min, addon_ids: m.addon_ids, quote: m.quote, source: "TEST_BOOKING" },
+        { request_id: `${b.request_id}:${i}`, staff_id: m.staff_id, service_id: m.service_id, customer_name: b.customer_name, attendee_name: m.attendee_name, phone: b.phone, email: b.email, contact_pref: b.contact_pref, notes: b.notes, date: b.date, start_min: m.start_min, addon_ids: m.addon_ids, quote: m.quote, source: "TEST_BOOKING" },
         "ONLINE",
         { minStart, maxDate, groupId },
       );

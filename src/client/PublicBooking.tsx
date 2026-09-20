@@ -29,6 +29,7 @@ export type PublicShop = {
     lead_time_min: number;
     booking_window_days: number;
     version: number;
+    channels?: { sms: boolean; email: boolean; wa: boolean };
   };
   staff: { id: string; name: string; role: string; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[];
   services: {
@@ -245,6 +246,10 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   const [assigned, setAssigned] = useState<{ id: string; name: string } | null>(null);
   const [daypart, setDaypart] = useState("All times");
   const [details, setDetails] = useState({ name: "", phone: "", email: "", notes: "" });
+  // How the customer wants their confirmation and reminders: text (default), WhatsApp or email.
+  const [contactPref, setContactPref] = useState<"AUTO" | "WA" | "EMAIL">("AUTO");
+  const waOffered = !!shop?.shop.channels?.wa;
+  const emailOffered = shop?.shop.channels?.email !== false;
   // Book for someone else: the person in the chair, when it is not the booker.
   const [forOther, setForOther] = useState(false);
   const [attendee, setAttendee] = useState("");
@@ -433,6 +438,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     if (details.name.trim().length < 2) next.name = "Enter your name";
     if (!phoneOk(details.phone)) next.phone = "Enter a valid UK mobile number";
     if (!emailOk(details.email)) next.email = "Enter a valid email address";
+    if (contactPref === "EMAIL" && !details.email.trim()) next.email = "Add your email so we can send your confirmation there";
     if (forOther && attendee.trim().length < 2) next.attendee = "Who is the visit for?";
     setErrors(next);
     if (Object.keys(next).length)
@@ -457,6 +463,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
       start_min: slot,
       addon_ids: [...extraIds].sort(),
       quote: availability.quote,
+      ...(contactPref !== "AUTO" ? { contact_pref: contactPref } : {}),
     };
     const serialised = JSON.stringify(payload);
     // A changed payload gets a fresh request key; an unchanged retry replays safely.
@@ -1190,6 +1197,34 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                         </label>
                       )}
                     </div>
+                    {(waOffered || emailOffered) && (
+                      <fieldset className="contact-pref" data-testid="contact-pref">
+                        <legend>How should we message you?</legend>
+                        <div className="filter-chips" role="radiogroup" aria-label="How should we message you?">
+                          {([
+                            { v: "AUTO" as const, label: "Text", hint: "SMS to your mobile", show: true },
+                            { v: "WA" as const, label: "WhatsApp", hint: "From OLLO on WhatsApp", show: waOffered },
+                            { v: "EMAIL" as const, label: "Email", hint: "Needs your email above", show: emailOffered },
+                          ]).filter((o) => o.show).map((o) => (
+                            <button
+                              key={o.v}
+                              type="button"
+                              role="radio"
+                              aria-checked={contactPref === o.v}
+                              className={contactPref === o.v ? "chip active" : "chip"}
+                              onClick={() => setContactPref(o.v)}
+                              data-testid={`contact-pref-${o.v.toLowerCase()}`}
+                              title={o.hint}
+                            >
+                              {o.label}
+                            </button>
+                          ))}
+                        </div>
+                        <small className="contact-pref-hint">
+                          {contactPref === "WA" ? "Your confirmation and reminder arrive on WhatsApp. Reply STOP any time." : contactPref === "EMAIL" ? "We’ll email you instead of texting." : "We’ll text your confirmation and a reminder before your visit."}
+                        </small>
+                      </fieldset>
+                    )}
                     <label>
                       Anything you’d like us to know? (optional)
                       <textarea
@@ -1469,7 +1504,7 @@ function ConfirmationCard({
   sentTo?: string[];
 }) {
   const link = token ? `${location.origin}/manage/${token}` : "";
-  const sentWhere = [sentTo.includes("SMS") && booking.phone && `by text to ${booking.phone}`, sentTo.includes("EMAIL") && booking.email && `by email to ${booking.email}`].filter(Boolean).join(" and ");
+  const sentWhere = [sentTo.includes("WA") && booking.phone && `on WhatsApp to ${booking.phone}`, sentTo.includes("SMS") && booking.phone && `by text to ${booking.phone}`, sentTo.includes("EMAIL") && booking.email && `by email to ${booking.email}`].filter(Boolean).join(" and ");
   const [copied, setCopied] = useState("");
   async function copy(value: string, label: string) {
     try {

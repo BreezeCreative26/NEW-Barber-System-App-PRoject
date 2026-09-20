@@ -825,7 +825,7 @@ sandbox.get("/customers", async (c) => {
   if (sort === "next") binds.push(now, now);
   binds.push(limit);
   const rows = await c.env.DB.prepare(
-    `SELECT c.id, c.name, c.phone, c.email, c.tags, c.notes, c.preferred_staff_id, c.birthday, c.marketing_opt_in, c.version, c.created_at, ${customerStats},
+    `SELECT c.id, c.name, c.phone, c.email, c.tags, c.notes, c.preferred_staff_id, c.birthday, c.marketing_opt_in, c.contact_pref, c.version, c.created_at, ${customerStats},
       (SELECT b2.staff_id FROM bookings b2 WHERE b2.shop_id=c.shop_id AND b2.customer_id=c.id AND b2.status='COMPLETED' GROUP BY b2.staff_id ORDER BY COUNT(*) DESC, MAX(b2.start_at) DESC LIMIT 1) AS favourite_staff_id,
       (SELECT b3.service_name FROM bookings b3 WHERE b3.shop_id=c.shop_id AND b3.customer_id=c.id AND b3.status='COMPLETED' GROUP BY b3.service_name ORDER BY COUNT(*) DESC, MAX(b3.start_at) DESC LIMIT 1) AS favourite_service
      FROM customers c
@@ -1125,7 +1125,7 @@ sandbox.get("/notifications", async (c) => {
     notifications: rows.results,
     counts_30d: Object.fromEntries(counts.results.map((r) => [r.status, r.n])),
     providers: providerStatus(),
-    messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "" },
+    messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "" },
     templates: templatesOf(shop),
     defaults: DEFAULT_TEMPLATES,
     settings: { waitlist_auto_offer: shop.waitlist_auto_offer, waitlist_offer_hold_min: shop.waitlist_offer_hold_min },
@@ -1135,6 +1135,13 @@ const requireRole = (c: Ctx, roles: string[]) => {
   const a = c.get("account");
   if (a && !roles.includes(a.role)) fail(403, "Owner or manager required");
 };
+// WhatsApp replies from customers (matched to this shop by the last message we sent them).
+sandbox.get("/notifications/inbound", async (c) => {
+  const rows = await c.env.DB.prepare(
+    "SELECT i.id, i.shop_id, i.phone, i.body, i.received_at, COALESCE(cu.name,'') AS customer_name, cu.id AS customer_id FROM wa_inbound i LEFT JOIN customers cu ON cu.shop_id=i.shop_id AND regexp_replace(cu.phone,'\\D','','g') IN (i.phone, '0'||substr(i.phone,3)) AND cu.merged_into IS NULL WHERE i.shop_id=? ORDER BY i.received_at DESC LIMIT 100",
+  ).bind(c.get("shopId")).all();
+  return c.json({ inbound: rows.results });
+});
 // Owner reads one message in full (email HTML) — for the preview drawer.
 sandbox.get("/notifications/:id", async (c) => {
   const row = await c.env.DB.prepare("SELECT * FROM notifications WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first();
@@ -1145,6 +1152,8 @@ const messagingSchema = z
   .object({
     msg_sms: z.union([z.literal(0), z.literal(1)]),
     msg_email: z.union([z.literal(0), z.literal(1)]),
+    // Older clients omit this; WhatsApp stays on unless the shop switches it off.
+    msg_wa: z.union([z.literal(0), z.literal(1)]).default(1),
     msg_reminders: z.union([z.literal(0), z.literal(1)]),
     msg_reminder_hours: z.number().int().min(1).max(72),
     msg_reply_to: z.union([z.literal(""), z.string().trim().email().max(120)]),
@@ -1156,8 +1165,8 @@ sandbox.put("/shop/messaging", async (c) => {
   const b = await input(c, messagingSchema);
   const sid = c.get("shopId");
   await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE shops SET msg_sms=?,msg_email=?,msg_reminders=?,msg_reminder_hours=?,msg_reply_to=?,msg_sms_sender=?,version=version+1 WHERE id=?").bind(b.msg_sms, b.msg_email, b.msg_reminders, b.msg_reminder_hours, b.msg_reply_to, b.msg_sms_sender, sid),
-    audit(c, "shop", sid, "MESSAGING_UPDATED", `SMS ${b.msg_sms ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
+    c.env.DB.prepare("UPDATE shops SET msg_sms=?,msg_email=?,msg_wa=?,msg_reminders=?,msg_reminder_hours=?,msg_reply_to=?,msg_sms_sender=?,version=version+1 WHERE id=?").bind(b.msg_sms, b.msg_email, b.msg_wa, b.msg_reminders, b.msg_reminder_hours, b.msg_reply_to, b.msg_sms_sender, sid),
+    audit(c, "shop", sid, "MESSAGING_UPDATED", `SMS ${b.msg_sms ? "on" : "off"}, WhatsApp ${b.msg_wa ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
   ]);
   return c.json({ ok: true, messaging: b });
 });
@@ -1771,7 +1780,7 @@ async function blockCollisions(c: Ctx, staffId: string, date: string, start: num
   void excludeBlockId;
   const shop = await msgShop(c, c.get("shopId"));
   return rows.map((b) => {
-    const pref = (b.contact_pref || "AUTO") as "AUTO" | "SMS" | "EMAIL" | "NONE";
+    const pref = (b.contact_pref || "AUTO") as "AUTO" | "SMS" | "WA" | "EMAIL" | "NONE";
     const to = { name: b.attendee_name || b.customer_name, phone: b.phone, email: b.email || b.customer_email || "" };
     const channel = pref === "NONE" ? null : (channelsFor(shop, to, pref === "AUTO" ? "AUTO" : pref)[0] ?? null);
     return {
@@ -2381,16 +2390,20 @@ sandbox.get("/availability", async (c) => {
 // Shared by owner and public booking: identical quote, availability and D1 guards.
 export async function createBooking(
   c: Ctx,
-  b: Omit<z.infer<typeof publicBookingSchema>, "attendee_name"> & {
+  b: Omit<z.infer<typeof publicBookingSchema>, "attendee_name" | "contact_pref"> & {
     source: "TEST_BOOKING" | "WALK_IN";
     attendee_name?: string;
+    contact_pref?: "AUTO" | "SMS" | "WA" | "EMAIL";
   },
   channel: "OWNER" | "ONLINE",
   options: { minStart?: number; maxDate?: string; seriesId?: string | null; groupId?: string | null; depositHoldMin?: number; force?: boolean } = {},
 ) {
   // Preserve request hashes for pre-add-on bookings with the same normalized payload.
   // `force` is a shop-side decision, not part of what the customer asked for, so it stays out of the hash.
-  const { addon_ids, email, customer_id, attendee_name, force: _force, ...originalPayload } = b as typeof b & { customer_id?: string; attendee_name?: string; force?: boolean };
+  // contact_pref is how we talk to the customer, not what they booked: like `force` it stays out
+  // of the idempotency hash so an older client (no picker) replays cleanly.
+  const { addon_ids, email, customer_id, attendee_name, force: _force, contact_pref: _pref, ...originalPayload } = b as typeof b & { customer_id?: string; attendee_name?: string; force?: boolean; contact_pref?: string };
+  const contactPref = b.contact_pref && ["SMS", "WA", "EMAIL"].includes(b.contact_pref) ? b.contact_pref : "AUTO";
   const requestHash = await hash(
     JSON.stringify({
       ...originalPayload,
@@ -2464,8 +2477,8 @@ export async function createBooking(
   const now = Date.now();
   const bookingId = id();
   const statement = c.env.DB.prepare(
-    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id,deposit_status,deposit_hold_until,payment_mode)
-  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
+    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id,deposit_status,deposit_hold_until,payment_mode,contact_pref)
+  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
   ).bind(
     bookingId,
     sid,
@@ -2501,6 +2514,7 @@ export async function createBooking(
     options.depositHoldMin && dueAtBooking(data.shop, data.service, quote.price_pence) > 0 ? "PENDING" : "NONE",
     options.depositHoldMin && dueAtBooking(data.shop, data.service, quote.price_pence) > 0 ? now + options.depositHoldMin * 60000 : null,
     paymentModeFor(data.shop, data.service),
+    contactPref,
     sid,
   );
   try {
@@ -2509,6 +2523,11 @@ export async function createBooking(
       c.env.DB.prepare("SELECT ollo_lock_shop(?)").bind(sid),
       ...(overridden ? [forceSlot(c)] : []),
       statement,
+      // A customer who picks WhatsApp/text/email online is telling us how to reach them from now on.
+      // Shop-side bookings (AUTO) leave whatever the customer or shop already set alone.
+      ...(channel === "ONLINE" && contactPref !== "AUTO" && b.phone
+        ? [c.env.DB.prepare("UPDATE customers SET contact_pref=?, updated_at=? WHERE shop_id=? AND phone=? AND merged_into IS NULL AND contact_pref<>'NONE'").bind(contactPref, now, sid, b.phone)]
+        : []),
       audit(
         c,
         "booking",
