@@ -8,11 +8,11 @@
 :root {
   /* Brand — from the OLLO logo mockup: deep green-black ink, warm cream, signal green. */
   --ollo: #0b1a17;
-  --ollo-green: #4ade80;
-  --ollo-soft: #e4f6ea;
-  --accent: #166534;
-  --accent-dark: #14532d;
-  --accent-grad: linear-gradient(135deg, #116634 0%, #15803d 70%, #1f9d55 100%);
+  --ollo-green: #7ff5c6;
+  --ollo-soft: #e0f7ef;
+  --accent: #0b6b58;
+  --accent-dark: #0a5c4d;
+  --accent-grad: linear-gradient(135deg, #0b6b58 0%, #0e7c66 70%, #2fbf97 100%);
   --cream: #f4f3ee;
 
   /* Neutrals */
