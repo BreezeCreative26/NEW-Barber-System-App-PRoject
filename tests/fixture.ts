@@ -22,7 +22,15 @@ export async function openFixtureShop(page: Page, as: "owner" | "barber" = "owne
 
 // Phone tab bar labels the calendar "Today"; desktop rail labels it "Appointments".
 const PHONE_ALIAS: Record<string, string> = { Appointments: "Today" };
+// Settings is tabbed; "Settings" alone opens General. Use "Settings/booking", "Settings/page",
+// "Settings/messages" or "Settings/payments" to land on a sub-tab.
 export async function section(page: Page, name: string) {
+  let settingsTab = "";
+  if (name.startsWith("Settings/")) { settingsTab = name.slice(9); name = "Settings"; }
+  await sectionNav(page, name);
+  if (settingsTab) await page.getByTestId(`settings-tab-${settingsTab}`).click();
+}
+async function sectionNav(page: Page, name: string) {
   const nav = page.getByRole("navigation", { name: "Workspace sections" });
   for (const label of [name, PHONE_ALIAS[name]].filter(Boolean) as string[]) {
     const direct = nav.getByRole("button", { name: label, exact: true });

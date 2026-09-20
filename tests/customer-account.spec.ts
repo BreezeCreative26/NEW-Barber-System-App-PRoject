@@ -256,7 +256,7 @@ test("admin: Customer pages lists accounts as live; a customer who signed in car
   const { slug } = await openFixtureShop(page);
   const A = `${origin}/api/public/shops/${slug}/account`;
   await signedIn(A);
-  await section(page, "Settings");
+  await section(page, "Settings/booking");
   const panel = page.getByTestId("customer-pages");
   await expect(panel).toContainText("Customer accounts");
   await expect(panel.getByTestId("view-customer-area")).toHaveAttribute("href", new RegExp(`/${slug}/me$`));

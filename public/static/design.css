@@ -1417,3 +1417,177 @@
 
 /* Signed-out front door owns the whole viewport: no shell padding around the brand panel. */
 .workspace.workspace-signed-out .workspace-main { padding: 0; max-width: none; }
+
+/* =====================================================================================
+   Commercial-grade pass — one control system for the whole workspace.
+   Loaded after style.css so these win. Heights, radii and icon sizes come from tokens;
+   colours are soft and matte; nothing flashes. Legacy selectors are re-pointed here
+   rather than edited in place.
+   ===================================================================================== */
+:root {
+  --ctl-h: 40px;        /* every button, input, select, segmented control */
+  --ctl-h-sm: 34px;     /* compact chips inside toolbars */
+  --ctl-r: 10px;
+  --ic: 20px;           /* default icon */
+  --ic-nav: 22px;       /* rail / tab bar */
+  --ic-chip: 16px;
+  --soft: #f3f6f4;      /* matte surface tint */
+  --soft-2: #e9efec;
+  --line: #dfe5e1;
+  --line-2: #eef1ef;
+  --shadow-1: 0 1px 2px rgba(11, 26, 23, .05), 0 1px 1px rgba(11, 26, 23, .03);
+  --shadow-2: 0 10px 30px rgba(11, 26, 23, .10);
+}
+
+/* ---- Buttons: one height, true centring, quiet colours ---- */
+.workspace .button, .workspace .today-button, .workspace .icon-button, .workspace .topbar-iconbtn,
+.workspace .segmented button, .workspace .select-with-icon, .workspace .workspace-toolbar select,
+.workspace .workspace-toolbar input:not([type="checkbox"]):not([type="radio"]) {
+  min-height: var(--ctl-h); height: var(--ctl-h); box-sizing: border-box;
+  border-radius: var(--ctl-r); line-height: 1; font-size: var(--fs-13); font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  transition: background .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
+}
+.workspace .button { padding: 0 16px; }
+.workspace .button svg, .workspace .icon-button svg, .workspace .topbar-iconbtn svg { width: var(--ic); height: var(--ic); flex: 0 0 auto; }
+.workspace .button.primary { background: var(--accent); color: #fff; box-shadow: var(--shadow-1); }
+.workspace .button.primary:hover { background: var(--accent-dark); }
+.workspace .button.secondary { background: var(--surface); border: 1px solid var(--line); color: var(--ink); }
+.workspace .button.secondary:hover { background: var(--soft); border-color: #c9d3ce; }
+.workspace .button.ghost { background: transparent; color: var(--accent-dark); padding: 0 12px; }
+.workspace .button.ghost:hover { background: var(--soft); }
+.workspace .button.danger { background: #fbeeee; color: #9b2c2c; }
+.workspace .button:disabled { opacity: .5; box-shadow: none; }
+.workspace .icon-button { width: var(--ctl-h); min-width: var(--ctl-h); padding: 0; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.workspace .icon-button:hover { background: var(--soft); }
+.workspace .date-controls .icon-button { width: var(--ctl-h); min-width: var(--ctl-h); height: var(--ctl-h); }
+.workspace .today-button { padding: 0 14px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.workspace .today-button:hover { background: var(--soft); }
+.workspace .date-controls { gap: 8px; }
+.workspace .date-controls h2 { font-size: var(--fs-14); font-weight: 650; }
+
+/* Segmented control: chips share the parent height, real active state */
+.workspace .segmented { height: var(--ctl-h); padding: 3px; border-radius: var(--ctl-r); background: var(--soft-2); gap: 2px; box-sizing: border-box; }
+.workspace .segmented button { height: calc(var(--ctl-h) - 6px); min-height: 0; padding: 0 12px; border-radius: calc(var(--ctl-r) - 3px); font-size: var(--fs-13); font-weight: 600; color: var(--muted); }
+.workspace .segmented button svg { width: var(--ic-chip); height: var(--ic-chip); }
+.workspace .segmented button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1); }
+.workspace .select-with-icon { border: 1px solid var(--line); background: var(--surface); padding: 0 8px 0 12px; font-size: var(--fs-13); color: var(--ink); }
+.workspace .select-with-icon select { font-size: var(--fs-13); min-height: 0; height: 100%; padding: 0 4px; font-weight: 600; color: var(--ink); }
+.workspace .select-with-icon svg { width: var(--ic-chip); height: var(--ic-chip); color: var(--muted); }
+.workspace .calendar-toolbar { padding: 14px 16px; gap: 10px; }
+.workspace .calendar-options { gap: 8px; }
+
+/* ---- Inputs: same height as buttons, soft focus ring ---- */
+.workspace input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+.workspace select, .workspace .workspace-form textarea, .workspace .panel-reason input {
+  min-height: var(--ctl-h); border: 1px solid var(--line); border-radius: var(--ctl-r); padding: 0 12px;
+  background: var(--surface); color: var(--ink); font-size: var(--fs-14); box-sizing: border-box;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.workspace textarea { padding: 10px 12px; min-height: 96px; }
+.workspace input:focus-visible, .workspace select:focus-visible, .workspace textarea:focus-visible {
+  outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(58, 117, 99, .16);
+}
+.workspace label { gap: 6px; font-size: var(--fs-13); font-weight: 600; color: var(--ink-2); }
+.workspace .field-help { font-weight: 400; }
+
+/* ---- Toggles: every boolean is a switch, never a bare checkbox ---- */
+.workspace .workspace-check, .workspace .workspace-checks label, .workspace .workspace-switch-row, .workspace .switch-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  min-height: 52px; padding: 10px 14px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface);
+  font-weight: 500; font-size: var(--fs-14); color: var(--ink);
+}
+.workspace .workspace-checks { display: grid !important; gap: 8px !important; }
+.workspace .workspace-check input[type="checkbox"], .workspace .workspace-checks label input[type="checkbox"], .workspace .workspace-switch-row input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; position: relative; order: 2; flex: 0 0 44px;
+  width: 44px; height: 24px; min-height: 24px; border-radius: 12px; background: #cfd8d3; border: 0; margin: 0; cursor: pointer;
+  transition: background .15s ease;
+}
+.workspace .workspace-check input[type="checkbox"]::after, .workspace .workspace-checks label input[type="checkbox"]::after, .workspace .workspace-switch-row input[type="checkbox"]::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: transform .15s ease;
+}
+.workspace .workspace-check input[type="checkbox"]:checked, .workspace .workspace-checks label input[type="checkbox"]:checked, .workspace .workspace-switch-row input[type="checkbox"]:checked { background: var(--accent); }
+.workspace .workspace-check input[type="checkbox"]:checked::after, .workspace .workspace-checks label input[type="checkbox"]:checked::after, .workspace .workspace-switch-row input[type="checkbox"]:checked::after { transform: translateX(20px); }
+.workspace .workspace-check input[type="checkbox"]:focus-visible, .workspace .workspace-switch-row input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.workspace .workspace-check input[type="checkbox"]:disabled { opacity: .5; cursor: not-allowed; }
+/* Opening-hours rows keep the day tick as a compact switch at the front */
+.workspace .hours-row .workspace-check, .workspace .opening-hours .workspace-check { border: 0; padding: 0; min-height: 0; justify-content: flex-start; }
+
+/* ---- Rail & top bar: bigger icons, calmer active state ---- */
+.rail button { width: 46px; height: 46px; border-radius: 12px; }
+.rail button svg { width: var(--ic-nav); height: var(--ic-nav); }
+.rail button[aria-current] { background: rgba(168, 213, 194, .18); color: #fff; box-shadow: inset 3px 0 var(--ollo-green); }
+.tabbar button svg { width: var(--ic-nav); height: var(--ic-nav); }
+.topbar-search { height: var(--ctl-h); border-radius: var(--ctl-r); }
+.topbar-search svg { width: var(--ic-chip); height: var(--ic-chip); }
+.topbar-iconbtn { width: var(--ctl-h); height: var(--ctl-h); border-radius: var(--ctl-r); }
+.wallet-chip { height: var(--ctl-h); border-radius: var(--ctl-r); }
+
+/* ---- Panels: softer edges, consistent header rhythm ---- */
+.workspace .workspace-panel, .workspace .workspace-card { border-radius: 16px; border-color: var(--line-2); box-shadow: var(--shadow-1); }
+.workspace .workspace-panel h2, .workspace .workspace-card h2 { font-size: 17px; letter-spacing: -0.01em; }
+.workspace .workspace-section-heading { margin-bottom: 18px; }
+.workspace .workspace-section-heading .button { flex: 0 0 auto; }
+
+/* ---- Settings: clear tabbed shell ---- */
+.settings-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 24px; align-items: start; }
+.settings-nav { position: sticky; top: calc(var(--topbar-h) + 16px); display: grid; gap: 4px; padding: 6px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; box-shadow: var(--shadow-1); }
+.settings-nav button { display: grid; grid-template-columns: 24px 1fr; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 10px 12px; min-height: 56px; border: 0; border-radius: 12px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; transition: background .12s ease; }
+.settings-nav button svg { width: 20px; height: 20px; color: var(--muted); }
+.settings-nav button span { display: grid; gap: 1px; min-width: 0; }
+.settings-nav button b { font-size: var(--fs-14); font-weight: 600; }
+.settings-nav button small { font-size: var(--fs-12); color: var(--muted); font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.settings-nav button:hover { background: var(--soft); }
+.settings-nav button[aria-selected="true"] { background: var(--ollo-soft); }
+.settings-nav button[aria-selected="true"] svg, .settings-nav button[aria-selected="true"] b { color: var(--accent-dark); }
+.settings-nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.settings-body { display: grid; gap: 20px; min-width: 0; }
+.settings-body > .workspace-panel, .settings-body > .workspace-card, .settings-body > section { min-width: 0; }
+.settings-head { display: grid; gap: 4px; padding: 4px 4px 0; }
+.settings-head h2 { font-size: 22px; letter-spacing: -0.02em; margin: 0; }
+.settings-head p { margin: 0; color: var(--muted); font-size: var(--fs-14); }
+.workspace .workspace-form-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; }
+@media (max-width: 980px) {
+  .settings-shell { grid-template-columns: 1fr; }
+  .settings-nav { position: static; display: flex; overflow-x: auto; gap: 6px; padding: 6px; scrollbar-width: none; }
+  .settings-nav button { grid-template-columns: 20px auto; min-height: var(--ctl-h); padding: 0 12px; white-space: nowrap; }
+  .settings-nav button small { display: none; }
+}
+
+/* ---- Calendar: no flash on refresh ---- */
+.workspace .calendar-event, .workspace .timetable-slot, .workspace .calendar-block { transition: none; }
+.workspace [aria-busy="true"] .calendar-event { opacity: 1; }
+.workspace .calendar-empty { padding: 48px 16px; text-align: center; color: var(--muted); }
+/* Opening hours: the day tick is a compact switch, rows share control height */
+.workspace .week-hours { display: grid; gap: 8px; border: 0; padding: 0; margin: 0; }
+.workspace .week-hours legend { font-weight: 600; font-size: var(--fs-13); margin-bottom: 8px; }
+.workspace .week-hours-row { grid-template-columns: 150px 1fr auto 1fr; padding: 6px 10px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface); }
+.workspace .week-hours-row[data-open="false"] { grid-template-columns: 150px 1fr; }
+.workspace .week-hours .week-hours-day input[type="checkbox"] { appearance: none; -webkit-appearance: none; position: relative; width: 36px; height: 20px; min-height: 20px; border-radius: 10px; background: #cfd8d3; border: 0; margin: 0; cursor: pointer; transition: background .15s ease; flex: 0 0 36px; }
+.workspace .week-hours .week-hours-day input[type="checkbox"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: transform .15s ease; }
+.workspace .week-hours .week-hours-day input[type="checkbox"]:checked { background: var(--accent); }
+.workspace .week-hours .week-hours-day input[type="checkbox"]:checked::after { transform: translateX(16px); }
+.workspace .week-hours-row[data-open="false"] .week-hours-day span { color: var(--muted); }
+.workspace .week-hours-closed { justify-self: start; padding-left: 4px; }
+@media (max-width: 640px) { .workspace .week-hours-row, .workspace .week-hours-row[data-open="false"] { grid-template-columns: 1fr auto 1fr; } .workspace .week-hours-row .week-hours-day { grid-column: 1 / -1; } }
+/* Calendar toolbar joins the control system: every chip is --ctl-h tall and --ctl-r round */
+.workspace .calendar-toolbar-row .button, .workspace .calendar-toolbar-row .button.icon-only, .toolbar-date, .toolbar-select,
+.workspace .calendar-toolbar-row .segmented { height: var(--ctl-h); min-height: var(--ctl-h); border-radius: var(--ctl-r); }
+.workspace .calendar-toolbar-row .button.icon-only { width: var(--ctl-h); min-width: var(--ctl-h); }
+.workspace .calendar-toolbar-row .segmented button { height: calc(var(--ctl-h) - 6px); min-height: 0; border-radius: calc(var(--ctl-r) - 3px); }
+.workspace .calendar-toolbar-row .button svg, .toolbar-select > svg, .toolbar-date-text svg { width: var(--ic-chip); height: var(--ic-chip); }
+.toolbar-select { padding-left: 12px; gap: 6px; }
+.toolbar-select > svg { flex: 0 0 auto; }
+.toolbar-select select { padding: 0 28px 0 2px; max-width: 200px; }
+.toolbar-select::after { right: 12px; }
+.toolbar-date { min-width: 160px; }
+.toolbar-date input[type="date"]:focus-visible { outline: 0; }
+.toolbar-date:focus-within, .toolbar-select:focus-within { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(58, 117, 99, .16); }
+.workspace .calendar-toolbar-row .toolbar-today[aria-pressed="true"] { background: var(--ollo-soft); color: var(--accent-dark); border-color: transparent; }
+/* Calendar body: soft grid, clear "now" line, matte event tints */
+.workspace .calendar-summary { font-size: var(--fs-13); color: var(--muted); }
+.workspace .calendar-summary b { color: var(--ink); }
+.workspace .week-strip button[aria-pressed="true"] { background: var(--accent); color: #fff; border-radius: var(--ctl-r); }
+.workspace .week-strip button { min-height: 36px; border-radius: var(--ctl-r); }
+.workspace .toolbar-select select, .workspace .select-with-icon select { border: 0 !important; box-shadow: none !important; background: transparent !important; min-height: 0 !important; height: 100% !important; border-radius: 0 !important; }

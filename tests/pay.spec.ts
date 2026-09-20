@@ -127,7 +127,7 @@ test("top bar: search palette opens in place and deep-links; account menu offers
 
 test("settings lists every customer page with live links and the plan is readable in-app", async ({ page }) => {
   await openFixtureShop(page);
-  await section(page, "Settings");
+  await section(page, "Settings/booking");
   const panel = page.getByTestId("customer-pages");
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId("view-home-page")).toHaveAttribute("href", /\/demo[a-z0-9-]*$/);

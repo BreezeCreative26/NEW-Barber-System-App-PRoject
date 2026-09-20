@@ -1133,6 +1133,15 @@ type Editor =
   | { kind: "holiday" }
   | { kind: "removeHoliday"; item: Holiday };
 
+type SettingsTabKey = "general" | "booking" | "page" | "messages" | "payments";
+const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: string; owner?: boolean }[] = [
+  { key: "general", label: "General", hint: "Details, hours, policies", icon: "settings" },
+  { key: "booking", label: "Online booking", hint: "Link, notice, customer pages", icon: "globe" },
+  { key: "page", label: "Shop page", hint: "Public page & reviews", icon: "star" },
+  { key: "messages", label: "Messages & AI", hint: "Texts, WhatsApp, email, calls", icon: "message" },
+  { key: "payments", label: "Payments", hint: "Cards, deposits, payouts", icon: "card" },
+];
+
 export function Workspace() {
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [inviteToken, setInviteToken] = useState(
@@ -1170,19 +1179,31 @@ export function Workspace() {
     };
     const tick = () => {
       if (document.visibilityState !== "visible" || !navigator.onLine || !idle()) return;
-      refresh().catch(() => {});
+      refresh({ background: true }).catch(() => {});
     };
     const onVisible = () => {
       if (document.visibilityState === "visible") tick();
     };
     window.addEventListener("focus", tick);
     document.addEventListener("visibilitychange", onVisible);
-    // Live view: the timetable polls every 20s (online bookings appear without any action);
-    // other sections every 60s.
+    // Live view: a 4-second heartbeat asks /changes for the shop's change cursor (one indexed read).
+    // Only when the cursor moves — a booking from the website, a colleague's edit, a payment — does
+    // the client re-read the workspace, in the background, swapping data in place. A full re-read
+    // still happens every 60s as a safety net.
+    let cursor = "";
+    let inFlight = false;
+    const beat = async () => {
+      if (document.visibilityState !== "visible" || !navigator.onLine || inFlight) return;
+      inFlight = true;
+      try {
+        const r = await api<{ cursor: string }>("/changes");
+        if (cursor && r.cursor !== cursor && idle()) { lastTick.current = Date.now(); tick(); }
+        cursor = r.cursor;
+      } catch { /* offline or signed out; the next beat retries */ } finally { inFlight = false; }
+    };
+    const heartbeat = window.setInterval(beat, 4000);
     const timer = window.setInterval(() => {
-      const onCalendar = !!document.querySelector(".timetable-slot, .week-view, .calendar-event");
-      const due = onCalendar ? 20000 : 60000;
-      if (Date.now() - lastTick.current >= due - 500) {
+      if (Date.now() - lastTick.current >= 60000 - 500) {
         lastTick.current = Date.now();
         tick();
       }
@@ -1191,6 +1212,7 @@ export function Workspace() {
       window.removeEventListener("focus", tick);
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(timer);
+      window.clearInterval(heartbeat);
     };
     // refresh is stable enough for this purpose; re-binding on every render would thrash the timer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1219,6 +1241,15 @@ export function Workspace() {
     return () => window.clearTimeout(t);
   }, [undo]);
   const [tab, setTab] = useState("Appointments");
+  // Settings is split into clear sections; the URL hash remembers the open one (#settings/payments).
+  const [settingsTab, setSettingsTab] = useState<SettingsTabKey>(() => {
+    const m = /^#settings\/(\w+)$/.exec(location.hash);
+    return (m && SETTINGS_TABS.some((t) => t.key === m[1]) ? (m[1] as SettingsTabKey) : "general");
+  });
+  useEffect(() => {
+    if (tab === "Settings") history.replaceState(null, "", `${location.pathname}#settings/${settingsTab}`);
+    else if (location.hash.startsWith("#settings/")) history.replaceState(null, "", location.pathname);
+  }, [tab, settingsTab]);
   // /workspace/setup opens the guided setup over the Appointments tab; the URL is the state so a
   // refresh or a link from the landing page lands back in it.
   const [setupOpen, setSetupOpen] = useState(() => location.pathname === "/workspace/setup");
@@ -1320,12 +1351,20 @@ export function Workspace() {
   const [directoryStatus, setDirectoryStatus] = useState("");
   const [online, setOnline] = useState(navigator.onLine);
   const [loading, setLoading] = useState(true);
+  // True while a background re-read is in flight; the UI stays fully interactive.
+  const [revalidating, setRevalidating] = useState(false);
   const [stale, setStale] = useState(false);
   const loadSequence = useRef(0);
   const identity = useRef("");
-  async function refresh() {
+  async function refresh(opts: { background?: boolean } = {}) {
     const sequence = ++loadSequence.current;
-    setLoading(true);
+    // Background revalidation (polling, focus, after a save) keeps the current view on screen and
+    // swaps the data in place — no placeholder, no greyed-out calendar. Only a first load or a
+    // change of date shows the loading state.
+    const targetDate0 = dateRef.current || queriedDate.current;
+    const background = opts.background ?? (!!data && (!targetDate0 || targetDate0 === queriedDate.current));
+    if (!background) setLoading(true);
+    else setRevalidating(true);
     try {
       const w = await api<WorkspaceData>("/workspace");
       for (const key of [
@@ -1391,7 +1430,7 @@ export function Workspace() {
       }
       throw e;
     } finally {
-      if (sequence === loadSequence.current) setLoading(false);
+      if (sequence === loadSequence.current) { setLoading(false); setRevalidating(false); }
     }
   }
   useEffect(() => {
@@ -1813,6 +1852,7 @@ export function Workspace() {
           }}
           onOpenSettings={() => {
             setQueueOpen(false);
+            setSettingsTab("messages");
             setTab("Settings");
           }}
           onClose={() => setQueueOpen(false)}
@@ -2224,7 +2264,7 @@ export function Workspace() {
                           barber={barber}
                           bookings={filteredBookings}
                           paid={new Set(w.payments.filter((p) => !p.voided_at).map((p) => p.booking_id))}
-                          disabled={!online || stale || loading}
+                          disabled={!online || stale}
                           onDraft={(draft) =>
                             setEditor({ kind: "booking", draft })
                           }
@@ -2380,7 +2420,19 @@ export function Workspace() {
                 />
               )}
               {tab === "Settings" && (
-                <div className="workspace-settings">
+                <div className="settings-shell" data-testid="settings">
+                  <nav className="settings-nav" role="tablist" aria-label="Settings sections">
+                    {SETTINGS_TABS.filter((t) => !t.owner || !w.account || w.account.role === "OWNER").map((t) => (
+                      <button key={t.key} type="button" role="tab" aria-selected={settingsTab === t.key} aria-controls={`settings-${t.key}`} onClick={() => setSettingsTab(t.key)} data-testid={`settings-tab-${t.key}`}>
+                        <Icon name={t.icon} size={18} />
+                        <span><b>{t.label}</b><small>{t.hint}</small></span>
+                      </button>
+                    ))}
+                  </nav>
+                  <div className="settings-body" id={`settings-${settingsTab}`} role="tabpanel">
+                    {settingsTab === "general" && (
+                      <>
+                        <header className="settings-head"><h2>General</h2><p>Your business details, opening hours and booking policies.</p></header>
                   <section className="workspace-panel">
                     <h2>Shop settings</h2>
                     <SaveForm
@@ -2479,13 +2531,7 @@ export function Workspace() {
                       </Field>
                     </SaveForm>
                   </section>
-                  <OnlineBookingPanel w={w} saved={saved} />
-                  <ShopPagePanel w={w} />
-                  <WaitlistSettingsPanel w={w} />
-                  <PaymentsPanel api={api} canEdit={manager} isOwner={!w.account || w.account.role === "OWNER"} />
-                  <ReviewsPanel w={w} />
-                  <CustomerPagesPanel w={w} onOpenBooking={openBooking} />
-                  <section className="workspace-panel">
+                                          <section className="workspace-panel">
                     <div className="workspace-section-heading">
                       <h2>Shop closures</h2>
                       <Button
@@ -2515,6 +2561,35 @@ export function Workspace() {
                       Affected future appointments are flagged for review.
                     </Notice>
                   </section>
+                      </>
+                    )}
+                    {settingsTab === "booking" && (
+                      <>
+                        <header className="settings-head"><h2>Online booking</h2><p>Your public booking link, notice periods, and the customer-facing pages.</p></header>
+                        <OnlineBookingPanel w={w} saved={saved} />
+                        <CustomerPagesPanel w={w} onOpenBooking={openBooking} />
+                      </>
+                    )}
+                    {settingsTab === "page" && (
+                      <>
+                        <header className="settings-head"><h2>Shop page &amp; reviews</h2><p>How your business looks to the public: page content, photos, reviews.</p></header>
+                        <ShopPagePanel w={w} />
+                        <ReviewsPanel w={w} />
+                      </>
+                    )}
+                    {settingsTab === "messages" && (
+                      <>
+                        <header className="settings-head"><h2>Messages &amp; AI</h2><p>Text, WhatsApp and email confirmations, reminders, owner alerts and the AI receptionist.</p></header>
+                        <WaitlistSettingsPanel w={w} />
+                      </>
+                    )}
+                    {settingsTab === "payments" && (
+                      <>
+                        <header className="settings-head"><h2>Payments</h2><p>Card payments, deposits, payouts and pay runs.</p></header>
+                        <PaymentsPanel api={api} canEdit={manager} isOwner={!w.account || w.account.role === "OWNER"} />
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
               {tab === "Insights" && <InsightsPanel w={w} />}

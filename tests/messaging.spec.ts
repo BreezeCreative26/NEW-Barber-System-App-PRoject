@@ -215,7 +215,7 @@ test("cron route sweeps and drains; rejects a wrong secret when one is configure
 
 test("browser: Settings → Messages shows provider status, saves channel settings, sends a test, previews an email", async ({ page }) => {
   await enterNewShop(page, "Messages UI shop");
-  await section(page, "Settings");
+  await section(page, "Settings/messages");
   const status = page.getByTestId("messaging-status");
   await expect(status).toBeVisible();
   await expect(status).toContainText(/Preview mode|Live/);

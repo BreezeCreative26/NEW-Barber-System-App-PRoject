@@ -95,7 +95,7 @@ test("unknown, reserved and offline slugs do not get a shop page", async ({ page
 
 test("owner edits the shop page in Settings and the public page reflects it", async ({ page }) => {
   const { slug } = await openFixtureShop(page);
-  await section(page, "Settings");
+  await section(page, "Settings/page");
   const panel = page.getByTestId("shop-page-panel");
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId("view-shop-page")).toHaveAttribute("href", new RegExp(`/${slug}$`));

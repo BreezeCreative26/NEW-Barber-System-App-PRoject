@@ -144,7 +144,7 @@ test("role boundaries: barber sees only their own payout account; cannot change 
 
 test("browser: Settings → Payments panel and barber Pay tab show the honest preview state", async ({ page }) => {
   await openFixtureShop(page);
-  await section(page, "Settings");
+  await section(page, "Settings/payments");
   const panel = page.getByTestId("payments-panel");
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId("payments-status")).toContainText(/Card payments/);

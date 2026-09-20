@@ -209,7 +209,7 @@ sandbox.use("*", async (c, next) => {
   if (account && !path.startsWith("/auth/")) {
     const operational =
       (method === "GET" &&
-        ["/workspace", "/bookings", "/availability", "/customers"].includes(
+        ["/workspace", "/bookings", "/availability", "/customers", "/changes"].includes(
           path,
         )) ||
       (method === "GET" && /^\/customers\/[^/]+$/.test(path)) ||
@@ -548,6 +548,16 @@ sandbox.get("/bookings", async (c) => {
   });
 });
 
+// Live view heartbeat. The till polls this every few seconds; it is one indexed read and returns
+// the newest audit timestamp + count for the shop. When either moves, the client re-reads the
+// workspace in the background (no flicker). Cheap enough to call constantly.
+sandbox.get("/changes", async (c) => {
+  const row = await c.env.DB.prepare("SELECT COALESCE(MAX(created_at),0) AS at, COUNT(*) AS n FROM audit_events WHERE shop_id=?")
+    .bind(c.get("shopId"))
+    .first<{ at: number; n: number }>();
+  c.header("Cache-Control", "no-store");
+  return c.json({ cursor: `${row?.at ?? 0}:${row?.n ?? 0}`, at: Number(row?.at ?? 0), now: Date.now() });
+});
 sandbox.get("/workspace", async (c) => {
   const sid = c.get("shopId");
   const shop = await readShop(c);

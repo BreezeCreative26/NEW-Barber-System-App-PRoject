@@ -242,7 +242,7 @@ test("browser: shop page shows photos, hero rating and reviews (axe clean); owne
   const r = await request.newContext({ extraHTTPHeaders: { Origin: origin }, storageState: state });
   const w = await (await r.get(base + "/workspace")).json();
   // Owner: Settings → Shop page → upload cover via the file input.
-  await section(page, "Settings");
+  await section(page, "Settings/page");
   const panel = page.getByTestId("shop-page-panel");
   await expect(panel).toBeVisible();
   await panel.getByTestId("upload-cover-input").setInputFiles({ name: "cover.png", mimeType: "image/png", buffer: PNG });
