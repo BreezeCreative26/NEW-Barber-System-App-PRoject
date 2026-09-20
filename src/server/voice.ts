@@ -24,11 +24,23 @@ import { cancelByCustomer, customerView, limits, notifyBooking, rangeContext, sh
 import { dayStarts, dueAtBooking, ref, shopDay, shopToday, shopWeek, weekday, type Service, type Shop, type Staff, type StoredBooking } from "./domain";
 import { enqueue, drain, msgShop } from "./messaging";
 
-export type VoiceSettings = { enabled: boolean; agent_id: string; secret: string; greeting: string; notes: string; created_at?: number };
+// webhook_secret = ElevenLabs' HMAC secret (wsec_…) for the post-call webhook; that webhook cannot
+// send our bearer, so it is verified by signature instead.
+export type VoiceSettings = { enabled: boolean; agent_id: string; secret: string; webhook_secret: string; greeting: string; notes: string; created_at?: number };
 export function voiceOf(json: string | null | undefined): VoiceSettings {
   let v: Partial<VoiceSettings> = {};
   try { v = JSON.parse(json || "{}"); } catch { v = {}; }
-  return { enabled: !!v.enabled, agent_id: v.agent_id || "", secret: v.secret || "", greeting: v.greeting || "", notes: v.notes || "", created_at: v.created_at };
+  return { enabled: !!v.enabled, agent_id: v.agent_id || "", secret: v.secret || "", webhook_secret: v.webhook_secret || "", greeting: v.greeting || "", notes: v.notes || "", created_at: v.created_at };
+}
+// ElevenLabs-Signature: t=<unix>,v0=<hex hmac-sha256 of "<t>.<raw body>">. 30-minute tolerance.
+async function elevenSignatureOk(header: string | undefined, raw: string, secret: string) {
+  if (!header || !secret) return false;
+  const parts = Object.fromEntries(header.split(",").map((kv) => kv.split("=") as [string, string]));
+  const t = Number(parts.t), v0 = parts.v0 || "";
+  if (!t || !v0 || Math.abs(Date.now() / 1000 - t) > 1800) return false;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = Array.from(new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${t}.${raw}`)))).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return timingSafeEqual(sig, v0);
 }
 export const newSecret = () => "ollo_vk_" + Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(16).padStart(2, "0")).join("");
 const timingSafeEqual = (a: string, b: string) => {
@@ -361,8 +373,16 @@ voice.post("/:slug/personalise", async (c) => {
 });
 // Post-call: transcript + summary → call log, owner can read it in the workspace.
 voice.post("/:slug/post-call", async (c) => {
-  const { shop } = await voiceShop(c);
-  const body = (await c.req.json().catch(() => ({}))) as { type?: string; data?: { conversation_id?: string; agent_id?: string; status?: string; transcript?: { role: string; message: string | null; time_in_call_secs?: number }[]; metadata?: { start_time_unix_secs?: number; call_duration_secs?: number; phone_call?: { external_number?: string } }; analysis?: { transcript_summary?: string; call_successful?: string } } };
+  // Bearer (manual setups) or ElevenLabs HMAC signature (workspace webhook).
+  const raw = await c.req.text();
+  const shop = await shopBySlug(c, c.req.param("slug")!);
+  const settings = voiceOf((shop as Shop & { voice_json?: string }).voice_json);
+  if (!settings.enabled || !settings.secret) fail(404, "This shop has no AI receptionist");
+  const given = (c.req.header("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  const bearerOk = !!given && timingSafeEqual(given, settings.secret);
+  if (!bearerOk && !(await elevenSignatureOk(c.req.header("elevenlabs-signature"), raw, settings.webhook_secret))) fail(401, "Webhook signature is wrong or missing");
+  let body: { type?: string; data?: { conversation_id?: string; agent_id?: string; status?: string; transcript?: { role: string; message: string | null; time_in_call_secs?: number }[]; metadata?: { start_time_unix_secs?: number; call_duration_secs?: number; phone_call?: { external_number?: string } }; analysis?: { transcript_summary?: string; call_successful?: string } } } = {};
+  try { body = JSON.parse(raw); } catch { body = {}; }
   const d = body.data;
   if (!d?.conversation_id) return c.json({ ok: true, ignored: true });
   // Row id is shop-scoped: ElevenLabs conversation ids are unique per account, but every shop is its own tenant here.
@@ -386,6 +406,8 @@ export const voiceSettingsSchema = z.object({
   agent_id: z.string().trim().max(120).default(""),
   greeting: z.string().trim().max(300).default(""),
   notes: z.string().trim().max(1500).default(""),
+  // ElevenLabs post-call webhook secret (wsec_…). Optional; omit to leave unchanged.
+  webhook_secret: z.string().trim().max(200).optional(),
 }).strict();
 
 export function voiceEndpoints(origin: string, slug: string) {

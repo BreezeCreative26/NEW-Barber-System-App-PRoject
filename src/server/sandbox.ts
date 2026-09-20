@@ -1180,7 +1180,7 @@ sandbox.get("/shop/voice", async (c) => {
   const origin = new URL(c.req.url).origin;
   const calls = (await c.env.DB.prepare("SELECT id,conversation_id,caller,outcome,summary,booking_id,duration_s,started_at FROM voice_calls WHERE shop_id=? ORDER BY started_at DESC LIMIT 50").bind(shop.id).all()).results;
   return c.json({
-    settings: { enabled: v.enabled, agent_id: v.agent_id, greeting: v.greeting, notes: v.notes, has_secret: !!v.secret, created_at: v.created_at ?? null },
+    settings: { enabled: v.enabled, agent_id: v.agent_id, greeting: v.greeting, notes: v.notes, has_secret: !!v.secret, has_webhook_secret: !!v.webhook_secret, created_at: v.created_at ?? null },
     // The secret is shown in full only right after it is (re)generated; here just the tail.
     secret_hint: v.secret ? `…${v.secret.slice(-6)}` : "",
     endpoints: shop.slug ? voiceEndpoints(origin, shop.slug) : null,
@@ -1197,7 +1197,8 @@ sandbox.put("/shop/voice", async (c) => {
   if (b.enabled && (!shop.online_booking || !shop.slug)) fail(409, "Turn on online booking first — the receptionist books through the same diary.");
   // First enable mints the secret; it is returned once here so the owner can paste it into ElevenLabs.
   const minted = b.enabled && !cur.secret;
-  const next = { ...cur, ...b, secret: cur.secret || (b.enabled ? newSecret() : ""), created_at: cur.created_at || (b.enabled ? Date.now() : undefined) };
+  const { webhook_secret, ...rest } = b;
+  const next = { ...cur, ...rest, webhook_secret: webhook_secret !== undefined ? webhook_secret : cur.webhook_secret, secret: cur.secret || (b.enabled ? newSecret() : ""), created_at: cur.created_at || (b.enabled ? Date.now() : undefined) };
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE shops SET voice_json=?, version=version+1 WHERE id=?").bind(JSON.stringify(next), shop.id),
     audit(c, "shop", shop.id, "VOICE_UPDATED", `AI receptionist ${b.enabled ? "on" : "off"}${b.agent_id ? ` · agent ${b.agent_id}` : ""}.`),
