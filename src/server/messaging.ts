@@ -5,8 +5,9 @@
 //              concurrently (rows are claimed with an UPDATE … WHERE status='QUEUED').
 // sweepReminders() — queue 24h (configurable) and 2h reminders for upcoming confirmed visits.
 //
-// Providers are platform-level and come from env: RESEND_API_KEY (+ MAIL_FROM), TWILIO_ACCOUNT_SID,
-// TWILIO_AUTH_TOKEN, TWILIO_FROM (or TWILIO_MESSAGING_SERVICE_SID). With no provider configured the
+// Providers are platform-level and come from env: RESEND_API_KEY (+ MAIL_FROM); SMS via ClickSend
+// (CLICKSEND_USERNAME + CLICKSEND_API_KEY, optional CLICKSEND_FROM) or Twilio (TWILIO_ACCOUNT_SID,
+// TWILIO_AUTH_TOKEN, TWILIO_FROM or TWILIO_MESSAGING_SERVICE_SID). With no provider configured the
 // row is delivered to the "dev mailbox" (status SENT, provider 'mailbox') so the whole flow can be
 // exercised locally and in tests; the mailbox is readable under /api/app/dev/mailbox when
 // DEMO_ENABLED=1.
@@ -221,12 +222,15 @@ export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageT
 // ---- Providers -----------------------------------------------------------------
 type Env = Record<string, string | undefined>;
 const env = (): Env => (typeof process !== "undefined" ? (process.env as Env) : {});
-export type ProviderStatus = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "twilio" | "mailbox"; from: string } };
+export type ProviderStatus = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "twilio" | "clicksend" | "mailbox"; from: string } };
+const clicksendOn = (e: Record<string, string | undefined>) => !!(e.CLICKSEND_USERNAME && e.CLICKSEND_API_KEY);
 export function providerStatus(): ProviderStatus {
   const e = env();
   return {
     email: e.RESEND_API_KEY ? { provider: "resend", from: e.MAIL_FROM || "" } : { provider: "mailbox", from: "" },
-    sms: e.TWILIO_ACCOUNT_SID && e.TWILIO_AUTH_TOKEN && (e.TWILIO_FROM || e.TWILIO_MESSAGING_SERVICE_SID) ? { provider: "twilio", from: e.TWILIO_FROM || e.TWILIO_MESSAGING_SERVICE_SID || "" } : { provider: "mailbox", from: "" },
+    sms: clicksendOn(e)
+      ? { provider: "clicksend", from: e.CLICKSEND_FROM || "" }
+      : e.TWILIO_ACCOUNT_SID && e.TWILIO_AUTH_TOKEN && (e.TWILIO_FROM || e.TWILIO_MESSAGING_SERVICE_SID) ? { provider: "twilio", from: e.TWILIO_FROM || e.TWILIO_MESSAGING_SERVICE_SID || "" } : { provider: "mailbox", from: "" },
   };
 }
 
@@ -258,6 +262,7 @@ export function toE164(phone: string, defaultCountry = "GB"): string | null {
 }
 async function sendSms(row: Row): Promise<Delivery> {
   const e = env();
+  if (clicksendOn(e)) return sendClickSend(row, e as Record<string, string>);
   if (!(e.TWILIO_ACCOUNT_SID && e.TWILIO_AUTH_TOKEN && (e.TWILIO_FROM || e.TWILIO_MESSAGING_SERVICE_SID))) return { ok: true, provider: "mailbox", id: `mbx_${uid().slice(0, 8)}` };
   const to = toE164(row.recipient);
   if (!to) return { ok: false, provider: "twilio", error: "Not a valid mobile number", permanent: true };
@@ -273,6 +278,28 @@ async function sendSms(row: Row): Promise<Delivery> {
   if (res.ok && j.sid) return { ok: true, provider: "twilio", id: j.sid };
   // 21211 invalid number, 21610 unsubscribed, 21614 not a mobile: don't retry.
   return { ok: false, provider: "twilio", error: `${res.status} ${j.message || "send failed"}`, permanent: [21211, 21610, 21614, 21408].includes(j.code || 0) };
+}
+
+// ClickSend REST v3: basic auth (username:api key), one message per call. The shop's alphanumeric
+// sender (msg_sms_sender, max 11 chars) goes in `from`; ClickSend falls back to a shared number if
+// unset. Response codes: 200/SUCCESS per message; INVALID_RECIPIENT is permanent.
+async function sendClickSend(row: Row, e: Record<string, string>): Promise<Delivery> {
+  const to = toE164(row.recipient);
+  if (!to) return { ok: false, provider: "clicksend", error: "Not a valid mobile number", permanent: true };
+  const from = (row.msg_sms_sender || e.CLICKSEND_FROM || "").replace(/[^A-Za-z0-9 ]/g, "").slice(0, 11).trim();
+  const message: Record<string, string> = { source: "ollo", to, body: row.body.slice(0, 918) };
+  if (from) message.from = from;
+  const res = await fetch("https://rest.clicksend.com/v3/sms/send", {
+    method: "POST",
+    headers: { Authorization: `Basic ${btoa(`${e.CLICKSEND_USERNAME}:${e.CLICKSEND_API_KEY}`)}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: [message] }),
+  });
+  const j = (await res.json().catch(() => ({}))) as { response_code?: string; response_msg?: string; data?: { messages?: { status?: string; message_id?: string }[] } };
+  const m = j.data?.messages?.[0];
+  if (res.ok && m?.status === "SUCCESS" && m.message_id) return { ok: true, provider: "clicksend", id: m.message_id };
+  const status = m?.status || j.response_code || `${res.status}`;
+  // Balance/auth problems are worth retrying after a top-up; bad numbers are not.
+  return { ok: false, provider: "clicksend", error: `${status} ${j.response_msg || "send failed"}`.trim(), permanent: /INVALID_RECIPIENT|INVALID_SENDER|BODY_TOO_LONG/.test(status) };
 }
 
 // ---- Drain ---------------------------------------------------------------------

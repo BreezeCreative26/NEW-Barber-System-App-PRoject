@@ -80,7 +80,7 @@ test("booking created → confirmation queued on SMS and email, shop-branded, ne
   expect(full.notification.html).not.toMatch(/OLLO/i);
   expect(box.counts_30d.SENT ?? 0).toBeGreaterThanOrEqual(2);
   expect(box.providers.email.provider).toMatch(/^(mailbox|resend)$/);
-  expect(box.providers.sms.provider).toMatch(/^(mailbox|twilio)$/);
+  expect(box.providers.sms.provider).toMatch(/^(mailbox|twilio|clicksend)$/);
 
   // Cancelling through the manage link writes a cancellation message.
   const cancel = await c.post(`${pub}/manage/${created.manage_token}/cancel`, { data: { version: created.booking.version } });

@@ -1,5 +1,6 @@
-// Online deposits through Stripe Checkout — Model A: the customer pays the shop's own connected
-// Stripe account; OLLO never holds funds. Platform keys come from env:
+// Stripe: OLLO is the merchant of record (separate charges and transfers). Customers pay OLLO's
+// platform balance through Checkout / Terminal; pay runs transfer each barber's and shop's share to
+// their connected (recipient) accounts. See docs/STRIPE_PLAN.md and docs/PAYMENTS.md. Env:
 //   STRIPE_SECRET_KEY      sk_live_… / sk_test_…   (platform account)
 //   STRIPE_WEBHOOK_SECRET  whsec_…                 (endpoint: POST /api/stripe/webhook)
 //   STRIPE_CONNECT=1       when set, charges run on the shop's connected account
@@ -12,7 +13,7 @@
 import type { Database as DB } from "../db/client";
 import type { Shop, StoredBooking } from "./domain";
 
-type Env = { STRIPE_SECRET_KEY?: string; STRIPE_WEBHOOK_SECRET?: string; STRIPE_CONNECT?: string; APP_ORIGIN?: string };
+type Env = { STRIPE_SECRET_KEY?: string; STRIPE_WEBHOOK_SECRET?: string; STRIPE_WEBHOOK_SECRET_CONNECT?: string; STRIPE_CONNECT?: string; APP_ORIGIN?: string };
 const env = (): Env => (typeof process !== "undefined" ? (process.env as Env) : {});
 export const stripeLive = () => !!env().STRIPE_SECRET_KEY;
 // Connect is the model (platform charges, transfers out). STRIPE_CONNECT=0 turns the shop/barber
@@ -72,6 +73,20 @@ async function stripe<T>(path: string, body?: Record<string, string | number | b
   if (!res.ok) throw new StripeError(json.error?.message || `Stripe ${res.status}`, res.status, json.error?.code || "");
   return json;
 }
+// Accounts v2 (JSON body, preview version). Stripe rejects v1 account creation on new platforms, so
+// connected accounts are created here; everything else about them (transfers, login links, payout
+// schedule, account.updated) still works through v1 with the same acct_ id.
+const V2_VERSION = "2026-05-27.preview";
+async function stripeV2<T>(path: string, body?: Record<string, unknown>, opts: { idempotency?: string } = {}): Promise<T> {
+  const key = env().STRIPE_SECRET_KEY;
+  if (!key) throw new StripeError("Stripe is not configured", 503, "stripe_off");
+  const headers: Record<string, string> = { Authorization: `Bearer ${key}`, "Stripe-Version": V2_VERSION, "Content-Type": "application/json" };
+  if (opts.idempotency) headers["Idempotency-Key"] = opts.idempotency;
+  const res = await fetch(`https://api.stripe.com/v2${path}`, { method: body ? "POST" : "GET", headers, body: body ? JSON.stringify(body) : undefined });
+  const json = (await res.json().catch(() => ({}))) as { error?: { message?: string; code?: string } } & T;
+  if (!res.ok) throw new StripeError(json.error?.message || `Stripe ${res.status}`, res.status, json.error?.code || "");
+  return json;
+}
 
 // ---- Checkout -------------------------------------------------------------------------------------
 export type CheckoutSession = { id: string; url: string; payment_intent?: string | null; payment_status?: string; status?: string };
@@ -86,8 +101,11 @@ export async function createDepositSession(shop: Shop, booking: StoredBooking, o
   const currency = (shop.currency || "GBP").toLowerCase();
   const manage = `${origin}/manage/${manageToken}`;
   const expires = Math.floor(Date.now() / 1000) + Math.max(30, holdMinutes) * 60; // Stripe minimum 30 min
-  const body: Record<string, string | number> = {
+  const body: Record<string, string | number | boolean> = {
     mode: "payment",
+    // New accounts default to Managed Payments (Stripe as merchant of record). OLLO is the merchant
+    // of record for the Connect split, so it is off here; otherwise Stripe demands product tax codes.
+    "managed_payments[enabled]": false,
     "line_items[0][quantity]": 1,
     "line_items[0][price_data][currency]": currency,
     "line_items[0][price_data][unit_amount]": amount,
@@ -103,6 +121,8 @@ export async function createDepositSession(shop: Shop, booking: StoredBooking, o
     "payment_intent_data[metadata][booking_id]": booking.id,
     "payment_intent_data[description]": `${shop.name} ${prepay ? "payment" : "deposit"} · ${booking.service_name} · ${booking.date}`,
   };
+  // Receipts: the account has Managed Payments on, which always emails the customer a receipt and
+  // rejects payment_intent_data.receipt_email — customer_email is enough.
   if (booking.email) body.customer_email = booking.email;
   // Platform is the merchant of record: the charge lands on OLLO's balance and the pay run moves the
   // shop's and barber's shares out with Transfers. No Stripe-Account header.
@@ -120,28 +140,25 @@ export async function refundIntent(paymentIntent: string, account?: string, idem
 
 // ---- Connect platform: Express accounts for shops AND barbers ------------------------------------
 export type OwnerType = "SHOP" | "STAFF";
+// Recipient-only configuration: the account receives Transfers from OLLO's balance and pays out to
+// its bank. It never charges customers itself, so card_payments is deliberately not requested — that
+// would force full merchant KYC on every barber. OLLO owns pricing and losses (separate charges and
+// transfers require both), Express dashboard for balance/payouts.
 export async function createExpressAccount(opts: { shopId: string; ownerType: OwnerType; ownerId: string; email: string; name: string; country?: string; individual?: boolean }) {
-  return stripe<{ id: string }>("/accounts", {
-    type: "express",
-    country: opts.country || "GB",
-    email: opts.email || undefined,
-    business_type: opts.individual ? "individual" : undefined,
-    "business_profile[name]": opts.name,
-    "business_profile[mcc]": "7230", // beauty & barber shops
-    "capabilities[card_payments][requested]": true,
-    "capabilities[transfers][requested]": true,
-    "settings[payouts][schedule][interval]": "daily",
-    "metadata[shop_id]": opts.shopId,
-    "metadata[owner_type]": opts.ownerType,
-    "metadata[owner_id]": opts.ownerId,
-  }, { idempotency: `acct-${opts.ownerType}-${opts.ownerId}` });
+  return stripeV2<{ id: string }>("/core/accounts", {
+    display_name: opts.name.slice(0, 100),
+    contact_email: opts.email || undefined,
+    identity: { country: (opts.country || "GB").toLowerCase(), entity_type: opts.individual ? "individual" : "company" },
+    dashboard: "express",
+    defaults: { currency: "gbp", responsibilities: { fees_collector: "application", losses_collector: "application" } },
+    configuration: { recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } } },
+    metadata: { shop_id: opts.shopId, owner_type: opts.ownerType, owner_id: opts.ownerId },
+  }, { idempotency: `acct2-${opts.ownerType}-${opts.ownerId}` });
 }
 export async function accountLink(accountId: string, origin: string, returnPath = "/workspace?stripe=return", refreshPath = "/workspace?stripe=refresh") {
-  return stripe<{ url: string; expires_at: number }>("/account_links", {
+  return stripeV2<{ url: string; expires_at: string }>("/core/account_links", {
     account: accountId,
-    refresh_url: `${origin}${refreshPath}`,
-    return_url: `${origin}${returnPath}`,
-    type: "account_onboarding",
+    use_case: { type: "account_onboarding", account_onboarding: { configurations: ["recipient"], refresh_url: `${origin}${refreshPath}`, return_url: `${origin}${returnPath}` } },
   });
 }
 // One-time link into the Express dashboard (balance, payouts, "pay out now").
@@ -208,19 +225,24 @@ export async function chargeFee(paymentIntent: string) {
 export const platformFee = (amountPence: number, fee: { fee_bps: number; fee_fixed_pence: number }) => (amountPence <= 0 ? 0 : Math.round((amountPence * fee.fee_bps) / 10000) + fee.fee_fixed_pence);
 
 // ---- Webhook signature (Stripe-Signature: t=…,v1=…) ----------------------------------------------
+// Two endpoints can point at the same URL (platform events, connected-account events), each with
+// its own signing secret; accept a signature from either.
 export async function verifyWebhook(rawBody: string, header: string | undefined, tolerance = 300) {
-  const secret = env().STRIPE_WEBHOOK_SECRET;
-  if (!secret) return { ok: false as const, reason: "no_secret" };
+  const secrets = [env().STRIPE_WEBHOOK_SECRET, env().STRIPE_WEBHOOK_SECRET_CONNECT].filter((s): s is string => !!s);
+  if (!secrets.length) return { ok: false as const, reason: "no_secret" };
   if (!header) return { ok: false as const, reason: "no_signature" };
   const parts = Object.fromEntries(header.split(",").map((p) => p.split("=") as [string, string]));
   const t = parts.t;
   const v1s = header.split(",").filter((p) => p.startsWith("v1=")).map((p) => p.slice(3));
   if (!t || !v1s.length) return { ok: false as const, reason: "malformed" };
   if (Math.abs(Date.now() / 1000 - Number(t)) > tolerance) return { ok: false as const, reason: "stale" };
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${t}.${rawBody}`)));
-  const hex = Array.from(sig).map((b) => b.toString(16).padStart(2, "0")).join("");
-  return v1s.some((v) => timingSafeEqual(v, hex)) ? { ok: true as const } : { ok: false as const, reason: "bad_signature" };
+  for (const secret of secrets) {
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${t}.${rawBody}`)));
+    const hex = Array.from(sig).map((b) => b.toString(16).padStart(2, "0")).join("");
+    if (v1s.some((v) => timingSafeEqual(v, hex))) return { ok: true as const };
+  }
+  return { ok: false as const, reason: "bad_signature" };
 }
 function timingSafeEqual(a: string, b: string) {
   if (a.length !== b.length) return false;

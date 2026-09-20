@@ -1266,7 +1266,7 @@ sandbox.post("/shop/payments/connect", async (c) => {
   return c.json({ ok: true, account_id: account.id, url }, 201);
 });
 sandbox.post("/staff/:id/payments/connect", async (c) => {
-  await input(c, z.object({ email: z.union([z.literal(""), z.string().trim().email().max(120)]).default("") }).strict()).then(() => null);
+  const body = await input(c, z.object({ email: z.union([z.literal(""), z.string().trim().email().max(120)]).default("") }).strict());
   const a = c.get("account");
   const staffId = c.req.param("id");
   if (a && a.role === "BARBER" && a.staff_id !== staffId) fail(403, "You can only set up your own payouts");
@@ -1275,7 +1275,11 @@ sandbox.post("/staff/:id/payments/connect", async (c) => {
   const shop = await readShop(c);
   const st = await c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND id=?").bind(shop.id, staffId).first<Staff>();
   if (!st) fail(404, "Barber not found");
-  const email = (await c.env.DB.prepare("SELECT u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.staff_id=? LIMIT 1").bind(shop.id, staffId).first<{ email: string }>())?.email || (a?.staff_id === staffId ? a.email : "");
+  // Stripe needs a contact email on every recipient account. Prefer the barber's own login, then the
+  // address typed in, then the person starting this (the owner) — Stripe's form lets the barber
+  // correct it during onboarding.
+  const email = (await c.env.DB.prepare("SELECT u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.staff_id=? LIMIT 1").bind(shop.id, staffId).first<{ email: string }>())?.email || body.email || a?.email || "";
+  if (!email) fail(400, "Add an email address for this barber first");
   const { account, url } = await beginOnboarding(c.env.DB, shop, { type: "STAFF", id: st!.id, name: st!.name, email }, new URL(c.req.url).origin, `/workspace?stripe=return&for=${st!.id}`);
   await c.env.DB.batch([audit(c, "staff", st!.id, "STRIPE_ONBOARDING_STARTED", `${st!.name}: account ${account.id}.`)]);
   return c.json({ ok: true, account_id: account.id, url }, 201);

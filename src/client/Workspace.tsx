@@ -3275,7 +3275,7 @@ const MSG_LABELS: Record<string, string> = {
   staff_invite: "Team invitation", review_request: "Review request", test_message: "Test message",
   waitlist_joined: "Joined the list", waitlist_offer: "A time is offered", waitlist_booked: "Offer accepted", waitlist_released: "Declined or expired",
 };
-type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "twilio" | "mailbox"; from: string } };
+type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "twilio" | "clicksend" | "mailbox"; from: string } };
 type Messaging = { msg_sms: number; msg_email: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
 type OutboxData = { notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number } };
 function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
@@ -3355,7 +3355,8 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
   }
   const fmtWhen = (ms: number) => new Date(ms).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: w.shop.timezone || "Europe/London" });
   const tone: Record<string, "good" | "next" | "paid" | "warn" | "note"> = { SENT: "good", QUEUED: "next", SENDING: "next", FAILED: "warn", SKIPPED: "note" };
-  const live = data ? data.providers.email.provider === "resend" || data.providers.sms.provider === "twilio" : false;
+  const smsLive = data ? data.providers.sms.provider !== "mailbox" : false;
+  const live = data ? data.providers.email.provider === "resend" || smsLive : false;
   const c30 = data?.counts_30d || {};
   return (
     <section className="workspace-panel" aria-labelledby="waitlist-settings-heading" data-testid="waitlist-settings">
@@ -3366,7 +3367,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
         </div>
         {data && (
           <StatusPill tone={live ? "good" : "note"} data-testid="messaging-status">
-            {live ? `Live · ${[data.providers.email.provider === "resend" && "email", data.providers.sms.provider === "twilio" && "SMS"].filter(Boolean).join(" + ")}` : "Preview mode · nothing is sent"}
+            {live ? `Live · ${[data.providers.email.provider === "resend" && "email", smsLive && "SMS"].filter(Boolean).join(" + ")}` : "Preview mode · nothing is sent"}
           </StatusPill>
         )}
       </div>
@@ -3381,7 +3382,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
             <div className="workspace-switch-row">
               <span>
                 <strong>Text messages</strong>
-                <small>Confirmations, reminders and sign-in codes by SMS when we have a mobile number.{data.providers.sms.provider === "twilio" ? ` Sending from ${msg.msg_sms_sender || data.providers.sms.from}.` : ""}</small>
+                <small>Confirmations, reminders and sign-in codes by SMS when we have a mobile number.{smsLive ? ` Sending from ${msg.msg_sms_sender || data.providers.sms.from || "a shared number"}.` : ""}</small>
               </span>
               <label className="switch">
                 <input type="checkbox" checked={!!msg.msg_sms} onChange={(e) => setMsg({ ...msg, msg_sms: e.target.checked ? 1 : 0 })} aria-label="Text messages" data-testid="msg-sms" />

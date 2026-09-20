@@ -12,10 +12,11 @@ import { platformPolicy } from "./payouts";
 
 type Env = { STRIPE_SECRET_KEY?: string };
 const env = (): Env => (typeof process !== "undefined" ? (process.env as Env) : {});
-async function stripe<T>(path: string, body?: Record<string, string | number | boolean | undefined>, method?: "GET" | "POST" | "DELETE"): Promise<T> {
+async function stripe<T>(path: string, body?: Record<string, string | number | boolean | undefined>, method?: "GET" | "POST" | "DELETE", opts: { idempotency?: string } = {}): Promise<T> {
   const key = env().STRIPE_SECRET_KEY;
   if (!key) throw new StripeError("Stripe is not configured", 503, "stripe_off");
   const headers: Record<string, string> = { Authorization: `Bearer ${key}`, "Stripe-Version": "2024-06-20" };
+  if (opts.idempotency) headers["Idempotency-Key"] = opts.idempotency;
   let url = `https://api.stripe.com/v1${path}`;
   let init: RequestInit = { method: method ?? (body ? "POST" : "GET"), headers };
   if (body) {
@@ -53,6 +54,7 @@ export async function createLinkRequest(db: DB, shop: Shop, booking: StoredBooki
   const ref = booking.id.slice(0, 6).toUpperCase();
   const body: Record<string, string | number> = {
     mode: "payment",
+    "managed_payments[enabled]": "false", // OLLO is merchant of record (see stripe.ts)
     "line_items[0][quantity]": 1,
     "line_items[0][price_data][currency]": (shop.currency || "GBP").toLowerCase(),
     "line_items[0][price_data][unit_amount]": amounts.service_pence,
@@ -139,7 +141,7 @@ export async function createTerminalRequest(db: DB, shop: Shop, booking: StoredB
     "metadata[shop_id]": shop.id,
     "metadata[booking_id]": booking.id,
     "metadata[payment_request_id]": id,
-  });
+  }, "POST", { idempotency: `terminal-${id}` });
   if (readerId !== "sdk") {
     await stripe(`/terminal/readers/${encodeURIComponent(readerId)}/process_payment_intent`, { payment_intent: pi.id, "process_config[skip_tipping]": true });
   }
