@@ -308,11 +308,13 @@ app.get("/pay/:id", async (c) => {
   if (!req) return c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Payment link</title><main style="font-family:system-ui;max-width:420px;margin:15vh auto;padding:24px;text-align:center"><h1>This payment link has gone</h1><p>Ask the shop for a new one.</p></main>`, 404);
   const money = new Intl.NumberFormat("en-GB", { style: "currency", currency: req.currency || "GBP" }).format((req.service_pence + req.tip_pence) / 100);
   const done = c.req.query("done");
+  // Scanned from the QR at the chair: skip the interstitial and open Stripe Checkout directly.
+  if (c.req.query("go") === "1" && req.status === "OPEN" && req.expires_at > Date.now() && req.url) return c.redirect(req.url, 302);
   const body =
     req.status === "PAID" || done === "1"
       ? `<h1>Paid — thank you</h1><p>${money} to ${esc(req.name)}. Your card statement will show ${esc(req.name)}.</p>`
       : req.status === "OPEN" && req.expires_at > Date.now()
-        ? `<h1>${money} to ${esc(req.name)}</h1><p>Pay by card on your phone.</p><p><a href="${esc(req.url)}" style="display:inline-block;padding:14px 22px;border-radius:12px;background:#111;color:#fff;text-decoration:none;font-weight:600">Pay ${money}</a></p><p style="color:#666;font-size:14px">${done === "0" ? "Payment not completed — you can try again." : "The link is valid for 30 minutes."}</p>`
+        ? `<h1>${money} to ${esc(req.name)}</h1><p>Pay by card on your phone.</p><p><a href="${esc(req.url)}" style="display:inline-block;padding:14px 22px;border-radius:12px;background:#0b1a17;color:#4ade80;text-decoration:none;font-weight:600">Pay ${money}</a></p><p style="color:#666;font-size:14px">${done === "0" ? "Payment not completed — you can try again." : "The link is valid for 30 minutes."}</p>`
         : `<h1>This payment link has expired</h1><p>Ask ${esc(req.name)} for a new one.</p>`;
   return c.html(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Pay ${esc(req.name)}</title></head><body style="margin:0;background:#f6f6f4"><main style="font-family:system-ui,-apple-system,sans-serif;max-width:420px;margin:12vh auto;padding:28px;background:#fff;border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.06);text-align:center;color:#111">${body}<p style="color:#999;font-size:12px;margin-top:28px">Powered by OLLO</p></main></body></html>`);
 });

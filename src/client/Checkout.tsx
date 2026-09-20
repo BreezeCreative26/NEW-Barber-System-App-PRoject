@@ -230,6 +230,7 @@ export function CardAtChair({ api, booking, amount, live, onPaid, onClose }: { a
   const [readers, setReaders] = useState<{ id: string; label: string; status: string }[]>([]);
   const [req, setReq] = useState<PayRequest | null>(null);
   const [qr, setQr] = useState("");
+  const [shortUrl, setShortUrl] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState("");
@@ -253,8 +254,8 @@ export function CardAtChair({ api, booking, amount, live, onPaid, onClose }: { a
   async function startLink() {
     setBusy(true); setError("");
     try {
-      const r = await api<{ request: PayRequest; qr: string }>(`/bookings/${booking.id}/pay-link`, "POST", { version: booking.version, ...amount });
-      setReq(r.request); setQr(r.qr); setMode("link");
+      const r = await api<{ request: PayRequest; qr: string; short_url?: string }>(`/bookings/${booking.id}/pay-link`, "POST", { version: booking.version, ...amount });
+      setReq(r.request); setQr(r.qr); setShortUrl(r.short_url || r.request.url); setMode("link");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not create the link."); } finally { setBusy(false); }
   }
   async function startReader(readerId: string) {
@@ -304,7 +305,7 @@ export function CardAtChair({ api, booking, amount, live, onPaid, onClose }: { a
               <div className="panel-actions-row">
                 {booking.phone && <Button variant="secondary" onClick={() => send("SMS")}>Text it</Button>}
                 {booking.email && <Button variant="secondary" onClick={() => send("EMAIL")}>Email it</Button>}
-                <Button variant="ghost" onClick={() => navigator.clipboard?.writeText(req.url)}>Copy link</Button>
+                <Button variant="ghost" onClick={() => navigator.clipboard?.writeText(shortUrl || req.url)}>Copy link</Button>
               </div>
               {sent && <p className="workspace-success" role="status">Sent to {sent}.</p>}
               <p className="workspace-footnote"><Icon name="hourglass" size={13} /> Waiting for the customer… valid 30 minutes.</p>

@@ -18,7 +18,7 @@ customer card ──► OLLO platform balance ──┬─► barber Express acc
 | Flow | Who pays whom | How |
 |---|---|---|
 | Online deposit at booking | customer → OLLO | Stripe Checkout, `payment_intent` stored on the booking, posted to the till as `ONLINE` at checkout |
-| Card at the chair | customer → OLLO | Terminal / Tap to Pay (not yet built); till row carries `stripe_payment_intent` |
+| Card at the chair | customer → OLLO | **Tap on their phone** (QR → Stripe Checkout with Apple Pay / Google Pay / card — live) or a paired Stripe reader; till row carries `stripe_payment_intent` |
 | Cash / transfer / voucher at the chair | customer → whoever holds the till | recorded in the ledger only |
 | Pay run approve | OLLO → barber, OLLO → shop | `transfers` rows; `pay_runs.status = TRANSFERRED` |
 | Refund / void / dispute after settlement | barber & shop → OLLO | proportional `transfer reversals`; never edits |
@@ -121,3 +121,25 @@ is: the money went to whoever held the machine.
   is Stripe's).
 - Platform-admin screen for `platform_payments` and top-ups (SQL for now).
 - Stripe Billing for the shop's OLLO subscription.
+
+## Tap at the chair (live)
+
+Checkout → **Card** → **Tap on their phone**. OLLO creates a Stripe Checkout Session for the
+service + tip and shows a QR that encodes the short `/pay/:id?go=1` URL (dense Stripe URLs scan
+badly). The customer scans it with their camera, lands straight on Stripe Checkout and pays with
+Apple Pay / Google Pay if their phone has it, or types a card. `checkout.session.completed` →
+webhook → `payments` row (`method=CARD`, `stripe_payment_intent`), visit completed, barber's share
+queued for the next pay run. The till polls `/payment-requests/:id` every 3 s and flips to "Paid".
+
+Verified end-to-end on production (test mode) 2026-09-20 on `ollo-test`: £28 + £2 tip, card
+4242, webhook landed, booking COMPLETED, ledger row present.
+
+Apple Pay needs the domain registered once per Stripe account:
+`STRIPE_SECRET_KEY=sk_… node scripts/stripe-setup.mjs https://new-barber-system-app-p-roject.vercel.app`
+(registers the payment-method domain; the association file is served at
+`/.well-known/apple-developer-merchantid-domain-association`). Google Pay and Link need no setup.
+
+True Tap to Pay on the *barber's* phone (customer taps their card on the barber's iPhone/Android)
+needs Stripe's native Terminal SDK inside an app shell (Capacitor) plus Apple's Tap-to-Pay
+entitlement — the server side (`reader_id: "sdk"`, `/terminal/connection-token`) is already in
+place for it.

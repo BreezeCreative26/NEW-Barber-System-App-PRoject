@@ -1456,8 +1456,11 @@ sandbox.post("/bookings/:id/pay-link", async (c) => {
   const { b, shop } = await chairPrecheck(c, c.req.param("id"), body);
   const req = await createLinkRequest(c.env.DB, shop, b, body, c.get("actor"), new URL(c.req.url).origin);
   await c.env.DB.batch([audit(c, "booking", b.id, "PAY_LINK_CREATED", `${body.service_pence + body.tip_pence}p card request via link (${req.id.slice(0, 8)}).`)]);
-  const qr = await QRCode.toDataURL(req.url, { margin: 1, width: 320 });
-  return c.json({ request: req, qr }, 201);
+  // The QR carries OLLO's short /pay/:id URL (scans in a blink), which hands straight to Stripe
+  // Checkout while the request is open. The long checkout.stripe.com URL would make a dense code.
+  const short = `${new URL(c.req.url).origin}/pay/${req.id}?go=1`;
+  const qr = await QRCode.toDataURL(short, { margin: 1, width: 320, errorCorrectionLevel: "M" });
+  return c.json({ request: req, qr, short_url: short }, 201);
 });
 // Send the open link to the customer's phone/email (shop-branded message).
 sandbox.post("/payment-requests/:id/send", async (c) => {
