@@ -1709,6 +1709,7 @@ export function Workspace() {
         }
         onAccount={() => setAccountOpen((v) => !v)}
         accountOpen={accountOpen}
+        shop={w ? { name: w.shop.name, logo: w.logo_url || null } : null}
       >
       </TopBar>
       {w && accountOpen && (

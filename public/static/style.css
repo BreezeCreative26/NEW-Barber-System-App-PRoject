@@ -1576,6 +1576,67 @@ input[aria-invalid="true"] {
   font-weight: 800;
   letter-spacing: 0.02em;
 }
+.brand-wordmark {
+  height: 28px;
+  width: auto;
+  display: block;
+}
+.brand.light .brand-wordmark {
+  filter: invert(1) hue-rotate(180deg);
+}
+/* Shop-branded workspace: their logo/initial + name, OLLO as a quiet "Powered by" line. */
+.brand-shop {
+  gap: 10px;
+  min-width: 0;
+}
+.brand-shop-logo {
+  object-fit: cover;
+  background: #fff;
+}
+.brand-shop-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink);
+  color: #fff;
+  font-weight: 800;
+  font-size: 15px;
+}
+.brand-shop-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  min-width: 0;
+}
+.brand-shop-name {
+  font-size: 15px;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.brand-powered {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #6b6f80;
+  text-transform: none;
+}
+.brand-powered img {
+  height: 10px;
+  width: auto;
+  opacity: 0.85;
+}
+.brand.light .brand-powered {
+  color: #c9d1cc;
+}
+.brand.light .brand-powered img {
+  filter: invert(1) hue-rotate(180deg);
+}
 .brand-os {
   display: none;
 }

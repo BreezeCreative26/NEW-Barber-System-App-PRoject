@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 268 78" role="img" aria-label="OLLO">
+  <!-- OLLO wordmark: ring O, two rounded-stroke Ls, final O carrying a calendar-with-tick. Recolour via currentColor. -->
+  <g fill="none" stroke="currentColor" stroke-width="17" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="39" cy="39" r="30.5"/>
+    <path d="M91 10v43a16 16 0 0 0 16 16h11"/>
+    <path d="M143 10v43a16 16 0 0 0 16 16h11"/>
+  </g>
+  <circle cx="229" cy="39" r="39" fill="currentColor"/>
+  <g fill="none" stroke="#faf6ef" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="212" y="23" width="34" height="33" rx="6.5" stroke-width="5.5"/>
+    <path d="M212 34.5h34" stroke-width="4"/>
+    <path d="M220 16v11M238 16v11" stroke-width="5.5"/>
+    <path d="M220.5 43l5.5 5.5 11.5-11.5" stroke-width="5.5"/>
+  </g>
+</svg>

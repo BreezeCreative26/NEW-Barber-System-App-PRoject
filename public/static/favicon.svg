@@ -1,11 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="OLLO">
-  <circle cx="32" cy="32" r="32" fill="#6985e8"/>
-  <!-- friendly calendar-bot -->
-  <rect x="24" y="15" width="5" height="8" rx="2.5" fill="#faf6ef"/>
-  <rect x="35" y="15" width="5" height="8" rx="2.5" fill="#faf6ef"/>
-  <rect x="16" y="20" width="32" height="30" rx="8" fill="#faf6ef"/>
-  <rect x="20" y="28" width="24" height="18" rx="4.5" fill="#6985e8"/>
-  <circle cx="26.5" cy="34.5" r="2.4" fill="#faf6ef"/>
-  <circle cx="37.5" cy="34.5" r="2.4" fill="#faf6ef"/>
-  <path d="M26 39.5c1.6 2.4 4 3.6 6 3.6s4.4-1.2 6-3.6" fill="none" stroke="#faf6ef" stroke-width="2.4" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 78 78" role="img" aria-label="OLLO">
+  <!-- OLLO mark: the final O of the wordmark, carrying a calendar with a tick. Recolour via currentColor. -->
+  <circle cx="39" cy="39" r="39" fill="#0b1a17"/>
+  <g fill="none" stroke="#faf6ef" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="22" y="23" width="34" height="33" rx="6.5" stroke-width="5.5"/>
+    <path d="M22 34.5h34" stroke-width="4"/>
+    <path d="M30 16v11M48 16v11" stroke-width="5.5"/>
+    <path d="M30.5 43l5.5 5.5 11.5-11.5" stroke-width="5.5"/>
+  </g>
 </svg>
