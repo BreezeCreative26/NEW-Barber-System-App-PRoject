@@ -96,9 +96,20 @@ reminders and the 07:00 summaries go out even on a quiet morning.
 
 - [x] Code: wizard, invites, forgot/reset, alerts, Stripe v2 accounts, ClickSend, Resend fallback
 - [x] Supabase: migration 0014 applied
-- [x] Stripe test webhooks registered (`we_1UHkLj…`, `we_1UHkLk…`) — re-run after key roll
+- [x] Stripe test webhooks registered (`we_1UHm1G…`, `we_1UHm1H…`) — **re-run `stripe-setup.mjs` and update the two Vercel vars after you roll the key**
 - [x] Resend: send verified from `onboarding@resend.dev` → ollosoftwareio@gmail.com
 - [x] ClickSend: credentials verified (balance £1.96)
-- [ ] Vercel env vars (step 2) — **needs you** (no Vercel token in the build sandbox)
+- [x] Vercel env vars (step 2) — set 2026-09-20 via API: Stripe key + both webhook secrets (endpoints `we_1UHm1G…`, `we_1UHm1H…`), ClickSend, Resend, CRON_SECRET; empty MAIL_FROM/Twilio removed; redeployed. `/api/health` shows stripe test + clicksend + resend.
 - [ ] Resend domain (step 3) — **needs your domain**
 - [ ] Credential rotation (step 0) — **needs you**
+
+## 7. WhatsApp (Infobip) — pending your account setup
+
+Credential received is an **Infobip** API key. Account: balance **€0.00**; only WhatsApp sender is
+Infobip's shared **test** number `+44 7860 088970` (keyword `OLLOSOFTWAREIO`, stock templates only).
+To go real:
+1. portal.infobip.com → Billing → add funds (WhatsApp ≈ €0.03–0.05 per UK conversation).
+2. Channels → WhatsApp → **Register sender**: a number not on personal WhatsApp (Infobip can sell a
+   virtual UK number), display name "OLLO", Meta Business verification (company docs; 1–5 days).
+3. Tell me the sender number; I submit OLLO's templates for approval via API and switch `INFOBIP_WA_SENDER`.
+Until then the app runs WhatsApp in "try it" mode against the test sender.
