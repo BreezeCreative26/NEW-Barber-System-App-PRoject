@@ -14,10 +14,20 @@ test("landing page: SEO head, CTAs → /signup, no horizontal overflow on a phon
   expect(await page.locator('script[type="application/ld+json"]').count()).toBe(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("booked");
-  expect(await page.locator('a[href="/signup"]').count()).toBeGreaterThanOrEqual(4);
-  const img = page.locator(".l-hero-media img");
-  await expect(img).toBeVisible();
-  expect(await img.evaluate((e: HTMLImageElement) => e.naturalWidth)).toBeGreaterThan(0);
+  expect(await page.locator('a[href="/signup"]').count()).toBeGreaterThanOrEqual(5);
+  // The hero is a CSS-animated mock of the real calendar (no JS, no image): the dragged card must
+  // actually move between frames, and the "day" beats + phone mock render.
+  const drag = page.locator(".mock-drag");
+  await expect(drag).toBeVisible();
+  const y0 = (await drag.boundingBox())!.y;
+  await page.waitForTimeout(3200);
+  const y1 = (await drag.boundingBox())!.y;
+  expect(Math.abs(y1 - y0)).toBeGreaterThan(10);
+  await expect(page.locator(".beat")).toHaveCount(4);
+  await expect(page.locator(".mock-phone")).toBeVisible();
+  // Strict CSP: no inline styles or scripts anywhere on the page.
+  expect(await page.locator("[style]").count()).toBe(0);
+  expect(await page.locator("script:not([type='application/ld+json'])").count()).toBe(0);
   await page.getByTestId("landing-cta-hero").click();
   await expect(page).toHaveURL(/\/signup$/);
   await expect(page.getByLabel("Shop name")).toBeVisible();

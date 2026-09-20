@@ -25,18 +25,18 @@ function calendarMock() {
   <div class="mock-cal-body">
     <div class="mock-times">${hours.map((h) => `<span>${h}</span>`).join("")}</div>
     <div class="mock-col">
-      <div class="mock-card c-sage" style="--top:0;--h:2"><b>10:00</b> Ada Lovelace<small>Signature cut · £28</small></div>
-      <div class="mock-card c-sage" style="--top:6;--h:2"><b>13:00</b> Tom Reyes<small>Skin fade · £30</small></div>
-      <div class="mock-block" style="--top:4;--h:2"><b>⊘ Lunch</b><small>12:00–13:00</small></div>
+      <div class="mock-card c-sage pt-0 ph-2"><b>10:00</b> Ada Lovelace<small>Signature cut · £28</small></div>
+      <div class="mock-card c-sage pt-6 ph-2"><b>13:00</b> Tom Reyes<small>Skin fade · £30</small></div>
+      <div class="mock-block pt-4 ph-2"><b>⊘ Lunch</b><small>12:00–13:00</small></div>
     </div>
     <div class="mock-col">
-      <div class="mock-card c-sand" style="--top:1;--h:2"><b>10:30</b> Kofi Mensah<small>Beard trim · £18</small></div>
-      <div class="mock-ghost" style="--top:5;--h:2"><b class="mock-ghost-time">12:30</b><span>Sam Okafor</span></div>
-      <div class="mock-card c-sand mock-drag" style="--top:1;--h:2"><b class="mock-drag-time">10:30<i class="t1">11:00</i><i class="t2">11:30</i><i class="t3">12:00</i></b> Sam Okafor<small>Cut &amp; beard · £42</small></div>
+      <div class="mock-card c-sand pt-1 ph-2"><b>10:30</b> Kofi Mensah<small>Beard trim · £18</small></div>
+      <div class="mock-ghost pt-5 ph-2"><b class="mock-ghost-time">12:30</b><span>Sam Okafor</span></div>
+      <div class="mock-card c-sand mock-drag pt-1 ph-2"><b class="mock-drag-time">10:30<i class="t1">11:00</i><i class="t2">11:30</i><i class="t3">12:00</i></b> Sam Okafor<small>Cut &amp; beard · £42</small></div>
     </div>
     <div class="mock-col">
-      <div class="mock-card c-blue" style="--top:0;--h:3"><b>10:00</b> Priya Nair<small>Full works · £60</small></div>
-      <div class="mock-card c-blue c-done" style="--top:4;--h:2"><b>12:00</b> Leo Grant<small>Hot towel shave · £25 · Paid</small></div>
+      <div class="mock-card c-blue pt-0 ph-3"><b>10:00</b> Priya Nair<small>Full works · £60</small></div>
+      <div class="mock-card c-blue c-done pt-4 ph-2"><b>12:00</b> Leo Grant<small>Hot towel shave · £25 · Paid</small></div>
     </div>
     <div class="mock-now"><span>11:26</span></div>
   </div>

@@ -65,6 +65,10 @@
 .mock-times span:nth-child(1) { top: 0; } .mock-times span:nth-child(2) { top: calc(var(--step)*2); } .mock-times span:nth-child(3) { top: calc(var(--step)*4); } .mock-times span:nth-child(4) { top: calc(var(--step)*6); } .mock-times span:nth-child(5) { top: calc(var(--step)*8); }
 .mock-times span:nth-child(1) { transform: none; }
 .mock-col { position: relative; border-left: 1px solid var(--line-2); }
+/* Positions as classes (the page CSP forbids inline styles). */
+.pt-0 { --top: 0; } .pt-1 { --top: 1; } .pt-2 { --top: 2; } .pt-3 { --top: 3; } .pt-4 { --top: 4; } .pt-5 { --top: 5; } .pt-6 { --top: 6; } .pt-7 { --top: 7; } .pt-8 { --top: 8; } .pt-9 { --top: 9; } 
+.ph-1 { --h: 1; } .ph-2 { --h: 2; } .ph-3 { --h: 3; } .ph-4 { --h: 4; } 
+
 .mock-card, .mock-block, .mock-ghost { position: absolute; left: 4px; right: 4px; top: calc(var(--top) * var(--step)); height: calc(var(--h) * var(--step) - 3px); border-radius: 6px; padding: 4px 7px; line-height: 1.25; overflow: hidden; }
 .mock-card { border-left: 3px solid; background: #eef4f0; box-shadow: 0 1px 2px rgba(24,27,42,.08); }
 .mock-card b { font-weight: 700; margin-right: 4px; }
@@ -213,12 +217,13 @@
 .l-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 22px clamp(16px, 4vw, 48px) calc(22px + env(safe-area-inset-bottom)); color: var(--muted-2); font-size: 13px; max-width: 1240px; margin: 0 auto; }
 .l-footer nav { display: flex; gap: 16px; }
 
-/* ---- Scroll reveal (progressive: browsers without view timelines just show content) ---- */
+/* ---- Scroll reveal. Additive only: blocks are fully opaque at rest and merely rise a little as they
+   enter, so a browser (or full-page renderer) that never advances the view timeline still shows
+   everything. ---- */
 @supports (animation-timeline: view()) {
-  .beat, .l-customers-copy, .l-customers-media, .l-steps li, .l-price, .l-section-head { animation: reveal linear both; animation-timeline: view(); animation-range: entry 0% entry 35%; }
-  .l-steps li:nth-child(2) { animation-range: entry 10% entry 45%; } .l-steps li:nth-child(3) { animation-range: entry 20% entry 55%; }
+  .beat, .l-customers-copy, .l-customers-media, .l-steps li, .l-price, .l-section-head { animation: reveal linear both; animation-timeline: view(); animation-range: entry 0% entry 30%; }
 }
-@keyframes reveal { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
+@keyframes reveal { from { transform: translateY(28px); } to { transform: none; } }
 
 /* ---- Responsive ---- */
 @media (max-width: 960px) {
