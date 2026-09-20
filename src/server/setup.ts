@@ -263,7 +263,7 @@ setup.get("/slug", async (c) => {
   if (!parsed.success) return c.json({ slug: raw, ok: false, reason: parsed.error.issues[0]?.message || "Letters, numbers and dashes only" });
   const shop = await readShop(c);
   const taken = await c.env.DB.prepare("SELECT 1 AS x FROM shops WHERE slug=? AND id<>?").bind(parsed.data, shop.id).first();
-  const reserved = ["book", "api", "static", "workspace", "signup", "login", "admin", "ollo", "manage", "pay", "offer", "s"].includes(parsed.data);
+  const reserved = ["book", "api", "static", "workspace", "signup", "login", "admin", "ollo", "manage", "pay", "offer", "s", "barbers", "salons", "beauty", "tattoo", "clinics", "trainers", "pricing", "industries"].includes(parsed.data);
   return c.json({ slug: parsed.data, ok: !taken && !reserved, reason: taken ? "Someone already has that address" : reserved ? "That one's reserved" : "" });
 });
 // Suggest a slug from the shop name (used to pre-fill).

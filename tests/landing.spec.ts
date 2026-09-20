@@ -9,11 +9,11 @@ test("landing page: SEO head, CTAs → /signup, no horizontal overflow on a phon
   const res = await page.goto("/");
   expect(res!.status()).toBe(200);
   await expect(page).toHaveTitle(/OLLO/);
-  expect(await page.locator('meta[name="description"]').getAttribute("content")).toMatch(/barbershop/i);
+  expect(await page.locator('meta[name="description"]').getAttribute("content")).toMatch(/appointment/i);
   expect(await page.locator('link[rel="canonical"]').getAttribute("href")).toBe(origin + "/");
   expect(await page.locator('script[type="application/ld+json"]').count()).toBe(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Built by barbers");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("run on appointments");
   expect(await page.locator('a[href="/signup"]').count()).toBeGreaterThanOrEqual(4);
   // The page follows the brand mockup: dark hero with the barber photo + confirmation phone, the
   // six-feature grid, four numbered steps, the two-card price comparison, four testimonials.
@@ -24,7 +24,10 @@ test("landing page: SEO head, CTAs → /signup, no horizontal overflow on a phon
   await expect(page.locator(".l-compare-card")).toHaveCount(2);
   await expect(page.locator(".l-quotes li")).toHaveCount(4);
   await expect(page.locator(".l-header img[alt='OLLO']")).toBeVisible();
-  for (const id of ["features", "pricing", "about", "testimonials", "faq"]) await expect(page.locator(`#${id}`)).toHaveCount(1);
+  for (const id of ["features", "pricing", "about", "industries", "testimonials", "faq"]) await expect(page.locator(`#${id}`)).toHaveCount(1);
+  // Industry grid links through to the barber vertical.
+  await expect(page.locator(".l-industries-grid li")).toHaveCount(6);
+  await expect(page.locator('.l-industries-grid a[href="/barbers"]')).toBeVisible();
   // Strict CSP: no inline styles or scripts anywhere on the page.
   expect(await page.locator("[style]").count()).toBe(0);
   expect(await page.locator("script:not([type='application/ld+json'])").count()).toBe(0);
@@ -35,6 +38,25 @@ test("landing page: SEO head, CTAs → /signup, no horizontal overflow on a phon
   const s = await page.request.post(base + "/auth/demo", { headers: { Origin: origin }, data: { fixture: true, as: "owner" } });
   expect(s.status()).toBe(201);
   await page.goto("/");
+  await expect(page).toHaveURL(/\/workspace/);
+});
+
+test("barber vertical at /barbers: same layout, barber copy, links back to the universal page, signed-in users skip it", async ({ page }) => {
+  const res = await page.goto("/barbers");
+  expect(res!.status()).toBe(200);
+  await expect(page).toHaveTitle(/barbers/i);
+  expect(await page.locator('link[rel="canonical"]').getAttribute("href")).toBe(origin + "/barbers");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Built by barbers");
+  await expect(page.locator(".l-hero-photo")).toHaveAttribute("src", /hero-barber/);
+  await expect(page.locator(".l-grid6 li")).toHaveCount(6);
+  await expect(page.locator(".l-quotes li")).toHaveCount(4);
+  await expect(page.locator("#industries")).toHaveCount(0);
+  await expect(page.locator('.l-hero-vertical[href="/"]')).toBeVisible();
+  expect(await page.locator("[style]").count()).toBe(0);
+  expect(await page.locator("script:not([type='application/ld+json'])").count()).toBe(0);
+  const s = await page.request.post(base + "/auth/demo", { headers: { Origin: origin }, data: { fixture: true, as: "owner" } });
+  expect(s.status()).toBe(201);
+  await page.goto("/barbers");
   await expect(page).toHaveURL(/\/workspace/);
 });
 

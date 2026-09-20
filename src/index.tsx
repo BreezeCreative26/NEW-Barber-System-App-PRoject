@@ -8,7 +8,7 @@ import type { Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
 import { report, telemetryStatus } from "./server/telemetry";
-import { landingPage } from "./server/landing";
+import { landingPage, VERTICALS } from "./server/landing";
 import { getCookie } from "hono/cookie";
 import { ACCOUNT_COOKIE } from "./server/accounts";
 import { expireHolds, markDepositPaid, stripeStatus, verifyWebhook } from "./server/stripe";
@@ -198,7 +198,20 @@ app.get("/", (c) => {
     "Content-Security-Policy",
     "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
-  return c.html(landingPage(publicOrigin(c)));
+  return c.html(landingPage(publicOrigin(c), VERTICALS.universal));
+});
+// Vertical landing pages share the layout; only the story changes. Signed-in owners still go to work.
+app.get("/barbers", (c) => {
+  if (getCookie(c, ACCOUNT_COOKIE)) return c.redirect("/workspace");
+  c.header("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
+  c.header("Vary", "Cookie");
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  c.header(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
+  );
+  return c.html(landingPage(publicOrigin(c), VERTICALS.barbers));
 });
 const secure = (c: { header: (k: string, v: string) => void }) => {
   c.header("Cache-Control", "no-store");
@@ -268,7 +281,8 @@ app.get("/sitemap.xml", async (c) => {
   const urls = rows.results.map((r) => `<url><loc>${esc(`${origin}/${r.slug}`)}</loc>${r.updated_at ? `<lastmod>${new Date(r.updated_at).toISOString().slice(0, 10)}</lastmod>` : ""}<changefreq>weekly</changefreq></url>`).join("");
   c.header("Content-Type", "application/xml; charset=utf-8");
   c.header("Cache-Control", "public, max-age=3600");
-  return c.body(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`);
+  const statics = ["/", "/barbers"].map((p) => `<url><loc>${esc(origin + p)}</loc><changefreq>monthly</changefreq></url>`).join("");
+  return c.body(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${statics}${urls}</urlset>`);
 });
 // Uploaded photos. Ids are unique per upload, so the response can be cached hard.
 app.get("/media/:id", async (c) => {

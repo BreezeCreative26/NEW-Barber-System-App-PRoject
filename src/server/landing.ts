@@ -7,6 +7,10 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&
 // Inline icons (stroke = currentColor) so the page stays script-free and one request.
 const svg = (d: string, extra = "") => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}>${d}</svg>`;
 const ICO = {
+  scissors: svg('<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/>'),
+  sparkle: svg('<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/>'),
+  pen: svg('<path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/>'),
+  heart: svg('<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>'),
   check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
   x: svg('<path d="M7 7l10 10M17 7L7 17"/>'),
   slash: svg('<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>'),
@@ -24,17 +28,142 @@ const ICO = {
   yt: svg('<rect x="2.5" y="6" width="19" height="12" rx="4"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor"/>'),
   li: svg('<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 10v7M8 7v.1M12 17v-4a2.5 2.5 0 0 1 5 0v4M12 10v7"/>'),
 };
-const QUOTES = [
+type Quote = { img: string; name: string; role: string; where: string; quote: string };
+type Step = string;
+type Faq = { q: string; a: string };
+// One layout, several audiences. `/` speaks to every appointment business; `/barbers` is the
+// original "Built by barbers" story. Add a vertical by adding an entry — copy only, no new CSS.
+export type Vertical = {
+  slug: "" | "barbers";
+  path: string;
+  title: string;
+  description: string;
+  audience: string;
+  heroEyebrow: string;
+  heroH1: string;
+  heroLede: string;
+  heroImg: { src: string; small: string; alt: string };
+  everythingLede: string;
+  whyH2: string;
+  whyLede: string;
+  script: string;
+  actionH2: string;
+  steps: Step[];
+  seatWord: string; // "barber or stylist" / "team member"
+  seatWordPlural: string;
+  chairWord: string; // "chair" / "seat"
+  priceListLogin: string;
+  cardCopy: string;
+  testiEyebrow: string;
+  quotes: Quote[];
+  faqH2: string;
+  faqs: Faq[];
+  finalH2: string;
+  footerTag: string;
+  industries?: { name: string; blurb: string; href?: string; icon: string }[];
+};
+
+const BARBER_QUOTES: Quote[] = [
   { img: "dan", name: "Dan", role: "Barber Shop Owner", where: "London", quote: "OLLO has completely changed the way we run our shop. It’s simple, reliable and our clients love the WhatsApp confirmations." },
   { img: "jess", name: "Jess", role: "Hairdresser", where: "Manchester", quote: "We tried a few booking systems and OLLO is by far the best. It’s so easy to use and knowing exactly what we pay each month is a game-changer." },
   { img: "sam", name: "Sam", role: "Salon Owner", where: "Birmingham", quote: "The support team are unreal. They helped us move everything across from our old system and made it stress free." },
   { img: "ria", name: "Ria", role: "Barber", where: "Leeds", quote: "Finally a booking system that actually understands the industry. Made by people who get it." },
 ];
 
-export function landingPage(origin: string) {
-  const title = "OLLO — Built by barbers. For the industry. Booking software for barbers, hairdressers & salons";
-  const description =
-    "Barbershop booking software: online booking, a drag-and-drop calendar, deposits and pay-at-the-chair, barber pay runs, reminders by text and email. Set up your shop in two minutes. Free to start.";
+const BARBER_FAQS: Faq[] = [
+  { q: "Do my customers need an app?", a: "No. They book from your link in any browser, get a text, WhatsApp or email with a private link, and can move or cancel from there." },
+  { q: "Can I bring my existing customers over?", a: "Yes — import a CSV from your old system in Settings → Customers and their history comes with them." },
+  { q: "Do barbers get their own login?", a: "Yes. Invite each barber; they see their own day, take payments at the chair, block their own time and watch their wallet." },
+  { q: "What about deposits and no‑shows?", a: "Set a deposit, ask for full prepayment, or let people pay at the chair — shop‑wide or per service. No‑shows can be charged; refunds are automatic when you cancel on them." },
+  { q: "What does it really cost?", a: "£24.99 a month, which includes your first barber. Each extra chair is £7.99 — so a three-chair shop pays £40.97. Texts are 6p, WhatsApp 3p, email is free. Card payments are optional at 2.2% + 20p all in; leave them off and pay nothing. The AI Concierge is an optional £49 a month. Nothing per booking, no commission, and you can see exactly what you’ve used in your settings." },
+  { q: "Is my data safe?", a: "Hosted in the EU, encrypted in transit, backed up daily. You can export everything at any time." },
+];
+
+const UNIVERSAL_QUOTES: Quote[] = [
+  { img: "dan", name: "Dan", role: "Barbershop Owner", where: "London", quote: "OLLO has completely changed the way we run our shop. It’s simple, reliable and our clients love the WhatsApp confirmations." },
+  { img: "jess", name: "Jess", role: "Beauty Studio Owner", where: "Manchester", quote: "We tried a few booking systems and OLLO is by far the best. It’s so easy to use and knowing exactly what we pay each month is a game-changer." },
+  { img: "sam", name: "Sam", role: "Tattoo Artist", where: "Birmingham", quote: "Deposits sorted my no-show problem in a week. The support team helped us move everything across and made it stress free." },
+  { img: "ria", name: "Ria", role: "Personal Trainer", where: "Leeds", quote: "My clients book their sessions themselves now and I stopped losing evenings to admin. Made by people who get it." },
+];
+const UNIVERSAL_FAQS: Faq[] = [
+  { q: "Is OLLO right for my kind of business?", a: "If people book a time with you or your team, yes — barbers, salons, beauty and nails, tattoo studios, clinics, personal trainers, therapists, dog groomers, tutors and more. Services, durations, deposits and reminders are all yours to set." },
+  { q: "Do my customers need an app?", a: "No. They book from your link in any browser, get a text, WhatsApp or email with a private link, and can move or cancel from there." },
+  { q: "Can I bring my existing customers over?", a: "Yes — import a CSV from your old system in Settings → Customers and their history comes with them." },
+  { q: "Does each team member get their own login?", a: "Yes. Invite each person; they see their own day, take payments, block their own time and watch their earnings." },
+  { q: "What about deposits and no‑shows?", a: "Set a deposit, ask for full prepayment, or let people pay on the day — business‑wide or per service. No‑shows can be charged; refunds are automatic when you cancel on them." },
+  { q: "What does it really cost?", a: "£24.99 a month, which includes your first team member. Each extra seat is £7.99 — so a team of three pays £40.97. Texts are 6p, WhatsApp 3p, email is free. Card payments are optional at 2.2% + 20p all in; leave them off and pay nothing. The AI Concierge is an optional £49 a month. Nothing per booking, no commission." },
+  { q: "Is my data safe?", a: "Hosted in the EU, encrypted in transit, backed up daily. You can export everything at any time." },
+];
+
+export const VERTICALS: Record<"universal" | "barbers", Vertical> = {
+  universal: {
+    slug: "",
+    path: "/",
+    title: "OLLO — Booking software for appointment businesses. One fair price, no commission.",
+    description: "Online booking, a drag-and-drop calendar, deposits, card payments, team pay and reminders by text, WhatsApp and email — for barbers, salons, beauty, tattoo, clinics, trainers and any business that runs on appointments. Set up in two minutes. Free to start.",
+    audience: "Small appointment-based businesses",
+    heroEyebrow: "Booking software for any appointment business",
+    heroH1: "Built for people<br/>who run on appointments.",
+    heroLede: "OLLO is the all-in-one booking system for barbers, salons, beauty studios, tattoo artists, clinics, trainers and anyone whose day is a diary. One clear monthly price, WhatsApp confirmations and everything you need to run the business — without the commission and hidden fees.",
+    heroImg: { src: "/static/landing/hero-universal.webp", small: "/static/landing/hero-universal-sm.webp", alt: "A studio owner at her reception desk checking bookings on her phone" },
+    everythingLede: "From the first click to the final invoice, OLLO keeps your business running smoothly. Manage bookings, clients, staff, payments and more — all in one easy-to-use platform.",
+    whyH2: "We listened to the people doing the work.<br/>Then we built what they wanted.",
+    whyLede: "OLLO started behind a barber’s chair, after 20 years of using every booking system on the market. It turned out every appointment business had the same complaints: commission, per-booking fees, and software that gets in the way. So we built the system we all wanted.",
+    script: "Built by the trade.",
+    actionH2: "Book an appointment<br/>in 7 seconds.",
+    steps: ["Select who they want to see", "Choose the service", "Pick a time", "Confirm & they’re all set"],
+    seatWord: "team member",
+    seatWordPlural: "team members",
+    chairWord: "seat",
+    priceListLogin: "A login for every team member",
+    cardCopy: "Switch on if you want deposits at booking, prepay or pay on the day. One all-in rate per payment, money goes straight to each team member. Leave it off and pay nothing.",
+    testiEyebrow: "Trusted across the appointment trades",
+    quotes: UNIVERSAL_QUOTES,
+    faqH2: "Questions people ask",
+    faqs: UNIVERSAL_FAQS,
+    finalH2: "Join the barbers, salons, studios and clinics already running on OLLO.",
+    footerTag: "Built by the trade. For every trade.",
+    industries: [
+      { name: "Barbers", blurb: "Where OLLO started. Chairs, walk-ins, pay at the chair.", href: "/barbers", icon: "scissors" },
+      { name: "Hair & salons", blurb: "Colour, cuts, long services and split appointments.", icon: "sparkle" },
+      { name: "Beauty & nails", blurb: "Deposits, add-ons and packed-out Saturdays.", icon: "sparkle" },
+      { name: "Tattoo & piercing", blurb: "Consults, sittings and deposits that stick.", icon: "pen" },
+      { name: "Clinics & therapists", blurb: "Client notes, intake and reminders that cut no-shows.", icon: "heart" },
+      { name: "Trainers & coaching", blurb: "Sessions, blocks and clients who book themselves.", icon: "bolt" },
+    ],
+  },
+  barbers: {
+    slug: "barbers",
+    path: "/barbers",
+    title: "OLLO for Barbers — Built by barbers. For the industry. Barbershop booking software",
+    description: "Barbershop booking software: online booking, a drag-and-drop calendar, deposits and pay-at-the-chair, barber pay runs, reminders by text, WhatsApp and email. Set up your shop in two minutes. Free to start.",
+    audience: "Barbershops and independent barbers",
+    heroEyebrow: "Booking software for barbers, hairdressers &amp; salons",
+    heroH1: "Built by barbers.<br/>For the industry.",
+    heroLede: "OLLO is the all-in-one booking system designed specifically for barbers, hairdressers and salons. With one clear monthly price, WhatsApp confirmations and everything you need to run your shop — we’ve taken the best bits from other platforms and removed all the things you don’t want.",
+    heroImg: { src: "/static/landing/hero-barber.webp", small: "/static/landing/hero-barber-sm.webp", alt: "A barber cutting a client’s hair" },
+    everythingLede: "From the first click to the final cut, OLLO keeps your shop running smoothly. Manage bookings, clients, barbers, payments and more — all in one easy-to-use platform.",
+    whyH2: "We listened to the industry.<br/>Then we built what we wanted.",
+    whyLede: "After 20 years behind the chair, we’ve used almost every booking system on the market. We loved some things, we hated others. So we created OLLO — a complete system built by barbers, for barbers, hairdressers and salon owners.",
+    script: "Built by barbers.",
+    actionH2: "Book a haircut<br/>in 7 seconds.",
+    steps: ["Select your barber or stylist", "Choose your service", "Pick a time", "Confirm & you’re all set"],
+    seatWord: "barber or stylist",
+    seatWordPlural: "barbers",
+    chairWord: "chair",
+    priceListLogin: "A login for every barber",
+    cardCopy: "Switch on if you want deposits at booking, prepay or pay at the chair. One all-in rate per payment, money goes straight to each barber. Leave it off and pay nothing.",
+    testiEyebrow: "Trusted by barbers, hairdressers &amp; salon owners",
+    quotes: BARBER_QUOTES,
+    faqH2: "Questions barbers ask",
+    faqs: BARBER_FAQS,
+    finalH2: "Join hundreds of barbers, hairdressers and salons already using OLLO.",
+    footerTag: "Built by barbers. For the industry.",
+  },
+};
+
+export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
+  const { title, description } = v;
   const ld = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -44,16 +173,16 @@ export function landingPage(origin: string) {
     description,
     url: origin,
     offers: { "@type": "Offer", price: "0", priceCurrency: "GBP", description: "Free to set up. Card fees only when you take payments." },
-    audience: { "@type": "Audience", audienceType: "Barbershops and independent barbers" },
+    audience: { "@type": "Audience", audienceType: v.audience },
   };
   return `<!doctype html><html lang="en-GB"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}"/>
-<link rel="canonical" href="${esc(origin)}/"/>
+<link rel="canonical" href="${esc(origin)}${v.path === "/" ? "/" : v.path}"/>
 <meta property="og:type" content="website"/><meta property="og:site_name" content="OLLO"/>
 <meta property="og:title" content="${esc(title)}"/><meta property="og:description" content="${esc(description)}"/>
-<meta property="og:url" content="${esc(origin)}/"/><meta property="og:image" content="${esc(origin)}/static/landing/hero-barber.webp"/>
+<meta property="og:url" content="${esc(origin)}${v.path === "/" ? "/" : v.path}"/><meta property="og:image" content="${esc(origin)}${v.heroImg.src}"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="theme-color" content="#0b1a17"/>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/>
@@ -69,7 +198,7 @@ export function landingPage(origin: string) {
       <a href="#features">Features</a>
       <a href="#pricing">Pricing</a>
       <a href="#about">About</a>
-      <a href="#testimonials">Testimonials</a>
+      ${v.industries ? `<a href="#industries">Industries</a>` : `<a href="/">All industries</a>`}
       <a href="#faq">FAQ</a>
     </nav>
     <div class="l-header-cta">
@@ -84,9 +213,9 @@ export function landingPage(origin: string) {
   <section class="l-hero" aria-labelledby="hero-heading">
     <div class="l-wrap l-two">
       <div class="l-hero-copy">
-        <p class="l-eyebrow">Booking software for barbers, hairdressers &amp; salons</p>
-        <h1 id="hero-heading">Built by barbers.<br/>For the industry.</h1>
-        <p class="l-lede">OLLO is the all-in-one booking system designed specifically for barbers, hairdressers and salons. With one clear monthly price, WhatsApp confirmations and everything you need to run your business — we’ve taken the best bits from other platforms and removed all the things you don’t want.</p>
+        <p class="l-eyebrow">${v.heroEyebrow}</p>
+        <h1 id="hero-heading">${v.heroH1}</h1>
+        <p class="l-lede">${v.heroLede}</p>
         <div class="l-ctas">
           <a class="l-btn l-btn-green" href="/signup" data-testid="landing-cta-hero">Start Free Trial</a>
           <a class="l-btn l-btn-outline" href="/signin#demo">Book a Demo</a>
@@ -96,11 +225,12 @@ export function landingPage(origin: string) {
           <li><i class="l-ico">${ICO.chat}</i>WhatsApp Integration</li>
           <li><i class="l-ico">${ICO.slash}</i>No Hidden Costs</li>
         </ul>
+        ${v.industries ? `<a class="l-hero-vertical" href="/barbers">${ICO.scissors} Run a barbershop? <b>See OLLO for barbers →</b></a>` : `<a class="l-hero-vertical" href="/">${ICO.check} Not a barber? <b>OLLO works for every appointment business →</b></a>`}
       </div>
       <div class="l-hero-visual">
         <picture>
-          <source media="(max-width: 720px)" srcset="/static/landing/hero-barber-sm.webp"/>
-          <img class="l-hero-photo" src="/static/landing/hero-barber.webp" alt="A barber cutting a client’s hair" width="768" height="1024" fetchpriority="high"/>
+          <source media="(max-width: 720px)" srcset="${v.heroImg.small}"/>
+          <img class="l-hero-photo" src="${v.heroImg.src}" alt="${esc(v.heroImg.alt)}" width="768" height="1024" fetchpriority="high"/>
         </picture>
         <div class="l-phone l-phone-hero" role="img" aria-label="A WhatsApp confirmation from OLLO: appointment confirmed for Friday 15th May at 11:30am with Sam.">
           <div class="l-phone-top"><img src="/static/brand/ollo-wordmark.svg" alt="" width="60" height="17"/></div>
@@ -121,7 +251,7 @@ export function landingPage(origin: string) {
       <div>
         <p class="l-eyebrow">Everything you need</p>
         <h2 id="everything-heading">Run your entire<br/>appointment business<br/>from one place.</h2>
-        <p class="l-lede">From the first click to the final cut, OLLO keeps your business running smoothly. Manage bookings, clients, staff, payments and more — all in one easy-to-use platform.</p>
+        <p class="l-lede">${v.everythingLede}</p>
         <a class="l-btn l-btn-green" href="#why" data-testid="landing-cta-features">See all features</a>
       </div>
       <div class="l-devices">
@@ -160,15 +290,15 @@ export function landingPage(origin: string) {
     <div class="l-wrap l-two l-two-wide">
       <div>
         <p class="l-eyebrow">Why OLLO?</p>
-        <h2 id="why-heading">We listened to the industry.<br/>Then we built what we wanted.</h2>
-        <p class="l-lede">After 20 years behind the chair, we’ve used almost every booking system on the market. We loved some things, we hated others. So we created OLLO — a complete system built by barbers, for barbers, hairdressers and salon owners.</p>
-        <p class="l-script" aria-hidden="true">Built by barbers.</p>
+        <h2 id="why-heading">${v.whyH2}</h2>
+        <p class="l-lede">${v.whyLede}</p>
+        <p class="l-script" aria-hidden="true">${v.script}</p>
       </div>
       <ul class="l-grid6">
         <li><i class="l-ico">${ICO.pound}</i><b>Fair Monthly Price</b><p>From £24.99 a month. Never a fee per booking, never a cut of your clients.</p></li>
         <li><i class="l-ico">${ICO.people}</i><b>Client Management</b><p>Keep track of appointments, notes, preferences and more.</p></li>
         <li><i class="l-ico">${ICO.chat}</i><b>WhatsApp Integration</b><p>Confirmations, reminders and client communication — all via WhatsApp.</p></li>
-        <li><i class="l-ico">${ICO.team}</i><b>Staff &amp; Multi-Location</b><p>Manage your team, multiple chairs or multiple locations from one dashboard.</p></li>
+        <li><i class="l-ico">${ICO.team}</i><b>Staff &amp; Multi-Location</b><p>Manage your team, multiple ${v.chairWord}s or multiple locations from one dashboard.</p></li>
         <li><i class="l-ico">${ICO.bolt}</i><b>Easy To Use</b><p>Get set up in minutes. No complicated training.</p></li>
         <li><i class="l-ico">${ICO.chart}</i><b>Payments &amp; Reports</b><p>Take payments, track your income and get the insights you need to grow.</p></li>
       </ul>
@@ -191,13 +321,10 @@ export function landingPage(origin: string) {
       </div>
       <div>
         <p class="l-eyebrow">See it in action</p>
-        <h2 id="action-heading">Book a haircut<br/>in 7 seconds.</h2>
+        <h2 id="action-heading">${v.actionH2}</h2>
         <p class="l-lede">Fast. Simple. No faff. Whether it’s a new booking, rebooking or a last-minute slot — OLLO makes it easy for your clients and your team.</p>
         <ol class="l-steps">
-          <li><span>1</span>Select your barber or stylist</li>
-          <li><span>2</span>Choose your service</li>
-          <li><span>3</span>Pick a time</li>
-          <li><span>4</span>Confirm &amp; you’re all set</li>
+          ${v.steps.map((t, i) => `<li><span>${i + 1}</span>${esc(t)}</li>`).join("")}
         </ol>
         <aside class="l-callout">
           <i class="l-ico l-ico-fill">${ICO.bolt}</i>
@@ -249,20 +376,20 @@ export function landingPage(origin: string) {
       <div class="l-center">
         <p class="l-eyebrow">Pricing</p>
         <h2 id="pricing-heading">Simple, honest pricing.</h2>
-        <p class="l-lede l-lede-center">One monthly price for the system, first barber included. Add extras only if you want them. Cancel any time.</p>
+        <p class="l-lede l-lede-center">One monthly price for the system, first ${v.seatWord} included. Add extras only if you want them. Cancel any time.</p>
       </div>
       <div class="l-price-grid">
         <article class="l-price-main">
           <header class="l-price-head">
             <p class="l-price-label">The system</p>
             <p class="l-price-big">£24.99<small>/month</small></p>
-            <p class="l-price-sub">Includes your first barber or stylist. Each extra chair is <strong>£7.99</strong> a month.</p>
+            <p class="l-price-sub">Includes your first ${v.seatWord}. Each extra ${v.chairWord} is <strong>£7.99</strong> a month.</p>
           </header>
           <ul class="l-price-chairs" aria-label="Monthly price by team size">
             <li><span>Solo</span><b>£24.99</b></li>
-            <li><span>2 chairs</span><b>£32.98</b></li>
-            <li><span>3 chairs</span><b>£40.97</b></li>
-            <li><span>5 chairs</span><b>£56.95</b></li>
+            <li><span>2 ${v.chairWord}s</span><b>£32.98</b></li>
+            <li><span>3 ${v.chairWord}s</span><b>£40.97</b></li>
+            <li><span>5 ${v.chairWord}s</span><b>£56.95</b></li>
           </ul>
           <ul class="l-price-list">
             <li><i class="l-tick">${ICO.check}</i>Online booking page with your name and logo</li>
@@ -271,7 +398,7 @@ export function landingPage(origin: string) {
             <li><i class="l-tick">${ICO.check}</i>Client records, notes and history</li>
             <li><i class="l-tick">${ICO.check}</i>Email confirmations and reminders included</li>
             <li><i class="l-tick">${ICO.check}</i>No-show protection and pay runs</li>
-            <li><i class="l-tick">${ICO.check}</i>A login for every barber</li>
+            <li><i class="l-tick">${ICO.check}</i>${v.priceListLogin}</li>
             <li><i class="l-tick">${ICO.check}</i>Reports and daily summaries</li>
           </ul>
           <footer class="l-price-foot">
@@ -299,7 +426,7 @@ export function landingPage(origin: string) {
             <i class="l-ico">${ICO.card}</i>
             <div class="l-extra-body">
               <div class="l-extra-top"><b>Card payments <span class="l-pill l-pill-soft">Optional</span></b><span class="l-extra-price">2.2% <small>+ 20p</small></span></div>
-              <p>Switch on if you want deposits at booking, prepay or pay at the chair. One all-in rate per payment, money goes straight to each barber. Leave it off and pay nothing.</p>
+              <p>${v.cardCopy}</p>
             </div>
           </article>
           <p class="l-tiny">All prices exclude VAT. Extras are billed monthly on what you actually used — shown live in your settings, no surprises.</p>
@@ -308,15 +435,29 @@ export function landingPage(origin: string) {
     </div>
   </section>
 
+  <!-- 6b. Industries (universal page) -->
+  ${v.industries ? `<section id="industries" class="l-dark l-industries" aria-labelledby="industries-heading">
+    <div class="l-wrap">
+      <div class="l-center l-center-dark">
+        <p class="l-eyebrow">Who it’s for</p>
+        <h2 id="industries-heading">One system. Every appointment business.</h2>
+        <p class="l-lede l-lede-center">Same calendar, same fair price. Pick your trade to see how shops like yours use OLLO.</p>
+      </div>
+      <ul class="l-industries-grid">
+        ${v.industries.map((i) => `<li class="${i.href ? "l-ind-link" : ""}">${i.href ? `<a href="${i.href}">` : "<div>"}<i class="l-ico">${ICO[i.icon as keyof typeof ICO] || ICO.check}</i><b>${esc(i.name)}</b><p>${esc(i.blurb)}</p>${i.href ? `<span class="l-ind-more">See OLLO for ${esc(i.name.toLowerCase())} →</span></a>` : "</div>"}</li>`).join("")}
+      </ul>
+    </div>
+  </section>` : ""}
+
   <!-- 7. Testimonials -->
   <section id="testimonials" class="l-light l-testi" aria-labelledby="testi-heading">
     <div class="l-wrap">
       <div class="l-center">
-        <p class="l-eyebrow">Trusted by barbers, hairdressers &amp; salon owners</p>
+        <p class="l-eyebrow">${v.testiEyebrow}</p>
         <h2 id="testi-heading">Real businesses. Real results.</h2>
       </div>
       <ul class="l-quotes">
-        ${QUOTES.map((q) => `<li>
+        ${v.quotes.map((q) => `<li>
           <div class="l-quote-who"><img src="/static/landing/face-${q.img}.webp" alt="" width="44" height="44" loading="lazy"/><div><b>${q.name}</b><small>${q.role}</small></div></div>
           <p class="l-stars" aria-label="5 out of 5 stars">★★★★★</p>
           <p class="l-quote">“${q.quote}”</p>
@@ -329,14 +470,9 @@ export function landingPage(origin: string) {
   <!-- 8. FAQ -->
   <section id="faq" class="l-light l-faq" aria-labelledby="faq-heading">
     <div class="l-wrap l-faq-in">
-      <div><p class="l-eyebrow">FAQ</p><h2 id="faq-heading">Questions barbers ask</h2></div>
+      <div><p class="l-eyebrow">FAQ</p><h2 id="faq-heading">${v.faqH2}</h2></div>
       <div>
-        <details><summary>Do my customers need an app?</summary><p>No. They book from your link in any browser, get a text, WhatsApp or email with a private link, and can move or cancel from there.</p></details>
-        <details><summary>Can I bring my existing customers over?</summary><p>Yes — import a CSV from your old system in Settings → Customers and their history comes with them.</p></details>
-        <details><summary>Do barbers get their own login?</summary><p>Yes. Invite each barber; they see their own day, take payments at the chair, block their own time and watch their wallet.</p></details>
-        <details><summary>What about deposits and no‑shows?</summary><p>Set a deposit, ask for full prepayment, or let people pay at the chair — shop‑wide or per service. No‑shows can be charged; refunds are automatic when you cancel on them.</p></details>
-        <details><summary>What does it really cost?</summary><p>£24.99 a month, which includes your first barber. Each extra chair is £7.99 — so a three-chair shop pays £40.97. Texts are 6p, WhatsApp 3p, email is free. Card payments are optional at 2.2% + 20p all in; leave them off and pay nothing. The AI Concierge is an optional £49 a month. Nothing per booking, no commission, and you can see exactly what you’ve used in your settings.</p></details>
-        <details><summary>Is my data safe?</summary><p>Hosted in the EU, encrypted in transit, backed up daily. You can export everything at any time.</p></details>
+        ${v.faqs.map((f) => `<details><summary>${esc(f.q)}</summary><p>${esc(f.a)}</p></details>`).join("\n        ")}
       </div>
     </div>
   </section>
@@ -346,7 +482,7 @@ export function landingPage(origin: string) {
     <div class="l-wrap l-two l-final-in">
       <div>
         <p class="l-eyebrow">Ready to get started?</p>
-        <h2 id="final-heading">Join hundreds of barbers, hairdressers and salons already using OLLO.</h2>
+        <h2 id="final-heading">${v.finalH2}</h2>
       </div>
       <div class="l-final-right">
         <div class="l-ctas">
@@ -369,7 +505,7 @@ export function landingPage(origin: string) {
       <a class="l-brand" href="/" aria-label="OLLO home"><img src="/static/brand/ollo-wordmark.svg" alt="OLLO" width="96" height="28"/></a>
       <p class="l-tiny">© ${new Date().getFullYear()} OLLO. All rights reserved.</p>
     </div>
-    <nav aria-label="Footer"><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#about">About</a><a href="#testimonials">Testimonials</a><a href="#faq">FAQ</a><a href="/signin">Sign in</a><a href="/signup">Create your shop</a></nav>
+    <nav aria-label="Footer"><a href="/">OLLO for every business</a><a href="/barbers">OLLO for barbers</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/signin">Sign in</a><a href="/signup">Create your account</a></nav>
     <div class="l-footer-right">
       <div class="l-social" aria-label="Social">
         <a href="https://instagram.com" aria-label="Instagram" rel="noopener">${ICO.ig}</a>
@@ -377,7 +513,7 @@ export function landingPage(origin: string) {
         <a href="https://youtube.com" aria-label="YouTube" rel="noopener">${ICO.yt}</a>
         <a href="https://linkedin.com" aria-label="LinkedIn" rel="noopener">${ICO.li}</a>
       </div>
-      <p class="l-tiny">Built by barbers. For the industry.</p>
+      <p class="l-tiny">${v.footerTag}</p>
     </div>
   </div>
 </footer>
