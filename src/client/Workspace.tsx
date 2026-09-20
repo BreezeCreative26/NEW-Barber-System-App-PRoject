@@ -304,6 +304,20 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
   }
   return (
     <div className="auth-screen">
+      <aside className="auth-brand" aria-hidden="true">
+        <img className="auth-brand-logo" src="/static/brand/ollo-wordmark.svg" alt="" width={168} height={48} />
+        <div className="auth-brand-copy">
+          <p className="auth-brand-eyebrow">Booking software for barbers, hairdressers &amp; salons</p>
+          <h1>Built by barbers.<br />For the industry.</h1>
+          <p className="auth-brand-tag">Book · Manage · Show up</p>
+        </div>
+        <ul className="auth-brand-points">
+          <li>Fixed monthly fee</li>
+          <li>WhatsApp, text &amp; email confirmations</li>
+          <li>Your logo on everything your customers see</li>
+        </ul>
+      </aside>
+      <div className="auth-main">
       <section className="workspace-panel account-entry auth-card" aria-labelledby="auth-heading">
         <Brand />
         {mode !== "invite" && (
@@ -451,6 +465,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
           <ErrorMessage error={demoError} />
         </aside>
       )}
+      </div>
     </div>
   );
 }

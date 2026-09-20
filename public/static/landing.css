@@ -32,11 +32,11 @@ body.landing h1, body.landing h2, body.landing h3, body.landing p { margin: 0; }
 .l-dark { background: var(--l-ink); color: var(--l-white); }
 .l-light { background: var(--l-cream); color: var(--l-text-dark); }
 .l-light .l-lede { color: #3f4a46; }
-.l-light .l-ico { border-color: #cfd6d1; color: #1f7a45; }
+.l-light .l-ico { border-color: #cfd6d1; color: #15803d; }
 section.l-dark, section.l-light { padding: 96px 0; }
 
 .l-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--l-green); margin-bottom: 18px; }
-.l-light .l-eyebrow { color: #1f9d55; }
+.l-light .l-eyebrow { color: #15803d; }
 body.landing h1 { font-size: clamp(40px, 5.2vw, 66px); line-height: 1.02; letter-spacing: -0.03em; font-weight: 800; margin-bottom: 24px; }
 body.landing h2 { font-size: clamp(30px, 3.4vw, 44px); line-height: 1.08; letter-spacing: -0.025em; font-weight: 800; margin-bottom: 20px; }
 .l-lede { font-size: 17px; line-height: 1.6; color: var(--l-muted); max-width: 540px; margin-bottom: 30px; }
@@ -129,7 +129,7 @@ body.landing h2 { font-size: clamp(30px, 3.4vw, 44px); line-height: 1.08; letter
 .l-phone-wa { width: 270px; background: #e5ddd5; }
 .l-phone-top-wa { justify-content: flex-start; background: #fff; margin: -14px -14px 14px; padding: 18px 18px 12px; border-radius: 24px 24px 0 0; border-bottom: 0; }
 .l-phone-top-wa img { height: 22px; }
-.l-phone-top-wa b { font-size: 13px; } .l-phone-top-wa small { margin-left: auto; color: #1f9d55; font-size: 11px; }
+.l-phone-top-wa b { font-size: 13px; } .l-phone-top-wa small { margin-left: auto; color: #15803d; font-size: 11px; }
 .l-wa-bubble { background: #fff; border-radius: 4px 14px 14px 14px; padding: 12px 12px 10px; font-size: 12.5px; line-height: 1.45; position: relative; margin-bottom: 14px; color: #1d2b27; }
 .l-wa-bubble p { margin-bottom: 8px; }
 .l-wa-bubble time { display: block; text-align: right; font-size: 10px; color: #8a938f; margin-top: 6px; }
@@ -173,7 +173,7 @@ body.landing h2 { font-size: clamp(30px, 3.4vw, 44px); line-height: 1.08; letter
 .l-faq-in { display: grid; grid-template-columns: 1fr 1.6fr; gap: 48px; align-items: start; border-top: 1px solid #dfe2dc; padding-top: 72px; }
 .l-faq details { border-bottom: 1px solid #dfe2dc; padding: 16px 0; }
 .l-faq summary { cursor: pointer; font-weight: 700; font-size: 16px; list-style: none; display: flex; justify-content: space-between; }
-.l-faq summary::after { content: "+"; color: #1f9d55; font-weight: 800; }
+.l-faq summary::after { content: "+"; color: #15803d; font-weight: 800; }
 .l-faq details[open] summary::after { content: "–"; }
 .l-faq details p { margin-top: 10px; color: #3f4a46; font-size: 15px; line-height: 1.55; }
 

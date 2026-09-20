@@ -6,25 +6,26 @@
    ========================================================================== */
 
 :root {
-  /* Brand */
-  --ollo: #6985e8;
-  --ollo-soft: #e6ebfb;
-  --accent: #4a5fd9;
-  --accent-dark: #3546b4;
-  --accent-grad: linear-gradient(135deg, #3546b4 0%, #4a5fd9 70%, #5a70e0 100%);
-  --cream: #faf6ef;
+  /* Brand — from the OLLO logo mockup: deep green-black ink, warm cream, signal green. */
+  --ollo: #0b1a17;
+  --ollo-green: #4ade80;
+  --ollo-soft: #e4f6ea;
+  --accent: #166534;
+  --accent-dark: #14532d;
+  --accent-grad: linear-gradient(135deg, #116634 0%, #15803d 70%, #1f9d55 100%);
+  --cream: #f4f3ee;
 
   /* Neutrals */
-  --ink: #181b2a;
-  --ink-2: #292f46;
-  --muted: #5b6178;
-  --muted-2: #8a90a8;
-  --line: #e2e4ee;
-  --line-2: #eef0f6;
-  --canvas: #f5f6fb;
+  --ink: #0f1f1b;
+  --ink-2: #1c2f2a;
+  --muted: #5c6a65;
+  --muted-2: #8a968f;
+  --line: #e1e4de;
+  --line-2: #eceee8;
+  --canvas: #f4f3ee;
   --surface: #ffffff;
-  --rail: #181b2a;
-  --rail-fg: #c2c6d5;
+  --rail: #0b1a17;
+  --rail-fg: #b8c4be;
   --rail-fg-on: #ffffff;
   --on-accent: #ffffff;
 
@@ -1413,3 +1414,6 @@
 .review-admin .button.ghost { color: var(--accent-dark); }
 .review-reply-form { display: grid; gap: var(--s-2); }
 .review-reply-form textarea { font: inherit; font-size: var(--fs-14); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; }
+
+/* Signed-out front door owns the whole viewport: no shell padding around the brand panel. */
+.workspace.workspace-signed-out .workspace-main { padding: 0; max-width: none; }

@@ -227,7 +227,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
 
 // ---- Email shell (shop-branded, inline CSS, dark-safe) ---------------------------
 const ACCENTS: Record<string, { bg: string; ink: string }> = {
-  ollo: { bg: "#4a5fd9", ink: "#ffffff" }, ink: { bg: "#1d1f26", ink: "#ffffff" }, sage: { bg: "#3f7d5c", ink: "#ffffff" },
+  ollo: { bg: "#0b1a17", ink: "#ffffff" }, ink: { bg: "#1d1f26", ink: "#ffffff" }, sage: { bg: "#3f7d5c", ink: "#ffffff" },
   clay: { bg: "#a8552f", ink: "#ffffff" }, plum: { bg: "#6e3b7a", ink: "#ffffff" }, slate: { bg: "#4a5568", ink: "#ffffff" },
 };
 export function emailHtml(shop: { name: string; address?: string; slug?: string | null }, brand: ShopBrand, origin: string, r: Rendered, footer: { phone?: string; email?: string; unsubscribe?: string }) {
