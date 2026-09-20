@@ -16,6 +16,7 @@ import { afterDepositPaid } from "./server/public";
 import { handleConnectEvent, type ConnectEvent } from "./server/payouts";
 import { settleByMetadata, type PaymentRequest } from "./server/chair";
 import { applyDeliveryReports, applyInbound, waWebhookOk } from "./server/whatsapp";
+import voice from "./server/voice";
 import type { Database } from "./db/client";
 import type { ObjectStore } from "./db/storage";
 export type AppBindings = { DB: Database; MEDIA?: ObjectStore; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string };
@@ -84,6 +85,8 @@ app.route("/api/app", sandbox);
 // Legacy path kept for one release so old tabs keep working.
 app.route("/api/sandbox", sandbox);
 app.route("/api/public", pub);
+// AI receptionist tools (ElevenLabs agents). Per-shop bearer secret, no cookies, cross-origin by design.
+app.route("/api/voice", voice);
 app.get("/api/health", (c) =>
   c.json({
     status: "ok",

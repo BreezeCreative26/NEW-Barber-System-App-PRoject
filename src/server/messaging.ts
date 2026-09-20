@@ -41,7 +41,7 @@ export type Recipient = { name?: string; phone?: string; email?: string; pref?: 
 export const MESSAGE_TEMPLATES = [
   "booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon",
   "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
-  "verify_contact", "password_reset", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary",
+  "verify_contact", "password_reset", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
 
@@ -205,6 +205,14 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         subject: `No-show: ${v.customer} · ${when}`,
         heading: `${v.customer} didn't turn up.`,
         lines: [`${v.service} with ${v.barber}`, `${when} · ref ${v.ref}`, v.count ? `That's ${v.count} no-shows from this customer.` : ""].filter(Boolean),
+      };
+    case "owner_callback":
+      return {
+        sms: `${s}: the AI receptionist took a message — ${v.customer}${v.phone ? ` (${v.phone})` : ""}: ${v.note}`,
+        subject: `Call back: ${v.customer}`,
+        heading: `${v.customer} would like a call back.`,
+        lines: [v.phone ? `Number: ${v.phone}` : "No number left.", `"${v.note}"`, "Taken by the AI receptionist."],
+        cta: v.link ? { label: "Open the workspace", href: String(v.link) } : undefined,
       };
     case "owner_daily_summary":
       return {

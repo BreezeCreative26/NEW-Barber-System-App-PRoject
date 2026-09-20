@@ -8111,3 +8111,16 @@ li[data-done="true"] .setup-wiz-num { background: var(--good); color: #fff; bord
   font-size: 11px;
   color: #6b6f80;
 }
+
+/* AI receptionist panel */
+.voice-setup { border: 1px solid #e6e7ee; border-radius: 10px; padding: 14px 16px; margin: 14px 0 20px; background: #fafbfe; }
+.voice-setup h3 { margin: 0 0 8px; }
+.voice-steps { margin: 0; padding-left: 20px; display: grid; gap: 12px; font-size: 13px; }
+.voice-steps code { font-size: 12px; word-break: break-all; }
+.voice-secret { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.voice-secret code { background: #fff; border: 1px solid #dbdde5; border-radius: 6px; padding: 6px 8px; flex: 1; }
+.voice-tools { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.voice-tools td { padding: 6px 6px; border-top: 1px solid #e6e7ee; vertical-align: top; font-size: 12px; }
+.voice-tools td small { display: block; color: #6b6f80; margin-top: 2px; }
+.voice-method { font-weight: 700; color: #4c5ca0; font-size: 11px; margin-right: 4px; }
+.voice-transcript { white-space: pre-wrap; font-size: 12px; line-height: 1.5; background: #fafbfe; border: 1px solid #e6e7ee; border-radius: 8px; padding: 12px; max-height: 60vh; overflow: auto; }

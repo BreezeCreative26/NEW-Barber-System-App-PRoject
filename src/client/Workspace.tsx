@@ -3332,12 +3332,137 @@ const MSG_LABELS: Record<string, string> = {
   staff_invite: "Team invitation", review_request: "Review request", test_message: "Test message",
   waitlist_joined: "Joined the list", waitlist_offer: "A time is offered", waitlist_booked: "Offer accepted", waitlist_released: "Declined or expired",
   pay_link: "Pay link", verify_contact: "Verification code", password_reset: "Password reset",
-  owner_new_booking: "Alert · new booking", owner_cancelled: "Alert · cancellation", owner_no_show: "Alert · no-show", owner_daily_summary: "Alert · morning summary",
+  owner_new_booking: "Alert · new booking", owner_cancelled: "Alert · cancellation", owner_no_show: "Alert · no-show", owner_daily_summary: "Alert · morning summary", owner_callback: "Alert · call back (AI receptionist)",
 };
 // Owner/manager alert preferences (Settings → Messages).
 type AlertCh = "OFF" | "EMAIL" | "SMS" | "BOTH";
 type AlertPrefs = { new_booking: AlertCh; cancelled: AlertCh; no_show: AlertCh; daily_summary: AlertCh; managers: boolean; summary_hour: number };
 type AlertsData = { prefs: AlertPrefs; kinds: { key: keyof AlertPrefs; label: string; hint: string }[]; recipients: { owner_email: string; owner_phone: string; phone_unverified: boolean; managers: { name: string; email: string }[] } };
+// AI receptionist (ElevenLabs): per-shop switch, one-time secret, endpoints + prompt to paste, call log.
+type VoiceData = {
+  settings: { enabled: boolean; agent_id: string; greeting: string; notes: string; has_secret: boolean; created_at: number | null };
+  secret_hint: string;
+  endpoints: Record<string, { method: string; url: string; query?: string[]; body?: string[] }> | null;
+  prompt: string;
+  online_booking_required: boolean;
+  calls: { id: string; conversation_id: string; caller: string; outcome: string; summary: string; booking_id: string | null; duration_s: number; started_at: number }[];
+};
+function VoicePanel({ timezone }: { timezone: string }) {
+  const [d, setD] = useState<VoiceData | null>(null);
+  const [f, setF] = useState<{ enabled: boolean; agent_id: string; greeting: string; notes: string } | null>(null);
+  const [secret, setSecret] = useState("");
+  const [st, setSt] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
+  const [copied, setCopied] = useState("");
+  const [call, setCall] = useState<{ transcript: string; summary: string; caller: string } | null>(null);
+  const load = () => api<VoiceData>("/shop/voice").then((r) => { setD(r); setF({ enabled: r.settings.enabled, agent_id: r.settings.agent_id, greeting: r.settings.greeting, notes: r.settings.notes }); }).catch((e) => setSt({ kind: "error", text: e.message }));
+  useEffect(() => { load(); }, []);
+  if (!d || !f) return null;
+  const dirty = JSON.stringify(f) !== JSON.stringify({ enabled: d.settings.enabled, agent_id: d.settings.agent_id, greeting: d.settings.greeting, notes: d.settings.notes });
+  async function copy(v: string, label: string) { try { await navigator.clipboard.writeText(v); setCopied(`${label} copied.`); setTimeout(() => setCopied(""), 2500); } catch { setCopied("Copy unavailable here; select the text instead."); } }
+  const when = (ms: number) => new Date(ms).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: timezone || "Europe/London" });
+  const TOOLS: { key: string; name: string; what: string }[] = [
+    { key: "info", name: "get_shop_info", what: "hours, services, barbers, policies" },
+    { key: "availability", name: "check_availability", what: "open times for a service on a day" },
+    { key: "book", name: "book_appointment", what: "save the booking; sends the confirmation" },
+    { key: "bookings", name: "find_bookings", what: "the caller's upcoming visits by mobile" },
+    { key: "cancel", name: "cancel_booking", what: "cancel one of them" },
+    { key: "callback", name: "request_callback", what: "leave a message for the shop" },
+  ];
+  return (
+    <section className="workspace-panel" aria-labelledby="voice-heading" data-testid="voice-panel">
+      <div className="workspace-section-heading">
+        <div>
+          <h2 id="voice-heading">AI receptionist</h2>
+          <p className="workspace-footnote">An ElevenLabs voice agent answers your phone, checks the diary, books, cancels and takes messages — as your shop, in your name. Your shop gets its own agent and its own key; nothing here is shared with any other shop.</p>
+        </div>
+        <StatusPill tone={d.settings.enabled ? "good" : "note"} data-testid="voice-status">{d.settings.enabled ? "On" : "Off"}</StatusPill>
+      </div>
+      {d.online_booking_required && <Notice icon="info">Turn on online booking first — the receptionist books through the same diary and rules.</Notice>}
+      <form className="workspace-form" data-testid="voice-form" onSubmit={async (e) => {
+        e.preventDefault(); setSt({ kind: "saving", text: "" });
+        try {
+          const r = await api<{ secret?: string }>("/shop/voice", "PUT", f);
+          if (r.secret) setSecret(r.secret);
+          await load();
+          setSt({ kind: "saved", text: r.secret ? "Receptionist on. Copy the key below now — it is shown once." : "Saved." });
+        } catch (err) { setSt({ kind: "error", text: err instanceof Error ? err.message : "Could not save." }); }
+      }}>
+        <div className="workspace-form-grid">
+          <div className="workspace-switch-row">
+            <span><strong>Answer calls with the AI receptionist</strong><small>Switching off stops the tools immediately; your ElevenLabs agent keeps its number.</small></span>
+            <label className="switch"><input type="checkbox" checked={f.enabled} disabled={d.online_booking_required} onChange={(e) => setF({ ...f, enabled: e.target.checked })} aria-label="AI receptionist" data-testid="voice-enabled" /><span /></label>
+          </div>
+          <label>ElevenLabs agent ID (optional, for your records)<input type="text" value={f.agent_id} onChange={(e) => setF({ ...f, agent_id: e.target.value })} placeholder="agent_…" /></label>
+          <label>Greeting<input type="text" value={f.greeting} maxLength={300} onChange={(e) => setF({ ...f, greeting: e.target.value })} placeholder="Hello, you're through to … how can I help?" /></label>
+          <label>Things the receptionist should know<textarea value={f.notes} maxLength={1500} rows={3} onChange={(e) => setF({ ...f, notes: e.target.value })} placeholder="Parking round the back. Card and cash. Kids' cuts weekdays before 4." /></label>
+        </div>
+        <div className="workspace-form-actions">
+          <Button type="submit" disabled={!dirty || st.kind === "saving"} data-testid="voice-save">{st.kind === "saving" ? "Saving…" : "Save"}</Button>
+          {st.text && <p className={st.kind === "error" ? "workspace-error" : "workspace-success"} role="status">{st.text}</p>}
+        </div>
+      </form>
+      {d.settings.enabled && d.endpoints && (
+        <div className="voice-setup" data-testid="voice-setup">
+          <h3>Connect your ElevenLabs agent</h3>
+          <ol className="voice-steps">
+            <li>
+              <strong>Secret key</strong> — in ElevenLabs, add a <em>secret</em> and use it as the <code>Authorization: Bearer</code> header on every tool and on both webhooks.
+              <div className="voice-secret">
+                <code data-testid="voice-secret">{secret || `ollo_vk_…${d.secret_hint.replace("…", "")} (hidden)`}</code>
+                {secret ? <Button variant="ghost" onClick={() => copy(secret, "Key")}>Copy</Button> : (
+                  <Button variant="ghost" onClick={async () => { if (!confirm("Generate a new key? The old one stops working straight away.")) return; const r = await api<{ secret: string }>("/shop/voice/rotate", "POST", {}); setSecret(r.secret); load(); }} data-testid="voice-rotate">New key</Button>
+                )}
+              </div>
+            </li>
+            <li>
+              <strong>System prompt</strong> — paste into the agent. <Button variant="ghost" onClick={() => copy(d.prompt, "Prompt")}>Copy prompt</Button>
+            </li>
+            <li>
+              <strong>Tools</strong> (Agent → Tools → Add webhook). Create one per row; the parameters are the query/body fields.
+              <table className="voice-tools">
+                <tbody>
+                  {TOOLS.map((t) => { const e = d.endpoints![t.key]; return (
+                    <tr key={t.key}>
+                      <td><code>{t.name}</code><small>{t.what}</small></td>
+                      <td><span className="voice-method">{e.method}</span> <code className="voice-url">{e.url}</code>{(e.query || e.body) && <small>{e.query ? `query: ${e.query.join(", ")}` : `body: ${e.body!.join(", ")}`}</small>}</td>
+                      <td><Button variant="ghost" onClick={() => copy(e.url, t.name)}>Copy</Button></td>
+                    </tr>
+                  ); })}
+                </tbody>
+              </table>
+            </li>
+            <li>
+              <strong>Webhooks</strong> (Agent → Advanced): <em>Conversation initiation</em> → <code>{d.endpoints.personalise_webhook.url}</code> <Button variant="ghost" onClick={() => copy(d.endpoints!.personalise_webhook.url, "Webhook")}>Copy</Button>; <em>Post-call</em> → <code>{d.endpoints.post_call_webhook.url}</code> <Button variant="ghost" onClick={() => copy(d.endpoints!.post_call_webhook.url, "Webhook")}>Copy</Button>. Both use the same bearer key.
+            </li>
+            <li><strong>Phone number</strong> — buy or import a number in ElevenLabs (Phone numbers) and assign it to the agent; forward your shop line to it.</li>
+          </ol>
+          {copied && <p className="workspace-success" role="status">{copied}</p>}
+        </div>
+      )}
+      <h3>Recent calls</h3>
+      {d.calls.length === 0 ? <p className="workspace-footnote">Calls appear here once the receptionist has answered one, with a summary and transcript.</p> : (
+        <ul className="outbox-list" data-testid="voice-calls">
+          {d.calls.map((x) => (
+            <li key={x.id}>
+              <div className="outbox-meta">
+                <StatusPill tone={x.outcome === "handled" ? "good" : x.outcome === "callback" ? "warn" : x.outcome === "in_progress" ? "next" : "note"}>{x.outcome.replace("_", " ")}</StatusPill>
+                <span>{x.caller || "Unknown number"} · {when(x.started_at)}{x.duration_s ? ` · ${Math.round(x.duration_s / 60)} min` : ""}{x.booking_id ? " · booked" : ""}</span>
+              </div>
+              <code>{x.summary || "No summary yet."}</code>
+              {x.outcome !== "callback" && <div className="outbox-actions"><Button variant="ghost" onClick={async () => { const r = await api<{ call: { transcript: string; summary: string; caller: string } }>(`/shop/voice/calls/${x.id}`); setCall(r.call); }}><Icon name="eye" size={14} /> Transcript</Button></div>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {call && (
+        <Modal title={`Call from ${call.caller || "unknown number"}`} onClose={() => setCall(null)}>
+          <p className="workspace-footnote">{call.summary}</p>
+          <pre className="voice-transcript">{call.transcript || "No transcript was sent."}</pre>
+        </Modal>
+      )}
+    </section>
+  );
+}
 function AlertsPanel({ smsLive }: { smsLive: boolean }) {
   const [d, setD] = useState<AlertsData | null>(null);
   const [p, setP] = useState<AlertPrefs | null>(null);
@@ -3630,6 +3755,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
         </form>
       )}
       {data && <AlertsPanel smsLive={smsLive} />}
+      {data && <VoicePanel timezone={w.shop.timezone} />}
       <div className="outbox" data-testid="outbox">
         <div className="outbox-head">
           <h3>

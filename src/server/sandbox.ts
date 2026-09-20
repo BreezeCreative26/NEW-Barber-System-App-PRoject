@@ -73,6 +73,7 @@ import {
 import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { optimiseImage } from "./images";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
+import { agentPrompt, newSecret, voiceEndpoints, voiceOf, voiceSettingsSchema } from "./voice";
 import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import QRCode from "qrcode";
 import setup from "./setup";
@@ -252,8 +253,9 @@ sandbox.use("*", async (c, next) => {
     const setup =
       // The setup wizard (owner/manager): its own routes enforce the role again.
       path.startsWith("/setup") ||
-      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist", "/shop/messaging", "/shop/payments", "/shop/alerts"].includes(path)) ||
-      (method === "GET" && path === "/shop/alerts") ||
+      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist", "/shop/messaging", "/shop/payments", "/shop/alerts", "/shop/voice"].includes(path)) ||
+      (method === "GET" && (path === "/shop/alerts" || path.startsWith("/shop/voice"))) ||
+      (method === "POST" && path === "/shop/voice/rotate") ||
       (method === "POST" && ["/notifications/test", "/notifications/sweep", "/shop/payments/connect"].includes(path)) ||
       (method === "POST" && /^\/notifications\/[^/]+\/resend$/.test(path)) ||
       (method === "POST" && /^\/reviews\/[^/]+\/(status|reply)$/.test(path)) ||
@@ -1169,6 +1171,56 @@ sandbox.put("/shop/messaging", async (c) => {
     audit(c, "shop", sid, "MESSAGING_UPDATED", `SMS ${b.msg_sms ? "on" : "off"}, WhatsApp ${b.msg_wa ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
   ]);
   return c.json({ ok: true, messaging: b });
+});
+// AI receptionist (ElevenLabs) — per-shop agent id, secret and the endpoints to paste into the agent.
+sandbox.get("/shop/voice", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const shop = await readShop(c);
+  const v = voiceOf((shop as Shop & { voice_json?: string }).voice_json);
+  const origin = new URL(c.req.url).origin;
+  const calls = (await c.env.DB.prepare("SELECT id,conversation_id,caller,outcome,summary,booking_id,duration_s,started_at FROM voice_calls WHERE shop_id=? ORDER BY started_at DESC LIMIT 50").bind(shop.id).all()).results;
+  return c.json({
+    settings: { enabled: v.enabled, agent_id: v.agent_id, greeting: v.greeting, notes: v.notes, has_secret: !!v.secret, created_at: v.created_at ?? null },
+    // The secret is shown in full only right after it is (re)generated; here just the tail.
+    secret_hint: v.secret ? `…${v.secret.slice(-6)}` : "",
+    endpoints: shop.slug ? voiceEndpoints(origin, shop.slug) : null,
+    prompt: agentPrompt(shop.name),
+    online_booking_required: !shop.online_booking || !shop.slug,
+    calls,
+  });
+});
+sandbox.put("/shop/voice", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const b = await input(c, voiceSettingsSchema);
+  const shop = await readShop(c);
+  const cur = voiceOf((shop as Shop & { voice_json?: string }).voice_json);
+  if (b.enabled && (!shop.online_booking || !shop.slug)) fail(409, "Turn on online booking first — the receptionist books through the same diary.");
+  // First enable mints the secret; it is returned once here so the owner can paste it into ElevenLabs.
+  const minted = b.enabled && !cur.secret;
+  const next = { ...cur, ...b, secret: cur.secret || (b.enabled ? newSecret() : ""), created_at: cur.created_at || (b.enabled ? Date.now() : undefined) };
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE shops SET voice_json=?, version=version+1 WHERE id=?").bind(JSON.stringify(next), shop.id),
+    audit(c, "shop", shop.id, "VOICE_UPDATED", `AI receptionist ${b.enabled ? "on" : "off"}${b.agent_id ? ` · agent ${b.agent_id}` : ""}.`),
+  ]);
+  return c.json({ ok: true, settings: { enabled: next.enabled, agent_id: next.agent_id, greeting: next.greeting, notes: next.notes, has_secret: !!next.secret }, ...(minted ? { secret: next.secret } : {}) });
+});
+sandbox.post("/shop/voice/rotate", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  await input(c, z.object({}).strict());
+  const shop = await readShop(c);
+  const cur = voiceOf((shop as Shop & { voice_json?: string }).voice_json);
+  const next = { ...cur, secret: newSecret(), created_at: Date.now() };
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE shops SET voice_json=?, version=version+1 WHERE id=?").bind(JSON.stringify(next), shop.id),
+    audit(c, "shop", shop.id, "VOICE_SECRET_ROTATED", "AI receptionist secret regenerated; the old one stops working now."),
+  ]);
+  return c.json({ ok: true, secret: next.secret });
+});
+sandbox.get("/shop/voice/calls/:id", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const row = await c.env.DB.prepare("SELECT * FROM voice_calls WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first();
+  if (!row) fail(404, "Call not found");
+  return c.json({ call: row });
 });
 // Owner/manager alert preferences (shops.notify_json).
 sandbox.get("/shop/alerts", async (c) => {
