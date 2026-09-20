@@ -6,13 +6,13 @@
    ========================================================================== */
 
 :root {
-  /* Brand — from the OLLO logo mockup: deep green-black ink, warm cream, signal green. */
+  /* Brand — from the OLLO logo mockup: deep green-black ink, warm cream, matte mint. */
   --ollo: #0b1a17;
-  --ollo-green: #7ff5c6;
-  --ollo-soft: #e0f7ef;
-  --accent: #0b6b58;
-  --accent-dark: #0a5c4d;
-  --accent-grad: linear-gradient(135deg, #0b6b58 0%, #0e7c66 70%, #2fbf97 100%);
+  --ollo-green: #a8d5c2;
+  --ollo-soft: #e6f0eb;
+  --accent: #3a7563;
+  --accent-dark: #2f6152;
+  --accent-grad: linear-gradient(135deg, #3a7563 0%, #3a7563 70%, #5e9a86 100%);
   --cream: #f4f3ee;
 
   /* Neutrals */

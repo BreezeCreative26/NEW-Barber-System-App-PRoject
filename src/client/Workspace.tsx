@@ -307,12 +307,12 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
       <aside className="auth-brand" aria-hidden="true">
         <img className="auth-brand-logo" src="/static/brand/ollo-wordmark.svg" alt="" width={168} height={48} />
         <div className="auth-brand-copy">
-          <p className="auth-brand-eyebrow">Booking software for barbers, hairdressers &amp; salons</p>
-          <h1>Built by barbers.<br />For the industry.</h1>
+          <p className="auth-brand-eyebrow">Booking software for any appointment business</p>
+          <h1>Built for people<br />who run on appointments.</h1>
           <p className="auth-brand-tag">Book · Manage · Show up</p>
         </div>
         <ul className="auth-brand-points">
-          <li>Fixed monthly fee</li>
+          <li>One fair monthly price, no commission</li>
           <li>WhatsApp, text &amp; email confirmations</li>
           <li>Your logo on everything your customers see</li>
         </ul>

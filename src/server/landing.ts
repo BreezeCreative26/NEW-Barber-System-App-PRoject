@@ -505,7 +505,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
       <a class="l-brand" href="/" aria-label="OLLO home"><img src="/static/brand/ollo-wordmark.svg" alt="OLLO" width="96" height="28"/></a>
       <p class="l-tiny">© ${new Date().getFullYear()} OLLO. All rights reserved.</p>
     </div>
-    <nav aria-label="Footer"><a href="/">OLLO for every business</a><a href="/barbers">OLLO for barbers</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/signin">Sign in</a><a href="/signup">Create your account</a></nav>
+    <nav aria-label="Footer"><a href="/">OLLO for every business</a><a href="/barbers">OLLO for barbers</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/signin">Sign in</a><a href="/signup">Create your shop</a></nav>
     <div class="l-footer-right">
       <div class="l-social" aria-label="Social">
         <a href="https://instagram.com" aria-label="Instagram" rel="noopener">${ICO.ig}</a>
