@@ -59,6 +59,16 @@ for (const [events, connect] of [[EVENTS, false], [CONNECT_EVENTS, true]]) {
     console.log(`  STRIPE_WEBHOOK_SECRET${connect ? "_CONNECT" : ""}=${w.secret}`);
   }
 }
+// Apple Pay / Google Pay on Checkout: register the app's domain so the wallet buttons show on the
+// pay-link page the customer opens from the QR (this is what makes "tap at the chair" work today).
+const host = origin.replace(/^https?:\/\//, "");
+const domains = (await api("/payment_method_domains?limit=100")).data;
+let dom = domains.find((d) => d.domain_name === host);
+if (!dom) { dom = await api("/payment_method_domains", new URLSearchParams({ domain_name: host }).toString()); console.log(`Registered payment-method domain ${host}`); }
+else { dom = await api(`/payment_method_domains/${dom.id}/validate`, "").catch(() => dom); }
+const st = (k) => dom[k]?.status || "?";
+console.log(`Wallets on ${host}: apple_pay=${st("apple_pay")} google_pay=${st("google_pay")} link=${st("link")}${st("apple_pay") !== "active" ? ` (${dom.apple_pay?.status_details?.error_message || "Apple Pay needs the domain-association file — served at /.well-known/apple-developer-merchantid-domain-association by the app"})` : ""}`);
+
 console.log(`
 Two endpoints means two signing secrets. The app verifies against STRIPE_WEBHOOK_SECRET and, when
 set, STRIPE_WEBHOOK_SECRET_CONNECT — set both.
@@ -67,6 +77,5 @@ Dashboard to-dos (no API for these):
   1. https://dashboard.stripe.com/settings/connect/platform-profile  → accept loss liability
   2. https://dashboard.stripe.com/settings/radar                     → Radar for Platforms on
   3. https://dashboard.stripe.com/settings/connect/branding           → OLLO logo + colour
-  4. https://dashboard.stripe.com/settings/payment_methods            → Apple Pay: add ${origin.replace(/^https?:\/\//, "")}
   ${acct.details_submitted ? "" : "5. Complete the platform business profile before going live (charges_enabled is false)."}
 `);

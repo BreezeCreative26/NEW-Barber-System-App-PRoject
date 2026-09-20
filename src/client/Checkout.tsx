@@ -158,7 +158,7 @@ export function Checkout({
             <button key={m.key} type="button" className="method-tile" aria-pressed={method === m.key} data-testid={`method-${m.key.toLowerCase()}`} onClick={() => { setMethod(m.key); setCard(false); }}>
               <Icon name={m.icon} size={18} />
               <b>{m.label}</b>
-              {m.key === "CARD" && <small>{cardLive ? "Reader or QR" : "Recorded by hand"}</small>}
+              {m.key === "CARD" && <small>{cardLive ? "Tap on their phone or reader" : "Recorded by hand"}</small>}
             </button>
           ))}
         </div>
@@ -276,18 +276,21 @@ export function CardAtChair({ api, booking, amount, live, onPaid, onClose }: { a
   const total = money(amount.service_pence + amount.tip_pence);
   return (
     <section className="card-at-chair" aria-label="Card payment" data-testid="card-at-chair">
-      {!live && <p className="workspace-footnote">Card through OLLO isn’t switched on yet. Once Stripe is connected this shows a QR the customer scans, or sends the amount to your reader.</p>}
+      {!live && <p className="workspace-footnote">Card through OLLO isn’t switched on yet. Once it is, this shows a QR the customer taps to pay on their own phone, or sends the amount to your reader.</p>}
       {error && <p className="workspace-error" role="alert">{error}</p>}
       {mode === "pick" && (
         <div className="card-pick">
-          <Button disabled={!live || busy} onClick={startLink} data-testid="card-link">
-            <Icon name="globe" size={16} /> Pay link / QR
-          </Button>
-          {readers.length > 0 ? readers.map((r) => (
-            <Button key={r.id} variant="secondary" disabled={!live || busy || r.status === "offline"} onClick={() => startReader(r.id)} data-testid="card-reader">
-              <Icon name="card" size={16} /> {r.label}{r.status === "offline" ? " · offline" : ""}
-            </Button>
-          )) : <span className="workspace-footnote">No reader paired. Add one in Settings → Payments.</span>}
+          <button type="button" className="card-option" disabled={!live || busy} onClick={startLink} data-testid="card-link">
+            <Icon name="phone" size={18} />
+            <span><b>Tap on their phone</b><small>Show a QR — they scan and pay with Apple Pay, Google Pay or card. No reader needed.</small></span>
+          </button>
+          {readers.map((r) => (
+            <button type="button" key={r.id} className="card-option" disabled={!live || busy || r.status === "offline"} onClick={() => startReader(r.id)} data-testid="card-reader">
+              <Icon name="card" size={18} />
+              <span><b>{r.label}</b><small>{r.status === "offline" ? "Reader is offline" : "Send the amount to the reader — they tap their card on it."}</small></span>
+            </button>
+          ))}
+          {readers.length === 0 && <span className="workspace-footnote">Got a Stripe reader? Pair it in Settings → Payments to tap cards on the counter too.</span>}
           <Button variant="ghost" onClick={onClose}>Back</Button>
         </div>
       )}
@@ -296,7 +299,8 @@ export function CardAtChair({ api, booking, amount, live, onPaid, onClose }: { a
           {req.status === "OPEN" && (
             <>
               <img src={qr} alt={`QR code to pay ${total}`} className="card-qr" />
-              <p><strong>{total}</strong> · scan to pay, or send the link</p>
+              <p><strong>{total}</strong> · ask them to point their camera at the code</p>
+              <p className="workspace-footnote">Opens a secure OLLO checkout on their phone. Apple Pay / Google Pay if they have it, card if not.</p>
               <div className="panel-actions-row">
                 {booking.phone && <Button variant="secondary" onClick={() => send("SMS")}>Text it</Button>}
                 {booking.email && <Button variant="secondary" onClick={() => send("EMAIL")}>Email it</Button>}
@@ -306,7 +310,7 @@ export function CardAtChair({ api, booking, amount, live, onPaid, onClose }: { a
               <p className="workspace-footnote"><Icon name="hourglass" size={13} /> Waiting for the customer… valid 30 minutes.</p>
             </>
           )}
-          {req.status === "PAID" && <p className="workspace-success" role="status" data-testid="card-paid"><Icon name="check" size={14} /> Paid {total} by card. Recorded and checked out.</p>}
+          {req.status === "PAID" && <p className="workspace-success" role="status" data-testid="card-paid"><Icon name="check" size={14} /> Paid {total}. Recorded and checked out — it goes on the barber’s next pay run.</p>}
           {(req.status === "EXPIRED" || req.status === "CANCELLED") && <p className="workspace-error" role="alert">This link is no longer valid.</p>}
           <Button variant="ghost" onClick={cancel}>{req.status === "OPEN" ? "Cancel" : "Done"}</Button>
         </div>

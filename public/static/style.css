@@ -7825,7 +7825,15 @@ img.avatar-ink.avatar-logo { border-radius: 8px; width: auto; max-width: 96px; h
 /* ---- Card at the chair ---- */
 .checkout-card-cta { margin: 10px 0 4px; }
 .card-at-chair { padding: 12px; border: 1px dashed var(--line); border-radius: var(--r-md); background: var(--surface); }
-.card-pick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.card-pick { display: grid; gap: 8px; }
+.card-option { display: grid; grid-template-columns: 22px 1fr; gap: 12px; align-items: start; width: 100%; text-align: left; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2, #fff); color: var(--ink); font: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
+.card-option:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft, #e4f6ea); }
+.card-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card-option:disabled { opacity: .55; cursor: not-allowed; }
+.card-option > svg { margin-top: 2px; color: var(--accent); }
+.card-option span { display: grid; gap: 2px; }
+.card-option b { font-size: 14px; font-weight: 600; }
+.card-option small { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
 .card-link-view, .card-reader-view { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
 .card-qr { width: min(240px, 70vw); height: auto; border-radius: var(--r-md); background: #fff; padding: 8px; border: 1px solid var(--line); }
 .reader-add { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 12px; }

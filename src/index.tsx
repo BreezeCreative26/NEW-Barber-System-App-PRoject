@@ -246,6 +246,14 @@ app.get("/:slug", async (c, next) => {
   const head = shopPageHead({ origin: publicOrigin(c), shop, ...data });
   return c.html(shell(head.html, `Opening ${shop.name}…`));
 });
+// Apple Pay on the pay-link / deposit checkout: Stripe verifies the domain by fetching this file
+// (public/.well-known/…). Served explicitly so no hosting rewrite can swallow the dot-directory.
+app.get("/.well-known/apple-developer-merchantid-domain-association", async (c) => {
+  const res = await fetch("https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association");
+  if (!res.ok) return c.notFound();
+  c.header("Cache-Control", "public, max-age=86400");
+  return c.body(await res.text(), 200, { "Content-Type": "text/plain" });
+});
 // Search engines: shop pages are indexable, everything private is not.
 app.get("/robots.txt", (c) => {
   c.header("Cache-Control", "public, max-age=3600");
