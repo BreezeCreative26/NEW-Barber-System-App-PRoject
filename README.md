@@ -36,7 +36,10 @@ Local dev without Supabase: run Postgres locally and point `DATABASE_URL`/`DIREC
 1. Import this repo in Vercel (framework: Next.js, defaults otherwise; `vercel.json` sets `lhr1`).
 2. Environment variables: `DATABASE_URL`, `DIRECT_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
    `SUPABASE_SERVICE_ROLE_KEY`, `SESSION_SECRET` (long random string), optionally
-   `ALLOWED_ORIGINS` (comma-separated extra origins for the same-origin guard).
+   `ALLOWED_ORIGINS` (comma-separated extra origins for the same-origin guard). Providers:
+   `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_WEBHOOK_SECRET_CONNECT` (from
+   `scripts/stripe-setup.mjs`), `RESEND_API_KEY` + `MAIL_FROM`, `CLICKSEND_USERNAME` +
+   `CLICKSEND_API_KEY`, `CRON_SECRET`. See `docs/GO_LIVE.md` for the click-by-click list.
 3. Push to `main` → production. Branches → preview URLs.
 4. Leave `DEMO_ENABLED` unset (or `0`) in production — it exposes the demo sign-in and the dev mailbox.
 5. **Check `/api/diag?ping=1` after every deploy.** It reports the Node version, region, commit,
@@ -67,13 +70,23 @@ Without keys the app runs in **preview mode**: deposits payable in the shop, pay
 hand, every Settings → Payments control visible but honest about why it's off. Full runbook,
 tiers (STANDARD / FAST float), auto pay runs and the test-mode checklist: **`docs/PAYMENTS.md`**.
 
-## Front door and sign-up
+## Front door, sign-up and shop setup
 
 `/` is a server-rendered marketing page (no JS, indexable, JSON-LD) with five "Create your shop"
-CTAs → `/signup`. Visitors with an `ollo_session` cookie are sent straight to `/workspace`. A new
-owner lands on an empty calendar with a **"Get {shop} live"** checklist (services → hours/team →
-booking link) that ticks itself off and disappears once the shop is bookable. Copy lives in
-`src/server/landing.ts`, styles in `public/static/landing.css`, hero in `public/static/landing/`.
+CTAs → `/signup` (shop name, kind — barbershop / hairdresser / salon —, name, email, password).
+Visitors with an `ollo_session` cookie are sent straight to `/workspace`.
+
+A new owner lands in the **guided setup** at `/workspace/setup` — seven optional, resumable steps
+(state in `shops.setup_json`): shop contact + SMS/email verification · opening hours + bank
+holidays · starter service menu for the shop kind · team + invites · customer-message preview and
+"text/email me a test" · booking address with live availability check, QR and share card · deposit
+policy and Stripe Connect. "Finish later" drops to the calendar with a *Continue setup* banner until
+the wizard is completed or hidden. Code: `src/client/Setup.tsx`, `Setup2.tsx`, `src/server/setup.ts`.
+
+**Invites** (Setup → Team or Settings → Accounts): owners and managers invite onto a team profile by
+email, text, both, or a bare link (7 days, one use); resend re-issues the token; revoke withdraws it.
+The accept page (`/workspace?invite=…`) shows the shop, inviter and role before asking for a password.
+**Forgot password**: `/forgot` → email (+ text to the verified shop mobile for the owner) → `/reset`.
 
 ## Operations
 
@@ -116,19 +129,25 @@ accent). OLLO never appears in a customer's inbox.
 
 | Env var | Purpose |
 | --- | --- |
-| `RESEND_API_KEY`, `MAIL_FROM` | Email via Resend (`MAIL_FROM` e.g. `bookings@yourdomain.com`, verified in Resend) |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` **or** `TWILIO_MESSAGING_SERVICE_SID` | SMS via Twilio |
+| `RESEND_API_KEY`, `MAIL_FROM` | Email via Resend. `MAIL_FROM` must be on a domain verified in Resend; unset → `onboarding@resend.dev`, which only delivers to the Resend account owner. |
+| `CLICKSEND_USERNAME`, `CLICKSEND_API_KEY`, `CLICKSEND_FROM` | SMS via ClickSend (preferred). `CLICKSEND_FROM` = optional 11-char alphanumeric default sender. |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` **or** `TWILIO_MESSAGING_SERVICE_SID` | SMS via Twilio (used only when ClickSend is not configured) |
 | `CRON_SECRET` | Protects `GET /api/cron/messages` (Vercel Cron sends it as `Authorization: Bearer …`) |
 
 Without keys the app runs in **preview mode**: messages are written to the outbox with the
-`mailbox` provider and nothing leaves. Sign-in codes are shown on screen. Owners see the mode in
-**Settings → Messages**, where they can toggle SMS / email / reminders, set reply-to and SMS sender,
-send a test, and preview / copy / resend anything in the outbox.
+`mailbox` provider and nothing leaves. Sign-in and verification codes are shown on screen. Owners
+see the mode in **Settings → Messages**, where they can toggle SMS / email / reminders, set reply-to
+and SMS sender, send a test, and preview / copy / resend anything in the outbox.
+
+**Owner alerts** (same panel): new online booking, cancellation, no-show, morning summary — each
+off / email / text / both, to the owner's login email and the *verified* shop mobile, optionally to
+managers (email). Prefs in `shops.notify_json`; code in `src/server/alerts.ts`. Shop-side messages
+(alerts, verification codes, password resets, invites) ignore the customer SMS/email toggles.
 
 Delivery: `notifications` is the queue (QUEUED → SENDING → SENT / FAILED, backoff 1m · 5m · 30m · 2h
 · 12h). A sweep runs lazily at most once per 5 minutes from any `/api` request and on the Vercel Cron
 schedule in `vercel.json`; it also queues reminders (configurable hours before + 2 hours before,
-once per booking per channel).
+once per booking per channel) and the morning summaries.
 
 ## Where things are
 

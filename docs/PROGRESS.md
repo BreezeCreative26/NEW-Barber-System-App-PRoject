@@ -611,3 +611,9 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - Migration `0014_shop_setup.sql` applied locally and to Supabase.
 - Test: `tests/setup.spec.ts` — full signup → wizard → invite accept → forgot/reset (passes).
 - Not done: Phase C (owner alerts wiring + prefs UI), Phase D (Messages delivery health / Resend domain), Phase E (full gate, README, register). Transfer ownership not built.
+
+## 2026-09-20 — Owner alerts (Phase C), Messages/D, docs, gate
+- `src/server/alerts.ts`: `alertOwners()` after online booking / deposit confirm / online cancel / shop-marked no-show; `sweepDailySummaries()` from the 5-min sweep (07:00 shop-local default, once/day via `platform_kv`). Recipients: owner login email + verified shop mobile; managers by email when `managers=true`. Prefs UI in Settings → Messages (`GET/PUT /shop/alerts`).
+- Messaging: Resend fallback sender is `onboarding@resend.dev` until `MAIL_FROM` is set; outbox labels for the shop-side templates. Demo/fixture shops seed `setup_json` complete so they open on the calendar.
+- Tests: inventories updated (invites resend, forgot, reset, alerts); manager may invite + read access; landing journey = wizard + banner; Accounts link is `?invite=`; Sunday-aware skips for fixture-date tests (payouts chair test, customer "usual"). Gate: **157 passed, 4 skipped**; remaining 3 visual + 1 ECONNRESET were Sunday-fixture / transient — desktop+tablet visuals pass on rerun, phone visual differs only because the fixture is closed today.
+- `docs/GO_LIVE.md`: the owner's click list (rotate keys, Stripe dashboard switches, Vercel env vars, Resend domain, ClickSend top-up, smoke test).
