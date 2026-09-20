@@ -249,42 +249,60 @@ export function landingPage(origin: string) {
       <div class="l-center">
         <p class="l-eyebrow">Pricing</p>
         <h2 id="pricing-heading">Simple, honest pricing.</h2>
-        <p class="l-lede l-lede-center">One price for the system. Add the extras you want. Cancel any time.</p>
+        <p class="l-lede l-lede-center">One monthly price for the system, first barber included. Add extras only if you want them. Cancel any time.</p>
       </div>
       <div class="l-price-grid">
         <article class="l-price-main">
-          <p class="l-price-label">The system</p>
-          <p class="l-price-big"><span class="l-price-from">from</span>£24.99<small>/month</small></p>
-          <p class="l-price-sub">+ <strong>£7.99</strong> per barber or stylist</p>
+          <header class="l-price-head">
+            <p class="l-price-label">The system</p>
+            <p class="l-price-big">£24.99<small>/month</small></p>
+            <p class="l-price-sub">Includes your first barber or stylist. Each extra chair is <strong>£7.99</strong> a month.</p>
+          </header>
+          <ul class="l-price-chairs" aria-label="Monthly price by team size">
+            <li><span>Solo</span><b>£24.99</b></li>
+            <li><span>2 chairs</span><b>£32.98</b></li>
+            <li><span>3 chairs</span><b>£40.97</b></li>
+            <li><span>5 chairs</span><b>£56.95</b></li>
+          </ul>
           <ul class="l-price-list">
             <li><i class="l-tick">${ICO.check}</i>Online booking page with your name and logo</li>
             <li><i class="l-tick">${ICO.check}</i>Drag-and-drop calendar for the whole team</li>
             <li><i class="l-tick">${ICO.check}</i>Unlimited bookings — never a per-booking fee</li>
             <li><i class="l-tick">${ICO.check}</i>Client records, notes and history</li>
             <li><i class="l-tick">${ICO.check}</i>Email confirmations and reminders included</li>
-            <li><i class="l-tick">${ICO.check}</i>Deposits, no-show protection and pay runs</li>
+            <li><i class="l-tick">${ICO.check}</i>No-show protection and pay runs</li>
             <li><i class="l-tick">${ICO.check}</i>A login for every barber</li>
             <li><i class="l-tick">${ICO.check}</i>Reports and daily summaries</li>
           </ul>
-          <p class="l-price-example">A 3-barber shop: <strong>£48.96 a month</strong>. A solo barber: <strong>£32.98</strong>.</p>
-          <a class="l-btn l-btn-green" href="/signup" data-testid="landing-cta-pricing-main">Start Free Trial</a>
-          <p class="l-tiny">14 days free · no card needed · no contract</p>
+          <footer class="l-price-foot">
+            <a class="l-btn l-btn-green" href="/signup" data-testid="landing-cta-pricing-main">Start Free Trial</a>
+            <p class="l-tiny">14 days free · no card needed · no contract</p>
+          </footer>
         </article>
         <div class="l-price-extras">
-          <p class="l-price-label">Extras — only if you use them</p>
+          <p class="l-price-label">Optional extras — pay only for what you use</p>
           <article class="l-extra">
             <i class="l-ico">${ICO.chat}</i>
-            <div><b>Messages</b><p>Text confirmations and reminders <strong>6p</strong> each · WhatsApp <strong>3p</strong> each · email always free. Your clients choose how they hear from you.</p></div>
+            <div class="l-extra-body">
+              <div class="l-extra-top"><b>Messages</b><span class="l-extra-price">6p <small>a text</small></span></div>
+              <p>Text confirmations and reminders 6p each. WhatsApp 3p each. Email always free. Your clients choose how they hear from you.</p>
+            </div>
           </article>
           <article class="l-extra l-extra-hi">
             <i class="l-ico l-ico-fill">${ICO.phone}</i>
-            <div><b>AI Concierge <span class="l-pill">New</span></b><p><strong>£49/month</strong> · Answers your phone 24/7 in your shop’s name, checks the diary, books, moves and cancels appointments and takes messages. 300 call minutes included, then 12p a minute.</p></div>
+            <div class="l-extra-body">
+              <div class="l-extra-top"><b>AI Concierge <span class="l-pill">New</span></b><span class="l-extra-price">£49 <small>a month</small></span></div>
+              <p>Answers your phone 24/7 in your shop’s name, checks the diary, books, moves and cancels appointments and takes messages. 300 call minutes included, then 12p a minute.</p>
+            </div>
           </article>
           <article class="l-extra">
             <i class="l-ico">${ICO.card}</i>
-            <div><b>Card payments</b><p><strong>2.2% + 20p</strong> per payment, all in. Deposits at booking, prepay, or pay at the chair. Money goes straight to each barber.</p></div>
+            <div class="l-extra-body">
+              <div class="l-extra-top"><b>Card payments <span class="l-pill l-pill-soft">Optional</span></b><span class="l-extra-price">2.2% <small>+ 20p</small></span></div>
+              <p>Switch on if you want deposits at booking, prepay or pay at the chair. One all-in rate per payment, money goes straight to each barber. Leave it off and pay nothing.</p>
+            </div>
           </article>
-          <p class="l-tiny">All prices exclude VAT. Extras are billed monthly on what you used — shown live in your settings, no surprises.</p>
+          <p class="l-tiny">All prices exclude VAT. Extras are billed monthly on what you actually used — shown live in your settings, no surprises.</p>
         </div>
       </div>
     </div>
@@ -317,7 +335,7 @@ export function landingPage(origin: string) {
         <details><summary>Can I bring my existing customers over?</summary><p>Yes — import a CSV from your old system in Settings → Customers and their history comes with them.</p></details>
         <details><summary>Do barbers get their own login?</summary><p>Yes. Invite each barber; they see their own day, take payments at the chair, block their own time and watch their wallet.</p></details>
         <details><summary>What about deposits and no‑shows?</summary><p>Set a deposit, ask for full prepayment, or let people pay at the chair — shop‑wide or per service. No‑shows can be charged; refunds are automatic when you cancel on them.</p></details>
-        <details><summary>What does it really cost?</summary><p>£24.99 a month plus £7.99 for each barber or stylist — so a three-chair shop pays £48.96. Texts are 6p, WhatsApp 3p, email is free. Card payments are 2.2% + 20p all in. The AI Concierge is an optional £49 a month. Nothing per booking, no commission, and you can see exactly what you’ve used in your settings.</p></details>
+        <details><summary>What does it really cost?</summary><p>£24.99 a month, which includes your first barber. Each extra chair is £7.99 — so a three-chair shop pays £40.97. Texts are 6p, WhatsApp 3p, email is free. Card payments are optional at 2.2% + 20p all in; leave them off and pay nothing. The AI Concierge is an optional £49 a month. Nothing per booking, no commission, and you can see exactly what you’ve used in your settings.</p></details>
         <details><summary>Is my data safe?</summary><p>Hosted in the EU, encrypted in transit, backed up daily. You can export everything at any time.</p></details>
       </div>
     </div>

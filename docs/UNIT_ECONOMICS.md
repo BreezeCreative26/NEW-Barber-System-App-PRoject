@@ -83,3 +83,16 @@ the receptionist on.
   then WA falls back to text and costs the SMS rate.
 - **Stripe active-account fee** only bills for accounts that received a payout that month — barbers on
   "pay in shop" cost nothing.
+
+## 6. Live pricing (as published on the landing page)
+
+**System:** £24.99/month **including the first barber**, then £7.99 per extra chair.
+Solo £24.99 · 2 chairs £32.98 · 3 chairs £40.97 · 5 chairs £56.95.
+
+**Optional extras, usage-billed:**
+- Texts 6p (cost ≈ 4.3p), WhatsApp 3p (cost ≈ 1.8p), email free.
+- Card payments — optional, off by default — 2.2% + 20p all-in (Stripe 1.5% + 20p + ~0.3% account/payout).
+- AI Concierge £49/month, 300 minutes included then 12p/min (cost ≈ 9p/min).
+
+3-chair reference shop, everything on: ≈ £40.97 + £49 + ~£30 messaging + card margin ≈ £155/month revenue
+against ≈ £81 cost → ~£74 gross profit (≈ 48%). System-only: £40.97 revenue vs ≈ £9 hosting/support → ~78%.
