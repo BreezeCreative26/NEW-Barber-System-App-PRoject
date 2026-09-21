@@ -14,7 +14,9 @@ type Ent = { enabled: boolean; source: string; note: string; ends_at: number | n
 type Summary = {
   lines: Line[]; subtotal_pence: number; discount_pence: number; discounts: { code: string; name: string }[]; tax_pence: number; total_pence: number; vat_mode: string; period: string; usage: Usage[];
   entitlements: { plan: { id: string; name: string; monthly_pence: number; included_seats: number; seat_pence: number }; subscription: { status: string; seats: number; trial_ends_at: number | null; current_period_end: number | null; billing_email: string; billing_name: string; stripe_customer_id: string }; seats: { used: number; included: number; billable: number }; features: Record<string, Ent>; readOnly: boolean; reasons: string[]; trial_days_left: number | null };
-  invoices: { id: string; number: string; status: string; period_start: number; period_end: number; total_pence: number; hosted_url: string; pdf_url: string; paid_at: number | null; lines_json: string }[];
+  invoices: { id: string; number: string; status: string; kind?: string; period_start: number; period_end: number; total_pence: number; paid_pence: number; due_at: number | null; hosted_url: string; pdf_url: string; view_token?: string; paid_at: number | null; lines_json: string }[];
+  support_access?: { id: string; action: string; reason: string; created_at: number }[];
+  outstanding_pence?: number; credit_pence?: number;
   events: { id: string; type: string; summary: string; created_at: number }[];
   features: Feature[];
 };
@@ -112,6 +114,12 @@ export function BillingPanel({ api, isOwner, onOpenOutbox }: { api: Api; isOwner
 
       <section className="workspace-panel" aria-labelledby="billing-invoices">
         <h3 id="billing-invoices">Invoices</h3>
+        {(d.outstanding_pence || d.credit_pence) ? (
+          <p className="workspace-footnote" data-testid="billing-balance">
+            {d.outstanding_pence ? <>Outstanding: <strong>{money(d.outstanding_pence)}</strong>. </> : null}
+            {d.credit_pence ? <>Account credit: <strong>{money(d.credit_pence)}</strong> — taken off your next invoice.</> : null}
+          </p>
+        ) : null}
         {d.invoices.length === 0 ? (
           <p className="workspace-footnote">{sub.status === "TRIAL" ? "Your first invoice is issued when the trial ends." : "No invoices yet."}</p>
         ) : (
@@ -120,17 +128,29 @@ export function BillingPanel({ api, isOwner, onOpenOutbox }: { api: Api; isOwner
             <tbody>
               {d.invoices.map((inv) => (
                 <tr key={inv.id}>
-                  <td>{inv.number || "—"}</td>
-                  <td>{when(inv.period_start)} – {when(inv.period_end)}</td>
-                  <td><StatusPill tone={tone(inv.status)}>{inv.status[0] + inv.status.slice(1).toLowerCase()}</StatusPill></td>
-                  <td className="num">{money(inv.total_pence)}</td>
-                  <td className="billing-invoice-actions">{inv.hosted_url && <a href={inv.hosted_url} target="_blank" rel="noreferrer">View</a>}{inv.pdf_url && <a href={inv.pdf_url} target="_blank" rel="noreferrer">PDF</a>}</td>
+                  <td>{inv.number || "—"}{inv.kind === "CREDIT_NOTE" && <small className="muted"> · credit note</small>}</td>
+                  <td>{inv.kind === "MANUAL" || inv.kind === "CREDIT_NOTE" ? when(inv.period_start) : <>{when(inv.period_start)} – {when(inv.period_end)}</>}</td>
+                  <td><StatusPill tone={inv.status === "OPEN" && inv.due_at && inv.due_at < Date.now() ? "warn" : tone(inv.status)}>{inv.status === "OPEN" && inv.due_at && inv.due_at < Date.now() ? "Overdue" : inv.kind === "CREDIT_NOTE" ? "Credit" : inv.status[0] + inv.status.slice(1).toLowerCase()}</StatusPill></td>
+                  <td className="num">{money(Math.abs(inv.total_pence))}{inv.status === "OPEN" && inv.paid_pence > 0 && <small className="muted"> ({money(inv.total_pence - inv.paid_pence)} due)</small>}</td>
+                  <td className="billing-invoice-actions">{inv.view_token ? <a href={`/invoice/${inv.id}?t=${inv.view_token}`} target="_blank" rel="noreferrer">View / PDF</a> : inv.hosted_url ? <a href={inv.hosted_url} target="_blank" rel="noreferrer">View</a> : null}{inv.pdf_url && <a href={inv.pdf_url} target="_blank" rel="noreferrer">PDF</a>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </section>
+
+      {d.support_access && d.support_access.length > 0 && (
+        <section className="workspace-panel" aria-labelledby="billing-support-access">
+          <h3 id="billing-support-access">OLLO support access</h3>
+          <p className="workspace-footnote">Every time OLLO staff opened or changed your account, with the reason they gave.</p>
+          <ol className="billing-timeline" data-testid="billing-support-access">
+            {d.support_access.map((a) => (
+              <li key={a.id}><Icon name="shield" size={14} /><span>{a.reason || a.action.replace(/_/g, " ").toLowerCase()}</span><small>{when(a.created_at)}</small></li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       <section className="workspace-panel" aria-labelledby="billing-timeline">
         <h3 id="billing-timeline">What's changed</h3>

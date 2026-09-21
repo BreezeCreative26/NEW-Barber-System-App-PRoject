@@ -1798,3 +1798,11 @@ td[data-state="leave"] .shifts-cell { background: #fbf6ee; border-color: #ead9bf
 .ollo-admin-main { padding-top: 20px; }
 body:has(.ollo-admin-shell) { margin: 0; padding: 0; background: #f4f3ee; }
 #root:has(.ollo-admin-shell) { display: block; padding: 0; margin: 0; max-width: none; }
+/* Admin invoicing */
+.admin-invoice-actions { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.admin-invoice-actions .button, .admin-invoice-actions button { height: 30px; padding: 0 10px; font-size: 12px; border-radius: 8px; }
+.admin-table tr.overdue td:first-child { box-shadow: inset 3px 0 0 #c9663f; }
+.admin-invoice-line { gap: 8px; }
+.admin-invoice-line .workspace-field span:empty { display: none; }
+.ollo-admin-shell .admin-section-head .toolbar input { min-width: 220px; }
+.ollo-admin-shell .notice code { font-size: 12px; }

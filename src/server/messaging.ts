@@ -43,6 +43,7 @@ export const MESSAGE_TEMPLATES = [
   "booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon",
   "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
   "verify_contact", "password_reset", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
+  "invoice", "credit_note", "owner_signin_link",
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
 
@@ -183,6 +184,31 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         heading: "Reset your password.",
         lines: ["Someone asked to reset the password for this address. If it was you, use the button below within 30 minutes.", "If it wasn't you, ignore this message — your password has not changed."],
         cta: { label: "Choose a new password", href: String(v.link) },
+      };
+    // ---- OLLO → shop owner (billing / account). `s` here is the platform name, not a shop. ----
+    case "invoice":
+      return {
+        sms: `${s}: invoice ${v.number} for ${v.total}${v.due ? `, due ${v.due}` : ""}. View: ${v.link}`,
+        subject: `${s} invoice ${v.number} · ${v.total}${v.status === "PAID" ? " (paid)" : ""}`,
+        heading: v.status === "PAID" ? `Receipt for ${v.shop}.` : `Your ${s} invoice for ${v.shop}.`,
+        lines: [`Invoice ${v.number} · ${v.total}${v.due && v.status !== "PAID" ? ` · due ${v.due}` : ""}.`, v.status === "PAID" ? "This invoice has been settled — no action needed." : v.bank ? `Pay by bank transfer using the details on the invoice, quoting ${v.number}.` : "Your card on file will be charged automatically.", "Reply to this email if anything looks wrong."],
+        cta: { label: "View invoice", href: String(v.link) },
+      };
+    case "credit_note":
+      return {
+        sms: `${s}: credit note ${v.number} for ${v.total} has been issued. View: ${v.link}`,
+        subject: `${s} credit note ${v.number} · ${v.total}`,
+        heading: `Credit note for ${v.shop}.`,
+        lines: [`Credit note ${v.number} · ${v.total}.`, "It has been applied to your account — the invoice shows how."],
+        cta: { label: "View credit note", href: String(v.link) },
+      };
+    case "owner_signin_link":
+      return {
+        sms: `${s}: your one-time sign-in link (15 min): ${v.link}`,
+        subject: `Your ${s} sign-in link`,
+        heading: "Sign in with one tap.",
+        lines: [`${s} support sent you this link so you can get back into ${v.shop}. It works once and expires in 15 minutes.`, "Once you're in, set a new password under Settings → Account.", "Didn't ask for this? Ignore it — nothing changes."],
+        cta: { label: "Sign in", href: String(v.link) },
       };
     case "owner_new_booking":
       return {

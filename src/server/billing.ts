@@ -14,7 +14,11 @@ export type SubscriptionRow = {
   billing_email: string; billing_name: string; address_json: string; version: number; created_at: number; updated_at: number;
 };
 export type ShopFeatureRow = { shop_id: string; feature_key: string; enabled: number; source: "PLAN" | "ADDON" | "ADMIN_GRANT" | "ADMIN_BLOCK"; stripe_item_id: string; stripe_metered_item_id: string; granted_by: string; note: string; starts_at: number; ends_at: number | null; updated_at: number };
-export type PlatformBilling = { vat_mode: "NONE" | "UK_20" | "STRIPE_TAX"; vat_number: string; trial_days: number; grace_days: number; vat_threshold_pence: number };
+export type PlatformBilling = {
+  vat_mode: "NONE" | "UK_20" | "STRIPE_TAX"; vat_number: string; trial_days: number; grace_days: number; vat_threshold_pence: number;
+  invoice_prefix: string; due_days: number; company_name: string; company_address: string; company_email: string; company_number: string; bank_details: string; invoice_footer: string; last_period_close: string;
+};
+export const PLATFORM_DEFAULTS: PlatformBilling = { vat_mode: "NONE", vat_number: "", trial_days: 14, grace_days: 7, vat_threshold_pence: 9000000, invoice_prefix: "OLLO-", due_days: 7, company_name: "OLLO", company_address: "", company_email: "", company_number: "", bank_details: "", invoice_footer: "Thank you for running your shop on OLLO.", last_period_close: "" };
 
 export type Entitlements = {
   plan: PlanRow;
@@ -31,8 +35,8 @@ const DAY = 86400000;
 export const periodKey = (ts = Date.now()) => new Date(ts).toISOString().slice(0, 7);
 
 export async function platformBilling(db: DB): Promise<PlatformBilling> {
-  const row = await db.prepare("SELECT vat_mode, vat_number, trial_days, grace_days, vat_threshold_pence FROM platform_billing WHERE id=1").first<PlatformBilling>();
-  return row ?? { vat_mode: "NONE", vat_number: "", trial_days: 14, grace_days: 7, vat_threshold_pence: 9000000 };
+  const row = await db.prepare("SELECT * FROM platform_billing WHERE id=1").first<PlatformBilling>();
+  return row ? { ...PLATFORM_DEFAULTS, ...row } : PLATFORM_DEFAULTS;
 }
 export async function plans(db: DB) { return (await db.prepare("SELECT * FROM plans ORDER BY sort, name").all<PlanRow>()).results; }
 export async function features(db: DB) { return (await db.prepare("SELECT * FROM features WHERE active=1 ORDER BY sort").all<FeatureRow>()).results; }
@@ -114,9 +118,9 @@ export async function usageFor(db: DB, shopId: string, period = periodKey()): Pr
 }
 
 // Estimated next invoice from local truth (Stripe's figure wins once it exists).
-export async function estimate(db: DB, shopId: string) {
+export async function estimate(db: DB, shopId: string, period = periodKey()) {
   const e = await entitlements(db, shopId);
-  const usage = await usageFor(db, shopId);
+  const usage = await usageFor(db, shopId, period);
   const fs = await features(db);
   const lines: { label: string; amount_pence: number; detail: string }[] = [];
   lines.push({ label: `${e.plan.name} plan`, amount_pence: e.plan.monthly_pence, detail: `includes ${e.plan.included_seats} seat${e.plan.included_seats === 1 ? "" : "s"}` });
@@ -139,7 +143,7 @@ export async function estimate(db: DB, shopId: string) {
   discount = Math.min(discount, subtotal);
   const pb = await platformBilling(db);
   const tax = pb.vat_mode === "UK_20" ? Math.round((subtotal - discount) * 0.2) : 0;
-  return { lines, subtotal_pence: subtotal, discount_pence: discount, discounts: discounts.map((d) => ({ code: d.code, name: d.name })), tax_pence: tax, total_pence: subtotal - discount + tax, vat_mode: pb.vat_mode, period: periodKey(), usage, entitlements: e };
+  return { lines, subtotal_pence: subtotal, discount_pence: discount, discounts: discounts.map((d) => ({ code: d.code, name: d.name })), tax_pence: tax, total_pence: subtotal - discount + tax, vat_mode: pb.vat_mode, period, usage, entitlements: e };
 }
 
 // ---- Feature toggles (shop self-serve add-ons and admin grants) --------------------------------
@@ -187,5 +191,9 @@ export async function billingSummary(db: DB, shopId: string) {
   const invoices = (await db.prepare("SELECT * FROM invoices WHERE shop_id=? ORDER BY period_start DESC LIMIT 24").bind(shopId).all()).results;
   const events = (await db.prepare("SELECT * FROM billing_events WHERE shop_id=? ORDER BY created_at DESC LIMIT 40").bind(shopId).all()).results;
   const fs = await features(db);
-  return { ...est, invoices, events, features: fs };
+  // Owners can see every time OLLO staff touched their account.
+  const support_access = (await db.prepare("SELECT id, action, reason, created_at FROM audit_events WHERE shop_id=? AND action IN ('SUPPORT_ACCESS','SIGNIN_LINK_SENT','ACCOUNT_EDITED_BY_SUPPORT','OWNER_TRANSFERRED','SUSPENDED','UNSUSPENDED') ORDER BY created_at DESC LIMIT 20").bind(shopId).all()).results;
+  const outstanding_pence = (invoices as { status: string; kind?: string; total_pence: number; paid_pence: number }[]).filter((i) => i.status === "OPEN" && i.kind !== "CREDIT_NOTE").reduce((n, i) => n + i.total_pence - i.paid_pence, 0);
+  const credit_pence = (await db.prepare("SELECT COALESCE(SUM(amount_pence),0)::int AS n FROM invoice_adjustments WHERE shop_id=? AND invoice_id IS NULL AND kind='CREDIT'").bind(shopId).first<{ n: number }>())?.n ?? 0;
+  return { ...est, invoices, events, features: fs, support_access, outstanding_pence, credit_pence };
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Button, Notice, StatusPill } from "./ui";
 import { money } from "./fixtures";
-import { adminApi, when, tone, label } from "./Admin";
+import { adminApi, when, tone, label, InvoiceTable, ReasonAction, type AdminInvoice } from "./Admin";
 
 // Admin: billing catalogue (plans, features, discounts, platform settings), invoices across shops,
 // ops health, and the admin team. Every write asks for a reason and lands in admin_audit.
@@ -9,7 +9,7 @@ import { adminApi, when, tone, label } from "./Admin";
 type Plan = { id: string; name: string; monthly_pence: number; included_seats: number; seat_pence: number; active: number };
 type Feature = { key: string; name: string; description: string; kind: string; monthly_pence: number; unit: string; unit_pence: number; included_units: number; in_plan: number; active: number };
 type Discount = { id: string; code: string; name: string; kind: string; value: number; applies_to: string; duration: string; duration_months: number; max_redemptions: number | null; redeemed: number; ends_at: number | null; active: number; shops: number; note: string };
-type Platform = { vat_mode: string; vat_number: string; trial_days: number; grace_days: number; vat_threshold_pence: number };
+type Platform = { vat_mode: string; vat_number: string; trial_days: number; grace_days: number; vat_threshold_pence: number; invoice_prefix: string; due_days: number; company_name: string; company_address: string; company_email: string; company_number: string; bank_details: string; invoice_footer: string; last_period_close: string };
 
 function useForm(onDone: () => void) {
   const [err, setErr] = useState("");
@@ -58,7 +58,11 @@ export function AdminCatalogue({ me }: { me: { role: string } }) {
         </div>
         <div className="workspace-panel">
           <h3>Platform</h3>
-          <form className="admin-inline-form" onSubmit={f.submit(async (fd) => adminApi("/catalogue/platform", "PUT", { vat_mode: String(fd.get("vat_mode")), vat_number: String(fd.get("vat_number") || ""), trial_days: Number(fd.get("trial_days")), grace_days: Number(fd.get("grace_days")), reason: String(fd.get("reason")) }))}>
+          <form className="admin-inline-form" data-testid="admin-platform-form" onSubmit={f.submit(async (fd) => adminApi("/catalogue/platform", "PUT", {
+            vat_mode: String(fd.get("vat_mode")), vat_number: String(fd.get("vat_number") || ""), trial_days: Number(fd.get("trial_days")), grace_days: Number(fd.get("grace_days")),
+            invoice_prefix: String(fd.get("invoice_prefix") || "OLLO-"), due_days: Number(fd.get("due_days")), company_name: String(fd.get("company_name") || "OLLO"), company_address: String(fd.get("company_address") || ""),
+            company_email: String(fd.get("company_email") || ""), company_number: String(fd.get("company_number") || ""), bank_details: String(fd.get("bank_details") || ""), invoice_footer: String(fd.get("invoice_footer") || ""),
+            reason: String(fd.get("reason")) }))}>
             <fieldset disabled={!superUser || f.busy}>
               <div className="workspace-form-grid">
                 <label className="workspace-field"><span>VAT</span><select name="vat_mode" defaultValue={d.platform.vat_mode}><option value="NONE">None — not VAT-registered</option><option value="UK_20">UK 20% on invoices</option><option value="STRIPE_TAX">Stripe Tax (automatic)</option></select></label>
@@ -66,6 +70,17 @@ export function AdminCatalogue({ me }: { me: { role: string } }) {
                 <label className="workspace-field"><span>Trial days</span><input name="trial_days" type="number" min="0" max="90" defaultValue={d.platform.trial_days} /></label>
                 <label className="workspace-field"><span>Overdue grace days</span><input name="grace_days" type="number" min="0" max="60" defaultValue={d.platform.grace_days} /></label>
               </div>
+              <h4>On every invoice</h4>
+              <div className="workspace-form-grid">
+                <label className="workspace-field"><span>Company name</span><input name="company_name" defaultValue={d.platform.company_name} maxLength={80} /></label>
+                <label className="workspace-field"><span>Company number</span><input name="company_number" defaultValue={d.platform.company_number} maxLength={40} /></label>
+                <label className="workspace-field"><span>Billing email</span><input name="company_email" type="email" defaultValue={d.platform.company_email} /></label>
+                <label className="workspace-field"><span>Invoice prefix</span><input name="invoice_prefix" defaultValue={d.platform.invoice_prefix} maxLength={12} /></label>
+                <label className="workspace-field"><span>Payment terms (days)</span><input name="due_days" type="number" min="0" max="60" defaultValue={d.platform.due_days} /></label>
+              </div>
+              <label className="workspace-field"><span>Address</span><textarea name="company_address" rows={2} defaultValue={d.platform.company_address} maxLength={400} /></label>
+              <label className="workspace-field"><span>Bank details for transfers (shown on open invoices)</span><textarea name="bank_details" rows={3} defaultValue={d.platform.bank_details} maxLength={600} placeholder={"Account name: …\nSort code: 00-00-00\nAccount number: 00000000"} /></label>
+              <label className="workspace-field"><span>Footer line</span><input name="invoice_footer" defaultValue={d.platform.invoice_footer} maxLength={300} /></label>
               {superUser && <><Reason /><div className="workspace-save-actions"><Button type="submit">Save platform settings</Button></div></>}
             </fieldset>
           </form>
@@ -150,20 +165,46 @@ export function AdminCatalogue({ me }: { me: { role: string } }) {
   );
 }
 
-export function AdminInvoices({ onShop }: { onShop: (id: string) => void }) {
-  const [status, setStatus] = useState("");
-  const [d, setD] = useState<{ invoices: { id: string; shop_id: string; shop_name: string; number: string; status: string; period_start: number; period_end: number; total_pence: number; paid_pence: number; hosted_url: string }[]; pending_adjustments: { id: string; shop_id: string; shop_name: string; kind: string; amount_pence: number; reason: string; created_at: number }[] } | null>(null);
-  useEffect(() => { adminApi<typeof d>(`/invoices?status=${status}`).then(setD); }, [status]);
+type InvoiceStats = { outstanding_pence: number; overdue_pence: number; overdue_n: number; paid_30d_pence: number; issued_ytd_pence: number; written_off_pence: number; credits_pence: number; charges_pence: number; last_period_close: string; closable_period: string };
+export function AdminInvoices({ onShop, me }: { onShop: (id: string) => void; me: { role: string } }) {
+  const [status, setStatus] = useState(() => sessionStorage.getItem("admin.invoices.status") ?? "");
+  const [q, setQ] = useState("");
+  const [d, setD] = useState<{ invoices: AdminInvoice[]; pending_adjustments: { id: string; shop_id: string; shop_name: string; kind: string; amount_pence: number; reason: string; created_at: number }[]; stats: InvoiceStats } | null>(null);
+  const [run, setRun] = useState<{ period: string; issued: { shop: string; number: string; total_pence: number }[]; skipped: { shop: string; why: string }[]; errors: { shop: string; error: string }[]; dunning: { overdue: number; flipped: number } } | null>(null);
+  const load = () => adminApi<typeof d>(`/invoices?status=${status}&q=${encodeURIComponent(q)}`).then(setD);
+  useEffect(() => { sessionStorage.setItem("admin.invoices.status", status); const t = setTimeout(() => void load(), q ? 250 : 0); return () => clearTimeout(t); }, [status, q]);
   if (!d) return <p className="workspace-footnote">Loading…</p>;
-  const total = d.invoices.reduce((n, i) => n + i.total_pence, 0);
+  const finance = me.role === "SUPER" || me.role === "FINANCE";
+  const st = d.stats;
+  const closeDue = st.last_period_close < st.closable_period;
   return (
     <section className="admin-section" data-testid="admin-invoices">
-      <header className="admin-section-head"><h1>Invoices <small>{d.invoices.length} · {money(total)}</small></h1><select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">All</option>{["DRAFT", "OPEN", "PAID", "VOID", "UNCOLLECTIBLE"].map((s) => <option key={s} value={s}>{label(s)}</option>)}</select></header>
-      {d.invoices.length === 0 ? <Notice>No invoices yet. They appear here once Stripe Billing is connected and the first trial converts. Pending credits and charges below will be added to each shop's first invoice.</Notice> : (
-        <table className="admin-table"><thead><tr><th>Number</th><th>Shop</th><th>Period</th><th>Status</th><th className="num">Total</th><th className="num">Paid</th><th /></tr></thead>
-          <tbody>{d.invoices.map((i) => <tr key={i.id}><td>{i.number || "—"}</td><td><button type="button" className="linklike" onClick={() => onShop(i.shop_id)}>{i.shop_name}</button></td><td>{when(i.period_start)} – {when(i.period_end)}</td><td><StatusPill tone={tone(i.status)}>{label(i.status)}</StatusPill></td><td className="num">{money(i.total_pence)}</td><td className="num">{money(i.paid_pence)}</td><td>{i.hosted_url && <a href={i.hosted_url} target="_blank" rel="noreferrer">View</a>}</td></tr>)}</tbody></table>
+      <header className="admin-section-head">
+        <h1>Invoices <small>{d.invoices.length} shown</small></h1>
+        <div className="toolbar">
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search number or shop" aria-label="Search invoices" />
+          <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">All</option><option value="OPEN">Open</option><option value="OVERDUE">Overdue</option><option value="PAID">Paid</option><option value="UNCOLLECTIBLE">Written off</option><option value="VOID">Void</option></select>
+          {finance && <ReasonAction title={closeDue ? `Run month close · ${st.closable_period}` : "Re-run month close"} cta="Issue invoices" fields={<>
+            <label className="workspace-field"><span>Period</span><input name="period" type="month" defaultValue={st.closable_period} max={st.closable_period} required /></label>
+            <p className="workspace-footnote">Issues one invoice per paying shop for that month (plan, seats, add-ons, usage, discounts, pending credits and charges), emails them, and flags overdue invoices. Safe to run twice — shops already invoiced are skipped.</p>
+          </>} onSubmit={async (reason, f) => { setRun(await adminApi(`/invoices/run`, "POST", { period: String(f.get("period")), reason })); await load(); }} />}
+        </div>
+      </header>
+      {closeDue && finance && <Notice tone="warning" icon="alert">Month close for <strong>{st.closable_period}</strong> hasn't been run yet{st.last_period_close ? ` (last: ${st.last_period_close})` : ""}. Run it to issue last month's invoices.</Notice>}
+      {run && (
+        <Notice tone="success" icon="check" data-testid="admin-run-result">
+          <strong>{run.period}:</strong> {run.issued.length} issued ({money(run.issued.reduce((n, i) => n + i.total_pence, 0))}), {run.skipped.length} skipped{run.errors.length ? `, ${run.errors.length} errors` : ""}. {run.dunning.flipped ? `${run.dunning.flipped} shop${run.dunning.flipped === 1 ? "" : "s"} marked overdue.` : ""}
+          {run.errors.length > 0 && <ul className="admin-list">{run.errors.map((e, i) => <li key={i}>{e.shop}: {e.error}</li>)}</ul>}
+        </Notice>
       )}
-      <h2>Pending credits & charges</h2>
+      <div className="admin-tiles" data-testid="admin-invoice-stats">
+        <div className="admin-tile"><small>Outstanding</small><strong>{money(st.outstanding_pence)}</strong><span>open invoices</span></div>
+        <div className={`admin-tile ${st.overdue_n ? "warn" : ""}`}><small>Overdue</small><strong>{money(st.overdue_pence)}</strong><span>{st.overdue_n} invoice{st.overdue_n === 1 ? "" : "s"}</span></div>
+        <div className="admin-tile"><small>Collected · 30d</small><strong>{money(st.paid_30d_pence)}</strong></div>
+        <div className="admin-tile"><small>Issued this year</small><strong>{money(st.issued_ytd_pence)}</strong><span>{st.written_off_pence ? `${money(st.written_off_pence)} written off` : "nothing written off"}</span></div>
+      </div>
+      {d.invoices.length === 0 ? <Notice>No invoices match. Invoices are issued at month close for every shop past its trial, or by hand from a shop's Billing tab.</Notice> : <InvoiceTable invoices={d.invoices} finance={finance} onChanged={load} showShop onShop={onShop} />}
+      <h2>Pending on next invoices <small className="muted">· {money(st.credits_pence)} credit · {money(st.charges_pence)} charges</small></h2>
       {d.pending_adjustments.length === 0 ? <p className="muted">None.</p> : (
         <table className="admin-table small"><tbody>{d.pending_adjustments.map((a) => <tr key={a.id}><td><button type="button" className="linklike" onClick={() => onShop(a.shop_id)}>{a.shop_name}</button></td><td>{a.kind === "CREDIT" ? "Credit" : "Charge"}</td><td className="num">{money(a.amount_pence)}</td><td>{a.reason}</td><td>{when(a.created_at)}</td></tr>)}</tbody></table>
       )}

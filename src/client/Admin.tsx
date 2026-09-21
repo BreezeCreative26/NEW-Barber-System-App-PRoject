@@ -54,7 +54,7 @@ export function Admin() {
           {section === "overview" && <Overview onShops={(status) => { setSection("shops"); setShopId(null); sessionStorage.setItem("admin.shops.status", status); }} />}
           {section === "shops" && (shopId ? <ShopDetail id={shopId} onBack={() => setShopId(null)} me={me} /> : <ShopsList onOpen={setShopId} />)}
           {section === "catalogue" && <AdminCatalogue me={me} />}
-          {section === "invoices" && <AdminInvoices onShop={(id) => { setSection("shops"); setShopId(id); }} />}
+          {section === "invoices" && <AdminInvoices me={me} onShop={(id) => { setSection("shops"); setShopId(id); }} />}
           {section === "ops" && <AdminOps onShop={(id) => { setSection("shops"); setShopId(id); }} />}
           {section === "team" && <AdminTeam me={me} />}
         </main>
@@ -148,12 +148,13 @@ function ShopsList({ onOpen }: { onOpen: (id: string) => void }) {
 }
 
 // ---- Shop detail -------------------------------------------------------------------------------------
+export type AdminInvoice = { id: string; shop_id: string; shop_name?: string; number: string; status: string; kind: string; credit_note_for: string | null; period_key: string; period_start: number; period_end: number; subtotal_pence: number; discount_pence: number; tax_pence: number; total_pence: number; paid_pence: number; credit_applied_pence: number; due_at: number | null; paid_at: number | null; paid_via: string; paid_ref: string; sent_at: number | null; sent_to: string; issued_at: number | null; voided_at: number | null; void_reason: string; note: string; lines_json: string; view_token: string; hosted_url: string; created_at: number };
 type Detail = {
-  shop: Record<string, unknown> & { id: string; name: string; slug: string; timezone: string; created_at: number; owner_email: string; owner_name: string; online_booking: number; kind: string };
+  shop: Record<string, unknown> & { id: string; name: string; slug: string; timezone: string; created_at: number; owner_email: string; owner_name: string; online_booking: number; kind: string; suspended_at: number | null; suspended_reason: string };
   entitlements: { plan: { id: string; name: string; monthly_pence: number; included_seats: number; seat_pence: number }; subscription: { status: string; seats: number; trial_ends_at: number | null; current_period_end: number | null; past_due_since: number | null; billing_email: string; stripe_customer_id: string }; seats: { used: number; included: number; billable: number }; features: Record<string, { enabled: boolean; source: string; note: string; ends_at: number | null }>; readOnly: boolean; reasons: string[]; trial_days_left: number | null };
   estimate: { lines: { label: string; amount_pence: number; detail: string }[]; total_pence: number; discount_pence: number };
   usage: { feature_key: string; name: string; unit: string; quantity: number; billable: number; amount_pence: number }[];
-  invoices: { id: string; number: string; status: string; period_start: number; period_end: number; total_pence: number; hosted_url: string }[];
+  invoices: AdminInvoice[];
   adjustments: { id: string; kind: string; amount_pence: number; reason: string; created_at: number; invoice_id: string | null }[];
   events: { id: string; summary: string; created_at: number; actor: string }[];
   notes: { id: string; body: string; created_at: number; admin_name: string }[];
@@ -170,7 +171,7 @@ type Detail = {
   plans: { id: string; name: string }[];
 };
 
-function ReasonAction({ title, cta, fields, onSubmit, danger }: { title: string; cta: string; fields?: ReactNode; onSubmit: (reason: string, f: FormData) => Promise<void>; danger?: boolean }) {
+export function ReasonAction({ title, cta, fields, onSubmit, danger }: { title: string; cta: string; fields?: ReactNode; onSubmit: (reason: string, f: FormData) => Promise<void>; danger?: boolean }) {
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -194,7 +195,7 @@ function ReasonAction({ title, cta, fields, onSubmit, danger }: { title: string;
 function ShopDetail({ id, onBack, me }: { id: string; onBack: () => void; me: { role: string } }) {
   const [d, setD] = useState<Detail | null>(null);
   const [err, setErr] = useState("");
-  const [tab, setTab] = useState<"summary" | "billing" | "features" | "messaging" | "support" | "audit">("summary");
+  const [tab, setTab] = useState<"summary" | "billing" | "features" | "messaging" | "support" | "account" | "audit">("summary");
   const [note, setNote] = useState("");
   const load = () => adminApi<Detail>(`/shops/${id}`).then(setD).catch((e) => setErr(e.message));
   useEffect(() => { void load(); }, [id]);
@@ -218,9 +219,10 @@ function ShopDetail({ id, onBack, me }: { id: string; onBack: () => void; me: { 
           <ReasonAction title="Open as owner" cta="Open workspace (30 min)" onSubmit={async (reason) => { await adminApi(`/shops/${id}/impersonate`, "POST", { reason }); location.href = "/workspace"; }} />
         </div>
       </header>
+      {d.shop.suspended_at && <Notice tone="warning" icon="alert" data-testid="admin-suspended"><strong>Suspended</strong> since {when(d.shop.suspended_at)} — {d.shop.suspended_reason}. The team can sign in and look, but nothing can be changed and the public page is off.</Notice>}
       {e.readOnly && <Notice tone="warning" icon="alert"><strong>Read-only for the shop:</strong> {e.reasons.join(" · ")}</Notice>}
       <div className="segmented admin-tabs" role="tablist">
-        {(["summary", "billing", "features", "messaging", "support", "audit"] as const).map((t) => <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}
+        {(["summary", "billing", "features", "messaging", "support", "account", "audit"] as const).map((t) => <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}
       </div>
 
       {tab === "summary" && (
@@ -272,7 +274,11 @@ function ShopDetail({ id, onBack, me }: { id: string; onBack: () => void; me: { 
             <h4>Usage this month</h4>
             <ul className="admin-list">{d.usage.map((u) => <li key={u.feature_key}>{u.quantity} {u.unit}{u.quantity === 1 ? "" : "s"} · {u.name}{u.billable ? ` · ${money(u.amount_pence)}` : ""}</li>)}</ul>
             <h4>Invoices</h4>
-            {d.invoices.length === 0 ? <p className="muted">None yet{sub.stripe_customer_id ? "" : " — Stripe Billing not connected"}.</p> : <table className="admin-table small"><tbody>{d.invoices.map((inv) => <tr key={inv.id}><td>{inv.number || "—"}</td><td>{when(inv.period_start)}–{when(inv.period_end)}</td><td><StatusPill tone={tone(inv.status)}>{label(inv.status)}</StatusPill></td><td className="num">{money(inv.total_pence)}</td><td>{inv.hosted_url && <a href={inv.hosted_url} target="_blank" rel="noreferrer">View</a>}</td></tr>)}</tbody></table>}
+            {finance && <div className="admin-actions">
+              <ManualInvoiceAction shopId={id} onDone={load} />
+              <ReasonAction title="Close a period now" cta="Issue invoice" fields={<label className="workspace-field"><span>Period (month)</span><input name="period" type="month" required defaultValue={lastMonth()} max={lastMonth()} /></label>} onSubmit={(reason, f) => post(`/shops/${id}/invoices`, { kind: "PERIOD", period: String(f.get("period")), force: true, send: true, reason })} />
+            </div>}
+            {d.invoices.length === 0 ? <p className="muted">None yet — issued automatically at each month end once the trial converts.</p> : <InvoiceTable invoices={d.invoices} finance={finance} onChanged={load} />}
             {d.adjustments.filter((a) => !a.invoice_id).length > 0 && <><h4>Pending on next invoice</h4><ul className="admin-list">{d.adjustments.filter((a) => !a.invoice_id).map((a) => <li key={a.id}>{a.kind === "CREDIT" ? "Credit" : "Charge"} {money(a.amount_pence)} · {a.reason} · {when(a.created_at)}</li>)}</ul></>}
             <h4>Timeline</h4>
             <ol className="billing-timeline">{d.events.map((ev) => <li key={ev.id}><Icon name="clock" size={14} /><span>{ev.summary}</span><small>{when(ev.created_at)}</small></li>)}</ol>
@@ -330,6 +336,41 @@ function ShopDetail({ id, onBack, me }: { id: string; onBack: () => void; me: { 
         </div>
       )}
 
+      {tab === "account" && (
+        <div className="admin-two" data-testid="admin-account">
+          <div className="workspace-panel">
+            <h3>Owner &amp; access</h3>
+            <dl className="billing-facts">
+              <div><dt>Owner</dt><dd>{d.shop.owner_name} · {d.shop.owner_email}</dd></div>
+              <div><dt>Web address</dt><dd>/{d.shop.slug}</dd></div>
+              <div><dt>Online booking</dt><dd>{d.shop.online_booking ? "On" : "Off"}</dd></div>
+              <div><dt>Status</dt><dd>{d.shop.suspended_at ? <StatusPill tone="warn">Suspended</StatusPill> : <StatusPill tone="good">In good standing</StatusPill>}</dd></div>
+            </dl>
+            <div className="admin-actions">
+              <ReasonAction title="Edit details" cta="Save changes" fields={<>
+                <label className="workspace-field"><span>Shop name</span><input name="name" defaultValue={d.shop.name} maxLength={80} /></label>
+                <label className="workspace-field"><span>Web address</span><input name="slug" defaultValue={d.shop.slug} pattern="[a-z0-9][a-z0-9\\-]{1,38}[a-z0-9]" /></label>
+                <label className="workspace-field"><span>Owner name</span><input name="owner_name" defaultValue={d.shop.owner_name} maxLength={80} /></label>
+                <label className="workspace-field"><span>Owner email</span><input name="owner_email" type="email" defaultValue={d.shop.owner_email} /></label>
+              </>} onSubmit={async (reason, f) => { const b: Record<string, unknown> = { reason }; for (const k of ["name", "slug", "owner_name", "owner_email"]) { const v = String(f.get(k) || "").trim(); if (v && v !== String(d.shop[k === "owner_name" ? "owner_name" : k === "owner_email" ? "owner_email" : k])) b[k] = v; } await adminApi(`/shops/${id}/account`, "PUT", b); await load(); }} />
+              <SigninLinkAction shopId={id} onDone={load} />
+              <ReasonAction title="Sign out all devices" cta="Sign everyone out" onSubmit={(reason) => post(`/shops/${id}/signout-all`, { reason })} />
+              {me.role === "SUPER" && d.members.filter((m) => m.active && m.role !== "OWNER").length > 0 && <ReasonAction title="Transfer ownership" cta="Make owner" danger fields={<label className="workspace-field"><span>New owner</span><select name="membership_id" required>{d.members.filter((m) => m.active && m.role !== "OWNER").map((m) => <option key={m.id} value={m.id}>{m.name} · {m.role.toLowerCase()} · {m.email}</option>)}</select></label>} onSubmit={(reason, f) => post(`/shops/${id}/owner`, { membership_id: String(f.get("membership_id")), reason })} />}
+            </div>
+          </div>
+          <div className="workspace-panel">
+            <h3>Suspension</h3>
+            <p className="workspace-footnote">Suspending signs everyone out, makes the workspace read-only and takes the public booking page offline. Billing keeps running — pause the subscription too if you don't want to charge them.</p>
+            {finance && (d.shop.suspended_at
+              ? <ReasonAction title="Lift suspension" cta="Restore access" onSubmit={(reason) => post(`/shops/${id}/suspend`, { suspend: false, reason })} />
+              : <ReasonAction title="Suspend shop" cta="Suspend" danger onSubmit={(reason) => post(`/shops/${id}/suspend`, { suspend: true, reason })} />)}
+            <h4>Shop-visible record</h4>
+            <p className="workspace-footnote">Owners see these entries under Settings → Billing → "OLLO support access".</p>
+            <ol className="billing-timeline">{d.audit.filter((a) => ["SUPPORT_ACCESS", "SIGNIN_LINK_SENT", "SIGNIN_LINK_USED", "ACCOUNT_EDITED_BY_SUPPORT", "OWNER_TRANSFERRED", "SUSPENDED", "UNSUSPENDED"].includes(a.action)).map((a) => <li key={a.id}><Icon name="shield" size={14} /><span>{a.reason || a.action.replace(/_/g, " ").toLowerCase()}</span><small>{when(a.created_at)}</small></li>)}</ol>
+          </div>
+        </div>
+      )}
+
       {tab === "audit" && (
         <div className="workspace-panel">
           <h3>Shop audit (latest 40)</h3>
@@ -337,5 +378,108 @@ function ShopDetail({ id, onBack, me }: { id: string; onBack: () => void; me: { 
         </div>
       )}
     </section>
+  );
+}
+
+
+export const lastMonth = () => { const d = new Date(); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)).toISOString().slice(0, 7); };
+const overdue = (i: AdminInvoice) => i.status === "OPEN" && !!i.due_at && i.due_at < Date.now();
+export const invoiceLabel = (i: AdminInvoice) => (i.kind === "CREDIT_NOTE" ? "Credit note" : overdue(i) ? "Overdue" : i.status === "UNCOLLECTIBLE" ? "Written off" : label(i.status));
+export const invoiceTone = (i: AdminInvoice) => (i.kind === "CREDIT_NOTE" ? "note" : overdue(i) ? "warn" : tone(i.status));
+
+// Free-form invoice: up to 8 lines.
+export function ManualInvoiceAction({ shopId, onDone }: { shopId: string; onDone: () => void }) {
+  const [rows, setRows] = useState(2);
+  return (
+    <ReasonAction title="New invoice" cta="Issue & send" fields={<>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="workspace-form-grid two admin-invoice-line">
+          <label className="workspace-field"><span>{i === 0 ? "Description" : ""}</span><input name={`label${i}`} required={i === 0} maxLength={160} placeholder={i === 0 ? "e.g. Onboarding & data import" : "Another line (optional)"} /></label>
+          <label className="workspace-field"><span>{i === 0 ? "Amount (£)" : ""}</span><input name={`amount${i}`} type="number" step="0.01" required={i === 0} placeholder="0.00" /></label>
+        </div>
+      ))}
+      {rows < 8 && <button type="button" className="linklike" onClick={() => setRows(rows + 1)}>+ Add a line</button>}
+      <label className="workspace-field"><span>Note on the invoice (optional)</span><input name="note" maxLength={300} /></label>
+      <label className="workspace-field"><span>Due in (days)</span><input name="due_days" type="number" min={0} max={60} defaultValue={7} /></label>
+    </>} onSubmit={async (reason, f) => {
+      const lines = Array.from({ length: rows }, (_, i) => ({ label: String(f.get(`label${i}`) || "").trim(), amount_pence: Math.round(Number(f.get(`amount${i}`) || 0) * 100) })).filter((l) => l.label);
+      await adminApi(`/shops/${shopId}/invoices`, "POST", { kind: "MANUAL", lines, note: String(f.get("note") || ""), due_days: Number(f.get("due_days") || 7), send: true, reason });
+      onDone();
+    }} />
+  );
+}
+
+export function SigninLinkAction({ shopId, onDone }: { shopId: string; onDone: () => void }) {
+  const [result, setResult] = useState<{ to: string; delivered: boolean; link?: string; expires_at: number } | null>(null);
+  return (
+    <>
+      <ReasonAction title="Send sign-in link" cta="Send link" fields={<p className="workspace-footnote">Emails the owner a one-time link (works once, 15 minutes). Use when they've lost their password and reset emails aren't arriving.</p>} onSubmit={async (reason) => { setResult(await adminApi(`/shops/${shopId}/signin-link`, "POST", { reason })); onDone(); }} />
+      {result && <Notice tone="success" icon="check" data-testid="admin-signin-link">{result.delivered ? <>Link emailed to <strong>{result.to}</strong>.</> : <>No email provider configured — pass this link to <strong>{result.to}</strong> yourself:</>}{result.link && <> <code style={{ userSelect: "all", wordBreak: "break-all" }}>{result.link}</code></>} Expires {when(result.expires_at)}.</Notice>}
+    </>
+  );
+}
+
+// Invoice table with per-row actions. Used on the shop detail and the cross-shop Invoices page.
+export function InvoiceTable({ invoices, finance, onChanged, showShop, onShop }: { invoices: AdminInvoice[]; finance: boolean; onChanged: () => void; showShop?: boolean; onShop?: (id: string) => void }) {
+  const post = async (path: string, body: unknown) => { await adminApi(path, "POST", body); onChanged(); };
+  return (
+    <table className="admin-table small" data-testid="admin-invoice-table">
+      <thead><tr><th>Number</th>{showShop && <th>Shop</th>}<th>Period / date</th><th>Status</th><th className="num">Total</th><th className="num">Balance</th><th>Due</th><th /></tr></thead>
+      <tbody>
+        {invoices.map((inv) => { const bal = inv.kind === "CREDIT_NOTE" || inv.status === "VOID" ? 0 : inv.total_pence - inv.paid_pence; return (
+          <tr key={inv.id} data-testid="admin-invoice-row" className={overdue(inv) ? "overdue" : ""}>
+            <td><strong>{inv.number || "—"}</strong>{inv.kind === "MANUAL" && <small className="muted"> · manual</small>}{inv.sent_at && <small className="muted"> · sent</small>}</td>
+            {showShop && <td>{onShop ? <button type="button" className="linklike" onClick={() => onShop(inv.shop_id)}>{inv.shop_name}</button> : inv.shop_name}</td>}
+            <td>{inv.kind === "PERIOD" ? <>{when(inv.period_start)} – {when(inv.period_end)}</> : when(inv.issued_at ?? inv.created_at)}</td>
+            <td><StatusPill tone={invoiceTone(inv)}>{invoiceLabel(inv)}</StatusPill>{inv.status === "PAID" && inv.paid_via && <small className="muted"> {inv.paid_via.replace(/_/g, " ")}</small>}</td>
+            <td className="num">{money(Math.abs(inv.total_pence))}</td>
+            <td className="num">{inv.kind === "CREDIT_NOTE" ? "—" : money(Math.max(0, bal))}</td>
+            <td>{inv.kind === "CREDIT_NOTE" ? "—" : when(inv.due_at)}</td>
+            <td className="admin-actions admin-invoice-actions">
+              <a className="button ghost small" href={`/invoice/${inv.id}?t=${inv.view_token}`} target="_blank" rel="noreferrer">View</a>
+              {inv.status !== "VOID" && <ReasonlessAction title="Send" onRun={() => post(`/invoices/${inv.id}/send`, {})} />}
+              {finance && inv.kind !== "CREDIT_NOTE" && (inv.status === "OPEN" || inv.status === "UNCOLLECTIBLE") && <ReasonAction title="Mark paid" cta="Record payment" fields={<>
+                <label className="workspace-field"><span>Amount (£) — blank for the full balance</span><input name="amount" type="number" step="0.01" min="0.01" placeholder={(bal / 100).toFixed(2)} /></label>
+                <label className="workspace-field"><span>Paid via</span><select name="via" defaultValue="bank_transfer"><option value="bank_transfer">Bank transfer</option><option value="card">Card</option><option value="cash">Cash</option><option value="stripe">Stripe</option><option value="other">Other</option></select></label>
+                <label className="workspace-field"><span>Reference (optional)</span><input name="ref" maxLength={80} /></label>
+              </>} onSubmit={(reason, f) => post(`/invoices/${inv.id}/pay`, { amount_pence: f.get("amount") ? Math.round(Number(f.get("amount")) * 100) : null, via: String(f.get("via")), ref: String(f.get("ref") || ""), reason })} />}
+              {finance && inv.kind !== "CREDIT_NOTE" && inv.status !== "VOID" && <ReasonAction title="Credit note" cta="Issue credit note" fields={<>
+                <label className="workspace-field"><span>Amount (£)</span><input name="amount" type="number" step="0.01" min="0.01" max={(Math.abs(inv.total_pence) / 100).toFixed(2)} required /></label>
+                {inv.status === "PAID" && <label className="workspace-field"><span>Refund</span><select name="refund" defaultValue="none"><option value="none">No refund — keep as account credit</option><option value="bank_transfer">Refunded by bank transfer</option><option value="card">Refunded to card</option><option value="stripe">Refunded via Stripe</option><option value="other">Refunded another way</option></select></label>}
+                <label className="workspace-field"><span>Refund reference (optional)</span><input name="ref" maxLength={80} /></label>
+              </>} onSubmit={(reason, f) => post(`/invoices/${inv.id}/credit-note`, { amount_pence: Math.round(Number(f.get("amount")) * 100), refund: f.get("refund") && f.get("refund") !== "none" ? { via: String(f.get("refund")), ref: String(f.get("ref") || "") } : undefined, send: true, reason })} />}
+              {finance && inv.status === "OPEN" && inv.paid_pence === 0 && inv.kind !== "CREDIT_NOTE" && <AmendInvoiceAction inv={inv} onDone={onChanged} />}
+              {finance && inv.status === "OPEN" && inv.kind !== "CREDIT_NOTE" && <ReasonAction title="Write off" cta="Write off" danger onSubmit={(reason) => post(`/invoices/${inv.id}/write-off`, { reason })} />}
+              {finance && (inv.status === "OPEN" || inv.status === "UNCOLLECTIBLE" || (inv.status === "PAID" && inv.paid_pence === 0)) && inv.kind !== "CREDIT_NOTE" && <ReasonAction title="Void" cta="Void invoice" danger onSubmit={(reason) => post(`/invoices/${inv.id}/void`, { reason })} />}
+            </td>
+          </tr>
+        ); })}
+      </tbody>
+    </table>
+  );
+}
+
+function ReasonlessAction({ title, onRun }: { title: string; onRun: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  return <><Button variant="secondary" disabled={busy} onClick={async () => { setBusy(true); setErr(""); try { await onRun(); } catch (e) { setErr(e instanceof Error ? e.message : "Failed"); } finally { setBusy(false); } }}>{busy ? "…" : title}</Button>{err && <small className="workspace-error">{err}</small>}</>;
+}
+
+function AmendInvoiceAction({ inv, onDone }: { inv: AdminInvoice; onDone: () => void }) {
+  const lines = JSON.parse(inv.lines_json || "[]") as { label: string; detail?: string; amount_pence: number }[];
+  return (
+    <ReasonAction title="Amend" cta="Save invoice" fields={<>
+      {lines.map((l, i) => (
+        <div key={i} className="workspace-form-grid two admin-invoice-line">
+          <label className="workspace-field"><span>{i === 0 ? "Description" : ""}</span><input name={`label${i}`} defaultValue={l.label} maxLength={160} /></label>
+          <label className="workspace-field"><span>{i === 0 ? "Amount (£)" : ""}</span><input name={`amount${i}`} type="number" step="0.01" defaultValue={(l.amount_pence / 100).toFixed(2)} /></label>
+        </div>
+      ))}
+      <p className="workspace-footnote">Clear a description to drop that line. Discounts and credit already applied stay as they were.</p>
+    </>} onSubmit={async (reason, f) => {
+      const next = lines.map((l, i) => ({ label: String(f.get(`label${i}`) || "").trim(), detail: l.detail, amount_pence: Math.round(Number(f.get(`amount${i}`) || 0) * 100) })).filter((l) => l.label);
+      await adminApi(`/invoices/${inv.id}/lines`, "PUT", { lines: next, reason });
+      onDone();
+    }} />
   );
 }

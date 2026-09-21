@@ -133,7 +133,7 @@ pub.route("/shops/:slug/account", customerAccounts);
 
 export async function shopBySlug(c: Ctx, slug: string) {
   const shop = await c.env.DB.prepare(
-    "SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1",
+    "SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1 AND s.suspended_at IS NULL",
   )
     .bind(slug.toLowerCase())
     .first<BrandedShop>();

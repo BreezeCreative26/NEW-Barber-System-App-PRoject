@@ -209,6 +209,11 @@ sandbox.use("*", async (c, next) => {
       401,
     );
   if (account && !path.startsWith("/auth/")) {
+    // Suspended shops: read-only access to look at their data, nothing else.
+    if (!["GET", "HEAD"].includes(method)) {
+      const susp = await c.env.DB.prepare("SELECT suspended_at, suspended_reason FROM shops WHERE id=? AND suspended_at IS NOT NULL").bind(account.shop_id).first<{ suspended_at: number; suspended_reason: string }>().catch(() => null);
+      if (susp) return c.json({ error: "shop_suspended", message: "This account has been suspended by OLLO. Contact support to restore it." }, 403);
+    }
     const operational =
       (method === "GET" &&
         ["/workspace", "/bookings", "/availability", "/customers", "/changes"].includes(

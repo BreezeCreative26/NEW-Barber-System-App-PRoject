@@ -11,7 +11,8 @@ import { z } from "zod";
 import type { Database as DB } from "../db/client";
 import { ACCOUNT_COOKIE, digest, type AppEnv } from "./accounts";
 import { entitlements, features, logBilling, plans, platformBilling, setFeature, usageFor, estimate, type PlanRow, type FeatureRow } from "./billing";
-import { providerStatus } from "./messaging";
+import { providerStatus, enqueue, drain, msgShop } from "./messaging";
+import { applyDunning, invoiceHtml, invoiceStats, issueCreditNote, issueManualInvoice, issuePeriodInvoice, markPaid, markUncollectible, prevPeriodKey, runPeriodClose, sendInvoice, voidInvoice, type InvoiceRow } from "./invoicing";
 import { stripeStatus } from "./stripe";
 
 type Role = "SUPER" | "SUPPORT" | "FINANCE";
@@ -104,7 +105,7 @@ admin.get("/shops", async (c) => {
   const q = (c.req.query("q") || "").trim().toLowerCase();
   const status = c.req.query("status") || "";
   const rows = (await c.env.DB.prepare(
-    `SELECT s.id, s.name, s.slug, s.kind, s.timezone, s.created_at, s.online_booking,
+    `SELECT s.id, s.name, s.slug, s.kind, s.timezone, s.created_at, s.online_booking, s.suspended_at,
             ss.status, ss.plan_id, ss.seats, ss.trial_ends_at, ss.current_period_end, ss.past_due_since,
             u.email AS owner_email, u.name AS owner_name,
             (SELECT COUNT(*)::int FROM staff st WHERE st.shop_id=s.id AND st.active=1) AS active_staff,
@@ -117,9 +118,9 @@ admin.get("/shops", async (c) => {
      LEFT JOIN shop_owners so ON so.shop_id=s.id
      LEFT JOIN app_users u ON u.id=so.user_id
      WHERE (? = '' OR LOWER(s.name) LIKE ? OR LOWER(s.slug) LIKE ? OR LOWER(u.email) LIKE ?)
-       AND (? = '' OR ss.status = ?)
+       AND (? = '' OR (?='SUSPENDED' AND s.suspended_at IS NOT NULL) OR ss.status = ?)
      ORDER BY s.created_at DESC LIMIT 500`,
-  ).bind(Date.now() - 30 * 86400000, q, `%${q}%`, `%${q}%`, `%${q}%`, status, status).all()).results;
+  ).bind(Date.now() - 30 * 86400000, q, `%${q}%`, `%${q}%`, `%${q}%`, status, status, status).all()).results;
   return c.json({ shops: rows });
 });
 
@@ -311,19 +312,225 @@ admin.post("/catalogue/discounts/:id/deactivate", async (c) => {
 });
 admin.put("/catalogue/platform", async (c) => {
   need(c, ["SUPER"]);
-  const b = await body(c, z.object({ vat_mode: z.enum(["NONE", "UK_20", "STRIPE_TAX"]), vat_number: z.string().trim().max(20), trial_days: z.number().int().min(0).max(90), grace_days: z.number().int().min(0).max(60), reason: reasonSchema }).strict());
+  const b = await body(c, z.object({
+    vat_mode: z.enum(["NONE", "UK_20", "STRIPE_TAX"]), vat_number: z.string().trim().max(20), trial_days: z.number().int().min(0).max(90), grace_days: z.number().int().min(0).max(60),
+    invoice_prefix: z.string().trim().max(12).optional(), due_days: z.number().int().min(0).max(60).optional(), company_name: z.string().trim().min(1).max(80).optional(), company_address: z.string().trim().max(400).optional(),
+    company_email: z.string().trim().max(120).optional(), company_number: z.string().trim().max(40).optional(), bank_details: z.string().trim().max(600).optional(), invoice_footer: z.string().trim().max(300).optional(),
+    reason: reasonSchema,
+  }).strict());
   const before = await platformBilling(c.env.DB);
-  await c.env.DB.prepare("UPDATE platform_billing SET vat_mode=?, vat_number=?, trial_days=?, grace_days=?, updated_at=? WHERE id=1").bind(b.vat_mode, b.vat_number, b.trial_days, b.grace_days, Date.now()).run();
+  const next = { ...before, ...Object.fromEntries(Object.entries(b).filter(([k, v]) => k !== "reason" && v !== undefined)) };
+  await c.env.DB.prepare("UPDATE platform_billing SET vat_mode=?, vat_number=?, trial_days=?, grace_days=?, invoice_prefix=?, due_days=?, company_name=?, company_address=?, company_email=?, company_number=?, bank_details=?, invoice_footer=?, updated_at=? WHERE id=1")
+    .bind(next.vat_mode, next.vat_number, next.trial_days, next.grace_days, next.invoice_prefix, next.due_days, next.company_name, next.company_address, next.company_email, next.company_number, next.bank_details, next.invoice_footer, Date.now()).run();
   await audit(c, null, "PLATFORM_BILLING", before, b, b.reason);
   return c.json({ ok: true });
 });
 
 // ---- Invoices across shops -----------------------------------------------------------------------
+const actor = (c: Ctx) => `admin:${c.get("admin").user_id}`;
+const linesSchema = z.array(z.object({ label: z.string().trim().min(1).max(160), detail: z.string().trim().max(200).optional(), amount_pence: z.number().int().min(-1000000).max(1000000) })).min(1).max(30);
 admin.get("/invoices", async (c) => {
   const status = c.req.query("status") || "";
-  const rows = (await c.env.DB.prepare("SELECT i.*, s.name AS shop_name FROM invoices i JOIN shops s ON s.id=i.shop_id WHERE (?='' OR i.status=?) ORDER BY i.period_start DESC LIMIT 500").bind(status, status).all()).results;
+  const q = (c.req.query("q") || "").trim().toLowerCase();
+  const rows = (await c.env.DB.prepare(
+    "SELECT i.*, s.name AS shop_name FROM invoices i JOIN shops s ON s.id=i.shop_id WHERE (?='' OR (?='OVERDUE' AND i.status='OPEN' AND i.due_at<?) OR i.status=?) AND (?='' OR LOWER(i.number) LIKE ? OR LOWER(s.name) LIKE ?) ORDER BY i.created_at DESC LIMIT 500",
+  ).bind(status, status, Date.now(), status, q, `%${q}%`, `%${q}%`).all()).results;
   const adjustments = (await c.env.DB.prepare("SELECT a.*, s.name AS shop_name FROM invoice_adjustments a JOIN shops s ON s.id=a.shop_id WHERE a.invoice_id IS NULL ORDER BY a.created_at DESC LIMIT 200").all()).results;
-  return c.json({ invoices: rows, pending_adjustments: adjustments });
+  return c.json({ invoices: rows, pending_adjustments: adjustments, stats: await invoiceStats(c.env.DB) });
+});
+admin.get("/invoices/:id", async (c) => {
+  const inv = await c.env.DB.prepare("SELECT i.*, s.name AS shop_name FROM invoices i JOIN shops s ON s.id=i.shop_id WHERE i.id=?").bind(c.req.param("id")).first<InvoiceRow & { shop_name: string }>();
+  if (!inv) fail(404, "Invoice not found");
+  const credit_notes = (await c.env.DB.prepare("SELECT * FROM invoices WHERE credit_note_for=? ORDER BY created_at").bind(inv!.id).all()).results;
+  const adjustments = (await c.env.DB.prepare("SELECT * FROM invoice_adjustments WHERE invoice_id=? ORDER BY created_at").bind(inv!.id).all()).results;
+  const events = (await c.env.DB.prepare("SELECT * FROM billing_events WHERE shop_id=? AND payload_json LIKE ? ORDER BY created_at DESC").bind(inv!.shop_id, `%${inv!.id}%`).all()).results;
+  return c.json({ invoice: inv, credit_notes, adjustments, events, view_url: `/invoice/${inv!.id}?t=${inv!.view_token}` });
+});
+admin.get("/invoices/:id/html", async (c) => {
+  const inv = await c.env.DB.prepare("SELECT * FROM invoices WHERE id=?").bind(c.req.param("id")).first<InvoiceRow>();
+  if (!inv) fail(404, "Invoice not found");
+  return c.html(await invoiceHtml(c.env.DB, inv!));
+});
+// Month close: issue every shop's invoice for a period (default: last month). Idempotent.
+admin.post("/invoices/run", async (c) => {
+  need(c, ["SUPER", "FINANCE"]);
+  const b = await body(c, z.object({ period: z.string().regex(/^\d{4}-\d{2}$/).optional(), reason: reasonSchema }).strict());
+  const period = b.period ?? prevPeriodKey();
+  if (period >= new Date().toISOString().slice(0, 7)) fail(400, "That period has not finished yet");
+  const result = await runPeriodClose(c.env.DB, period, actor(c));
+  const dunning = await applyDunning(c.env.DB);
+  await audit(c, null, "PERIOD_CLOSE", {}, { period, issued: result.issued.length, skipped: result.skipped.length, errors: result.errors.length, dunning }, b.reason);
+  return c.json({ ...result, dunning });
+});
+admin.post("/invoices/dunning", async (c) => {
+  need(c, ["SUPER", "FINANCE"]);
+  const r = await applyDunning(c.env.DB);
+  await audit(c, null, "DUNNING_RUN", {}, r, "manual run");
+  return c.json(r);
+});
+// Manual invoice for one shop, or close a single shop's period now.
+admin.post("/shops/:id/invoices", async (c) => {
+  need(c, ["SUPER", "FINANCE"]);
+  const shopId = c.req.param("id");
+  const b = await body(c, z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("MANUAL"), lines: linesSchema, note: z.string().trim().max(300).optional(), due_days: z.number().int().min(0).max(60).optional(), send: z.boolean().optional(), reason: reasonSchema }).strict(),
+    z.object({ kind: z.literal("PERIOD"), period: z.string().regex(/^\d{4}-\d{2}$/), force: z.boolean().optional(), send: z.boolean().optional(), reason: reasonSchema }).strict(),
+  ]));
+  let inv: InvoiceRow;
+  if (b.kind === "MANUAL") {
+    if (b.lines.reduce((n, l) => n + l.amount_pence, 0) <= 0) fail(400, "Invoice total must be above zero — use a credit note for refunds");
+    inv = await issueManualInvoice(c.env.DB, shopId, b.lines, actor(c), b.note ?? "", b.due_days);
+  } else {
+    const r = await issuePeriodInvoice(c.env.DB, shopId, b.period, actor(c), { force: !!b.force });
+    if (!("invoice" in r)) fail(409, `Nothing issued: ${r.skipped}`);
+    if ("skipped" in r && r.skipped) fail(409, `Invoice for ${b.period} already issued (${(r as { invoice: InvoiceRow }).invoice.number})`);
+    inv = (r as { invoice: InvoiceRow }).invoice;
+  }
+  await audit(c, shopId, "INVOICE_ISSUED", {}, { invoice_id: inv.id, number: inv.number, total_pence: inv.total_pence }, b.reason);
+  let sent: { to: string } | null = null;
+  if (b.send && inv.status === "OPEN") sent = await sendInvoice(c.env.DB, inv, "", actor(c), new URL(c.req.url).origin).catch(() => null);
+  return c.json({ invoice: inv, sent }, 201);
+});
+admin.post("/invoices/:id/pay", async (c) => {
+  need(c, ["SUPER", "FINANCE"]);
+  const b = await body(c, z.object({ amount_pence: z.number().int().min(1).nullable().optional(), via: z.enum(["bank_transfer", "card", "cash", "stripe", "other"]), ref: z.string().trim().max(80).optional(), reason: reasonSchema }).strict());
+  try {
+    const inv = await markPaid(c.env.DB, c.req.param("id"), b.amount_pence ?? null, b.via, b.ref ?? "", actor(c));
+    await audit(c, inv.shop_id, "INVOICE_PAID", {}, { invoice_id: inv.id, paid_pence: inv.paid_pence, via: b.via, ref: b.ref }, b.reason);
+    if (inv.status === "PAID") await sendInvoice(c.env.DB, inv, "", actor(c), new URL(c.req.url).origin).catch(() => {});
+    return c.json({ invoice: inv });
+  } catch (e) { return fail(409, (e as Error).message); }
+});
+admin.post("/invoices/:id/void", async (c) => {
+  need(c, ["SUPER", "FINANCE"]);
+  const b = await body(c, z.object({ reason: reasonSchema }).strict());
+  try { const inv = await voidInvoice(c.env.DB, c.req.param("id"), b.reason, actor(c)); await audit(c, inv.shop_id, "INVOICE_VOID", {}, { invoice_id: inv.id }, b.reason); return c.json({ invoice: inv }); }
+  catch (e) { return fail(409, (e as Error).message); }
+});
+admin.post("/invoices/:id/write-off", async (c) => {
+  need(c, ["SUPER", "FINANCE"]);
+  const b = await body(c, z.object({ reason: reasonSchema }).strict());
+  try { const inv = await markUncollectible(c.env.DB, c.req.param("id"), b.reason, actor(c)); await audit(c, inv.shop_id, "INVOICE_WRITTEN_OFF", {}, { invoice_id: inv.id }, b.reason); return c.json({ invoice: inv }); }
+  catch (e) { return fail(409, (e as Error).message); }
+});
+admin.post("/invoices/:id/credit-note", async (c) => {
+  need(c, ["SUPER", "FINANCE"]);
+  const b = await body(c, z.object({ amount_pence: z.number().int().min(1).max(1000000), refund: z.object({ via: z.enum(["bank_transfer", "card", "stripe", "other"]), ref: z.string().trim().max(80) }).optional(), send: z.boolean().optional(), reason: reasonSchema }).strict());
+  try {
+    const cn = await issueCreditNote(c.env.DB, c.req.param("id"), b.amount_pence, b.reason, actor(c), b.refund);
+    await audit(c, cn.shop_id, "CREDIT_NOTE", {}, { credit_note_id: cn.id, number: cn.number, amount_pence: b.amount_pence, refund: b.refund ?? null }, b.reason);
+    if (b.send) await sendInvoice(c.env.DB, cn, "", actor(c), new URL(c.req.url).origin).catch(() => {});
+    return c.json({ credit_note: cn }, 201);
+  } catch (e) { return fail(409, (e as Error).message); }
+});
+admin.post("/invoices/:id/send", async (c) => {
+  const b = await body(c, z.object({ to: z.string().trim().email().optional() }).strict());
+  const inv = await c.env.DB.prepare("SELECT * FROM invoices WHERE id=?").bind(c.req.param("id")).first<InvoiceRow>();
+  if (!inv) fail(404, "Invoice not found");
+  if (inv!.status === "VOID") fail(409, "Void invoices are not sent");
+  try { const r = await sendInvoice(c.env.DB, inv!, b.to ?? "", actor(c), new URL(c.req.url).origin); await audit(c, inv!.shop_id, "INVOICE_SENT", {}, { invoice_id: inv!.id, to: r.to }, ""); return c.json(r); }
+  catch (e) { return fail(409, (e as Error).message); }
+});
+admin.put("/invoices/:id/lines", async (c) => {
+  // Amend an OPEN, unpaid invoice's lines (typo, wrong quantity). Paid invoices need a credit note.
+  need(c, ["SUPER", "FINANCE"]);
+  const b = await body(c, z.object({ lines: linesSchema, note: z.string().trim().max(300).optional(), due_at: z.number().int().nullable().optional(), reason: reasonSchema }).strict());
+  const inv = await c.env.DB.prepare("SELECT * FROM invoices WHERE id=?").bind(c.req.param("id")).first<InvoiceRow>();
+  if (!inv) fail(404, "Invoice not found");
+  if (inv!.status !== "OPEN" || inv!.paid_pence > 0 || inv!.kind === "CREDIT_NOTE") fail(409, "Only open, unpaid invoices can be amended — issue a credit note instead");
+  const subtotal = b.lines.reduce((n, l) => n + l.amount_pence, 0);
+  const pb = await platformBilling(c.env.DB);
+  const discount = Math.min(inv!.discount_pence, subtotal);
+  const tax = pb.vat_mode === "UK_20" ? Math.round((subtotal - discount) * 0.2) : 0;
+  const total = Math.max(0, subtotal - discount + tax - inv!.credit_applied_pence);
+  await c.env.DB.prepare("UPDATE invoices SET lines_json=?, subtotal_pence=?, discount_pence=?, tax_pence=?, total_pence=?, note=COALESCE(?, note), due_at=COALESCE(?, due_at), status=CASE WHEN ?=0 THEN 'PAID' ELSE status END, paid_at=CASE WHEN ?=0 THEN ? ELSE paid_at END, updated_at=? WHERE id=?")
+    .bind(JSON.stringify(b.lines), subtotal, discount, tax, total, b.note ?? null, b.due_at ?? null, total, total, Date.now(), Date.now(), inv!.id).run();
+  await audit(c, inv!.shop_id, "INVOICE_AMENDED", { lines: inv!.lines_json, total_pence: inv!.total_pence }, { lines: b.lines, total_pence: total }, b.reason);
+  await logBilling(c.env.DB, inv!.shop_id, "INVOICE_AMENDED", `${inv!.number} amended · now £${(total / 100).toFixed(2)} — ${b.reason}`, actor(c), { invoice_id: inv!.id });
+  return c.json({ invoice: await c.env.DB.prepare("SELECT * FROM invoices WHERE id=?").bind(inv!.id).first() });
+});
+
+// ---- Shop lifecycle ------------------------------------------------------------------------------
+admin.post("/shops/:id/suspend", async (c) => {
+  need(c, ["SUPER", "FINANCE"]);
+  const shopId = c.req.param("id");
+  const b = await body(c, z.object({ suspend: z.boolean(), reason: reasonSchema }).strict());
+  const now = Date.now();
+  await c.env.DB.prepare("UPDATE shops SET suspended_at=?, suspended_reason=?, version=version+1 WHERE id=?").bind(b.suspend ? now : null, b.suspend ? b.reason : "", shopId).run();
+  if (b.suspend) await c.env.DB.prepare("DELETE FROM app_sessions WHERE membership_id IN (SELECT id FROM app_memberships WHERE shop_id=?)").bind(shopId).run();
+  await audit(c, shopId, b.suspend ? "SHOP_SUSPENDED" : "SHOP_UNSUSPENDED", {}, {}, b.reason);
+  await logBilling(c.env.DB, shopId, b.suspend ? "SUSPENDED" : "UNSUSPENDED", b.suspend ? `Account suspended by OLLO — ${b.reason}` : `Suspension lifted — ${b.reason}`, actor(c));
+  await c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shopId, "shop", shopId, b.suspend ? "SUSPENDED" : "UNSUSPENDED", actor(c), b.reason, now).run();
+  return c.json({ ok: true });
+});
+// Edit the shop's account-level details (owner contact, slug) without impersonating.
+admin.put("/shops/:id/account", async (c) => {
+  need(c, ["SUPER", "SUPPORT"]);
+  const shopId = c.req.param("id");
+  const b = await body(c, z.object({ owner_email: z.string().trim().email().max(120).optional(), owner_name: z.string().trim().min(1).max(80).optional(), slug: z.string().trim().regex(/^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$/, "Lowercase letters, numbers and hyphens").optional(), name: z.string().trim().min(1).max(80).optional(), reason: reasonSchema }).strict());
+  const db = c.env.DB;
+  const before = await db.prepare("SELECT s.name, s.slug, u.id AS owner_id, u.email AS owner_email, u.name AS owner_name FROM shops s LEFT JOIN shop_owners so ON so.shop_id=s.id LEFT JOIN app_users u ON u.id=so.user_id WHERE s.id=?").bind(shopId).first<{ name: string; slug: string; owner_id: string | null; owner_email: string; owner_name: string }>();
+  if (!before) fail(404, "Shop not found");
+  if (b.slug && b.slug !== before!.slug && (await db.prepare("SELECT 1 FROM shops WHERE slug=? AND id<>?").bind(b.slug, shopId).first())) fail(409, "That web address is taken");
+  if (b.owner_email && before!.owner_id && b.owner_email.toLowerCase() !== before!.owner_email.toLowerCase() && (await db.prepare("SELECT 1 FROM app_users WHERE email=? AND id<>?").bind(b.owner_email, before!.owner_id).first())) fail(409, "Another account already uses that email");
+  if (b.name || b.slug) await db.prepare("UPDATE shops SET name=COALESCE(?, name), slug=COALESCE(?, slug), version=version+1 WHERE id=?").bind(b.name ?? null, b.slug ?? null, shopId).run();
+  if ((b.owner_email || b.owner_name) && before!.owner_id) await db.prepare("UPDATE app_users SET email=COALESCE(?, email), name=COALESCE(?, name) WHERE id=?").bind(b.owner_email ?? null, b.owner_name ?? null, before!.owner_id).run();
+  await audit(c, shopId, "SHOP_ACCOUNT_EDITED", before, b, b.reason);
+  await db.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shopId, "shop", shopId, "ACCOUNT_EDITED_BY_SUPPORT", actor(c), b.reason, Date.now()).run();
+  return c.json({ ok: true });
+});
+// Transfer ownership to another existing member (e.g. shop sold, owner left).
+admin.post("/shops/:id/owner", async (c) => {
+  need(c, ["SUPER"]);
+  const shopId = c.req.param("id");
+  const b = await body(c, z.object({ membership_id: z.string().min(1), reason: reasonSchema }).strict());
+  const db = c.env.DB;
+  const target = await db.prepare("SELECT m.id, m.user_id, m.role, m.staff_id FROM app_memberships m WHERE m.id=? AND m.shop_id=? AND m.active=1").bind(b.membership_id, shopId).first<{ id: string; user_id: string; role: string; staff_id: string | null }>();
+  if (!target) fail(404, "That member is not on this shop");
+  if (target!.role === "OWNER") fail(409, "Already the owner");
+  const current = await db.prepare("SELECT m.id, m.user_id FROM app_memberships m WHERE m.shop_id=? AND m.role='OWNER' AND m.active=1").bind(shopId).first<{ id: string; user_id: string }>();
+  // Owner memberships carry no staff_id; the old owner becomes a manager linked to no chair (kept inactive).
+  await db.batch([
+    ...(current ? [db.prepare("UPDATE app_memberships SET active=0, version=version+1 WHERE id=?").bind(current.id), db.prepare("DELETE FROM app_sessions WHERE membership_id=?").bind(current.id)] : []),
+    db.prepare("UPDATE app_memberships SET role='OWNER', staff_id=NULL, version=version+1 WHERE id=?").bind(target!.id),
+    db.prepare("DELETE FROM app_sessions WHERE membership_id=?").bind(target!.id),
+    db.prepare("INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?) ON CONFLICT(shop_id) DO UPDATE SET user_id=EXCLUDED.user_id").bind(shopId, target!.user_id),
+    db.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shopId, "shop", shopId, "OWNER_TRANSFERRED", actor(c), b.reason, Date.now()),
+  ]);
+  await audit(c, shopId, "OWNER_TRANSFERRED", { from: current?.user_id ?? null }, { to: target!.user_id }, b.reason);
+  return c.json({ ok: true });
+});
+// One-time sign-in link for a locked-out owner (15 min, single use). Emailed to the owner's address.
+admin.post("/shops/:id/signin-link", async (c) => {
+  need(c, ["SUPER", "SUPPORT"]);
+  const shopId = c.req.param("id");
+  const b = await body(c, z.object({ reason: reasonSchema, reveal: z.boolean().optional() }).strict());
+  const db = c.env.DB;
+  const m = await db.prepare("SELECT m.id, u.name, u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.role='OWNER' AND m.active=1 LIMIT 1").bind(shopId).first<{ id: string; name: string; email: string }>();
+  if (!m) fail(404, "This shop has no active owner account");
+  const raw = uid().replace(/-/g, "") + uid().replace(/-/g, "");
+  const now = Date.now();
+  await db.prepare("INSERT INTO owner_links(token_hash,membership_id,created_by,created_at,expires_at) VALUES(?,?,?,?,?)").bind(await digest(raw), m!.id, actor(c), now, now + 15 * 60000).run();
+  const origin = new URL(c.req.url).origin;
+  const link = `${origin}/api/admin-public/signin?token=${raw}`;
+  const shop = await msgShop(c, shopId);
+  const pb = await platformBilling(db);
+  const stmts = enqueue(db, { ...shop, name: pb.company_name || "OLLO" }, { email: m!.email, name: m!.name }, "owner_signin_link", { link, shop: shop.name }, { related: { type: "owner_link", id: m!.id + ":" + now }, origin, channel: "EMAIL", now, force: true });
+  if (stmts.length) { await db.batch(stmts); await drain(db, stmts.length, now, { type: "owner_link", id: m!.id + ":" + now }).catch(() => {}); }
+  await audit(c, shopId, "SIGNIN_LINK_SENT", {}, { to: m!.email, revealed: !!b.reveal }, b.reason);
+  await db.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shopId, "shop", shopId, "SIGNIN_LINK_SENT", actor(c), `OLLO support sent a one-time sign-in link to ${m!.email}: ${b.reason}`, now).run();
+  const delivered = providerStatus().email.provider !== "mailbox";
+  // In preview (no email provider) or when explicitly asked, hand the link to the admin to pass on.
+  return c.json({ ok: true, to: m!.email, delivered, link: b.reveal || !delivered ? link : undefined, expires_at: now + 15 * 60000 });
+});
+// Sign out every session on the shop (lost phone, leaver).
+admin.post("/shops/:id/signout-all", async (c) => {
+  need(c, ["SUPER", "SUPPORT"]);
+  const shopId = c.req.param("id");
+  const b = await body(c, z.object({ reason: reasonSchema }).strict());
+  const r = await c.env.DB.prepare("DELETE FROM app_sessions WHERE membership_id IN (SELECT id FROM app_memberships WHERE shop_id=?)").bind(shopId).run();
+  await audit(c, shopId, "SIGNOUT_ALL", {}, { sessions: r.meta?.changes ?? 0 }, b.reason);
+  return c.json({ sessions: r.meta?.changes ?? 0 });
 });
 
 // ---- Ops -------------------------------------------------------------------------------------------
@@ -360,3 +567,30 @@ admin.delete("/team/:userId", async (c) => {
 
 export default admin;
 export { resolveAdmin };
+
+// ---- Public (no admin cookie): printable invoices by token, owner one-time sign-in ------------------
+export const adminPublic = new Hono<AppEnv>();
+adminPublic.get("/invoice/:id", async (c) => {
+  const t = c.req.query("t") || "";
+  const inv = await c.env.DB.prepare("SELECT * FROM invoices WHERE id=? AND view_token<>'' AND view_token=?").bind(c.req.param("id"), t).first<InvoiceRow>();
+  if (!inv) return c.html("<!doctype html><meta charset=utf-8><title>Not found</title><p style='font:15px system-ui;padding:40px'>This invoice link is not valid.</p>", 404);
+  c.header("Cache-Control", "private, no-store");
+  c.header("X-Robots-Tag", "noindex");
+  return c.html(await invoiceHtml(c.env.DB, inv));
+});
+adminPublic.get("/signin", async (c) => {
+  const raw = c.req.query("token") || "";
+  if (raw.length < 40) return c.redirect("/workspace?link=invalid");
+  const db = c.env.DB;
+  const now = Date.now();
+  const row = await db.prepare("SELECT l.token_hash, l.membership_id, l.expires_at, l.used_at, m.shop_id FROM owner_links l JOIN app_memberships m ON m.id=l.membership_id WHERE l.token_hash=? AND m.active=1").bind(await digest(raw)).first<{ token_hash: string; membership_id: string; expires_at: number; used_at: number | null; shop_id: string }>();
+  if (!row || row.used_at || row.expires_at < now) return c.redirect("/workspace?link=expired");
+  const session = uid() + uid();
+  await db.batch([
+    db.prepare("UPDATE owner_links SET used_at=? WHERE token_hash=?").bind(now, row.token_hash),
+    db.prepare("INSERT INTO app_sessions(token_hash,membership_id,created_at,expires_at) VALUES(?,?,?,?)").bind(await digest(session), row.membership_id, now, now + 7 * 86400000),
+    db.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), row.shop_id, "shop", row.shop_id, "SIGNIN_LINK_USED", "owner", "Signed in with a one-time link from OLLO support", now),
+  ]);
+  setCookie(c, ACCOUNT_COOKIE, session, { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: 7 * 86400 });
+  return c.redirect("/workspace#settings/account");
+});

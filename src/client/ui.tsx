@@ -278,13 +278,15 @@ export function Notice({
   children,
   icon = "shield",
   tone = "",
+  ...rest
 }: {
   children: ReactNode;
   icon?: string;
   tone?: string;
+  "data-testid"?: string;
 }) {
   return (
-    <div className={`notice ${tone}`}>
+    <div className={`notice ${tone}`} {...rest}>
       <Icon name={icon} />
       <div>{children}</div>
     </div>
