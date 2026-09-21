@@ -96,12 +96,13 @@ test("browser: overlapping appointments share the column; pointer drag snaps to 
   // Hover time label follows the pointer in the column.
   const column = page.locator(".barber-column").nth(w.staff.filter((s) => s.active).findIndex((s) => s.id === jay.id));
   const cb = (await column.boundingBox())!;
-  await page.mouse.move(cb.x + cb.width / 2, cb.y + 44 * 3 + 10);
+  await page.mouse.move(cb.x + cb.width / 2, cb.y + 30 * 3 + 10);
   await expect(page.getByTestId("slot-hover")).toBeVisible();
   await expect(page.getByTestId("slot-hover")).toContainText(/\d\d:\d\d/);
 
   // Drag Lane One down three slots. Steps in between produce the ghost with its snapped time.
-  const step = 44;
+  // Pixels per 15-minute cell follow the user's density preset; read it off the board.
+  const step = parseFloat(await page.locator(".calendar-board").evaluate((el) => getComputedStyle(el).getPropertyValue("--step")));
   const box = (await one.boundingBox())!;
   const grabX = box.x + box.width / 2, grabY = box.y + 8;
   await page.mouse.move(grabX, grabY);

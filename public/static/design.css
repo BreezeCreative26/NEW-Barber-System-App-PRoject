@@ -1911,7 +1911,7 @@ body:has(.ollo-admin-shell) { margin: 0; padding: 0; background: #f4f3ee; }
 .workspace .connected-calendar .staff-column-heading .avatar { width: 26px; height: 26px; font-size: 10px; }
 .workspace .connected-calendar .staff-column-heading > div { display: flex; flex-direction: column; justify-content: center; min-width: 0; flex: 1; }
 .workspace .connected-calendar .staff-column-heading div > span { margin-top: 0; overflow: hidden; text-overflow: ellipsis; }
-.workspace .connected-calendar .time-gutter > span.half { font-size: 9px; color: var(--muted-2); }
+.workspace .connected-calendar .time-gutter > span.half { font-size: 10px; color: var(--muted); }
 .workspace .connected-calendar .calendar-event .event-inline { font-weight: 500; color: inherit; opacity: .85; }
 .workspace .connected-calendar .calendar-event .event-inline-icons { display: inline-flex; align-items: center; margin-left: 6px; vertical-align: middle; }
 .workspace .connected-calendar .calendar-event .event-inline-icons .block-icons { gap: 3px; }
@@ -1943,9 +1943,6 @@ body:has(.ollo-admin-shell) { margin: 0; padding: 0; background: #f4f3ee; }
 .workspace .calendar-foot .calendar-help { flex: 1 1 auto; }
 .workspace .calendar-foot .calendar-help[open] { flex-basis: 100%; order: 3; }
 .workspace .calendar-foot .calendar-help .calendar-legend { margin: 6px 0 2px; display: flex; flex-wrap: wrap; }
-.workspace .calendar-foot .density-picker { height: 28px; padding: 2px; border-radius: 8px; background: var(--canvas); display: inline-flex; gap: 2px; }
-.workspace .calendar-foot .density-picker button { height: 24px; min-height: 0; padding: 0 10px; border-radius: 6px; font-size: var(--fs-11); font-weight: 600; color: var(--muted); border: 0; background: transparent; font: inherit; font-size: var(--fs-11); cursor: pointer; }
-.workspace .calendar-foot .density-picker button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1); }
 
 /* Toolbar diet: one row from 1024px up. Buttons shed their labels first, then the summary strip
    collapses to a single quiet line. */
@@ -1984,4 +1981,26 @@ body:has(.ollo-admin-shell) { margin: 0; padding: 0; background: #f4f3ee; }
   .workspace .connected-calendar .density-compact .staff-hours-chip { display: none; }
   .workspace .connected-calendar .density-compact .staff-menu-button { width: 24px; height: 24px; }
   .workspace .connected-calendar .staff-column-heading .avatar { width: 22px; height: 22px; }
+}
+
+/* Calendar size menu (toolbar) */
+.density-menu { position: relative; display: inline-flex; }
+.density-menu-list { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 260px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-2); padding: 6px; display: grid; gap: 2px; }
+.density-menu-title { margin: 4px 8px 6px; font-size: var(--fs-11); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+.density-menu-list [role="menuitemradio"] { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start; text-align: left; padding: 8px 10px; border: 0; border-radius: var(--r); background: transparent; font: inherit; color: var(--ink); cursor: pointer; }
+.density-menu-list [role="menuitemradio"]:hover { background: var(--canvas); }
+.density-menu-list [role="menuitemradio"][aria-checked="true"] { background: var(--ollo-soft); }
+.density-menu-list [role="menuitemradio"] strong { display: block; font-size: var(--fs-13); }
+.density-menu-list [role="menuitemradio"] small { display: block; color: var(--muted); font-size: var(--fs-11); line-height: 1.35; margin-top: 1px; }
+.density-menu-check { display: inline-flex; align-items: center; justify-content: center; height: 18px; color: var(--accent-dark); }
+.density-menu-foot { margin: 4px 8px 4px; font-size: var(--fs-11); color: var(--muted); }
+@media (max-width: 767px) {
+  /* Sits beside Day/Week/Agenda so the date row keeps its room. */
+  .workspace .calendar-toolbar-row .toolbar-density { order: 5; }
+  .workspace .calendar-toolbar-row .toolbar-density .button { width: 36px; min-width: 36px; padding: 0; }
+  .workspace .calendar-toolbar-row .segmented { flex: 1 1 140px; }
+  .density-menu-list { position: fixed; left: 12px; right: 12px; top: auto; bottom: calc(var(--tabbar-h) + 12px); min-width: 0; }
+  /* Phone cards: two comfortable lines at Standard, one at Compact; nothing auto-fits. */
+  .workspace .connected-calendar .density-compact .calendar-event { padding: 2px 6px; }
+  .workspace .connected-calendar .density-compact .calendar-event strong { font-size: 11px; }
 }

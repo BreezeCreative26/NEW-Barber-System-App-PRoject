@@ -35,7 +35,8 @@ test("browser: bottom-edge resize snaps to 15 min, saves via items, Undo restore
   await card.scrollIntoViewIfNeeded();
   const handle = card.getByTestId("resize-handle");
   const hb = (await handle.boundingBox())!;
-  const step = 44;
+  // Pixels per 15-minute cell follow the user's density preset; read it off the board.
+  const step = parseFloat(await page.locator(".calendar-board").evaluate((el) => getComputedStyle(el).getPropertyValue("--step")));
   const x = hb.x + hb.width / 2, y = hb.y + hb.height / 2;
   await page.mouse.move(x, y);
   await page.mouse.down();

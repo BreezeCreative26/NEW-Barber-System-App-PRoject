@@ -28,7 +28,7 @@ import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { BlockDialog } from "./BlockDialog";
 import { PayRunsPage, MyPay } from "./PayRunsPage";
-import { resolveDensity, usePhone, writeLocalPrefs, type Density } from "./calendarDensity";
+import { DENSITIES, DENSITY_PRESETS, resolveDensity, usePhone, writeLocalPrefs, type Density } from "./calendarDensity";
 import { Shifts } from "./Shifts";
 import { BillingPanel } from "./Billing";
 import { ConflictResolver, ConflictOutcome, type Preview as ConflictPreview, type Decision as ConflictDecision, type Outcome as ConflictOutcomeRow, type ScheduleChange } from "./ConflictResolver";
@@ -1363,6 +1363,15 @@ export function Workspace() {
   // Timetable density: the user's saved choice wins, then the shop default, then the device.
   const phoneDevice = usePhone();
   const [densityChoice, setDensityChoice] = useState<Density | null>(null);
+  const [densityOpen, setDensityOpen] = useState(false);
+  useEffect(() => {
+    if (!densityOpen) return;
+    const close = (e: Event) => { if (!(e.target as HTMLElement).closest?.(".density-menu")) setDensityOpen(false); };
+    const esc = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setDensityOpen(false);
+    document.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("pointerdown", close); window.removeEventListener("keydown", esc); };
+  }, [densityOpen]);
   function toggleTeam(d: string, staffId: string, on: boolean) {
     setTeam((prev) => {
       const list = new Set(prev[d] ?? []);
@@ -2241,6 +2250,32 @@ export function Workspace() {
                         <span className="toolbar-label">Agenda</span>
                       </button>
                     </div>
+                    <span className="density-menu toolbar-density">
+                      <Button
+                        variant="ghost"
+                        className="icon-only"
+                        aria-label={`Calendar size: ${DENSITY_PRESETS[density].label}. Change`}
+                        aria-haspopup="menu"
+                        aria-expanded={densityOpen}
+                        title={`Calendar size · ${DENSITY_PRESETS[density].label}`}
+                        data-testid="density-button"
+                        onClick={() => setDensityOpen((o) => !o)}
+                      >
+                        <Icon name="rows" />
+                      </Button>
+                      {densityOpen && (
+                        <div className="density-menu-list" role="menu" aria-label="Calendar size" data-testid="density-picker">
+                          <p className="density-menu-title">Calendar size</p>
+                          {DENSITIES.map((d) => (
+                            <button key={d} type="button" role="menuitemradio" aria-checked={density === d} data-testid={`density-${d.toLowerCase()}`} onClick={() => { chooseDensity(d); setDensityOpen(false); }}>
+                              <span className="density-menu-check">{density === d && <Icon name="check" size={14} />}</span>
+                              <span><strong>{DENSITY_PRESETS[d].label}</strong><small>{DENSITY_PRESETS[d].blurb}</small></span>
+                            </button>
+                          ))}
+                          <p className="density-menu-foot">Saved for you on every device.</p>
+                        </div>
+                      )}
+                    </span>
                     <Button
                       variant="secondary"
                       disabled={!online || stale || loading || date !== w.today}
@@ -2327,7 +2362,6 @@ export function Workspace() {
                           bookings={filteredBookings}
                           paid={new Set(w.payments.filter((p) => !p.voided_at).map((p) => p.booking_id))}
                           density={density}
-                          onDensity={chooseDensity}
                           disabled={!online || stale}
                           onDraft={async (draft) => {
                             if (moving) {

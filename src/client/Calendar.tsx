@@ -10,7 +10,7 @@ import {
 import type { WorkspaceData, StoredBooking, Staff, StaffBlock } from "../server/domain";
 import { Avatar, BlockIcons, Icon } from "./ui";
 import { time, money, datePlus, shopDayOf } from "./fixtures";
-import { DENSITIES, DENSITY_PRESETS, type Density } from "./calendarDensity";
+import { DENSITY_PRESETS, type Density } from "./calendarDensity";
 
 // Phone-first timetable: below this width columns narrow and the board scrolls sideways
 // inside its own region so the page itself never overflows.
@@ -162,12 +162,10 @@ export function Calendar({
   team,
   paid = new Set<string>(),
   density = "STANDARD",
-  onDensity,
 }: {
   paid?: Set<string>;
   // How tall a 15-minute cell is and how much each card says; see calendarDensity.ts.
   density?: Density;
-  onDensity?: (d: Density) => void;
   onResize?: (booking: StoredBooking, to: ResizeTarget) => Promise<void> | void;
   w: WorkspaceData;
   date: string;
@@ -282,8 +280,11 @@ export function Calendar({
     return () => ro.disconnect();
   }, []);
   const slots = (end - begin) / 15;
-  const fitStep = density === "COMPACT" && boardH > 0 ? Math.floor((boardH - preset.headerH - 2) / slots) : preset.step;
-  const step = density === "COMPACT" ? Math.max(14, Math.min(preset.step, fitStep)) : preset.step; // px per 15-minute cell
+  // Auto-fit only on wide screens: on a phone the board is short and fitting would squash cards
+  // into each other, so the presets are fixed there (Compact 24 / Standard 32 / Large 44).
+  const phoneStep = { COMPACT: 24, STANDARD: 32, LARGE: 44 }[density];
+  const fitStep = !compact && density === "COMPACT" && boardH > 0 ? Math.floor((boardH - preset.headerH - 2) / slots) : preset.step;
+  const step = compact ? phoneStep : density === "COMPACT" ? Math.max(14, Math.min(preset.step, fitStep)) : preset.step; // px per 15-minute cell
   const eventMin = Math.min(preset.eventMin, step - 2);
   const height = slots * step;
   const closed = !dayHours.enabled || w.holidays.some((h) => h.date === date);
@@ -972,15 +973,6 @@ export function Calendar({
             Change how much of the day fits on screen with the density control (Compact / Standard / Large) in the toolbar.
           </p>
         </details>
-        {onDensity && (
-          <div className="segmented density-picker" role="radiogroup" aria-label="Calendar density" data-testid="density-picker">
-            {DENSITIES.map((d) => (
-              <button key={d} type="button" role="radio" aria-checked={density === d} aria-pressed={density === d} onClick={() => onDensity(d)} title={DENSITY_PRESETS[d].blurb} data-testid={`density-${d.toLowerCase()}`}>
-                {DENSITY_PRESETS[d].label}
-              </button>
-            ))}
-          </div>
-        )}
       </footer>
     </>
   );

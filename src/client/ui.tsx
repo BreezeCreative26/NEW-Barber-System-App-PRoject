@@ -7,6 +7,7 @@ import {
 } from "react";
 import {
   ArrowDownToLine,
+  Rows3,
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
@@ -86,6 +87,7 @@ import {
 
 const icons: Record<string, LucideIcon> = {
   arrowDown: ArrowDownToLine,
+  rows: Rows3,
   arrowLeft: ArrowLeft,
   arrowRight: ArrowRight,
   arrowUp: ArrowUpRight,
