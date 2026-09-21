@@ -10,6 +10,7 @@ import {
 import type { WorkspaceData, StoredBooking, Staff, StaffBlock } from "../server/domain";
 import { Avatar, BlockIcons, Icon } from "./ui";
 import { time, money, datePlus, shopDayOf } from "./fixtures";
+import { DENSITIES, DENSITY_PRESETS, type Density } from "./calendarDensity";
 
 // Phone-first timetable: below this width columns narrow and the board scrolls sideways
 // inside its own region so the page itself never overflows.
@@ -160,8 +161,13 @@ export function Calendar({
   onResize,
   team,
   paid = new Set<string>(),
+  density = "STANDARD",
+  onDensity,
 }: {
   paid?: Set<string>;
+  // How tall a 15-minute cell is and how much each card says; see calendarDensity.ts.
+  density?: Density;
+  onDensity?: (d: Density) => void;
   onResize?: (booking: StoredBooking, to: ResizeTarget) => Promise<void> | void;
   w: WorkspaceData;
   date: string;
@@ -263,8 +269,23 @@ export function Calendar({
       ) / 60,
     ) * 60,
   );
-  const step = 44; // 15-minute cell; short events keep a 24px minimum plus agenda/detail alternatives.
-  const height = ((end - begin) / 15) * step;
+  const preset = DENSITY_PRESETS[density];
+  // Compact promises the whole day on one screen: if the board is a little too short for the
+  // 20px cell, shrink the cell (never below 16px) until the day fits. Other presets are fixed.
+  const [boardH, setBoardH] = useState(0);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setBoardH(el.clientHeight));
+    ro.observe(el);
+    setBoardH(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+  const slots = (end - begin) / 15;
+  const fitStep = density === "COMPACT" && boardH > 0 ? Math.floor((boardH - preset.headerH - 2) / slots) : preset.step;
+  const step = density === "COMPACT" ? Math.max(14, Math.min(preset.step, fitStep)) : preset.step; // px per 15-minute cell
+  const eventMin = Math.min(preset.eventMin, step - 2);
+  const height = slots * step;
   const closed = !dayHours.enabled || w.holidays.some((h) => h.date === date);
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: w.shop.timezone,
@@ -300,8 +321,8 @@ export function Calendar({
         No barbers match this view. Add a barber or clear the filter.
       </p>
     );
-  const gutter = compact ? 44 : 64;
-  const columnWidth = compact ? 150 : 190;
+  const gutter = compact ? preset.gutterPhone : preset.gutter;
+  const columnWidth = compact ? preset.columnPhone : preset.column;
 
   // ---- Drag engine ----------------------------------------------------------------------------
   // Geometry: the timeline element is positioned; columns share the width after the gutter.
@@ -496,7 +517,8 @@ export function Calendar({
   return (
     <>
       <div
-        className={`calendar-scroll connected-scroll ${compact ? "compact" : ""}`}
+        className={`calendar-scroll connected-scroll ${compact ? "compact" : ""} density-${density.toLowerCase()}`}
+        data-density={density}
         ref={scroller}
         tabIndex={0}
         role="region"
@@ -510,6 +532,8 @@ export function Calendar({
             {
               "--columns": staff.length,
               "--gutter": `${gutter}px`,
+              "--step": `${step}px`,
+              "--header-h": `${preset.headerH}px`,
               minWidth: Math.max(compact ? 260 : 310, staff.length * columnWidth + gutter),
             } as CSSProperties
           }
@@ -595,6 +619,12 @@ export function Calendar({
                   {time(begin + i * 60)}
                 </span>
               ))}
+              {preset.halfHourLabels &&
+                Array.from({ length: Math.ceil((end - begin) / 60) }, (_, i) => (
+                  <span key={`h${i}`} className="half" aria-hidden="true" style={{ top: i * step * 4 + step * 2 }}>
+                    {time(begin + i * 60 + 30).slice(-2) === "30" ? ":30" : ""}
+                  </span>
+                ))}
             </div>
             {staff.map((s, i) => {
               const shift =
@@ -746,7 +776,7 @@ export function Calendar({
                         key={k.id}
                         className={`calendar-block kind-${k.kind.toLowerCase()}`}
                         data-testid="calendar-block"
-                        style={{ top: ((k.start_min - begin) / 15) * step, height: Math.max(24, ((k.end_min - k.start_min) / 15) * step - 3) }}
+                        style={{ top: ((k.start_min - begin) / 15) * step, height: Math.max(eventMin, ((k.end_min - k.start_min) / 15) * step - 3) }}
                         title={`${time(k.start_min)}–${time(k.end_min)} · ${blockLabel(k)}${k.kind !== "OTHER" ? ` (${BLOCK_LABELS[k.kind].toLowerCase()})` : ""}`}
                       >
                         <button
@@ -782,7 +812,7 @@ export function Calendar({
                       className={`calendar-drop-ghost ${HARD_REASONS.has(dropReason) ? "refused" : dropReason ? "soft" : ""}`}
                       aria-hidden="true"
                       data-testid="drop-ghost"
-                      style={{ top: ((dragging.overStart - begin) / 15) * step, height: Math.max(24, (draggingBooking.duration_min / 15) * step - 3) }}
+                      style={{ top: ((dragging.overStart - begin) / 15) * step, height: Math.max(eventMin, (draggingBooking.duration_min / 15) * step - 3) }}
                     >
                       <strong className="ghost-time">{time(dragging.overStart)}</strong>
                       <span>
@@ -807,7 +837,7 @@ export function Calendar({
                         style={{
                           top: ((b.start_min - begin) / 15) * step,
                           height: Math.max(
-                            24,
+                            eventMin,
                             ((resizing?.id === b.id ? resizing.duration : b.duration_min) / 15) * step - 3,
                           ),
                           ...laneStyle,
@@ -823,18 +853,9 @@ export function Calendar({
                         aria-label={`${b.attendee_name || b.customer_name}, ${b.service_name}, ${time(b.start_min)}, ${labels[b.status]}${b.attendee_name ? `, booked by ${b.customer_name}` : ""}${b.group_id ? ", group booking" : ""}`}
                         title={`${b.attendee_name || b.customer_name}${b.attendee_name ? ` (booked by ${b.customer_name})` : ""} · ${b.service_name} · ${time(b.start_min)}–${time(b.start_min + b.duration_min)} · ${labels[b.status]} · ${money(b.price_pence)}`}
                       >
-                        <strong>
-                          <time>{time(b.start_min)}</time> {b.attendee_name || b.customer_name}
-                          {b.group_id && <Icon name="users" size={11} className="event-group" />}
-                        </strong>
-                        {b.duration_min >= 30 && (
-                          <span>
-                            {b.service_name} · {money(b.price_pence)}
-                          </span>
-                        )}
-                        {b.duration_min >= 15 && (
-                          <small className="event-status">
-                            {labels[b.status]}
+                        {(() => {
+                          const px = (b.duration_min / 15) * step;
+                          const icons = (
                             <BlockIcons
                               online={b.channel === "ONLINE"}
                               series={!!b.series_id}
@@ -843,8 +864,31 @@ export function Calendar({
                               regular={!!b.customer_id && regulars.has(b.customer_id)}
                               deposit={b.deposit_status === "PAID"}
                             />
-                          </small>
-                        )}
+                          );
+                          // How many lines fit: the preset caps it, the card's height decides.
+                          const lines = Math.min(preset.lines, px >= 3 * 15 + 8 ? 3 : px >= 2 * 15 + 6 ? 2 : 1);
+                          return (
+                            <>
+                              <strong>
+                                <time>{time(b.start_min)}</time> {b.attendee_name || b.customer_name}
+                                {lines === 1 && <span className="event-inline"> · {b.service_name}</span>}
+                                {b.group_id && <Icon name="users" size={11} className="event-group" />}
+                                {lines < 3 && <span className="event-inline-icons">{icons}</span>}
+                              </strong>
+                              {lines >= 2 && (
+                                <span>
+                                  {b.service_name} · {money(b.price_pence)}
+                                </span>
+                              )}
+                              {lines >= 3 && (
+                                <small className="event-status">
+                                  {labels[b.status]}
+                                  {icons}
+                                </small>
+                              )}
+                            </>
+                          );
+                        })()}
                         {resizing?.id === b.id && (
                           <span className="resize-label" aria-hidden="true" data-testid="resize-label" key={resizing.tick}>
                             {time(b.start_min + resizing.duration)} · {resizing.duration} min
@@ -897,25 +941,25 @@ export function Calendar({
           : ""}
       </div>
       <footer className="calendar-foot">
-        <div className="calendar-legend" aria-label="Timetable legend">
-          <span>
-            <i className="legend-free" aria-hidden="true" /> Free
-          </span>
-          <span>
-            <i className="legend-unavailable" aria-hidden="true" /> Break / leave / closed
-          </span>
-          <span>
-            <i className="legend-block" aria-hidden="true" /> Blocked time
-          </span>
-          <span>
-            <i className="legend-buffer" aria-hidden="true" /> Buffer
-          </span>
-          <span className="legend-note">Card colour = {w.shop.card_colour === "SERVICE" ? "service" : "barber"}</span>
-        </div>
         <details className="calendar-help">
           <summary>
             <Icon name="help" size={14} /> How the timetable works
           </summary>
+          <div className="calendar-legend" aria-label="Timetable legend">
+            <span>
+              <i className="legend-free" aria-hidden="true" /> Free
+            </span>
+            <span>
+              <i className="legend-unavailable" aria-hidden="true" /> Break / leave / closed
+            </span>
+            <span>
+              <i className="legend-block" aria-hidden="true" /> Blocked time
+            </span>
+            <span>
+              <i className="legend-buffer" aria-hidden="true" /> Buffer
+            </span>
+            <span className="legend-note">Card colour = {w.shop.card_colour === "SERVICE" ? "service" : "barber"}</span>
+          </div>
           <p id="timetable-keyboard-help">
             Click any 15-minute cell to book there — greyed cells (outside hours, breaks, occupied) still
             work, you just confirm you mean it. Press and drag a confirmed appointment to move it: the top
@@ -925,8 +969,18 @@ export function Calendar({
             under a barber's name to change that day's shift; the ⋯ beside it blocks time with a reason,
             books a day off or seats a walk-in. Right-click a cell to block from that time. Tab reaches
             one free slot per barber; arrow keys move between slots, Home / End jump within a barber.
+            Change how much of the day fits on screen with the density control (Compact / Standard / Large) in the toolbar.
           </p>
         </details>
+        {onDensity && (
+          <div className="segmented density-picker" role="radiogroup" aria-label="Calendar density" data-testid="density-picker">
+            {DENSITIES.map((d) => (
+              <button key={d} type="button" role="radio" aria-checked={density === d} aria-pressed={density === d} onClick={() => onDensity(d)} title={DENSITY_PRESETS[d].blurb} data-testid={`density-${d.toLowerCase()}`}>
+                {DENSITY_PRESETS[d].label}
+              </button>
+            ))}
+          </div>
+        )}
       </footer>
     </>
   );

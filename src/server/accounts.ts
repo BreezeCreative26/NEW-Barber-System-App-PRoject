@@ -15,6 +15,8 @@ export type Account = {
   role: "OWNER" | "MANAGER" | "RECEPTION" | "BARBER";
   staff_id: string | null;
   version: number;
+  // Small per-user UI preferences (calendar density …). Raw JSON text; parsed on the client.
+  prefs_json?: string;
 };
 export type AppEnv = {
   Bindings: { DB: Database; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string; OLLO_ADMIN_EMAILS?: string };
@@ -205,7 +207,7 @@ export async function resolveAccount(
   token: string,
 ): Promise<Account | null> {
   return c.env.DB.prepare(
-    `SELECT m.id,m.user_id,m.shop_id,m.role,m.staff_id,m.version,u.name,u.email FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1 AND (m.role='OWNER' OR b.active=1)`,
+    `SELECT m.id,m.user_id,m.shop_id,m.role,m.staff_id,m.version,m.prefs_json,u.name,u.email FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1 AND (m.role='OWNER' OR b.active=1)`,
   )
     .bind(await digest(token), Date.now())
     .first<Account>();

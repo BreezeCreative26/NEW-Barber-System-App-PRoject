@@ -33,6 +33,8 @@ export type Shop = {
   till_access: "OWNER" | "ALL";
   buffer_min: number;
   card_colour: "BARBER" | "SERVICE";
+  // Default timetable density for people who haven't chosen their own.
+  calendar_density?: "COMPACT" | "STANDARD" | "LARGE";
   version: number;
   // Online deposits (Model A — the shop's own Stripe account).
   stripe_account_id?: string;
@@ -552,6 +554,7 @@ export const shopSchema = z
     till_access: z.enum(["OWNER", "ALL"]).default("OWNER"),
     buffer_min: z.number().int().min(0).max(60).refine((n) => n % 5 === 0, "Use 5-minute steps").default(10),
     card_colour: z.enum(["BARBER", "SERVICE"]).default("BARBER"),
+    calendar_density: z.enum(["COMPACT", "STANDARD", "LARGE"]).default("STANDARD"),
     version,
   })
   .strict();

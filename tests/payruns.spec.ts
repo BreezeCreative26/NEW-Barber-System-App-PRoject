@@ -4,7 +4,7 @@
 import { test, expect, request, type APIRequestContext } from "@playwright/test";
 import { base, origin, openFixtureShop, section } from "./fixture";
 
-type Staff = { id: string; name: string; pay_model: string; commission_pct: number; deductions_json?: string };
+type Staff = { id: string; name: string; pay_model: string; commission_pct: number; deductions_json?: string; version: number };
 
 async function ownerCtx() {
   const r = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
@@ -42,7 +42,7 @@ async function putTerms(r: APIRequestContext, staff: Staff, patch: Record<string
     hourly_pence: (s as { hourly_pence?: number }).hourly_pence ?? 0, rent_pence: (s as { rent_pence?: number }).rent_pence ?? 0, tip_share_pct: (s as { tip_share_pct?: number }).tip_share_pct ?? 100,
     product_commission_pct: (s as { product_commission_pct?: number }).product_commission_pct ?? 0, pay_period: (s as { pay_period?: string }).pay_period || "WEEKLY",
     employment: (s as { employment?: string }).employment || "SELF_EMPLOYED", deductions: JSON.parse(s.deductions_json || "[]"),
-    version: (s as { version: number }).version,
+    version: s.version,
     ...patch,
   };
   const res = await r.put(base + `/staff/${staff.id}`, { data: body });

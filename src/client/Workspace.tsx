@@ -28,6 +28,7 @@ import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { BlockDialog } from "./BlockDialog";
 import { PayRunsPage, MyPay } from "./PayRunsPage";
+import { resolveDensity, usePhone, writeLocalPrefs, type Density } from "./calendarDensity";
 import { Shifts } from "./Shifts";
 import { BillingPanel } from "./Billing";
 import { ConflictResolver, ConflictOutcome, type Preview as ConflictPreview, type Decision as ConflictDecision, type Outcome as ConflictOutcomeRow, type ScheduleChange } from "./ConflictResolver";
@@ -1359,6 +1360,9 @@ export function Workspace() {
     }
   });
   const [teamOpen, setTeamOpen] = useState(false);
+  // Timetable density: the user's saved choice wins, then the shop default, then the device.
+  const phoneDevice = usePhone();
+  const [densityChoice, setDensityChoice] = useState<Density | null>(null);
   function toggleTeam(d: string, staffId: string, on: boolean) {
     setTeam((prev) => {
       const list = new Set(prev[d] ?? []);
@@ -1660,6 +1664,13 @@ export function Workspace() {
     (b) => !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
   const manager = !w?.account || ["OWNER", "MANAGER"].includes(w.account.role);
+  const userPref = (() => { try { return (JSON.parse(w?.account?.prefs_json || "{}") as { calendar_density?: string }).calendar_density; } catch { return undefined; } })();
+  const density: Density = densityChoice ?? resolveDensity(userPref, w?.shop.calendar_density, phoneDevice);
+  function chooseDensity(d: Density) {
+    setDensityChoice(d);
+    writeLocalPrefs({ calendar_density: d });
+    api("/me/prefs", "PUT", { calendar_density: d }).catch(() => null);
+  }
   // Card at the chair is available once foliyo's Stripe keys are live (checked once per session).
   const [cardLive, setCardLive] = useState(false);
   useEffect(() => {
@@ -2163,7 +2174,44 @@ export function Workspace() {
                         </span>
                       )}
                     </Button>
-                    <span className="toolbar-grow" />
+                    <div className="calendar-summary toolbar-grow" role="status">
+                    <span>
+                      {!dayReady
+                        ? "Loading appointments…"
+                        : `${filteredBookings.length} matching appointment${filteredBookings.length === 1 ? "" : "s"}`}
+                      {activeFilterCount > 0 && dayReady ? " · filtered" : ""}
+                    </span>
+                    {dayReady && (
+                      <span className="calendar-summary-stats" aria-label="Selected day statistics">
+                        <span>
+                          <b>{money(dayStats.value)}</b> booked
+                        </span>
+                        <span>
+                          <b>{dayStats.completed}</b>/{dayStats.visits} completed
+                        </span>
+                        <span>
+                          <b>{dayStats.online}</b> online
+                        </span>
+                        {dayStats.utilisation !== null && (
+                          <span>
+                            <b>{dayStats.utilisation}%</b> of chair time
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    {activeFilterCount > 0 && !filtersOpen && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setBarber("");
+                          setStatusFilter("");
+                          setSearch("");
+                        }}
+                      >
+                        Clear filters
+                      </Button>
+                    )}
+                  </div>
                     <div className="segmented" aria-label="Calendar view">
                       <button
                         type="button"
@@ -2249,44 +2297,6 @@ export function Workspace() {
                       </Button>
                     </div>
                   )}
-                  <div className="calendar-summary" role="status">
-                    <span>
-                      {!dayReady
-                        ? "Loading appointments…"
-                        : `${filteredBookings.length} matching appointment${filteredBookings.length === 1 ? "" : "s"}`}
-                      {activeFilterCount > 0 && dayReady ? " · filtered" : ""}
-                    </span>
-                    {dayReady && (
-                      <span className="calendar-summary-stats" aria-label="Selected day statistics">
-                        <span>
-                          <b>{money(dayStats.value)}</b> booked
-                        </span>
-                        <span>
-                          <b>{dayStats.completed}</b>/{dayStats.visits} completed
-                        </span>
-                        <span>
-                          <b>{dayStats.online}</b> online
-                        </span>
-                        {dayStats.utilisation !== null && (
-                          <span>
-                            <b>{dayStats.utilisation}%</b> of chair time
-                          </span>
-                        )}
-                      </span>
-                    )}
-                    {activeFilterCount > 0 && !filtersOpen && (
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          setBarber("");
-                          setStatusFilter("");
-                          setSearch("");
-                        }}
-                      >
-                        Clear filters
-                      </Button>
-                    )}
-                  </div>
                   {date && calendarView !== "week" && <WeekStrip date={date} onDate={setDate} />}
                   {calendarView === "week" && date ? (
                     <WeekView
@@ -2316,6 +2326,8 @@ export function Workspace() {
                           barber={barber}
                           bookings={filteredBookings}
                           paid={new Set(w.payments.filter((p) => !p.voided_at).map((p) => p.booking_id))}
+                          density={density}
+                          onDensity={chooseDensity}
                           disabled={!online || stale}
                           onDraft={async (draft) => {
                             if (moving) {
@@ -2538,6 +2550,7 @@ export function Workspace() {
                           cancel_hours: number(f, "cancel_hours"),
                           buffer_min: number(f, "buffer_min"),
                           card_colour: text(f, "card_colour") === "SERVICE" ? "SERVICE" : "BARBER",
+                          calendar_density: (["COMPACT", "STANDARD", "LARGE"].includes(text(f, "calendar_density")) ? text(f, "calendar_density") : "STANDARD") as "COMPACT" | "STANDARD" | "LARGE",
                           no_show_grace: number(f, "no_show_grace"),
                           till_access: text(f, "till_access") === "ALL" ? "ALL" : "OWNER",
                           version: w.shop.version,
@@ -2619,6 +2632,13 @@ export function Workspace() {
                           <option value="15">15 minutes</option>
                           <option value="20">20 minutes</option>
                           <option value="30">30 minutes</option>
+                        </select>
+                      </Field>
+                      <Field label="Calendar density (shop default)" hint="How much of the day fits on one screen. Each person can pick their own from the timetable; this is the starting point.">
+                        <select name="calendar_density" defaultValue={w.shop.calendar_density || "STANDARD"} data-testid="shop-calendar-density">
+                          <option value="COMPACT">Compact — whole day on one screen</option>
+                          <option value="STANDARD">Standard</option>
+                          <option value="LARGE">Large — bigger appointment blocks</option>
                         </select>
                       </Field>
                       <Field label="Calendar card colour" hint="Colour every appointment by who is doing it, or by the service booked.">

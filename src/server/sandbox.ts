@@ -234,6 +234,7 @@ sandbox.use("*", async (c, next) => {
       (method === "GET" && path === "/pay-runs/period") ||
       (method === "GET" && path === "/pay-runs/export.csv") ||
       (method === "POST" && path === "/pay-runs/bulk") ||
+      (method === "PUT" && path === "/me/prefs") ||
       (method === "POST" && /^\/bookings\/[^/]+\/checkout$/.test(path)) ||
       (method === "POST" && /^\/bookings\/[^/]+\/(deposit\/refund|pay-link|terminal)$/.test(path)) ||
       (method === "GET" && /^\/payment-requests\/[^/]+$/.test(path)) ||
@@ -705,7 +706,7 @@ sandbox.put("/shop", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE shops SET name=?,address=?,timezone=?,currency=?,opens=?,closes=?,closed_days=?,week_json=?,deposit_pence=?,cancel_hours=?,no_show_grace=?,till_access=?,buffer_min=?,card_colour=?,version=version+1 WHERE id=? AND version=?",
+      "UPDATE shops SET name=?,address=?,timezone=?,currency=?,opens=?,closes=?,closed_days=?,week_json=?,deposit_pence=?,cancel_hours=?,no_show_grace=?,till_access=?,buffer_min=?,card_colour=?,calendar_density=?,version=version+1 WHERE id=? AND version=?",
     ).bind(
       b.name,
       b.address,
@@ -721,6 +722,7 @@ sandbox.put("/shop", async (c) => {
       b.till_access,
       b.buffer_min,
       b.card_colour,
+      b.calendar_density,
       c.get("shopId"),
       b.version,
     ),
@@ -3001,6 +3003,19 @@ sandbox.post("/payments/:id/void", async (c) => {
   return c.json({ payment: { ...p, voided_at: Date.now(), void_reason: body.reason }, reversal });
 });
 // Wallet: ledger totals for a date range (defaults to today), per method and per barber.
+// Per-user UI preferences. Sparse patch; unknown keys rejected so the column stays small.
+const prefsSchema = z.object({ calendar_density: z.enum(["COMPACT", "STANDARD", "LARGE"]).optional() }).strict();
+sandbox.put("/me/prefs", async (c) => {
+  const account = c.get("account");
+  if (!account) fail(401, "Sign in to save preferences");
+  const patch = await input(c, prefsSchema);
+  let current: Record<string, unknown> = {};
+  try { current = JSON.parse(account!.prefs_json || "{}") as Record<string, unknown>; } catch { current = {}; }
+  const next = { ...current, ...patch };
+  await c.env.DB.prepare("UPDATE app_memberships SET prefs_json=? WHERE id=?").bind(JSON.stringify(next), account!.id).run();
+  return c.json({ ok: true, prefs: next });
+});
+
 sandbox.get("/wallet", async (c) => {
   const shop = await readShop(c);
   const a = c.get("account");

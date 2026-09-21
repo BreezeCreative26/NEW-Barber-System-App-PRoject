@@ -1877,3 +1877,95 @@ body:has(.ollo-admin-shell) { margin: 0; padding: 0; background: #f4f3ee; }
 .admin-segment { border: 1px solid #e3e1d8; border-radius: 12px; padding: 12px 14px; display: grid; gap: 10px; } .admin-segment legend { font-weight: 600; padding: 0 6px; }
 .admin-broadcast-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; } .admin-broadcast-list li { padding: 12px 14px; border: 1px solid #e3e1d8; border-radius: 12px; display: grid; gap: 6px; }
 .admin-broadcast-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; } .admin-broadcast-body { margin: 0; font-size: 13px; color: #3d4340; white-space: pre-wrap; } .admin-broadcast-list small { color: #6b6f6d; }
+
+/* ---------- Calendar density (Compact / Standard / Large) + fluid board ----------
+   Geometry comes from calendarDensity.ts through --step and --header-h on .calendar-board.
+   The board takes the viewport height that's left after the toolbar, instead of a fixed cap, so
+   tall screens show more of the day and short ones never leave dead space under the timetable. */
+.workspace .workspace-main:has(> .connected-calendar) { display: flex; flex-direction: column; height: calc(100dvh - var(--topbar-h)); min-height: 0; padding-top: 12px; padding-bottom: 12px; overflow: hidden; }
+.workspace .workspace-main:has(> .connected-calendar) > .connected-calendar { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.workspace .workspace-main:has(> .connected-calendar) > :not(.connected-calendar) { flex: 0 0 auto; }
+.workspace .connected-calendar > .connected-scroll { flex: 1 1 auto; min-height: 160px; max-height: none; }
+/* Anything under the board (agenda list, cancelled history) shares the remaining height and scrolls itself. */
+.workspace .connected-calendar > .closed-day-bookings, .workspace .connected-calendar > .booking-list { flex: 0 1 auto; overflow: auto; min-height: 0; }
+.workspace .connected-calendar > .calendar-foot { flex: 0 0 auto; }
+@media (max-width: 767px) {
+  .workspace .workspace-main:has(> .connected-calendar) { height: calc(100dvh - var(--topbar-h) - var(--tabbar-h)); padding-top: 8px; padding-bottom: 8px; }
+  .workspace .connected-calendar > .connected-scroll { max-height: none; min-height: 200px; }
+}
+/* Gridlines follow the step: light every 15 min, stronger on the hour. */
+.workspace .connected-calendar .calendar-timeline {
+  background:
+    repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--step, 44px) - 1px), var(--line-2) calc(var(--step, 44px) - 1px), var(--line-2) var(--step, 44px)),
+    repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--step, 44px) * 4 - 1px), var(--line) calc(var(--step, 44px) * 4 - 1px), var(--line) calc(var(--step, 44px) * 4));
+}
+.workspace .connected-calendar .calendar-staff-header { height: var(--header-h, 60px); min-height: 0; }
+.workspace .connected-calendar .staff-column-heading { padding: 0 10px; gap: 8px; height: 100%; }
+.workspace .connected-calendar .staff-column-heading .avatar { width: 26px; height: 26px; font-size: 10px; }
+.workspace .connected-calendar .staff-column-heading > div { display: flex; flex-direction: column; justify-content: center; min-width: 0; flex: 1; }
+.workspace .connected-calendar .staff-column-heading div > span { margin-top: 0; overflow: hidden; text-overflow: ellipsis; }
+.workspace .connected-calendar .time-gutter > span.half { font-size: 9px; color: var(--muted-2); }
+.workspace .connected-calendar .calendar-event .event-inline { font-weight: 500; color: inherit; opacity: .85; }
+.workspace .connected-calendar .calendar-event .event-inline-icons { display: inline-flex; align-items: center; margin-left: 6px; vertical-align: middle; }
+.workspace .connected-calendar .calendar-event .event-inline-icons .block-icons { gap: 3px; }
+.workspace .connected-calendar .calendar-event .event-inline-icons .block-icons svg { width: 10px; height: 10px; }
+
+/* Compact: one line per card, hairline padding, single-row header. */
+.workspace .connected-calendar .density-compact .calendar-event { padding: 1px 6px; gap: 0; line-height: 1.2; justify-content: center; border-left-width: 3px; }
+.workspace .connected-calendar .density-compact .calendar-event strong { font-size: 11.5px; font-weight: 600; }
+.workspace .connected-calendar .density-compact .calendar-event strong time { font-weight: 700; }
+.workspace .connected-calendar .density-compact .calendar-event span, .workspace .connected-calendar .density-compact .calendar-event small { font-size: 10.5px; }
+.workspace .connected-calendar .density-compact .calendar-block { padding: 1px 6px; font-size: 10.5px; }
+.workspace .connected-calendar .density-compact .staff-column-heading div > span { display: none; }
+.workspace .connected-calendar .density-compact .staff-column-heading .avatar { width: 22px; height: 22px; font-size: 9px; }
+.workspace .connected-calendar .density-compact .staff-column-heading strong { font-size: var(--fs-12); }
+.workspace .connected-calendar .density-compact .staff-hours-chip { height: 22px; font-size: 10px; padding: 0 6px; }
+.workspace .connected-calendar .density-compact .time-gutter > span { font-size: 10px; }
+.workspace .connected-calendar .density-compact .calendar-event .buffer-tail { display: none; }
+/* Standard: two lines, tidy header. */
+.workspace .connected-calendar .density-standard .calendar-event { padding: 3px 7px; gap: 1px; line-height: 1.2; }
+.workspace .connected-calendar .density-standard .calendar-event strong { font-size: 12px; }
+.workspace .connected-calendar .density-standard .calendar-event span, .workspace .connected-calendar .density-standard .calendar-event small { font-size: 11px; }
+.workspace .connected-calendar .density-standard .staff-column-heading .avatar { width: 26px; height: 26px; }
+/* Large keeps the original look (3 lines, roomy header). */
+.workspace .connected-calendar .density-large .staff-column-heading .avatar { width: 32px; height: 32px; font-size: var(--fs-11); }
+
+/* Footer: help on the left, density picker on the right. */
+.workspace .calendar-foot { padding: 2px var(--s-3); gap: var(--s-1) var(--s-3); align-items: center; min-height: 32px; }
+.workspace .calendar-foot .calendar-help summary { padding: 2px 6px; }
+.workspace .calendar-foot .calendar-help { flex: 1 1 auto; }
+.workspace .calendar-foot .calendar-help[open] { flex-basis: 100%; order: 3; }
+.workspace .calendar-foot .calendar-help .calendar-legend { margin: 6px 0 2px; display: flex; flex-wrap: wrap; }
+.workspace .calendar-foot .density-picker { height: 28px; padding: 2px; border-radius: 8px; background: var(--canvas); display: inline-flex; gap: 2px; }
+.workspace .calendar-foot .density-picker button { height: 24px; min-height: 0; padding: 0 10px; border-radius: 6px; font-size: var(--fs-11); font-weight: 600; color: var(--muted); border: 0; background: transparent; font: inherit; font-size: var(--fs-11); cursor: pointer; }
+.workspace .calendar-foot .density-picker button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1); }
+
+/* Toolbar diet: one row from 1024px up. Buttons shed their labels first, then the summary strip
+   collapses to a single quiet line. */
+.workspace .calendar-toolbar-row { padding: 7px var(--s-3); row-gap: 6px; }
+.workspace .calendar-summary { min-height: 0; padding: 4px var(--s-3); font-size: var(--fs-11); border-bottom: 1px solid var(--line-2); }
+.workspace .week-strip { padding: 3px 10px; gap: 4px; }
+.workspace .week-strip button { min-height: 28px; padding: 1px 6px; gap: 5px; }
+.workspace .week-strip button strong { font-size: var(--fs-12); }
+@media (min-width: 1024px) and (max-width: 1439px) {
+  .workspace .calendar-toolbar-row .toolbar-walkin .toolbar-label,
+  .workspace .calendar-toolbar-row .toolbar-filters .toolbar-label,
+  .workspace .calendar-toolbar-row .team-picker .toolbar-label .team-word,
+  .workspace .calendar-toolbar-row .segmented .toolbar-label { display: none; }
+  .workspace .calendar-toolbar-row .segmented button { padding: 0 9px; }
+  .workspace .calendar-toolbar-row .button { padding: 0 10px; }
+  .workspace .calendar-toolbar-row .toolbar-select select { max-width: 150px; }
+}
+/* Day summary lives inside the toolbar: fills the middle on wide screens, wraps to its own row below 1024px. */
+.workspace .calendar-toolbar-row .calendar-summary { flex: 1 1 0; min-width: 0; justify-content: center; border: 0; padding: 0 var(--s-2); min-height: 0; gap: 2px var(--s-3); font-size: var(--fs-11); order: 0; display: flex; flex-wrap: nowrap; overflow: hidden; }
+.workspace .calendar-toolbar-row .calendar-summary-stats { flex-wrap: nowrap; overflow: hidden; white-space: nowrap; }
+@media (min-width: 1024px) and (max-width: 1439px) { .workspace .calendar-toolbar-row .calendar-summary-stats > span:nth-child(3) { display: none; } }
+.workspace .calendar-toolbar-row .calendar-summary > span:first-child { display: none; }
+.workspace .calendar-toolbar-row .calendar-summary .button { margin-left: 0; }
+@media (max-width: 1023px) {
+  .workspace .calendar-toolbar-row .calendar-summary { order: 10; flex-basis: 100%; justify-content: flex-start; padding: 2px 0 0; }
+}
+@media (max-width: 767px) {
+  .workspace .calendar-toolbar-row .calendar-summary { order: 10; }
+  .workspace .calendar-toolbar-row .calendar-summary-stats > span + span::before { margin: 0 5px; }
+}
