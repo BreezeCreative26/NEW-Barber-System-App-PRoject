@@ -74,7 +74,7 @@ export function Shifts({ w, date, onDate, onEditDay, onDayOff, onWeekly, onHolid
         <div className="toolbar shifts-toolbar">
           <div className="segmented" role="tablist" aria-label="Shifts view">
             {(["day", "week", "leave"] as const).map((v) => (
-              <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setView(v)} data-testid={`shifts-${v}`}>
+              <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setView(v)} data-testid={`shifts-tab-${v}`}>
                 {v === "day" ? "Day" : v === "week" ? "Week" : "Leave"}
               </button>
             ))}
