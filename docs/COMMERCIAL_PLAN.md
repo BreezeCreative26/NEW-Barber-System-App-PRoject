@@ -124,7 +124,7 @@ This is **OLLO charging shops**, distinct from shops charging customers (already
 - **No** subscription, invoice, plan, feature-flag or discount tables. Nothing bills a shop today.
 
 ### 2.2 Design principles
-- **Stripe Billing is the ledger**; OLLO mirrors it. We don't invent invoice numbering or VAT maths.
+- **Stripe Billing is the ledger**; OLLO mirrors it. We don't invent invoice numbering. Tax is off (not VAT-registered); a `vat_mode` switch exists for later.
 - **Features are entitlements**, not code branches everywhere: one `entitlements(shop)` function; UI and API both call it.
 - **Usage is metered from tables we already write** (notifications, calls, staff) — no new counters to keep in sync.
 - **Everything the shop sees is also what admin sees**, from the same tables.
@@ -183,7 +183,7 @@ entitlements(shop) → { plan, seats, features: Set<key>, readOnly: boolean, rea
 Sources merged in order: plan defaults → ADDON items → ADMIN_GRANT (on) → ADMIN_BLOCK (off, wins). Cached per request. Used by: server routes (403 `feature_disabled` with a friendly message), workspace payload (`w.entitlements`), UI (locked toggles show "Included in… / Add for £X" instead of hiding).
 
 ### 2.6 Shop-facing UI (Settings → Billing, owner only)
-Cards: **Plan & seats** · **This period's usage** · **Payment method** · **Invoices** · **Discount code**. Every price shown ex-VAT with "+VAT" per landing copy.
+Cards: **Plan & seats** · **This period's usage** · **Payment method** · **Invoices** · **Discount code**. Every price shown is the amount charged. **No VAT**: OLLO is not VAT-registered at present, so invoices carry no tax line. The billing model keeps a `tax_pence` column (always 0) and a single `platform_billing.vat_mode` switch (`NONE` today; `UK_20` or `STRIPE_TAX` later) so registering for VAT is a config change plus a re-publish of prices, not a rebuild.
 
 ### 2.7 Acceptance tests
 - Unit: `entitlements()` merge order; proration maths delegated to Stripe (assert the API call shape).
@@ -285,7 +285,7 @@ Not yet: shop opening-hours change (Settings → General) through the resolver �
 Total ≈ **17 engineering days**. Items 1–4 and 8 can start now with no external input. Items 5–7 and 9 need the **live Stripe secret key (Billing enabled) + webhook signing secret** added to Vercel env, plus your decision on VAT handling (Stripe Tax on, or manual 20%).
 
 ## 6. Decisions needed from you
-1. **VAT**: use Stripe Tax (automatic, ~0.5% fee) or fixed 20% UK VAT with your VAT number on invoices?
+1. ~~VAT~~ — **decided: none.** OLLO does not charge VAT today; `vat_mode = NONE`. Revisit when registered.
 2. **Trial**: 14 days no card, or card up front? (Plan assumes no card, 14 days.)
 3. **Seat change timing**: prorate immediately (plan assumes yes) vs. bill at next period.
 4. **Dunning grace**: 7 days before read-only (plan assumes 7).

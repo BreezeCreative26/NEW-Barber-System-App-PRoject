@@ -429,7 +429,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
               <p>${v.cardCopy}</p>
             </div>
           </article>
-          <p class="l-tiny">All prices exclude VAT. Extras are billed monthly on what you actually used — shown live in your settings, no surprises.</p>
+          <p class="l-tiny">Prices are what you pay — no VAT is added. Extras are billed monthly on what you actually used — shown live in your settings, no surprises.</p>
         </div>
       </div>
     </div>
