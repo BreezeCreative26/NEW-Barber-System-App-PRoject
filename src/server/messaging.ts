@@ -1,3 +1,4 @@
+import { recordUsage } from "./billing";
 // Messaging: the outbox becomes a real delivery queue.
 //
 // enqueue()  — render a shop-branded message (SMS text + email subject/HTML) and write it QUEUED.
@@ -445,6 +446,8 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
     }
     if (d.ok) {
       await db.prepare("UPDATE notifications SET status='SENT', sent_at=?, provider=?, provider_id=?, error='', status_note=? WHERE id=?").bind(now, d.provider, d.id, d.provider === "mailbox" ? "Delivered to the dev mailbox (no live provider configured)." : "", row.id).run();
+      // Metered usage for the shop's invoice (email is free; the dev mailbox is not billed).
+      if (d.provider !== "mailbox" && (row.channel === "SMS" || row.channel === "WA")) await recordUsage(db, row.shop_id, row.channel === "SMS" ? "sms" : "whatsapp", 1, "notification", row.id, now);
       sent++;
     } else if (d.permanent || attempt > BACKOFF_MIN.length) {
       await db.prepare("UPDATE notifications SET status='FAILED', provider=?, error=?, status_note=? WHERE id=?").bind(d.provider, d.error.slice(0, 400), d.permanent ? "Provider rejected the recipient; will not retry." : `Gave up after ${attempt} attempts.`, row.id).run();

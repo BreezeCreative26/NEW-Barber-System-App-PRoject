@@ -28,6 +28,7 @@ import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { BlockDialog } from "./BlockDialog";
 import { Shifts } from "./Shifts";
+import { BillingPanel } from "./Billing";
 import { ConflictResolver, ConflictOutcome, type Preview as ConflictPreview, type Decision as ConflictDecision, type Outcome as ConflictOutcomeRow, type ScheduleChange } from "./ConflictResolver";
 import { WalletDrawer } from "./Wallet";
 import { PaymentsPanel } from "./Payouts";
@@ -1139,13 +1140,14 @@ type Editor =
   | { kind: "holiday" }
   | { kind: "removeHoliday"; item: Holiday };
 
-type SettingsTabKey = "general" | "booking" | "page" | "messages" | "payments";
+type SettingsTabKey = "general" | "booking" | "page" | "messages" | "payments" | "billing";
 const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: string; owner?: boolean }[] = [
   { key: "general", label: "General", hint: "Details, hours, policies", icon: "settings" },
   { key: "booking", label: "Online booking", hint: "Link, notice, customer pages", icon: "globe" },
   { key: "page", label: "Shop page", hint: "Public page & reviews", icon: "star" },
   { key: "messages", label: "Messages & AI", hint: "Texts, WhatsApp, email, calls", icon: "message" },
   { key: "payments", label: "Payments", hint: "Cards, deposits, payouts", icon: "card" },
+  { key: "billing", label: "Billing", hint: "Your OLLO plan, usage, invoices", icon: "file", owner: true },
 ];
 
 export function Workspace() {
@@ -2660,6 +2662,12 @@ export function Workspace() {
                       <>
                         <header className="settings-head"><h2>Payments</h2><p>Card payments, deposits, payouts and pay runs.</p></header>
                         <PaymentsPanel api={api} canEdit={manager} isOwner={!w.account || w.account.role === "OWNER"} />
+                      </>
+                    )}
+                    {settingsTab === "billing" && (
+                      <>
+                        <header className="settings-head"><h2>Billing</h2><p>Your OLLO plan, seats, usage and invoices. Prices are what you pay — no VAT is added.</p></header>
+                        <BillingPanel api={api} isOwner={!w.account || w.account.role === "OWNER"} onOpenOutbox={() => setSettingsTab("messages")} />
                       </>
                     )}
                   </div>

@@ -345,6 +345,7 @@ export type WorkspaceData = {
   now: number;
   mode: "sandbox";
   issues: { booking_id: string; ref: string; reason: string }[];
+  entitlements?: import("./billing").Entitlements | null;
 };
 
 const name = z.string().trim().min(2).max(100);

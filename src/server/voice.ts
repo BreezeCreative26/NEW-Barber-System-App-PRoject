@@ -17,6 +17,7 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+import { recordUsage } from "./billing";
 import { alertOwners } from "./alerts";
 import { createBooking, fail } from "./sandbox";
 import type { AppEnv } from "./accounts";
@@ -399,6 +400,7 @@ voice.post("/:slug/post-call", async (c) => {
     `INSERT INTO voice_calls(id,shop_id,conversation_id,caller,outcome,summary,transcript,duration_s,started_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(id) DO UPDATE SET caller=CASE WHEN voice_calls.caller='' THEN EXCLUDED.caller ELSE voice_calls.caller END, outcome=EXCLUDED.outcome, summary=EXCLUDED.summary, transcript=EXCLUDED.transcript, duration_s=EXCLUDED.duration_s`,
   ).bind(`${shop.id}:${d.conversation_id}`, shop.id, d.conversation_id, caller, outcome, (d.analysis?.transcript_summary || "").slice(0, 2000), transcript, d.metadata?.call_duration_secs || 0, started, now).run();
+  if (d.metadata?.call_duration_secs) await recordUsage(c.env.DB, shop.id, "ai_concierge", Math.ceil(d.metadata.call_duration_secs / 60), "voice_call", `${shop.id}:${d.conversation_id}`, now);
   return c.json({ ok: true });
 });
 

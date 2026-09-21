@@ -72,6 +72,7 @@ import {
 
 import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { optimiseImage } from "./images";
+import { billingSummary, entitlements, setFeature, syncSeats, hasFeature, features as billingFeatures } from "./billing";
 import { applyDecisions, changeSchema, decisionSchema, describeChange, previewChange, type ScheduleChange } from "./schedule";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
 import { agentPrompt, newSecret, voiceEndpoints, voiceOf, voiceSettingsSchema } from "./voice";
@@ -103,7 +104,7 @@ const hash = async (text: string) =>
     .map((v) => v.toString(16).padStart(2, "0"))
     .join("");
 export const fail = (
-  status: 400 | 401 | 403 | 404 | 409 | 413 | 429,
+  status: 400 | 401 | 402 | 403 | 404 | 409 | 413 | 429,
   message: string,
 ): never => {
   throw new HTTPException(status, { message });
@@ -262,6 +263,7 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && /^\/notifications\/[^/]+\/resend$/.test(path)) ||
       (method === "POST" && /^\/reviews\/[^/]+\/(status|reply)$/.test(path)) ||
       (method === "POST" && path === "/media") ||
+      (["GET", "POST", "PUT"].includes(method) && path.startsWith("/billing")) ||
       (method === "DELETE" && /^\/media\/[^/]+$/.test(path)) ||
       (["POST", "PUT", "DELETE"].includes(method) &&
         /^\/(staff|services|addons|holidays|service-rules|pay-runs)(\/|$)/.test(path));
@@ -684,6 +686,7 @@ sandbox.get("/workspace", async (c) => {
     now: Date.now(),
     mode: "sandbox",
     issues,
+    entitlements: await entitlements(c.env.DB, sid).catch(() => null),
   });
 });
 sandbox.put("/shop", async (c) => {
@@ -1228,6 +1231,16 @@ sandbox.put("/shop/voice", async (c) => {
   const shop = await readShop(c);
   const cur = voiceOf((shop as Shop & { voice_json?: string }).voice_json);
   if (b.enabled && (!shop.online_booking || !shop.slug)) fail(409, "Turn on online booking first — the receptionist books through the same diary.");
+  // The receptionist is a paid add-on: switching it on enables the entitlement (billed from today,
+  // shown on the next invoice); switching off removes it. Admin blocks win.
+  if (b.enabled) {
+    const e = await entitlements(c.env.DB, c.get("shopId"));
+    if (e.features.ai_concierge?.source === "ADMIN_BLOCK") fail(403, "The AI Concierge is disabled for your account — contact OLLO support");
+    if (!hasFeature(e, "ai_concierge")) await setFeature(c.env.DB, c.get("shopId"), "ai_concierge", true, "ADDON", c.get("actor"), "Switched on from Messages & AI");
+  } else {
+    const e = await entitlements(c.env.DB, c.get("shopId"));
+    if (e.features.ai_concierge?.source === "ADDON") await setFeature(c.env.DB, c.get("shopId"), "ai_concierge", false, "ADDON", c.get("actor"), "Switched off from Messages & AI");
+  }
   // First enable mints the secret; it is returned once here so the owner can paste it into ElevenLabs.
   const minted = b.enabled && !cur.secret;
   const { webhook_secret, ...rest } = b;
@@ -1730,7 +1743,8 @@ sandbox.post("/staff", async (c) => {
     );
   writes.push(audit(c, "staff", staffId, "STAFF_CREATED"));
   await c.env.DB.batch(writes);
-  return c.json({ id: staffId }, 201);
+  const seats = await syncSeats(c.env.DB, sid, c.get("actor"), { name: b.name, added: true }).catch(() => null);
+  return c.json({ id: staffId, seats }, 201);
 });
 sandbox.put("/staff/:id", async (c) => {
   const b = await input(c, staffSchema);
@@ -1777,7 +1791,8 @@ sandbox.put("/staff/:id", async (c) => {
       true,
     ),
   );
-  return c.json({ ok: true });
+  const seats = await syncSeats(c.env.DB, c.get("shopId"), c.get("actor"), { name: b.name, added: !!b.active }).catch(() => null);
+  return c.json({ ok: true, seats });
 });
 sandbox.put("/staff/:id/hours", async (c) => {
   const b = await input(c, hoursSchema);
@@ -2298,6 +2313,33 @@ sandbox.delete("/staff/:id/overrides/:overrideId", async (c) => {
   return c.json({ ok: true });
 });
 
+// ---- Billing (OLLO ↔ shop) -------------------------------------------------------------------
+// Owner-only. Plan, seats, live usage this period, estimated next invoice, invoices, timeline,
+// and self-serve add-ons. Stripe Billing mirrors in once connected; local truth drives entitlements.
+sandbox.get("/billing", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  return c.json(await billingSummary(c.env.DB, c.get("shopId")));
+});
+sandbox.post("/billing/features/:key", async (c) => {
+  requireRole(c, ["OWNER"]);
+  const key = c.req.param("key");
+  const b = await input(c, z.object({ enabled: z.boolean() }).strict());
+  const f = (await billingFeatures(c.env.DB)).find((x) => x.key === key);
+  if (!f) fail(404, "Unknown feature");
+  if (f!.kind !== "ADDON" || f!.monthly_pence === 0) fail(400, "This feature is part of your plan");
+  const e = await entitlements(c.env.DB, c.get("shopId"));
+  if (e.features[key]?.source === "ADMIN_BLOCK") fail(403, "This feature has been disabled for your account — contact OLLO support");
+  if (e.features[key]?.source === "ADMIN_GRANT") fail(400, "This feature is included on your account");
+  await setFeature(c.env.DB, c.get("shopId"), key, b.enabled, "ADDON", c.get("actor"));
+  await c.env.DB.prepare("UPDATE shops SET version=version+1 WHERE id=?").bind(c.get("shopId")).run();
+  return c.json(await billingSummary(c.env.DB, c.get("shopId")));
+});
+sandbox.put("/billing/contact", async (c) => {
+  requireRole(c, ["OWNER"]);
+  const b = await input(c, z.object({ billing_email: z.string().trim().email().or(z.literal("")), billing_name: z.string().trim().max(120), address: z.object({ line1: z.string().trim().max(120).default(""), line2: z.string().trim().max(120).default(""), city: z.string().trim().max(80).default(""), postcode: z.string().trim().max(16).default("") }).default({ line1: "", line2: "", city: "", postcode: "" }) }).strict());
+  await c.env.DB.prepare("UPDATE shop_subscriptions SET billing_email=?, billing_name=?, address_json=?, version=version+1, updated_at=? WHERE shop_id=?").bind(b.billing_email, b.billing_name, JSON.stringify(b.address), Date.now(), c.get("shopId")).run();
+  return c.json({ ok: true });
+});
 // ---- Schedule changes with conflict management --------------------------------------------------
 // Preview: what would clash if this change were saved, with alternatives. Apply: save the change and
 // carry out the per-appointment decisions (move / keep / cancel / waitlist / later) in one go.
@@ -2702,6 +2744,9 @@ export async function createBooking(
   return { booking: await readBooking(c, bookingId), replayed: false };
 }
 sandbox.post("/bookings", async (c) => {
+  // Read-only accounts (trial ended, overdue, paused) can look but not book.
+  const ent = await entitlements(c.env.DB, c.get("shopId")).catch(() => null);
+  if (ent?.readOnly) fail(402, ent.reasons[0] || "Your OLLO account needs attention before new bookings can be made");
   const b = await input(c, bookingSchema);
   // Walk-ins are seated in the current slot: allow a start up to 15 minutes ago.
   const result = await createBooking(c, { ...b, email: "" }, "OWNER", { force: b.force, ...(b.source === "WALK_IN" ? { minStart: Date.now() - 15 * 60000 } : {}) });
