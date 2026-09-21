@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "re
 import { Button, Icon, Modal, Notice, Rail, StatusPill } from "./ui";
 import { money } from "./fixtures";
 import { AdminCatalogue, AdminInvoices, AdminOps, AdminTeam } from "./AdminMore";
+import { AdminAlerts, AdminBroadcasts, Exports, Trend } from "./AdminGrowth";
 
 // OLLO master admin. Separate shell (ink on cream) so it is never mistaken for a shop workspace.
 // Sections: Overview · Shops (list → detail with subscription, features, invoices, usage, messaging,
@@ -24,6 +25,8 @@ const SECTIONS = [
   { key: "shops", label: "Shops", icon: "store" },
   { key: "catalogue", label: "Billing", icon: "banknote" },
   { key: "invoices", label: "Invoices", icon: "file" },
+  { key: "alerts", label: "Alerts", icon: "bell" },
+  { key: "broadcasts", label: "Broadcasts", icon: "send" },
   { key: "ops", label: "Ops", icon: "sliders" },
   { key: "team", label: "Team", icon: "shield" },
 ];
@@ -51,10 +54,12 @@ export function Admin() {
           <div className="admin-me"><span>{me.name}</span><small>{me.email} · {me.role.toLowerCase()}</small><a className="button ghost" href="/workspace">Workspace</a></div>
         </header>
         <main className="ollo-admin-main">
-          {section === "overview" && <Overview onShops={(status) => { setSection("shops"); setShopId(null); sessionStorage.setItem("admin.shops.status", status); }} />}
+          {section === "overview" && <Overview onShops={(status) => { setSection("shops"); setShopId(null); sessionStorage.setItem("admin.shops.status", status); }} onAlerts={() => setSection("alerts")} />}
           {section === "shops" && (shopId ? <ShopDetail id={shopId} onBack={() => setShopId(null)} me={me} /> : <ShopsList onOpen={setShopId} />)}
           {section === "catalogue" && <AdminCatalogue me={me} />}
           {section === "invoices" && <AdminInvoices me={me} onShop={(id) => { setSection("shops"); setShopId(id); }} />}
+          {section === "alerts" && <AdminAlerts onShop={(id) => { setSection("shops"); setShopId(id); }} />}
+          {section === "broadcasts" && <AdminBroadcasts me={me} />}
           {section === "ops" && <AdminOps onShop={(id) => { setSection("shops"); setShopId(id); }} />}
           {section === "team" && <AdminTeam me={me} />}
         </main>
@@ -64,8 +69,8 @@ export function Admin() {
 }
 
 // ---- Overview ------------------------------------------------------------------------------------
-type OverviewData = { shops: number; by_status: Record<string, number>; trials_ending_7d: number; past_due: number; failed_messages_24h: number; upcoming_appointments_7d: number; mrr_pence: number; trial_pipeline_pence: number; vat: { mode: string; threshold_pence: number; annualised_pence: number; pct_of_threshold: number }; providers: Record<string, unknown> };
-function Overview({ onShops }: { onShops: (status: string) => void }) {
+type OverviewData = { alerts: Record<string, number>; shops: number; by_status: Record<string, number>; trials_ending_7d: number; past_due: number; failed_messages_24h: number; upcoming_appointments_7d: number; mrr_pence: number; trial_pipeline_pence: number; vat: { mode: string; threshold_pence: number; annualised_pence: number; pct_of_threshold: number }; providers: Record<string, unknown> };
+function Overview({ onShops, onAlerts }: { onShops: (status: string) => void; onAlerts: () => void }) {
   const [d, setD] = useState<OverviewData | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => { adminApi<OverviewData>("/overview").then(setD).catch((e) => setErr(e.message)); }, []);
@@ -84,13 +89,14 @@ function Overview({ onShops }: { onShops: (status: string) => void }) {
         <Tile label="Trials" value={d.by_status.TRIAL ?? 0} hint={`${money(d.trial_pipeline_pence)}/mo if they convert`} onClick={() => onShops("TRIAL")} />
         <Tile label="Trials ending in 7 days" value={d.trials_ending_7d} onClick={() => onShops("TRIAL")} warn={d.trials_ending_7d > 0} />
         <Tile label="Payment overdue" value={d.past_due} onClick={() => onShops("PAST_DUE")} warn={d.past_due > 0} />
-        <Tile label="Failed messages · 24h" value={d.failed_messages_24h} warn={d.failed_messages_24h > 0} />
+        <Tile label="Alerts" value={(d.alerts.CRIT ?? 0) + (d.alerts.WARN ?? 0) + (d.alerts.INFO ?? 0)} hint={d.alerts.CRIT ? `${d.alerts.CRIT} critical` : d.failed_messages_24h ? `${d.failed_messages_24h} failed messages · 24h` : "nothing urgent"} onClick={onAlerts} warn={(d.alerts.CRIT ?? 0) + (d.alerts.WARN ?? 0) > 0} />
         <Tile label="Appointments · next 7 days" value={d.upcoming_appointments_7d} hint="across all shops" />
         <Tile label="All shops" value={d.shops} onClick={() => onShops("")} />
         <Tile label="VAT threshold" value={`${d.vat.pct_of_threshold}%`} hint={`${money(d.vat.annualised_pence)} of ${money(d.vat.threshold_pence)} a year · ${d.vat.mode === "NONE" ? "not charging VAT" : d.vat.mode}`} warn={d.vat.pct_of_threshold >= 80} />
       </div>
-      <h2>Providers</h2>
-      <pre className="admin-pre">{JSON.stringify(d.providers, null, 2)}</pre>
+      <Trend />
+      <Exports />
+      <details className="admin-providers"><summary>Providers</summary><pre className="admin-pre">{JSON.stringify(d.providers, null, 2)}</pre></details>
     </section>
   );
 }

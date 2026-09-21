@@ -23,6 +23,7 @@ import { expireHolds } from "./stripe";
 import { scheduledPayRuns } from "./payouts";
 import { expireRequests } from "./chair";
 import { sweepDailySummaries } from "./alerts";
+import { sweepPlatform } from "./lifecycle";
 import { sendWhatsApp, waLive, waPayload, waStatus } from "./whatsapp";
 
 type Ctx = Context<AppEnv>;
@@ -43,7 +44,7 @@ export const MESSAGE_TEMPLATES = [
   "booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon",
   "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
   "verify_contact", "password_reset", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
-  "invoice", "credit_note", "owner_signin_link",
+  "invoice", "credit_note", "owner_signin_link", "trial_ending", "trial_ended", "payment_overdue", "account_readonly", "broadcast", "admin_alert_digest",
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
 
@@ -201,6 +202,54 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         heading: `Credit note for ${v.shop}.`,
         lines: [`Credit note ${v.number} · ${v.total}.`, "It has been applied to your account — the invoice shows how."],
         cta: { label: "View credit note", href: String(v.link) },
+      };
+    case "trial_ending":
+      return {
+        sms: `${s}: your free trial for ${v.shop} ends ${v.ends}. Add a payment method to keep bookings flowing: ${v.link}`,
+        subject: `Your ${s} trial ends in ${v.days} day${v.days === 1 ? "" : "s"}`,
+        heading: `${v.days} day${v.days === 1 ? "" : "s"} left on your trial.`,
+        lines: [`Your free trial for ${v.shop} ends on ${v.ends}.`, "Nothing changes until then. When it ends, your calendar stays visible but new bookings pause until a plan is active.", "Prices are what you pay — no VAT is added, and you can cancel any time."],
+        cta: { label: "Choose your plan", href: String(v.link) },
+      };
+    case "trial_ended":
+      return {
+        sms: `${s}: your trial for ${v.shop} has ended. Bookings are paused until a plan is active: ${v.link}`,
+        subject: `Your ${s} trial has ended`,
+        heading: "Your trial has ended.",
+        lines: [`The free trial for ${v.shop} finished on ${v.ends}.`, "Everything you set up is safe. Your team can still sign in and see the calendar, but new bookings are paused until a plan is active.", "Pick up where you left off in a minute — or reply to this email if you'd like a hand."],
+        cta: { label: "Activate your plan", href: String(v.link) },
+      };
+    case "payment_overdue":
+      return {
+        sms: `${s}: invoice ${v.number} (${v.amount}) for ${v.shop} is overdue. Pay by ${v.readonly_on} to avoid bookings pausing: ${v.link}`,
+        subject: `Payment overdue${v.amount ? ` · ${v.amount}` : ""} · ${v.shop}`,
+        heading: "A payment is overdue.",
+        lines: [`${String(v.number).startsWith("your") ? `The payment for ${v.shop}` : `Invoice ${v.number}`}${v.amount ? ` for ${v.amount}` : ""} is past its due date.`, `Please pay by ${v.readonly_on}. After that, new bookings pause until the balance is cleared — your calendar and customers stay exactly as they are.`, "If you've already paid, ignore this — it can take a day to show."],
+        cta: { label: "View invoice", href: String(v.link) },
+      };
+    case "account_readonly":
+      return {
+        sms: `${s}: bookings for ${v.shop} are paused — invoice ${v.number} (${v.amount}) is unpaid. ${v.link}`,
+        subject: `Bookings paused for ${v.shop}`,
+        heading: "Bookings are paused.",
+        lines: [`${String(v.number).startsWith("your") ? "Your subscription" : `Invoice ${v.number}`}${v.amount ? ` (${v.amount})` : ""} is still unpaid after the ${v.grace_days}-day grace period, so new bookings for ${v.shop} are paused.`, "Your team can still sign in and see everything. Settle the invoice and bookings resume straight away.", "Something wrong with the invoice? Reply to this email and we'll sort it."],
+        cta: { label: "Pay now", href: String(v.link) },
+      };
+    case "broadcast":
+      return {
+        sms: `${s}: ${v.subject}${v.cta_url ? ` ${v.cta_url}` : ""}`,
+        subject: String(v.subject),
+        heading: String(v.heading || v.subject),
+        lines: String(v.body || "").split(/\n{2,}/).map((p) => p.trim()).filter(Boolean),
+        cta: v.cta_url ? { label: String(v.cta_label || "Find out more"), href: String(v.cta_url) } : undefined,
+      };
+    case "admin_alert_digest":
+      return {
+        sms: `${s} admin: ${v.count} alert${v.count === 1 ? "" : "s"} need attention. ${v.link}`,
+        subject: `${v.count} OLLO alert${v.count === 1 ? "" : "s"} need attention`,
+        heading: `${v.count} thing${v.count === 1 ? "" : "s"} to look at.`,
+        lines: String(v.items || "").split("\n").filter(Boolean),
+        cta: { label: "Open admin alerts", href: String(v.link) },
       };
     case "owner_signin_link":
       return {
@@ -539,10 +588,11 @@ export async function maybeSweep(db: DB, origin: string, intervalMs = 5 * 60000,
   const runs = await scheduledPayRuns(db, now).catch(() => 0);
   await expireRequests(db, now).catch(() => 0);
   const summaries = await sweepDailySummaries(db, origin, now).catch(() => 0);
+  const platform = await sweepPlatform(db, origin, now).catch(() => null);
   // Retention: delivered/skipped/failed rows older than 180 days go; the outbox shows 30 days and the
   // audit trail keeps the fact a message was sent. Anything still QUEUED is never touched.
   await db.prepare("DELETE FROM notifications WHERE status IN ('SENT','SKIPPED','FAILED') AND created_at < ?").bind(now - 180 * 86400000).run().catch(() => null);
-  return { reminders, drained, holds_released: holds.length, pay_runs: runs, summaries };
+  return { reminders, drained, holds_released: holds.length, pay_runs: runs, summaries, platform };
 }
 
 export const fmtDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });

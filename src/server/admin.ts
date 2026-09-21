@@ -12,6 +12,7 @@ import type { Database as DB } from "../db/client";
 import { ACCOUNT_COOKIE, digest, type AppEnv } from "./accounts";
 import { entitlements, features, logBilling, plans, platformBilling, setFeature, usageFor, estimate, type PlanRow, type FeatureRow } from "./billing";
 import { providerStatus, enqueue, drain, msgShop } from "./messaging";
+import { raiseAlert, segmentRecipients, sendBroadcast, snapshotMrr, sweepPlatform, type Segment } from "./lifecycle";
 import { applyDunning, invoiceHtml, invoiceStats, issueCreditNote, issueManualInvoice, issuePeriodInvoice, markPaid, markUncollectible, prevPeriodKey, runPeriodClose, sendInvoice, voidInvoice, type InvoiceRow } from "./invoicing";
 import { stripeStatus } from "./stripe";
 
@@ -86,7 +87,9 @@ admin.get("/overview", async (c) => {
   const activeBase = Number(mrr.results.find((r) => r.status === "ACTIVE")?.base ?? 0);
   const trialBase = Number(mrr.results.find((r) => r.status === "TRIAL")?.base ?? 0);
   const monthlyRevenue = activeBase + Number(addonMrr);
+  const openAlerts = (await db.prepare("SELECT severity, COUNT(*)::int AS n FROM admin_alerts WHERE acked_at IS NULL GROUP BY severity").all<{ severity: string; n: number }>()).results;
   return c.json({
+    alerts: Object.fromEntries(openAlerts.map((r) => [r.severity, r.n])),
     shops: shops?.n ?? 0,
     by_status: Object.fromEntries(subs.results.map((r) => [r.status, r.n])),
     trials_ending_7d: trialsEnding?.n ?? 0,
@@ -173,10 +176,10 @@ admin.post("/shops/:id/subscription", async (c) => {
   switch (b.action) {
     case "EXTEND_TRIAL": { const base = Math.max(now, Number((before as { trial_ends_at: number | null }).trial_ends_at ?? now)); sql = "UPDATE shop_subscriptions SET status='TRIAL', trial_ends_at=?, past_due_since=NULL"; args = [base + (b.days ?? 14) * 86400000]; summary = `Trial extended by ${b.days ?? 14} days`; break; }
     case "PAUSE": sql = "UPDATE shop_subscriptions SET status='PAUSED'"; summary = "Subscription paused"; break;
-    case "RESUME": sql = "UPDATE shop_subscriptions SET status='ACTIVE', past_due_since=NULL"; summary = "Subscription resumed"; break;
-    case "CANCEL": sql = "UPDATE shop_subscriptions SET status='CANCELLED', cancel_at=?"; args = [now]; summary = "Subscription cancelled"; break;
+    case "RESUME": sql = "UPDATE shop_subscriptions SET status='ACTIVE', past_due_since=NULL, cancelled_at=NULL, activated_at=COALESCE(activated_at, ?)"; args = [now]; summary = "Subscription resumed"; break;
+    case "CANCEL": sql = "UPDATE shop_subscriptions SET status='CANCELLED', cancel_at=?, cancelled_at=?"; args = [now, now]; summary = "Subscription cancelled"; break;
     case "SET_PLAN": { if (!b.plan_id || !(await db.prepare("SELECT 1 FROM plans WHERE id=? AND active=1").bind(b.plan_id).first())) fail(400, "Unknown plan"); sql = "UPDATE shop_subscriptions SET plan_id=?"; args = [b.plan_id]; summary = `Plan changed to ${b.plan_id}`; break; }
-    case "MARK_ACTIVE": sql = "UPDATE shop_subscriptions SET status='ACTIVE', past_due_since=NULL, current_period_start=COALESCE(current_period_start,?), current_period_end=COALESCE(current_period_end,?)"; args = [now, now + 30 * 86400000]; summary = "Marked active"; break;
+    case "MARK_ACTIVE": sql = "UPDATE shop_subscriptions SET status='ACTIVE', past_due_since=NULL, current_period_start=COALESCE(current_period_start,?), current_period_end=COALESCE(current_period_end,?), activated_at=COALESCE(activated_at,?)"; args = [now, now + 30 * 86400000, now]; summary = "Marked active"; break;
     case "MARK_PAST_DUE": sql = "UPDATE shop_subscriptions SET status='PAST_DUE', past_due_since=COALESCE(past_due_since,?)"; args = [now]; summary = "Marked payment overdue"; break;
     case "CLEAR_PAST_DUE": sql = "UPDATE shop_subscriptions SET status='ACTIVE', past_due_since=NULL"; summary = "Overdue cleared"; break;
   }
@@ -531,6 +534,101 @@ admin.post("/shops/:id/signout-all", async (c) => {
   const r = await c.env.DB.prepare("DELETE FROM app_sessions WHERE membership_id IN (SELECT id FROM app_memberships WHERE shop_id=?)").bind(shopId).run();
   await audit(c, shopId, "SIGNOUT_ALL", {}, { sessions: r.meta?.changes ?? 0 }, b.reason);
   return c.json({ sessions: r.meta?.changes ?? 0 });
+});
+
+// ---- Alerts ---------------------------------------------------------------------------------------
+admin.get("/alerts", async (c) => {
+  const all = c.req.query("all") === "1";
+  const rows = (await c.env.DB.prepare(`SELECT a.*, s.name AS shop_name FROM admin_alerts a LEFT JOIN shops s ON s.id=a.shop_id WHERE ${all ? "1=1" : "a.acked_at IS NULL"} ORDER BY CASE a.severity WHEN 'CRIT' THEN 0 WHEN 'WARN' THEN 1 ELSE 2 END, a.created_at DESC LIMIT 300`).all()).results;
+  return c.json({ alerts: rows, alert_email: process.env.OLLO_ALERT_EMAIL || "" });
+});
+admin.post("/alerts/:id/ack", async (c) => {
+  await c.env.DB.prepare("UPDATE admin_alerts SET acked_at=?, acked_by=? WHERE id=? AND acked_at IS NULL").bind(Date.now(), c.get("admin").user_id, c.req.param("id")).run();
+  return c.json({ ok: true });
+});
+admin.post("/alerts/ack-all", async (c) => {
+  const r = await c.env.DB.prepare("UPDATE admin_alerts SET acked_at=?, acked_by=? WHERE acked_at IS NULL").bind(Date.now(), c.get("admin").user_id).run();
+  return c.json({ acked: r.meta?.changes ?? 0 });
+});
+// Run the platform sweep now (lifecycle emails, alert detection, MRR snapshot).
+admin.post("/sweep", async (c) => {
+  need(c, ["SUPER", "FINANCE"]);
+  const r = await sweepPlatform(c.env.DB, new URL(c.req.url).origin);
+  return c.json(r);
+});
+
+// ---- Trend (MRR, shops, conversion, churn) -----------------------------------------------------------
+admin.get("/trend", async (c) => {
+  const days = Math.min(365, Math.max(7, Number(c.req.query("days") || 90)));
+  await snapshotMrr(c.env.DB).catch(() => null);
+  const rows = (await c.env.DB.prepare("SELECT * FROM mrr_snapshots WHERE day >= ? ORDER BY day").bind(new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)).all()).results;
+  const since = Date.now() - 30 * 86400000;
+  const [signups, converted, churned, trialsStarted30] = await Promise.all([
+    c.env.DB.prepare("SELECT COUNT(*)::int AS n FROM shops WHERE created_at>?").bind(since).first<{ n: number }>(),
+    c.env.DB.prepare("SELECT COUNT(*)::int AS n FROM shop_subscriptions WHERE activated_at>?").bind(since).first<{ n: number }>(),
+    c.env.DB.prepare("SELECT COUNT(*)::int AS n FROM shop_subscriptions WHERE cancelled_at>?").bind(since).first<{ n: number }>(),
+    // Trials that reached their end date in the last 30 days (converted or not).
+    c.env.DB.prepare("SELECT COUNT(*)::int AS n FROM shop_subscriptions WHERE (trial_ends_at BETWEEN ? AND ?) OR (activated_at BETWEEN ? AND ?)").bind(since, Date.now(), since, Date.now()).first<{ n: number }>(),
+  ]);
+  const active = (await c.env.DB.prepare("SELECT COUNT(*)::int AS n FROM shop_subscriptions WHERE status IN ('ACTIVE','PAST_DUE')").first<{ n: number }>())?.n ?? 0;
+  return c.json({ snapshots: rows, last_30d: { signups: signups?.n ?? 0, converted: converted?.n ?? 0, churned: churned?.n ?? 0, trials_finished: trialsStarted30?.n ?? 0, conversion_pct: trialsStarted30?.n ? Math.round(((converted?.n ?? 0) * 100) / trialsStarted30.n) : null, churn_pct: active ? Math.round(((churned?.n ?? 0) * 1000) / (active + (churned?.n ?? 0))) / 10 : null } });
+});
+
+// ---- CSV exports ---------------------------------------------------------------------------------------
+const csv = (rows: Record<string, unknown>[], cols: string[]) => [cols.join(","), ...rows.map((r) => cols.map((k) => { const v = r[k]; const s = v == null ? "" : typeof v === "number" && /pence$/.test(k) ? (v / 100).toFixed(2) : /_at$/.test(k) && typeof v === "number" ? new Date(v).toISOString() : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(","))].join("\n");
+const download = (c: Ctx, name: string, body: string) => { c.header("Content-Type", "text/csv; charset=utf-8"); c.header("Content-Disposition", `attachment; filename="${name}"`); return c.body(body); };
+admin.get("/export/shops.csv", async (c) => {
+  need(c, ["SUPER", "FINANCE"]);
+  const rows = (await c.env.DB.prepare("SELECT s.id, s.name, s.slug, s.created_at, s.suspended_at, ss.status, ss.plan_id, ss.seats, ss.trial_ends_at, ss.activated_at, ss.cancelled_at, ss.billing_email, u.email AS owner_email, u.name AS owner_name, (SELECT COUNT(*)::int FROM staff st WHERE st.shop_id=s.id AND st.active=1) AS active_staff FROM shops s LEFT JOIN shop_subscriptions ss ON ss.shop_id=s.id LEFT JOIN shop_owners so ON so.shop_id=s.id LEFT JOIN app_users u ON u.id=so.user_id ORDER BY s.created_at").all<Record<string, unknown>>()).results;
+  await audit(c, null, "EXPORT_SHOPS", {}, { rows: rows.length }, "");
+  return download(c, `ollo-shops-${new Date().toISOString().slice(0, 10)}.csv`, csv(rows, ["id", "name", "slug", "owner_name", "owner_email", "billing_email", "status", "plan_id", "seats", "active_staff", "created_at", "trial_ends_at", "activated_at", "cancelled_at", "suspended_at"]));
+});
+admin.get("/export/invoices.csv", async (c) => {
+  need(c, ["SUPER", "FINANCE"]);
+  const from = c.req.query("from") || "1970-01-01", to = c.req.query("to") || "2999-12-31";
+  const rows = (await c.env.DB.prepare("SELECT i.number, i.kind, i.status, s.name AS shop, i.period_key, i.issued_at, i.due_at, i.paid_at, i.paid_via, i.paid_ref, i.subtotal_pence, i.discount_pence, i.tax_pence, i.credit_applied_pence, i.total_pence, i.paid_pence, i.void_reason FROM invoices i JOIN shops s ON s.id=i.shop_id WHERE COALESCE(i.issued_at, i.created_at) BETWEEN ? AND ? ORDER BY i.issued_at").bind(Date.parse(from), Date.parse(to) + 86400000).all<Record<string, unknown>>()).results;
+  await audit(c, null, "EXPORT_INVOICES", {}, { rows: rows.length, from, to }, "");
+  return download(c, `ollo-invoices-${from}-to-${to}.csv`, csv(rows, ["number", "kind", "status", "shop", "period_key", "issued_at", "due_at", "paid_at", "paid_via", "paid_ref", "subtotal_pence", "discount_pence", "tax_pence", "credit_applied_pence", "total_pence", "paid_pence", "void_reason"]));
+});
+admin.get("/export/usage.csv", async (c) => {
+  need(c, ["SUPER", "FINANCE"]);
+  const period = c.req.query("period") || new Date().toISOString().slice(0, 7);
+  const rows = (await c.env.DB.prepare("SELECT s.name AS shop, u.feature_key, SUM(u.quantity)::int AS quantity, MAX(u.unit_pence) AS unit_pence, (SUM(u.quantity)*MAX(u.unit_pence))::int AS gross_pence FROM usage_events u JOIN shops s ON s.id=u.shop_id WHERE u.period_key=? GROUP BY s.name, u.feature_key ORDER BY s.name, u.feature_key").bind(period).all<Record<string, unknown>>()).results;
+  return download(c, `ollo-usage-${period}.csv`, csv(rows, ["shop", "feature_key", "quantity", "unit_pence", "gross_pence"]));
+});
+
+// ---- Broadcasts ------------------------------------------------------------------------------------
+const segmentSchema = z.object({ status: z.array(z.enum(["TRIAL", "ACTIVE", "PAST_DUE", "PAUSED", "CANCELLED"])).optional(), trial_ending_days: z.number().int().min(1).max(60).optional(), feature: z.string().optional(), shop_ids: z.array(z.string()).max(500).optional(), joined_after: z.number().int().optional(), joined_before: z.number().int().optional() }).strict();
+admin.get("/broadcasts", async (c) => c.json({ broadcasts: (await c.env.DB.prepare("SELECT b.*, u.name AS author FROM broadcasts b LEFT JOIN app_users u ON u.id=b.created_by ORDER BY b.created_at DESC LIMIT 100").all()).results }));
+admin.post("/broadcasts/preview", async (c) => {
+  const seg = await body(c, segmentSchema);
+  const rec = await segmentRecipients(c.env.DB, seg as Segment);
+  return c.json({ count: rec.length, sample: rec.slice(0, 8) });
+});
+admin.post("/broadcasts", async (c) => {
+  need(c, ["SUPER", "SUPPORT"]);
+  const b = await body(c, z.object({ subject: z.string().trim().min(3).max(120), heading: z.string().trim().max(120).optional(), body: z.string().trim().min(10).max(5000), cta_label: z.string().trim().max(40).optional(), cta_url: z.string().trim().url().max(300).or(z.literal("")).optional(), segment: segmentSchema }).strict());
+  const id = uid();
+  await c.env.DB.prepare("INSERT INTO broadcasts(id,subject,heading,body,cta_label,cta_url,segment_json,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,'DRAFT',?,?)").bind(id, b.subject, b.heading ?? "", b.body, b.cta_label ?? "", b.cta_url ?? "", JSON.stringify(b.segment), c.get("admin").user_id, Date.now()).run();
+  await audit(c, null, "BROADCAST_DRAFTED", {}, { id, subject: b.subject }, "");
+  return c.json({ id }, 201);
+});
+admin.post("/broadcasts/:id/test", async (c) => {
+  const b = await body(c, z.object({ to: z.string().trim().email() }).strict());
+  try { return c.json(await sendBroadcast(c.env.DB, c.req.param("id"), new URL(c.req.url).origin, { testTo: b.to })); } catch (e) { return fail(409, (e as Error).message); }
+});
+admin.post("/broadcasts/:id/send", async (c) => {
+  need(c, ["SUPER"]);
+  const b = await body(c, z.object({ reason: reasonSchema }).strict());
+  try {
+    const r = await sendBroadcast(c.env.DB, c.req.param("id"), new URL(c.req.url).origin);
+    await audit(c, null, "BROADCAST_SENT", {}, { id: c.req.param("id"), ...r }, b.reason);
+    return c.json(r);
+  } catch (e) { return fail(409, (e as Error).message); }
+});
+admin.post("/broadcasts/:id/cancel", async (c) => {
+  await c.env.DB.prepare("UPDATE broadcasts SET status='CANCELLED' WHERE id=? AND status='DRAFT'").bind(c.req.param("id")).run();
+  return c.json({ ok: true });
 });
 
 // ---- Ops -------------------------------------------------------------------------------------------
