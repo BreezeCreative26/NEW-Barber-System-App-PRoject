@@ -13,7 +13,7 @@ import { ACCOUNT_COOKIE, digest, type AppEnv } from "./accounts";
 import { entitlements, features, logBilling, plans, platformBilling, setFeature, usageFor, estimate, type PlanRow, type FeatureRow } from "./billing";
 import { providerStatus, enqueue, drain, msgShop } from "./messaging";
 import { raiseAlert, segmentRecipients, sendBroadcast, snapshotMrr, sweepPlatform, type Segment } from "./lifecycle";
-import { applyDunning, invoiceHtml, invoiceStats, issueCreditNote, issueManualInvoice, issuePeriodInvoice, markPaid, markUncollectible, prevPeriodKey, runPeriodClose, sendInvoice, voidInvoice, type InvoiceRow } from "./invoicing";
+import { payRunStatementHtml, applyDunning, invoiceHtml, invoiceStats, issueCreditNote, issueManualInvoice, issuePeriodInvoice, markPaid, markUncollectible, prevPeriodKey, runPeriodClose, sendInvoice, voidInvoice, type InvoiceRow } from "./invoicing";
 import { stripeStatus } from "./stripe";
 
 type Role = "SUPER" | "SUPPORT" | "FINANCE";
@@ -675,6 +675,12 @@ adminPublic.get("/invoice/:id", async (c) => {
   c.header("Cache-Control", "private, no-store");
   c.header("X-Robots-Tag", "noindex");
   return c.html(await invoiceHtml(c.env.DB, inv));
+});
+adminPublic.get("/pay-run/:id", async (c) => {
+  const html = await payRunStatementHtml(c.env.DB, c.req.param("id"), c.req.query("t") || "");
+  if (!html) return c.html("<!doctype html><meta charset=utf-8><title>Not found</title><p style='font:15px system-ui;padding:40px'>This statement link is not valid.</p>", 404);
+  c.header("Cache-Control", "private, no-store"); c.header("X-Robots-Tag", "noindex");
+  return c.html(html);
 });
 adminPublic.get("/signin", async (c) => {
   const raw = c.req.query("token") || "";

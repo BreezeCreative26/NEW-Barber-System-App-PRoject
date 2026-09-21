@@ -42,6 +42,7 @@ export type Shop = {
   payout_tier?: "STANDARD" | "FAST";
   payrun_auto?: "OFF" | "DAILY" | "WEEKLY";
   payrun_reserve_bps?: number;
+  pay_show_owner_share?: number;
   stripe_location_id?: string;
   // Setup (0014): shop contact + verification, kind drives starter menus, wizard state, owner alerts.
   phone?: string;
@@ -87,9 +88,23 @@ export function weekEnvelope(week: ShopDay[]) {
 }
 export type PayModel = "COMMISSION" | "CHAIR_RENT" | "HOURLY" | "SALARY" | "HYBRID";
 export type PayPeriod = "WEEKLY" | "FORTNIGHTLY" | "MONTHLY";
+export type DeductionKind = "FIXED" | "PERCENT_OF_TAKINGS" | "PERCENT_OF_STAFF_SHARE";
+export type DeductionCadence = "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | "PER_RUN";
+export type Deduction = {
+  id: string;
+  label: string;
+  kind: DeductionKind;
+  amount_pence: number;   // FIXED
+  pct_x100: number;       // PERCENT_* (1000 = 10.00%)
+  cadence: DeductionCadence;
+  proration: "FULL" | "BY_DAYS";
+  waive_on_leave: 0 | 1;
+  active: 0 | 1;
+};
 export type PayTerms = {
   pay_model: PayModel;
   pay_period: PayPeriod;
+  deductions: Deduction[];
   commission_pct: number;
   base_pence: number;
   hourly_pence: number;
@@ -121,6 +136,9 @@ export type PayRun = {
   adjustments_json: string;
   adjustments_pence: number;
   net_pence: number;
+  // Statement (v2): what the barber earned from sales, what the owner kept, itemised deductions,
+  // and what each side is owed once everything is netted.
+  staff_share_pence?: number; owner_share_pence?: number; deductions_json?: string; deductions_pence?: number; owed_to_business_pence?: number; leave_days?: number; view_token?: string;
   status: "DRAFT" | "APPROVED" | "TRANSFERRED" | "PAID" | "VOID";
   // Card/cash split and Stripe movement (see payouts.ts).
   card_service_pence?: number; card_tips_pence?: number; cash_service_pence?: number; cash_tips_pence?: number;
@@ -162,6 +180,7 @@ export type Staff = {
   product_commission_pct: number;
   employment: "SELF_EMPLOYED" | "EMPLOYED";
   pay_notes: string;
+  deductions_json?: string;
 };
 export type Service = {
   id: string;
@@ -428,6 +447,20 @@ export const staffSchema = z
     product_commission_pct: z.number().int().min(0).max(100).default(0),
     employment: z.enum(["SELF_EMPLOYED", "EMPLOYED"]).default("SELF_EMPLOYED"),
     pay_notes: z.string().trim().max(600).default(""),
+    deductions: z
+      .array(z.object({
+        id: z.string().trim().min(1).max(40),
+        label: z.string().trim().min(1).max(60),
+        kind: z.enum(["FIXED", "PERCENT_OF_TAKINGS", "PERCENT_OF_STAFF_SHARE"]),
+        amount_pence: z.number().int().min(0).max(10000000).default(0),
+        pct_x100: z.number().int().min(0).max(10000).default(0),
+        cadence: z.enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY", "PER_RUN"]).default("WEEKLY"),
+        proration: z.enum(["FULL", "BY_DAYS"]).default("BY_DAYS"),
+        waive_on_leave: z.union([z.literal(0), z.literal(1)]).default(0),
+        active: z.union([z.literal(0), z.literal(1)]).default(1),
+      }).strict())
+      .max(10)
+      .default([]),
   })
   .strict();
 export const serviceSchema = z
@@ -940,6 +973,14 @@ export const payRunUpdateSchema = z
     reason: z.string().trim().max(300).default(""),
   })
   .strict();
+export function deductionsOf(json: string | null | undefined): Deduction[] {
+  try {
+    const arr = JSON.parse(json || "[]");
+    return Array.isArray(arr) ? arr.filter((d) => d && typeof d.label === "string") : [];
+  } catch {
+    return [];
+  }
+}
 export function payTermsOf(s: Staff): PayTerms {
   let tiers: { from_pence: number; pct: number }[] = [];
   try {
@@ -950,6 +991,7 @@ export function payTermsOf(s: Staff): PayTerms {
   return {
     pay_model: s.pay_model,
     pay_period: s.pay_period,
+    deductions: deductionsOf(s.deductions_json),
     commission_pct: s.commission_pct,
     base_pence: s.base_pence,
     hourly_pence: s.hourly_pence,
@@ -977,41 +1019,92 @@ export function commissionFor(terms: PayTerms, servicePence: number) {
   }
   return total;
 }
-// One pay-run calculation; pure so it can be unit-tested and previewed before saving.
+// ---- Pay run calculation (pure; unit-tested; previewed before saving) --------------------------------
+//
+//   sales            service takings in the period (ledger)
+//   staff_share      the barber's cut of sales by their basis (commission %, tiers, base, hourly, or
+//                    100% for chair-rent barbers who keep their own takings)
+//   owner_share      sales − staff_share (what the business keeps before deductions)
+//   deductions       recurring charges the owner set up: chair/room rent (fixed, prorated to the period
+//                    and optionally waived for approved leave days), % of takings, % of staff share
+//   adjustments      one-off ± lines (bonus, late fee, deposit refund recovery)
+//   owed_to_staff    staff_share + tips_share − deductions + adjustments          (net_pence)
+//   owed_to_business owner_share + deductions − adjustments
+export type PayRunInput = { service_pence: number; tips_pence: number; visits: number; hours_x100: number; periods: number; days?: number; leave_days?: number; working_days?: number };
+export type DeductionLine = { label: string; pence: number; detail: string; id?: string };
+const CADENCE_DAYS: Record<DeductionCadence, number> = { WEEKLY: 7, FORTNIGHTLY: 14, MONTHLY: 365 / 12, PER_RUN: 0 };
+export function deductionLines(terms: PayTerms, input: PayRunInput, staffShare: number, tipShare: number): DeductionLine[] {
+  const days = Math.max(1, input.days ?? input.periods * (terms.pay_period === "WEEKLY" ? 7 : terms.pay_period === "FORTNIGHTLY" ? 14 : 30));
+  const leave = Math.max(0, Math.min(days, input.leave_days ?? 0));
+  const out: DeductionLine[] = [];
+  for (const d of terms.deductions ?? []) {
+    if (!d.active) continue;
+    if (d.kind === "FIXED") {
+      let pence: number;
+      let detail: string;
+      if (d.cadence === "PER_RUN") { pence = d.amount_pence; detail = "per run"; }
+      else {
+        const unit = CADENCE_DAYS[d.cadence];
+        const units = d.proration === "FULL" ? Math.max(1, Math.round(days / unit)) : days / unit;
+        pence = Math.round(d.amount_pence * units);
+        detail = d.proration === "FULL" ? `${Math.max(1, Math.round(days / unit))} × ${d.cadence.toLowerCase()}` : `${days} day${days === 1 ? "" : "s"} at £${(d.amount_pence / 100).toFixed(2)}/${d.cadence === "WEEKLY" ? "wk" : d.cadence === "FORTNIGHTLY" ? "fortnight" : "mo"}`;
+      }
+      if (d.waive_on_leave && leave > 0 && d.cadence !== "PER_RUN") {
+        const waived = Math.round((pence * leave) / days);
+        pence -= waived;
+        detail += ` · ${leave} leave day${leave === 1 ? "" : "s"} waived (−£${(waived / 100).toFixed(2)})`;
+      }
+      out.push({ id: d.id, label: d.label, pence, detail });
+    } else if (d.kind === "PERCENT_OF_TAKINGS") {
+      out.push({ id: d.id, label: d.label, pence: Math.round((input.service_pence * d.pct_x100) / 10000), detail: `${(d.pct_x100 / 100).toFixed(d.pct_x100 % 100 ? 2 : 0)}% of £${(input.service_pence / 100).toFixed(2)} sales` });
+    } else {
+      const base = staffShare + tipShare;
+      out.push({ id: d.id, label: d.label, pence: Math.round((base * d.pct_x100) / 10000), detail: `${(d.pct_x100 / 100).toFixed(d.pct_x100 % 100 ? 2 : 0)}% of £${(base / 100).toFixed(2)} staff share` });
+    }
+  }
+  return out;
+}
 export function calculatePayRun(
   terms: PayTerms,
-  input: { service_pence: number; tips_pence: number; visits: number; hours_x100: number; periods: number },
+  input: PayRunInput,
   adjustments: { label: string; pence: number }[] = [],
 ) {
   const periods = Math.max(1, input.periods);
   const tip_pence = Math.round((input.tips_pence * terms.tip_share_pct) / 100);
-  let commission_pence = 0, base_pence = 0, hourly_pence = 0, rent_pence = 0;
+  let commission_pence = 0, base_pence = 0, hourly_pence = 0;
+  let staff_share_pence: number;
   switch (terms.pay_model) {
     case "COMMISSION":
       commission_pence = commissionFor(terms, input.service_pence);
+      staff_share_pence = commission_pence;
       break;
     case "CHAIR_RENT":
-      rent_pence = terms.rent_pence * periods;
+      // Barber keeps their own takings; the rent is a deduction.
+      staff_share_pence = input.service_pence;
       break;
     case "HOURLY":
       hourly_pence = Math.round((input.hours_x100 * terms.hourly_pence) / 100);
+      staff_share_pence = hourly_pence;
       break;
     case "SALARY":
       base_pence = terms.base_pence * periods;
+      staff_share_pence = base_pence;
       break;
     case "HYBRID":
       base_pence = terms.base_pence * periods;
       commission_pence = commissionFor(terms, input.service_pence);
+      staff_share_pence = base_pence + commission_pence;
       break;
   }
+  const owner_share_pence = Math.max(0, input.service_pence - staff_share_pence);
+  const deductions = deductionLines(terms, input, staff_share_pence, tip_pence);
+  const deductions_pence = deductions.reduce((n, d) => n + d.pence, 0);
+  // Legacy field: total fixed rent, so old screens/tests keep a meaningful number.
+  const rent_pence = deductions.filter((d) => (terms.deductions ?? []).find((x) => x.id === d.id)?.kind === "FIXED").reduce((n, d) => n + d.pence, 0);
   const adjustments_pence = adjustments.reduce((n, a) => n + a.pence, 0);
-  // Chair rent: the barber keeps their own takings (already in their pocket); the shop is owed rent
-  // less any tips the shop collected on their behalf.
-  const net_pence =
-    terms.pay_model === "CHAIR_RENT"
-      ? tip_pence - rent_pence + adjustments_pence
-      : commission_pence + base_pence + hourly_pence + tip_pence + adjustments_pence;
-  return { commission_pence, base_pence, hourly_pence, tip_pence, rent_pence, adjustments_pence, net_pence };
+  const net_pence = staff_share_pence + tip_pence - deductions_pence + adjustments_pence;
+  const owed_to_business_pence = owner_share_pence + deductions_pence - adjustments_pence;
+  return { commission_pence, base_pence, hourly_pence, tip_pence, rent_pence, adjustments_pence, net_pence, staff_share_pence, owner_share_pence, deductions, deductions_pence, owed_to_business_pence };
 }
 export const voidPaymentSchema = z.object({ reason: z.string().trim().min(3).max(300) }).strict();
 export const statusSchema = z

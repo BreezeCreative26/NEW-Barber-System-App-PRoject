@@ -51,6 +51,7 @@ import {
   payRunCreateSchema,
   payRunUpdateSchema,
   payTermsOf,
+  type PayTerms,
   calculatePayRun,
   shopPageSchema,
   defaultShopPage,
@@ -230,6 +231,9 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && /^\/waitlist\/[^/]+\/offer$/.test(path)) ||
       (method === "GET" && ["/bookings/range", "/insights", "/wallet", "/pay-runs", "/shop/page"].includes(path)) ||
       (method === "GET" && path === "/pay-runs/preview") ||
+      (method === "GET" && path === "/pay-runs/period") ||
+      (method === "GET" && path === "/pay-runs/export.csv") ||
+      (method === "POST" && path === "/pay-runs/bulk") ||
       (method === "POST" && /^\/bookings\/[^/]+\/checkout$/.test(path)) ||
       (method === "POST" && /^\/bookings\/[^/]+\/(deposit\/refund|pay-link|terminal)$/.test(path)) ||
       (method === "GET" && /^\/payment-requests\/[^/]+$/.test(path)) ||
@@ -1354,7 +1358,7 @@ sandbox.get("/shop/payments", async (c) => {
   return c.json({
     stripe: stripeStatus(),
     platform: { fee_bps: policy.fee_bps, fee_fixed_pence: policy.fee_fixed_pence, fast_payouts: policy.fast_payouts },
-    settings: { deposits_online: shop.deposits_online ?? 0, deposit_hold_min: shop.deposit_hold_min ?? 15, payment_mode: shop.payment_mode ?? "DEPOSIT", deposit_pence: shop.deposit_pence, payout_tier: shop.payout_tier ?? "STANDARD", payrun_auto: shop.payrun_auto ?? "OFF", payrun_reserve_bps: shop.payrun_reserve_bps ?? 0 },
+    settings: { deposits_online: shop.deposits_online ?? 0, deposit_hold_min: shop.deposit_hold_min ?? 15, payment_mode: shop.payment_mode ?? "DEPOSIT", deposit_pence: shop.deposit_pence, payout_tier: shop.payout_tier ?? "STANDARD", payrun_auto: shop.payrun_auto ?? "OFF", payrun_reserve_bps: shop.payrun_reserve_bps ?? 0, pay_show_owner_share: shop.pay_show_owner_share ?? 1 },
     shop_account: mine ? null : shopAcct && { ...shopAcct, state: accountState(shopAcct) },
     barbers: staff
       .filter((st) => !mine || st.id === mine)
@@ -1375,6 +1379,7 @@ const paymentsSchema = z
     payout_tier: z.enum(["STANDARD", "FAST"]).default("STANDARD"),
     payrun_auto: z.enum(["OFF", "DAILY", "WEEKLY"]).default("OFF"),
     payrun_reserve_bps: z.number().int().min(0).max(5000).default(0),
+    pay_show_owner_share: z.union([z.literal(0), z.literal(1)]).default(1),
   })
   .strict();
 sandbox.put("/shop/payments", async (c) => {
@@ -1388,7 +1393,7 @@ sandbox.put("/shop/payments", async (c) => {
   const policy = await platformPolicy(c.env.DB);
   if (b.payout_tier === "FAST" && !policy.fast_payouts) fail(409, "Fast payouts are not available on this plan");
   await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE shops SET deposits_online=?, deposit_hold_min=?, payment_mode=?, payout_tier=?, payrun_auto=?, payrun_reserve_bps=?, version=version+1 WHERE id=?").bind(b.deposits_online, b.deposit_hold_min, b.payment_mode, b.payout_tier, b.payrun_auto, b.payrun_reserve_bps, shop.id),
+    c.env.DB.prepare("UPDATE shops SET deposits_online=?, deposit_hold_min=?, payment_mode=?, payout_tier=?, payrun_auto=?, payrun_reserve_bps=?, pay_show_owner_share=?, version=version+1 WHERE id=?").bind(b.deposits_online, b.deposit_hold_min, b.payment_mode, b.payout_tier, b.payrun_auto, b.payrun_reserve_bps, b.pay_show_owner_share, shop.id),
     audit(c, "shop", shop.id, "PAYMENTS_UPDATED", `Online payment: ${b.payment_mode.toLowerCase().replace(/_/g, " ")}; deposits by card ${b.deposits_online ? `on (hold ${b.deposit_hold_min} min)` : "off"}; payouts ${b.payout_tier.toLowerCase()}; auto pay runs ${b.payrun_auto.toLowerCase()}; reserve ${b.payrun_reserve_bps / 100}%.`),
   ]);
   return c.json({ ok: true, settings: b });
@@ -1757,7 +1762,7 @@ sandbox.put("/staff/:id", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE staff SET name=?,role=?,active=?,title=?,bio=?,colour=?,photo_url=?,online_visible=?,skills=?,instagram=?,start_date=?,sort_order=?,commission_pct=?,pay_model=?,pay_period=?,base_pence=?,hourly_pence=?,rent_pence=?,commission_threshold_pence=?,commission_tiers=?,tip_share_pct=?,product_commission_pct=?,employment=?,pay_notes=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
+      "UPDATE staff SET name=?,role=?,active=?,title=?,bio=?,colour=?,photo_url=?,online_visible=?,skills=?,instagram=?,start_date=?,sort_order=?,commission_pct=?,pay_model=?,pay_period=?,base_pence=?,hourly_pence=?,rent_pence=?,commission_threshold_pence=?,commission_tiers=?,tip_share_pct=?,product_commission_pct=?,employment=?,pay_notes=?,deductions_json=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
     ).bind(
       b.name,
       b.role,
@@ -1783,6 +1788,7 @@ sandbox.put("/staff/:id", async (c) => {
       b.product_commission_pct,
       b.employment,
       b.pay_notes,
+      JSON.stringify(b.deductions),
       c.get("shopId"),
       c.req.param("id"),
       b.version,
@@ -3019,12 +3025,18 @@ sandbox.get("/wallet", async (c) => {
     }),
   );
   const staffIds = [...new Set(live.map((r) => r.staff_id))];
+  // Earnings use the same engine as pay runs (tiers, base, chair rent, deductions) so the barber's
+  // wallet and the owner's pay run never disagree.
+  const staffRows = staffIds.length ? (await c.env.DB.prepare(`SELECT * FROM staff WHERE shop_id=? AND id IN (${staffIds.map(() => "?").join(",")})`).bind(c.get("shopId"), ...staffIds).all<Staff>()).results : [];
+  const rangeDays = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
   const byStaff = staffIds.map((sid) => {
     const l = live.filter((r) => r.staff_id === sid);
     const service = sum(l, (r) => r.service_pence);
     const tips = sum(l, (r) => r.tip_pence);
-    const commission = l.reduce((n, r) => n + Math.round((r.service_pence * r.commission_pct) / 100), 0);
-    return { staff_id: sid, service, tips, commission, earnings: commission + tips, visits: new Set(l.map((r) => r.booking_id)).size };
+    const st = staffRows.find((x) => x.id === sid);
+    const terms = st ? payTermsOf(st) : null;
+    const calc = terms ? calculatePayRun(terms, { service_pence: service, tips_pence: tips, visits: new Set(l.map((r) => r.booking_id)).size, hours_x100: 0, periods: 1, days: rangeDays }) : null;
+    return { staff_id: sid, service, tips, commission: calc?.staff_share_pence ?? 0, earnings: calc ? calc.net_pence : tips, deductions: calc?.deductions_pence ?? 0, owner_share: calc?.owner_share_pence ?? 0, visits: new Set(l.map((r) => r.booking_id)).size, estimate: !!calc && calc.deductions.some((d) => (terms!.deductions.find((x) => x.id === d.id)?.kind === "FIXED")) };
   });
   // Booked but not yet paid within the range (served or upcoming today).
   const unpaid = await c.env.DB.prepare(
@@ -3084,14 +3096,30 @@ export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: strin
   const terms = payTermsOf(staff);
   const periodDays = terms.pay_period === "WEEKLY" ? 7 : terms.pay_period === "FORTNIGHTLY" ? 14 : 30;
   const periods = Math.max(1, Math.round(days / periodDays));
+  // Approved leave in the period (whole days; half days count 0.5 once the leave model is in).
+  const leave_days = offRows.results.reduce((n, r) => n + ((r as { half?: string }).half ? 0.5 : 1), 0);
   // Deposit refunds caused by re-pricing a visit below the deposit: recovered from the barber here.
   const openAdj = (await db.prepare("SELECT * FROM booking_adjustments WHERE shop_id=? AND staff_id=? AND pay_run_id IS NULL AND date<=?").bind(sid, staffId, to).all<BookingAdjustment>()).results;
   return {
     staff,
     terms,
-    input: { service_pence: pay?.service ?? 0, tips_pence: pay?.tips ?? 0, visits: pay?.visits ?? 0, hours_x100: Math.round((minutes / 60) * 100), periods },
+    input: { service_pence: pay?.service ?? 0, tips_pence: pay?.tips ?? 0, visits: pay?.visits ?? 0, hours_x100: Math.round((minutes / 60) * 100), periods, days, leave_days },
     auto_adjustments: openAdj.map((a) => ({ label: a.label, pence: a.pence, adjustment_id: a.id })),
   };
+}
+// One place that writes a pay run row (owner button and scheduled runs), so the statement fields
+// (staff share, owner share, deductions, owed both ways) are always present and consistent.
+function payRunInsert(db: D1Database, args: { runId: string; shopId: string; staff: Staff; from: string; to: string; terms: PayTerms; figures: { service_pence: number; tips_pence: number; visits: number; hours_x100: number; periods: number; days?: number; leave_days?: number }; r: ReturnType<typeof calculatePayRun>; adjustments: { label: string; pence: number }[]; split: Awaited<ReturnType<typeof splitFigures>>; st: ReturnType<typeof settlementFor>; status: "DRAFT" | "APPROVED"; note: string; actor: string; now: number }) {
+  const { runId, shopId, staff, from, to, terms, figures, r, adjustments, split, st, status, note, actor, now } = args;
+  const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+  return db.prepare(
+    `INSERT INTO pay_runs(id,shop_id,staff_id,period_from,period_to,pay_model,terms_json,service_pence,tips_pence,visits,hours_x100,commission_pence,base_pence,hourly_pence,tip_pence,rent_pence,adjustments_json,adjustments_pence,net_pence,status,note,created_by,created_at,updated_at,
+       card_service_pence,card_tips_pence,cash_service_pence,cash_tips_pence,transfer_pence,shop_transfer_pence,reserve_pence,cash_residual_pence,transfer_group,
+       staff_share_pence,owner_share_pence,deductions_json,deductions_pence,owed_to_business_pence,leave_days,view_token)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).bind(runId, shopId, staff.id, from, to, terms.pay_model, JSON.stringify(terms), figures.service_pence, figures.tips_pence, figures.visits, figures.hours_x100, r.commission_pence, r.base_pence, r.hourly_pence, r.tip_pence, r.rent_pence, JSON.stringify(adjustments), r.adjustments_pence, r.net_pence, status, note, actor, now, now,
+    split.card_service_pence, split.card_tips_pence, split.cash_service_pence, split.cash_tips_pence, st.transfer_pence, st.shop_transfer_pence, st.reserve_pence, st.cash_residual_pence, `payrun_${runId}`,
+    r.staff_share_pence, r.owner_share_pence, JSON.stringify(r.deductions), r.deductions_pence, r.owed_to_business_pence, figures.leave_days ?? 0, token);
 }
 // Merge operator adjustments with the automatic ones (deposit refunds) for a run.
 function withAuto(manual: { label: string; pence: number }[], auto: { label: string; pence: number; adjustment_id: string }[]) {
@@ -3112,12 +3140,7 @@ export async function draftAndApproveRun(db: D1Database, shop: Shop, staff: Staf
   const runId = crypto.randomUUID();
   try {
     await db.batch([
-      db.prepare(
-        `INSERT INTO pay_runs(id,shop_id,staff_id,period_from,period_to,pay_model,terms_json,service_pence,tips_pence,visits,hours_x100,commission_pence,base_pence,hourly_pence,tip_pence,rent_pence,adjustments_json,adjustments_pence,net_pence,status,note,created_by,created_at,updated_at,
-           card_service_pence,card_tips_pence,cash_service_pence,cash_tips_pence,transfer_pence,shop_transfer_pence,reserve_pence,cash_residual_pence,transfer_group)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'APPROVED','Automatic pay run',?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).bind(runId, shop.id, staff.id, from, to, terms.pay_model, JSON.stringify(terms), figures.service_pence, figures.tips_pence, figures.visits, figures.hours_x100, r.commission_pence, r.base_pence, r.hourly_pence, r.tip_pence, r.rent_pence, JSON.stringify(withAuto([], auto_adjustments)), r.adjustments_pence, r.net_pence, "system", now, now,
-        split.card_service_pence, split.card_tips_pence, split.cash_service_pence, split.cash_tips_pence, st.transfer_pence, st.shop_transfer_pence, st.reserve_pence, st.cash_residual_pence, `payrun_${runId}`),
+      payRunInsert(db, { runId, shopId: shop.id, staff, from, to, terms, figures, r, adjustments: withAuto([], auto_adjustments), split, st, status: "APPROVED", note: "Automatic pay run", actor: "system", now }),
       ...claimAdjustments(db, auto_adjustments.map((a) => a.adjustment_id), runId),
       db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
         .bind(crypto.randomUUID(), shop.id, "pay_run", runId, "PAY_RUN_AUTO", "system", `${staff.name} ${from}..${to}: net ${r.net_pence}p · barber ${st.transfer_pence}p, shop ${st.shop_transfer_pence}p by Stripe · settle by hand ${st.cash_residual_pence}p`, now),
@@ -3144,6 +3167,62 @@ sandbox.get("/pay-runs/preview", async (c) => {
   const barberAcct = await c.env.DB.prepare("SELECT payouts_enabled FROM connected_accounts WHERE shop_id=? AND owner_type='STAFF' AND owner_id=?").bind(c.get("shopId"), q.data!.staff_id).first<{ payouts_enabled: number }>();
   return c.json({ terms, input, result, split, settlement, auto_adjustments, payouts_ready: stripeLive() && !!barberAcct?.payouts_enabled });
 });
+// Everyone for one period: figures + any existing run, so the owner can see the whole payroll and
+// create drafts in one go.
+sandbox.get("/pay-runs/period", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const q = z.object({ from: dateSchema, to: dateSchema }).safeParse(c.req.query());
+  if (!q.success) fail(400, "Supply from and to");
+  const shop = await readShop(c);
+  const staff = (await c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND active=1 ORDER BY sort_order, name").bind(shop.id).all<Staff>()).results;
+  const runs = (await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND period_from=? AND period_to=? AND status<>'VOID'").bind(shop.id, q.data!.from, q.data!.to).all<PayRun>()).results;
+  const rows = [];
+  for (const st of staff) {
+    const existing = runs.find((r) => r.staff_id === st.id) ?? null;
+    const { terms, input: figures, auto_adjustments } = await payRunFiguresDb(c.env.DB, shop, st.id, q.data!.from, q.data!.to);
+    const r = calculatePayRun(terms, figures, withAuto([], auto_adjustments));
+    rows.push({ staff_id: st.id, name: st.name, pay_model: terms.pay_model, existing, sales_pence: figures.service_pence, tips_pence: figures.tips_pence, visits: figures.visits, owed_to_staff_pence: existing ? existing.net_pence : r.net_pence, owed_to_business_pence: existing ? (existing.owed_to_business_pence ?? 0) : r.owed_to_business_pence, deductions_pence: existing ? (existing.deductions_pence ?? 0) : r.deductions_pence, has_activity: figures.service_pence > 0 || figures.tips_pence > 0 || r.deductions_pence > 0 });
+  }
+  return c.json({ from: q.data!.from, to: q.data!.to, rows });
+});
+// Create drafts for every barber with activity in the period who has no run yet.
+sandbox.post("/pay-runs/bulk", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const b = await input(c, z.object({ from: dateSchema, to: dateSchema, staff_ids: z.array(z.string().uuid()).max(100).optional() }).strict());
+  const shop = await readShop(c);
+  const staff = (await c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND active=1").bind(shop.id).all<Staff>()).results.filter((st) => !b.staff_ids || b.staff_ids.includes(st.id));
+  const created: string[] = [], skipped: { name: string; why: string }[] = [];
+  for (const st of staff) {
+    const exists = await c.env.DB.prepare("SELECT 1 FROM pay_runs WHERE shop_id=? AND staff_id=? AND period_from=? AND period_to=? AND status<>'VOID'").bind(shop.id, st.id, b.from, b.to).first();
+    if (exists) { skipped.push({ name: st.name, why: "already has a run" }); continue; }
+    const { terms, input: figures, auto_adjustments } = await payRunFiguresDb(c.env.DB, shop, st.id, b.from, b.to);
+    const r = calculatePayRun(terms, figures, withAuto([], auto_adjustments));
+    if (!figures.service_pence && !figures.tips_pence && !r.deductions_pence && !auto_adjustments.length) { skipped.push({ name: st.name, why: "nothing to pay" }); continue; }
+    const split = await splitFigures(c.env.DB, shop.id, st.id, b.from, b.to);
+    const st2 = settlementFor(terms, r, split, { reserve_bps: shop.payrun_reserve_bps ?? 0, cashHeldBy: terms.pay_model === "CHAIR_RENT" ? "BARBER" : "SHOP" });
+    const now = Date.now(); const runId = id();
+    await c.env.DB.batch([
+      payRunInsert(c.env.DB, { runId, shopId: shop.id, staff: st, from: b.from, to: b.to, terms, figures, r, adjustments: withAuto([], auto_adjustments), split, st: st2, status: "DRAFT", note: "", actor: c.get("actor"), now }),
+      ...claimAdjustments(c.env.DB, auto_adjustments.map((a) => a.adjustment_id), runId),
+      audit(c, "pay_run", runId, "PAY_RUN_CREATED", `${st.name} ${b.from}..${b.to} net ${r.net_pence}p (bulk)`),
+    ]);
+    created.push(runId);
+  }
+  return c.json({ created: created.length, skipped }, 201);
+});
+sandbox.get("/pay-runs/export.csv", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const q = z.object({ from: dateSchema, to: dateSchema }).safeParse(c.req.query());
+  if (!q.success) fail(400, "Supply from and to");
+  const rows = (await c.env.DB.prepare("SELECT r.*, s.name AS staff_name FROM pay_runs r JOIN staff s ON s.id=r.staff_id AND s.shop_id=r.shop_id WHERE r.shop_id=? AND r.period_from>=? AND r.period_to<=? ORDER BY r.period_from, s.name").bind(c.get("shopId"), q.data!.from, q.data!.to).all<PayRun & { staff_name: string }>()).results;
+  const p = (n: number | undefined | null) => ((n ?? 0) / 100).toFixed(2);
+  const esc = (v: unknown) => { const t = String(v ?? ""); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const lines = ["barber,period_from,period_to,model,status,sales,tips,staff_share,tips_to_staff,deductions,adjustments,owed_to_staff,owner_share,owed_to_business,card_sales,cash_sales,paid_method,paid_reference"];
+  for (const r of rows) lines.push([r.staff_name, r.period_from, r.period_to, r.pay_model, r.status, p(r.service_pence), p(r.tips_pence), p(r.staff_share_pence), p(r.tip_pence), p(r.deductions_pence), p(r.adjustments_pence), p(r.net_pence), p(r.owner_share_pence), p(r.owed_to_business_pence), p(r.card_service_pence), p(r.cash_service_pence), r.paid_method ?? "", r.paid_reference].map(esc).join(","));
+  c.header("Content-Type", "text/csv; charset=utf-8");
+  c.header("Content-Disposition", `attachment; filename="pay-runs-${q.data!.from}-to-${q.data!.to}.csv"`);
+  return c.body(lines.join("\n"));
+});
 sandbox.get("/pay-runs", async (c) => {
   const a = c.get("account");
   const assigned = a?.role === "BARBER" ? a.staff_id : null;
@@ -3166,12 +3245,7 @@ sandbox.post("/pay-runs", async (c) => {
   const runId = id();
   try {
     await c.env.DB.batch([
-      c.env.DB.prepare(
-        `INSERT INTO pay_runs(id,shop_id,staff_id,period_from,period_to,pay_model,terms_json,service_pence,tips_pence,visits,hours_x100,commission_pence,base_pence,hourly_pence,tip_pence,rent_pence,adjustments_json,adjustments_pence,net_pence,status,note,created_by,created_at,updated_at,
-           card_service_pence,card_tips_pence,cash_service_pence,cash_tips_pence,transfer_pence,shop_transfer_pence,reserve_pence,cash_residual_pence,transfer_group)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ).bind(runId, c.get("shopId"), staff.id, b.period_from, b.period_to, terms.pay_model, JSON.stringify(terms), figures.service_pence, figures.tips_pence, figures.visits, figures.hours_x100, r.commission_pence, r.base_pence, r.hourly_pence, r.tip_pence, r.rent_pence, JSON.stringify(allAdjustments), r.adjustments_pence, r.net_pence, b.note, c.get("actor"), now, now,
-        split.card_service_pence, split.card_tips_pence, split.cash_service_pence, split.cash_tips_pence, st.transfer_pence, st.shop_transfer_pence, st.reserve_pence, st.cash_residual_pence, `payrun_${runId}`),
+      payRunInsert(c.env.DB, { runId, shopId: c.get("shopId"), staff, from: b.period_from, to: b.period_to, terms, figures, r, adjustments: allAdjustments, split, st, status: "DRAFT", note: b.note, actor: c.get("actor"), now }),
       ...claimAdjustments(c.env.DB, auto_adjustments.map((a) => a.adjustment_id), runId),
       audit(c, "pay_run", runId, "PAY_RUN_CREATED", `${staff.name} ${b.period_from}..${b.period_to} net ${r.net_pence}p · card ${split.card_service_pence + split.card_tips_pence}p → barber ${st.transfer_pence}p, shop ${st.shop_transfer_pence}p · settle by hand ${st.cash_residual_pence}p`),
     ]);
@@ -3197,15 +3271,17 @@ sandbox.put("/pay-runs/:id", async (c) => {
   if (next === "PAID" && !(b.paid_method ?? run.paid_method) && !(run.status === "TRANSFERRED" && !run.cash_residual_pence)) fail(400, "Record how the remainder was settled (bank, cash or other)");
   // Adjustments/note only change on drafts; recompute net.
   const adjustments = run.status === "DRAFT" && b.adjustments ? b.adjustments : (JSON.parse(run.adjustments_json) as { label: string; pence: number }[]);
-  const terms = JSON.parse(run.terms_json);
-  const r = calculatePayRun(terms, { service_pence: run.service_pence, tips_pence: run.tips_pence, visits: run.visits, hours_x100: run.hours_x100, periods: 1 }, adjustments);
-  // periods are baked into base/rent already; keep the stored base/rent and only re-sum.
-  const net = next === "VOID" ? run.net_pence : (terms.pay_model === "CHAIR_RENT" ? run.tip_pence - run.rent_pence + r.adjustments_pence : run.commission_pence + run.base_pence + run.hourly_pence + run.tip_pence + r.adjustments_pence);
+  // Terms, shares and deductions are frozen at creation; only the adjustment lines can change on a draft.
+  const adjustments_pence = adjustments.reduce((n, a) => n + a.pence, 0);
+  const staffShare = run.staff_share_pence ?? (run.pay_model === "CHAIR_RENT" ? run.service_pence : run.commission_pence + run.base_pence + run.hourly_pence);
+  const deductions_pence = run.deductions_pence ?? run.rent_pence;
+  const net = next === "VOID" ? run.net_pence : staffShare + run.tip_pence - deductions_pence + adjustments_pence;
+  const owedBiz = next === "VOID" ? (run.owed_to_business_pence ?? 0) : (run.owner_share_pence ?? Math.max(0, run.service_pence - staffShare)) + deductions_pence - adjustments_pence;
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE pay_runs SET status=?,paid_method=?,paid_reference=?,adjustments_json=?,adjustments_pence=?,net_pence=?,note=?,updated_at=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
-    ).bind(next, b.paid_method ?? run.paid_method, b.paid_reference || run.paid_reference, JSON.stringify(adjustments), r.adjustments_pence, net, b.note ?? run.note, Date.now(), c.get("shopId"), run.id, b.version),
+      "UPDATE pay_runs SET status=?,paid_method=?,paid_reference=?,adjustments_json=?,adjustments_pence=?,net_pence=?,owed_to_business_pence=?,note=?,updated_at=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
+    ).bind(next, b.paid_method ?? run.paid_method, b.paid_reference || run.paid_reference, JSON.stringify(adjustments), adjustments_pence, net, owedBiz, b.note ?? run.note, Date.now(), c.get("shopId"), run.id, b.version),
     audit(c, "pay_run", run.id, `PAY_RUN_${next}`, b.reason || (next === "PAID" ? `Paid by ${b.paid_method ?? run.paid_method}${b.paid_reference ? ` · ${b.paid_reference}` : ""}` : ""), true),
   );
   let fresh = await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), run.id).first<PayRun>();

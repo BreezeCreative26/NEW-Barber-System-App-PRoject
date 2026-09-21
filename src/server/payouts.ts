@@ -114,15 +114,18 @@ export function settlementFor(terms: PayTerms, result: ReturnType<typeof calcula
   const cardTipShare = Math.round((f.card_tips_pence * terms.tip_share_pct) / 100);
   let barberCard: number;
   let shopCard: number;
+  // Deductions (rent, % charges) are netted from the barber's card money first — that is money the
+  // shop already holds, so it is the natural place to take what the barber owes.
+  const deductions = result.deductions_pence ?? result.rent_pence;
   if (terms.pay_model === "CHAIR_RENT") {
-    // Barber keeps card takings; rent is netted from them first.
-    barberCard = Math.max(0, f.card_service_pence + cardTipShare - result.rent_pence);
+    // Barber keeps card takings less what they owe.
+    barberCard = Math.max(0, f.card_service_pence + cardTipShare - deductions);
     shopCard = f.card_service_pence + f.card_tips_pence - f.platform_fee_pence - barberCard;
   } else {
     const commissionOnCard = terms.pay_model === "HOURLY" || terms.pay_model === "SALARY" ? 0 : commissionFor(terms, f.card_service_pence);
     // Base/hourly pay is a shop cost paid from whatever is available; card money first.
     const fixedPay = result.base_pence + result.hourly_pence;
-    barberCard = Math.min(f.card_service_pence + cardTipShare, commissionOnCard + cardTipShare + fixedPay);
+    barberCard = Math.max(0, Math.min(f.card_service_pence + cardTipShare, commissionOnCard + cardTipShare + fixedPay) - deductions);
     shopCard = f.card_service_pence + f.card_tips_pence - f.platform_fee_pence - barberCard;
   }
   const reserve = Math.round((barberCard * opts.reserve_bps) / 10000);

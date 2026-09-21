@@ -307,3 +307,46 @@ export async function invoiceStats(db: DB) {
   const pb = await platformBilling(db);
   return { ...(r as object), ...(pending as object), last_period_close: pb.last_period_close, closable_period: prevPeriodKey(now) };
 }
+
+// ---- Printable pay-run statement (barber keeps it for their records / accountant) -----------------
+export async function payRunStatementHtml(db: DB, runId: string, token: string) {
+  const run = await db.prepare("SELECT r.*, s.name AS staff_name, sh.name AS shop_name, sh.address AS shop_address, sh.pay_show_owner_share FROM pay_runs r JOIN staff s ON s.id=r.staff_id AND s.shop_id=r.shop_id JOIN shops sh ON sh.id=r.shop_id WHERE r.id=? AND r.view_token<>'' AND r.view_token=?").bind(runId, token).first<Record<string, any>>();
+  if (!run) return null;
+  const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const d = (s: string) => new Date(s + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  const terms = JSON.parse(run.terms_json || "{}");
+  const deductions: { label: string; pence: number; detail: string }[] = JSON.parse(run.deductions_json || "[]");
+  const adjustments: { label: string; pence: number }[] = JSON.parse(run.adjustments_json || "[]");
+  const first = String(run.staff_name).split(" ")[0];
+  const staffShare = run.staff_share_pence ?? 0, ownerShare = run.owner_share_pence ?? 0;
+  const shareLabel = terms.pay_model === "COMMISSION" ? (terms.commission_tiers?.length ? "tiered commission" : `${terms.commission_pct}% of sales`) : terms.pay_model === "CHAIR_RENT" ? "keeps 100% of sales" : terms.pay_model === "HOURLY" ? `${(run.hours_x100 / 100).toFixed(1)} h × ${money(terms.hourly_pence)}` : terms.pay_model === "SALARY" ? "salary" : `base + ${terms.commission_pct}% above ${money(terms.commission_threshold_pence)}`;
+  const status = run.status === "PAID" ? "SETTLED" : run.status === "VOID" ? "VOID" : run.status === "DRAFT" ? "DRAFT" : "";
+  const row = (l: string, v: string, sub = "", cls = "") => `<tr class="${cls}"><td>${esc(l)}${sub ? `<br><small class="muted">${esc(sub)}</small>` : ""}</td><td class="num">${v}</td></tr>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pay statement · ${esc(run.staff_name)} · ${d(run.period_from)} – ${d(run.period_to)}</title>
+<style>:root{--ink:#0b1a17;--muted:#6b6f6d;--line:#e3e1d8;--bg:#f4f3ee}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,Inter,Segoe UI,Roboto,sans-serif}.sheet{max-width:760px;margin:32px auto;background:#fff;border:1px solid var(--line);border-radius:16px;padding:40px;position:relative}header{display:flex;justify-content:space-between;gap:24px;margin-bottom:28px}h1{margin:0;font-size:24px;letter-spacing:-.02em}.muted{color:var(--muted)}small{font-size:12px}table{width:100%;border-collapse:collapse}td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}tr.sub td{font-weight:700;border-bottom:2px solid var(--ink)}tr.total td{font-weight:800;font-size:17px;border:0;padding-top:14px}tr.head td{border:0;padding:18px 8px 4px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.stamp{position:absolute;top:100px;right:40px;border:3px solid;border-radius:8px;padding:4px 14px;font-weight:800;letter-spacing:.12em;transform:rotate(-6deg);opacity:.8}.stamp.SETTLED{color:#2f6152}.stamp.VOID,.stamp.DRAFT{color:#777}footer{margin-top:28px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}.actions{max-width:760px;margin:0 auto 20px;display:flex;justify-content:flex-end}.actions button{height:40px;border-radius:10px;border:0;background:var(--ink);color:#fff;padding:0 16px;font:inherit;cursor:pointer}@media print{body{background:#fff}.sheet{margin:0;border:0;padding:20px}.actions{display:none}}</style></head><body>
+<div class="actions"><button type="button" onclick="window.print()">Print / Save as PDF</button></div>
+<article class="sheet">${status ? `<div class="stamp ${status}">${status}</div>` : ""}
+<header><div><h1>Pay statement</h1><div class="muted">${esc(run.shop_name)}${run.shop_address ? ` · ${esc(run.shop_address)}` : ""}</div></div><div style="text-align:right"><strong>${esc(run.staff_name)}</strong><br><span class="muted">${d(run.period_from)} – ${d(run.period_to)}</span></div></header>
+<table>
+<tr class="head"><td colspan="2">Sales</td></tr>
+${row("Total sales (ledger)", money(run.service_pence), `${run.visits} paid visit${run.visits === 1 ? "" : "s"} · card ${money(run.card_service_pence ?? 0)} · cash ${money(run.cash_service_pence ?? 0)}`)}
+${row("Tips", money(run.tips_pence))}
+<tr class="head"><td colspan="2">${esc(first)}'s earnings</td></tr>
+${row(`${first}'s share`, money(staffShare), shareLabel)}
+${row(`Tips to ${first}`, money(run.tip_pence), `${terms.tip_share_pct}%`)}
+${row(`Gross to ${first}`, money(staffShare + run.tip_pence), "", "sub")}
+${deductions.length || adjustments.length ? `<tr class="head"><td colspan="2">Deductions &amp; one-offs</td></tr>` : ""}
+${deductions.map((x) => row(x.label, `− ${money(x.pence)}`, x.detail)).join("")}
+${adjustments.map((a) => row(a.label, `${a.pence < 0 ? "− " : "+ "}${money(Math.abs(a.pence))}`, "one-off")).join("")}
+${row(run.net_pence < 0 ? `${first} owes the shop` : `Owed to ${first}`, money(Math.abs(run.net_pence)), "", "total")}
+${run.pay_show_owner_share !== 0 ? `<tr class="head"><td colspan="2">Business</td></tr>
+${row("Owner's share", money(ownerShare), "sales less " + first + "'s share")}
+${run.deductions_pence ? row("Deductions", `+ ${money(run.deductions_pence)}`) : ""}
+${run.adjustments_pence ? row(run.adjustments_pence > 0 ? "less one-off payments" : "one-off charges", `${run.adjustments_pence > 0 ? "− " : "+ "}${money(Math.abs(run.adjustments_pence))}`) : ""}
+${row("Owed to business", money(run.owed_to_business_pence ?? 0), "", "sub")}` : ""}
+</table>
+${run.status === "PAID" ? `<p class="muted"><small>Settled${run.paid_method ? ` by ${esc(String(run.paid_method).toLowerCase())}` : ""}${run.paid_reference ? ` · ${esc(run.paid_reference)}` : ""}${run.transferred_at ? " · card money sent by Stripe" : ""}.</small></p>` : ""}
+${run.note ? `<p class="muted"><small>${esc(run.note)}</small></p>` : ""}
+<footer>Terms, shares and deductions were fixed when this run was created${run.leave_days ? ` · ${run.leave_days} approved leave day${run.leave_days === 1 ? "" : "s"} in the period` : ""}.</footer>
+</article></body></html>`;
+}

@@ -27,6 +27,7 @@ import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { BlockDialog } from "./BlockDialog";
+import { PayRunsPage, MyPay } from "./PayRunsPage";
 import { Shifts } from "./Shifts";
 import { BillingPanel } from "./Billing";
 import { ConflictResolver, ConflictOutcome, type Preview as ConflictPreview, type Decision as ConflictDecision, type Outcome as ConflictOutcomeRow, type ScheduleChange } from "./ConflictResolver";
@@ -798,15 +799,17 @@ const COMMON_TIMEZONES = [
   "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Toronto", "America/Vancouver", "America/Mexico_City", "America/Sao_Paulo",
   "Asia/Dubai", "Asia/Karachi", "Asia/Kolkata", "Asia/Singapore", "Asia/Hong_Kong", "Asia/Tokyo", "Australia/Sydney", "Australia/Melbourne", "Australia/Perth", "Pacific/Auckland", "Africa/Lagos", "Africa/Johannesburg", "Africa/Nairobi",
 ];
+const TAB_TITLES: Record<string, string> = { Pay: "Pay runs", MyPay: "My pay" };
 // One-line purpose per section, shown under the title. Sections without a line show none.
 const SECTION_BLURB: Record<string, string> = {
+  Pay: "Everyone's pay for a period — sales, deductions, what each side is owed. Create drafts together, approve one by one.",
+  MyPay: "Your deal, this period so far, and every statement.",
   Shifts: "Who's in, when, and what's booked against it. Changes that land on appointments ask you what to do with each one.",
   Customers: "Everyone who has booked with you, with visits, spend and what's next.",
   Team: "Barbers, their hours, breaks and pricing.",
   Services: "What you offer, grouped by category, with prices and durations.",
   Settings: "Opening hours, online booking, shop page and policies.",
   Insights: "How the shop is doing, from saved appointments.",
-  Pay: "Barber earnings by period, from completed visits and payments.",
   Accounts: "Who can sign in to this workspace and what they can do.",
   Audit: "A record of every change made in this workspace.",
 };
@@ -1670,11 +1673,12 @@ export function Workspace() {
       ? [
           { key: "Team", label: "Team", icon: "users" },
           { key: "Shifts", label: "Shifts", icon: "clock" },
+          { key: "Pay", label: "Pay runs", icon: "payrun" },
           { key: "Services", label: "Services", icon: "scissors" },
           { key: "Settings", label: "Settings", icon: "settings" },
           { key: "Audit", label: "Audit", icon: "shield" },
         ]
-      : []),
+      : [{ key: "MyPay", label: "My pay", icon: "payrun" }]),
     { key: "Accounts", label: "Accounts", icon: "userRound" },
   ];
   const phoneNav: NavItem[] = [
@@ -1929,7 +1933,7 @@ export function Workspace() {
           ) : (
             <header className="workspace-heading">
               <div>
-                <h1>{tab}</h1>
+                <h1>{TAB_TITLES[tab] || tab}</h1>
                 {SECTION_BLURB[tab] && <p>{SECTION_BLURB[tab]}</p>}
               </div>
             </header>
@@ -2476,6 +2480,8 @@ export function Workspace() {
                   onOpenBooking={openBooking}
                 />
               )}
+              {tab === "Pay" && <PayRunsPage w={w} api={api} onOpenBarber={(sid) => { setFocusBarber(sid); setTab("Team"); }} />}
+              {tab === "MyPay" && <MyPay w={w} api={api} />}
               {tab === "Team" && (
                 <BarberStudio
                   w={w}

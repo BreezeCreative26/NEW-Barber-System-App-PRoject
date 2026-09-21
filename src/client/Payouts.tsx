@@ -12,7 +12,7 @@ type BarberRow = { id: string; name: string; role: string; active: number; accou
 export type PaymentsData = {
   stripe: { provider: "stripe" | "none"; mode: "live" | "test" | "preview"; connect: boolean; webhook: boolean };
   platform: { fee_bps: number; fee_fixed_pence: number; fast_payouts: number };
-  settings: { deposits_online: number; deposit_hold_min: number; payment_mode: "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT"; deposit_pence: number; payout_tier: "STANDARD" | "FAST"; payrun_auto: "OFF" | "DAILY" | "WEEKLY"; payrun_reserve_bps: number };
+  settings: { deposits_online: number; deposit_hold_min: number; payment_mode: "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT"; deposit_pence: number; payout_tier: "STANDARD" | "FAST"; payrun_auto: "OFF" | "DAILY" | "WEEKLY"; payrun_reserve_bps: number; pay_show_owner_share?: number };
   shop_account: ({ id: string; payout_schedule: string; details_submitted: number; payouts_enabled: number; state: AcctState }) | null;
   barbers: BarberRow[];
   active: boolean;
@@ -277,6 +277,7 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
               <input type="number" min={0} max={50} step="0.5" data-testid="reserve-pct" value={form.payrun_reserve_bps / 100} onChange={(e) => setForm({ ...form, payrun_reserve_bps: Math.round((Number(e.target.value) || 0) * 100) })} />
             </label>
           </div>
+          <label className="setup-check"><input type="checkbox" checked={(form.pay_show_owner_share ?? 1) === 1} onChange={(e) => setForm({ ...form, pay_show_owner_share: e.target.checked ? 1 : 0 })} data-testid="pay-show-owner" /><span>Show the owner's share and "owed to business" on barbers' pay statements <small className="helper">(they always see their own share, deductions and what they're owed)</small></span></label>
           {state.text && (
             <p className={state.kind === "error" ? "workspace-error" : "workspace-success"} role={state.kind === "error" ? "alert" : "status"}>
               {state.text}

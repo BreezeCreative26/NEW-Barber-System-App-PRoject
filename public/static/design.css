@@ -997,6 +997,57 @@
 .pay-history-table th { text-align: left; font-size: var(--fs-11); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .pay-history-table td { padding: 8px; border-bottom: 1px solid var(--line-2); }
 .pay-history-table tr.voided td { color: var(--muted); text-decoration: line-through; }
+/* Pay statement (v2): sales → barber share → deductions → owed each way */
+.pay-statement { margin: 0; display: grid; gap: 0; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--surface); }
+.pay-statement-group { display: grid; gap: 4px; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--line-2); }
+.pay-statement-group > div { display: flex; justify-content: space-between; gap: var(--s-3); font-size: var(--fs-13); align-items: baseline; }
+.pay-statement dt { color: var(--muted); }
+.pay-statement dt small { color: var(--muted-2); margin-left: 4px; }
+.pay-statement dd { margin: 0; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.pay-statement dd.minus { color: var(--muted); }
+.pay-statement .pay-subtotal { margin-top: 4px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.pay-statement .pay-subtotal dt { color: var(--ink); font-weight: 600; }
+.pay-statement .pay-subtotal.strong dd { font-weight: 700; }
+.pay-statement .pay-net { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-3); padding: var(--s-3) var(--s-4); margin: 0; border: 0; border-bottom: 1px solid var(--line-2); background: var(--ollo-soft); }
+.pay-statement .pay-net dt { color: var(--ink); font-weight: 700; font-size: var(--fs-13); }
+.pay-statement .pay-net dt small { display: block; color: var(--muted); font-weight: 500; margin: 2px 0 0; }
+.pay-statement .pay-net dd { font-size: var(--fs-20); font-weight: 800; }
+.pay-statement .pay-net.negative { background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.pay-statement .pay-owner { background: var(--canvas); border-bottom: 0; }
+.pay-statement .pay-owner dt { color: var(--muted); }
+/* Deductions editor */
+.pay-deductions { display: grid; gap: var(--s-3); border: 1px dashed var(--line); border-radius: var(--r); padding: var(--s-3); }
+.pay-deductions .workspace-section-heading.compact { display: flex; justify-content: space-between; gap: var(--s-3); align-items: flex-start; flex-wrap: wrap; }
+.pay-deductions .workspace-section-heading.compact p { margin: 2px 0 0; }
+.pay-deductions .admin-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.pay-deduction-row { display: grid; grid-template-columns: minmax(140px, 1.4fr) minmax(130px, 1fr) minmax(90px, 0.7fr) minmax(90px, 0.8fr) minmax(130px, 1fr) auto auto auto; gap: var(--s-2); align-items: end; padding: var(--s-2) 0; border-top: 1px solid var(--line-2); }
+.pay-deduction-row:first-of-type { border-top: 0; }
+.pay-deduction-row .workspace-field { margin: 0; }
+.pay-deduction-row .workspace-field.narrow input { width: 100%; }
+.pay-deduction-row.off { opacity: 0.55; }
+.pay-deduction-check { align-self: end; height: 36px; display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-12); white-space: nowrap; }
+/* Pay runs page (all barbers, one period) */
+.pay-runs-page { display: grid; gap: var(--s-3); }
+.pay-runs-table { width: 100%; border-collapse: collapse; font-size: var(--fs-13); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.pay-runs-table th { text-align: left; font-size: var(--fs-11); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--canvas); }
+.pay-runs-table td { padding: 10px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+.pay-runs-table th.num, .pay-runs-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pay-runs-table tr.quiet td { color: var(--muted); }
+.pay-runs-table td.neg { color: var(--warn); font-weight: 600; }
+.pay-runs-table tfoot td { border-bottom: 0; background: var(--canvas); font-weight: 600; }
+.pay-runs-table tbody tr:last-child td { border-bottom: 0; }
+/* Barber's own pay page */
+.my-pay { display: grid; gap: var(--s-4); }
+.my-pay .admin-two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
+.my-pay .admin-list { margin: 0; padding: 0 0 0 1.1em; display: grid; gap: 4px; font-size: var(--fs-13); }
+.my-pay-detail td { background: var(--canvas); padding: var(--s-3); }
+.my-pay-detail .pay-statement { max-width: 560px; }
+@media (max-width: 767px) {
+  .pay-deduction-row { grid-template-columns: 1fr 1fr; }
+  .pay-deduction-row .pay-deduction-check { height: auto; }
+  .pay-runs-table { display: block; overflow-x: auto; }
+  .my-pay .admin-two { grid-template-columns: 1fr; }
+}
 @media (max-width: 767px) {
   .pay-tier-row { grid-template-columns: 1fr 1fr auto; }
   .pay-adjust { grid-template-columns: 1fr; }

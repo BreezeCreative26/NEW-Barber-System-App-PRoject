@@ -6,7 +6,7 @@ import { expect, type Page } from "@playwright/test";
 export const origin = "http://localhost:3000";
 export const base = origin + "/api/app";
 
-export type Fixture = { shop_id: string; slug: string; email: string };
+export type Fixture = { shop_id: string; slug: string; email: string; password: string };
 
 export async function openFixtureShop(page: Page, as: "owner" | "barber" = "owner"): Promise<Fixture> {
   const res = await page.request.post(base + "/auth/demo", {
@@ -32,9 +32,12 @@ export async function section(page: Page, name: string) {
 }
 async function sectionNav(page: Page, name: string) {
   const nav = page.getByRole("navigation", { name: "Workspace sections" });
+  // The rail is rebuilt once the workspace (and the signed-in role) has loaded; give it a beat
+  // before deciding the section lives behind the phone "More" sheet.
+  await nav.getByRole("button").first().waitFor();
   for (const label of [name, PHONE_ALIAS[name]].filter(Boolean) as string[]) {
     const direct = nav.getByRole("button", { name: label, exact: true });
-    if (await direct.count()) {
+    if (await direct.count() || (await direct.waitFor({ timeout: 1500 }).then(() => true, () => false))) {
       await direct.click();
       return;
     }
