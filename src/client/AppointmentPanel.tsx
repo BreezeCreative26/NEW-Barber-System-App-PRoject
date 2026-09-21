@@ -310,7 +310,7 @@ export function AppointmentPanel({
           {/* Appointment details */}
           <section className="panel-card" aria-label="Appointment details">
             <div className="panel-barber">
-              <Avatar initials={initials(barber?.name || "?")} colour={barber?.colour || "sage"} />
+              <Avatar initials={initials(barber?.name || "?")} colour={barber?.colour || "sage"} src={barber?.photo_url} />
               <div>
                 <strong>{barber?.name || "Unknown barber"}</strong>
                 <small>{barber?.role}</small>

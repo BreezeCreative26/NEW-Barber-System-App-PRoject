@@ -218,14 +218,21 @@ export function Avatar({
   initials,
   colour = "sage",
   size = "",
+  src,
+  alt,
 }: {
   initials: string;
   colour?: string;
   size?: string;
+  /** Photo URL; falls back to initials when empty or when the image fails to load. */
+  src?: string;
+  alt?: string;
 }) {
+  const [broken, setBroken] = useState(false);
+  const showPhoto = !!src && !broken;
   return (
-    <span className={`avatar ${colour} ${size}`} aria-hidden="true">
-      {initials}
+    <span className={`avatar ${colour} ${size} ${showPhoto ? "has-photo" : ""}`} aria-hidden={alt ? undefined : "true"} role={alt ? "img" : undefined} aria-label={alt}>
+      {showPhoto ? <img src={src} alt="" loading="lazy" decoding="async" onError={() => setBroken(true)} /> : initials}
     </span>
   );
 }

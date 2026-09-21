@@ -530,6 +530,7 @@ export function Calendar({
                       .slice(0, 2)
                       .join("")}
                     colour={s.colour || ["sage", "sand", "blue", "clay"][w.staff.findIndex((member) => member.id === s.id) % 4]}
+                    src={s.photo_url}
                   />
                   <div>
                     <strong>{s.name}</strong>
@@ -1080,6 +1081,7 @@ export function WeekView({
                 .join("")
                 .slice(0, 2)}
               colour={colour(i)}
+              src={s.photo_url}
             />
             <div>
               <strong>{s.name}</strong>

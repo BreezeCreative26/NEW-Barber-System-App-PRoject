@@ -2097,7 +2097,7 @@ export function Workspace() {
                                 return (
                                   <label key={s.id} className={on ? "" : "off"}>
                                     <input type="checkbox" checked={on || extra.has(s.id)} disabled={on} onChange={(e) => toggleTeam(date, s.id, e.target.checked)} />
-                                    <Avatar initials={s.name.split(" ").map((n) => n[0]).slice(0, 2).join("")} colour={s.colour || ["sage", "sand", "blue", "clay"][i % 4]} />
+                                    <Avatar initials={s.name.split(" ").map((n) => n[0]).slice(0, 2).join("")} colour={s.colour || ["sage", "sand", "blue", "clay"][i % 4]} src={s.photo_url} />
                                     {s.name}
                                     <small>{on ? "Rostered" : extra.has(s.id) ? "Added" : "Not working"}</small>
                                   </label>

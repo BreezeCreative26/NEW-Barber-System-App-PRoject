@@ -1633,3 +1633,9 @@
   .workspace .weekly-hours-row { grid-template-columns: 1fr; }
   .workspace .weekly-hours-row > .weekly-hours-dayname, .workspace .weekly-hours-row > .workspace-check, .workspace .weekly-hours-row > .weekly-hours-times, .workspace .weekly-hours-row > .week-hours-closed { grid-column: 1; }
 }
+
+/* Avatar photos: photo fills the circle, barber colour stays as a ring so the colour key still reads */
+.avatar.has-photo { overflow: hidden; padding: 0; border-width: 2px; border-style: solid; border-color: currentColor; background: var(--soft); }
+.avatar.has-photo img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
+.staff-column-heading .avatar { width: 34px; height: 34px; }
+.week-row-label .avatar { width: 28px; height: 28px; font-size: 11px; }
