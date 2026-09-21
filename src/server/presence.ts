@@ -167,7 +167,7 @@ export function shopPageHead(i: HeadInput) {
   const title = `${i.shop.name} · ${town ? `Barbers in ${town}` : "Book online"}`;
   const description = (i.page.strapline || i.page.about || `${i.shop.name}${i.shop.address ? `, ${i.shop.address}` : ""}. Book your next visit online.`).slice(0, 160);
   const abs = (u: string) => (u.startsWith("/") ? i.origin + u : u);
-  const image = abs(i.page.cover_url || i.page.logo_url || "/static/brand/og-default.svg");
+  const image = abs(i.page.cover_url || i.page.logo_url || "/static/brand/og-default.png");
   const prices = i.services.map((s) => s.price_pence).filter((p) => p > 0);
   const fmt = (n: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: i.shop.currency || "GBP", maximumFractionDigits: 0 }).format(n);
   const priceRange = prices.length ? `${fmt(Math.floor(Math.min(...prices) / 100))}–${fmt(Math.ceil(Math.max(...prices) / 100))}` : undefined;

@@ -1203,7 +1203,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                         <div className="filter-chips" role="radiogroup" aria-label="How should we message you?">
                           {([
                             { v: "AUTO" as const, label: "Text", hint: "SMS to your mobile", show: true },
-                            { v: "WA" as const, label: "WhatsApp", hint: "From OLLO on WhatsApp", show: waOffered },
+                            { v: "WA" as const, label: "WhatsApp", hint: "From foliyo on WhatsApp", show: waOffered },
                             { v: "EMAIL" as const, label: "Email", hint: "Needs your email above", show: emailOffered },
                           ]).filter((o) => o.show).map((o) => (
                             <button
@@ -1483,7 +1483,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
           )}
           {!embedded && (
             <footer className="booking-footer">
-              <span>Powered by OLLO</span>
+              <span>Powered by foliyo</span>
             </footer>
           )}
         </div>
@@ -1962,7 +1962,7 @@ export function ManageBooking({ token }: { token: string }) {
           )}
         </section>
         <footer className="booking-footer">
-          <span>Powered by OLLO</span>
+          <span>Powered by foliyo</span>
         </footer>
       </main>
     </div>

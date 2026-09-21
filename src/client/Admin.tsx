@@ -4,7 +4,7 @@ import { money } from "./fixtures";
 import { AdminCatalogue, AdminInvoices, AdminOps, AdminTeam } from "./AdminMore";
 import { AdminAlerts, AdminBroadcasts, Exports, Trend } from "./AdminGrowth";
 
-// OLLO master admin. Separate shell (ink on cream) so it is never mistaken for a shop workspace.
+// foliyo master admin. Separate shell (ink on cream) so it is never mistaken for a shop workspace.
 // Sections: Overview · Shops (list → detail with subscription, features, invoices, usage, messaging,
 // payments, notes, impersonate, audit) · Billing catalogue · Invoices · Ops · Team.
 
@@ -38,7 +38,7 @@ export function Admin() {
   const [shopId, setShopId] = useState<string | null>(parts[1] === "shops" && parts[2] ? parts[2] : null);
   useEffect(() => { adminApi<{ admin: { name: string; email: string; role: string } }>("/me").then((r) => setMe(r.admin)).catch(() => setMe("denied")); }, []);
   useEffect(() => { history.replaceState(null, "", `/admin/${section}${section === "shops" && shopId ? `/${shopId}` : ""}`); }, [section, shopId]);
-  if (me === null) return <main className="ollo-admin-shell"><p className="boot-message">Opening OLLO admin…</p></main>;
+  if (me === null) return <main className="ollo-admin-shell"><p className="boot-message">Opening foliyo admin…</p></main>;
   if (me === "denied") return (
     <main className="ollo-admin-shell admin-denied">
       <h1>Not found</h1>
@@ -50,7 +50,7 @@ export function Admin() {
       <Rail items={SECTIONS} current={section} onSelect={(k) => { setSection(k); if (k !== "shops") setShopId(null); }} />
       <div className="ollo-admin-body">
         <header className="admin-top">
-          <div className="admin-brand"><strong>OLLO</strong> <span>Admin</span></div>
+          <div className="admin-brand"><img src="/static/brand/foliyo-wordmark-ink.svg" alt="foliyo" width={64} height={24} /> <span>Admin</span></div>
           <div className="admin-me"><span>{me.name}</span><small>{me.email} · {me.role.toLowerCase()}</small><a className="button ghost" href="/workspace">Workspace</a></div>
         </header>
         <main className="ollo-admin-main">
@@ -185,7 +185,7 @@ export function ReasonAction({ title, cta, fields, onSubmit, danger }: { title: 
     <>
       <Button variant={danger ? "danger" : "secondary"} onClick={() => setOpen(true)}>{title}</Button>
       {open && (
-        <Modal title={title} onClose={() => setOpen(false)} context="OLLO ADMIN">
+        <Modal title={title} onClose={() => setOpen(false)} context="foliyo ADMIN">
           <form className="workspace-form" onSubmit={async (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); setBusy(true); setErr(""); const f = new FormData(e.currentTarget); try { await onSubmit(String(f.get("reason") || ""), f); setOpen(false); } catch (x) { setErr(x instanceof Error ? x.message : "Failed"); } finally { setBusy(false); } }}>
             {fields}
             <label className="workspace-field"><span>Reason (recorded in the audit)</span><input name="reason" required minLength={5} maxLength={300} placeholder="e.g. Customer asked for extra time to add a card" /></label>
@@ -371,7 +371,7 @@ function ShopDetail({ id, onBack, me }: { id: string; onBack: () => void; me: { 
               ? <ReasonAction title="Lift suspension" cta="Restore access" onSubmit={(reason) => post(`/shops/${id}/suspend`, { suspend: false, reason })} />
               : <ReasonAction title="Suspend shop" cta="Suspend" danger onSubmit={(reason) => post(`/shops/${id}/suspend`, { suspend: true, reason })} />)}
             <h4>Shop-visible record</h4>
-            <p className="workspace-footnote">Owners see these entries under Settings → Billing → "OLLO support access".</p>
+            <p className="workspace-footnote">Owners see these entries under Settings → Billing → "foliyo support access".</p>
             <ol className="billing-timeline">{d.audit.filter((a) => ["SUPPORT_ACCESS", "SIGNIN_LINK_SENT", "SIGNIN_LINK_USED", "ACCOUNT_EDITED_BY_SUPPORT", "OWNER_TRANSFERRED", "SUSPENDED", "UNSUSPENDED"].includes(a.action)).map((a) => <li key={a.id}><Icon name="shield" size={14} /><span>{a.reason || a.action.replace(/_/g, " ").toLowerCase()}</span><small>{when(a.created_at)}</small></li>)}</ol>
           </div>
         </div>

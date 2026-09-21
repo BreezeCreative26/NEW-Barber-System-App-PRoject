@@ -1,4 +1,4 @@
-// OLLO ↔ shop billing: entitlements, subscription state, metered usage, invoices.
+// foliyo ↔ shop billing: entitlements, subscription state, metered usage, invoices.
 //
 // Stripe Billing is the ledger once STRIPE_SECRET_KEY has Billing enabled; until then everything
 // here still works from local tables (trial, seats, usage, entitlements) and the Stripe-facing
@@ -18,7 +18,7 @@ export type PlatformBilling = {
   vat_mode: "NONE" | "UK_20" | "STRIPE_TAX"; vat_number: string; trial_days: number; grace_days: number; vat_threshold_pence: number;
   invoice_prefix: string; due_days: number; company_name: string; company_address: string; company_email: string; company_number: string; bank_details: string; invoice_footer: string; last_period_close: string;
 };
-export const PLATFORM_DEFAULTS: PlatformBilling = { vat_mode: "NONE", vat_number: "", trial_days: 14, grace_days: 7, vat_threshold_pence: 9000000, invoice_prefix: "OLLO-", due_days: 7, company_name: "OLLO", company_address: "", company_email: "", company_number: "", bank_details: "", invoice_footer: "Thank you for running your shop on OLLO.", last_period_close: "" };
+export const PLATFORM_DEFAULTS: PlatformBilling = { vat_mode: "NONE", vat_number: "", trial_days: 14, grace_days: 7, vat_threshold_pence: 9000000, invoice_prefix: "FOL-", due_days: 7, company_name: "foliyo", company_address: "", company_email: "", company_number: "", bank_details: "", invoice_footer: "Thank you for running your shop on foliyo.", last_period_close: "" };
 
 export type Entitlements = {
   plan: PlanRow;
@@ -68,7 +68,7 @@ export async function entitlements(db: DB, shopId: string): Promise<Entitlements
     db.prepare("SELECT * FROM shop_features WHERE shop_id=?").bind(shopId).all<ShopFeatureRow>().then((r) => r.results),
     db.prepare("SELECT COUNT(*)::int AS n FROM staff WHERE shop_id=? AND active=1").bind(shopId).first<{ n: number }>().then((r) => r?.n || 0),
   ]);
-  const plan = (await db.prepare("SELECT * FROM plans WHERE id=?").bind(sub.plan_id).first<PlanRow>()) ?? { id: "core", name: "OLLO", monthly_pence: 2499, included_seats: 1, seat_pence: 799, stripe_price_id: "", stripe_seat_price_id: "", active: 1, sort: 0 };
+  const plan = (await db.prepare("SELECT * FROM plans WHERE id=?").bind(sub.plan_id).first<PlanRow>()) ?? { id: "core", name: "foliyo", monthly_pence: 2499, included_seats: 1, seat_pence: 799, stripe_price_id: "", stripe_seat_price_id: "", active: 1, sort: 0 };
   const now = Date.now();
   const out: Entitlements["features"] = {};
   for (const f of fs) {
@@ -157,7 +157,7 @@ export async function setFeature(db: DB, shopId: string, key: string, enabled: b
     await db.prepare("INSERT INTO shop_features(shop_id,feature_key,enabled,source,granted_by,note,starts_at,ends_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(shop_id,feature_key) DO UPDATE SET enabled=EXCLUDED.enabled, source=EXCLUDED.source, granted_by=EXCLUDED.granted_by, note=EXCLUDED.note, starts_at=EXCLUDED.starts_at, ends_at=EXCLUDED.ends_at, updated_at=EXCLUDED.updated_at")
       .bind(shopId, key, enabled ? 1 : 0, source, actor, note, now, endsAt, now).run();
   }
-  const priceNote = f.monthly_pence && source === "ADDON" ? ` · ${enabled ? "+" : "−"}£${(f.monthly_pence / 100).toFixed(2)}/mo${enabled ? " prorated from today" : " from the end of this period"}` : source === "ADMIN_GRANT" ? " · complimentary" : source === "ADMIN_BLOCK" ? " · blocked by OLLO" : "";
+  const priceNote = f.monthly_pence && source === "ADDON" ? ` · ${enabled ? "+" : "−"}£${(f.monthly_pence / 100).toFixed(2)}/mo${enabled ? " prorated from today" : " from the end of this period"}` : source === "ADMIN_GRANT" ? " · complimentary" : source === "ADMIN_BLOCK" ? " · blocked by foliyo" : "";
   await logBilling(db, shopId, enabled ? "FEATURE_ON" : "FEATURE_OFF", `${f.name} ${enabled ? "switched on" : "switched off"}${priceNote}${note ? ` — ${note}` : ""}`, actor, { key, source, ends_at: endsAt });
   // Stripe: add/remove the subscription item here when connected (stripe_item_id).
 }
@@ -191,7 +191,7 @@ export async function billingSummary(db: DB, shopId: string) {
   const invoices = (await db.prepare("SELECT * FROM invoices WHERE shop_id=? ORDER BY period_start DESC LIMIT 24").bind(shopId).all()).results;
   const events = (await db.prepare("SELECT * FROM billing_events WHERE shop_id=? ORDER BY created_at DESC LIMIT 40").bind(shopId).all()).results;
   const fs = await features(db);
-  // Owners can see every time OLLO staff touched their account.
+  // Owners can see every time foliyo staff touched their account.
   const support_access = (await db.prepare("SELECT id, action, reason, created_at FROM audit_events WHERE shop_id=? AND action IN ('SUPPORT_ACCESS','SIGNIN_LINK_SENT','ACCOUNT_EDITED_BY_SUPPORT','OWNER_TRANSFERRED','SUSPENDED','UNSUSPENDED') ORDER BY created_at DESC LIMIT 20").bind(shopId).all()).results;
   const outstanding_pence = (invoices as { status: string; kind?: string; total_pence: number; paid_pence: number }[]).filter((i) => i.status === "OPEN" && i.kind !== "CREDIT_NOTE").reduce((n, i) => n + i.total_pence - i.paid_pence, 0);
   const credit_pence = (await db.prepare("SELECT COALESCE(SUM(amount_pence),0)::int AS n FROM invoice_adjustments WHERE shop_id=? AND invoice_id IS NULL AND kind='CREDIT'").bind(shopId).first<{ n: number }>())?.n ?? 0;

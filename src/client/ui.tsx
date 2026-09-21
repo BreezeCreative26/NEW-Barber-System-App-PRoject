@@ -253,8 +253,9 @@ export function Badge({
   );
 }
 // The product brand. With a `shop`, the workspace wears the shop's own identity (their logo or
-// initial, their name) and OLLO steps back to a "Powered by" line — it should feel like their
-// software. Without a shop (sign-in, invites, marketing) it is the OLLO wordmark.
+// initial, their name) and foliyo steps back to a "Powered by" line — it should feel like their
+// software. Without a shop (sign-in, invites, marketing) it is the foliyo wordmark.
+const W = "/static/brand/foliyo-wordmark";
 export function Brand({ light = false, shop }: { light?: boolean; shop?: { name: string; logo?: string | null } | null }) {
   if (shop) {
     const initial = shop.name.trim().slice(0, 1).toUpperCase() || "·";
@@ -263,14 +264,14 @@ export function Brand({ light = false, shop }: { light?: boolean; shop?: { name:
         {shop.logo ? <img className="brand-mark brand-shop-logo" src={shop.logo} alt="" width={33} height={33} /> : <span className="brand-mark brand-shop-initial" aria-hidden="true">{initial}</span>}
         <span className="brand-shop-text">
           <span className="brand-word brand-shop-name">{shop.name}</span>
-          <span className="brand-powered">Powered by <img src="/static/brand/ollo-wordmark.svg" alt="OLLO" width={38} height={11} /></span>
+          <span className="brand-powered">Powered by <img src={`${W}-${light ? "white" : "ink"}.svg`} alt="foliyo" width={40} height={15} /></span>
         </span>
       </span>
     );
   }
   return (
     <span className={`brand ${light ? "light" : ""}`}>
-      <img className="brand-wordmark" src="/static/brand/ollo-wordmark.svg" alt="OLLO" width={104} height={30} />
+      <img className="brand-wordmark" src={`${W}-${light ? "white" : "ink"}.svg`} alt="foliyo" width={80} height={30} />
     </span>
   );
 }

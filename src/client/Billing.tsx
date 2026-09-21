@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Button, Icon, Notice, StatusPill } from "./ui";
 import { money } from "./fixtures";
 
-// Settings → Billing: what the shop pays OLLO. Plan & seats, live usage this period, estimated next
+// Settings → Billing: what the shop pays foliyo. Plan & seats, live usage this period, estimated next
 // invoice, add-ons the owner can switch on/off, invoices (from Stripe once connected), and a plain
 // English timeline of every change that affected the bill. No VAT while vat_mode = NONE.
 
@@ -142,8 +142,8 @@ export function BillingPanel({ api, isOwner, onOpenOutbox }: { api: Api; isOwner
 
       {d.support_access && d.support_access.length > 0 && (
         <section className="workspace-panel" aria-labelledby="billing-support-access">
-          <h3 id="billing-support-access">OLLO support access</h3>
-          <p className="workspace-footnote">Every time OLLO staff opened or changed your account, with the reason they gave.</p>
+          <h3 id="billing-support-access">foliyo support access</h3>
+          <p className="workspace-footnote">Every time foliyo staff opened or changed your account, with the reason they gave.</p>
           <ol className="billing-timeline" data-testid="billing-support-access">
             {d.support_access.map((a) => (
               <li key={a.id}><Icon name="shield" size={14} /><span>{a.reason || a.action.replace(/_/g, " ").toLowerCase()}</span><small>{when(a.created_at)}</small></li>

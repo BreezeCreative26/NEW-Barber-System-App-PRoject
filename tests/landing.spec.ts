@@ -8,7 +8,7 @@ test("landing page: SEO head, CTAs → /signup, no horizontal overflow on a phon
   await page.setViewportSize({ width: 390, height: 844 });
   const res = await page.goto("/");
   expect(res!.status()).toBe(200);
-  await expect(page).toHaveTitle(/OLLO/);
+  await expect(page).toHaveTitle(/foliyo/);
   expect(await page.locator('meta[name="description"]').getAttribute("content")).toMatch(/appointment/i);
   expect(await page.locator('link[rel="canonical"]').getAttribute("href")).toBe(origin + "/");
   expect(await page.locator('script[type="application/ld+json"]').count()).toBe(1);
@@ -23,7 +23,7 @@ test("landing page: SEO head, CTAs → /signup, no horizontal overflow on a phon
   await expect(page.locator(".l-steps li")).toHaveCount(4);
   await expect(page.locator(".l-compare-card")).toHaveCount(2);
   await expect(page.locator(".l-quotes li")).toHaveCount(4);
-  await expect(page.locator(".l-header img[alt='OLLO']")).toBeVisible();
+  await expect(page.locator(".l-header img[alt='foliyo']")).toBeVisible();
   for (const id of ["features", "pricing", "about", "industries", "testimonials", "faq"]) await expect(page.locator(`#${id}`)).toHaveCount(1);
   // Industry grid links through to the barber vertical.
   await expect(page.locator(".l-industries-grid li")).toHaveCount(6);

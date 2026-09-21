@@ -1745,7 +1745,7 @@ td[data-state="leave"] .shifts-cell { background: #fbf6ee; border-color: #ead9bf
 .ollo-admin-shell .rail { top: 0; height: 100dvh; }
 .ollo-admin-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .admin-top { display: flex; justify-content: space-between; align-items: center; padding: 10px 24px; border-bottom: 1px solid #d9d6cc; background: #fbfaf6; position: sticky; top: 0; z-index: 5; }
-.admin-brand { font-size: 18px; letter-spacing: -0.02em; } .admin-brand span { color: #6b6f6d; font-weight: 500; margin-left: 6px; }
+.admin-brand { font-size: 18px; letter-spacing: -0.02em; display: inline-flex; align-items: center; gap: 8px; } .admin-brand img { height: 24px; width: auto; display: block; } .admin-brand span { color: #6b6f6d; font-weight: 500; }
 .admin-me { display: flex; align-items: center; gap: 12px; font-size: 13px; } .admin-me small { color: #6b6f6d; }
 .ollo-admin-main { padding: 24px; display: grid; gap: 20px; align-content: start; }
 .admin-section { display: grid; gap: 16px; }

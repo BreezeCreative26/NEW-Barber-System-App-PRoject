@@ -1,4 +1,4 @@
-// Stripe: OLLO is the merchant of record (separate charges and transfers). Customers pay OLLO's
+// Stripe: foliyo is the merchant of record (separate charges and transfers). Customers pay foliyo's
 // platform balance through Checkout / Terminal; pay runs transfer each barber's and shop's share to
 // their connected (recipient) accounts. See docs/STRIPE_PLAN.md and docs/PAYMENTS.md. Env:
 //   STRIPE_SECRET_KEY      sk_live_… / sk_test_…   (platform account)
@@ -103,7 +103,7 @@ export async function createDepositSession(shop: Shop, booking: StoredBooking, o
   const expires = Math.floor(Date.now() / 1000) + Math.max(30, holdMinutes) * 60; // Stripe minimum 30 min
   const body: Record<string, string | number | boolean> = {
     mode: "payment",
-    // New accounts default to Managed Payments (Stripe as merchant of record). OLLO is the merchant
+    // New accounts default to Managed Payments (Stripe as merchant of record). foliyo is the merchant
     // of record for the Connect split, so it is off here; otherwise Stripe demands product tax codes.
     "managed_payments[enabled]": false,
     "line_items[0][quantity]": 1,
@@ -124,7 +124,7 @@ export async function createDepositSession(shop: Shop, booking: StoredBooking, o
   // Receipts: the account has Managed Payments on, which always emails the customer a receipt and
   // rejects payment_intent_data.receipt_email — customer_email is enough.
   if (booking.email) body.customer_email = booking.email;
-  // Platform is the merchant of record: the charge lands on OLLO's balance and the pay run moves the
+  // Platform is the merchant of record: the charge lands on foliyo's balance and the pay run moves the
   // shop's and barber's shares out with Transfers. No Stripe-Account header.
   return stripe<CheckoutSession>("/checkout/sessions", body, { idempotency: `deposit-${booking.id}` });
 }
@@ -140,9 +140,9 @@ export async function refundIntent(paymentIntent: string, account?: string, idem
 
 // ---- Connect platform: Express accounts for shops AND barbers ------------------------------------
 export type OwnerType = "SHOP" | "STAFF";
-// Recipient-only configuration: the account receives Transfers from OLLO's balance and pays out to
+// Recipient-only configuration: the account receives Transfers from foliyo's balance and pays out to
 // its bank. It never charges customers itself, so card_payments is deliberately not requested — that
-// would force full merchant KYC on every barber. OLLO owns pricing and losses (separate charges and
+// would force full merchant KYC on every barber. foliyo owns pricing and losses (separate charges and
 // transfers require both), Express dashboard for balance/payouts.
 export async function createExpressAccount(opts: { shopId: string; ownerType: OwnerType; ownerId: string; email: string; name: string; country?: string; individual?: boolean }) {
   return stripeV2<{ id: string }>("/core/accounts", {

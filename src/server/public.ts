@@ -174,7 +174,7 @@ const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   booking_window_days: s.booking_window_days,
   version: s.version,
   // Which ways this shop can message the customer, so the booking form only offers real choices.
-  // WhatsApp needs the OLLO sender configured and the shop's toggle on.
+  // WhatsApp needs the foliyo sender configured and the shop's toggle on.
   channels: {
     sms: (s as { msg_sms?: number }).msg_sms !== 0,
     email: (s as { msg_email?: number }).msg_email !== 0,
@@ -1032,7 +1032,7 @@ export function calendarResponse(c: Ctx, shop: Shop, booking: StoredBooking, sta
   const body = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//OLLO//Local test//EN",
+    "PRODID:-//foliyo//Local test//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     "BEGIN:VEVENT",

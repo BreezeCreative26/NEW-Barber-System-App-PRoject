@@ -37,7 +37,7 @@ test("invoicing: period close with credits, amend, pay, credit note, dunning, vo
   expect(inv.credit_applied_pence).toBe(1000);
   expect(inv.total_pence).toBe(expectedSub - 1000);
   expect(inv.status).toBe("OPEN");
-  expect(inv.number).toMatch(/^OLLO-\d+$/);
+  expect(inv.number).toMatch(/^FOL-\d+$/);
   // Idempotent per period.
   r = await api(page, "POST", `/shops/${fx.shop_id}/invoices`, { kind: "PERIOD", period: "2026-08", reason: "again" });
   expect(r.status).toBe(409);

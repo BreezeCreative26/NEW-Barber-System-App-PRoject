@@ -60,7 +60,7 @@ export function AdminCatalogue({ me }: { me: { role: string } }) {
           <h3>Platform</h3>
           <form className="admin-inline-form" data-testid="admin-platform-form" onSubmit={f.submit(async (fd) => adminApi("/catalogue/platform", "PUT", {
             vat_mode: String(fd.get("vat_mode")), vat_number: String(fd.get("vat_number") || ""), trial_days: Number(fd.get("trial_days")), grace_days: Number(fd.get("grace_days")),
-            invoice_prefix: String(fd.get("invoice_prefix") || "OLLO-"), due_days: Number(fd.get("due_days")), company_name: String(fd.get("company_name") || "OLLO"), company_address: String(fd.get("company_address") || ""),
+            invoice_prefix: String(fd.get("invoice_prefix") || "foliyo-"), due_days: Number(fd.get("due_days")), company_name: String(fd.get("company_name") || "foliyo"), company_address: String(fd.get("company_address") || ""),
             company_email: String(fd.get("company_email") || ""), company_number: String(fd.get("company_number") || ""), bank_details: String(fd.get("bank_details") || ""), invoice_footer: String(fd.get("invoice_footer") || ""),
             reason: String(fd.get("reason")) }))}>
             <fieldset disabled={!superUser || f.busy}>
@@ -248,7 +248,7 @@ export function AdminTeam({ me }: { me: { role: string } }) {
         <form className="workspace-form admin-inline-form" onSubmit={f.submit(async (fd) => adminApi("/team", "POST", { email: String(fd.get("email")), role: String(fd.get("role")), reason: String(fd.get("reason")) }))}>
           <h3>Add or change an admin</h3>
           <div className="workspace-form-grid">
-            <label className="workspace-field"><span>Email (existing OLLO account)</span><input name="email" type="email" required /></label>
+            <label className="workspace-field"><span>Email (existing foliyo account)</span><input name="email" type="email" required /></label>
             <label className="workspace-field"><span>Role</span><select name="role" defaultValue="SUPPORT"><option value="SUPPORT">Support — read, notes, grants, open as owner</option><option value="FINANCE">Finance — plus invoices, discounts, subscription changes</option><option value="SUPER">Super — everything incl. prices and admins</option></select></label>
           </div>
           <Reason />

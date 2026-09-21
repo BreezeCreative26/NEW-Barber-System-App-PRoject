@@ -45,7 +45,7 @@ export const REQUEST_TTL_MIN = 30;
 
 // ---- LINK / QR --------------------------------------------------------------------------------------------
 export async function createLinkRequest(db: DB, shop: Shop, booking: StoredBooking, amounts: { service_pence: number; tip_pence: number; discount_pence: number; complete: boolean; note: string }, actor: string, origin: string) {
-  if (!stripeLive()) throw new StripeError("Card payments are not switched on for OLLO yet", 409, "stripe_off");
+  if (!stripeLive()) throw new StripeError("Card payments are not switched on for foliyo yet", 409, "stripe_off");
   const total = amounts.service_pence + amounts.tip_pence;
   if (total <= 0) throw new StripeError("Nothing to charge", 400, "zero");
   const id = crypto.randomUUID();
@@ -54,7 +54,7 @@ export async function createLinkRequest(db: DB, shop: Shop, booking: StoredBooki
   const ref = booking.id.slice(0, 6).toUpperCase();
   const body: Record<string, string | number> = {
     mode: "payment",
-    "managed_payments[enabled]": "false", // OLLO is merchant of record (see stripe.ts)
+    "managed_payments[enabled]": "false", // foliyo is merchant of record (see stripe.ts)
     "line_items[0][quantity]": 1,
     "line_items[0][price_data][currency]": (shop.currency || "GBP").toLowerCase(),
     "line_items[0][price_data][unit_amount]": amounts.service_pence,
@@ -127,7 +127,7 @@ export async function connectionToken(locationId: string) {
 }
 // Create the intent and hand it to a reader. Reader shows the amount, customer taps.
 export async function createTerminalRequest(db: DB, shop: Shop, booking: StoredBooking, readerId: string, amounts: { service_pence: number; tip_pence: number; discount_pence: number; complete: boolean; note: string }, actor: string) {
-  if (!stripeLive()) throw new StripeError("Card payments are not switched on for OLLO yet", 409, "stripe_off");
+  if (!stripeLive()) throw new StripeError("Card payments are not switched on for foliyo yet", 409, "stripe_off");
   const total = amounts.service_pence + amounts.tip_pence;
   if (total <= 0) throw new StripeError("Nothing to charge", 400, "zero");
   const id = crypto.randomUUID();

@@ -1,5 +1,5 @@
-// Platform lifecycle: the messages OLLO sends shop owners as their account moves (trial ending,
-// trial ended, payment overdue, read-only), alerts OLLO staff should see, broadcasts, and the daily
+// Platform lifecycle: the messages foliyo sends shop owners as their account moves (trial ending,
+// trial ended, payment overdue, read-only), alerts foliyo staff should see, broadcasts, and the daily
 // MRR snapshot. Everything runs from the 5-minute sweep (`maybeSweep`) so no cron is needed.
 import type { Database as DB } from "../db/client";
 import { estimate, platformBilling } from "./billing";
@@ -20,7 +20,7 @@ async function sendPlatform(db: DB, shopId: string, template: MessageTemplate, v
   if (!owner?.email) return false;
   const shop = await msgShop({ env: { DB: db } }, shopId);
   const pb = await platformBilling(db);
-  const stmts = enqueue(db, { ...shop, name: pb.company_name || "OLLO" }, { email: owner.email, name: owner.name }, template, { shop: shop.name, ...vars }, { related: { type: "lifecycle", id: `${shopId}:${key}` }, origin, channel: "EMAIL", now, force: true });
+  const stmts = enqueue(db, { ...shop, name: pb.company_name || "foliyo" }, { email: owner.email, name: owner.name }, template, { shop: shop.name, ...vars }, { related: { type: "lifecycle", id: `${shopId}:${key}` }, origin, channel: "EMAIL", now, force: true });
   if (stmts.length) { await db.batch(stmts); await drain(db, stmts.length, now, { type: "lifecycle", id: `${shopId}:${key}` }).catch(() => {}); }
   return true;
 }
@@ -93,7 +93,7 @@ export async function emailAlerts(db: DB, origin: string, now = Date.now()) {
   if (!anyShop) return 0;
   const shop = await msgShop({ env: { DB: db } }, anyShop.id);
   const pb = await platformBilling(db);
-  const stmts = enqueue(db, { ...shop, name: pb.company_name || "OLLO" }, { email: to, name: "OLLO team" }, "admin_alert_digest", { count: rows.length, items: rows.map((r) => `${r.severity === "CRIT" ? "‼" : "!"} ${r.title}${r.detail ? ` — ${r.detail}` : ""}`).join("\n"), link: `${origin}/admin/alerts` }, { related: { type: "admin_alerts", id: String(now) }, origin, channel: "EMAIL", now, force: true });
+  const stmts = enqueue(db, { ...shop, name: pb.company_name || "foliyo" }, { email: to, name: "foliyo team" }, "admin_alert_digest", { count: rows.length, items: rows.map((r) => `${r.severity === "CRIT" ? "‼" : "!"} ${r.title}${r.detail ? ` — ${r.detail}` : ""}`).join("\n"), link: `${origin}/admin/alerts` }, { related: { type: "admin_alerts", id: String(now) }, origin, channel: "EMAIL", now, force: true });
   if (stmts.length) { await db.batch(stmts); await drain(db, stmts.length, now, { type: "admin_alerts", id: String(now) }).catch(() => {}); }
   await db.prepare("UPDATE admin_alerts SET emailed_at=? WHERE id IN (" + rows.map(() => "?").join(",") + ")").bind(now, ...rows.map((r) => r.id)).run();
   await db.prepare("INSERT INTO platform_kv(key,value,updated_at) VALUES('alerts_emailed_at',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at").bind(String(now), now).run();
@@ -142,7 +142,7 @@ export async function sendBroadcast(db: DB, id: string, origin: string, opts: { 
   const vars = (shopName: string) => ({ shop: shopName, heading: b.heading || b.subject, body: b.body, subject: b.subject, cta_label: b.cta_label, cta_url: b.cta_url });
   if (opts.testTo) {
     if (!shell) throw new Error("No shops yet");
-    const stmts = enqueue(db, { ...shell, name: pb.company_name || "OLLO" }, { email: opts.testTo, name: "Test" }, "broadcast", vars("Your shop"), { related: { type: "broadcast_test", id: `${id}:${now}` }, origin, channel: "EMAIL", now, force: true });
+    const stmts = enqueue(db, { ...shell, name: pb.company_name || "foliyo" }, { email: opts.testTo, name: "Test" }, "broadcast", vars("Your shop"), { related: { type: "broadcast_test", id: `${id}:${now}` }, origin, channel: "EMAIL", now, force: true });
     if (stmts.length) { await db.batch(stmts); await drain(db, stmts.length, now, { type: "broadcast_test", id: `${id}:${now}` }).catch(() => {}); }
     await db.prepare("UPDATE broadcasts SET test_sent_to=? WHERE id=?").bind(opts.testTo, id).run();
     return { test: true, to: opts.testTo };
@@ -153,7 +153,7 @@ export async function sendBroadcast(db: DB, id: string, origin: string, opts: { 
   let sent = 0;
   for (const r of rec) {
     const shop = await msgShop({ env: { DB: db } }, r.shop_id);
-    const stmts = enqueue(db, { ...shop, name: pb.company_name || "OLLO" }, { email: r.email, name: r.name }, "broadcast", vars(r.shop), { related: { type: "broadcast", id: `${id}:${r.shop_id}` }, origin, channel: "EMAIL", now, force: true });
+    const stmts = enqueue(db, { ...shop, name: pb.company_name || "foliyo" }, { email: r.email, name: r.name }, "broadcast", vars(r.shop), { related: { type: "broadcast", id: `${id}:${r.shop_id}` }, origin, channel: "EMAIL", now, force: true });
     if (!stmts.length) continue;
     await db.batch(stmts);
     await db.prepare("INSERT INTO broadcast_recipients(broadcast_id,shop_id,email) VALUES(?,?,?) ON CONFLICT DO NOTHING").bind(id, r.shop_id, r.email).run();

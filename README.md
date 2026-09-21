@@ -1,4 +1,4 @@
-# OLLO — barbershop booking and shop management
+# foliyo appointments (formerly OLLO)
 
 Online booking, a live calendar for the shop, customers, waiting list, reviews, payments ledger and
 staff pay — built to run many shops on one deployment. Read **`DIRECTION.md`** first: it holds the

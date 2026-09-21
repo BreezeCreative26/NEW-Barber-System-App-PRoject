@@ -1,4 +1,4 @@
-// Payments: OLLO is the Stripe platform. Settings → Payments (owner) shows provider status, the
+// Payments: foliyo is the Stripe platform. Settings → Payments (owner) shows provider status, the
 // shop's Stripe account, every barber's account, deposit + payout policy and 30-day money moved.
 // BarberPayoutCard (Team → barber → Pay) lets a barber be set up and see their own wallet.
 import { useEffect, useState } from "react";
@@ -88,7 +88,7 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
       <div className="workspace-section-heading">
         <div>
           <h2 id="payments-heading">Payments</h2>
-          <p className="workspace-footnote">Card money is taken by OLLO and paid straight to each barber's and the shop's own Stripe account when a pay run is approved. Cash never leaves the chair — the pay run shows what to settle by hand.</p>
+          <p className="workspace-footnote">Card money is taken by foliyo and paid straight to each barber's and the shop's own Stripe account when a pay run is approved. Cash never leaves the chair — the pay run shows what to settle by hand.</p>
         </div>
         {data && (
           <StatusPill tone={live ? "good" : "note"} data-testid="payments-status">
@@ -99,7 +99,7 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
       {data && !live && (
         <Notice icon="card">
           <span>
-            <strong>Everything below is ready.</strong> Once OLLO's Stripe keys are added, deposits can be taken at booking and pay runs move money to each barber automatically. Until then deposits are payable in the shop and pay runs are settled by hand.
+            <strong>Everything below is ready.</strong> Once foliyo's Stripe keys are added, deposits can be taken at booking and pay runs move money to each barber automatically. Until then deposits are payable in the shop and pay runs are settled by hand.
           </span>
         </Notice>
       )}
@@ -138,7 +138,7 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
           {canEdit && (
             <section className="panel-card payments-card" aria-label="Platform balance">
               <h3>
-                <Icon name="wallet" size={15} /> OLLO balance
+                <Icon name="wallet" size={15} /> foliyo balance
               </h3>
               <p className="workspace-footnote">Card money sits here between the customer paying and the pay run sending it on. “Available” is what can move today.</p>
               <dl className="payments-figures">
@@ -151,7 +151,7 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
                   <dd>{balance?.live ? money(balance.pending_pence) : "—"}</dd>
                 </div>
                 <div>
-                  <dt>OLLO fee</dt>
+                  <dt>foliyo fee</dt>
                   <dd>
                     {(data.platform.fee_bps / 100).toFixed(2)}%{data.platform.fee_fixed_pence ? ` + ${money(data.platform.fee_fixed_pence)}` : ""}
                   </dd>
@@ -391,7 +391,7 @@ export function BarberPayoutCard({ api, staffId, staffName, canEdit, from, to, e
           </label>
         )}
       </div>
-      {!live && <p className="workspace-footnote">Card payouts switch on when OLLO's Stripe keys are added. Nothing for {first} to do yet.</p>}
+      {!live && <p className="workspace-footnote">Card payouts switch on when foliyo's Stripe keys are added. Nothing for {first} to do yet.</p>}
       {w && w.transfers.length > 0 && (
         <details className="pay-history">
           <summary>

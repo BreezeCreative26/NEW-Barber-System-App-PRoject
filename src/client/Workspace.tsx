@@ -311,7 +311,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
   return (
     <div className="auth-screen">
       <aside className="auth-brand" aria-hidden="true">
-        <img className="auth-brand-logo" src="/static/brand/ollo-wordmark.svg" alt="" width={168} height={48} />
+        <img className="auth-brand-logo" src="/static/brand/foliyo-wordmark-white.svg" alt="foliyo" width={128} height={48} />
         <div className="auth-brand-copy">
           <p className="auth-brand-eyebrow">Booking software for any appointment business</p>
           <h1>Built for people<br />who run on appointments.</h1>
@@ -1147,11 +1147,11 @@ const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: s
   { key: "page", label: "Shop page", hint: "Public page & reviews", icon: "star" },
   { key: "messages", label: "Messages & AI", hint: "Texts, WhatsApp, email, calls", icon: "message" },
   { key: "payments", label: "Payments", hint: "Cards, deposits, payouts", icon: "card" },
-  { key: "billing", label: "Billing", hint: "Your OLLO plan, usage, invoices", icon: "file", owner: true },
+  { key: "billing", label: "Billing", hint: "Your foliyo plan, usage, invoices", icon: "file", owner: true },
 ];
 
 
-// Shown when OLLO support opened this workspace from the admin panel (cookie set by /api/admin/…/impersonate).
+// Shown when foliyo support opened this workspace from the admin panel (cookie set by /api/admin/…/impersonate).
 function ImpersonationBar() {
   const [info, setInfo] = useState<{ admin: string; until: number } | null>(() => {
     const m = document.cookie.match(/(?:^|; )ollo_impersonating=([^;]*)/);
@@ -1166,7 +1166,7 @@ function ImpersonationBar() {
   const mins = Math.max(0, Math.ceil((info.until - Date.now()) / 60000));
   return (
     <div className="impersonation-bar" role="status" data-testid="impersonation-bar">
-      <Icon name="shield" size={16} /> <strong>OLLO support session</strong> · {info.admin} is viewing this shop as the owner · ends in {mins} min ·{" "}
+      <Icon name="shield" size={16} /> <strong>foliyo support session</strong> · {info.admin} is viewing this shop as the owner · ends in {mins} min ·{" "}
       <a href="/admin/shops">Back to admin</a>
     </div>
   );
@@ -1657,7 +1657,7 @@ export function Workspace() {
     (b) => !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
   const manager = !w?.account || ["OWNER", "MANAGER"].includes(w.account.role);
-  // Card at the chair is available once OLLO's Stripe keys are live (checked once per session).
+  // Card at the chair is available once foliyo's Stripe keys are live (checked once per session).
   const [cardLive, setCardLive] = useState(false);
   useEffect(() => {
     fetch("/api/health").then((r) => r.json()).then((h: { livePayments?: boolean }) => setCardLive(!!h.livePayments)).catch(() => null);
@@ -2689,7 +2689,7 @@ export function Workspace() {
                     )}
                     {settingsTab === "billing" && (
                       <>
-                        <header className="settings-head"><h2>Billing</h2><p>Your OLLO plan, seats, usage and invoices. Prices are what you pay — no VAT is added.</p></header>
+                        <header className="settings-head"><h2>Billing</h2><p>Your foliyo plan, seats, usage and invoices. Prices are what you pay — no VAT is added.</p></header>
                         <BillingPanel api={api} isOwner={!w.account || w.account.role === "OWNER"} onOpenOutbox={() => setSettingsTab("messages")} />
                       </>
                     )}
@@ -3828,7 +3828,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
               <span>
                 <strong>WhatsApp</strong>
                 <small>
-                  Customers who pick WhatsApp when booking get their confirmation and reminder there, from OLLO’s WhatsApp number with your shop name in the message. Falls back to a text if WhatsApp cannot deliver.
+                  Customers who pick WhatsApp when booking get their confirmation and reminder there, from foliyo’s WhatsApp number with your shop name in the message. Falls back to a text if WhatsApp cannot deliver.
                   {waLive && data.providers.wa?.test_sender ? ` Test sender: customers must first text “${data.providers.wa.keyword}” to +${data.providers.wa.sender} on WhatsApp.` : waLive ? ` Sending from +${data.providers.wa?.sender}.` : " Not connected on this deployment yet."}
                 </small>
               </span>

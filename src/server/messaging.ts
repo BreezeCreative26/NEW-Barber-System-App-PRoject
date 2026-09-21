@@ -13,7 +13,7 @@ import { recordUsage } from "./billing";
 // exercised locally and in tests; the mailbox is readable under /api/app/dev/mailbox when
 // DEMO_ENABLED=1.
 //
-// Rule 7 (DIRECTION.md): every message carries the shop's name, logo and accent. OLLO does not appear.
+// Rule 7 (DIRECTION.md): every message carries the shop's name, logo and accent. foliyo does not appear.
 import type { Context } from "hono";
 import type { Database } from "../db/client";
 import type { AppEnv } from "./accounts";
@@ -170,7 +170,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         heading: "Messages are working.",
         lines: ["This is a test from your booking system's Settings → Messages panel.", `Sent ${new Date().toLocaleString("en-GB")}.`],
       };
-    // ---- Shop-side (owner/manager) messages. Same branding rule: the shop's name, never OLLO. ----
+    // ---- Shop-side (owner/manager) messages. Same branding rule: the shop's name, never foliyo. ----
     case "verify_contact":
       return {
         sms: `${s}: ${v.code} is your verification code. It expires in 10 minutes.`,
@@ -186,7 +186,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         lines: ["Someone asked to reset the password for this address. If it was you, use the button below within 30 minutes.", "If it wasn't you, ignore this message — your password has not changed."],
         cta: { label: "Choose a new password", href: String(v.link) },
       };
-    // ---- OLLO → shop owner (billing / account). `s` here is the platform name, not a shop. ----
+    // ---- foliyo → shop owner (billing / account). `s` here is the platform name, not a shop. ----
     case "invoice":
       return {
         sms: `${s}: invoice ${v.number} for ${v.total}${v.due ? `, due ${v.due}` : ""}. View: ${v.link}`,
@@ -246,7 +246,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
     case "admin_alert_digest":
       return {
         sms: `${s} admin: ${v.count} alert${v.count === 1 ? "" : "s"} need attention. ${v.link}`,
-        subject: `${v.count} OLLO alert${v.count === 1 ? "" : "s"} need attention`,
+        subject: `${v.count} foliyo alert${v.count === 1 ? "" : "s"} need attention`,
         heading: `${v.count} thing${v.count === 1 ? "" : "s"} to look at.`,
         lines: String(v.items || "").split("\n").filter(Boolean),
         cta: { label: "Open admin alerts", href: String(v.link) },
@@ -338,7 +338,7 @@ export function channelsFor(shop: MsgShop, to: Recipient, prefer: Channel | "AUT
   if (to.pref === "NONE" && !force) return [];
   const sms = !!to.phone && (force || (shop.msg_sms ?? 1) === 1);
   const email = !!to.email && (force || (shop.msg_email ?? 1) === 1);
-  // WhatsApp is only "real" with the OLLO sender configured. In preview mode (no SMS provider
+  // WhatsApp is only "real" with the foliyo sender configured. In preview mode (no SMS provider
   // either) it still queues to the mailbox like the other channels, so the flow can be exercised;
   // with live SMS but no WhatsApp, a stored WA preference falls back to a real text.
   const waOk = !!to.phone && (force || (shop.msg_wa ?? 1) === 1) && (!template || WA_CAPABLE.has(template)) && waAvailable();

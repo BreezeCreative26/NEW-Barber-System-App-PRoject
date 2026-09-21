@@ -1582,7 +1582,7 @@ input[aria-invalid="true"] {
   display: block;
 }
 .brand.light .brand-wordmark {
-  filter: invert(1) hue-rotate(180deg);
+  /* white variant is chosen in markup; no colour filters (they would flip the mint accent). */
 }
 /* Shop-branded workspace: their logo/initial + name, OLLO as a quiet "Powered by" line. */
 .brand-shop {
@@ -1627,15 +1627,16 @@ input[aria-invalid="true"] {
   text-transform: none;
 }
 .brand-powered img {
-  height: 10px;
+  height: 15px;
   width: auto;
-  opacity: 0.85;
+  opacity: 0.9;
+  vertical-align: -3px;
 }
 .brand.light .brand-powered {
   color: #c9d1cc;
 }
 .brand.light .brand-powered img {
-  filter: invert(1) hue-rotate(180deg);
+  filter: none;
 }
 .brand-os {
   display: none;
@@ -7645,7 +7646,7 @@ details.workspace-welcome > svg { display: none; }
 .auth-screen { min-height: 100dvh; display: grid; grid-template-columns: minmax(320px, 44%) 1fr; align-items: start; }
 .auth-brand { position: sticky; top: 0; height: 100dvh; box-sizing: border-box; background: var(--ollo, #0b1a17); color: #fff; padding: 48px 56px; display: flex; flex-direction: column; justify-content: space-between; gap: 40px; overflow: hidden; }
 .auth-brand::after { content: ""; position: absolute; right: -30%; bottom: -30%; width: 80%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(closest-side, rgba(168, 213, 194, 0.16), transparent 72%); pointer-events: none; }
-.auth-brand-logo { height: 44px; width: auto; filter: invert(1) hue-rotate(180deg) brightness(1.05); }
+.auth-brand-logo { height: 48px; width: auto; }
 .auth-brand-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ollo-green, #a8d5c2); margin: 0 0 16px; }
 .auth-brand h1 { font-size: clamp(30px, 3.2vw, 44px); line-height: 1.05; letter-spacing: -0.03em; margin: 0 0 18px; font-weight: 800; }
 .auth-brand-tag { font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: #a8b3ae; margin: 0; }

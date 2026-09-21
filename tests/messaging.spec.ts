@@ -68,7 +68,7 @@ test("booking created → confirmation queued on SMS and email, shop-branded, ne
   for (const n of mine) {
     expect(["SENT", "QUEUED"]).toContain(n.status);
     expect(n.body).toContain("Northline Test Barbers");
-    expect(n.body).not.toMatch(/OLLO/i);
+    expect(n.body).not.toMatch(/OLLO|foliyo/i);
     expect(n.body).toContain("/manage/");
   }
   const email = mine.find((n) => n.channel === "EMAIL")!;

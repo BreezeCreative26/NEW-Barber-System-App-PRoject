@@ -134,7 +134,7 @@ export function AdminBroadcasts({ me }: { me: { role: string; email: string } })
           <h3>New announcement</h3>
           <label className="workspace-field"><span>Subject</span><input name="subject" required minLength={3} maxLength={120} placeholder="e.g. New: AI receptionist answers your phone" /></label>
           <label className="workspace-field"><span>Heading (optional)</span><input name="heading" maxLength={120} /></label>
-          <label className="workspace-field"><span>Message</span><textarea name="body" required minLength={10} maxLength={5000} rows={7} placeholder={"Plain text. Blank line between paragraphs.\n\nIt goes out from OLLO to the shop owner's email."} /></label>
+          <label className="workspace-field"><span>Message</span><textarea name="body" required minLength={10} maxLength={5000} rows={7} placeholder={"Plain text. Blank line between paragraphs.\n\nIt goes out from foliyo to the shop owner's email."} /></label>
           <div className="workspace-form-grid two">
             <label className="workspace-field"><span>Button label (optional)</span><input name="cta_label" maxLength={40} placeholder="Find out more" /></label>
             <label className="workspace-field"><span>Button link</span><input name="cta_url" type="url" maxLength={300} placeholder="https://…" /></label>

@@ -212,7 +212,7 @@ sandbox.use("*", async (c, next) => {
     // Suspended shops: read-only access to look at their data, nothing else.
     if (!["GET", "HEAD"].includes(method)) {
       const susp = await c.env.DB.prepare("SELECT suspended_at, suspended_reason FROM shops WHERE id=? AND suspended_at IS NOT NULL").bind(account.shop_id).first<{ suspended_at: number; suspended_reason: string }>().catch(() => null);
-      if (susp) return c.json({ error: "shop_suspended", message: "This account has been suspended by OLLO. Contact support to restore it." }, 403);
+      if (susp) return c.json({ error: "shop_suspended", message: "This account has been suspended by foliyo. Contact support to restore it." }, 403);
     }
     const operational =
       (method === "GET" &&
@@ -1240,7 +1240,7 @@ sandbox.put("/shop/voice", async (c) => {
   // shown on the next invoice); switching off removes it. Admin blocks win.
   if (b.enabled) {
     const e = await entitlements(c.env.DB, c.get("shopId"));
-    if (e.features.ai_concierge?.source === "ADMIN_BLOCK") fail(403, "The AI Concierge is disabled for your account — contact OLLO support");
+    if (e.features.ai_concierge?.source === "ADMIN_BLOCK") fail(403, "The AI Concierge is disabled for your account — contact foliyo support");
     if (!hasFeature(e, "ai_concierge")) await setFeature(c.env.DB, c.get("shopId"), "ai_concierge", true, "ADDON", c.get("actor"), "Switched on from Messages & AI");
   } else {
     const e = await entitlements(c.env.DB, c.get("shopId"));
@@ -1335,7 +1335,7 @@ sandbox.post("/notifications/sweep", async (c) => {
   return c.json({ reminders, drained, holds_released: holds.length });
 });
 
-// ---- Payments: OLLO is the Stripe Connect platform ------------------------------------------------
+// ---- Payments: foliyo is the Stripe Connect platform ------------------------------------------------
 // Status for Settings → Payments: provider, this shop's account, every barber's account, deposit +
 // payout policy, 30-day totals. Barbers see only their own account.
 sandbox.get("/shop/payments", async (c) => {
@@ -1381,7 +1381,7 @@ sandbox.put("/shop/payments", async (c) => {
   requireRole(c, ["OWNER", "MANAGER"]);
   const b = await input(c, paymentsSchema);
   const shop = await readShop(c);
-  if (b.deposits_online && !stripeLive()) fail(409, "Card payments are not switched on for OLLO yet");
+  if (b.deposits_online && !stripeLive()) fail(409, "Card payments are not switched on for foliyo yet");
   if (b.deposits_online && b.payment_mode === "DEPOSIT" && shop.deposit_pence <= 0) fail(409, "Set a deposit amount above zero first");
   if (b.payment_mode === "PREPAY" && !b.deposits_online) fail(409, "Pre-payment needs card payments at booking switched on");
   if (b.payrun_auto !== "OFF" && !stripeLive()) fail(409, "Automatic pay runs need card payments switched on");
@@ -1397,7 +1397,7 @@ sandbox.put("/shop/payments", async (c) => {
 sandbox.post("/shop/payments/connect", async (c) => {
   requireRole(c, ["OWNER"]);
   await input(c, z.object({}).strict());
-  if (!stripeLive() || !stripeConnect()) fail(409, "Card payments are not switched on for OLLO yet");
+  if (!stripeLive() || !stripeConnect()) fail(409, "Card payments are not switched on for foliyo yet");
   const shop = await readShop(c);
   const { account, url } = await beginOnboarding(c.env.DB, shop, { type: "SHOP", id: shop.id, name: shop.name, email: c.get("account")?.email || "" }, new URL(c.req.url).origin, "/workspace?stripe=return&for=shop");
   await c.env.DB.batch([audit(c, "shop", shop.id, "STRIPE_ONBOARDING_STARTED", `Shop account ${account.id}.`)]);
@@ -1409,7 +1409,7 @@ sandbox.post("/staff/:id/payments/connect", async (c) => {
   const staffId = c.req.param("id");
   if (a && a.role === "BARBER" && a.staff_id !== staffId) fail(403, "You can only set up your own payouts");
   if (a && !["OWNER", "MANAGER", "BARBER"].includes(a.role)) fail(403, "Owner or manager required");
-  if (!stripeLive() || !stripeConnect()) fail(409, "Card payments are not switched on for OLLO yet");
+  if (!stripeLive() || !stripeConnect()) fail(409, "Card payments are not switched on for foliyo yet");
   const shop = await readShop(c);
   const st = await c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND id=?").bind(shop.id, staffId).first<Staff>();
   if (!st) fail(404, "Barber not found");
@@ -1507,7 +1507,7 @@ sandbox.post("/bookings/:id/pay-link", async (c) => {
   const { b, shop } = await chairPrecheck(c, c.req.param("id"), body);
   const req = await createLinkRequest(c.env.DB, shop, b, body, c.get("actor"), new URL(c.req.url).origin);
   await c.env.DB.batch([audit(c, "booking", b.id, "PAY_LINK_CREATED", `${body.service_pence + body.tip_pence}p card request via link (${req.id.slice(0, 8)}).`)]);
-  // The QR carries OLLO's short /pay/:id URL (scans in a blink), which hands straight to Stripe
+  // The QR carries foliyo's short /pay/:id URL (scans in a blink), which hands straight to Stripe
   // Checkout while the request is open. The long checkout.stripe.com URL would make a dense code.
   const short = `${new URL(c.req.url).origin}/pay/${req.id}?go=1`;
   const qr = await QRCode.toDataURL(short, { margin: 1, width: 320, errorCorrectionLevel: "M" });
@@ -1571,7 +1571,7 @@ sandbox.get("/terminal/readers", async (c) => c.json({ readers: await listReader
 sandbox.post("/terminal/readers", async (c) => {
   requireRole(c, ["OWNER", "MANAGER"]);
   const b = await input(c, z.object({ code: z.string().trim().min(3).max(60), label: z.string().trim().min(1).max(60) }).strict());
-  if (!stripeLive()) fail(409, "Card payments are not switched on for OLLO yet");
+  if (!stripeLive()) fail(409, "Card payments are not switched on for foliyo yet");
   const shop = await readShop(c);
   const r = await registerReader(c.env.DB, shop, b.code, b.label).catch((e) => fail(409, e instanceof Error ? e.message : "Stripe rejected the reader"));
   await c.env.DB.batch([audit(c, "shop", shop.id, "READER_ADDED", `${b.label} (${(r as { id: string }).id}).`)]);
@@ -1593,7 +1593,7 @@ sandbox.delete("/terminal/readers/:id", async (c) => {
 });
 sandbox.post("/terminal/connection-token", async (c) => {
   await input(c, z.object({}).strict());
-  if (!stripeLive()) fail(409, "Card payments are not switched on for OLLO yet");
+  if (!stripeLive()) fail(409, "Card payments are not switched on for foliyo yet");
   const shop = await readShop(c);
   const location = await ensureLocation(c.env.DB, shop).catch(() => "");
   const t = await connectionToken(location).catch(() => fail(409, "Could not get a Terminal token"));
@@ -2318,7 +2318,7 @@ sandbox.delete("/staff/:id/overrides/:overrideId", async (c) => {
   return c.json({ ok: true });
 });
 
-// ---- Billing (OLLO ↔ shop) -------------------------------------------------------------------
+// ---- Billing (foliyo ↔ shop) -------------------------------------------------------------------
 // Owner-only. Plan, seats, live usage this period, estimated next invoice, invoices, timeline,
 // and self-serve add-ons. Stripe Billing mirrors in once connected; local truth drives entitlements.
 sandbox.get("/billing", async (c) => {
@@ -2333,7 +2333,7 @@ sandbox.post("/billing/features/:key", async (c) => {
   if (!f) fail(404, "Unknown feature");
   if (f!.kind !== "ADDON" || f!.monthly_pence === 0) fail(400, "This feature is part of your plan");
   const e = await entitlements(c.env.DB, c.get("shopId"));
-  if (e.features[key]?.source === "ADMIN_BLOCK") fail(403, "This feature has been disabled for your account — contact OLLO support");
+  if (e.features[key]?.source === "ADMIN_BLOCK") fail(403, "This feature has been disabled for your account — contact foliyo support");
   if (e.features[key]?.source === "ADMIN_GRANT") fail(400, "This feature is included on your account");
   await setFeature(c.env.DB, c.get("shopId"), key, b.enabled, "ADDON", c.get("actor"));
   await c.env.DB.prepare("UPDATE shops SET version=version+1 WHERE id=?").bind(c.get("shopId")).run();
@@ -2751,7 +2751,7 @@ export async function createBooking(
 sandbox.post("/bookings", async (c) => {
   // Read-only accounts (trial ended, overdue, paused) can look but not book.
   const ent = await entitlements(c.env.DB, c.get("shopId")).catch(() => null);
-  if (ent?.readOnly) fail(402, ent.reasons[0] || "Your OLLO account needs attention before new bookings can be made");
+  if (ent?.readOnly) fail(402, ent.reasons[0] || "Your foliyo account needs attention before new bookings can be made");
   const b = await input(c, bookingSchema);
   // Walk-ins are seated in the current slot: allow a start up to 15 minutes ago.
   const result = await createBooking(c, { ...b, email: "" }, "OWNER", { force: b.force, ...(b.source === "WALK_IN" ? { minStart: Date.now() - 15 * 60000 } : {}) });
@@ -2830,7 +2830,7 @@ sandbox.patch("/bookings/:id/items", async (c) => {
   if (depositPaid > price) {
     refunded_pence = depositPaid - price;
     try {
-      // Card deposit through OLLO → partial refund on Stripe. Otherwise (preview mode / deposit taken
+      // Card deposit through foliyo → partial refund on Stripe. Otherwise (preview mode / deposit taken
       // by hand) the money is owed back in the shop; the adjustment still charges the barber.
       const r = stripeLive() && b.stripe_payment_intent
         ? await refundIntent(b.stripe_payment_intent, undefined, `refund-${b.id}-${b.version}`, refunded_pence)

@@ -1,4 +1,4 @@
-// OLLO master admin: oversee every shop, support them, and run billing.
+// foliyo master admin: oversee every shop, support them, and run billing.
 //
 // Access: a signed-in app user whose id is in platform_admins. Roles: SUPER (everything, incl.
 // admins and prices), FINANCE (billing, invoices, discounts), SUPPORT (read, notes, grants,
@@ -186,7 +186,7 @@ admin.post("/shops/:id/subscription", async (c) => {
   await db.prepare(`${sql}, version=version+1, updated_at=? WHERE shop_id=?`).bind(...args, now, shopId).run();
   const after = await db.prepare("SELECT * FROM shop_subscriptions WHERE shop_id=?").bind(shopId).first();
   await audit(c, shopId, `SUBSCRIPTION_${b.action}`, before, after, b.reason);
-  await logBilling(db, shopId, `ADMIN_${b.action}`, `${summary} by OLLO support — ${b.reason}`, `admin:${c.get("admin").user_id}`);
+  await logBilling(db, shopId, `ADMIN_${b.action}`, `${summary} by foliyo support — ${b.reason}`, `admin:${c.get("admin").user_id}`);
   await db.prepare("UPDATE shops SET version=version+1 WHERE id=?").bind(shopId).run();
   return c.json({ subscription: after });
 });
@@ -200,7 +200,7 @@ admin.post("/shops/:id/features", async (c) => {
   const before = await db.prepare("SELECT * FROM shop_features WHERE shop_id=? AND feature_key=?").bind(shopId, b.key).first();
   if (b.mode === "CLEAR") {
     await db.prepare("DELETE FROM shop_features WHERE shop_id=? AND feature_key=? AND source IN ('ADMIN_GRANT','ADMIN_BLOCK')").bind(shopId, b.key).run();
-    await logBilling(db, shopId, "ADMIN_FEATURE_CLEAR", `OLLO override removed for ${b.key} — ${b.reason}`, `admin:${c.get("admin").user_id}`);
+    await logBilling(db, shopId, "ADMIN_FEATURE_CLEAR", `foliyo override removed for ${b.key} — ${b.reason}`, `admin:${c.get("admin").user_id}`);
   } else {
     await setFeature(db, shopId, b.key, b.mode === "GRANT", b.mode === "GRANT" ? "ADMIN_GRANT" : "ADMIN_BLOCK", `admin:${c.get("admin").user_id}`, b.reason, b.ends_at ?? null);
   }
@@ -264,7 +264,7 @@ admin.post("/shops/:id/impersonate", async (c) => {
   const now = Date.now();
   await db.prepare("INSERT INTO app_sessions(token_hash,membership_id,created_at,expires_at) VALUES(?,?,?,?)").bind(await digest(raw), m!.id, now, now + 30 * 60000).run();
   await audit(c, shopId, "IMPERSONATE", {}, { membership_id: m!.id, expires_at: now + 30 * 60000 }, b.reason);
-  await db.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shopId, "shop", shopId, "SUPPORT_ACCESS", `admin:${c.get("admin").user_id}`, `OLLO support opened the workspace (30 min): ${b.reason}`, now).run();
+  await db.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shopId, "shop", shopId, "SUPPORT_ACCESS", `admin:${c.get("admin").user_id}`, `foliyo support opened the workspace (30 min): ${b.reason}`, now).run();
   // Remember the admin so the workspace can show the red bar and a way back.
   setCookie(c, "ollo_impersonating", JSON.stringify({ admin: c.get("admin").name, shop: shopId, until: now + 30 * 60000 }), { path: "/", secure: true, sameSite: "Strict", maxAge: 30 * 60 });
   setCookie(c, ACCOUNT_COOKIE, raw, { httpOnly: true, secure: true, sameSite: "Strict", path: "/", maxAge: 30 * 60 });
@@ -462,7 +462,7 @@ admin.post("/shops/:id/suspend", async (c) => {
   await c.env.DB.prepare("UPDATE shops SET suspended_at=?, suspended_reason=?, version=version+1 WHERE id=?").bind(b.suspend ? now : null, b.suspend ? b.reason : "", shopId).run();
   if (b.suspend) await c.env.DB.prepare("DELETE FROM app_sessions WHERE membership_id IN (SELECT id FROM app_memberships WHERE shop_id=?)").bind(shopId).run();
   await audit(c, shopId, b.suspend ? "SHOP_SUSPENDED" : "SHOP_UNSUSPENDED", {}, {}, b.reason);
-  await logBilling(c.env.DB, shopId, b.suspend ? "SUSPENDED" : "UNSUSPENDED", b.suspend ? `Account suspended by OLLO — ${b.reason}` : `Suspension lifted — ${b.reason}`, actor(c));
+  await logBilling(c.env.DB, shopId, b.suspend ? "SUSPENDED" : "UNSUSPENDED", b.suspend ? `Account suspended by foliyo — ${b.reason}` : `Suspension lifted — ${b.reason}`, actor(c));
   await c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shopId, "shop", shopId, b.suspend ? "SUSPENDED" : "UNSUSPENDED", actor(c), b.reason, now).run();
   return c.json({ ok: true });
 });
@@ -518,10 +518,10 @@ admin.post("/shops/:id/signin-link", async (c) => {
   const link = `${origin}/api/admin-public/signin?token=${raw}`;
   const shop = await msgShop(c, shopId);
   const pb = await platformBilling(db);
-  const stmts = enqueue(db, { ...shop, name: pb.company_name || "OLLO" }, { email: m!.email, name: m!.name }, "owner_signin_link", { link, shop: shop.name }, { related: { type: "owner_link", id: m!.id + ":" + now }, origin, channel: "EMAIL", now, force: true });
+  const stmts = enqueue(db, { ...shop, name: pb.company_name || "foliyo" }, { email: m!.email, name: m!.name }, "owner_signin_link", { link, shop: shop.name }, { related: { type: "owner_link", id: m!.id + ":" + now }, origin, channel: "EMAIL", now, force: true });
   if (stmts.length) { await db.batch(stmts); await drain(db, stmts.length, now, { type: "owner_link", id: m!.id + ":" + now }).catch(() => {}); }
   await audit(c, shopId, "SIGNIN_LINK_SENT", {}, { to: m!.email, revealed: !!b.reveal }, b.reason);
-  await db.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shopId, "shop", shopId, "SIGNIN_LINK_SENT", actor(c), `OLLO support sent a one-time sign-in link to ${m!.email}: ${b.reason}`, now).run();
+  await db.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shopId, "shop", shopId, "SIGNIN_LINK_SENT", actor(c), `foliyo support sent a one-time sign-in link to ${m!.email}: ${b.reason}`, now).run();
   const delivered = providerStatus().email.provider !== "mailbox";
   // In preview (no email provider) or when explicitly asked, hand the link to the admin to pass on.
   return c.json({ ok: true, to: m!.email, delivered, link: b.reveal || !delivered ? link : undefined, expires_at: now + 15 * 60000 });
@@ -650,7 +650,7 @@ admin.post("/team", async (c) => {
   need(c, ["SUPER"]);
   const b = await body(c, z.object({ email: z.string().trim().toLowerCase().email(), role: z.enum(["SUPER", "SUPPORT", "FINANCE"]), reason: reasonSchema }).strict());
   const u = await c.env.DB.prepare("SELECT id FROM app_users WHERE email=?").bind(b.email).first<{ id: string }>();
-  if (!u) fail(404, "No OLLO account with that email — they need to sign up first");
+  if (!u) fail(404, "No foliyo account with that email — they need to sign up first");
   await c.env.DB.prepare("INSERT INTO platform_admins(user_id,role,created_by,created_at) VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET role=EXCLUDED.role").bind(u!.id, b.role, c.get("admin").user_id, Date.now()).run();
   await audit(c, null, "ADMIN_UPSERT", {}, b, b.reason);
   return c.json({ ok: true });
@@ -687,7 +687,7 @@ adminPublic.get("/signin", async (c) => {
   await db.batch([
     db.prepare("UPDATE owner_links SET used_at=? WHERE token_hash=?").bind(now, row.token_hash),
     db.prepare("INSERT INTO app_sessions(token_hash,membership_id,created_at,expires_at) VALUES(?,?,?,?)").bind(await digest(session), row.membership_id, now, now + 7 * 86400000),
-    db.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), row.shop_id, "shop", row.shop_id, "SIGNIN_LINK_USED", "owner", "Signed in with a one-time link from OLLO support", now),
+    db.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), row.shop_id, "shop", row.shop_id, "SIGNIN_LINK_USED", "owner", "Signed in with a one-time link from foliyo support", now),
   ]);
   setCookie(c, ACCOUNT_COOKIE, session, { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: 7 * 86400 });
   return c.redirect("/workspace#settings/account");

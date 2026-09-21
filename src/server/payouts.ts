@@ -1,4 +1,4 @@
-// Pay runs that move money. OLLO is the Stripe Connect platform: card money is charged on the
+// Pay runs that move money. foliyo is the Stripe Connect platform: card money is charged on the
 // platform balance; approving a pay run transfers the barber's share to the barber's Express account
 // and the shop's share to the shop's, tagged with one transfer_group. Cash never enters — it shows as
 // a residual to settle by hand. Refunds and disputes create reversals, never edits.
@@ -104,7 +104,7 @@ export async function splitFigures(db: DB, shopId: string, staffId: string, from
   return f;
 }
 
-// Given the classic result (what the barber is owed in total) and the split, decide what OLLO moves.
+// Given the classic result (what the barber is owed in total) and the split, decide what foliyo moves.
 //   barber transfer  = barber's share of CARD money (commission on card service + card tips × share)
 //   shop transfer    = card money − barber transfer − platform fee (what's left is the shop's)
 //   cash residual    = (total owed to barber) − (barber transfer) − (cash the barber physically holds)
@@ -220,7 +220,7 @@ export async function reverseForPayment(db: DB, shopId: string, paymentId: strin
 }
 
 // ---- Wallet views --------------------------------------------------------------------------------------
-// Four honest lines: earned (ledger), transferred (OLLO moved it), paid out (reached the bank), cash.
+// Four honest lines: earned (ledger), transferred (foliyo moved it), paid out (reached the bank), cash.
 export async function walletFor(db: DB, shopId: string, owner: { type: OwnerType; id: string }, from: string, to: string) {
   const acct = await accountFor(db, shopId, owner.type, owner.id);
   const transfers = await db

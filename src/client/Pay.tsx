@@ -452,7 +452,7 @@ function Line({ label, value, sub, onRemove }: { label: string; value: string; s
     </div>
   );
 }
-// What OLLO moves by card versus what changes hands at the chair.
+// What foliyo moves by card versus what changes hands at the chair.
 function Settlement({ card, cash, toBarber, toShop, reserve, residual, barber, status, ready }: { card: number; cash: number; toBarber: number; toShop: number; reserve: number; residual: number; barber: string; status?: PayRun["status"]; ready: boolean }) {
   if (card === 0 && cash === 0) return null;
   const sent = status === "TRANSFERRED" || status === "PAID";
@@ -462,7 +462,7 @@ function Settlement({ card, cash, toBarber, toShop, reserve, residual, barber, s
         <h4>
           <Icon name="card" size={14} /> By card · {money(card)}
         </h4>
-        <p className="workspace-footnote">Held on OLLO's Stripe balance. {sent ? "Sent" : "Approving sends it"} to each Stripe account; their bank gets it on their payout schedule.</p>
+        <p className="workspace-footnote">Held on foliyo's Stripe balance. {sent ? "Sent" : "Approving sends it"} to each Stripe account; their bank gets it on their payout schedule.</p>
         <dl>
           <div>
             <dt>{barber}</dt>
@@ -481,7 +481,7 @@ function Settlement({ card, cash, toBarber, toShop, reserve, residual, barber, s
         </dl>
         {!ready && toBarber > 0 && !sent && (
           <p className="workspace-footnote pay-settlement-warn">
-            <Icon name="hourglass" size={13} /> {barber} hasn’t finished Stripe setup — their share stays on OLLO until they do. Team → {barber} → Set up payouts.
+            <Icon name="hourglass" size={13} /> {barber} hasn’t finished Stripe setup — their share stays on foliyo until they do. Team → {barber} → Set up payouts.
           </p>
         )}
       </div>

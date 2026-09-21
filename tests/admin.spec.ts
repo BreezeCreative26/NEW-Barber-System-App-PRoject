@@ -84,7 +84,7 @@ test("admin: non-admins get 404, super admin can extend trials, grant features, 
   await dlg.locator('[name="reason"]').fill("Reproducing a calendar issue");
   await dlg.getByRole("button", { name: /Open workspace/ }).click();
   await page.waitForURL(/\/workspace/);
-  await expect(page.getByTestId("impersonation-bar")).toContainText("OLLO support session");
+  await expect(page.getByTestId("impersonation-bar")).toContainText("foliyo support session");
 
   // 8. The other admin pages render.
   for (const [path, tid] of [["/admin/invoices", "admin-invoices"], ["/admin/ops", "admin-ops"], ["/admin/team", "admin-team"]] as const) {

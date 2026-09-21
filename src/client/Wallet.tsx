@@ -174,7 +174,7 @@ export function WalletDrawer({
             Close
           </Button>
         </div>
-        <p className="drawer-note">Ledger of recorded payments · OLLO never holds money</p>
+        <p className="drawer-note">Ledger of recorded payments · foliyo never holds money</p>
       </aside>
     </>
   );

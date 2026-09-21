@@ -1,5 +1,5 @@
 // Marketing front door at "/". Server-rendered, zero JavaScript, indexable. Signed-in owners never
-// see it (they land in the workspace). Layout and copy follow the OLLO brand mockup: dark green /
+// see it (they land in the workspace). Layout and copy follow the foliyo brand mockup: dark green /
 // cream bands, "Built by barbers. For the industry.", six features, four steps, fixed-fee comparison,
 // testimonials, FAQ. Device mocks are pure CSS; photos are our own generated assets.
 const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
@@ -64,8 +64,8 @@ export type Vertical = {
 };
 
 const BARBER_QUOTES: Quote[] = [
-  { img: "dan", name: "Dan", role: "Barber Shop Owner", where: "London", quote: "OLLO has completely changed the way we run our shop. It’s simple, reliable and our clients love the WhatsApp confirmations." },
-  { img: "jess", name: "Jess", role: "Hairdresser", where: "Manchester", quote: "We tried a few booking systems and OLLO is by far the best. It’s so easy to use and knowing exactly what we pay each month is a game-changer." },
+  { img: "dan", name: "Dan", role: "Barber Shop Owner", where: "London", quote: "foliyo has completely changed the way we run our shop. It’s simple, reliable and our clients love the WhatsApp confirmations." },
+  { img: "jess", name: "Jess", role: "Hairdresser", where: "Manchester", quote: "We tried a few booking systems and foliyo is by far the best. It’s so easy to use and knowing exactly what we pay each month is a game-changer." },
   { img: "sam", name: "Sam", role: "Salon Owner", where: "Birmingham", quote: "The support team are unreal. They helped us move everything across from our old system and made it stress free." },
   { img: "ria", name: "Ria", role: "Barber", where: "Leeds", quote: "Finally a booking system that actually understands the industry. Made by people who get it." },
 ];
@@ -80,13 +80,13 @@ const BARBER_FAQS: Faq[] = [
 ];
 
 const UNIVERSAL_QUOTES: Quote[] = [
-  { img: "dan", name: "Dan", role: "Barbershop Owner", where: "London", quote: "OLLO has completely changed the way we run our shop. It’s simple, reliable and our clients love the WhatsApp confirmations." },
-  { img: "jess", name: "Jess", role: "Beauty Studio Owner", where: "Manchester", quote: "We tried a few booking systems and OLLO is by far the best. It’s so easy to use and knowing exactly what we pay each month is a game-changer." },
+  { img: "dan", name: "Dan", role: "Barbershop Owner", where: "London", quote: "foliyo has completely changed the way we run our shop. It’s simple, reliable and our clients love the WhatsApp confirmations." },
+  { img: "jess", name: "Jess", role: "Beauty Studio Owner", where: "Manchester", quote: "We tried a few booking systems and foliyo is by far the best. It’s so easy to use and knowing exactly what we pay each month is a game-changer." },
   { img: "sam", name: "Sam", role: "Tattoo Artist", where: "Birmingham", quote: "Deposits sorted my no-show problem in a week. The support team helped us move everything across and made it stress free." },
   { img: "ria", name: "Ria", role: "Personal Trainer", where: "Leeds", quote: "My clients book their sessions themselves now and I stopped losing evenings to admin. Made by people who get it." },
 ];
 const UNIVERSAL_FAQS: Faq[] = [
-  { q: "Is OLLO right for my kind of business?", a: "If people book a time with you or your team, yes — barbers, salons, beauty and nails, tattoo studios, clinics, personal trainers, therapists, dog groomers, tutors and more. Services, durations, deposits and reminders are all yours to set." },
+  { q: "Is foliyo right for my kind of business?", a: "If people book a time with you or your team, yes — barbers, salons, beauty and nails, tattoo studios, clinics, personal trainers, therapists, dog groomers, tutors and more. Services, durations, deposits and reminders are all yours to set." },
   { q: "Do my customers need an app?", a: "No. They book from your link in any browser, get a text, WhatsApp or email with a private link, and can move or cancel from there." },
   { q: "Can I bring my existing customers over?", a: "Yes — import a CSV from your old system in Settings → Customers and their history comes with them." },
   { q: "Does each team member get their own login?", a: "Yes. Invite each person; they see their own day, take payments, block their own time and watch their earnings." },
@@ -99,16 +99,16 @@ export const VERTICALS: Record<"universal" | "barbers", Vertical> = {
   universal: {
     slug: "",
     path: "/",
-    title: "OLLO — Booking software for appointment businesses. One fair price, no commission.",
+    title: "foliyo — Booking software for appointment businesses. One fair price, no commission.",
     description: "Online booking, a drag-and-drop calendar, deposits, card payments, team pay and reminders by text, WhatsApp and email — for barbers, salons, beauty, tattoo, clinics, trainers and any business that runs on appointments. Set up in two minutes. Free to start.",
     audience: "Small appointment-based businesses",
     heroEyebrow: "Booking software for any appointment business",
     heroH1: "Built for people<br/>who run on appointments.",
-    heroLede: "OLLO is the all-in-one booking system for barbers, salons, beauty studios, tattoo artists, clinics, trainers and anyone whose day is a diary. One clear monthly price, WhatsApp confirmations and everything you need to run the business — without the commission and hidden fees.",
+    heroLede: "foliyo is the all-in-one booking system for barbers, salons, beauty studios, tattoo artists, clinics, trainers and anyone whose day is a diary. One clear monthly price, WhatsApp confirmations and everything you need to run the business — without the commission and hidden fees.",
     heroImg: { src: "/static/landing/hero-universal.webp", small: "/static/landing/hero-universal-sm.webp", alt: "A studio owner at her reception desk checking bookings on her phone" },
-    everythingLede: "From the first click to the final invoice, OLLO keeps your business running smoothly. Manage bookings, clients, staff, payments and more — all in one easy-to-use platform.",
+    everythingLede: "From the first click to the final invoice, foliyo keeps your business running smoothly. Manage bookings, clients, staff, payments and more — all in one easy-to-use platform.",
     whyH2: "We listened to the people doing the work.<br/>Then we built what they wanted.",
-    whyLede: "OLLO started behind a barber’s chair, after 20 years of using every booking system on the market. It turned out every appointment business had the same complaints: commission, per-booking fees, and software that gets in the way. So we built the system we all wanted.",
+    whyLede: "foliyo started behind a barber’s chair, after 20 years of using every booking system on the market. It turned out every appointment business had the same complaints: commission, per-booking fees, and software that gets in the way. So we built the system we all wanted.",
     script: "Built by the trade.",
     actionH2: "Book an appointment<br/>in 7 seconds.",
     steps: ["Select who they want to see", "Choose the service", "Pick a time", "Confirm & they’re all set"],
@@ -121,10 +121,10 @@ export const VERTICALS: Record<"universal" | "barbers", Vertical> = {
     quotes: UNIVERSAL_QUOTES,
     faqH2: "Questions people ask",
     faqs: UNIVERSAL_FAQS,
-    finalH2: "Join the barbers, salons, studios and clinics already running on OLLO.",
+    finalH2: "Join the barbers, salons, studios and clinics already running on foliyo.",
     footerTag: "Built by the trade. For every trade.",
     industries: [
-      { name: "Barbers", blurb: "Where OLLO started. Chairs, walk-ins, pay at the chair.", href: "/barbers", icon: "scissors" },
+      { name: "Barbers", blurb: "Where foliyo started. Chairs, walk-ins, pay at the chair.", href: "/barbers", icon: "scissors" },
       { name: "Hair & salons", blurb: "Colour, cuts, long services and split appointments.", icon: "sparkle" },
       { name: "Beauty & nails", blurb: "Deposits, add-ons and packed-out Saturdays.", icon: "sparkle" },
       { name: "Tattoo & piercing", blurb: "Consults, sittings and deposits that stick.", icon: "pen" },
@@ -135,16 +135,16 @@ export const VERTICALS: Record<"universal" | "barbers", Vertical> = {
   barbers: {
     slug: "barbers",
     path: "/barbers",
-    title: "OLLO for Barbers — Built by barbers. For the industry. Barbershop booking software",
+    title: "foliyo for Barbers — Built by barbers. For the industry. Barbershop booking software",
     description: "Barbershop booking software: online booking, a drag-and-drop calendar, deposits and pay-at-the-chair, barber pay runs, reminders by text, WhatsApp and email. Set up your shop in two minutes. Free to start.",
     audience: "Barbershops and independent barbers",
     heroEyebrow: "Booking software for barbers, hairdressers &amp; salons",
     heroH1: "Built by barbers.<br/>For the industry.",
-    heroLede: "OLLO is the all-in-one booking system designed specifically for barbers, hairdressers and salons. With one clear monthly price, WhatsApp confirmations and everything you need to run your shop — we’ve taken the best bits from other platforms and removed all the things you don’t want.",
+    heroLede: "foliyo is the all-in-one booking system designed specifically for barbers, hairdressers and salons. With one clear monthly price, WhatsApp confirmations and everything you need to run your shop — we’ve taken the best bits from other platforms and removed all the things you don’t want.",
     heroImg: { src: "/static/landing/hero-barber.webp", small: "/static/landing/hero-barber-sm.webp", alt: "A barber cutting a client’s hair" },
-    everythingLede: "From the first click to the final cut, OLLO keeps your shop running smoothly. Manage bookings, clients, barbers, payments and more — all in one easy-to-use platform.",
+    everythingLede: "From the first click to the final cut, foliyo keeps your shop running smoothly. Manage bookings, clients, barbers, payments and more — all in one easy-to-use platform.",
     whyH2: "We listened to the industry.<br/>Then we built what we wanted.",
-    whyLede: "After 20 years behind the chair, we’ve used almost every booking system on the market. We loved some things, we hated others. So we created OLLO — a complete system built by barbers, for barbers, hairdressers and salon owners.",
+    whyLede: "After 20 years behind the chair, we’ve used almost every booking system on the market. We loved some things, we hated others. So we created foliyo — a complete system built by barbers, for barbers, hairdressers and salon owners.",
     script: "Built by barbers.",
     actionH2: "Book a haircut<br/>in 7 seconds.",
     steps: ["Select your barber or stylist", "Choose your service", "Pick a time", "Confirm & you’re all set"],
@@ -157,7 +157,7 @@ export const VERTICALS: Record<"universal" | "barbers", Vertical> = {
     quotes: BARBER_QUOTES,
     faqH2: "Questions barbers ask",
     faqs: BARBER_FAQS,
-    finalH2: "Join hundreds of barbers, hairdressers and salons already using OLLO.",
+    finalH2: "Join hundreds of barbers, hairdressers and salons already using foliyo.",
     footerTag: "Built by barbers. For the industry.",
   },
 };
@@ -167,7 +167,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
   const ld = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    name: "OLLO",
+    name: "foliyo",
     applicationCategory: "BusinessApplication",
     operatingSystem: "Web",
     description,
@@ -180,12 +180,12 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}"/>
 <link rel="canonical" href="${esc(origin)}${v.path === "/" ? "/" : v.path}"/>
-<meta property="og:type" content="website"/><meta property="og:site_name" content="OLLO"/>
+<meta property="og:type" content="website"/><meta property="og:site_name" content="foliyo"/>
 <meta property="og:title" content="${esc(title)}"/><meta property="og:description" content="${esc(description)}"/>
 <meta property="og:url" content="${esc(origin)}${v.path === "/" ? "/" : v.path}"/><meta property="og:image" content="${esc(origin)}${v.heroImg.src}"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="theme-color" content="#0b1a17"/>
-<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/><link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>
 <link rel="stylesheet" href="/static/design.css"/>
 <link rel="stylesheet" href="/static/landing.css"/>
 <script type="application/ld+json">${JSON.stringify(ld)}</script>
@@ -193,7 +193,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
 <body class="landing">
 <header class="l-header">
   <div class="l-wrap l-header-in">
-    <a class="l-brand" href="/" aria-label="OLLO home"><img src="/static/brand/ollo-wordmark.svg" alt="OLLO" width="118" height="34"/></a>
+    <a class="l-brand" href="/" aria-label="foliyo home"><img src="/static/brand/foliyo-wordmark-white.svg" alt="foliyo" width="91" height="34"/></a>
     <nav class="l-nav" aria-label="Site">
       <a href="#features">Features</a>
       <a href="#pricing">Pricing</a>
@@ -225,19 +225,19 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
           <li><i class="l-ico">${ICO.chat}</i>WhatsApp Integration</li>
           <li><i class="l-ico">${ICO.slash}</i>No Hidden Costs</li>
         </ul>
-        ${v.industries ? `<a class="l-hero-vertical" href="/barbers">${ICO.scissors} Run a barbershop? <b>See OLLO for barbers →</b></a>` : `<a class="l-hero-vertical" href="/">${ICO.check} Not a barber? <b>OLLO works for every appointment business →</b></a>`}
+        ${v.industries ? `<a class="l-hero-vertical" href="/barbers">${ICO.scissors} Run a barbershop? <b>See foliyo for barbers →</b></a>` : `<a class="l-hero-vertical" href="/">${ICO.check} Not a barber? <b>foliyo works for every appointment business →</b></a>`}
       </div>
       <div class="l-hero-visual">
         <picture>
           <source media="(max-width: 720px)" srcset="${v.heroImg.small}"/>
           <img class="l-hero-photo" src="${v.heroImg.src}" alt="${esc(v.heroImg.alt)}" width="768" height="1024" fetchpriority="high"/>
         </picture>
-        <div class="l-phone l-phone-hero" role="img" aria-label="A WhatsApp confirmation from OLLO: appointment confirmed for Friday 15th May at 11:30am with Sam.">
-          <div class="l-phone-top"><img src="/static/brand/ollo-wordmark.svg" alt="" width="60" height="17"/></div>
+        <div class="l-phone l-phone-hero" role="img" aria-label="A WhatsApp confirmation from foliyo: appointment confirmed for Friday 15th May at 11:30am with Sam.">
+          <div class="l-phone-top"><img src="/static/brand/foliyo-wordmark-ink.svg" alt="" width="45" height="17"/></div>
           <div class="l-phone-card">
             <b>Appointment Confirmed!</b>
             <p>Hi Jake, your appointment is confirmed for <strong>Friday 15th May at 11:30am</strong> with <strong>Sam</strong>.</p>
-            <p>See you soon!<br/>— The team at OLLO</p>
+            <p>See you soon!<br/>— The team at foliyo</p>
             <span class="l-phone-btn">View Details</span>
           </div>
         </div>
@@ -255,9 +255,9 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
         <a class="l-btn l-btn-green" href="#why" data-testid="landing-cta-features">See all features</a>
       </div>
       <div class="l-devices">
-        <div class="l-laptop" role="img" aria-label="The OLLO calendar on a laptop: a week of colour-coded appointments across the team.">
+        <div class="l-laptop" role="img" aria-label="The foliyo calendar on a laptop: a week of colour-coded appointments across the team.">
           <div class="l-laptop-screen">
-            <div class="l-cal-side"><img src="/static/brand/ollo-mark.svg" alt="" width="18" height="18"/><span class="on">Calendar</span><span>Clients</span><span>Team</span><span>Payments</span><span>Reports</span><span>Settings</span></div>
+            <div class="l-cal-side"><img src="/static/brand/foliyo-icon.svg" alt="" width="18" height="18"/><span class="on">Calendar</span><span>Clients</span><span>Team</span><span>Payments</span><span>Reports</span><span>Settings</span></div>
             <div class="l-cal">
               <div class="l-cal-head"><b>Fri, 15 May 2026</b><span>Jay · Marcus · Dani</span></div>
               <div class="l-cal-grid">
@@ -271,7 +271,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
           <div class="l-laptop-base"></div>
         </div>
         <div class="l-phone l-phone-book" role="img" aria-label="The client booking screen on a phone.">
-          <div class="l-phone-top"><img src="/static/brand/ollo-wordmark.svg" alt="" width="52" height="15"/></div>
+          <div class="l-phone-top"><img src="/static/brand/foliyo-wordmark-ink.svg" alt="" width="40" height="15"/></div>
           <p class="l-phone-h">Book an appointment</p>
           <ul class="l-phone-list">
             <li><span>Dave Smith</span><small>10:00 · Skin fade</small></li>
@@ -285,11 +285,11 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
     </div>
   </section>
 
-  <!-- 3. Why OLLO -->
+  <!-- 3. Why foliyo -->
   <section id="why" class="l-dark l-why" aria-labelledby="why-heading">
     <div class="l-wrap l-two l-two-wide">
       <div>
-        <p class="l-eyebrow">Why OLLO?</p>
+        <p class="l-eyebrow">Why foliyo?</p>
         <h2 id="why-heading">${v.whyH2}</h2>
         <p class="l-lede">${v.whyLede}</p>
         <p class="l-script" aria-hidden="true">${v.script}</p>
@@ -309,11 +309,11 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
   <section id="about" class="l-light l-action" aria-labelledby="action-heading">
     <div class="l-wrap l-two">
       <div class="l-action-visual">
-        <div class="l-phone l-phone-wa" role="img" aria-label="A WhatsApp message from OLLO confirming an appointment.">
-          <div class="l-phone-top l-phone-top-wa"><img src="/static/brand/ollo-mark.svg" alt="" width="22" height="22"/><b>OLLO</b><small>online</small></div>
+        <div class="l-phone l-phone-wa" role="img" aria-label="A WhatsApp message from foliyo confirming an appointment.">
+          <div class="l-phone-top l-phone-top-wa"><img src="/static/brand/foliyo-icon.svg" alt="" width="22" height="22"/><b>foliyo</b><small>online</small></div>
           <div class="l-wa-bubble">
             <p>Hi Jake,<br/>Your appointment is confirmed for <strong>Friday 15th May at 11:30am</strong> with <strong>Sam</strong>.</p>
-            <p>See you soon!<br/>— The team at OLLO</p>
+            <p>See you soon!<br/>— The team at foliyo</p>
             <span class="l-phone-btn l-phone-btn-light">View Details</span>
             <time>11:02</time>
           </div>
@@ -322,7 +322,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
       <div>
         <p class="l-eyebrow">See it in action</p>
         <h2 id="action-heading">${v.actionH2}</h2>
-        <p class="l-lede">Fast. Simple. No faff. Whether it’s a new booking, rebooking or a last-minute slot — OLLO makes it easy for your clients and your team.</p>
+        <p class="l-lede">Fast. Simple. No faff. Whether it’s a new booking, rebooking or a last-minute slot — foliyo makes it easy for your clients and your team.</p>
         <ol class="l-steps">
           ${v.steps.map((t, i) => `<li><span>${i + 1}</span>${esc(t)}</li>`).join("")}
         </ol>
@@ -359,7 +359,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
           </ul>
         </div>
         <div class="l-compare-card l-compare-ollo">
-          <p class="l-compare-h"><img src="/static/brand/ollo-wordmark.svg" alt="OLLO" width="76" height="22"/></p>
+          <p class="l-compare-h"><img src="/static/brand/foliyo-wordmark-white.svg" alt="foliyo" width="59" height="22"/></p>
           <ul>
             <li><i class="l-tick">${ICO.check}</i>No commission, ever</li>
             <li><i class="l-tick">${ICO.check}</i>Every feature on every plan</li>
@@ -441,10 +441,10 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
       <div class="l-center l-center-dark">
         <p class="l-eyebrow">Who it’s for</p>
         <h2 id="industries-heading">One system. Every appointment business.</h2>
-        <p class="l-lede l-lede-center">Same calendar, same fair price. Pick your trade to see how shops like yours use OLLO.</p>
+        <p class="l-lede l-lede-center">Same calendar, same fair price. Pick your trade to see how shops like yours use foliyo.</p>
       </div>
       <ul class="l-industries-grid">
-        ${v.industries.map((i) => `<li class="${i.href ? "l-ind-link" : ""}">${i.href ? `<a href="${i.href}">` : "<div>"}<i class="l-ico">${ICO[i.icon as keyof typeof ICO] || ICO.check}</i><b>${esc(i.name)}</b><p>${esc(i.blurb)}</p>${i.href ? `<span class="l-ind-more">See OLLO for ${esc(i.name.toLowerCase())} →</span></a>` : "</div>"}</li>`).join("")}
+        ${v.industries.map((i) => `<li class="${i.href ? "l-ind-link" : ""}">${i.href ? `<a href="${i.href}">` : "<div>"}<i class="l-ico">${ICO[i.icon as keyof typeof ICO] || ICO.check}</i><b>${esc(i.name)}</b><p>${esc(i.blurb)}</p>${i.href ? `<span class="l-ind-more">See foliyo for ${esc(i.name.toLowerCase())} →</span></a>` : "</div>"}</li>`).join("")}
       </ul>
     </div>
   </section>` : ""}
@@ -502,10 +502,10 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
 <footer class="l-footer l-dark">
   <div class="l-wrap l-footer-in">
     <div>
-      <a class="l-brand" href="/" aria-label="OLLO home"><img src="/static/brand/ollo-wordmark.svg" alt="OLLO" width="96" height="28"/></a>
-      <p class="l-tiny">© ${new Date().getFullYear()} OLLO. All rights reserved.</p>
+      <a class="l-brand" href="/" aria-label="foliyo home"><img src="/static/brand/foliyo-wordmark-white.svg" alt="foliyo" width="75" height="28"/></a>
+      <p class="l-tiny">© ${new Date().getFullYear()} foliyo. All rights reserved.</p>
     </div>
-    <nav aria-label="Footer"><a href="/">OLLO for every business</a><a href="/barbers">OLLO for barbers</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/signin">Sign in</a><a href="/signup">Create your shop</a></nav>
+    <nav aria-label="Footer"><a href="/">foliyo for every business</a><a href="/barbers">foliyo for barbers</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/signin">Sign in</a><a href="/signup">Create your shop</a></nav>
     <div class="l-footer-right">
       <div class="l-social" aria-label="Social">
         <a href="https://instagram.com" aria-label="Instagram" rel="noopener">${ICO.ig}</a>

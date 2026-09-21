@@ -1,5 +1,5 @@
-// WhatsApp via Infobip — one OLLO sender shared by every shop. The shop's name is the first
-// placeholder in every template, so "Fade Society: you're booked…" arrives from OLLO's number.
+// WhatsApp via Infobip — one foliyo sender shared by every shop. The shop's name is the first
+// placeholder in every template, so "Fade Society: you're booked…" arrives from foliyo's number.
 //
 // Meta's rules shape everything here:
 //   - a business may only *start* a conversation with an approved template (fixed wording, {{n}}
@@ -33,8 +33,8 @@ async function infobip<T>(path: string, body?: unknown, method = body ? "POST" :
   return { ok: res.ok, status: res.status, json };
 }
 
-// ---- OLLO's template set -----------------------------------------------------------------------
-// Names as registered on the OLLO sender (scripts/whatsapp-templates.mjs submits these). Body text
+// ---- foliyo's template set -----------------------------------------------------------------------
+// Names as registered on the foliyo sender (scripts/whatsapp-templates.mjs submits these). Body text
 // must match what Meta approved, so the copy lives here, not in messaging.ts. {{1}} is always the
 // shop name; the manage/book link is a URL button with a dynamic suffix where allowed.
 export type WaTemplate = { name: string; category: "UTILITY" | "AUTHENTICATION" | "MARKETING"; body: string; footer?: string; button?: { text: string; urlBase: string }; placeholders: string[] };
@@ -51,7 +51,7 @@ export const WA_TEMPLATES: Record<string, WaTemplate> = {
   staff_invite: { name: "ollo_team_invite", category: "UTILITY", body: "{{1}}: {{2}} has invited you to join the team on the booking system.", button: { text: "Accept invitation", urlBase: "{{origin}}/workspace?invite=" }, placeholders: ["shop", "inviter"] },
   password_reset: { name: "ollo_password_reset", category: "AUTHENTICATION", body: "{{1}}: reset your booking system password with the button below. It works for 30 minutes.", button: { text: "Reset password", urlBase: "{{origin}}/reset?token=" }, placeholders: ["shop"] },
 };
-// Infobip's stock templates, usable on the shared test sender before OLLO's own are approved.
+// Infobip's stock templates, usable on the shared test sender before foliyo's own are approved.
 const STOCK: Partial<Record<string, { name: string; map: (v: Record<string, string>) => string[] }>> = {
   booking_reminder: { name: "appointment_reminder", map: (v) => [v.first || "there", v.date || v.when || "", v.time || ""] },
   booking_reminder_soon: { name: "appointment_reminder", map: (v) => [v.first || "there", "today", v.time || ""] },
@@ -62,7 +62,7 @@ const STOCK: Partial<Record<string, { name: string; map: (v: Record<string, stri
 };
 
 export type WaPayload = { template: string; placeholders: string[]; buttonSuffix?: string; language?: string; stock?: boolean; fallback: string };
-// Build what to send for an OLLO message. `vars` are the same vars messaging.ts renders SMS from;
+// Build what to send for an foliyo message. `vars` are the same vars messaging.ts renders SMS from;
 // `fallback` is the SMS text, used for free-text replies inside the 24 h window.
 export function waPayload(template: MessageTemplate, vars: Record<string, unknown>, shopName: string, smsText: string): WaPayload | null {
   const v = Object.fromEntries(Object.entries(vars).map(([k, x]) => [k, x == null ? "" : String(x)]));

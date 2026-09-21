@@ -202,7 +202,7 @@ export function Checkout({
           </Button>
         )}
         {method === "CARD" && cardLive && !card && (
-          <Button variant="ghost" disabled={!canRecord} onClick={() => record(true)} data-testid="record-payment" title="Card taken on a machine that isn't connected to OLLO">
+          <Button variant="ghost" disabled={!canRecord} onClick={() => record(true)} data-testid="record-payment" title="Card taken on a machine that isn't connected to foliyo">
             Record card taken elsewhere
           </Button>
         )}
@@ -277,7 +277,7 @@ export function CardAtChair({ api, booking, amount, live, onPaid, onClose }: { a
   const total = money(amount.service_pence + amount.tip_pence);
   return (
     <section className="card-at-chair" aria-label="Card payment" data-testid="card-at-chair">
-      {!live && <p className="workspace-footnote">Card through OLLO isn’t switched on yet. Once it is, this shows a QR the customer taps to pay on their own phone, or sends the amount to your reader.</p>}
+      {!live && <p className="workspace-footnote">Card through foliyo isn’t switched on yet. Once it is, this shows a QR the customer taps to pay on their own phone, or sends the amount to your reader.</p>}
       {error && <p className="workspace-error" role="alert">{error}</p>}
       {mode === "pick" && (
         <div className="card-pick">
@@ -301,7 +301,7 @@ export function CardAtChair({ api, booking, amount, live, onPaid, onClose }: { a
             <>
               <img src={qr} alt={`QR code to pay ${total}`} className="card-qr" />
               <p><strong>{total}</strong> · ask them to point their camera at the code</p>
-              <p className="workspace-footnote">Opens a secure OLLO checkout on their phone. Apple Pay / Google Pay if they have it, card if not.</p>
+              <p className="workspace-footnote">Opens a secure foliyo checkout on their phone. Apple Pay / Google Pay if they have it, card if not.</p>
               <div className="panel-actions-row">
                 {booking.phone && <Button variant="secondary" onClick={() => send("SMS")}>Text it</Button>}
                 {booking.email && <Button variant="secondary" onClick={() => send("EMAIL")}>Email it</Button>}

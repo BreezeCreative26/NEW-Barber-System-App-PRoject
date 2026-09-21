@@ -1,4 +1,4 @@
-// OLLO → shop invoicing that works with or without Stripe.
+// foliyo → shop invoicing that works with or without Stripe.
 //
 // Period invoices: one per shop per calendar month, built from the same `estimate()` the Billing
 // tab shows (plan, seats, add-ons, metered usage, discounts), plus any pending credits / charges.
@@ -219,7 +219,7 @@ export async function sendInvoice(db: DB, inv: InvoiceRow, toOverride: string, a
   const now = Date.now();
   const link = `${origin}/invoice/${inv.id}?t=${inv.view_token}`;
   const pb = await platformBilling(db);
-  const stmts = enqueue(db, { ...shop, name: pb.company_name || "OLLO" } as typeof shop, { email: to, name: bt.owner || bt.name }, inv.kind === "CREDIT_NOTE" ? "credit_note" : "invoice", {
+  const stmts = enqueue(db, { ...shop, name: pb.company_name || "foliyo" } as typeof shop, { email: to, name: bt.owner || bt.name }, inv.kind === "CREDIT_NOTE" ? "credit_note" : "invoice", {
     number: inv.number, total: money(inv.total_pence), due: inv.due_at ? new Date(inv.due_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "", link, shop: bt.name, status: inv.status, bank: pb.bank_details,
   }, { related: { type: "invoice", id: inv.id + ":" + now }, origin, channel: "EMAIL", now, force: true });
   if (stmts.length) { await db.batch(stmts); await drain(db, stmts.length, now, { type: "invoice", id: inv.id + ":" + now }).catch(() => {}); }
