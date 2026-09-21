@@ -17,7 +17,7 @@ export type Account = {
   version: number;
 };
 export type AppEnv = {
-  Bindings: { DB: Database; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string };
+  Bindings: { DB: Database; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string; OLLO_ADMIN_EMAILS?: string };
   Variables: { shopId: string; actor: string; account: Account | null };
 };
 type Ctx = Context<AppEnv>;

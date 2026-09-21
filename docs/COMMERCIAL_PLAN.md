@@ -265,8 +265,11 @@ Effort: **0.5 day**.
 | Resolver wired into: calendar "Edit today's hours", "Day off", Team → weekly hours, dated hours, shop closure | ✅ live | `bba295e` |
 | Shifts section: Day roster · Week grid · Leave | ✅ live | `870dea1`, `94cd6f2` |
 | Tests: `tests/schedule-conflicts.spec.ts` (3), updated leave test | ✅ | |
+| Billing foundation: plans/features/subscriptions schema (`0019_billing.sql`), 14-day trial (no card), entitlements + read-only gate, seat sync with proration note, add-on toggles, SMS/WA/concierge usage metering, discount codes, **no VAT**, Settings → Billing tab | ✅ live | `369b4cc` |
+| Master admin (`/admin`, `/api/admin/*`): 404 to non-admins, SUPER/SUPPORT/FINANCE roles, Overview tiles (incl. VAT-threshold), Shops list/detail (Summary · Billing · Features · Messaging · Support · Audit), extend/pause/cancel/plan, grant/block features, discount codes, credits/adjustments, notes, 30-min impersonation with red bar, Catalogue/Invoices/Ops/Team pages, every action audited with a reason | ✅ | this commit |
+| Tests: `tests/billing.spec.ts`, `tests/admin.spec.ts` | ✅ | |
 
-Not yet: shop opening-hours change (Settings → General) through the resolver — currently still saves then flags; `schedule_change_log` table; Shifts "apply pattern to N weeks".
+Not yet: Stripe Billing sync (needs live key + webhook secret); first SUPER admin is seeded from `OLLO_ADMIN_EMAILS` (comma-separated, set in Vercel env); shop opening-hours change (Settings → General) through the resolver — currently still saves then flags; `schedule_change_log` table; Shifts "apply pattern to N weeks".
 
 ## 5. Order of work and milestones
 

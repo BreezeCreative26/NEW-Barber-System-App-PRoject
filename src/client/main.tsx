@@ -2,6 +2,7 @@ import { Component, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./fonts.css";
 import { Workspace } from "./Workspace";
+import { Admin } from "./Admin";
 import { PublicBooking, ManageBooking } from "./PublicBooking";
 import { ShopPage } from "./ShopPage";
 import { CustomerArea } from "./CustomerArea";
@@ -55,10 +56,12 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
   }
 }
 const [, area, param] = location.pathname.split("/");
-const APP_AREAS = new Set(["workspace", "signin", "signup", "forgot", "reset", ""]);
+const APP_AREAS = new Set(["workspace", "signin", "signup", "forgot", "reset", "admin", ""]);
 createRoot(document.getElementById("root")!).render(
   <AppErrorBoundary>
-    {area === "book" && param ? (
+    {area === "admin" ? (
+      <Admin />
+    ) : area === "book" && param ? (
       <PublicBooking slug={decodeURIComponent(param)} />
     ) : area === "manage" && param ? (
       <ManageBooking token={param} />

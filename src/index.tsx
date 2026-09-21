@@ -17,9 +17,10 @@ import { handleConnectEvent, type ConnectEvent } from "./server/payouts";
 import { settleByMetadata, type PaymentRequest } from "./server/chair";
 import { applyDeliveryReports, applyInbound, waWebhookOk } from "./server/whatsapp";
 import voice from "./server/voice";
+import admin from "./server/admin";
 import type { Database } from "./db/client";
 import type { ObjectStore } from "./db/storage";
-export type AppBindings = { DB: Database; MEDIA?: ObjectStore; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string };
+export type AppBindings = { DB: Database; MEDIA?: ObjectStore; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string; OLLO_ADMIN_EMAILS?: string };
 const app = new Hono<{ Bindings: AppBindings; Variables: { shopId: string; actor: string; account: null } }>();
 // Lazy sweep: any public/app API request may trigger the reminder + outbox sweep, at most once per
 // 5 minutes across the deployment (platform_kv claim). Runs after the response so it never slows
@@ -87,6 +88,7 @@ app.route("/api/sandbox", sandbox);
 app.route("/api/public", pub);
 // AI receptionist tools (ElevenLabs agents). Per-shop bearer secret, no cookies, cross-origin by design.
 app.route("/api/voice", voice);
+app.route("/api/admin", admin);
 app.get("/api/health", (c) =>
   c.json({
     status: "ok",
@@ -157,6 +159,8 @@ app.all("/api/origin-check", (c) => {
   });
 });
 app.get("/workspace", workspaceShell);
+app.get("/admin", workspaceShell);
+app.get("/admin/*", workspaceShell);
 app.get("/workspace/setup", workspaceShell);
 app.get("/signin", workspaceShell);
 app.get("/signup", workspaceShell);

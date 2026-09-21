@@ -1150,6 +1150,28 @@ const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: s
   { key: "billing", label: "Billing", hint: "Your OLLO plan, usage, invoices", icon: "file", owner: true },
 ];
 
+
+// Shown when OLLO support opened this workspace from the admin panel (cookie set by /api/admin/…/impersonate).
+function ImpersonationBar() {
+  const [info, setInfo] = useState<{ admin: string; until: number } | null>(() => {
+    const m = document.cookie.match(/(?:^|; )ollo_impersonating=([^;]*)/);
+    try { return m ? (JSON.parse(decodeURIComponent(m[1])) as { admin: string; until: number }) : null; } catch { return null; }
+  });
+  useEffect(() => {
+    if (!info) return;
+    const t = setInterval(() => { if (Date.now() > info.until) setInfo(null); }, 15000);
+    return () => clearInterval(t);
+  }, [info]);
+  if (!info) return null;
+  const mins = Math.max(0, Math.ceil((info.until - Date.now()) / 60000));
+  return (
+    <div className="impersonation-bar" role="status" data-testid="impersonation-bar">
+      <Icon name="shield" size={16} /> <strong>OLLO support session</strong> · {info.admin} is viewing this shop as the owner · ends in {mins} min ·{" "}
+      <a href="/admin/shops">Back to admin</a>
+    </div>
+  );
+}
+
 export function Workspace() {
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [inviteToken, setInviteToken] = useState(
@@ -1750,6 +1772,7 @@ export function Workspace() {
     );
   return (
     <div className="workspace">
+      <ImpersonationBar />
       <a className="skip-link" href="#workspace-main">
         Skip to content
       </a>

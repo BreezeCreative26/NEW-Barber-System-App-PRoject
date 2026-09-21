@@ -1739,3 +1739,62 @@ td[data-state="leave"] .shifts-cell { background: #fbf6ee; border-color: #ead9bf
 .billing-timeline li small { color: var(--muted); white-space: nowrap; }
 .billing-timeline li svg { color: var(--accent-dark); }
 @media (max-width: 900px) { .billing-grid { grid-template-columns: 1fr; } }
+
+/* ---------- OLLO admin ---------- */
+.ollo-admin-shell { min-height: 100dvh; display: flex; background: #f4f3ee; color: #0b1a17; --rail: #0b1a17; --accent: #0b1a17; --accent-dark: #000; }
+.ollo-admin-shell .rail { top: 0; height: 100dvh; }
+.ollo-admin-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.admin-top { display: flex; justify-content: space-between; align-items: center; padding: 10px 24px; border-bottom: 1px solid #d9d6cc; background: #fbfaf6; position: sticky; top: 0; z-index: 5; }
+.admin-brand { font-size: 18px; letter-spacing: -0.02em; } .admin-brand span { color: #6b6f6d; font-weight: 500; margin-left: 6px; }
+.admin-me { display: flex; align-items: center; gap: 12px; font-size: 13px; } .admin-me small { color: #6b6f6d; }
+.ollo-admin-main { padding: 24px; display: grid; gap: 20px; align-content: start; }
+.admin-section { display: grid; gap: 16px; }
+.admin-section h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; } .admin-section h1 small { font-size: 14px; color: #6b6f6d; font-weight: 500; margin-left: 8px; }
+.admin-section h2 { margin: 8px 0 0; font-size: 16px; }
+.admin-section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.admin-section-head .toolbar { display: flex; gap: 8px; align-items: center; }
+.admin-section-head select, .admin-section-head input { height: var(--ctl-h); border-radius: var(--ctl-r); border: 1px solid #cfcbbf; background: #fff; padding: 0 10px; font: inherit; }
+.admin-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.admin-tile { display: grid; gap: 4px; text-align: left; padding: 14px 16px; border: 1px solid #d9d6cc; border-radius: 14px; background: #fff; font: inherit; color: inherit; cursor: pointer; }
+.admin-tile:disabled { cursor: default; } .admin-tile.warn { border-color: #d9a58f; background: #fff7f3; }
+.admin-tile small { color: #6b6f6d; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; } .admin-tile strong { font-size: 24px; letter-spacing: -0.02em; } .admin-tile span { color: #6b6f6d; font-size: 12px; }
+.admin-pre { font-size: 12px; background: #fff; border: 1px solid #d9d6cc; border-radius: 12px; padding: 12px; overflow: auto; max-height: 260px; margin: 0; }
+.admin-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d9d6cc; border-radius: 14px; overflow: hidden; font-size: 13px; }
+.admin-table th, .admin-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #ecebe4; vertical-align: top; }
+.admin-table th { font-size: 11px; color: #6b6f6d; text-transform: uppercase; letter-spacing: .04em; background: #fbfaf6; }
+.admin-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.admin-table tr.clickable { cursor: pointer; } .admin-table tr.clickable:hover td { background: #f6f5ef; }
+.admin-table small { color: #6b6f6d; } .admin-table.small { font-size: 12px; }
+.admin-flag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: #fdebe4; color: #8a4a3a; margin: 0 4px 2px 0; }
+.admin-ok { color: #2f6152; font-size: 12px; }
+.admin-back { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.admin-shop-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.admin-shop-head p { margin: 4px 0 0; color: #6b6f6d; font-size: 13px; }
+.admin-shop-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.admin-tabs { width: fit-content; }
+.admin-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.admin-card { display: grid; gap: 4px; padding: 14px 16px; border: 1px solid #d9d6cc; border-radius: 14px; background: #fff; }
+.admin-card small { color: #6b6f6d; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; } .admin-card strong { font-size: 20px; } .admin-card span { color: #6b6f6d; font-size: 12px; }
+.admin-card-wide { grid-column: 1 / -1; }
+.admin-two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.ollo-admin-shell .workspace-panel { background: #fff; border: 1px solid #d9d6cc; border-radius: 14px; padding: 16px; display: grid; gap: 10px; }
+.ollo-admin-shell .workspace-panel h3 { margin: 0; font-size: 15px; } .ollo-admin-shell .workspace-panel h4 { margin: 8px 0 0; font-size: 13px; color: #6b6f6d; text-transform: uppercase; letter-spacing: .04em; }
+.admin-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.admin-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; } .admin-list li { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.admin-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; } .admin-notes li { padding: 10px 12px; border: 1px solid #ecebe4; border-radius: 10px; background: #fbfaf6; } .admin-notes p { margin: 0 0 4px; white-space: pre-wrap; font-size: 13px; } .admin-notes small { color: #6b6f6d; }
+.admin-inline-form fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 10px; } .admin-inline-form legend { font-weight: 600; margin-bottom: 6px; }
+.ollo-admin-shell .workspace-form-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.admin-feature-row { padding: 8px 12px !important; }
+.admin-feature-grid { display: grid; grid-template-columns: 1.2fr 1.6fr .6fr .7fr .7fr .7fr auto auto 1fr auto; gap: 8px; align-items: end; }
+.admin-feature-grid .workspace-field > span { font-size: 11px; }
+.admin-mini-form { display: flex; gap: 6px; } .admin-mini-form input { height: 32px; border-radius: 8px; border: 1px solid #cfcbbf; padding: 0 8px; font: inherit; font-size: 12px; }
+.admin-denied { display: grid; place-content: center; text-align: center; gap: 8px; }
+.impersonation-bar { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #b0413e; color: #fff; font-size: 13px; }
+.impersonation-bar a { color: #fff; text-decoration: underline; }
+@media (max-width: 1000px) { .admin-tiles { grid-template-columns: repeat(2, 1fr); } .admin-cards { grid-template-columns: 1fr 1fr; } .admin-two { grid-template-columns: 1fr; } .admin-feature-grid { grid-template-columns: repeat(3, 1fr); } }
+.ollo-admin-shell { align-items: stretch; }
+.ollo-admin-shell .rail { position: sticky; top: 0; height: 100dvh; align-self: flex-start; }
+.ollo-admin-body { align-self: stretch; }
+.ollo-admin-main { padding-top: 20px; }
+body:has(.ollo-admin-shell) { margin: 0; padding: 0; background: #f4f3ee; }
+#root:has(.ollo-admin-shell) { display: block; padding: 0; margin: 0; max-width: none; }
