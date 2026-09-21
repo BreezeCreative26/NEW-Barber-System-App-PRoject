@@ -68,7 +68,7 @@ import {
   type StoredBooking,
   type Holiday,
   type AuditEvent,
-} from "./domain";
+ shopBuffer } from "./domain";
 
 import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { optimiseImage } from "./images";
@@ -691,7 +691,7 @@ sandbox.put("/shop", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE shops SET name=?,address=?,timezone=?,currency=?,opens=?,closes=?,closed_days=?,week_json=?,deposit_pence=?,cancel_hours=?,no_show_grace=?,till_access=?,version=version+1 WHERE id=? AND version=?",
+      "UPDATE shops SET name=?,address=?,timezone=?,currency=?,opens=?,closes=?,closed_days=?,week_json=?,deposit_pence=?,cancel_hours=?,no_show_grace=?,till_access=?,buffer_min=?,card_colour=?,version=version+1 WHERE id=? AND version=?",
     ).bind(
       b.name,
       b.address,
@@ -705,6 +705,8 @@ sandbox.put("/shop", async (c) => {
       b.cancel_hours,
       b.no_show_grace,
       b.till_access,
+      b.buffer_min,
+      b.card_colour,
       c.get("shopId"),
       b.version,
     ),
@@ -830,7 +832,22 @@ sandbox.get("/customers", async (c) => {
     name: "lower(c.name) ASC",
     next: "(MIN(CASE WHEN b.start_at>? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') THEN b.start_at END) IS NULL), MIN(CASE WHEN b.start_at>? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') THEN b.start_at END) ASC",
   }[sort];
-  const binds: unknown[] = [now, now, assigned, assigned, c.get("shopId"), q, q, q, q, q];
+  // Search: every word must match somewhere (name, email, tags, notes); digits match the phone with
+  // spaces/dashes/+44 stripped, so "07700 900", "7700900" and "+44 7700" all find 07700900123.
+  const words = q.split(/\s+/).filter(Boolean);
+  const digits = q.replace(/\D/g, "").replace(/^44/, "0").replace(/^0044/, "0");
+  const searchClauses: string[] = [];
+  const searchBinds: unknown[] = [];
+  for (const wd of words) {
+    searchClauses.push("(c.name ILIKE '%'||?||'%' OR c.email ILIKE '%'||?||'%' OR c.tags ILIKE '%'||?||'%' OR c.notes ILIKE '%'||?||'%')");
+    searchBinds.push(wd, wd, wd, wd);
+  }
+  let searchSql = searchClauses.length ? searchClauses.join(" AND ") : "TRUE";
+  if (digits.length >= 3) {
+    searchSql = `((${searchSql}) OR regexp_replace(c.phone, '\\D', '', 'g') LIKE '%'||?||'%' OR regexp_replace(regexp_replace(c.phone, '\\D', '', 'g'), '^44', '0') LIKE '%'||?||'%')`;
+    searchBinds.push(digits, digits);
+  }
+  const binds: unknown[] = [now, now, assigned, assigned, c.get("shopId"), ...searchBinds];
   if (filter === "new") binds.push(now - 30 * 86400000);
   if (filter === "lapsed") binds.push(now - 60 * 86400000, now);
   if (filter === "upcoming") binds.push(now);
@@ -843,7 +860,7 @@ sandbox.get("/customers", async (c) => {
      FROM customers c
      LEFT JOIN bookings b ON b.shop_id=c.shop_id AND b.customer_id=c.id AND (? IS NULL OR b.staff_id=?)
      WHERE c.shop_id=? AND c.merged_into IS NULL
-     AND (?='' OR c.name ILIKE '%'||?||'%' OR c.phone LIKE '%'||?||'%' OR c.email ILIKE '%'||?||'%' OR c.tags ILIKE '%'||?||'%')
+     AND (${searchSql})
      GROUP BY c.id HAVING ${having} ORDER BY ${order} LIMIT ?`,
   )
     .bind(...binds)
@@ -2543,8 +2560,8 @@ export async function createBooking(
   const now = Date.now();
   const bookingId = id();
   const statement = c.env.DB.prepare(
-    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id,deposit_status,deposit_hold_until,payment_mode,contact_pref)
-  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
+    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id,deposit_status,deposit_hold_until,payment_mode,contact_pref,buffer_min)
+  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
   ).bind(
     bookingId,
     sid,
@@ -2581,6 +2598,7 @@ export async function createBooking(
     options.depositHoldMin && dueAtBooking(data.shop, data.service, quote.price_pence) > 0 ? now + options.depositHoldMin * 60000 : null,
     paymentModeFor(data.shop, data.service),
     contactPref,
+    shopBuffer(data.shop),
     sid,
   );
   try {

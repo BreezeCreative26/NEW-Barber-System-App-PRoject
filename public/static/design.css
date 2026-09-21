@@ -1591,3 +1591,16 @@
 .workspace .week-strip button[aria-pressed="true"] { background: var(--accent); color: #fff; border-radius: var(--ctl-r); }
 .workspace .week-strip button { min-height: 36px; border-radius: var(--ctl-r); }
 .workspace .toolbar-select select, .workspace .select-with-icon select { border: 0 !important; box-shadow: none !important; background: transparent !important; min-height: 0 !important; height: 100% !important; border-radius: 0 !important; }
+/* "Move on timetable" arming bar */
+.move-bar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 12px; border-radius: 12px; background: var(--ollo-soft); border: 1px solid rgba(58,117,99,.25); color: var(--ink); font-size: var(--fs-14); }
+.move-bar svg { color: var(--accent-dark); flex: 0 0 auto; }
+.move-bar span { flex: 1; }
+.move-bar .button { flex: 0 0 auto; }
+.workspace:has(.move-bar) .calendar-event { opacity: .55; }
+.workspace:has(.move-bar) .timetable-slot:hover, .workspace:has(.move-bar) .calendar-slot:hover { background: var(--ollo-soft); cursor: copy; }
+
+/* Studio list header: keep both action buttons inside the column */
+.studio-list .workspace-section-heading { flex-wrap: wrap; gap: 8px; }
+.studio-list .workspace-section-heading > div:last-child,
+.studio-list .workspace-section-heading .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.studio-list .workspace-section-heading .button { min-width: 0; }

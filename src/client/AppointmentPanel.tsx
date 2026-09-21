@@ -79,6 +79,7 @@ export function AppointmentPanel({
   onClose,
   onStatus,
   onMove,
+  onPickSlot,
   onRebook,
   onEdit,
   onShare,
@@ -106,6 +107,7 @@ export function AppointmentPanel({
   onClose: () => void;
   onStatus: (status: string, reason: string) => Promise<void>;
   onMove: () => void;
+  onPickSlot?: () => void;
   onRebook: () => void;
   onEdit: () => void;
   onShare: () => void;
@@ -556,7 +558,8 @@ export function AppointmentPanel({
                   <Icon name="checks" size={16} /> {busy === "COMPLETED" ? "Saving…" : "Mark done"}
                 </Button>
               )}
-              {booking.status === "CONFIRMED" && <Button variant="secondary" onClick={goMove}>Reschedule</Button>}
+              {booking.status === "CONFIRMED" && onPickSlot && <Button variant="secondary" onClick={guarded(onPickSlot)} data-testid="pick-slot"><Icon name="calendar" size={16} /> Move on timetable</Button>}
+              {booking.status === "CONFIRMED" && <Button variant={onPickSlot ? "ghost" : "secondary"} onClick={goMove}>Reschedule</Button>}
               <Button variant="ghost" onClick={() => setConfirm({ status: "CANCELLED" })}>Cancel</Button>
               {booking.status === "CONFIRMED" && (isPast || !noShowEarly) && (
                 <Button variant="ghost" onClick={() => setConfirm({ status: "NO_SHOW" })}>No-show</Button>

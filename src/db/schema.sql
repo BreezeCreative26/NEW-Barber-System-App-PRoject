@@ -44,7 +44,9 @@ CREATE TABLE shops (
   -- approves+transfers runs on a schedule; reserve held back against disputes (basis points).
   payout_tier TEXT NOT NULL DEFAULT 'STANDARD', payrun_auto TEXT NOT NULL DEFAULT 'OFF', payrun_reserve_bps INTEGER NOT NULL DEFAULT 0,
   stripe_location_id TEXT NOT NULL DEFAULT '',
-  CONSTRAINT shops_payout_check CHECK (payout_tier IN ('STANDARD','FAST') AND payrun_auto IN ('OFF','DAILY','WEEKLY') AND payrun_reserve_bps BETWEEN 0 AND 5000)
+  CONSTRAINT shops_payout_check CHECK (payout_tier IN ('STANDARD','FAST') AND payrun_auto IN ('OFF','DAILY','WEEKLY') AND payrun_reserve_bps BETWEEN 0 AND 5000),
+  buffer_min INTEGER NOT NULL DEFAULT 10 CHECK (buffer_min BETWEEN 0 AND 60 AND buffer_min % 5 = 0),
+  card_colour TEXT NOT NULL DEFAULT 'BARBER' CHECK (card_colour IN ('BARBER','SERVICE'))
 );
 CREATE UNIQUE INDEX shops_slug ON shops(slug) WHERE slug IS NOT NULL;
 
@@ -57,7 +59,7 @@ CREATE TABLE staff (
   version INTEGER NOT NULL DEFAULT 0,
   title TEXT NOT NULL DEFAULT '',
   bio TEXT NOT NULL DEFAULT '',
-  colour TEXT NOT NULL DEFAULT 'sage' CHECK(colour IN ('sage','sand','blue','clay','plum','slate')),
+  colour TEXT NOT NULL DEFAULT 'sage' CHECK(colour IN ('sage','sand','blue','clay','plum','slate','mint','coral','gold','teal','rose','ink')),
   photo_url TEXT NOT NULL DEFAULT '',
   online_visible INTEGER NOT NULL DEFAULT 1 CHECK(online_visible IN (0,1)),
   skills TEXT NOT NULL DEFAULT '[]',
@@ -89,7 +91,7 @@ CREATE TABLE services (
   active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
   version INTEGER NOT NULL DEFAULT 0,
   description TEXT NOT NULL DEFAULT '',
-  colour TEXT NOT NULL DEFAULT 'sage' CHECK(colour IN ('sage','sand','blue','clay','plum','slate')),
+  colour TEXT NOT NULL DEFAULT 'sage' CHECK(colour IN ('sage','sand','blue','clay','plum','slate','mint','coral','gold','teal','rose','ink')),
   online_bookable INTEGER NOT NULL DEFAULT 1 CHECK(online_bookable IN (0,1)),
   payment_mode TEXT CHECK (payment_mode IS NULL OR payment_mode IN ('PREPAY','DEPOSIT','PAY_AT_VISIT')),
   popular INTEGER NOT NULL DEFAULT 0 CHECK(popular IN (0,1)),
@@ -311,7 +313,7 @@ CREATE TABLE bookings (
   start_at BIGINT NOT NULL,
   end_at BIGINT NOT NULL CHECK(end_at > start_at),
   duration_min INTEGER NOT NULL,
-  buffer_min INTEGER NOT NULL DEFAULT 10 CHECK(buffer_min = 10),
+  buffer_min INTEGER NOT NULL DEFAULT 10 CHECK(buffer_min BETWEEN 0 AND 60),
   service_name TEXT NOT NULL,
   price_pence INTEGER NOT NULL CHECK(price_pence >= 0),
   deposit_policy_pence INTEGER NOT NULL CHECK(deposit_policy_pence >= 0),

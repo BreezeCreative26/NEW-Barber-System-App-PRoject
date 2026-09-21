@@ -649,6 +649,8 @@ export function Calendar({
                   (slot) => slot.start === activeSlots[`${date}:${s.id}`],
                 )?.start ?? enabledSlots[0]?.start;
               const colour = s.colour || ["sage", "sand", "blue", "clay"][w.staff.findIndex((member) => member.id === s.id) % 4];
+              const byService = w.shop.card_colour === "SERVICE";
+              const cardColour = (b: StoredBooking) => (byService ? w.services.find((x) => x.id === b.service_id)?.colour || colour : colour);
               const lanes = layoutLanes(occupied.filter((b) => b.staff_id === s.id));
               return (
                 <div
@@ -798,7 +800,7 @@ export function Calendar({
                       <button
                         key={b.id}
                         type="button"
-                        className={`calendar-event ${colour} ${b.status === "COMPLETED" ? "finished" : ""} ${b.duration_min < 15 ? "compact-event" : ""} ${lane.lanes > 1 ? "overlapping" : ""}`}
+                        className={`calendar-event ${cardColour(b)} ${b.status === "COMPLETED" ? "finished" : ""} ${b.duration_min < 15 ? "compact-event" : ""} ${lane.lanes > 1 ? "overlapping" : ""}`}
                         data-status={b.status}
                         data-lanes={lane.lanes > 1 ? lane.lanes : undefined}
                         style={{
@@ -907,7 +909,7 @@ export function Calendar({
           <span>
             <i className="legend-buffer" aria-hidden="true" /> Buffer
           </span>
-          <span className="legend-note">Card colour = barber</span>
+          <span className="legend-note">Card colour = {w.shop.card_colour === "SERVICE" ? "service" : "barber"}</span>
         </div>
         <details className="calendar-help">
           <summary>
@@ -970,6 +972,7 @@ export type RangeBooking = Pick<
   StoredBooking,
   | "id"
   | "staff_id"
+  | "service_id"
   | "customer_name"
   | "service_name"
   | "date"
@@ -1024,6 +1027,7 @@ export function WeekView({
     );
   };
   const colour = (i: number) => staff[i]?.colour || ["sage", "sand", "blue", "clay"][i % 4];
+  const cardColour = (i: number, b: { service_id?: string }) => (w.shop.card_colour === "SERVICE" ? w.services.find((x) => x.id === b.service_id)?.colour || colour(i) : colour(i));
   return (
     <div className="week-view" aria-busy={loading}>
       <div className="week-view-head">
@@ -1103,7 +1107,7 @@ export function WeekView({
                 {cell.map((b) => (
                   <button
                     type="button"
-                    className={`week-card ${colour(i)} ${b.status === "COMPLETED" ? "done" : ""}`}
+                    className={`week-card ${cardColour(i, b)} ${b.status === "COMPLETED" ? "done" : ""}`}
                     key={b.id}
                     style={{ "--span": Math.max(1, Math.round(b.duration_min / 15)) } as CSSProperties}
                     onClick={() => onOpen(b.id)}

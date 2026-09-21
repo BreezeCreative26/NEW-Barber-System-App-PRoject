@@ -22,6 +22,12 @@ export const COLOURS: { key: string; label: string }[] = [
   { key: "clay", label: "Clay" },
   { key: "plum", label: "Plum" },
   { key: "slate", label: "Slate" },
+  { key: "mint", label: "Mint" },
+  { key: "coral", label: "Coral" },
+  { key: "gold", label: "Gold" },
+  { key: "teal", label: "Teal" },
+  { key: "rose", label: "Rose" },
+  { key: "ink", label: "Ink" },
 ];
 const initials = (name: string) => name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
@@ -277,6 +283,7 @@ export function ServiceStudio({
   initialSelected?: string | null;
 }) {
   const [selected, setSelected] = useState<string | "new" | null>(initialSelected);
+  const [newCategory, setNewCategory] = useState(false);
   useEffect(() => {
     if (initialSelected) setSelected(initialSelected);
   }, [initialSelected]);
@@ -329,6 +336,9 @@ export function ServiceStudio({
           </div>
           <Button onClick={() => setSelected("new")}>
             <Icon name="plus" size={16} /> New service
+          </Button>
+          <Button variant="secondary" onClick={() => { setNewCategory(true); setSelected("new"); }} data-testid="new-category">
+            <Icon name="plus" size={16} /> New category
           </Button>
         </div>
         <div className="customers-toolbar">
@@ -434,8 +444,10 @@ export function ServiceStudio({
           w={w}
           api={api}
           service={selectedService}
-          onClose={() => setSelected(null)}
+          startNewCategory={selected === "new" && newCategory}
+          onClose={() => { setNewCategory(false); setSelected(null); }}
           onSaved={async (id) => {
+            setNewCategory(false);
             // A failed re-read is surfaced by the workspace shell (Retry workspace); the write itself
             // succeeded, so keep the editor mounted and select the saved record once data arrives.
             if (id && selected === "new") setBorn(id);
@@ -466,11 +478,12 @@ const serviceForm = (service: Service | null, fallbackCategory: string) => ({
   active: service ? service.active : 1,
   sort_order: service?.sort_order ?? 0,
 });
-function ServiceEditor({ w, api, service, onClose, onSaved }: { w: WorkspaceData; api: Api; service: Service | null; onClose: () => void; onSaved: (id?: string) => Promise<WorkspaceData | undefined> }) {
+function ServiceEditor({ w, api, service, onClose, onSaved, startNewCategory = false }: { w: WorkspaceData; api: Api; service: Service | null; onClose: () => void; onSaved: (id?: string) => Promise<WorkspaceData | undefined>; startNewCategory?: boolean }) {
   const [tab, setTabRaw] = useState<"details" | "barbers" | "addons">("details");
   const { guarded, notice } = useLeaveGuard("service-editor");
   const setTab = (t: typeof tab) => guarded(() => setTabRaw(t))();
-  const [form, setForm] = useState(() => serviceForm(service, w.services[0]?.category ?? "Hair"));
+  const [form, setForm] = useState(() => serviceForm(service, startNewCategory ? "" : (w.services[0]?.category ?? "Hair")));
+  const [customCategory, setCustomCategory] = useState(startNewCategory);
   const [locked, setLocked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [state, setState] = useState<LineState>(null);
@@ -561,13 +574,40 @@ function ServiceEditor({ w, api, service, onClose, onSaved }: { w: WorkspaceData
             </label>
             <label className="workspace-field">
               <span>Category</span>
-              <input list="service-categories" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} required minLength={2} maxLength={40} />
-              <datalist id="service-categories">
-                {categories.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
+              {customCategory || categories.length === 0 ? (
+                <input
+                  value={form.category}
+                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  required
+                  minLength={2}
+                  maxLength={40}
+                  placeholder="e.g. Beard, Colour, Kids"
+                  autoFocus={startNewCategory}
+                  data-testid="service-category-input"
+                />
+              ) : (
+                <select
+                  value={form.category}
+                  data-testid="service-category-select"
+                  onChange={(e) => {
+                    if (e.target.value === "__new__") {
+                      setCustomCategory(true);
+                      setForm({ ...form, category: "" });
+                    } else setForm({ ...form, category: e.target.value });
+                  }}
+                >
+                  {categories.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                  <option value="__new__">+ New category…</option>
+                </select>
+              )}
             </label>
+            {customCategory && categories.length > 0 && (
+              <button type="button" className="linklike field-help" style={{ justifySelf: "start" }} onClick={() => { setCustomCategory(false); setForm({ ...form, category: categories[0] }); }}>
+                Choose an existing category instead
+              </button>
+            )}
           </div>
           <label className="workspace-field">
             <span>Description (shown to customers online)</span>

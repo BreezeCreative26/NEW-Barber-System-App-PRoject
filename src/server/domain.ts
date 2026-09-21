@@ -31,6 +31,8 @@ export type Shop = {
   lead_time_min: number;
   booking_window_days: number;
   till_access: "OWNER" | "ALL";
+  buffer_min: number;
+  card_colour: "BARBER" | "SERVICE";
   version: number;
   // Online deposits (Model A — the shop's own Stripe account).
   stripe_account_id?: string;
@@ -391,7 +393,7 @@ export const customerSchema = z
     version: version.optional(),
   })
   .strict();
-export const colourSchema = z.enum(["sage", "sand", "blue", "clay", "plum", "slate"]);
+export const colourSchema = z.enum(["sage", "sand", "blue", "clay", "plum", "slate", "mint", "coral", "gold", "teal", "rose", "ink"]);
 // Images may be an https URL or a same-origin upload (/media/<id>) or bundled asset (/static/...).
 export const imageRef = z.union([z.literal(""), z.string().trim().max(500).refine((u) => /^https:\/\/\S+$/.test(u) || /^\/(media|static)\/[A-Za-z0-9._\/-]+$/.test(u), "Use an https:// image address or an uploaded photo")]);
 export const staffSchema = z
@@ -514,6 +516,8 @@ export const shopSchema = z
     cancel_hours: z.number().int().min(0).max(168),
     no_show_grace: z.number().int().min(0).max(120),
     till_access: z.enum(["OWNER", "ALL"]).default("OWNER"),
+    buffer_min: z.number().int().min(0).max(60).refine((n) => n % 5 === 0, "Use 5-minute steps").default(10),
+    card_colour: z.enum(["BARBER", "SERVICE"]).default("BARBER"),
     version,
   })
   .strict();
@@ -1127,6 +1131,8 @@ export function localInstant(
   }
   return matches.length === 1 ? matches[0] : null;
 }
+// Buffer after each appointment, from Settings → General (0 = none). Older rows default to 10.
+export const shopBuffer = (shop: Pick<Shop, "buffer_min"> | null | undefined) => (typeof shop?.buffer_min === "number" ? shop.buffer_min : 10);
 export function slotReason(
   shop: Shop,
   staff: Staff | null,
@@ -1142,6 +1148,7 @@ export function slotReason(
   blocks: Pick<StaffBlock, "staff_id" | "date" | "start_min" | "end_min">[] = [],
 ): string {
   if (!staff?.active) return "Barber unavailable";
+  const buf = shopBuffer(shop);
   if (
     daysOff.some(
       (d) =>
@@ -1154,16 +1161,16 @@ export function slotReason(
   if (!hours?.enabled) return "Barber off duty";
   if (
     start < Math.max(day.starts, hours.starts) ||
-    start + duration + 10 > Math.min(day.ends, hours.ends)
+    start + duration + buf > Math.min(day.ends, hours.ends)
   )
     return "Outside working hours";
   if (
     hours.break_end > hours.break_start &&
     start < hours.break_end &&
-    start + duration + 10 > hours.break_start
+    start + duration + buf > hours.break_start
   )
     return "Lunch break";
-  if (blocks.some((k) => k.staff_id === staff.id && k.date === date && start < k.end_min && start + duration + 10 > k.start_min)) return "Blocked time";
+  if (blocks.some((k) => k.staff_id === staff.id && k.date === date && start < k.end_min && start + duration + buf > k.start_min)) return "Blocked time";
   const instant = localInstant(date, start, shop.timezone);
   if (instant === null) return "Ambiguous or invalid local time";
   if (instant < now) return "Time has passed";
@@ -1174,7 +1181,7 @@ export function slotReason(
         b.staff_id === staff.id &&
         !["CANCELLED", "NO_SHOW"].includes(b.status) &&
         instant < b.end_at + b.buffer_min * 60000 &&
-        b.start_at < instant + (duration + 10) * 60000,
+        b.start_at < instant + (duration + buf) * 60000,
     )
   )
     return "Slot taken";

@@ -158,16 +158,19 @@ const minute = (s: string) => {
 };
 const clock = (n: number) =>
   `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   const labelId = useId();
+  const hintId = useId();
   return (
     <label className="workspace-field">
       <span id={labelId}>{label}</span>
       {isValidElement(children)
         ? cloneElement(children as ReactElement<Record<string, unknown>>, {
             "aria-labelledby": labelId,
+            ...(hint ? { "aria-describedby": hintId } : {}),
           })
         : children}
+      {hint && <small id={hintId} className="field-help">{hint}</small>}
     </label>
   );
 }
@@ -1259,6 +1262,15 @@ export function Workspace() {
     if (on) setTab("Appointments");
   }
   const [editor, setEditor] = useState<Editor | null>(null);
+  // "Move on timetable": the appointment panel closes, the calendar arms, the next slot click
+  // reschedules the armed booking (same confirm + undo as drag-and-drop). Escape cancels.
+  const [moving, setMoving] = useState<StoredBooking | null>(null);
+  useEffect(() => {
+    if (!moving) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMoving(null); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [moving]);
   const [editorRevision, setEditorRevision] = useState(0);
   const [date, setDate] = useState("");
   const dateRef = useRef("");
@@ -1909,6 +1921,13 @@ export function Workspace() {
               {loading ? "Retrying…" : "Retry workspace"}
             </Button>
           )}
+          {moving && (
+            <div className="move-bar" role="status" data-testid="move-bar">
+              <Icon name="calendar" size={18} />
+              <span>Moving <b>{moving.attendee_name || moving.customer_name}</b> · {moving.service_name} · click a free slot on the timetable. Change the day with the arrows above.</span>
+              <Button variant="ghost" onClick={() => setMoving(null)}>Cancel</Button>
+            </div>
+          )}
           {notice && (
             <p className="workspace-success" role="status">
               {notice}
@@ -2265,12 +2284,30 @@ export function Workspace() {
                           bookings={filteredBookings}
                           paid={new Set(w.payments.filter((p) => !p.voided_at).map((p) => p.booking_id))}
                           disabled={!online || stale}
-                          onDraft={(draft) =>
-                            setEditor({ kind: "booking", draft })
-                          }
-                          onOpen={(item) =>
-                            setEditor({ kind: "detail", item })
-                          }
+                          onDraft={async (draft) => {
+                            if (moving) {
+                              const b = moving;
+                              const who = w.staff.find((x) => x.id === draft.staffId)?.name.split(" ")[0] ?? "";
+                              const same = draft.staffId === b.staff_id && date === b.date;
+                              const at = time(draft.start);
+                              const warn = draft.outside === "Occupied" ? "\n\nThis overlaps another appointment — both will sit side by side." : draft.outside ? `\n\n${who || "The barber"} isn't rostered then (${draft.outside.toLowerCase()}). Book it anyway?` : "";
+                              if (!window.confirm(`Move ${b.attendee_name || b.customer_name} to ${at} on ${new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(date + "T12:00:00Z"))}${same ? "" : ` with ${who}`}?${warn}`)) return;
+                              setMoving(null);
+                              try {
+                                await api(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: draft.start, staff_id: draft.staffId, reason: "Moved on the timetable", version: b.version, ...(draft.outside ? { force: true } : {}) });
+                                setNotice(`Moved ${b.attendee_name || b.customer_name} to ${at}${same ? "" : ` with ${who}`}.`);
+                                const from = { date: b.date, start_min: b.start_min, staff_id: b.staff_id };
+                                setUndo({ label: `back to ${time(from.start_min)}`, run: async () => { const cur = (await api<{ booking: StoredBooking }>(`/bookings/${b.id}`)).booking; await api(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo timetable move", version: cur.version, force: true }); } });
+                                await refresh({ background: true });
+                              } catch (e) { setError(e instanceof Error ? e.message : "Could not move the appointment."); }
+                              return;
+                            }
+                            setEditor({ kind: "booking", draft });
+                          }}
+                          onOpen={(item) => {
+                            if (moving) return;
+                            setEditor({ kind: "detail", item });
+                          }}
                           onHours={(staffMember, d) => {
                             setDate(d);
                             setEditor({ kind: "override", item: staffMember, override: w.schedule_overrides.find((o) => o.staff_id === staffMember.id && o.date === d) });
@@ -2450,6 +2487,8 @@ export function Workspace() {
                           })),
                           deposit_pence: Math.round(number(f, "deposit") * 100),
                           cancel_hours: number(f, "cancel_hours"),
+                          buffer_min: number(f, "buffer_min"),
+                          card_colour: text(f, "card_colour") === "SERVICE" ? "SERVICE" : "BARBER",
                           no_show_grace: number(f, "no_show_grace"),
                           till_access: text(f, "till_access") === "ALL" ? "ALL" : "OWNER",
                           version: w.shop.version,
@@ -2522,6 +2561,22 @@ export function Workspace() {
                           required
                           defaultValue={w.shop.no_show_grace}
                         />
+                      </Field>
+                      <Field label="Gap between appointments" hint="Time held after every appointment for tidy-up. Off means back-to-back bookings.">
+                        <select name="buffer_min" defaultValue={String(w.shop.buffer_min ?? 10)} data-testid="shop-buffer">
+                          <option value="0">Off · back to back</option>
+                          <option value="5">5 minutes</option>
+                          <option value="10">10 minutes</option>
+                          <option value="15">15 minutes</option>
+                          <option value="20">20 minutes</option>
+                          <option value="30">30 minutes</option>
+                        </select>
+                      </Field>
+                      <Field label="Calendar card colour" hint="Colour every appointment by who is doing it, or by the service booked.">
+                        <select name="card_colour" defaultValue={w.shop.card_colour || "BARBER"} data-testid="shop-card-colour">
+                          <option value="BARBER">By team member</option>
+                          <option value="SERVICE">By service</option>
+                        </select>
                       </Field>
                       <Field label="Who can take payment">
                         <select name="till_access" defaultValue={w.shop.till_access}>
@@ -2646,6 +2701,7 @@ export function Workspace() {
             )
           }
           onMove={() => setEditor({ kind: "booking", item: editor.item })}
+          onPickSlot={() => { const b = editor.item; setEditor(null); setCalendarView("day"); setMoving(b); }}
           onRebook={() => setEditor({ kind: "booking", rebook: editor.item })}
           onEdit={() => setEditor({ kind: "contacts", item: editor.item })}
           onShare={() => setEditor({ kind: "share", item: editor.item })}
@@ -4594,7 +4650,7 @@ function CustomersPanel({
       )
         .then((r) => id === sequence.current && (setRows(r.customers), setError("")))
         .catch((e) => id === sequence.current && setError(e instanceof Error ? e.message : "Could not load customers."));
-    }, 200);
+    }, query ? 120 : 0);
     return () => window.clearTimeout(handle);
   }, [query, filter, sort, w.bookings.length, w.now, reload]);
   useEffect(() => {
@@ -6040,24 +6096,24 @@ function CustomerPicker({
         </p>
       )}
       <div className="workspace-form-grid">
-        <Field label="Customer name">
+        <Field label="Customer name" hint="Leave blank for a walk-in">
           <input
             name="customer_name"
             value={name}
             onChange={(e) => { setName(e.target.value); if (pickedId) setPickedId(null); }}
-            required
             minLength={2}
             maxLength={100}
+            placeholder="Walk-in"
             autoComplete="off"
           />
         </Field>
-        <Field label="Mobile number">
+        <Field label="Mobile number" hint={name.trim() ? "For confirmations and reminders" : "Optional for walk-ins"}>
           <input
             name="phone"
             value={phone}
             onChange={(e) => { setPhone(e.target.value); if (pickedId) setPickedId(null); }}
             type="tel"
-            required
+            required={!!name.trim()}
             placeholder="07700 900123"
             autoComplete="off"
           />
@@ -6177,10 +6233,10 @@ function BookingForm({
       service_id: service,
       date,
       start_min: Number(start),
-      customer_name: text(f, "customer_name"),
+      customer_name: text(f, "customer_name") || "Walk-in",
       phone: text(f, "phone"),
       notes: text(f, "notes"),
-      source: text(f, "source"),
+      source: text(f, "customer_name") ? text(f, "source") : "WALK_IN",
       quote: slots?.quote,
       addon_ids: addonIds,
       ...(pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),
@@ -6307,10 +6363,10 @@ function BookingForm({
               service_id: service,
               date,
               start_min: Number(start),
-              customer_name: text(f, "customer_name"),
+              customer_name: text(f, "customer_name") || "Walk-in",
               phone: text(f, "phone"),
               notes: text(f, "notes"),
-              source: text(f, "source"),
+              source: text(f, "customer_name") ? text(f, "source") : "WALK_IN",
               quote: slots.quote,
               addon_ids: addonIds,
               ...(pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),

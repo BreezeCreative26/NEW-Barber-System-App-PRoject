@@ -753,7 +753,10 @@ test("service studio and barber studio: create with presentation flags, matrix f
   await expect(page.getByTestId("service-card").first()).toBeVisible();
   await page.getByRole("button", { name: "New service", exact: true }).click();
   await page.getByLabel("Service name").fill("Studio hot towel finish");
-  await serviceEditor.getByLabel("Category", { exact: true }).fill("Grooming");
+  // Category is a select of existing categories with a "+ New category…" escape hatch to free text.
+  const categorySelect = serviceEditor.getByTestId("service-category-select");
+  if (await categorySelect.count()) await categorySelect.selectOption("__new__");
+  await serviceEditor.getByTestId("service-category-input").fill("Grooming");
   await page.getByLabel("Description (shown to customers online)").fill("Fictional finish with a hot towel.");
   await page.getByLabel("Duration (minutes)").fill("20");
   await page.getByLabel("Price (£)", { exact: true }).fill("14");

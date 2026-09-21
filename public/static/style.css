@@ -8212,3 +8212,32 @@ li[data-done="true"] .setup-wiz-num { background: var(--good); color: #fff; bord
 .voice-tools td small { display: block; color: #6b6f80; margin-top: 2px; }
 .voice-method { font-weight: 700; color: #4c5ca0; font-size: 11px; margin-right: 4px; }
 .voice-transcript { white-space: pre-wrap; font-size: 12px; line-height: 1.5; background: #fafbfe; border: 1px solid #e6e7ee; border-radius: 8px; padding: 12px; max-height: 60vh; overflow: auto; }
+
+/* ---------- Extended matte palette (mint, coral, gold, teal, rose, ink) ---------- */
+.mint  { background: #e3f0ea; color: #2f6152; }
+.coral { background: #f5e6e1; color: #8a4a3a; }
+.gold  { background: #f3ecd8; color: #7a6224; }
+.teal  { background: #dfeeee; color: #2d5c5e; }
+.rose  { background: #f3e5ea; color: #7c3f56; }
+.ink   { background: #e4e6e8; color: #1f2529; }
+.calendar-event.mint,  .week-card.mint  { border-color: #7fb8a2; background: #eaf4ef; }
+.calendar-event.coral, .week-card.coral { border-color: #cf8f7c; background: #f8ede9; }
+.calendar-event.gold,  .week-card.gold  { border-color: #c9ad5c; background: #f7f1e1; }
+.calendar-event.teal,  .week-card.teal  { border-color: #6fa8a9; background: #e8f2f2; }
+.calendar-event.rose,  .week-card.rose  { border-color: #c98ba1; background: #f7ecf0; }
+.calendar-event.ink,   .week-card.ink   { border-color: #5d666d; background: #ebedef; }
+.service-card.mint  { border-left-color: #7fb8a2; }
+.service-card.coral { border-left-color: #cf8f7c; }
+.service-card.gold  { border-left-color: #c9ad5c; }
+.service-card.teal  { border-left-color: #6fa8a9; }
+.service-card.rose  { border-left-color: #c98ba1; }
+.service-card.ink   { border-left-color: #5d666d; }
+.service-dot.mint { background: #7fb8a2; } .service-dot.coral { background: #cf8f7c; } .service-dot.gold { background: #c9ad5c; }
+.service-dot.teal { background: #6fa8a9; } .service-dot.rose { background: #c98ba1; } .service-dot.ink { background: #5d666d; }
+.service-thumb.mint, .barber-portrait.mint   { background: #e3f0ea; color: #2f6152; }
+.service-thumb.coral, .barber-portrait.coral { background: #f5e6e1; color: #8a4a3a; }
+.service-thumb.gold, .barber-portrait.gold   { background: #f3ecd8; color: #7a6224; }
+.service-thumb.teal, .barber-portrait.teal   { background: #dfeeee; color: #2d5c5e; }
+.service-thumb.rose, .barber-portrait.rose   { background: #f3e5ea; color: #7c3f56; }
+.service-thumb.ink, .barber-portrait.ink     { background: #e4e6e8; color: #1f2529; }
+.colour-picker-row { flex-wrap: wrap; }
