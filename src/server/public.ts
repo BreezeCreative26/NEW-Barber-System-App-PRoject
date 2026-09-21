@@ -1041,7 +1041,7 @@ export function calendarResponse(c: Ctx, shop: Shop, booking: StoredBooking, sta
     `DTSTART:${stamp(booking.start_at)}`,
     `DTEND:${stamp(booking.end_at)}`,
     `SUMMARY:${esc(`${booking.service_name} at ${shop.name}`)}`,
-    `DESCRIPTION:${esc(`Reference ${ref(booking)}${staffName ? ` with ${staffName}` : ""}. Local test booking; no payment taken.`)}`,
+    `DESCRIPTION:${esc(`Reference ${ref(booking)}${staffName ? ` with ${staffName}` : ""}.${booking.deposit_status === "PAID" ? " Deposit paid." : ""} Manage or move your appointment from the link in your confirmation.`)}`,
     `LOCATION:${esc(shop.address || shop.name)}`,
     `STATUS:${booking.status === "CANCELLED" ? "CANCELLED" : "CONFIRMED"}`,
     "END:VEVENT",

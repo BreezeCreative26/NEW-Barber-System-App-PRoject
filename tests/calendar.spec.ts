@@ -140,7 +140,7 @@ test("timetable click prefills saved booking; reschedule and cancellation update
     .getByRole("button", { name: "Review appointment", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Confirm test booking", exact: true })
+    .getByRole("button", { name: "Confirm booking", exact: true })
     .click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(
@@ -606,7 +606,7 @@ test("rebooking creates a separately priced visit and opens its saved day withou
     .getByRole("button", { name: "Review appointment", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Confirm test booking", exact: true })
+    .getByRole("button", { name: "Confirm booking", exact: true })
     .click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(
@@ -759,7 +759,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
       page.getByRole("button", { name: "Close dialog", exact: true }),
     ).toBeInViewport({ ratio: 1 });
     await expect(
-      page.getByRole("button", { name: "Confirm test booking", exact: true }),
+      page.getByRole("button", { name: "Confirm booking", exact: true }),
     ).toBeInViewport({ ratio: 1 });
     if (width === 1440) {
       await page.evaluate(() => {
@@ -990,10 +990,15 @@ test("walk-in: seats someone now with no phone, lands on today's timetable as WA
   await page.getByTestId("walk-in").click();
   const dlg = page.getByRole("dialog");
   await expect(dlg.getByRole("heading", { name: "Walk-in" })).toBeVisible();
-  const barber = w.staff.find((s: any) => s.active);
+  // Pick a barber who is actually rostered today (the fixture gives some barbers a weekday off).
+  const wd = new Date(w.today + "T12:00:00Z").getUTCDay();
+  const barber = w.staff.find((s: any) => s.active && w.hours.some((h: any) => h.staff_id === s.id && h.weekday === wd && h.enabled));
+  test.skip(!barber, "no barber rostered today in the fixture");
   await dlg.getByTestId("walkin-barber").selectOption(barber.id);
   await dlg.getByTestId("walkin-service").selectOption({ index: 1 });
   const seat = dlg.getByRole("button", { name: /^Seat now · \d{2}:\d{2}$/ });
+  // Availability loads asynchronously: wait for either a seatable time or the explicit no-time notice.
+  await expect(seat.or(dlg.getByText("No free time left today"))).toBeVisible();
   const skipped = (await dlg.getByText("No free time left today").count()) > 0;
   test.skip(skipped, "fixture barber is fully booked right now");
   await expect(seat).toBeVisible();

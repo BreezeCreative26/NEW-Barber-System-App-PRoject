@@ -3658,7 +3658,8 @@ function AlertsPanel({ smsLive }: { smsLive: boolean }) {
 type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "twilio" | "clicksend" | "mailbox"; from: string }; wa?: { provider: "infobip" | "mailbox"; sender: string; test_sender: boolean; keyword: string } };
 type Messaging = { msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
 const CHANNEL_LABEL: Record<string, string> = { SMS: "Text", EMAIL: "Email", WA: "WhatsApp" };
-type OutboxData = { notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number } };
+type OutboxData = {
+  shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number } };
 function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
   const [data, setData] = useState<OutboxData | null>(null);
   const [form, setForm] = useState<{ auto: number; hold: number; templates: Record<string, string> } | null>(null);
@@ -3685,7 +3686,8 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
     if (!form) return;
     setState({ kind: "saving", text: "" });
     try {
-      await api("/shop/waitlist", "PUT", { waitlist_auto_offer: form.auto, waitlist_offer_hold_min: form.hold, templates: form.templates, version: w.shop.version });
+      const r = await api<{ shop: { version: number } }>("/shop/waitlist", "PUT", { waitlist_auto_offer: form.auto, waitlist_offer_hold_min: form.hold, templates: form.templates, version: data?.shop_version ?? w.shop.version });
+      setData((d) => (d ? { ...d, shop_version: r.shop.version } : d));
       setState({ kind: "saved", text: "Saved. New offers use this wording; existing messages are unchanged." });
     } catch (err) {
       setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
@@ -3696,7 +3698,8 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
     if (!msg) return;
     setMsgState({ kind: "saving", text: "" });
     try {
-      await api("/shop/messaging", "PUT", msg);
+      const r = await api<{ shop_version?: number }>("/shop/messaging", "PUT", msg);
+      setData((d) => (d && typeof r.shop_version === "number" ? { ...d, shop_version: r.shop_version } : d));
       setMsgState({ kind: "saved", text: "Saved." });
     } catch (err) {
       setMsgState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
@@ -4522,7 +4525,7 @@ function OnlineBookingPanel({
               required
               minLength={3}
               maxLength={40}
-              pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?"
+              pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
               autoCapitalize="off"
               spellCheck={false}
             />
@@ -5542,7 +5545,7 @@ function WorkspaceEditor({
               ) : e.item.source === "WALK_IN" ? (
                 "Walk-in"
               ) : (
-                "Test booking"
+                "Booked in shop"
               )}
               {e.item.email && <> · {e.item.email}</>} · {e.item.notes || "No notes"}
             </p>
@@ -6301,7 +6304,7 @@ function BookingForm({
             ? "Confirm reschedule"
             : seriesOn
               ? `Confirm standing booking (${seriesPreview?.bookable ?? 0} dates)`
-              : "Confirm test booking"
+              : "Confirm booking"
           : "Review appointment"
       }
       onSave={async (f) => {

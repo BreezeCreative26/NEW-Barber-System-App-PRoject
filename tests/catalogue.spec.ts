@@ -459,7 +459,7 @@ test("owner edits add-ons, barber pricing and partial shifts; booking items surv
     .fill("Combined quote client");
   await page.getByLabel("Mobile number", { exact: true }).fill("07700900123");
   await page.getByRole("button", { name: "Review appointment" }).click();
-  await page.getByRole("button", { name: "Confirm test booking" }).click();
+  await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await section(page, "Services");
   await page
@@ -547,7 +547,7 @@ test("changing add-ons invalidates a selected slot, preserves contact fields and
       version: 0,
     },
   });
-  await page.getByRole("button", { name: "Confirm test booking" }).click();
+  await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByRole("alert")).toContainText("changed");
   await expect(page.getByLabel("Customer name", { exact: true })).toHaveValue(
     "Preserved addon draft",
@@ -555,7 +555,7 @@ test("changing add-ons invalidates a selected slot, preserves contact fields and
   await expect(page.locator(".workspace-quote")).toContainText("£35");
   await page.getByLabel("Available start time").selectOption("900");
   await page.getByRole("button", { name: "Review appointment" }).click();
-  await page.getByRole("button", { name: "Confirm test booking" }).click();
+  await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   expect((await ws(page.request)).bookings).toHaveLength(2);
 });

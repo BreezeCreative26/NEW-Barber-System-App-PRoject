@@ -87,7 +87,7 @@ test("interrupted booking response retries idempotently and details/status filte
     } else await route.continue();
   });
   await page.getByRole("button", { name: "Review appointment" }).click();
-  await page.getByRole("button", { name: "Confirm test booking" }).click();
+  await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByRole("alert")).toContainText(
     "save response was interrupted",
   );
@@ -95,7 +95,7 @@ test("interrupted booking response retries idempotently and details/status filte
     "Recovery test client",
   );
   await page.getByRole("button", { name: "Review appointment" }).click();
-  await page.getByRole("button", { name: "Confirm test booking" }).click();
+  await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   let w = await (await page.request.get("/api/app/workspace")).json();
   expect(w.bookings).toHaveLength(1);
@@ -165,7 +165,7 @@ test("availability network retry and stale quote refresh keep contact details", 
       version: s.version,
     },
   });
-  await page.getByRole("button", { name: "Confirm test booking" }).click();
+  await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByRole("alert")).toContainText(
     "service or shop policy changed",
   );
@@ -175,7 +175,7 @@ test("availability network retry and stale quote refresh keep contact details", 
   );
   await page.getByLabel("Available start time").selectOption("540");
   await page.getByRole("button", { name: "Review appointment" }).click();
-  await page.getByRole("button", { name: "Confirm test booking" }).click();
+  await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   expect(
     (await (await page.request.get("/api/app/workspace")).json())
@@ -269,7 +269,7 @@ test("dated staff leave survives reload, flags saved appointments and can be rem
   await enter(page);
   const date = await bookingDraft(page, "Leave impact client");
   await page.getByRole("button", { name: "Review appointment" }).click();
-  await page.getByRole("button", { name: "Confirm test booking" }).click();
+  await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   const w = await (await page.request.get("/api/app/workspace")).json();
   const barber = w.staff.find(
@@ -422,7 +422,7 @@ test("saved setup and appointment workflow survives reload, move and completion"
   await expect(
     page.getByText("Ready to save:", { exact: false }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Confirm test booking" }).click();
+  await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(
     page.getByRole("button").filter({ hasText: "Morgan Fictional" }),

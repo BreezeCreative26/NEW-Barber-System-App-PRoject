@@ -1158,6 +1158,9 @@ sandbox.get("/notifications", async (c) => {
     templates: templatesOf(shop),
     defaults: DEFAULT_TEMPLATES,
     settings: { waitlist_auto_offer: shop.waitlist_auto_offer, waitlist_offer_hold_min: shop.waitlist_offer_hold_min },
+    // Current shop version: sibling forms on the same tab (messaging, alerts, voice) bump it without a
+    // workspace re-read, so the waitlist save must not rely on the stale workspace copy.
+    shop_version: shop.version,
   });
 });
 const requireRole = (c: Ctx, roles: string[]) => {
@@ -1197,7 +1200,8 @@ sandbox.put("/shop/messaging", async (c) => {
     c.env.DB.prepare("UPDATE shops SET msg_sms=?,msg_email=?,msg_wa=?,msg_reminders=?,msg_reminder_hours=?,msg_reply_to=?,msg_sms_sender=?,version=version+1 WHERE id=?").bind(b.msg_sms, b.msg_email, b.msg_wa, b.msg_reminders, b.msg_reminder_hours, b.msg_reply_to, b.msg_sms_sender, sid),
     audit(c, "shop", sid, "MESSAGING_UPDATED", `SMS ${b.msg_sms ? "on" : "off"}, WhatsApp ${b.msg_wa ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
   ]);
-  return c.json({ ok: true, messaging: b });
+  const shop_version = (await c.env.DB.prepare("SELECT version FROM shops WHERE id=?").bind(sid).first<{ version: number }>())?.version;
+  return c.json({ ok: true, messaging: b, shop_version });
 });
 // AI receptionist (ElevenLabs) — per-shop agent id, secret and the endpoints to paste into the agent.
 sandbox.get("/shop/voice", async (c) => {
