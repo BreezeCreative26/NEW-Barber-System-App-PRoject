@@ -1604,3 +1604,32 @@
 .studio-list .workspace-section-heading > div:last-child,
 .studio-list .workspace-section-heading .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .studio-list .workspace-section-heading .button { min-width: 0; }
+
+/* Weekly hours dialog: explicit layout so time inputs never collapse into the day-name column.
+   Row = [day name] [working toggle] / [start – end] [break toggle] / [break start – end]. */
+.workspace .weekly-hours-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  grid-auto-rows: auto;
+  gap: 10px 16px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.workspace .weekly-hours-row { min-inline-size: 0; margin: 0; }
+.workspace .weekly-hours-row > .weekly-hours-dayname { grid-column: 1; grid-row: 1; font-weight: 600; align-self: center; }
+.workspace .weekly-hours-row[data-working="false"] > .weekly-hours-dayname { color: var(--muted); }
+.workspace .weekly-hours-row > .workspace-check { grid-column: 2; justify-content: space-between; }
+.workspace .weekly-hours-row > .weekly-hours-times { grid-column: 2; }
+.workspace .weekly-hours-row > .week-hours-closed { grid-column: 2; color: var(--muted); }
+.workspace .weekly-hours-times { display: grid; grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr); align-items: center; gap: 10px; }
+.workspace .weekly-hours-times .workspace-field, .workspace .weekly-hours-times .field { margin: 0; min-width: 0; }
+.workspace .weekly-hours-times .workspace-field > span, .workspace .weekly-hours-times .field > span { display: none; } /* labels stay for screen readers via aria; the dash + row legend carry meaning */
+.workspace .weekly-hours-times input[type="time"] { width: 100%; min-width: 120px; height: var(--ctl-h); }
+.workspace .weekly-hours-times .week-hours-dash { padding: 0; color: var(--muted); }
+@media (max-width: 640px) {
+  .workspace .weekly-hours-row { grid-template-columns: 1fr; }
+  .workspace .weekly-hours-row > .weekly-hours-dayname, .workspace .weekly-hours-row > .workspace-check, .workspace .weekly-hours-row > .weekly-hours-times, .workspace .weekly-hours-row > .week-hours-closed { grid-column: 1; }
+}

@@ -1065,8 +1065,8 @@ function WeeklyHoursFields({ staff, hours, shop }: { staff: Staff; hours: Hours[
         const r = rows[i];
         const day = days[i];
         return (
-          <fieldset className="workspace-hours weekly-hours-row" key={day} data-working={r.enabled}>
-            <legend>{day}</legend>
+          <fieldset className="workspace-hours weekly-hours-row" key={day} data-working={r.enabled} aria-label={day}>
+            <strong className="weekly-hours-dayname">{day}</strong>
             <label className="workspace-check">
               <input name={`enabled-${i}`} type="checkbox" checked={r.enabled} onChange={(e) => set(i, { enabled: e.target.checked })} />
               Working
