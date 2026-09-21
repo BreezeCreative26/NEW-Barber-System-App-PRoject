@@ -1895,9 +1895,16 @@ body:has(.ollo-admin-shell) { margin: 0; padding: 0; background: #f4f3ee; }
 }
 /* Gridlines follow the step: light every 15 min, stronger on the hour. */
 .workspace .connected-calendar .calendar-timeline {
-  background:
-    repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--step, 44px) - 1px), var(--line-2) calc(var(--step, 44px) - 1px), var(--line-2) var(--step, 44px)),
-    repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--step, 44px) * 4 - 1px), var(--line) calc(var(--step, 44px) * 4 - 1px), var(--line) calc(var(--step, 44px) * 4));
+  /* Quarter-hour hairlines, a visible line on the hour. Later layers paint on top. */
+  background-image:
+    repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--step, 44px) * 4 - 1px), var(--line-strong, #cfd4cc) calc(var(--step, 44px) * 4 - 1px), var(--line-strong, #cfd4cc) calc(var(--step, 44px) * 4)),
+    repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--step, 44px) - 1px), var(--line-2) calc(var(--step, 44px) - 1px), var(--line-2) var(--step, 44px));
+}
+.workspace .connected-calendar .density-compact .calendar-timeline {
+  /* Compact: quarter lines would be noise at 14–20px; show half-hours + hours only. */
+  background-image:
+    repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--step, 44px) * 4 - 1px), var(--line-strong, #cfd4cc) calc(var(--step, 44px) * 4 - 1px), var(--line-strong, #cfd4cc) calc(var(--step, 44px) * 4)),
+    repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--step, 44px) * 2 - 1px), var(--line-2) calc(var(--step, 44px) * 2 - 1px), var(--line-2) calc(var(--step, 44px) * 2));
 }
 .workspace .connected-calendar .calendar-staff-header { height: var(--header-h, 60px); min-height: 0; }
 .workspace .connected-calendar .staff-column-heading { padding: 0 10px; gap: 8px; height: 100%; }
@@ -1968,4 +1975,13 @@ body:has(.ollo-admin-shell) { margin: 0; padding: 0; background: #f4f3ee; }
 @media (max-width: 767px) {
   .workspace .calendar-toolbar-row .calendar-summary { order: 10; }
   .workspace .calendar-toolbar-row .calendar-summary-stats > span + span::before { margin: 0 5px; }
+}
+/* Phone + compact: name beats the hours pill; hours stay one tap away in the ⋯ menu / tooltip. */
+@media (max-width: 767px) {
+  .workspace .connected-calendar .density-compact .staff-column-heading { padding: 0 6px; gap: 6px; }
+  .workspace .connected-calendar .density-compact .staff-column-heading > div { display: flex; }
+  .workspace .connected-calendar .density-compact .staff-column-heading strong { display: block; font-size: var(--fs-12); }
+  .workspace .connected-calendar .density-compact .staff-hours-chip { display: none; }
+  .workspace .connected-calendar .density-compact .staff-menu-button { width: 24px; height: 24px; }
+  .workspace .connected-calendar .staff-column-heading .avatar { width: 22px; height: 22px; }
 }
