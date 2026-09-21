@@ -255,6 +255,19 @@ Effort: **0.5 day**.
 
 ---
 
+## 4b. Shipped so far (2026-09-21)
+
+| Workstream | Status | Commits |
+|---|---|---|
+| Edit hours dialog fix | ✅ live | `43617e7` |
+| Staff photos on calendar (day/week headers, filter, panel) | ✅ live | `c827cc5` |
+| Conflict engine: `POST /schedule/preview`, `POST /schedule/apply` (override / weekly / day_off / holiday), 3 suggestions per clash, Move / Keep / Cancel & refund / Waitlist / Later, customer messaging, stale-version safe | ✅ live | `bba295e` |
+| Resolver wired into: calendar "Edit today's hours", "Day off", Team → weekly hours, dated hours, shop closure | ✅ live | `bba295e` |
+| Shifts section: Day roster · Week grid · Leave | ✅ live | `870dea1`, `94cd6f2` |
+| Tests: `tests/schedule-conflicts.spec.ts` (3), updated leave test | ✅ | |
+
+Not yet: shop opening-hours change (Settings → General) through the resolver — currently still saves then flags; `schedule_change_log` table; Shifts "apply pattern to N weeks".
+
 ## 5. Order of work and milestones
 
 | # | Workstream | Days | Depends on | Ship gate |
