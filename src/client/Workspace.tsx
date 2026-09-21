@@ -27,6 +27,7 @@ import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { BlockDialog } from "./BlockDialog";
+import { ConflictResolver, ConflictOutcome, type Preview as ConflictPreview, type Decision as ConflictDecision, type Outcome as ConflictOutcomeRow, type ScheduleChange } from "./ConflictResolver";
 import { WalletDrawer } from "./Wallet";
 import { PaymentsPanel } from "./Payouts";
 import { SetupWizard } from "./Setup";
@@ -2783,6 +2784,7 @@ export function Workspace() {
           date={date || w.today}
           onClose={() => setEditor(null)}
           saved={saved}
+          onRefresh={() => refresh({ background: true })}
           onMove={(item) => setEditor({ kind: "booking", item })}
           onRebook={(rebook) => setEditor({ kind: "booking", rebook })}
           onEdit={(item) => setEditor({ kind: "contacts", item })}
@@ -5187,6 +5189,7 @@ type EditorProps = {
   date: string;
   onClose: () => void;
   saved: (path: string, method: string, body?: unknown) => Promise<{ booking?: StoredBooking } | void>;
+  onRefresh: () => Promise<unknown>;
   onMove: (b: StoredBooking) => void;
   onRebook: (b: StoredBooking) => void;
   onEdit: (b: StoredBooking) => void;
@@ -5201,6 +5204,7 @@ function WorkspaceEditor({
   date,
   onClose,
   saved,
+  onRefresh,
   onMove,
   onRebook,
   onEdit,
@@ -5227,6 +5231,26 @@ function WorkspaceEditor({
   }
   const [reloadError, setReloadError] = useState("");
   const [reloading, setReloading] = useState(false);
+  // Conflict management: hours/leave/closure forms preview first. If appointments clash, the
+  // resolver replaces the form; "Save and …" applies the change plus every decision in one call.
+  const [conflict, setConflict] = useState<{ change: ScheduleChange; preview: ConflictPreview; title: string } | null>(null);
+  const [conflictDone, setConflictDone] = useState<{ outcome: ConflictOutcomeRow[]; title: string } | null>(null);
+  async function guardedSave(change: ScheduleChange, title: string) {
+    const preview = await api<ConflictPreview>("/schedule/preview", "POST", change);
+    if (preview.conflicts.length === 0) {
+      await saved("/schedule/apply", "POST", { change, decisions: [] });
+      return;
+    }
+    setConflict({ change, preview, title });
+  }
+  async function applyConflict(decisions: ConflictDecision[]) {
+    if (!conflict) return;
+    const r = await api<{ outcome: ConflictOutcomeRow[] }>("/schedule/apply", "POST", { change: conflict.change, decisions });
+    setConflictDone({ outcome: r.outcome, title: conflict.title });
+    setConflict(null);
+    // Refresh in the background so the calendar reflects moves/cancellations; keep the outcome open.
+    void onRefresh().catch(() => {});
+  }
   const title =
     e.kind === "addon"
       ? e.item
@@ -5271,9 +5295,21 @@ function WorkspaceEditor({
       onClose={onClose}
       context="APPOINTMENT"
       protectChanges
-      wide={e.kind === "hours" || e.kind === "booking"}
+      wide={e.kind === "hours" || e.kind === "booking" || !!conflict}
     >
-      {e.kind === "addon" && <AddonEditor addon={e.item} w={w} saved={saved} />}
+      {conflict && (
+        <ConflictResolver preview={conflict.preview} title={conflict.title} onApply={applyConflict} onBack={() => setConflict(null)} />
+      )}
+      {conflictDone && !conflict && (
+        <>
+          <ConflictOutcome outcome={conflictDone.outcome} title={conflictDone.title} />
+          <div className="workspace-save-actions">
+            <Button onClick={onClose} data-testid="conflict-close">Done</Button>
+          </div>
+        </>
+      )}
+      {!conflict && !conflictDone && e.kind === "addon" && <AddonEditor addon={e.item} w={w} saved={saved} />}
+      {!conflict && !conflictDone && (<>
       {e.kind === "overrides" && (
         <>
           <Notice>
@@ -5322,6 +5358,7 @@ function WorkspaceEditor({
           date={date}
           w={w}
           saved={saved}
+          guardedSave={guardedSave}
         />
       )}
       {e.kind === "removeBlock" && (
@@ -5347,21 +5384,25 @@ function WorkspaceEditor({
       {e.kind === "hours" && (
         <SaveForm
           onSave={(f) =>
-            saved(`/staff/${e.item.id}/hours`, "PUT", {
-              version: e.item.version,
-              rows: days.map((_, i) => {
-                const hasBreak = f.has(`break-${i}`);
-                const starts = minute(text(f, `starts-${i}`));
-                return {
-                  weekday: i,
-                  enabled: f.has(`enabled-${i}`) ? 1 : 0,
-                  starts,
-                  ends: minute(text(f, `ends-${i}`)),
-                  break_start: hasBreak ? minute(text(f, `break_start-${i}`)) : starts,
-                  break_end: hasBreak ? minute(text(f, `break_end-${i}`)) : starts,
-                };
-              }),
-            })
+            guardedSave({
+              kind: "weekly",
+              staff_id: e.item.id,
+              change: {
+                version: e.item.version,
+                rows: days.map((_, i) => {
+                  const hasBreak = f.has(`break-${i}`);
+                  const starts = minute(text(f, `starts-${i}`));
+                  return {
+                    weekday: i,
+                    enabled: f.has(`enabled-${i}`) ? 1 : 0,
+                    starts,
+                    ends: minute(text(f, `ends-${i}`)),
+                    break_start: hasBreak ? minute(text(f, `break_start-${i}`)) : starts,
+                    break_end: hasBreak ? minute(text(f, `break_end-${i}`)) : starts,
+                  };
+                }),
+              },
+            }, `${e.item.name.split(" ")[0]}'s new weekly hours`)
           }
         >
           <WeeklyHoursFields staff={e.item} hours={w.hours.filter((h) => h.staff_id === e.item.id)} shop={w.shop} />
@@ -5393,10 +5434,10 @@ function WorkspaceEditor({
           <SaveForm
             label="Save day off"
             onSave={(f) =>
-              saved(`/staff/${e.item.id}/days-off`, "POST", {
-                date: text(f, "date"),
-                reason: text(f, "reason"),
-              })
+              guardedSave(
+                { kind: "day_off", staff_id: e.item.id, change: { date: text(f, "date"), reason: text(f, "reason") } },
+                `${e.item.name.split(" ")[0]} off on ${new Date(text(f, "date") + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`,
+              )
             }
           >
             <Field label="Day off date">
@@ -5430,10 +5471,10 @@ function WorkspaceEditor({
       {e.kind === "holiday" && (
         <SaveForm
           onSave={(f) =>
-            saved("/holidays", "POST", {
-              date: text(f, "date"),
-              label: text(f, "label"),
-            })
+            guardedSave(
+              { kind: "holiday", change: { date: text(f, "date"), label: text(f, "label") } },
+              `the shop closing on ${new Date(text(f, "date") + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`,
+            )
           }
         >
           <Field label="Closure date">
@@ -5634,6 +5675,7 @@ function WorkspaceEditor({
           </Button>
         </footer>
       )}
+      </>)}
     </Modal>
   );
 }
@@ -5733,13 +5775,16 @@ function OverrideEditor({
   date,
   w,
   saved,
+  guardedSave,
 }: {
   staff: Staff;
   override?: ScheduleOverride;
   date: string;
   w: WorkspaceData;
   saved: EditorProps["saved"];
+  guardedSave: (change: ScheduleChange, title: string) => Promise<void>;
 }) {
+  void saved;
   const base =
     o ??
     w.hours.find(
@@ -5749,22 +5794,29 @@ function OverrideEditor({
     )!;
   return (
     <SaveForm
-      onSave={(f) =>
-        saved(
-          `/staff/${staff.id}/overrides${o ? "/" + o.id : ""}`,
-          o ? "PUT" : "POST",
+      onSave={(f) => {
+        const enabled = f.has("enabled") ? 1 : 0;
+        const d = text(f, "date");
+        const nice = new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+        return guardedSave(
           {
-            date: text(f, "date"),
-            enabled: f.has("enabled") ? 1 : 0,
-            starts: minute(text(f, "starts")),
-            ends: minute(text(f, "ends")),
-            break_start: minute(text(f, "break_start")),
-            break_end: minute(text(f, "break_end")),
-            reason: text(f, "reason"),
-            ...(o ? { version: o.version } : {}),
+            kind: "override",
+            staff_id: staff.id,
+            ...(o ? { override_id: o.id } : {}),
+            change: {
+              date: d,
+              enabled,
+              starts: minute(text(f, "starts")),
+              ends: minute(text(f, "ends")),
+              break_start: minute(text(f, "break_start")),
+              break_end: minute(text(f, "break_end")),
+              reason: text(f, "reason"),
+              ...(o ? { version: o.version } : {}),
+            },
           },
-        )
-      }
+          enabled ? `${staff.name.split(" ")[0]}'s hours on ${nice}` : `${staff.name.split(" ")[0]} off on ${nice}`,
+        );
+      }}
     >
       <Notice>
         <strong>{staff.name.split(" ")[0]} · {new Date((o?.date ?? date) + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}.</strong> Changes this day only; the weekly pattern stays as it is. Appointments already booked outside the new hours stay saved and are flagged for you to move.

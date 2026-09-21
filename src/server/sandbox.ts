@@ -72,6 +72,7 @@ import {
 
 import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { optimiseImage } from "./images";
+import { applyDecisions, changeSchema, decisionSchema, describeChange, previewChange, type ScheduleChange } from "./schedule";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
 import { agentPrompt, newSecret, voiceEndpoints, voiceOf, voiceSettingsSchema } from "./voice";
 import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
@@ -249,6 +250,7 @@ sandbox.use("*", async (c, next) => {
           /^\/bookings\/[^/]+\/(status|reschedule)$/.test(path))) ||
       (method === "PATCH" && /^\/bookings\/[^/]+\/(details|items)$/.test(path)) ||
       (["GET", "POST"].includes(method) && /^\/staff\/[^/]+\/blocks(\/preview)?$/.test(path)) ||
+      (method === "POST" && ["/schedule/preview", "/schedule/apply"].includes(path)) ||
       (method === "DELETE" && /^\/staff\/[^/]+\/blocks\/[^/]+$/.test(path));
     const setup =
       // The setup wizard (owner/manager): its own routes enforce the role again.
@@ -2296,6 +2298,65 @@ sandbox.delete("/staff/:id/overrides/:overrideId", async (c) => {
   return c.json({ ok: true });
 });
 
+// ---- Schedule changes with conflict management --------------------------------------------------
+// Preview: what would clash if this change were saved, with alternatives. Apply: save the change and
+// carry out the per-appointment decisions (move / keep / cancel / waitlist / later) in one go.
+sandbox.post("/schedule/preview", async (c) => {
+  const change = await input(c, changeSchema);
+  if ("staff_id" in change) { scopeStaff(c, change.staff_id); await requireStaff(c, change.staff_id); }
+  else requireRole(c, ["OWNER", "MANAGER"]);
+  const shop = await readShop(c);
+  return c.json(await previewChange(c.env.DB, shop, shopToday(shop.timezone), change));
+});
+sandbox.post("/schedule/apply", async (c) => {
+  const body = await input(c, z.object({ change: changeSchema, decisions: z.array(decisionSchema).max(200).default([]) }).strict());
+  const change = body.change;
+  if ("staff_id" in change) { scopeStaff(c, change.staff_id); await requireStaff(c, change.staff_id); }
+  else requireRole(c, ["OWNER", "MANAGER"]);
+  const sid = c.get("shopId");
+  const shop = await readShop(c);
+  const staffName = "staff_id" in change ? (await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(sid, change.staff_id).first<{ name: string }>())?.name : undefined;
+  const why = describeChange(change, staffName);
+  const bookingAudit = (entity: string, entityId: string, action: string, reason: string) => audit(c, entity, entityId, action, reason, true);
+  // 1. Write the schedule change itself (same guards as the individual endpoints).
+  let changeId = "";
+  if (change.kind === "override") {
+    const b = change.change;
+    changeId = change.override_id ?? id();
+    const write = change.override_id
+      ? c.env.DB.prepare("UPDATE staff_schedule_overrides SET date=?,enabled=?,starts=?,ends=?,break_start=?,break_end=?,reason=?,version=version+1 WHERE shop_id=? AND staff_id=? AND id=? AND version=?").bind(b.date, b.enabled, b.starts, b.ends, b.break_start, b.break_end, b.reason, sid, change.staff_id, changeId, b.version ?? -1)
+      : c.env.DB.prepare("INSERT INTO staff_schedule_overrides(id,shop_id,staff_id,date,enabled,starts,ends,break_start,break_end,reason) VALUES(?,?,?,?,?,?,?,?,?,?)").bind(changeId, sid, change.staff_id, b.date, b.enabled, b.starts, b.ends, b.break_start, b.break_end, b.reason);
+    await checkVersionUpdate(c, write, audit(c, "schedule_override", changeId, change.override_id ? "DATED_HOURS_UPDATED" : "DATED_HOURS_CREATED", `${b.date}: ${b.reason}. ${body.decisions.length} appointment decision(s) applied.`, true));
+  } else if (change.kind === "weekly") {
+    const b = change.change;
+    const writes = [c.env.DB.prepare("UPDATE staff SET version=version+1 WHERE shop_id=? AND id=? AND version=?").bind(sid, change.staff_id, b.version)];
+    const operation = id();
+    writes.push(c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) SELECT ?,?,?,?,?,?,?,? WHERE changes()>0").bind(operation, sid, "staff", change.staff_id, "HOURS_UPDATED", c.get("actor"), `Weekly hours changed; ${body.decisions.length} appointment decision(s) applied.`, Date.now()));
+    for (const row of b.rows) writes.push(c.env.DB.prepare("UPDATE staff_hours SET enabled=?,starts=?,ends=?,break_start=?,break_end=? WHERE shop_id=? AND staff_id=? AND weekday=? AND EXISTS(SELECT 1 FROM audit_events WHERE id=? AND shop_id=?)").bind(row.enabled, row.starts, row.ends, row.break_start, row.break_end, sid, change.staff_id, row.weekday, operation, sid));
+    const result = await c.env.DB.batch(writes);
+    if (!result[0].meta.changes) fail(409, "record_changed");
+    changeId = operation;
+  } else if (change.kind === "day_off") {
+    changeId = id();
+    await c.env.DB.batch([
+      c.env.DB.prepare("INSERT INTO staff_days_off(id,shop_id,staff_id,date,reason,created_at) VALUES(?,?,?,?,?,?)").bind(changeId, sid, change.staff_id, change.change.date, change.change.reason, Date.now()),
+      audit(c, "staff_day_off", changeId, "DAY_OFF_ADDED", `${staffName}: ${change.change.date} — ${change.change.reason}. ${body.decisions.length} appointment decision(s) applied.`),
+    ]);
+  } else if (change.kind === "holiday") {
+    changeId = id();
+    await c.env.DB.batch([
+      c.env.DB.prepare("INSERT INTO holidays(id,shop_id,date,label) VALUES(?,?,?,?)").bind(changeId, sid, change.change.date, change.change.label),
+      audit(c, "holiday", changeId, "HOLIDAY_CREATED", `${change.change.date}: ${change.change.label}. ${body.decisions.length} appointment decision(s) applied.`),
+    ]);
+  } else {
+    fail(400, "Use Settings to change opening hours");
+  }
+  // 2. Carry out the decisions.
+  const origin = new URL(c.req.url).origin;
+  const outcome = await applyDecisions(c, c.env.DB, shop, c.get("actor"), origin, why, change as ScheduleChange, body.decisions, bookingAudit);
+  await c.env.DB.prepare("UPDATE shops SET version=version+1 WHERE id=?").bind(sid).run();
+  return c.json({ id: changeId, outcome }, 201);
+});
 sandbox.post("/holidays", async (c) => {
   const b = await input(c, holidaySchema);
   const holidayId = id();

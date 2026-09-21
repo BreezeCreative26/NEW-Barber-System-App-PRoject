@@ -286,6 +286,14 @@ test("dated staff leave survives reload, flags saved appointments and can be rem
   await page.getByLabel("Day off date").fill(date);
   await page.getByLabel("Day off reason").fill("Fictional test leave");
   await page.getByRole("button", { name: "Save day off", exact: true }).click();
+  // The saved appointment clashes, so the conflict resolver opens. "Decide later" keeps it booked
+  // and flagged — the behaviour this test checks.
+  const resolver = page.getByTestId("conflict-resolver");
+  await expect(resolver).toBeVisible();
+  await page.getByTestId("conflict-row").first().getByRole("radio", { name: "Later" }).click();
+  await page.getByTestId("conflict-apply").click();
+  await expect(page.getByTestId("conflict-outcome")).toContainText("Left for review");
+  await page.getByTestId("conflict-close").click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(
     page.getByText("Barber has a day off.", { exact: false }),
