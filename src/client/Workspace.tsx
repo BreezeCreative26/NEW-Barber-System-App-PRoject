@@ -27,6 +27,7 @@ import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { BlockDialog } from "./BlockDialog";
+import { Shifts } from "./Shifts";
 import { ConflictResolver, ConflictOutcome, type Preview as ConflictPreview, type Decision as ConflictDecision, type Outcome as ConflictOutcomeRow, type ScheduleChange } from "./ConflictResolver";
 import { WalletDrawer } from "./Wallet";
 import { PaymentsPanel } from "./Payouts";
@@ -798,6 +799,7 @@ const COMMON_TIMEZONES = [
 ];
 // One-line purpose per section, shown under the title. Sections without a line show none.
 const SECTION_BLURB: Record<string, string> = {
+  Shifts: "Who's in, when, and what's booked against it. Changes that land on appointments ask you what to do with each one.",
   Customers: "Everyone who has booked with you, with visits, spend and what's next.",
   Team: "Barbers, their hours, breaks and pricing.",
   Services: "What you offer, grouped by category, with prices and durations.",
@@ -1643,6 +1645,7 @@ export function Workspace() {
     ...(manager
       ? [
           { key: "Team", label: "Team", icon: "users" },
+          { key: "Shifts", label: "Shifts", icon: "clock" },
           { key: "Services", label: "Services", icon: "scissors" },
           { key: "Settings", label: "Settings", icon: "settings" },
           { key: "Audit", label: "Audit", icon: "shield" },
@@ -2433,6 +2436,20 @@ export function Workspace() {
                     </>
                   )}
                 </section>
+              )}
+              {tab === "Shifts" && (
+                <Shifts
+                  w={w}
+                  date={date || w.today}
+                  onDate={(d) => setDate(d)}
+                  onEditDay={(item, d) => { setDate(d); setEditor({ kind: "override", item, override: w.schedule_overrides.find((o) => o.staff_id === item.id && o.date === d) }); }}
+                  onDayOff={(item) => setEditor({ kind: "daysOff", item })}
+                  onWeekly={(item) => setEditor({ kind: "hours", item })}
+                  onHoliday={() => setEditor({ kind: "holiday" })}
+                  onRemoveDayOff={(item) => setEditor({ kind: "removeDayOff", item })}
+                  onRemoveHoliday={(item) => setEditor({ kind: "removeHoliday", item })}
+                  onOpenBooking={openBooking}
+                />
               )}
               {tab === "Team" && (
                 <BarberStudio

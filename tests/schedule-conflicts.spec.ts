@@ -91,3 +91,19 @@ test("hours change with no clashes saves straight through; stale decision versio
   const still = (await (await page.request.get(`${base}/bookings/${bk.id}`)).json()).booking;
   expect(still.status).toBe("CONFIRMED");
 });
+
+test("Shifts: day roster rows, week grid opens dated hours, leave list", async ({ page }) => {
+  await openFixtureShop(page);
+  await page.getByRole("navigation", { name: "Workspace sections" }).getByRole("button", { name: "Shifts", exact: true }).click();
+  const rows = page.getByTestId("shift-row");
+  await expect(rows.first()).toBeVisible();
+  const w = await (await page.request.get(base + "/workspace")).json();
+  await expect(rows).toHaveCount(w.staff.filter((s: any) => s.active).length);
+  await page.getByRole("tab", { name: "Week" }).click();
+  await expect(page.locator(".shifts-cell")).toHaveCount(7 * w.staff.filter((s: any) => s.active).length);
+  await page.locator(".shifts-cell").nth(8).click();
+  await expect(page.getByRole("dialog").getByRole("heading", { name: /dated hours/i })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("tab", { name: "Leave" }).click();
+  await expect(page.getByTestId("shifts-leave")).toBeVisible();
+});
