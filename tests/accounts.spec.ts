@@ -91,6 +91,8 @@ const mutations = [
   ["POST", "/reset"],
   ["POST", "/password"],
   ["POST", "/demo"],
+  ["POST", "/verify-email"],
+  ["POST", "/verify-email/resend"],
 ];
 test("account mutation inventory enforces origin and anonymous authorization", async () => {
   const source = readFileSync("src/server/accounts.ts", "utf8");
@@ -115,7 +117,7 @@ test("account mutation inventory enforces origin and anonymous authorization", a
         ).status(),
       ).toBe(403);
     }
-    if (!["/login", "/signup", "/logout", "/accept", "/demo", "/forgot", "/reset"].includes(path))
+    if (!["/login", "/signup", "/logout", "/accept", "/demo", "/forgot", "/reset", "/verify-email"].includes(path))
       expect(
         (
           await anonymous.fetch(
@@ -597,7 +599,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
         })()
       : await staffNav.getByRole("button").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") || e.textContent || ""));
     expect(staffLabels.map((t) => t.trim()).filter(Boolean)).toEqual(
-      width < 768 ? ["Today", "Insights", "Customers", "Accounts"] : ["Appointments", "Insights", "Customers", "Accounts"],
+      width < 768 ? ["Today", "Insights", "Customers", "My pay", "Accounts"] : ["Appointments", "Insights", "Customers", "My pay", "Accounts"],
     );
     const assigned = await (
       await staffPage.request.get(base + "/workspace")

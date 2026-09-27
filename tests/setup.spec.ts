@@ -37,7 +37,7 @@ test("shop setup: signup → 7-step wizard → done; invite accepted by SMS+emai
   await expect(page.getByTestId("setup-team-list")).toBeVisible();
   await page.getByTestId("setup-add-name").fill("Marcus Reed");
   await page.getByTestId("setup-add-staff").click();
-  await expect(page.getByText("Marcus Reed")).toBeVisible();
+  await expect(page.getByText("Marcus Reed").first()).toBeVisible();
   const inviteBtn = page.locator('[data-testid^="invite-"]').filter({ hasText: "Invite" }).first();
   await inviteBtn.click();
   await page.getByTestId("invite-email").fill("marcus@example.com");

@@ -1,5 +1,12 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-09-27 — Email branding audit + login-email verification
+- **Brand rule:** the foliyo *wordmark* is the logo everywhere; the clock mark is for favicon / app icon only. Landing mockups (calendar side rail, WhatsApp header) swapped to the wordmark; platform emails use `png/foliyo-wordmark-ink-800.png`.
+- **Emails:** `EMAIL_ACCENTS` now equal the six light-mode accents in `shop-theme.css` (default was near-black, now foliyo green) with a 6 px accent bar; test fails on drift. `platformSender()` makes foliyo → owner mail (invoice, credit note, trial/overdue/read-only, broadcast, admin digest, one-time sign-in link, welcome) carry the foliyo wordmark + company footer instead of the recipient shop's logo.
+- **Verification:** migration `0025_email_verification.sql`; `owner_welcome` (as foliyo, mentions trial) at signup; `email_verify` (as shop) for SMS/link-invited staff and re-sends; email-invited staff auto-verified. Routes `GET /auth/verify-email/peek`, `POST /auth/verify-email`, `POST /auth/verify-email/resend` (1/min). `/verify` page (`VerifyEmail.tsx`) works signed-out; `VerifyEmailNudge` banner with Resend / Later; `Account.email_verified_at`; audit `EMAIL_VERIFIED`; `verify` reserved slug. Nothing is gated on it yet.
+- **Tests:** `tests/email-templates.test.ts` renders all 32 templates × 2 channels × shop/platform sender — no placeholder leaks, sender named in SMS, absolute CTAs, shop mail never names foliyo, platform mail has wordmark + footer, escaping, accent parity — and writes `docs/evidence/emails/*.html|png`. `tests/verify-email.spec.ts` e2e. Drift fixed: root landing test, `setup.spec` strict-mode, `accounts.spec` inventory + "My pay" nav. Unit 71/71; accounts + verify + setup + messaging + landing e2e green.
+- **Ops:** run `npm run db:migrate` on Supabase with the deploy (0025). Sandbox now has local Postgres 17 + Playwright for the full gate.
+
 ## Latest — platform move: Cloudflare Pages + D1 → Next.js + Postgres (Supabase) (2026-09-16)
 
 - **Decision** in `DIRECTION.md` (replaces `AGENTS.md`): SaaS needs cron, Postgres, the Node ecosystem and push-to-deploy. Cloudflare kept for DNS/custom domains later.

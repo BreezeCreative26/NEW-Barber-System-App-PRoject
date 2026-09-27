@@ -333,7 +333,7 @@ export const EMAIL_ACCENTS: Record<string, { bg: string; ink: string }> = {
 // foliyo → owner emails (billing, lifecycle, admin sign-in links, welcome) go out as the platform:
 // foliyo lockup, foliyo green, company footer — never the shop's own logo, which would be odd
 // on an invoice addressed *to* that shop. `platformSender()` builds the MsgShop-shaped sender.
-export const PLATFORM_LOGO = "/static/brand/png/foliyo-lockup-ink-800.png";
+export const PLATFORM_LOGO = "/static/brand/png/foliyo-wordmark-ink-800.png";
 export function platformSender(shop: MsgShop, pb: { company_name?: string; company_address?: string; company_email?: string }): MsgShop {
   return { ...shop, name: pb.company_name || "foliyo", logo_url: PLATFORM_LOGO, accent: "ollo", theme_json: "{}", address: pb.company_address || "", email: pb.company_email || "", phone: "" };
 }
