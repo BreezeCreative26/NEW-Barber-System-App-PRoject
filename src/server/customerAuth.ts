@@ -126,12 +126,6 @@ export async function ensureAccount(c: Ctx, shop: Shop, who: { name: string; pho
   return { account, created };
 }
 
-// Does the account behind this mobile already have a password? (Returning customers booking again.)
-export async function hasPassword(c: Ctx, phone: string): Promise<boolean> {
-  const a = await byPhone(c, phone);
-  return !!a?.password_hash;
-}
-
 // One-time link for setting (WELCOME) or resetting (RESET) the password. Replaces any live token.
 export async function issueToken(c: Ctx, shop: Shop, account: AccountRow, purpose: "RESET" | "WELCOME", now = Date.now()) {
   const raw = uid() + uid();

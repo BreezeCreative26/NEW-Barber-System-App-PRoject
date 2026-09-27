@@ -131,8 +131,6 @@ test("book for someone else: attendee saved and shown to owner, customer and man
   await page.getByLabel("Your name").fill("Parent Booker");
   await page.getByLabel("Mobile number").fill("07700 900444");
   await page.getByLabel("Email address", { exact: true }).fill("parent@example.test");
-  await page.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
-  await page.getByTestId("booking-password2").fill("Fictional-test-pass-2026!");
   await page.getByTestId("for-someone-else").check();
   await page.getByRole("button", { name: "Review booking" }).click();
   await expect(page.getByText("Who is the visit for?")).toBeVisible(); // required once ticked

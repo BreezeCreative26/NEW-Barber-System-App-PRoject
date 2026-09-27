@@ -686,8 +686,8 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - `PublicBooking` dropped the `embedded` prop; it now looks up the customer session itself. schema.org `ReserveAction` targets the `/book` URL via `shopUrl`.
 - Tests updated: `shop-page.spec`, `booking-upgrades.spec`, `customer-account.spec`. `nav-me` on the flow carries an accessible name (axe).
 
-## Accounts are created at booking, always
-- The details step now requires a password for anyone not signed in ("Create your account" — no opt-out checkbox). Returning customers use "Already have an account? Sign in" inline on the same step; on success their details fill in and the password fields disappear.
-- Server: `POST /shops/:slug/bookings` refuses (400) when the booker is not signed in, sends no password, and the mobile has no password on file yet. A phone that already has a password (returning customer on a new device) may still book without re-entering one.
-- Welcome email: newly created accounts with a password get "Your account is ready" (sign in with <email>, link to /me). Password-less legacy accounts still get the one-time set-password link.
-- `/me?forgot=1` opens the forgot-password panel directly (linked from the inline sign-in).
+## Account step after the booking
+- Nothing stands between the customer and the slot: the details step asks for name, mobile and email only. The booking itself creates (or reuses) the account and signs this device in.
+- The confirmation screen then shows **Create your account** (choose a password for the email used) with **Already have an account? Sign in** as the alternative. Signed-in customers never see this block. A returning customer whose account already has a password sees "Welcome back".
+- Server: no password is required on `POST /bookings`; the password is set afterwards via `PUT /account/password` (no current password needed when none is set). The welcome email carries a one-time set-password link as a fallback.
+- `/me?forgot=1` opens the forgot-password panel directly.

@@ -340,14 +340,11 @@ test.describe("public booking pages", () => {
     await page.getByRole("group", { name: "Choose an appointment time" }).locator("button:not([disabled])").first().click();
     await page.getByRole("button", { name: "Your details", exact: true }).click();
     await page.getByLabel("Your name").fill("Browser Customer");
-    await page.getByLabel("Mobile number").fill("07700 900777");
+    await page.getByLabel("Mobile number").fill(`07${String(Date.now()).slice(-9)}`);
     await page.getByLabel("Email address", { exact: true }).fill("not-an-email");
     await page.getByRole("button", { name: "Review booking" }).click();
     await expect(page.getByText("Enter a valid email address")).toBeVisible();
-    await page.getByLabel("Email address", { exact: true }).fill("browser@example.test");
-    // Every booking ends with an account; leave the password for later (welcome link).
-    await page.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
-    await page.getByTestId("booking-password2").fill("Fictional-test-pass-2026!");
+    await page.getByLabel("Email address", { exact: true }).fill(`browser-${Date.now()}@example.test`);
     await page.getByRole("button", { name: "Review booking" }).click();
     await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
     await expect(page.getByText("Browser Customer")).toBeVisible();
@@ -355,6 +352,19 @@ test.describe("public booking pages", () => {
     await expect(page.getByRole("heading", { level: 1, name: label })).toBeVisible();
     const reference = await page.locator(".public-reference").textContent();
     expect(reference).toMatch(/^BRB-\d{4}$/);
+    // Not signed in before booking → the confirmation offers create account / sign in.
+    const acct = page.getByTestId("confirm-account");
+    await expect(acct).toContainText("Create your account");
+    await acct.getByTestId("account-switch").click();
+    await expect(acct).toContainText("Sign in");
+    await acct.getByTestId("account-switch").click();
+    await acct.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
+    await acct.getByTestId("booking-password2").fill("Fictional-test-pass-2027!");
+    await acct.getByTestId("account-create-submit").click();
+    await expect(acct.getByRole("alert")).toContainText("don't match");
+    await acct.getByTestId("booking-password2").fill("Fictional-test-pass-2026!");
+    await acct.getByTestId("account-create-submit").click();
+    await expect(acct.getByTestId("account-done")).toContainText("Your account is ready");
     const link = page.getByTestId("open-manage");
     await expect(link).toBeVisible();
     const href = await link.getAttribute("href");
@@ -658,8 +668,6 @@ test.describe("public booking v2 UI", () => {
     await page.getByRole("button", { name: "Your details", exact: true }).click();
     await expect(page.getByLabel("Your name")).toHaveValue("Waiting Wanda");
     await page.getByLabel("Email address", { exact: true }).fill("wanda@example.test");
-    await page.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
-    await page.getByTestId("booking-password2").fill("Fictional-test-pass-2026!");
     await page.getByRole("button", { name: "Review booking" }).click();
     await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
     await page.getByRole("button", { name: "Confirm booking" }).click();

@@ -73,8 +73,6 @@ test("shop page renders the seeded sections and every shortcut deep-links into t
   await flow.getByLabel("Your name").fill("Home Page Customer");
   await flow.getByLabel("Mobile number").fill("07700 900444");
   await flow.getByLabel("Email address").fill("homepage@example.com");
-  await flow.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
-  await flow.getByTestId("booking-password2").fill("Fictional-test-pass-2026!");
   await flow.getByRole("button", { name: "Review booking" }).click();
   await expect(flow.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
   await flow.getByRole("button", { name: "Confirm booking" }).click();

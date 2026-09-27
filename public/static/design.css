@@ -2070,6 +2070,7 @@ html.ws-dark .shop-page { color-scheme: light; }
 .booking-brand .shop-emblem { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; font-size: var(--fs-12); font-weight: 700; }
 .booking-brand img.shop-emblem.shop-logo { width: auto; max-width: 140px; height: 36px; border-radius: 0; background: transparent; object-fit: contain; }
 .booking-app.standalone .booking-body { max-width: 1120px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 40px) 48px; }
+.booking-app.standalone .booking-body > .public-confirmation { padding-top: 24px; }
 .booking-app.standalone .booking-progress { padding: 22px 0 18px; margin-bottom: 26px; }
 .booking-app.standalone .booking-progress button { font-size: var(--fs-13); gap: 10px; }
 .booking-app.standalone .booking-progress button > span { width: 30px; height: 30px; font-size: var(--fs-12); font-weight: 700; }
@@ -2192,14 +2193,18 @@ html.ws-dark .shop-page { color-scheme: light; }
 @media (max-width: 400px) {
   .booking-app.standalone .barber-choices { grid-template-columns: 1fr; }
 }
-/* Account at booking: everyone creates one (or signs in) on the details step. */
-.account-block { margin-top: var(--s-3); padding: var(--s-4); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--canvas); }
-.account-block-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s-3); flex-wrap: wrap; }
-.account-block-head > span { display: grid; gap: 3px; min-width: 0; flex: 1 1 260px; }
-.account-block-head strong { font-size: 16px; }
-.account-block-head small { color: var(--muted); font-size: var(--fs-13); line-height: 1.5; }
-.account-block-head .link { font-size: var(--fs-13); font-weight: 600; white-space: nowrap; }
-.account-signin-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s-3); }
-.account-signin .field-error { grid-column: 1 / -1; margin: 0; }
-.shop-page .account-block { background: var(--sp-surface-2); border-color: var(--sp-line); }
-.shop-page .account-block-head small { color: var(--sp-muted); }
+/* Account step after the booking: create an account or sign in. Signed-in customers never see it. */
+.confirm-account { padding: 20px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--canvas); margin: 20px 0; }
+.confirm-account > div { display: flex; justify-content: space-between; align-items: center; gap: var(--s-3); flex-wrap: wrap; margin-bottom: 6px; }
+.confirm-account h3 { font-size: 18px; letter-spacing: -0.2px; }
+.confirm-account > div .link { font-size: var(--fs-13); font-weight: 600; }
+.confirm-account p { font-size: var(--fs-14); color: var(--muted); line-height: 1.5; margin: 0 0 12px; }
+.account-fields label { display: grid; gap: 6px; }
+.account-fields label > span { font-size: var(--fs-14); font-weight: 600; }
+.account-fields input { font-size: 16px; min-height: 48px; padding: 10px 14px; }
+.account-fields .field-hint { font-size: var(--fs-12); color: var(--muted); }
+.confirm-account .field-error { margin: 10px 0 0; font-size: var(--fs-13); }
+.account-signin-actions { display: flex; align-items: center; gap: var(--s-3); margin-top: 14px; }
+.account-signin-actions .button { min-height: 46px; }
+.shop-page .confirm-account { background: var(--sp-surface-2); border-color: var(--sp-line); }
+.shop-page .confirm-account p, .shop-page .account-fields .field-hint { color: var(--sp-muted); }
