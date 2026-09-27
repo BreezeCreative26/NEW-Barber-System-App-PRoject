@@ -5989,8 +5989,15 @@ input[aria-invalid="true"] {
   max-width: 720px;
   margin: 0 auto;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
+/* Manage view's move step: date strip and slot grid must shrink to the phone, never widen the page. */
+.public-confirmation > section,
+.public-confirmation .review-customer { min-width: 0; }
+.review-customer > .booking-dates,
+.review-customer > .time-slots { display: grid; justify-content: normal; margin-bottom: 0; }
+.review-customer > .time-slots { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .public-confirmation .review-appointment h1 {
   font-size: 25px;
   font-weight: 560;
