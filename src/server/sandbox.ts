@@ -266,7 +266,7 @@ sandbox.use("*", async (c, next) => {
     const setup =
       // The setup wizard (owner/manager): its own routes enforce the role again.
       path.startsWith("/setup") ||
-      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist", "/shop/messaging", "/shop/payments", "/shop/alerts", "/shop/voice"].includes(path)) ||
+      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/reviews", "/shop/waitlist", "/shop/messaging", "/shop/payments", "/shop/alerts", "/shop/voice"].includes(path)) ||
       (method === "GET" && (path === "/shop/alerts" || path.startsWith("/shop/voice"))) ||
       (method === "POST" && path === "/shop/voice/rotate") ||
       (method === "POST" && ["/notifications/test", "/notifications/sweep", "/shop/payments/connect"].includes(path)) ||
@@ -756,14 +756,30 @@ sandbox.put("/shop/page", async (c) => {
   const sections = JSON.stringify([...new Set(b.sections)]);
   const stmt = existing
     ? c.env.DB.prepare(
-        "UPDATE shop_pages SET strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
-      ).bind(b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.published, now, sid, b.version)
+        "UPDATE shop_pages SET strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
+      ).bind(b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version)
     : c.env.DB.prepare(
-        "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
-      ).bind(sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.published, now);
+        "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+      ).bind(sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now);
   await checkVersionUpdate(c, stmt, audit(c, "shop", sid, "SHOP_PAGE_UPDATED", `${b.published ? "Published" : "Unpublished"}; ${b.sections.length} sections.`, true));
   const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>();
   return c.json({ page: row });
+});
+// Reviews: ask happy customers (4–5★ in-app) to repeat it on Google. Needs the Google link on the page.
+sandbox.put("/shop/reviews", async (c) => {
+  const b = await input(c, z.object({ google_review_nudge: z.union([z.literal(0), z.literal(1)]), version: z.number().int().min(0) }).strict());
+  const sid = c.get("shopId");
+  if (b.google_review_nudge) {
+    const page = await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(sid).first<{ google_review_url: string }>();
+    if (!page?.google_review_url) fail(409, "Add your Google review link first (Settings → Shop page → Reviews).");
+  }
+  await checkVersionUpdate(
+    c,
+    c.env.DB.prepare("UPDATE shops SET google_review_nudge=?,version=version+1 WHERE id=? AND version=?").bind(b.google_review_nudge, sid, b.version),
+    audit(c, "shop", sid, "SHOP_UPDATED", `Google review follow-up ${b.google_review_nudge ? "on" : "off"}.`, true),
+  );
+  const shop = await c.env.DB.prepare("SELECT version, google_review_nudge FROM shops WHERE id=?").bind(sid).first<{ version: number; google_review_nudge: number }>();
+  return c.json({ ok: true, shop });
 });
 sandbox.put("/shop/online", async (c) => {
   const b = await input(c, onlineBookingSchema);
@@ -3060,7 +3076,13 @@ sandbox.post("/payments/:id/void", async (c) => {
 });
 // Wallet: ledger totals for a date range (defaults to today), per method and per barber.
 // Per-user UI preferences. Sparse patch; unknown keys rejected so the column stays small.
-const prefsSchema = z.object({ calendar_density: z.enum(["COMPACT", "STANDARD", "LARGE"]).optional() }).strict();
+const prefsSchema = z
+  .object({
+    calendar_density: z.enum(["COMPACT", "STANDARD", "LARGE"]).optional(),
+    // Personal workspace look (admin side only): curated accent + light/dark.
+    workspace_theme: z.object({ accent: z.enum(["forest", "ink", "ocean", "clay", "plum", "slate"]), mode: z.enum(["light", "dark"]) }).strict().optional(),
+  })
+  .strict();
 sandbox.put("/me/prefs", async (c) => {
   const account = c.get("account");
   if (!account) fail(401, "Sign in to save preferences");

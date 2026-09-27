@@ -72,7 +72,7 @@ import type { Page } from "@playwright/test";
 export async function enterNewShop(page: Page, name = "UI test shop") {
   const res = await page.request.post(base + "/auth/signup", {
     headers: { Origin: origin },
-    data: { shop_name: name, name: "Zed Owner", email: email(), password: PASSWORD },
+    data: { shop_name: name, name: "Zed Owner", email: email(), password: PASSWORD, accept_legal: true },
   });
   expect(res.status(), await res.text()).toBe(201);
   const r = page.request;

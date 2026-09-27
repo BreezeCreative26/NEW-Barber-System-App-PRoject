@@ -67,9 +67,9 @@ test.describe("laptop 1366×768", () => {
     const r = await request.newContext({ extraHTTPHeaders: { Origin: origin }, storageState: await page.context().storageState() });
     const w = await (await r.get(base + "/workspace")).json();
     // Save the shop default via the settings form.
-    await section(page, "Settings");
+    await section(page, "Settings/calendar");
     await page.getByTestId("shop-calendar-density").selectOption("COMPACT");
-    await page.getByRole("button", { name: /Save shop settings|Save settings|Save/ }).first().click();
+    await page.getByRole("button", { name: "Save diary settings", exact: true }).click();
     await page.waitForTimeout(400);
     const after = await (await r.get(base + "/workspace")).json();
     expect(after.shop.calendar_density).toBe("COMPACT");

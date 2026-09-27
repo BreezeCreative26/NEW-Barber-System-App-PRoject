@@ -655,3 +655,10 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - `/me`: Waiting list section always present; shows date ranges and time windows; offer line shows the offer's date for range requests.
 - `vercel.json` `buildCommand` runs `npm run db:migrate` before `next build`, so 0027 (and future migrations) apply on deploy; a failing migration fails the build.
 - Tests: waitlist-v2 uses per-run phone numbers (no throttle collisions); public.spec updated for auto-closing of waiting requests on booking.
+
+## 2026-09-27 — Brand sweep, Settings reorganised, Google reviews, workspace accent
+- **foliyo everywhere**: remaining OLLO mentions in code/docs/tests replaced (DB identifiers, CSS tokens, storage keys and migrations untouched). Env: `FOLIYO_ADMIN_EMAILS` / `FOLIYO_ALERT_EMAIL` (legacy `OLLO_*` still read).
+- **Settings**: 12 sections in 4 groups — Business (details, hours & closures, calendar & workspace), Customers (online booking, shop page, reviews & Google, waiting list), Communication (messages, owner alerts, AI receptionist), Money (payments, plan). The old "General" mega-form is split; `ShopSaveForm` fills the rest of the strict `/shop` record so short forms save safely. Deep links `#settings/<key>` work for every section.
+- **Google reviews** (`0028_google_reviews_prefs.sql`): `shop_pages.google_review_url` (validated Google host), `shops.google_review_nudge`. After a 4–5★ in-app rating the customer sees "Review on Google"; with the follow-up on, one `google_review` text/email goes out per visit. Footer link on the shop page. `PUT /shop/reviews`.
+- **Workspace accent** (personal, admin side): 6 curated accents via `prefs_json.workspace_theme`, applied as `--ws-*` on `<html>`; localStorage for instant load. Dark admin canvas is parked (many admin surfaces still hard-code white) — CSS scaffold is in `design.css` behind `html.ws-dark`.
+- Tests: `tests/settings-v2.spec.ts`; drifted suites updated (calendar-density, catalogue, workspace, waitlist, shop.ts signup helper now sends `accept_legal`).

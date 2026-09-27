@@ -901,7 +901,7 @@
 .paid-strip li { display: flex; align-items: center; gap: 8px; font-size: var(--fs-12); color: var(--muted); flex-wrap: wrap; }
 .paid-strip li svg { color: var(--good); flex: 0 0 auto; }
 .paid-strip li.voided { text-decoration: line-through; }
-.paid-strip li.voided svg { color: var(--muted-2); }
+.paid-strip li.voided svg { color: var(--muted); }
 .paid-strip .status-pill { margin-left: auto; }
 .panel-more-note { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-12); color: var(--muted); padding: 8px 10px; }
 .field-hint { display: block; color: var(--muted); font-size: var(--fs-11); font-weight: 400; margin-top: 2px; }
@@ -2004,3 +2004,53 @@ body:has(.ollo-admin-shell) { margin: 0; padding: 0; background: #f4f3ee; }
   .workspace .connected-calendar .density-compact .calendar-event { padding: 2px 6px; }
   .workspace .connected-calendar .density-compact .calendar-event strong { font-size: 11px; }
 }
+
+/* ---- Workspace look (personal, admin side only) -------------------------------------------
+   Set by src/client/workspaceTheme.ts as classes + --ws-* vars on <html>. Only the admin shell
+   reads these; customer pages are wrapped in .shop-page and use the shop's own theme. */
+html[class*="ws-accent-"] {
+  --accent: var(--ws-accent);
+  --accent-dark: var(--ws-accent-dark);
+  --accent-grad: linear-gradient(135deg, var(--ws-accent-dark) 0%, var(--ws-accent) 100%);
+  --ollo: var(--ws-rail);
+  --ollo-soft: var(--ws-soft);
+  --sage: var(--ws-soft);
+  --forest: var(--ws-rail);
+  --rail: var(--ws-rail);
+}
+html.ws-dark {
+  --canvas: #0f1114;
+  --cream: #0f1114;
+  --surface: #171a1f;
+  --ink: #f2f3f5;
+  --ink-2: #d9dce1;
+  --muted: #a3a9b3;
+  --muted-2: #7c838e;
+  --line: #262b33;
+  --line-2: #1f242b;
+  --rail-fg: #aab3bd;
+  --good-bg: rgba(63, 125, 92, 0.22); --good: #86c9a2;
+  --warn-bg: rgba(184, 97, 58, 0.22); --warn: #eaa082;
+  --note-bg: rgba(160, 130, 60, 0.22); --note: #e3c98a;
+  --blocked-a: #1e2027; --blocked-b: #23252d; --blocked-line: #3a3d48;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 6px 16px rgba(0, 0, 0, 0.5);
+  --shadow-drawer: -12px 0 32px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+html.ws-dark body { background: var(--canvas); color: var(--ink); }
+html.ws-dark .workspace input, html.ws-dark .workspace select, html.ws-dark .workspace textarea { background: #10131a; color: var(--ink); border-color: var(--line); }
+html.ws-dark .workspace .button.secondary { background: var(--surface); color: var(--ink); border-color: var(--line); }
+/* Customer surfaces stay on the shop theme even inside a dark admin (embedded previews). */
+html.ws-dark .shop-page { color-scheme: light; }
+
+/* Settings nav groups */
+.settings-nav-group { display: grid; gap: 2px; }
+.settings-nav-group + .settings-nav-group { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-2); }
+.settings-nav-label { display: block; padding: 6px 12px 2px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.settings-nav button { min-height: 48px; }
+/* Workspace look picker */
+.ws-look { display: grid; gap: 14px; }
+.ws-swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+.ws-swatch { width: 40px; height: 40px; border-radius: 999px; border: 2px solid transparent; cursor: pointer; display: grid; place-items: center; color: #fff; box-shadow: var(--shadow-1); }
+.ws-swatch[aria-checked="true"] { border-color: var(--ink); box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--ink); }

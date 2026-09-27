@@ -19,13 +19,15 @@ export function Stars({ value, size = 16, label }: { value: number; size?: numbe
 const monthOf = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
 
 // Posts to `post(rating, body)` which the host wires to the right endpoint.
-export function ReviewCard({ review, canReview, post, compact = false }: { review: OwnReview; canReview: boolean; post: (rating: number, body: string) => Promise<OwnReview>; compact?: boolean }) {
+export type ReviewPostResult = OwnReview | { review: OwnReview; google_review_url?: string };
+export function ReviewCard({ review, canReview, post, compact = false, googleUrl = "" }: { review: OwnReview; canReview: boolean; post: (rating: number, body: string) => Promise<ReviewPostResult>; compact?: boolean; googleUrl?: string }) {
   const [rating, setRating] = useState(0);
   const [hover, setHover] = useState(0);
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState<OwnReview>(review);
+  const [google, setGoogle] = useState(googleUrl);
   const current = saved ?? review;
   if (current)
     return (
@@ -35,6 +37,14 @@ export function ReviewCard({ review, canReview, post, compact = false }: { revie
           <span className="review-when">{monthOf(current.created_at)}</span>
         </header>
         {current.body && <p className="review-body">{current.body}</p>}
+        {google && current.rating >= 4 && current.status !== "HIDDEN" && (
+          <p className="review-google" data-testid="review-google">
+            <span>Thank you! If you have 30 seconds, the same review on Google helps other people find the shop.</span>
+            <a className="button secondary" href={google} target="_blank" rel="noreferrer">
+              <Icon name="external" size={15} /> Review on Google
+            </a>
+          </p>
+        )}
         {current.status === "HIDDEN" && <p className="review-note">Thanks for the feedback. The shop has chosen not to show this one on their page.</p>}
         {current.reply && (
           <p className="review-reply">
@@ -84,7 +94,11 @@ export function ReviewCard({ review, canReview, post, compact = false }: { revie
             setBusy(true);
             setError("");
             try {
-              setSaved(await post(rating, body.trim()));
+              const r = await post(rating, body.trim());
+              if (r && "review" in r && !("rating" in r)) {
+                setSaved(r.review);
+                if (r.google_review_url) setGoogle(r.google_review_url);
+              } else setSaved(r as OwnReview);
             } catch (e) {
               setError(e instanceof Error ? e.message : "Could not save your review.");
             } finally {

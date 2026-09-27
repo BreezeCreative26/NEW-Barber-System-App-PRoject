@@ -15,6 +15,7 @@ import {
   cancelByCustomer,
   clientKey,
   customerView,
+  googleReviewFollowUp,
   datePlus,
   limits,
   moveBody,
@@ -340,7 +341,8 @@ acct.post("/bookings/:id/review", async (c) => {
   const { booking } = await ownBooking(c, shop, cust, c.req.param("id")!);
   const r = await leaveReview(c, shop, booking, body, `customer:${a.id}`);
   if (r.error) fail(409, r.error);
-  return c.json({ review: ownReviewView(r.review) }, 201);
+  const google = await googleReviewFollowUp(c, shop, booking, r.review?.rating ?? 0);
+  return c.json({ review: ownReviewView(r.review), google_review_url: google }, 201);
 });
 acct.get("/bookings/:id/calendar.ics", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug")!);

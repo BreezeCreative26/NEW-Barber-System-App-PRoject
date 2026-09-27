@@ -1908,9 +1908,9 @@ export function ManageBooking({ token }: { token: string }) {
               review={review.review}
               canReview={review.can}
               post={async (rating, body) => {
-                const r = await api<{ review: OwnReview }>(`/manage/${token}/review`, "POST", { rating, body });
+                const r = await api<{ review: OwnReview; google_review_url?: string }>(`/manage/${token}/review`, "POST", { rating, body });
                 setReview({ review: r.review, can: false });
-                return r.review;
+                return r;
               }}
             />
           )}

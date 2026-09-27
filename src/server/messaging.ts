@@ -46,7 +46,7 @@ export const MESSAGE_TEMPLATES = [
   "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_open", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
   "verify_contact", "password_reset", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
   "invoice", "credit_note", "owner_signin_link", "trial_ending", "trial_ended", "payment_overdue", "account_readonly", "broadcast", "admin_alert_digest",
-  "owner_welcome", "email_verify",
+  "owner_welcome", "email_verify", "google_review",
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
 
@@ -156,6 +156,14 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         subject: `Back on the list at ${s}`,
         heading: `Back on the list for ${v.date}.`,
         lines: ["We'll message you if another time opens up."],
+      };
+    case "google_review":
+      return {
+        sms: `${s}: thanks for the ${v.rating}★, ${who}! If you have 30 seconds, the same on Google helps us a lot: ${v.link}`,
+        subject: `Thanks for the ${v.rating}★ — one more favour?`,
+        heading: `Thanks, ${who}.`,
+        lines: [`You gave your ${v.service} with ${v.barber} ${v.rating} stars. If you have 30 seconds, the same review on Google helps other people find us.`],
+        cta: { label: "Review us on Google", href: String(v.link) },
       };
     case "review_request":
       return {

@@ -35,6 +35,7 @@ export type Shop = {
   card_colour: "BARBER" | "SERVICE";
   // Default timetable density for people who haven't chosen their own.
   calendar_density?: "COMPACT" | "STANDARD" | "LARGE";
+  google_review_nudge?: number;
   version: number;
   // Online deposits (Model A — the shop's own Stripe account).
   stripe_account_id?: string;
@@ -590,6 +591,7 @@ export type ShopPage = {
   sections_json: string;
   accent: "ollo" | "ink" | "sage" | "clay" | "plum" | "slate";
   theme_json: string;
+  google_review_url: string;
   published: number;
   version: number;
   updated_at: number;
@@ -641,6 +643,8 @@ export const shopPageSchema = z
     email: z.union([z.literal(""), z.string().trim().email().max(254)]).default(""),
     instagram: z.string().trim().max(40).regex(/^@?[A-Za-z0-9._]*$/, "Instagram handle only").default(""),
     map_url: httpsUrl.default(""),
+    // Google Business Profile "write a review" link (g.page/r/…/review or search.google.com/local/writereview?placeid=…).
+    google_review_url: httpsUrl.refine((u) => u === "" || /(^https:\/\/(g\.page|maps\.app\.goo\.gl|search\.google\.com|www\.google\.[a-z.]+|goo\.gl)\/)/.test(u), "Use a Google review link (g.page/r/…/review or a Google Maps link)").default(""),
     transport_note: z.string().trim().max(300).default(""),
     policy_text: z.string().trim().max(1200).default(""),
     sections: z.array(z.enum(pageSections)).max(pageSections.length).default([...pageSections]),
@@ -666,6 +670,7 @@ export const defaultShopPage = (shopId: string, now = Date.now()): ShopPage => (
   sections_json: JSON.stringify(pageSections),
   accent: "ollo",
   theme_json: "{}",
+  google_review_url: "",
   published: 1,
   version: 0,
   updated_at: now,

@@ -38,6 +38,7 @@ import { SetupWizard } from "./Setup";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
 import { themeClass } from "./theme";
+import { WS_ACCENTS, DEFAULT_WS_THEME, applyWsTheme, parseWsTheme, readLocalWsTheme, writeLocalWsTheme, type WorkspaceTheme } from "./workspaceTheme";
 import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
 
 const reference = (b: StoredBooking) =>
@@ -1155,15 +1156,23 @@ type Editor =
   | { kind: "holiday" }
   | { kind: "removeHoliday"; item: Holiday };
 
-type SettingsTabKey = "general" | "booking" | "page" | "messages" | "payments" | "billing";
-const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: string; owner?: boolean }[] = [
-  { key: "general", label: "General", hint: "Details, hours, policies", icon: "settings" },
-  { key: "booking", label: "Online booking", hint: "Link, notice, customer pages", icon: "globe" },
-  { key: "page", label: "Shop page", hint: "Public page & reviews", icon: "star" },
-  { key: "messages", label: "Messages & AI", hint: "Texts, WhatsApp, email, calls", icon: "message" },
-  { key: "payments", label: "Payments", hint: "Cards, deposits, payouts", icon: "card" },
-  { key: "billing", label: "Billing", hint: "Your foliyo plan, usage, invoices", icon: "file", owner: true },
+type SettingsTabKey = "general" | "hours" | "calendar" | "booking" | "page" | "reviews" | "messages" | "waitlist" | "alerts" | "ai" | "payments" | "billing";
+type SettingsGroup = "Business" | "Customers" | "Communication" | "Money";
+const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: string; group: SettingsGroup; owner?: boolean }[] = [
+  { key: "general", label: "Business details", hint: "Name, address, currency", icon: "settings", group: "Business" },
+  { key: "hours", label: "Hours & closures", hint: "Opening times, holidays", icon: "clock", group: "Business" },
+  { key: "calendar", label: "Calendar & workspace", hint: "Policies, density, colours", icon: "calendar", group: "Business" },
+  { key: "booking", label: "Online booking", hint: "Link, notice, customer pages", icon: "globe", group: "Customers" },
+  { key: "page", label: "Shop page", hint: "Photos, theme, live preview", icon: "image", group: "Customers" },
+  { key: "reviews", label: "Reviews & Google", hint: "Ratings, replies, Google link", icon: "star", group: "Customers" },
+  { key: "waitlist", label: "Waiting list", hint: "Freed slots, who gets told", icon: "bell", group: "Customers" },
+  { key: "messages", label: "Messages", hint: "Texts, WhatsApp, email, outbox", icon: "message", group: "Communication" },
+  { key: "alerts", label: "Owner alerts", hint: "What you hear about, and how", icon: "bell", group: "Communication" },
+  { key: "ai", label: "AI receptionist", hint: "Phone answering", icon: "phone", group: "Communication" },
+  { key: "payments", label: "Payments", hint: "Cards, deposits, payouts", icon: "card", group: "Money" },
+  { key: "billing", label: "Your foliyo plan", hint: "Plan, usage, invoices", icon: "file", group: "Money", owner: true },
 ];
+const SETTINGS_GROUPS: SettingsGroup[] = ["Business", "Customers", "Communication", "Money"];
 
 
 // Shown when foliyo support opened this workspace from the admin panel (cookie set by /api/admin/…/impersonate).
@@ -1725,6 +1734,18 @@ export function Workspace() {
   );
   const manager = !w?.account || ["OWNER", "MANAGER"].includes(w.account.role);
   const userPref = (() => { try { return (JSON.parse(w?.account?.prefs_json || "{}") as { calendar_density?: string }).calendar_density; } catch { return undefined; } })();
+  // Personal workspace look: local copy first (no flash), then the account's saved choice wins.
+  useEffect(() => {
+    const local = readLocalWsTheme();
+    if (local) applyWsTheme(local);
+  }, []);
+  useEffect(() => {
+    if (!w?.account) return;
+    try {
+      const t = parseWsTheme((JSON.parse(w.account.prefs_json || "{}") as { workspace_theme?: unknown }).workspace_theme);
+      if (t) { applyWsTheme(t); writeLocalWsTheme(t); }
+    } catch { /* ignore */ }
+  }, [w?.account?.prefs_json]);
   const density: Density = densityChoice ?? resolveDensity(userPref, w?.shop.calendar_density, phoneDevice);
   function chooseDensity(d: Density) {
     setDensityChoice(d);
@@ -1968,7 +1989,7 @@ export function Workspace() {
           }}
           onOpenSettings={() => {
             setQueueOpen(false);
-            setSettingsTab("messages");
+            setSettingsTab("waitlist");
             setTab("Settings");
           }}
           onClose={() => setQueueOpen(false)}
@@ -2608,171 +2629,133 @@ export function Workspace() {
               {tab === "Settings" && (
                 <div className="settings-shell" data-testid="settings">
                   <nav className="settings-nav" role="tablist" aria-label="Settings sections">
-                    {SETTINGS_TABS.filter((t) => !t.owner || !w.account || w.account.role === "OWNER").map((t) => (
-                      <button key={t.key} type="button" role="tab" aria-selected={settingsTab === t.key} aria-controls={`settings-${t.key}`} onClick={() => setSettingsTab(t.key)} data-testid={`settings-tab-${t.key}`}>
-                        <Icon name={t.icon} size={18} />
-                        <span><b>{t.label}</b><small>{t.hint}</small></span>
-                      </button>
+                    {SETTINGS_GROUPS.map((g) => (
+                      <div key={g} className="settings-nav-group" role="presentation">
+                        <span className="settings-nav-label" aria-hidden="true">{g}</span>
+                        {SETTINGS_TABS.filter((t) => t.group === g && (!t.owner || !w.account || w.account.role === "OWNER")).map((t) => (
+                          <button key={t.key} type="button" role="tab" aria-selected={settingsTab === t.key} aria-controls={`settings-${t.key}`} onClick={() => setSettingsTab(t.key)} data-testid={`settings-tab-${t.key}`}>
+                            <Icon name={t.icon} size={18} />
+                            <span><b>{t.label}</b><small>{t.hint}</small></span>
+                          </button>
+                        ))}
+                      </div>
                     ))}
                   </nav>
                   <div className="settings-body" id={`settings-${settingsTab}`} role="tabpanel">
                     {settingsTab === "general" && (
                       <>
-                        <header className="settings-head"><h2>General</h2><p>Your business details, opening hours and booking policies.</p></header>
-                  <section className="workspace-panel">
-                    <h2>Shop settings</h2>
-                    <SaveForm
-                      key={w.shop.version}
-                      onSave={(f) =>
-                        saved("/shop", "PUT", {
-                          name: text(f, "name"),
-                          address: text(f, "address"),
-                          timezone: text(f, "timezone"),
-                          currency: text(f, "currency") || "GBP",
-                          week: days.map((_, i) => ({
-                            enabled: f.get(`open_${i}`) ? 1 : 0,
-                            starts: minute(text(f, `starts_${i}`) || "09:00"),
-                            ends: minute(text(f, `ends_${i}`) || "18:00"),
-                          })),
-                          deposit_pence: Math.round(number(f, "deposit") * 100),
-                          cancel_hours: number(f, "cancel_hours"),
-                          buffer_min: number(f, "buffer_min"),
-                          card_colour: text(f, "card_colour") === "SERVICE" ? "SERVICE" : "BARBER",
-                          calendar_density: (["COMPACT", "STANDARD", "LARGE"].includes(text(f, "calendar_density")) ? text(f, "calendar_density") : "STANDARD") as "COMPACT" | "STANDARD" | "LARGE",
-                          no_show_grace: number(f, "no_show_grace"),
-                          till_access: text(f, "till_access") === "ALL" ? "ALL" : "OWNER",
-                          version: w.shop.version,
-                        })
-                      }
-                    >
-                      <Field label="Shop name">
-                        <input
-                          name="name"
-                          required
-                          minLength={2}
-                          maxLength={100}
-                          defaultValue={w.shop.name}
-                        />
-                      </Field>
-                      <Field label="Address">
-                        <textarea
-                          name="address"
-                          maxLength={200}
-                          defaultValue={w.shop.address}
-                        />
-                      </Field>
-                      <Field label="Timezone">
-                        <select name="timezone" defaultValue={w.shop.timezone}>
-                          {timezoneOptions(w.shop.timezone).map((tz) => (
-                            <option key={tz} value={tz}>
-                              {tz.replace(/_/g, " ")}
-                            </option>
+                        <header className="settings-head"><h2>Business details</h2><p>Who you are and where you are. Customers see the name and address on every page and message.</p></header>
+                        <section className="workspace-panel">
+                          <h2>Shop settings</h2>
+                          <ShopSaveForm w={w} saved={saved} label="Save changes">
+                            <Field label="Shop name">
+                              <input name="name" required minLength={2} maxLength={100} defaultValue={w.shop.name} />
+                            </Field>
+                            <Field label="Address">
+                              <textarea name="address" maxLength={200} defaultValue={w.shop.address} />
+                            </Field>
+                            <div className="workspace-form-grid">
+                              <Field label="Timezone">
+                                <select name="timezone" defaultValue={w.shop.timezone}>
+                                  {timezoneOptions(w.shop.timezone).map((tz) => (
+                                    <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
+                                  ))}
+                                </select>
+                              </Field>
+                              <Field label="Currency · how prices are shown">
+                                <select name="currency" defaultValue={w.shop.currency || "GBP"} data-testid="shop-currency">
+                                  {CURRENCIES.map((c) => (
+                                    <option key={c.code} value={c.code}>{c.code} · {c.label}</option>
+                                  ))}
+                                </select>
+                              </Field>
+                            </div>
+                          </ShopSaveForm>
+                        </section>
+                      </>
+                    )}
+                    {settingsTab === "hours" && (
+                      <>
+                        <header className="settings-head"><h2>Hours &amp; closures</h2><p>When the shop is open, and dated closures like bank holidays. Each team member has their own hours under Team.</p></header>
+                        <section className="workspace-panel">
+                          <h2>Opening hours</h2>
+                          <ShopSaveForm w={w} saved={saved} label="Save hours">
+                            <WeekHoursEditor week={shopWeekOf(w.shop)} />
+                          </ShopSaveForm>
+                        </section>
+                        <section className="workspace-panel">
+                          <div className="workspace-section-heading">
+                            <h2>Shop closures</h2>
+                            <Button variant="secondary" onClick={() => setEditor({ kind: "holiday" })}>Add closure</Button>
+                          </div>
+                          {w.holidays.length === 0 && <p>No dated closures.</p>}
+                          {w.holidays.map((h) => (
+                            <article className="workspace-closure" key={h.id}>
+                              <strong>{h.date}</strong>
+                              <p>{h.label}</p>
+                              <Button variant="ghost" onClick={() => setEditor({ kind: "removeHoliday", item: h })}>Remove closure</Button>
+                            </article>
                           ))}
-                        </select>
-                      </Field>
-                      <Field label="Currency · how prices are shown">
-                        <select name="currency" defaultValue={w.shop.currency || "GBP"} data-testid="shop-currency">
-                          {CURRENCIES.map((c) => (
-                            <option key={c.code} value={c.code}>
-                              {c.code} · {c.label}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <WeekHoursEditor week={shopWeekOf(w.shop)} />
-                      <p className="helper">Times between visits include a 10-minute buffer. Each barber has their own hours under Team.</p>
-                      <Field label={`Deposit (${currencySymbol(w.shop.currency || "GBP")}) · shown to customers, payable in the shop`}>
-                        <input
-                          type="number"
-                          name="deposit"
-                          min={0}
-                          max={100}
-                          step="0.01"
-                          required
-                          defaultValue={w.shop.deposit_pence / 100}
-                        />
-                      </Field>
-                      <Field label="Cancellation policy hours">
-                        <input
-                          type="number"
-                          name="cancel_hours"
-                          min={0}
-                          max={168}
-                          required
-                          defaultValue={w.shop.cancel_hours}
-                        />
-                      </Field>
-                      <Field label="No-show grace minutes">
-                        <input
-                          type="number"
-                          name="no_show_grace"
-                          min={0}
-                          max={120}
-                          required
-                          defaultValue={w.shop.no_show_grace}
-                        />
-                      </Field>
-                      <Field label="Gap between appointments" hint="Time held after every appointment for tidy-up. Off means back-to-back bookings.">
-                        <select name="buffer_min" defaultValue={String(w.shop.buffer_min ?? 10)} data-testid="shop-buffer">
-                          <option value="0">Off · back to back</option>
-                          <option value="5">5 minutes</option>
-                          <option value="10">10 minutes</option>
-                          <option value="15">15 minutes</option>
-                          <option value="20">20 minutes</option>
-                          <option value="30">30 minutes</option>
-                        </select>
-                      </Field>
-                      <Field label="Calendar density (shop default)" hint="How much of the day fits on one screen. Each person can pick their own from the timetable; this is the starting point.">
-                        <select name="calendar_density" defaultValue={w.shop.calendar_density || "STANDARD"} data-testid="shop-calendar-density">
-                          <option value="COMPACT">Compact — whole day on one screen</option>
-                          <option value="STANDARD">Standard</option>
-                          <option value="LARGE">Large — bigger appointment blocks</option>
-                        </select>
-                      </Field>
-                      <Field label="Calendar card colour" hint="Colour every appointment by who is doing it, or by the service booked.">
-                        <select name="card_colour" defaultValue={w.shop.card_colour || "BARBER"} data-testid="shop-card-colour">
-                          <option value="BARBER">By team member</option>
-                          <option value="SERVICE">By service</option>
-                        </select>
-                      </Field>
-                      <Field label="Who can take payment">
-                        <select name="till_access" defaultValue={w.shop.till_access}>
-                          <option value="OWNER">Shop device only (owner or manager)</option>
-                          <option value="ALL">Barbers too, for their own visits</option>
-                        </select>
-                      </Field>
-                    </SaveForm>
-                  </section>
-                                          <section className="workspace-panel">
-                    <div className="workspace-section-heading">
-                      <h2>Shop closures</h2>
-                      <Button
-                        variant="secondary"
-                        onClick={() => setEditor({ kind: "holiday" })}
-                      >
-                        Add closure
-                      </Button>
-                    </div>
-                    {w.holidays.length === 0 && <p>No dated closures.</p>}
-                    {w.holidays.map((h) => (
-                      <article className="workspace-closure" key={h.id}>
-                        <strong>{h.date}</strong>
-                        <p>{h.label}</p>
-                        <Button
-                          variant="ghost"
-                          onClick={() =>
-                            setEditor({ kind: "removeHoliday", item: h })
-                          }
-                        >
-                          Remove closure
-                        </Button>
-                      </article>
-                    ))}
-                    <Notice>
-                      Changes do not silently cancel existing appointments.
-                      Affected future appointments are flagged for review.
-                    </Notice>
-                  </section>
+                          <Notice>Changes do not silently cancel existing appointments. Affected future appointments are flagged for review.</Notice>
+                        </section>
+                      </>
+                    )}
+                    {settingsTab === "calendar" && (
+                      <>
+                        <header className="settings-head"><h2>Calendar &amp; workspace</h2><p>Booking policies, how the diary looks, and who can take payment.</p></header>
+                        <section className="workspace-panel">
+                          <h2>Booking policies</h2>
+                          <ShopSaveForm w={w} saved={saved} label="Save policies">
+                            <div className="workspace-form-grid">
+                              <Field label={`Deposit (${currencySymbol(w.shop.currency || "GBP")}) · shown to customers, payable in the shop`}>
+                                <input type="number" name="deposit" min={0} max={100} step="0.01" required defaultValue={w.shop.deposit_pence / 100} />
+                              </Field>
+                              <Field label="Cancellation policy hours">
+                                <input type="number" name="cancel_hours" min={0} max={168} required defaultValue={w.shop.cancel_hours} />
+                              </Field>
+                              <Field label="No-show grace minutes">
+                                <input type="number" name="no_show_grace" min={0} max={120} required defaultValue={w.shop.no_show_grace} />
+                              </Field>
+                              <Field label="Gap between appointments" hint="Time held after every appointment for tidy-up. Off means back-to-back bookings.">
+                                <select name="buffer_min" defaultValue={String(w.shop.buffer_min ?? 10)} data-testid="shop-buffer">
+                                  <option value="0">Off · back to back</option>
+                                  <option value="5">5 minutes</option>
+                                  <option value="10">10 minutes</option>
+                                  <option value="15">15 minutes</option>
+                                  <option value="20">20 minutes</option>
+                                  <option value="30">30 minutes</option>
+                                </select>
+                              </Field>
+                              <Field label="Who can take payment">
+                                <select name="till_access" defaultValue={w.shop.till_access}>
+                                  <option value="OWNER">Shop device only (owner or manager)</option>
+                                  <option value="ALL">Barbers too, for their own visits</option>
+                                </select>
+                              </Field>
+                            </div>
+                          </ShopSaveForm>
+                        </section>
+                        <section className="workspace-panel">
+                          <h2>Diary</h2>
+                          <ShopSaveForm w={w} saved={saved} label="Save diary settings">
+                            <div className="workspace-form-grid">
+                              <Field label="Calendar density (shop default)" hint="How much of the day fits on one screen. Each person can pick their own from the timetable; this is the starting point.">
+                                <select name="calendar_density" defaultValue={w.shop.calendar_density || "STANDARD"} data-testid="shop-calendar-density">
+                                  <option value="COMPACT">Compact — whole day on one screen</option>
+                                  <option value="STANDARD">Standard</option>
+                                  <option value="LARGE">Large — bigger appointment blocks</option>
+                                </select>
+                              </Field>
+                              <Field label="Calendar card colour" hint="Colour every appointment by who is doing it, or by the service booked.">
+                                <select name="card_colour" defaultValue={w.shop.card_colour || "BARBER"} data-testid="shop-card-colour">
+                                  <option value="BARBER">By team member</option>
+                                  <option value="SERVICE">By service</option>
+                                </select>
+                              </Field>
+                            </div>
+                          </ShopSaveForm>
+                        </section>
+                        <WorkspaceLookPanel w={w} />
                       </>
                     )}
                     {settingsTab === "booking" && (
@@ -2784,15 +2767,39 @@ export function Workspace() {
                     )}
                     {settingsTab === "page" && (
                       <>
-                        <header className="settings-head"><h2>Shop page &amp; reviews</h2><p>How your business looks to the public: page content, photos, reviews.</p></header>
+                        <header className="settings-head"><h2>Shop page</h2><p>How your business looks to the public: photos, theme and content, with a live preview.</p></header>
                         <ShopPagePanel w={w} />
+                      </>
+                    )}
+                    {settingsTab === "reviews" && (
+                      <>
+                        <header className="settings-head"><h2>Reviews &amp; Google</h2><p>Ratings customers leave in foliyo, your replies, and turning happy customers into Google reviews.</p></header>
+                        <GoogleReviewsPanel w={w} />
                         <ReviewsPanel w={w} />
+                      </>
+                    )}
+                    {settingsTab === "waitlist" && (
+                      <>
+                        <header className="settings-head"><h2>Waiting list</h2><p>What happens when a time frees up: who is told, how long you wait first, and the wording.</p></header>
+                        <WaitlistSettingsPanel w={w} show="waitlist" />
                       </>
                     )}
                     {settingsTab === "messages" && (
                       <>
-                        <header className="settings-head"><h2>Messages &amp; AI</h2><p>Text, WhatsApp and email confirmations, reminders, owner alerts and the AI receptionist.</p></header>
-                        <WaitlistSettingsPanel w={w} />
+                        <header className="settings-head"><h2>Messages</h2><p>Text, WhatsApp and email channels, reminders, a test send, and every message with its delivery status.</p></header>
+                        <WaitlistSettingsPanel w={w} show="messages" />
+                      </>
+                    )}
+                    {settingsTab === "alerts" && (
+                      <>
+                        <header className="settings-head"><h2>Owner alerts</h2><p>What you and your managers hear about — new bookings, cancellations, no-shows, the morning summary — and how.</p></header>
+                        <WaitlistSettingsPanel w={w} show="alerts" />
+                      </>
+                    )}
+                    {settingsTab === "ai" && (
+                      <>
+                        <header className="settings-head"><h2>AI receptionist</h2><p>Answers the phone when you can't, books into the same diary, and tells you who to call back.</p></header>
+                        <WaitlistSettingsPanel w={w} show="ai" />
                       </>
                     )}
                     {settingsTab === "payments" && (
@@ -2803,7 +2810,7 @@ export function Workspace() {
                     )}
                     {settingsTab === "billing" && (
                       <>
-                        <header className="settings-head"><h2>Billing</h2><p>Your foliyo plan, seats, usage and invoices. Prices are what you pay — no VAT is added.</p></header>
+                        <header className="settings-head"><h2>Your foliyo plan</h2><p>Plan, seats, usage and invoices. Prices are what you pay — no VAT is added.</p></header>
                         <BillingPanel api={api} isOwner={!w.account || w.account.role === "OWNER"} onOpenOutbox={() => setSettingsTab("messages")} />
                       </>
                     )}
@@ -3248,6 +3255,163 @@ const PAGE_SECTIONS: { key: string; label: string }[] = [
   { key: "find", label: "Find us" },
   { key: "policies", label: "Good to know" },
 ];
+// Shop settings are one strict record on the server (`PUT /shop`). Each Settings section shows
+// only its own fields; this wrapper fills the rest from the current shop so a short form still
+// sends a complete, valid payload. Fields present in the form win.
+function ShopSaveForm({ w, saved, label, children }: { w: WorkspaceData; saved: EditorProps["saved"]; label: string; children: ReactNode }) {
+  const week0 = shopWeekOf(w.shop);
+  return (
+    <SaveForm
+      key={w.shop.version}
+      label={label}
+      onSave={(f) => {
+        const has = (k: string) => f.has(k);
+        return saved("/shop", "PUT", {
+          name: has("name") ? text(f, "name") : w.shop.name,
+          address: has("address") ? text(f, "address") : w.shop.address,
+          timezone: has("timezone") ? text(f, "timezone") : w.shop.timezone,
+          currency: has("currency") ? text(f, "currency") || "GBP" : w.shop.currency || "GBP",
+          week: has("starts_0") || has("open_0") || has("ends_0")
+            ? days.map((_, i) => ({ enabled: f.get(`open_${i}`) ? 1 : 0, starts: minute(text(f, `starts_${i}`) || "09:00"), ends: minute(text(f, `ends_${i}`) || "18:00") }))
+            : week0.map((d) => ({ enabled: d.enabled, starts: d.starts, ends: d.ends })),
+          deposit_pence: has("deposit") ? Math.round(number(f, "deposit") * 100) : w.shop.deposit_pence,
+          cancel_hours: has("cancel_hours") ? number(f, "cancel_hours") : w.shop.cancel_hours,
+          buffer_min: has("buffer_min") ? number(f, "buffer_min") : (w.shop.buffer_min ?? 10),
+          card_colour: has("card_colour") ? (text(f, "card_colour") === "SERVICE" ? "SERVICE" : "BARBER") : (w.shop.card_colour || "BARBER"),
+          calendar_density: has("calendar_density") ? (["COMPACT", "STANDARD", "LARGE"].includes(text(f, "calendar_density")) ? text(f, "calendar_density") : "STANDARD") : (w.shop.calendar_density || "STANDARD"),
+          no_show_grace: has("no_show_grace") ? number(f, "no_show_grace") : w.shop.no_show_grace,
+          till_access: has("till_access") ? (text(f, "till_access") === "ALL" ? "ALL" : "OWNER") : w.shop.till_access,
+          version: w.shop.version,
+        });
+      }}
+    >
+      {children}
+    </SaveForm>
+  );
+}
+
+// Personal look for the admin side: one accent, light or dark. Saved to the signed-in user's
+// prefs (server) and localStorage (instant on next load). Customers never see this.
+function WorkspaceLookPanel({ w }: { w: WorkspaceData }) {
+  const initial = (() => { try { return parseWsTheme((JSON.parse(w.account?.prefs_json || "{}") as { workspace_theme?: unknown }).workspace_theme); } catch { return null; } })() ?? readLocalWsTheme() ?? DEFAULT_WS_THEME;
+  const [t, setT] = useState<WorkspaceTheme>(initial);
+  const [state, setState] = useState("");
+  function pick(next: WorkspaceTheme) {
+    setT(next);
+    applyWsTheme(next);
+    writeLocalWsTheme(next);
+    api("/me/prefs", "PUT", { workspace_theme: next }).then(() => setState("Saved for your account.")).catch(() => setState("Saved on this device."));
+  }
+  return (
+    <section className="workspace-panel" aria-labelledby="ws-look-heading" data-testid="workspace-look">
+      <div className="workspace-section-heading">
+        <div>
+          <h2 id="ws-look-heading">Your workspace look</h2>
+          <p className="workspace-footnote">Just for you, on the admin side: buttons, highlights and the side rail. Your shop page and customer pages keep their own theme (Settings → Shop page).</p>
+        </div>
+      </div>
+      <div className="ws-look">
+        <div>
+          <span className="workspace-field"><span>Accent colour</span></span>
+          <div className="ws-swatches" role="radiogroup" aria-label="Workspace accent colour">
+            {WS_ACCENTS.map((a) => (
+              <button key={a.id} type="button" role="radio" aria-checked={t.accent === a.id} aria-label={a.name} title={a.name} className="ws-swatch" style={{ background: a.accent }} onClick={() => pick({ ...t, accent: a.id })} data-testid={`ws-accent-${a.id}`}>
+                {t.accent === a.id && <Icon name="check" size={16} />}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="helper">A dark look for the admin side is coming; the customer pages already have one under Settings → Shop page.</p>
+        {state && <p className="workspace-success" role="status">{state}</p>}
+      </div>
+    </section>
+  );
+}
+
+// Reviews → Google: the shop's Google review link, and whether happy customers get a follow-up text.
+function GoogleReviewsPanel({ w }: { w: WorkspaceData }) {
+  const [page, setPage] = useState<{ google_review_url: string; version: number } | null>(null);
+  const [url, setUrl] = useState("");
+  const [nudge, setNudge] = useState<number>(w.shop.google_review_nudge ?? 0);
+  const [state, setState] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api<{ page: Record<string, unknown> }>("/shop/page").then((r) => {
+      const u = String(r.page.google_review_url || "");
+      setPage({ google_review_url: u, version: Number(r.page.version ?? 0) });
+      setUrl(u);
+    }).catch(() => setPage({ google_review_url: "", version: 0 }));
+  }, [w.shop.version]);
+  useEffect(() => setNudge(w.shop.google_review_nudge ?? 0), [w.shop.google_review_nudge]);
+  async function saveUrl(e: FormEvent) {
+    e.preventDefault();
+    if (!page) return;
+    setBusy(true); setState(null);
+    try {
+      // The page record is strict; read it fresh and change only the link.
+      const cur = (await api<{ page: Record<string, unknown> }>("/shop/page")).page;
+      const body = {
+        strapline: String(cur.strapline || ""), about: String(cur.about || ""), cover_url: String(cur.cover_url || ""), logo_url: String(cur.logo_url || ""),
+        gallery: JSON.parse(String(cur.gallery_json || "[]")), phone: String(cur.phone || ""), email: String(cur.email || ""), instagram: String(cur.instagram || ""),
+        map_url: String(cur.map_url || ""), transport_note: String(cur.transport_note || ""), policy_text: String(cur.policy_text || ""), sections: JSON.parse(String(cur.sections_json || "[]")),
+        accent: String(cur.accent || "ollo"), theme: (() => { try { return { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto", ...(JSON.parse(String(cur.theme_json || "{}")) as object) }; } catch { return { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto" }; } })(),
+        google_review_url: url.trim(), published: Number(cur.published ?? 1), version: Number(cur.version ?? 0),
+      };
+      const r = await api<{ page: Record<string, unknown> }>("/shop/page", "PUT", body);
+      setPage({ google_review_url: String(r.page.google_review_url || ""), version: Number(r.page.version ?? 0) });
+      setState({ kind: "ok", text: url.trim() ? "Google link saved. It shows in your shop page footer and after a 4–5★ rating." : "Google link removed." });
+    } catch (err) {
+      setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
+    } finally { setBusy(false); }
+  }
+  async function toggleNudge(on: boolean) {
+    setBusy(true); setState(null);
+    try {
+      // Read the live version first: saving the Google link bumps the workspace behind this panel.
+      const live = (await api<{ shop: { version: number } }>("/workspace")).shop.version;
+      const r = await api<{ shop: { version: number; google_review_nudge: number } }>("/shop/reviews", "PUT", { google_review_nudge: on ? 1 : 0, version: live });
+      setNudge(r.shop.google_review_nudge);
+      w.shop.version = r.shop.version;
+      setState({ kind: "ok", text: on ? "On. Customers who rate you 4 or 5 stars get one follow-up with your Google link." : "Off. The Google link still shows on the thank-you screen." });
+    } catch (err) {
+      setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
+    } finally { setBusy(false); }
+  }
+  return (
+    <section className="workspace-panel" aria-labelledby="google-reviews-heading" data-testid="google-reviews">
+      <div className="workspace-section-heading">
+        <div>
+          <h2 id="google-reviews-heading">Google reviews</h2>
+          <p className="workspace-footnote">Customers rate you inside foliyo first. When it's 4 or 5 stars they're shown your Google link straight away — and, if you turn it on, texted it once so they can do it from their phone. Lower ratings stay private between you and them.</p>
+        </div>
+        {page && <StatusPill tone={page.google_review_url ? (nudge ? "good" : "note") : "warn"}>{page.google_review_url ? (nudge ? "Link set · follow-up on" : "Link set · follow-up off") : "No Google link yet"}</StatusPill>}
+      </div>
+      <form className="workspace-form" onSubmit={saveUrl} data-testid="google-review-form">
+        <Field label="Google review link" hint="In Google Business Profile: Home → “Ask for reviews” → copy the link (looks like g.page/r/…/review). Or a Google Maps link to your listing.">
+          <input type="url" inputMode="url" value={url} maxLength={500} placeholder="https://g.page/r/…/review" onChange={(e) => setUrl(e.target.value)} data-testid="google-review-url" />
+        </Field>
+        <div className="workspace-form-actions">
+          <Button type="submit" disabled={busy || !page || url.trim() === page.google_review_url} data-testid="save-google-review">Save link</Button>
+          {page?.google_review_url && (
+            <a className="button ghost" href={page.google_review_url} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> Open</a>
+          )}
+        </div>
+      </form>
+      <div className="workspace-switch-row">
+        <span>
+          <strong>Follow up happy customers by text</strong>
+          <small>One message after a 4–5★ rating, from your shop, with the Google link. Never sent twice for the same visit.</small>
+        </span>
+        <label className="switch">
+          <input type="checkbox" checked={!!nudge} disabled={busy || !page?.google_review_url} onChange={(e) => toggleNudge(e.target.checked)} aria-label="Follow up happy customers by text" data-testid="google-review-nudge" />
+          <span />
+        </label>
+      </div>
+      {state && <p className={state.kind === "error" ? "workspace-error" : "workspace-success"} role={state.kind === "error" ? "alert" : "status"}>{state.text}</p>}
+    </section>
+  );
+}
+
 // Live preview of the public shop page. Same class stack and markup family as ShopPage.tsx, so
 // whatever the owner picks (photos, logo, accent, typeface, look, corners, hero) shows here first —
 // before saving. Phone/desktop toggle; nothing here is interactive.
@@ -3912,7 +4076,10 @@ type Messaging = { msg_sms: number; msg_email: number; msg_wa?: number; msg_remi
 const CHANNEL_LABEL: Record<string, string> = { SMS: "Text", EMAIL: "Email", WA: "WhatsApp" };
 type OutboxData = {
   shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_mode?: "ORDER" | "EVERYONE"; waitlist_delay_min?: number } };
-function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
+// One data load (providers, channels, templates, outbox) feeds four Settings sections. `show`
+// picks which slice renders so each section stays short; test ids are unchanged.
+type MessagesSlice = "messages" | "waitlist" | "alerts" | "ai";
+function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; show?: MessagesSlice }) {
   const [data, setData] = useState<OutboxData | null>(null);
   const [form, setForm] = useState<{ auto: number; hold: number; mode: "ORDER" | "EVERYONE"; delay: number; templates: Record<string, string> } | null>(null);
   const [msg, setMsg] = useState<Messaging | null>(null);
@@ -3997,9 +4164,10 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
   const c30 = data?.counts_30d || {};
   return (
     <section className="workspace-panel" aria-labelledby="waitlist-settings-heading" data-testid="waitlist-settings">
+      {show === "messages" && (
       <div className="workspace-section-heading">
         <div>
-          <h2 id="waitlist-settings-heading">Messages</h2>
+          <h2 id="waitlist-settings-heading">Channels</h2>
           <p className="workspace-footnote">Confirmations, reminders, sign-in codes and waiting-list offers go out from your shop — your name, your logo. Choose the channels below; every message is listed at the bottom with its delivery status.</p>
         </div>
         {data && (
@@ -4008,12 +4176,13 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
           </StatusPill>
         )}
       </div>
-      {data && !live && (
+      )}
+      {show === "messages" && data && !live && (
         <p className="workspace-footnote" data-testid="messaging-preview-note">
           No email or SMS provider is connected to this deployment yet, so messages are delivered to a preview mailbox here instead of to customers. Once a provider is connected they go out for real without any other change.
         </p>
       )}
-      {msg && data && (
+      {show === "messages" && msg && data && (
         <form className="workspace-form" onSubmit={saveMessaging} data-testid="messaging-form">
           <div className="workspace-form-grid">
             <div className="workspace-switch-row">
@@ -4081,7 +4250,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
           </div>
         </form>
       )}
-      {data && (
+      {show === "messages" && data && (
         <form className="workspace-form test-message-form" onSubmit={sendTest} data-testid="test-message-form">
           <h3>Send yourself a test</h3>
           <div className="workspace-form-grid">
@@ -4107,9 +4276,9 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
           </div>
         </form>
       )}
-      {form && data && (
+      {show === "waitlist" && form && data && (
         <form className="workspace-form" onSubmit={save} data-testid="waitlist-settings-form">
-          <h3>Waiting list</h3>
+          <h3>When a time frees up</h3>
           <div className="workspace-form-grid">
             <div className="workspace-switch-row">
               <span>
@@ -4174,8 +4343,9 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
           </div>
         </form>
       )}
-      {data && <AlertsPanel smsLive={smsLive} />}
-      {data && <VoicePanel timezone={w.shop.timezone} />}
+      {show === "alerts" && data && <AlertsPanel smsLive={smsLive} />}
+      {show === "ai" && data && <VoicePanel timezone={w.shop.timezone} />}
+      {show === "messages" && (
       <div className="outbox" data-testid="outbox">
         <div className="outbox-head">
           <h3>
@@ -4224,6 +4394,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
           ))}
         </ul>
       </div>
+      )}
       {preview && (
         <div className="modal-scrim" onClick={() => setPreview(null)} role="presentation">
           <div className="modal email-preview" role="dialog" aria-label="Email preview" onClick={(e) => e.stopPropagation()}>
@@ -4626,7 +4797,7 @@ function QueueDrawer({
         )}
         {w.account?.role !== "BARBER" && (
           <button type="button" className="queue-settings-link" onClick={onOpenSettings} data-testid="queue-settings">
-            <Icon name="settings" size={14} /> Auto-offer, hold time and message wording are in Settings → Messages
+            <Icon name="settings" size={14} /> Who gets told, the delay and the wording are in Settings → Waiting list
           </button>
         )}
         <p className="drawer-note">Messages are recorded in the outbox; connect a provider in Settings to send them.</p>

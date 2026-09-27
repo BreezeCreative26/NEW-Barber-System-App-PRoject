@@ -9,7 +9,7 @@ import { applyThemeColor, themeClass, type ShopTheme } from "./theme";
 
 type PageData = {
   shop: { id: string; name: string; address: string; slug: string; timezone: string; currency?: string; opens: number; closes: number; deposit_pence: number; cancel_hours: number; lead_time_min: number; booking_window_days: number };
-  page: { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme?: ShopTheme; published: number };
+  page: { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme?: ShopTheme; google_review_url?: string; published: number };
   staff: { id: string; name: string; role: string; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[];
   services: { id: string; name: string; category: string; duration_min: number; price_pence: number; description?: string; colour?: string; popular?: number }[];
   week: ({ weekday: number; open: false } | { weekday: number; open: true; starts: number; ends: number })[];
@@ -399,6 +399,11 @@ export function ShopPage({ slug }: { slug: string }) {
               </a>
             )}
             {has("hours") && <a href="#hours">Opening hours</a>}
+            {page.google_review_url && (
+              <a href={page.google_review_url} target="_blank" rel="noreferrer" data-testid="footer-google-review">
+                Review us on Google
+              </a>
+            )}
             <a href={`/${shop.slug}/me`}>Your visits</a>
           </div>
           <span className="powered-by">Powered by foliyo · <a href="/legal/privacy">Privacy</a> · <a href="/legal/terms">Terms</a></span>

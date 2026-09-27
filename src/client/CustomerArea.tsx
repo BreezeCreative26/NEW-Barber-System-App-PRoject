@@ -438,8 +438,7 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
                     review={v.review ?? null}
                     canReview={!!v.can_review}
                     post={async (rating, body) => {
-                      const r = await api<{ review: OwnReview }>(`/bookings/${v.id}/review`, "POST", { rating, body });
-                      return r.review;
+                      return api<{ review: OwnReview; google_review_url?: string }>(`/bookings/${v.id}/review`, "POST", { rating, body });
                     }}
                   />
                 )}

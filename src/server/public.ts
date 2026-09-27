@@ -386,6 +386,7 @@ pub.get("/shops/:slug/page", async (c) => {
       sections: JSON.parse(content.sections_json) as string[],
       accent: content.accent,
       theme: parseTheme(content.theme_json),
+      google_review_url: content.google_review_url || "",
       published: content.published,
     },
     staff: staff.results,
@@ -1015,6 +1016,22 @@ export function customerView(b: StoredBooking, shop: Shop & Partial<BrandedShop>
     ...depositView(b),
   };
 }
+export async function googleReviewFollowUp(c: Ctx, shop: Shop, booking: StoredBooking, rating: number): Promise<string> {
+  if (rating < 4) return "";
+  const page = await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ google_review_url: string }>();
+  const link = page?.google_review_url || "";
+  if (!link) return "";
+  if (shop.google_review_nudge) {
+    const already = await c.env.DB.prepare("SELECT 1 AS x FROM notifications WHERE shop_id=? AND template='google_review' AND related_type='booking' AND related_id=?").bind(shop.id, booking.id).first();
+    if (!already) {
+      const ms = await msgShop(c, shop.id);
+      const staff = booking.staff_id ? await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(shop.id, booking.staff_id).first<{ name: string }>() : null;
+      const stmts = enqueue(c.env.DB, ms, { name: booking.attendee_name || booking.customer_name, phone: booking.phone, email: booking.email, pref: booking.contact_pref }, "google_review", { rating, service: booking.service_name, barber: (staff?.name || "us").split(" ")[0], link }, { related: { type: "booking", id: booking.id }, origin: new URL(c.req.url).origin, now: Date.now() });
+      if (stmts.length) { await c.env.DB.batch(stmts); await drain(c.env.DB, stmts.length, Date.now(), { type: "booking", id: booking.id }).catch(() => null); }
+    }
+  }
+  return link;
+}
 async function bookingByToken(c: Ctx) {
   const token = c.req.param("token") || "";
   if (token.length < 60 || token.length > 100) fail(404, "Booking link not found");
@@ -1050,7 +1067,10 @@ pub.post("/manage/:token/review", async (c) => {
   const b = await readInput(c, reviewSchema);
   const r = await leaveReview(c, shop, booking, b, `customer:manage:${booking.id}`);
   if (r.error) fail(409, r.error);
-  return c.json({ review: ownReviewView(r.review) }, 201);
+  // Happy customer (4–5★): offer the shop's Google review link right away, and — if the shop has
+  // turned it on — follow up by text/email so they can do it later from their phone.
+  const google = await googleReviewFollowUp(c, shop, booking, r.review?.rating ?? 0);
+  return c.json({ review: ownReviewView(r.review), google_review_url: google }, 201);
 });
 export function calendarResponse(c: Ctx, shop: Shop, booking: StoredBooking, staffName: string | null) {
   const stamp = (ms: number) =>

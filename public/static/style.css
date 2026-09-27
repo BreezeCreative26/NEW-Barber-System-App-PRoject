@@ -6407,6 +6407,8 @@ input[aria-invalid="true"] {
 .customer-fields.compact label > span {
   font-size: 11px;
 }
+.review-google { display: grid; gap: 10px; margin: 12px 0 0; padding: 12px 14px; border-radius: var(--r, 12px); background: var(--ollo-soft); color: var(--ink); font-size: 13.5px; }
+.review-google .button { justify-self: start; }
 .waitlist-pref { display: grid; gap: 8px; }
 .waitlist-pref-label { font-size: 11px; font-weight: 600; color: #6b5f48; text-transform: uppercase; letter-spacing: .04em; }
 .waitlist-window { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
