@@ -4,53 +4,20 @@
 // can be reviewed together. Run alone: npx playwright test tests/customer-screens.spec.ts
 import { test, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
-import { base, newShop } from "./shop";
-const slugFor = () => `fade-${crypto.randomUUID().slice(0, 8)}`;
+import { base, openFixtureShop } from "./fixture";
 
 const out = "docs/evidence/customer";
 mkdirSync(out, { recursive: true });
 const shot = (page: import("@playwright/test").Page, name: string) => page.screenshot({ path: `${out}/${name}.png`, fullPage: true });
 
-function futureDate(days = 8) {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + days);
-  if (d.getUTCDay() === 0) d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
-
 test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 
 test("customer screen tour", async ({ page }) => {
-  const { r } = await newShop("Fade & Co");
-  let w = await (await r.get(base + "/workspace")).json();
-  const slug = slugFor();
-  expect((await r.put(base + "/shop/online", { data: { slug, online_booking: 1, lead_time_min: 60, booking_window_days: 42, version: w.shop.version } })).status()).toBe(200);
-  // Give the page a real brand so the tour reflects a set-up shop, not the blank default.
-  const pg = await (await r.get(base + "/shop/page")).json();
-  const pageRes = await r.put(base + "/shop/page", {
-    data: {
-      strapline: "Sharp cuts, no waiting around.",
-      about: "Independent barbers in the heart of town. Walk-ins welcome when we're free — book ahead to be sure.",
-      cover_url: "",
-      logo_url: "",
-      gallery: [],
-      phone: "0161 496 0000",
-      email: "hello@fadeandco.example",
-      instagram: "fadeandco",
-      map_url: "",
-      google_review_url: "https://g.page/r/fade-and-co/review",
-      transport_note: "",
-      policy_text: "",
-      sections: JSON.parse(pg.page.sections_json || "[]"),
-      accent: "clay",
-      theme: JSON.parse(pg.page.theme_json || "{}"),
-      published: 1,
-      version: pg.page.version,
-    },
-  });
-  expect(pageRes.status(), await pageRes.text()).toBe(200);
-  w = await (await r.get(base + "/workspace")).json();
-  const date = futureDate();
+  // Northline Barbers: the built-in demo seed (real photos, bios, shop page, history), as a private copy.
+  const fx = await openFixtureShop(page);
+  const slug = fx.slug;
+  const w = await (await page.request.get(base + "/workspace")).json();
+  await page.context().clearCookies();
 
   // 1. Shop page
   await page.goto(`/${slug}`);
@@ -67,13 +34,13 @@ test("customer screen tour", async ({ page }) => {
   await page.getByRole("button", { name: new RegExp(w.staff[0].name) }).click();
   await page.getByRole("button", { name: "Find a time", exact: true }).click();
   await expect(page.getByRole("heading", { name: "A time that works for you." })).toBeVisible();
-  const target = new Date(`${date}T12:00:00Z`);
-  const label = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Europe/London" }).format(target);
-  for (let i = 0; i < 3; i++) {
-    if (await page.getByRole("button", { name: new RegExp(`^${label},`) }).count()) break;
-    await page.getByRole("button", { name: "Next week" }).click();
-  }
-  await page.getByRole("button", { name: new RegExp(`^${label},`) }).click();
+  // Pick the first open day next week (Northline is closed Sundays and Mondays).
+  await page.getByRole("button", { name: "Next week" }).click();
+  const dateStrip = page.getByRole("group", { name: "Choose a date" }).or(page.locator(".booking-dates")).first();
+  const openDay = dateStrip.locator("button:not([disabled])").filter({ hasNotText: /Closed/ }).first();
+  await expect(openDay).toHaveAttribute("aria-label", / times$/);
+  const label = ((await openDay.getAttribute("aria-label")) || "").split(",")[0];
+  await openDay.click();
   await expect(page.getByRole("group", { name: "Choose an appointment time" }).locator("button:not([disabled])").first()).toBeVisible();
   await shot(page, "04-book-time");
   await page.getByRole("group", { name: "Choose an appointment time" }).locator("button:not([disabled])").first().click();
