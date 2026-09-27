@@ -1,6 +1,7 @@
 // Public shop home page at /<slug>: the customer's front door with booking embedded on it.
 // Every test builds its own fixture shop; nothing live is touched.
 import { test, expect, request } from "@playwright/test";
+import { readFileSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
 import { base, origin, openFixtureShop, section } from "./fixture";
 
@@ -158,4 +159,16 @@ test("shop page API validates and guards versions", async () => {
   const after = (await (await r.get(base + "/shop/page")).json()).page;
   expect(after.strapline).toBe("v1");
   expect(after.version).toBe(body.version + 1);
+});
+
+test("every photo kind uploads, including the logo (regression: logo was refused by a check constraint)", async ({ page }) => {
+  await openFixtureShop(page);
+  const png = readFileSync("public/static/demo/northline/logo-light.png");
+  for (const kind of ["logo", "cover", "gallery", "staff"] as const) {
+    const res = await page.request.post(base + "/media", { headers: { Origin: origin }, multipart: { kind, alt: `${kind} test`, file: { name: `${kind}.png`, mimeType: "image/png", buffer: png } } });
+    expect(res.status(), `${kind}: ${await res.text()}`).toBe(201);
+    const j = await res.json();
+    expect(j.media.kind).toBe(kind);
+    expect(j.media.url).toMatch(/^\/media\/[a-f0-9-]{36}$/);
+  }
 });
