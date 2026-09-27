@@ -1,4 +1,4 @@
-// Public shop home page at /<slug>: the customer's front door with booking embedded on it.
+// Public shop home page at /<slug>: the customer's front door. Booking lives on /book; every card deep-links into it.
 // Every test builds its own fixture shop; nothing live is touched.
 import { test, expect, request } from "@playwright/test";
 import { readFileSync } from "node:fs";
@@ -13,7 +13,7 @@ async function fixture() {
   return { r, slug: body.slug };
 }
 
-test("shop page renders the seeded sections and every shortcut re-targets the embedded booking", async ({ page }) => {
+test("shop page renders the seeded sections and every shortcut deep-links into the booking page", async ({ page }) => {
   const { slug } = await fixture();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -30,47 +30,57 @@ test("shop page renders the seeded sections and every shortcut re-targets the em
   // Gallery is off in the seed, so its heading must not render.
   await expect(page.getByRole("heading", { name: "Gallery" })).toHaveCount(0);
   await expect(page.locator("#find").getByRole("link", { name: "020 7946 0111" })).toHaveAttribute("href", /^tel:/);
-  // Embedded flow starts on the service step with no header/hero/banner of its own.
-  const flow = page.locator(".booking-app.embedded");
-  await expect(flow.getByRole("heading", { name: "What are we doing today?" })).toBeVisible();
-  await expect(flow.locator(".booking-hero")).toHaveCount(0);
-  expect(await page.locator("#main-content").count()).toBeLessThanOrEqual(1);
+  // The booking flow is its own page; the shop page carries one call to action.
+  await expect(page.locator(".booking-app")).toHaveCount(0);
+  // On the shop's own host the flow is /book; on the root host it is /book/<slug>.
+  const bookHref = new RegExp(`^/book(/${slug})?$`);
+  await expect(page.getByTestId("nav-book")).toHaveAttribute("href", bookHref);
+  await expect(page.getByTestId("section-book")).toHaveAttribute("href", bookHref);
 
-  // Service card -> barber step with that service chosen.
+  // Service card -> booking page on the barber step with that service chosen.
   await page.getByTestId("service-book").nth(1).click();
+  await expect(page).toHaveURL(new RegExp(`/book(/${slug})?\\?.*service=.*step=1`));
+  const flow = page.locator(".booking-app.standalone");
   await expect(flow.getByRole("heading", { name: "Find your kind of barber." })).toBeVisible();
-  await expect(flow.locator(".booking-summary, .summary-card").first()).toContainText("Skin fade");
+  await expect(flow.locator(".booking-summary")).toContainText("Skin fade");
+  await expect(flow.getByTestId("booking-back")).toHaveAttribute("href", new RegExp(`^/(${slug})?$`));
 
-  // Barber card -> back to service step, barber remembered.
+  // Barber card -> booking page on the service step, barber remembered.
+  await page.goto(`/${slug}`);
   await page.getByTestId("barber-book").filter({ hasText: "Marcus" }).click();
   await expect(flow.getByRole("heading", { name: "What are we doing today?" })).toBeVisible();
   await flow.getByRole("button", { name: "Choose your barber", exact: true }).click();
   await expect(flow.getByRole("button", { name: /Marcus Reed/ })).toHaveAttribute("aria-pressed", "true");
 
   // Soonest chip -> time step, that slot pre-selected.
+  await page.goto(`/${slug}`);
   const soonest = page.getByTestId("soonest").first();
   const chipTime = (await soonest.textContent())!.match(/\d{2}:\d{2}/)![0];
   await soonest.click();
   await expect(flow.getByRole("heading", { name: "A time that works for you." })).toBeVisible();
   await expect(flow.getByRole("group", { name: "Choose an appointment time" }).getByRole("button", { name: new RegExp(`^${chipTime},`) })).toHaveAttribute("aria-pressed", "true");
 
-  // Same chip again after wandering off still re-targets (the preset is not deduplicated).
-  await flow.getByRole("button", { name: "Service", exact: true }).click();
-  await expect(flow.getByRole("heading", { name: "What are we doing today?" })).toBeVisible();
+  // Old-style deep links (/<slug>?service=…#book) are forwarded to the flow.
+  await page.goto(`/${slug}?step=1#book`);
+  await expect(page).toHaveURL(new RegExp(`/book(/${slug})?\\?step=1`));
+  await expect(flow.getByRole("heading", { name: "Find your kind of barber." })).toBeVisible();
+  await page.goto(`/${slug}`);
   await soonest.click();
   await expect(flow.getByRole("heading", { name: "A time that works for you." })).toBeVisible();
 
-  // Complete the booking from the home page.
-  await flow.getByRole("button", { name: "Your details", exact: true }).click();
+  // Complete the booking.
+  await flow.getByRole("button", { name: "Sign in to book", exact: true }).click();
   await flow.getByLabel("Your name").fill("Home Page Customer");
-  await flow.getByLabel("Mobile number").fill("07700 900444");
-  await flow.getByRole("button", { name: "Review booking" }).click();
+  await flow.getByLabel("Mobile number").fill(`07${String(Date.now()).slice(-9)}`);
+  await flow.getByLabel("Email address").fill(`homepage-${Date.now()}@example.test`);
+  await flow.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
+  await flow.getByTestId("auth-submit").click();
   await expect(flow.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
   await flow.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.locator(".public-reference")).toHaveText(/^BRB-\d{4}$/);
   await expect(page.getByTestId("open-manage")).toHaveAttribute("href", /^\/manage\//);
-  // The rest of the shop page is still around the confirmation.
-  await expect(page.getByRole("heading", { name: "Opening hours", exact: true })).toBeVisible();
+  // The confirmation keeps a way back to the shop.
+  await expect(page.getByTestId("booking-back")).toHaveAttribute("href", new RegExp(`^/(${slug})?$`));
   expect(errors).toEqual([]);
 
   const a11y = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();

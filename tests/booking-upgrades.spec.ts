@@ -2,6 +2,7 @@
 // (attendee on the visit, contact stays the booker's), and group bookings (2-4 people, together or
 // back to back; each visit its own row under every guard, shared group_id, partial failure honest).
 import { test, expect, request } from "@playwright/test";
+import { registerCustomer, signInCustomer } from "./shop";
 import AxeBuilder from "@axe-core/playwright";
 import { base, origin, openFixtureShop } from "./fixture";
 
@@ -12,6 +13,7 @@ async function fixture() {
   const body = (await res.json()) as { slug: string };
   const w = await (await r.get(base + "/workspace")).json();
   const c = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
+  await registerCustomer(c, body.slug, { name: "Group Booker", phone: "07700900888" });
   return { r, c, w, slug: body.slug, P: `${origin}/api/public/shops/${body.slug}` };
 }
 const dateIn = (days: number) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
@@ -94,7 +96,7 @@ test("group availability: together assigns distinct barbers, back to back chains
   const pick2 = together.find((o: { start_min: number }) => o.start_min !== pick.start_min && Math.abs(o.start_min - pick.start_min) > 120);
   expect(pick2).toBeTruthy();
   const single = await c.post(`${P}/bookings`, {
-    data: { request_id: crypto.randomUUID(), staff_id: pick2.assignment[0].staff_id, service_id: s0.id, customer_name: "Solo Walker", phone: "07700900999", email: "solo@example.test", notes: "", date, start_min: pick2.assignment[0].start_min, addon_ids: [], quote: av.quotes[0] },
+    data: { request_id: crypto.randomUUID(), staff_id: pick2.assignment[0].staff_id, service_id: s0.id, customer_name: "Solo Walker", phone: "07700900999", email: "solo@example.test", password: "Fictional-test-pass-2026!", notes: "", date, start_min: pick2.assignment[0].start_min, addon_ids: [], quote: av.quotes[0] },
   });
   expect(single.status(), await single.text()).toBe(201);
   const partial = await c.post(`${P}/group-bookings`, {
@@ -127,17 +129,19 @@ test("book for someone else: attendee saved and shown to owner, customer and man
   // Any-barber slots carry the assigned barber's first name.
   await expect(slots.first().locator("small")).toHaveText(/\w+/);
   await slots.first().click();
-  await page.getByRole("button", { name: "Your details", exact: true }).click();
+  await page.getByRole("button", { name: "Sign in to book", exact: true }).click();
   await page.getByLabel("Your name").fill("Parent Booker");
-  await page.getByLabel("Mobile number").fill("07700 900444");
-  await page.getByLabel("Email address", { exact: true }).fill("parent@example.test");
-  await page.getByTestId("want-password").uncheck();
+  const parentPhone = `07${String(Date.now()).slice(-9)}`;
+  await page.getByLabel("Mobile number").fill(parentPhone);
+  await page.getByLabel("Email address", { exact: true }).fill(`parent-${Date.now()}@example.test`);
+  await page.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
+  await page.getByTestId("auth-submit").click();
+  await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
+  // "For someone else" lives on the review step; the attendee name is required once ticked.
   await page.getByTestId("for-someone-else").check();
-  await page.getByRole("button", { name: "Review booking" }).click();
-  await expect(page.getByText("Who is the visit for?")).toBeVisible(); // required once ticked
+  await page.getByRole("button", { name: "Confirm booking" }).click();
+  await expect(page.getByText("Who is the visit for?")).toBeVisible();
   await page.getByTestId("attendee-name").fill("Sam (age 8)");
-  await page.getByRole("button", { name: "Review booking" }).click();
-  await expect(page.getByTestId("review-attendee")).toContainText("Sam (age 8)");
   const a11y = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
   expect(a11y.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
   await page.getByRole("button", { name: "Confirm booking" }).click();
@@ -149,13 +153,13 @@ test("book for someone else: attendee saved and shown to owner, customer and man
   const managed = await (await page.request.get(`/api/public${href}`)).json();
   expect(managed.booking.attendee_name).toBe("Sam (age 8)");
   expect(managed.booking.customer_name).toBe("Parent Booker");
-  expect(managed.booking.phone).toBe("07700900444");
+  expect(managed.booking.phone).toBe(parentPhone);
   // Owner: the customer record is the parent; the visit row carries the attendee.
-  const dir = await (await r.get(base + "/customers?q=07700900444")).json();
+  const dir = await (await r.get(base + "/customers?q=Parent%20Booker")).json();
   expect(dir.customers).toHaveLength(1);
   expect(dir.customers[0].name).toBe("Parent Booker");
   const day = await (await r.get(base + `/bookings?date=${managed.booking.date}`)).json();
-  const row = day.bookings.find((b: { phone: string }) => b.phone === "07700900444");
+  const row = day.bookings.find((b: { customer_id: string }) => b.customer_id === dir.customers[0].id);
   expect(row.attendee_name).toBe("Sam (age 8)");
   expect(row.customer_id).toBe(dir.customers[0].id);
   // The public API rejects a one-character attendee and accepts empty (booking for self).
@@ -171,8 +175,9 @@ test("browser: group booking together then confirm; owner calendar marks the gro
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
-  await page.goto(`/${slug}`);
-  const flow = page.locator(".booking-app.embedded");
+  const dad = await signInCustomer(page, slug, { name: "Dad Example" });
+  await page.goto(`/book/${slug}`);
+  const flow = page.locator(".booking-app.standalone");
   await flow.getByTestId("start-group").click();
   await expect(flow.getByRole("heading", { name: "Who’s coming?" })).toBeVisible();
   await expect(flow.getByTestId("group-next")).toBeDisabled(); // second person needs a name
@@ -202,8 +207,7 @@ test("browser: group booking together then confirm; owner calendar marks the gro
   const names = await plan.locator("li:not(.group-total) .avatar").allTextContents();
   expect(new Set(names).size).toBe(1);
   await flow.getByTestId("group-next").click();
-  await flow.getByLabel("Your name").fill("Dad Example");
-  await flow.getByLabel("Mobile number").fill("07700 900777");
+  await expect(flow.getByLabel("Your name")).toHaveValue("Dad Example");
   await flow.getByTestId("group-next").click();
   await expect(flow.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
   await expect(flow.getByText(/onwards with/)).toBeVisible();
@@ -216,10 +220,8 @@ test("browser: group booking together then confirm; owner calendar marks the gro
   await expect(done.getByTestId("group-summary").locator("li")).toHaveCount(2);
   await expect(done).toContainText("Little Sam");
   expect(errors).toEqual([]);
-  // Customer area: sign in as the booker; both visits listed, the second labelled for Little Sam.
-  const A = `${origin}/api/public/shops/${slug}/account`;
-  const st = await (await page.request.post(`${A}/start`, { headers: { Origin: origin }, data: { phone: "07700900777" } })).json();
-  await page.request.post(`${A}/verify`, { headers: { Origin: origin }, data: { phone: "07700900777", code: st.sandbox_code } });
+  // Customer area: the booker is already signed in; both visits listed, the second labelled for Little Sam.
+  void dad;
   await page.goto(`/${slug}/me`);
   const list = page.getByTestId("upcoming-list");
   await expect(list.locator("li")).toHaveCount(2);
@@ -230,6 +232,7 @@ test("browser: group booking together then confirm; owner calendar marks the gro
 test("owner sees attendee and group badge in the appointment panel and calendar", async ({ page }) => {
   const { slug, c, w, P } = await openFixtureShop(page).then(async (f) => {
     const c = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
+    await registerCustomer(c, f.slug, { name: "Panel Parent", phone: "07700900666" });
     const w = await (await page.request.get(base + "/workspace")).json();
     return { slug: f.slug, c, w, P: `${origin}/api/public/shops/${f.slug}` };
   });

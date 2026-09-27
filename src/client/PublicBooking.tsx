@@ -5,6 +5,7 @@ import { Avatar, Button, Icon, Notice } from "./ui";
 import { GroupBooking } from "./GroupBooking";
 import { ReviewCard, type OwnReview } from "./Reviews";
 import { applyThemeColor, themeClass, type ShopBrand, shopPath } from "./theme";
+import { ShopTabBar } from "./ShopTabBar";
 
 // Connected customer booking for /book/:slug and /manage/:token.
 // Reads and writes the same local D1 records as the owner workspace.
@@ -214,8 +215,26 @@ function ShopHeader({ name, address, logo }: { name: string; address: string; lo
 function TestBanner() {
   return null;
 }
+// The booking flow's own chrome: a way back to the shop, the shop's name, and the customer's account.
+function BookingTopBar({ slug, name, logo, customer }: { slug: string; name: string; logo?: string; customer?: BookingCustomer | null }) {
+  return (
+    <header className="booking-topbar">
+      <a className="booking-back" href={shopPath(slug, "/")} data-testid="booking-back">
+        <Icon name="arrowLeft" size={16} />
+        <h1>{name}</h1>
+      </a>
+      <span className="booking-brand" aria-hidden="true">
+        {logo ? <img className="shop-emblem shop-logo" src={logo} alt="" /> : <span className="shop-emblem">{initials(name)}</span>}
+      </span>
+      <a className="booking-me" href={shopPath(slug, "/me")} data-testid="nav-me" aria-label="Your visits">
+        <Icon name="userRound" size={15} />
+        <span>{customer ? customer.name.split(" ")[0] || "Your visits" : "Sign in"}</span>
+      </a>
+    </header>
+  );
+}
 
-const steps = ["Service", "Barber", "Date & time", "Your details", "Review"];
+const steps = ["Service", "Barber", "Date & time", "Your account", "Review"];
 type NextSlot = {
   date: string;
   start_min: number;
@@ -235,8 +254,20 @@ export function presetFromLocation(search = location.search): BookingPreset | nu
   const num = (k: string) => (q.get(k) !== null && /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : undefined);
   return { service: q.get("service") || undefined, staff: q.get("staff") || undefined, date: q.get("date") || undefined, start: num("start"), step: num("step"), nonce: Date.now() };
 }
-export function PublicBooking({ slug, embedded = false, preset, onLoaded, customer }: { slug: string; embedded?: boolean; preset?: BookingPreset | null; onLoaded?: (shop: PublicShop) => void; customer?: BookingCustomer | null }) {
+export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: string; preset?: BookingPreset | null; onLoaded?: (shop: PublicShop) => void; onSignedIn?: (me: BookingCustomer) => void }) {
   const [shop, setShop] = useState<PublicShop | null>(null);
+  // Booking is for members of the shop: the flow knows who is signed in (details, name in the top bar)
+  // and asks visitors to sign in or create an account before they can confirm.
+  const [session, setSession] = useState<BookingCustomer | null>(null);
+  const [sessionKnown, setSessionKnown] = useState(false);
+  const customer = session;
+  useEffect(() => {
+    fetch(`/api/public/shops/${encodeURIComponent(slug)}/account/session`, { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : { profile: null }))
+      .then((d) => d.profile && setSession({ name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes }))
+      .catch(() => {})
+      .finally(() => setSessionKnown(true));
+  }, [slug]);
   const [loadError, setLoadError] = useState("");
   const [step, setStep] = useState(preset?.step ?? (preset?.staff ? 2 : preset?.service ? 1 : 0));
   const [service, setService] = useState(preset?.service || "");
@@ -264,6 +295,11 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   const [attendee, setAttendee] = useState("");
   // Group mode swaps the single-visit flow for the party flow (2-4 people, same day).
   const [group, setGroup] = useState(!!preset?.group);
+  // A visitor who tapped "booking for two or more" signs in first, then lands in the group flow.
+  const [pendingGroup, setPendingGroup] = useState(false);
+  useEffect(() => {
+    if (customer && pendingGroup) { setPendingGroup(false); setGroup(true); }
+  }, [!!customer, pendingGroup]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -287,7 +323,8 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
       const s = await api<PublicShop>(`/shops/${encodeURIComponent(slug)}`);
       setCurrency(s.shop.currency);
       setShop(s);
-      if (!embedded) applyThemeColor(s.shop.brand);
+      applyThemeColor(s.shop.brand);
+      document.title = `Book a visit · ${s.shop.name}`;
       onLoaded?.(s);
       setFrom((f) => f || preset?.date || s.today);
       setDate((d) => d || preset?.date || s.today);
@@ -315,19 +352,14 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     setGroup(!!preset.group);
     setTimeout(() => heading.current?.focus(), 50);
   }, [presetKey, !!shop]);
+  // The signed-in customer is the booker; their barber notes are prefilled too.
   useEffect(() => {
-    // Remember contact details on this device only; nothing is sent anywhere.
-    try {
-      const saved = localStorage.getItem("barbershop-os:customer");
-      if (saved) setDetails((d) => ({ ...d, ...JSON.parse(saved), notes: "" }));
-    } catch {
-      /* private mode */
-    }
-  }, []);
-  // A signed-in customer's details win over the device memory; their barber notes are prefilled too.
-  useEffect(() => {
-    if (customer) setDetails((d) => ({ ...d, name: customer.name || d.name, phone: customer.phone || d.phone, email: customer.email || d.email, notes: d.notes || customer.notes || "" }));
+    if (customer) setDetails((d) => ({ ...d, name: customer.name, phone: customer.phone, email: customer.email, notes: d.notes || customer.notes || "" }));
   }, [customer?.phone]);
+  // Step 3 (account) is only for signed-out visitors. Signed in → straight from the time to the review.
+  useEffect(() => {
+    if (customer && step === 3) setStep(4);
+  }, [!!customer, step]);
   const eligible = (staffId: string, serviceId: string) =>
     !shop?.service_rules.some(
       (r) => r.staff_id === staffId && r.service_id === serviceId && !r.enabled,
@@ -458,34 +490,65 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     setSlot(n.start_min);
     setAssigned({ id: n.staff_id, name: n.staff_name });
   };
-  // Account: every booking ends with one. Signed-in customers skip this; others set a password now
-  // (or get a "set your password" link with the confirmation if they leave it blank).
-  const [password, setPassword] = useState("");
-  const [password2, setPassword2] = useState("");
-  const [wantPassword, setWantPassword] = useState(true);
-  const submitDetails = (e: FormEvent) => {
+  // Booking needs an account: step 3 signs the visitor in or registers them for this shop.
+  const [authMode, setAuthMode] = useState<"register" | "login">("register");
+  const [reg, setReg] = useState({ name: "", phone: "", email: "", password: "" });
+  const [login, setLogin] = useState({ email: "", password: "" });
+  const [authError, setAuthError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  async function loadSession() {
+    const r = await fetch(`/api/public/shops/${encodeURIComponent(slug)}/account/session`, { credentials: "same-origin" });
+    const d = r.ok ? await r.json() : { profile: null };
+    if (!d.profile) throw new Error("Signed in, but we couldn't load your details. Try again.");
+    const me = { name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes };
+    setSession(me);
+    onSignedIn?.(me);
+  }
+  const submitAuth = async (e: FormEvent) => {
     e.preventDefault();
     const next: Record<string, string> = {};
-    if (details.name.trim().length < 2) next.name = "Enter your name";
-    if (!phoneOk(details.phone)) next.phone = "Enter a valid UK mobile number";
-    if (!details.email.trim()) next.email = "Enter your email address";
-    else if (!emailOk(details.email)) next.email = "Enter a valid email address";
-    if (!customer && wantPassword) {
-      if (password.length < 8) next.password = "Use at least 8 characters";
-      else if (password !== password2) next.password2 = "The two passwords don't match";
+    if (authMode === "register") {
+      if (reg.name.trim().length < 2) next.name = "Enter your name";
+      if (!phoneOk(reg.phone)) next.phone = "Enter a valid UK mobile number";
+      if (!emailOk(reg.email)) next.email = "Enter a valid email address";
+      if (reg.password.length < 8) next.password = "Use at least 8 characters";
+    } else {
+      if (!emailOk(login.email)) next.email = "Enter your email address";
+      if (!login.password) next.password = "Enter your password";
     }
+    setErrors(next);
+    setAuthError("");
+    if (Object.keys(next).length) {
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+      return;
+    }
+    setAuthBusy(true);
+    try {
+      if (authMode === "register") await api(`/shops/${encodeURIComponent(slug)}/account/register`, "POST", { name: reg.name.trim(), phone: reg.phone, email: reg.email.trim(), password: reg.password });
+      else await api(`/shops/${encodeURIComponent(slug)}/account/login`, "POST", { email: login.email.trim(), password: login.password });
+      await loadSession();
+      go(4);
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : "Could not sign in.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+  const submitReview = () => {
+    const next: Record<string, string> = {};
     if (forOther && attendee.trim().length < 2) next.attendee = "Who is the visit for?";
     setErrors(next);
-    if (Object.keys(next).length)
-      requestAnimationFrame(() =>
-        document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus(),
-      );
-    else go(4);
+    if (Object.keys(next).length) {
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+      return false;
+    }
+    return true;
   };
   const bookingStaff = anyBarber ? assigned?.id || "" : barber;
   const bookingStaffName = anyBarber ? assigned?.name : chosenBarber?.name;
   async function confirm() {
-    if (!availability || slot === null || busy || !bookingStaff) return;
+    if (!availability || slot === null || busy || !bookingStaff || !customer) return;
+    if (!submitReview()) return;
     const payload = {
       staff_id: bookingStaff,
       service_id: service,
@@ -499,7 +562,6 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
       addon_ids: [...extraIds].sort(),
       quote: availability.quote,
       ...(contactPref !== "AUTO" ? { contact_pref: contactPref } : {}),
-      ...(!customer && wantPassword && password ? { password } : {}),
     };
     const serialised = JSON.stringify(payload);
     // A changed payload gets a fresh request key; an unchanged retry replays safely.
@@ -567,6 +629,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
         notes: "",
       });
       setDetails((d) => ({ ...d, name, phone }));
+      setReg((r) => ({ ...r, name: r.name || name, phone: r.phone || phone }));
       setWaitDone(r);
       setWaitlist("done");
     } catch (err) {
@@ -595,15 +658,16 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
         </p>
       </div>
     );
-  const wrap = embedded ? `booking-app embedded` : themeClass(shop.shop.brand, "booking-app standalone");
+  const wrap = themeClass(shop.shop.brand, "booking-app standalone");
   if (confirmed)
     return (
       <div className={wrap}>
-        {!embedded && <TestBanner />}
-        {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
-        <main id={embedded ? undefined : "main-content"} className="booking-body">
+        <TestBanner />
+        <BookingTopBar slug={slug} name={shop.shop.name} logo={shop.shop.logo_url} customer={customer} />
+        <main id="main-content" className="booking-body">
           <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} sentTo={confirmed.sent_to || []} signedIn={!!customer} account={confirmed.account ?? null} />
         </main>
+        <ShopTabBar slug={slug} active="book" signedIn={!!customer} />
       </div>
     );
   const categories = ["All services", ...new Set(shop.services.map((s) => s.category))];
@@ -641,56 +705,9 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   const nextElsewhere = next?.filter((n) => n.date !== date) || [];
   return (
     <div className={wrap}>
-      {!embedded && <TestBanner />}
-      {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
-      <main id={embedded ? undefined : "main-content"}>
-        {!embedded && <section className={`booking-hero public-hero ${step > 0 && step < 5 ? "booking-hero-compact" : ""}`}>
-          <div className="hero-copy">
-            <span className="eyebrow">BOOK ONLINE</span>
-            <h1>
-              Look sharp.
-              <br />
-              Feel like yourself.
-            </h1>
-            <p>
-              Choose your service, your barber and a time that suits you.
-              <br className="desktop-only" /> Prices and availability are the shop’s
-              live records.
-            </p>
-            <div className="hero-details">
-              <span>
-                <Icon name="scissors" size={16} />
-                {shop.staff.length} barber{shop.staff.length === 1 ? "" : "s"}
-              </span>
-              <span>
-                <Icon name="clock" size={16} />
-                {time(shop.shop.opens)}–{time(shop.shop.closes)} · {shop.shop.timezone}
-              </span>
-              {shop.shop.address && (
-                <a
-                  className="hero-link"
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.shop.address)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <Icon name="pin" size={16} />
-                  Directions
-                </a>
-              )}
-            </div>
-          </div>
-          <div className="hero-art" aria-hidden="true">
-            <div className="art-orbit orbit-one" />
-            <div className="art-orbit orbit-two" />
-            <div className="art-orbit orbit-three" />
-            <div className="hero-seal">
-              <span>BOOK IN SECONDS</span>
-              <strong>{initials(shop.shop.name)}</strong>
-              <div className="seal-rule" />
-              <span>{shop.shop.name.toUpperCase().slice(0, 24)}</span>
-            </div>
-          </div>
-        </section>}
+      <TestBanner />
+      <BookingTopBar slug={slug} name={shop.shop.name} logo={shop.shop.logo_url} customer={customer} />
+      <main id="main-content">
         <div className="booking-body">
           {group ? (
             <GroupBooking shop={shop} slug={slug} customer={customer} onExit={() => setGroup(false)} />
@@ -700,7 +717,8 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
             {steps.map((label, i) => (
               <button
                 key={label}
-                disabled={i > step}
+                hidden={i === 3 && !!customer}
+                disabled={i > step || (i === 3 && !!customer)}
                 onClick={() => go(i)}
                 aria-current={i === step ? "step" : undefined}
                 className={i < step ? "done" : ""}
@@ -714,14 +732,14 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
           <div className="booking-layout">
             <section className="booking-flow">
               <header className="step-heading">
-                <span className="eyebrow">STEP {String(step + 1).padStart(2, "0")} OF 05</span>
+                <span className="eyebrow">STEP {String(customer && step === 4 ? 4 : step + 1).padStart(2, "0")} OF {customer ? "04" : "05"}</span>
                 <h2 ref={heading} tabIndex={-1}>
                   {
                     [
                       "What are we doing today?",
                       "Find your kind of barber.",
                       "A time that works for you.",
-                      "Let’s get to know you.",
+                      "Sign in to book.",
                       "Check and confirm.",
                     ][step]
                   }
@@ -732,7 +750,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                       "Pick your service and any extras.",
                       "Choose a barber, or let us find the first free chair.",
                       `Times are shown in ${shop.shop.timezone}. Online bookings need at least ${shop.shop.lead_time_min} minutes’ notice.`,
-                      "We’ll use these to confirm your visit.",
+                      `Your ${shop.shop.name} account keeps every visit in one place — move, cancel or rebook in a tap.`,
                       "Review your visit. Confirming saves it to the shop’s diary.",
                     ][step]
                   }
@@ -741,7 +759,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
               {step === 0 && (
                 <>
                   {shop.staff.length > 1 && (
-                    <button type="button" className="group-entry" onClick={() => setGroup(true)} data-testid="start-group">
+                    <button type="button" className="group-entry" disabled={!sessionKnown} onClick={() => (customer ? setGroup(true) : (setPendingGroup(true), go(3)))} data-testid="start-group">
                       <Icon name="users" size={18} />
                       <span>
                         <strong>Booking for two or more?</strong>
@@ -1202,74 +1220,111 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   </p>
                 </>
               )}
-              {step === 3 && (
-                <form id="customer-details" noValidate onSubmit={submitDetails}>
-                  {customer && (
-                    <Notice icon="userRound">
-                      <span data-testid="signed-in-note">Signed in as <strong>{customer.name}</strong> — details filled in for you.</span>
-                    </Notice>
-                  )}
-                  <div className="customer-fields">
-                    {[
-                      { id: "name", label: "Your name", placeholder: "Jamie Taylor", type: "text", auto: "name" },
-                      { id: "phone", label: "Mobile number", placeholder: "07700 900123", type: "tel", auto: "tel" },
-                      {
-                        id: "email",
-                        label: "Email address",
-                        placeholder: "jamie@example.com",
-                        type: "email",
-                        auto: "email",
-                      },
-                    ].map((field) => (
-                      <label key={field.id}>
-                        <span id={`booking-${field.id}-label`}>{field.label}</span>
-                        <input
-                          aria-labelledby={`booking-${field.id}-label`}
-                          required
-                          type={field.type}
-                          name={field.id}
-                          autoComplete={field.auto}
-                          value={details[field.id as keyof typeof details]}
-                          placeholder={field.placeholder}
-                          onChange={(e) => {
-                            setDetails((d) => ({ ...d, [field.id]: e.target.value }));
-                            setErrors((c) => ({ ...c, [field.id]: "" }));
-                          }}
-                          aria-invalid={!!errors[field.id]}
-                          aria-describedby={errors[field.id] ? `booking-${field.id}-error` : undefined}
-                        />
-                        {errors[field.id] && (
-                          <span className="field-error" id={`booking-${field.id}-error`}>
-                            {errors[field.id]}
-                          </span>
-                        )}
-                      </label>
-                    ))}
-                    {!customer && (
-                      <div className="account-block" data-testid="account-block">
-                        <label className="attendee-toggle">
-                          <input type="checkbox" checked={wantPassword} onChange={(e) => { setWantPassword(e.target.checked); setErrors((c) => ({ ...c, password: "", password2: "" })); }} data-testid="want-password" />
-                          <span>
-                            <strong>Create a password for your account</strong>
-                            <small>Sign in with your email to see, move or rebook visits. Untick it and we'll email you a link to set one later.</small>
-                          </span>
+              {step === 3 && !customer && sessionKnown && (
+                <form id="customer-auth" noValidate onSubmit={submitAuth} className="booking-auth" data-testid="booking-auth">
+                  <div className="auth-switch" role="tablist" aria-label="Sign in or create an account">
+                    <button type="button" role="tab" aria-selected={authMode === "register"} className={authMode === "register" ? "active" : ""} onClick={() => { setAuthMode("register"); setErrors({}); setAuthError(""); }} data-testid="auth-register">
+                      New here
+                    </button>
+                    <button type="button" role="tab" aria-selected={authMode === "login"} className={authMode === "login" ? "active" : ""} onClick={() => { setAuthMode("login"); setErrors({}); setAuthError(""); }} data-testid="auth-login">
+                      I have an account
+                    </button>
+                  </div>
+                  {authMode === "register" ? (
+                    <div className="customer-fields">
+                      {[
+                        { id: "name", label: "Your name", placeholder: "Jamie Taylor", type: "text", auto: "name" },
+                        { id: "phone", label: "Mobile number", placeholder: "07700 900123", type: "tel", auto: "tel" },
+                        { id: "email", label: "Email address", placeholder: "jamie@example.com", type: "email", auto: "email" },
+                        { id: "password", label: "Choose a password", placeholder: "", type: "password", auto: "new-password" },
+                      ].map((field) => (
+                        <label key={field.id}>
+                          <span id={`booking-${field.id}-label`}>{field.label}</span>
+                          <input
+                            aria-labelledby={`booking-${field.id}-label`}
+                            required
+                            type={field.type}
+                            name={field.id === "password" ? "new-password" : field.id}
+                            autoComplete={field.auto}
+                            minLength={field.id === "password" ? 8 : undefined}
+                            value={reg[field.id as keyof typeof reg]}
+                            placeholder={field.placeholder}
+                            onChange={(e) => {
+                              setReg((d) => ({ ...d, [field.id]: e.target.value }));
+                              setErrors((c) => ({ ...c, [field.id]: "" }));
+                            }}
+                            aria-invalid={!!errors[field.id]}
+                            aria-describedby={errors[field.id] ? `booking-${field.id}-error` : field.id === "password" ? "booking-password-hint" : undefined}
+                            data-testid={field.id === "password" ? "booking-password" : undefined}
+                          />
+                          {errors[field.id] ? (
+                            <span className="field-error" id={`booking-${field.id}-error`}>{errors[field.id]}</span>
+                          ) : field.id === "password" ? (
+                            <small className="field-hint" id="booking-password-hint">At least 8 characters. You'll use your email and this password to sign in.</small>
+                          ) : null}
                         </label>
-                        {wantPassword && (
-                          <div className="account-fields">
-                            <label>
-                              <span id="booking-password-label">Password</span>
-                              <input aria-labelledby="booking-password-label" type="password" name="new-password" autoComplete="new-password" minLength={8} value={password} onChange={(e) => { setPassword(e.target.value); setErrors((c) => ({ ...c, password: "" })); }} aria-invalid={!!errors.password} aria-describedby={errors.password ? "booking-password-error" : undefined} data-testid="booking-password" />
-                              {errors.password ? <span className="field-error" id="booking-password-error">{errors.password}</span> : <small className="field-hint">At least 8 characters.</small>}
-                            </label>
-                            <label>
-                              <span id="booking-password2-label">Repeat password</span>
-                              <input aria-labelledby="booking-password2-label" type="password" name="new-password-2" autoComplete="new-password" minLength={8} value={password2} onChange={(e) => { setPassword2(e.target.value); setErrors((c) => ({ ...c, password2: "" })); }} aria-invalid={!!errors.password2} aria-describedby={errors.password2 ? "booking-password2-error" : undefined} data-testid="booking-password2" />
-                              {errors.password2 && <span className="field-error" id="booking-password2-error">{errors.password2}</span>}
-                            </label>
-                          </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="customer-fields">
+                      <label>
+                        <span id="booking-email-label">Email address</span>
+                        <input aria-labelledby="booking-email-label" required type="email" name="email" autoComplete="email" value={login.email} onChange={(e) => { setLogin((d) => ({ ...d, email: e.target.value })); setErrors((c) => ({ ...c, email: "" })); }} aria-invalid={!!errors.email} aria-describedby={errors.email ? "booking-email-error" : undefined} data-testid="signin-email" />
+                        {errors.email && <span className="field-error" id="booking-email-error">{errors.email}</span>}
+                      </label>
+                      <label>
+                        <span id="booking-password-label">Password</span>
+                        <input aria-labelledby="booking-password-label" required type="password" name="current-password" autoComplete="current-password" value={login.password} onChange={(e) => { setLogin((d) => ({ ...d, password: e.target.value })); setErrors((c) => ({ ...c, password: "" })); }} aria-invalid={!!errors.password} aria-describedby={errors.password ? "booking-password-error" : undefined} data-testid="signin-password" />
+                        {errors.password && <span className="field-error" id="booking-password-error">{errors.password}</span>}
+                      </label>
+                      <a className="link small" href={shopPath(slug, "/me", "?forgot=1")} data-testid="auth-forgot">Forgot password?</a>
+                    </div>
+                  )}
+                  {authError && (
+                    <p className="workspace-error" role="alert" data-testid="auth-error">{authError}</p>
+                  )}
+                  <Notice icon="shield">
+                    Your account is with {shop.shop.name}. Your time is held while you sign in.
+                  </Notice>
+                </form>
+              )}
+              {step === 4 && (
+                <>
+                  <div className="review-appointment">
+                    <div className="review-icon">
+                      <Icon name="calendarCheck" size={32} />
+                    </div>
+                    <span className="eyebrow">YOUR VISIT</span>
+                    <h3>{dateLabel(date)}</h3>
+                    <p>
+                      {slot !== null ? time(slot) : "No time selected"} · {duration} minutes ·{" "}
+                      {shop.shop.timezone}
+                    </p>
+                    <div className="review-barber">
+                      {bookingStaffName && <Avatar initials={initials(bookingStaffName)} />}
+                      <span>
+                        {chosenService?.name}
+                        {bookingStaffName && (
+                          <>
+                            {" "}
+                            with <strong>{bookingStaffName.split(" ")[0]}</strong>
+                          </>
                         )}
-                      </div>
-                    )}
+                      </span>
+                    </div>
+                  </div>
+                  <section className="review-customer">
+                    <div>
+                      <h3>Booked by</h3>
+                      <a className="link small" href={shopPath(slug, "/me")} data-testid="signed-in-note">Signed in as {details.name.split(" ")[0]}</a>
+                    </div>
+                    <strong>{details.name}</strong>
+                    <p>
+                      {details.phone}
+                      {details.email && ` · ${details.email}`}
+                    </p>
+                  </section>
+                  <section className="review-options">
                     <div className="attendee-block">
                       <label className="attendee-toggle">
                         <input
@@ -1307,9 +1362,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                             data-testid="attendee-name"
                           />
                           {errors.attendee && (
-                            <span className="field-error" id="booking-attendee-error">
-                              {errors.attendee}
-                            </span>
+                            <span className="field-error" id="booking-attendee-error">{errors.attendee}</span>
                           )}
                         </label>
                       )}
@@ -1321,7 +1374,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                           {([
                             { v: "AUTO" as const, label: "Text", hint: "SMS to your mobile", show: true },
                             { v: "WA" as const, label: "WhatsApp", hint: "From foliyo on WhatsApp", show: waOffered },
-                            { v: "EMAIL" as const, label: "Email", hint: "Needs your email above", show: emailOffered },
+                            { v: "EMAIL" as const, label: "Email", hint: "To your account email", show: emailOffered },
                           ]).filter((o) => o.show).map((o) => (
                             <button
                               key={o.v}
@@ -1342,7 +1395,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                         </small>
                       </fieldset>
                     )}
-                    <label>
+                    <label className="review-notes">
                       Anything you’d like us to know? (optional)
                       <textarea
                         value={details.notes}
@@ -1352,57 +1405,6 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                       />
                       <span className="field-help">{details.notes.length}/500 characters</span>
                     </label>
-                  </div>
-                  <Notice icon="shield">
-                    Your details are saved with this booking only so the shop can find your visit, and remembered on this
-                    device to speed up next time.
-                  </Notice>
-                </form>
-              )}
-              {step === 4 && (
-                <>
-                  <div className="review-appointment">
-                    <div className="review-icon">
-                      <Icon name="calendarCheck" size={32} />
-                    </div>
-                    <span className="eyebrow">YOUR VISIT</span>
-                    <h3>{dateLabel(date)}</h3>
-                    <p>
-                      {slot !== null ? time(slot) : "No time selected"} · {duration} minutes ·{" "}
-                      {shop.shop.timezone}
-                    </p>
-                    <div className="review-barber">
-                      {bookingStaffName && <Avatar initials={initials(bookingStaffName)} />}
-                      <span>
-                        {chosenService?.name}
-                        {bookingStaffName && (
-                          <>
-                            {" "}
-                            with <strong>{bookingStaffName.split(" ")[0]}</strong>
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                  <section className="review-customer">
-                    <div>
-                      <h3>Your details</h3>
-                      <Button variant="ghost" onClick={() => go(3)}>
-                        Edit
-                        <Icon name="arrowUp" size={14} />
-                      </Button>
-                    </div>
-                    <strong>{details.name}</strong>
-                    <p>
-                      {details.phone}
-                      {details.email && ` · ${details.email}`}
-                    </p>
-                    {forOther && attendee.trim() && (
-                      <p className="review-attendee" data-testid="review-attendee">
-                        <Icon name="userRound" size={14} /> Visit for <strong>{attendee.trim()}</strong>
-                      </p>
-                    )}
-                    {details.notes && <p>{details.notes}</p>}
                   </section>
                   <Notice icon="shield">
                     <strong>Plans change.</strong> Cancel or move online at least{" "}
@@ -1430,9 +1432,9 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   {saveError}
                 </p>
               )}
-              {step === 3 && (
+              {step === 3 && !customer && (
                 <p className="booking-privacy" data-testid="booking-privacy">
-                  {shop.shop.name} uses your details to run this appointment and send you confirmations and reminders. It won't send marketing unless you say so. <a href="/legal/privacy" target="_blank" rel="noopener">How your data is handled</a>.
+                  {shop.shop.name} uses your details to run your appointments and send you confirmations and reminders. It won't send marketing unless you say so. <a href="/legal/privacy" target="_blank" rel="noopener">How your data is handled</a>.
                 </p>
               )}
               <footer className="booking-actions">
@@ -1443,7 +1445,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   </span>
                 )}
                 {step > 0 ? (
-                  <Button variant="secondary" onClick={() => go(step - 1)} disabled={busy}>
+                  <Button variant="secondary" onClick={() => go(step === 4 && customer ? 2 : step - 1)} disabled={busy}>
                     <Icon name="arrowLeft" />
                     Back
                   </Button>
@@ -1453,8 +1455,8 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   </span>
                 )}
                 {step === 3 ? (
-                  <Button key="submit-details" type="submit" form="customer-details">
-                    Review booking
+                  <Button key="submit-auth" type="submit" form="customer-auth" disabled={authBusy} aria-busy={authBusy} data-testid="auth-submit">
+                    {authBusy ? (authMode === "register" ? "Creating account…" : "Signing in…") : authMode === "register" ? "Create account and continue" : "Sign in and continue"}
                     <Icon name="arrowRight" />
                   </Button>
                 ) : step === 4 ? (
@@ -1487,9 +1489,9 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                         (step === 1 && !barber) ||
                         (step === 2 && (slot === null || !availability || !bookingStaff))
                       }
-                      onClick={() => go(step + 1)}
+                      onClick={() => go(step === 2 && customer ? 4 : step + 1)}
                     >
-                      {["Choose your barber", "Find a time", "Your details"][step]}
+                      {["Choose your barber", "Find a time", customer ? "Review booking" : "Sign in to book"][step]}
                       <Icon name="arrowRight" />
                     </Button>
                   </span>
@@ -1500,13 +1502,6 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
               )}
             </section>
             <aside className="booking-summary" aria-label="Your visit summary">
-              <div className="summary-shop">
-                {shop.shop.logo_url ? <img className="mini-shop-emblem shop-logo" src={shop.shop.logo_url} alt="" /> : <span className="mini-shop-emblem">{initials(shop.shop.name)}</span>}
-                <div>
-                  <strong>{shop.shop.name}</strong>
-                  <span>{shop.shop.address || "Your visit summary"}</span>
-                </div>
-              </div>
               <h3>Your visit</h3>
               {chosenService && (
                 <div className="summary-service">
@@ -1599,14 +1594,13 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
           </div>
           </>
           )}
-          {!embedded && (
-            <footer className="booking-footer">
-              <span>Powered by foliyo</span>
-              <span className="booking-legal"><a href="/legal/privacy" target="_blank" rel="noopener">Privacy</a> · <a href="/legal/terms" target="_blank" rel="noopener">Terms</a></span>
-            </footer>
-          )}
+          <footer className="booking-footer">
+            <span>{shop.shop.address ? `${shop.shop.name} · ${shop.shop.address}` : shop.shop.name}</span>
+            <span className="booking-legal"><a href="/legal/privacy" target="_blank" rel="noopener">Privacy</a> · <a href="/legal/terms" target="_blank" rel="noopener">Terms</a> · Powered by foliyo</span>
+          </footer>
         </div>
       </main>
+      <ShopTabBar slug={slug} active="book" signedIn={!!customer} />
     </div>
   );
 }
@@ -1710,23 +1704,15 @@ function ConfirmationCard({
         </Notice>
       )}
       {copied && <p role="status">{copied}</p>}
-      {!signedIn && (
-        <section className="review-customer confirm-account" data-testid="confirm-account">
-          <div>
-            <h3>{account?.has_password ? "Your account is ready" : "All your visits in one place"}</h3>
-          </div>
-          <p>
-            {account?.has_password
-              ? `You're signed in on this device. Sign in anywhere with ${account.email} and your password to see upcoming and past visits, move or cancel in a tap, and rebook your usual.`
-              : account
-                ? `We've emailed ${account.email} a link to set your password. You're already signed in on this device — add ${booking.shop.name} to your home screen from your account for one-tap access and reminders.`
-                : `Sign in at ${booking.shop.name} to see upcoming and past visits, move or cancel in a tap, and rebook your usual.`}
-          </p>
-          <a className="button secondary" href={shopPath(slug, "/me")}>
-            <Icon name="user" size={16} /> {account ? "Open my account" : "See my visits"}
-          </a>
-        </section>
-      )}
+      <section className="review-customer confirm-account" data-testid="confirm-account">
+        <div>
+          <h3>In your account</h3>
+        </div>
+        <p>This visit is saved to your {booking.shop.name} account. Move or cancel it there, rebook your usual, and add {booking.shop.name} to your home screen for one-tap access and reminders.</p>
+        <a className="button secondary" href={shopPath(slug, "/me")} data-testid="open-account">
+          <Icon name="user" size={16} /> Open my account
+        </a>
+      </section>
       <div className="confirmation-actions">
         <a className="action-tile" href={gcal(booking)} target="_blank" rel="noreferrer">
           <Icon name="calendar" /> <span>Google Calendar</span>

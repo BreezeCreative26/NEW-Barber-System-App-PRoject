@@ -7,6 +7,7 @@ import type { ObjectStore as R2Bucket } from "../db/storage";
 import type { Shop, ShopPage, StoredBooking } from "./domain";
 import { defaultShopPage, parseTheme, shopDay } from "./domain";
 import type { AppEnv } from "./accounts";
+import { shopUrl } from "./hosts";
 
 export type MediaEnv = AppEnv & { Bindings: AppEnv["Bindings"] & { MEDIA?: R2Bucket } };
 type Ctx = Context<AppEnv>;
@@ -163,6 +164,7 @@ export type HeadInput = {
 
 export function shopPageHead(i: HeadInput) {
   const url = `${i.origin}/${i.shop.slug}`;
+  const bookUrl = shopUrl(i.shop.slug || "", "/book", i.origin);
   const town = townOf(i.shop.address);
   const title = `${i.shop.name} · ${town ? `Barbers in ${town}` : "Book online"}`;
   const description = (i.page.strapline || i.page.about || `${i.shop.name}${i.shop.address ? `, ${i.shop.address}` : ""}. Book your next visit online.`).slice(0, 160);
@@ -201,7 +203,7 @@ export function shopPageHead(i: HeadInput) {
         }
       : {}),
     ...(i.staff.length ? { employee: i.staff.slice(0, 20).map((s) => ({ "@type": "Person", name: s.name, ...(s.title ? { jobTitle: s.title } : {}), ...(s.photo_url ? { image: abs(s.photo_url) } : {}) })) } : {}),
-    potentialAction: { "@type": "ReserveAction", target: { "@type": "EntryPoint", urlTemplate: `${url}#book`, actionPlatform: ["https://schema.org/DesktopWebPlatform", "https://schema.org/MobileWebPlatform"] }, result: { "@type": "Reservation", name: "Book a visit" } },
+    potentialAction: { "@type": "ReserveAction", target: { "@type": "EntryPoint", urlTemplate: `${bookUrl}`, actionPlatform: ["https://schema.org/DesktopWebPlatform", "https://schema.org/MobileWebPlatform"] }, result: { "@type": "Reservation", name: "Book a visit" } },
   };
   // JSON inside <script> must not be able to close the tag.
   const ldJson = JSON.stringify(ld).replace(/</g, "\\u003c");

@@ -2,6 +2,7 @@
 // line" vs "tell everyone", time windows on the day, and date ranges. API-level; the only direct
 // DB touch is to fast-forward the delay timer (there is no clock to travel otherwise).
 import { test, expect, request, type APIRequestContext } from "@playwright/test";
+import { registerCustomer } from "./shop";
 import postgres from "postgres";
 import AxeBuilder from "@axe-core/playwright";
 import { base, origin, openFixtureShop, openQueue } from "./fixture";
@@ -48,6 +49,8 @@ async function settings(r: APIRequestContext, patch: Record<string, unknown>) {
 }
 async function bookOnline(c: APIRequestContext, P: string, staff: string, service: string, date: string, start_min: number, phone: string, name = "Online Customer") {
   const avail = await (await c.get(`${P}/availability?date=${date}&staff_id=${staff}&service_id=${service}`)).json();
+  const slug = P.split("/shops/")[1].split("/")[0];
+  await registerCustomer(c, slug, { name, phone, email: `${phone.replace(/\D/g, "")}@example.test` });
   const res = await c.post(`${P}/bookings`, { data: { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: name, phone, email: `${phone.replace(/\D/g, "")}@example.test`, date, start_min, quote: avail.quote } });
   expect(res.status(), await res.text()).toBe(201);
   return (await res.json()).booking as { id: string; version: number; start_min: number };
@@ -227,7 +230,7 @@ test("browser: settings panel saves the mode and delay; customer join form offer
     const slot = av.slots?.find((s: { start_min: number; available: boolean }) => s.start_min >= m && s.available);
     if (!slot) break;
     m = slot.start_min;
-    const res = await own.post(base + "/bookings", { data: { request_id: crypto.randomUUID(), staff_id: st.id, service_id: big.id, customer_name: "Filler " + m, phone: "07700900" + String(700 + m / 15).padStart(3, "0"), email: "", date: full, start_min: m, quote: av.quote } });
+    const res = await own.post(base + "/bookings", { data: { request_id: crypto.randomUUID(), staff_id: st.id, service_id: big.id, customer_name: "Filler " + m, phone: "07700900" + String(700 + m / 15).padStart(3, "0"), email: "", password: "Fictional-test-pass-2026!", date: full, start_min: m, quote: av.quote } });
     if (res.status() !== 201) break;
   }
   const cust = await page.context().browser()!.newContext();

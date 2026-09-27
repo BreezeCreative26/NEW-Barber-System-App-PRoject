@@ -679,3 +679,17 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - **Links**: every customer-facing URL (manage, offer, pay, book, /me, welcome/reset, waitlist) is built with `shopUrl()`; client links use `shopPath()` (reads the `foliyo-shop` meta). Manifest/SW scope is `/` on the shop host.
 - **Test shop**: `northline` (Northline Barbers seed, owner `owner@northline.test` / `Demo1234!`) — `http://northline.localhost:3000` locally; in production it will be `northline.foliyo.co.uk` once a shop with that slug exists there.
 - Tests: `tests/subdomain.spec.ts` (6), `tests/subdomain-screens.spec.ts`; accounts suite updated (find-shop in inventory, slug field, SameSite=Lax). Evidence: `docs/evidence/subdomain/`.
+
+## Booking flow v2 — its own page
+- Booking no longer sits embedded mid-way down the shop page. The shop page carries one clear "Book a visit" call-to-action card and every shortcut (nav, hero, Next available, service cards, "Book with X") deep-links to `/book?service=&staff=&date=&start=&step=` on the shop's host (`/book/<slug>` on the root host). Old `/<slug>?…#book` links are forwarded.
+- `/book` is a focused flow: slim sticky top bar (back to shop · logo · Your visits), no marketing hero, larger step headings, bigger service/barber/date/time cards and inputs, slimmer sticky summary, fixed action bar on phones. All type sizes come off design tokens.
+- `PublicBooking` dropped the `embedded` prop; it now looks up the customer session itself. schema.org `ReserveAction` targets the `/book` URL via `shopUrl`.
+- Tests updated: `shop-page.spec`, `booking-upgrades.spec`, `customer-account.spec`. `nav-me` on the flow carries an accessible name (axe).
+
+## Members-only booking: the shop as an app
+- Customers browse freely (services, team, times) but must **sign in or create an account before confirming**. Step 4 of the flow is "Sign in to book" (New here / I have an account); signed-in members skip it (4 steps, not 5). The server refuses `POST /bookings` and `/group-bookings` without a customer session (401) and takes the booker's name/phone/email from the account, never the payload.
+- Review step now carries the visit options (for someone else, message channel, notes). Confirmation says "In your account" with a link to it.
+- Shop home for members: "Hi Jordan" with **Next visit** and **Your usual** (one-tap rebook to the next free slot). Nav shows "Sign in" when signed out.
+- Bottom tab bar on phones across shop home, /book and /me: Home · Book · Visits · Account (`ShopTabBar`).
+- Customer session cookie now carries `Domain=.<root>` like the owner cookie, so a sign-in on the shop host is seen on the root host and vice versa.
+- Tests: `registerCustomer`/`signInCustomer` helpers in `tests/shop.ts`; all booking suites updated to sign in first; new members-only API tests in `customer-auth.spec`.

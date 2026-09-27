@@ -654,9 +654,14 @@ const onlineBookingSchema = publicBookingSchema.extend({ password: z.union([z.li
 pub.post("/shops/:slug/bookings", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug"));
   const { password, ...b } = await readInput(c, onlineBookingSchema);
+  // Booking is for members: the signed-in account is the booker. Name/phone/email on the payload are
+  // ignored in favour of the account's own, so a session can't book under someone else's details.
   const signedIn = await currentCustomerAccount(c, shop);
-  if (!b.email && !signedIn?.email) fail(400, "Enter your email address");
-  if (!b.email && signedIn?.email) b.email = signedIn.email;
+  if (!signedIn) return fail(401, "Sign in or create an account to book");
+  b.customer_name = signedIn.name || b.customer_name;
+  b.phone = signedIn.phone;
+  b.email = signedIn.email || b.email;
+  if (!b.email) fail(400, "Add an email address to your account");
   // Scoped per shop so one busy shop cannot lock customers out of another.
   await throttle(c, "book", `${shop.id}:${clientKey(c)}`, 120);
   await throttle(c, "book-phone", `${shop.id}:${b.phone}`, 12);
@@ -727,7 +732,7 @@ pub.post("/shops/:slug/bookings", async (c) => {
       if (!r.conflict) {
         if (!signedIn || signedIn.id !== r.account.id) await openCustomerSession(c, shop, r.account, password ? "booked with a new password" : "booked online");
         const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
-        const welcome = booking.deposit_status === "PENDING" ? [] : await sendWelcome(c, shop, r.account, origin);
+        const welcome = booking.deposit_status === "PENDING" ? [] : await sendWelcome(c, shop, r.account, origin, Date.now(), r.created || !r.account.password_hash);
         if (welcome.length) { await c.env.DB.batch(welcome); await drain(c.env.DB, welcome.length, Date.now(), { type: "customer_account", id: r.account.id }).catch(() => {}); }
         account = { created: r.created, has_password: !!(r.account.password_hash || password), email: r.account.email };
       }
@@ -870,6 +875,12 @@ pub.get("/shops/:slug/group-availability", async (c) => {
 pub.post("/shops/:slug/group-bookings", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug"));
   const b = await readInput(c, groupBookingSchema);
+  // Members only, same as single visits: the signed-in account is the booker.
+  const groupBooker = await currentCustomerAccount(c, shop);
+  if (!groupBooker) return fail(401, "Sign in or create an account to book");
+  b.customer_name = groupBooker.name || b.customer_name;
+  b.phone = groupBooker.phone;
+  b.email = groupBooker.email || b.email;
   await throttle(c, "book", `${shop.id}:${clientKey(c)}`, 120);
   await throttle(c, "book-phone", `${shop.id}:${b.phone}`, 12);
   const { minStart, maxDate } = limits(shop);

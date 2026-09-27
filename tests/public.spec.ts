@@ -11,7 +11,7 @@ import { openQueue } from "./fixture";
 
 // Public online booking, customer manage links and owner customer directory.
 // Every test creates its own fictional shop; nothing live is touched.
-import { base, origin, newShop, enterNewShop } from "./shop";
+import { base, origin, newShop, enterNewShop, registerCustomer } from "./shop";
 const pub = origin + "/api/public";
 const slugFor = () => `test-${crypto.randomUUID().slice(0, 12)}`;
 function futureDate(days = 8) {
@@ -42,6 +42,18 @@ async function owner(enable = true) {
 async function customer() {
   return request.newContext({ extraHTTPHeaders: { Origin: origin } });
 }
+// Booking online is for members: each API context signs in once as its customer (a unique identity
+// per run so accounts, which are global by phone, never collide with earlier runs). The identity the
+// context booked under is returned so callers can assert on it.
+const members = new WeakMap<APIRequestContext, { name: string; phone: string; email: string; password: string }>();
+async function member(c: APIRequestContext, slug: string, who: Record<string, unknown> = {}) {
+  let m = members.get(c);
+  if (!m) {
+    m = await registerCustomer(c, slug, { name: String(who.customer_name || "Online Customer") });
+    members.set(c, m);
+  }
+  return m;
+}
 async function bookOnline(
   c: APIRequestContext,
   slug: string,
@@ -57,20 +69,21 @@ async function bookOnline(
       `${pub}/shops/${slug}/availability?date=${date}&staff_id=${staff}&service_id=${service}`,
     )
   ).json();
+  const me = await member(c, slug, extra);
   const data = {
     request_id: crypto.randomUUID(),
     staff_id: staff,
     service_id: service,
-    customer_name: "Online Customer",
-    phone: "07700 900222",
-    email: "online@example.test",
+    customer_name: me.name,
+    phone: me.phone,
+    email: me.email,
     date,
     start_min,
     quote: avail.quote,
     ...extra,
   };
   const res = await c.post(`${pub}/shops/${slug}/bookings`, { data });
-  return { res, data, avail };
+  return { res, data, avail, me };
 }
 
 test("public shop read hides disabled shops and exposes only active catalogue", async () => {
@@ -161,19 +174,17 @@ test("online booking shares owner guards: lead time, window, collisions, replay 
   expect(replayed.booking.id).toBe(created.booking.id);
   expect(replayed.manage_token).toBeNull();
   // Same time again from another customer collides.
-  const clash = await bookOnline(c, slug, w, date, 600, {
-    phone: "07700 900333",
-  });
+  const clash = await bookOnline(await customer(), slug, w, date, 600);
   expect(clash.res.status()).toBe(409);
   expect((await clash.res.json()).error).toBe("slot_taken");
-  // Owner calendar sees the visit tagged ONLINE with the email.
+  // Owner calendar sees the visit tagged ONLINE with the member's email.
   const day = await (await r.get(base + `/bookings?date=${date}`)).json();
   expect(day.bookings).toHaveLength(1);
   expect(day.bookings[0].channel).toBe("ONLINE");
-  expect(day.bookings[0].email).toBe("online@example.test");
+  expect(day.bookings[0].email).toBe(first.me.email);
   // Owner cannot reuse an online request_id with a different channel.
   const ownerReplay = await r.post(base + "/bookings", {
-    data: { ...first.data, source: "TEST_BOOKING", email: undefined },
+    data: { ...first.data, source: "TEST_BOOKING", email: undefined, password: undefined },
   });
   expect(ownerReplay.status()).toBe(409);
   // Beyond the window and inside lead time are refused.
@@ -282,26 +293,22 @@ test("owner customer directory aggregates visits by phone and scopes barbers", a
   const { r, w, slug } = await owner();
   const c = await customer();
   const date = futureDate();
-  expect((await bookOnline(c, slug, w, date, 600)).res.status()).toBe(201);
-  expect(
-    (await bookOnline(c, slug, w, date, 840, { customer_name: "Online Customer Renamed" })).res.status(),
-  ).toBe(201);
-  await bookOnline(c, slug, w, date, 960, {
-    phone: "07700 900999",
-    customer_name: "Second Person",
-    email: "second@example.test",
-  });
+  const one = await bookOnline(c, slug, w, date, 600);
+  expect(one.res.status()).toBe(201);
+  // A renamed payload doesn't change who booked: the account is the booker.
+  expect((await bookOnline(c, slug, w, date, 840, { customer_name: "Online Customer Renamed" })).res.status()).toBe(201);
+  const other = await customer();
+  await bookOnline(other, slug, w, date, 960, { customer_name: "Second Person" });
   const list = await (await r.get(base + "/customers")).json();
   expect(list.customers).toHaveLength(2);
-  const first = list.customers.find((x: { phone: string }) => x.phone === "07700900222");
+  const first = list.customers.find((x: { phone: string }) => x.phone === one.me.phone.replace(/\D/g, ""));
   expect(first.visits).toBe(2);
-  // The customer record keeps the first-seen contact; the later rename stays on the booking snapshot.
-  expect(first.email).toBe("online@example.test");
+  expect(first.email).toBe(one.me.email);
   expect(first.favourite_service).toBeNull();
   expect(first.upcoming).toBe(2);
   const search = await (await r.get(base + "/customers?q=second")).json();
   expect(search.customers).toHaveLength(1);
-  const history = await (await r.get(base + "/customers/07700900222")).json();
+  const history = await (await r.get(base + `/customers/${one.me.phone.replace(/\D/g, "")}`)).json();
   expect(history.bookings).toHaveLength(2);
   expect(history.customer.id).toBe(first.id);
   expect((await r.get(base + `/customers/${first.id}`)).status()).toBe(200);
@@ -337,22 +344,27 @@ test.describe("public booking pages", () => {
     }
     await page.getByRole("button", { name: new RegExp(`^${label},`) }).click();
     await page.getByRole("group", { name: "Choose an appointment time" }).locator("button:not([disabled])").first().click();
-    await page.getByRole("button", { name: "Your details", exact: true }).click();
+    // Not signed in → the account step: create an account (or sign in) before the review.
+    await page.getByRole("button", { name: "Sign in to book", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Sign in to book." })).toBeVisible();
     await page.getByLabel("Your name").fill("Browser Customer");
-    await page.getByLabel("Mobile number").fill("07700 900777");
+    await page.getByLabel("Mobile number").fill(`07${String(Date.now()).slice(-9)}`);
     await page.getByLabel("Email address", { exact: true }).fill("not-an-email");
-    await page.getByRole("button", { name: "Review booking" }).click();
+    await page.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
+    await page.getByTestId("auth-submit").click();
     await expect(page.getByText("Enter a valid email address")).toBeVisible();
-    await page.getByLabel("Email address", { exact: true }).fill("browser@example.test");
-    // Every booking ends with an account; leave the password for later (welcome link).
-    await page.getByTestId("want-password").uncheck();
-    await page.getByRole("button", { name: "Review booking" }).click();
+    const browserEmail = `browser-${Date.now()}@example.test`;
+    await page.getByLabel("Email address", { exact: true }).fill(browserEmail);
+    await page.getByTestId("auth-submit").click();
     await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
     await expect(page.getByText("Browser Customer")).toBeVisible();
+    await expect(page.getByTestId("signed-in-note")).toContainText("Browser");
     await page.getByRole("button", { name: "Confirm booking" }).click();
     await expect(page.getByRole("heading", { level: 1, name: label })).toBeVisible();
     const reference = await page.locator(".public-reference").textContent();
     expect(reference).toMatch(/^BRB-\d{4}$/);
+    // The visit is in the member's account.
+    await expect(page.getByTestId("confirm-account")).toContainText("In your account");
     const link = page.getByTestId("open-manage");
     await expect(link).toBeVisible();
     const href = await link.getAttribute("href");
@@ -535,6 +547,7 @@ test("any-barber availability assigns the least-loaded eligible barber and /next
 
 test("waitlist: customer joins a full day, owner sees, books and links the entry", async () => {
   const { r, w, slug } = await owner();
+  const wandaPhone = `07${String(Date.now()).slice(-9)}`;
   const c = await customer();
   const date = futureDate();
   const service = w.services[0].id;
@@ -543,7 +556,7 @@ test("waitlist: customer joins a full day, owner sees, books and links the entry
       staff_id: null,
       service_id: service,
       customer_name: "Waiting Wanda",
-      phone: "07700 900555",
+      phone: wandaPhone,
       email: "",
       date,
       daypart: "AFTERNOON",
@@ -553,7 +566,7 @@ test("waitlist: customer joins a full day, owner sees, books and links the entry
   expect(join.status(), await join.text()).toBe(201);
   // Same phone/date/service upserts instead of duplicating.
   const again = await c.post(`${pub}/shops/${slug}/waitlist`, {
-    data: { staff_id: w.staff[0].id, service_id: service, customer_name: "Waiting Wanda", phone: "07700900555", email: "w@example.test", date, daypart: "MORNING", notes: "" },
+    data: { staff_id: w.staff[0].id, service_id: service, customer_name: "Waiting Wanda", phone: wandaPhone, email: "w@example.test", date, daypart: "MORNING", notes: "" },
   });
   expect(again.status()).toBe(201);
   const bad = await c.post(`${pub}/shops/${slug}/waitlist`, {
@@ -571,7 +584,9 @@ test("waitlist: customer joins a full day, owner sees, books and links the entry
   expect(entry.staff_name).toBe(w.staff[0].name);
   expect(entry.email).toBe("w@example.test");
   // Owner books them and links.
-  const booked = await bookOnline(c, slug, w, date, 600, { customer_name: "Waiting Wanda", phone: "07700900555" });
+  // Booking as the waiting customer (same mobile) closes the request.
+  members.set(c, await registerCustomer(c, slug, { name: "Waiting Wanda", phone: wandaPhone, email: `wanda-${Date.now()}@example.test` }));
+  const booked = await bookOnline(c, slug, w, date, 600);
   expect(booked.res.status()).toBe(201);
   const bookingId = (await booked.res.json()).booking.id;
   // Booking online for the same service on a day the request covers closes the request itself
@@ -619,8 +634,9 @@ test.describe("public booking v2 UI", () => {
     const big = w.services.find((s) => s.duration_min === 60)!;
     for (const [i, m] of [540, 615, 690, 840, 915, 990].entries()) {
       const av = await (await c.get(`${pub}/shops/${slug}/availability?date=${full}&staff_id=${w.staff[0].id}&service_id=${big.id}`)).json();
+      await registerCustomer(c, slug);
       const res = await c.post(`${pub}/shops/${slug}/bookings`, {
-        data: { request_id: crypto.randomUUID(), staff_id: w.staff[0].id, service_id: big.id, customer_name: "Filler " + m, phone: "0770090060" + i, email: `filler${i}-${m}@example.test`, date: full, start_min: m, quote: av.quote },
+        data: { request_id: crypto.randomUUID(), staff_id: w.staff[0].id, service_id: big.id, customer_name: "Filler " + m, phone: "0770090060" + i, email: `filler${i}-${m}@example.test`, password: "Fictional-test-pass-2026!", date: full, start_min: m, quote: av.quote },
       });
       expect(res.status(), await res.text()).toBe(201);
     }
@@ -642,7 +658,7 @@ test.describe("public booking v2 UI", () => {
     await expect(page.getByRole("heading", { name: "This day is fully booked" })).toBeVisible();
     await page.getByRole("button", { name: "Join the waitlist" }).click();
     await page.getByLabel("Your name").fill("Waiting Wanda");
-    await page.getByLabel("Mobile number").fill("07700900555");
+    await page.getByLabel("Mobile number").fill(`07${String(Date.now()).slice(-9)}`);
     await page.getByRole("group", { name: "Times that suit you" }).getByRole("button", { name: "Afternoon" }).click();
     await page.getByRole("button", { name: "Ask the shop to contact me" }).click();
     await expect(page.getByText("You’re on the list.")).toBeVisible();
@@ -653,11 +669,11 @@ test.describe("public booking v2 UI", () => {
     // Soonest chip jumps to a bookable slot with an assigned barber; details are remembered from the waitlist form.
     await page.getByRole("region", { name: "Soonest open times" }).getByRole("button").first().click();
     await expect(page.locator(".slot-note")).toContainText("is free at");
-    await page.getByRole("button", { name: "Your details", exact: true }).click();
+    await page.getByRole("button", { name: "Sign in to book", exact: true }).click();
     await expect(page.getByLabel("Your name")).toHaveValue("Waiting Wanda");
-    await page.getByLabel("Email address", { exact: true }).fill("wanda@example.test");
-    await page.getByTestId("want-password").uncheck();
-    await page.getByRole("button", { name: "Review booking" }).click();
+    await page.getByLabel("Email address", { exact: true }).fill(`wanda-${Date.now()}@example.test`);
+    await page.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
+    await page.getByTestId("auth-submit").click();
     await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
     await page.getByRole("button", { name: "Confirm booking" }).click();
     await expect(page.locator(".public-reference")).toHaveText(/^BRB-\d{4}$/);

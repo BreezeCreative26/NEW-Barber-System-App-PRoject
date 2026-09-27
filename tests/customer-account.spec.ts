@@ -227,20 +227,19 @@ test("browser: sign in on /<slug>/me, see usual and visits, rebook the usual wit
   // "Your usual" deep-links to the shop page with the flow on the time step, barber + service set, details prefilled.
   await page.getByTestId("tab-visits").click();
   await page.getByTestId("book-usual-next").click();
-  await expect(page).toHaveURL(new RegExp(`/${slug}\\?.*service=.*#book`));
-  await expect(page.getByTestId("shop-page")).toBeVisible();
-  await expect(page.getByTestId("nav-me")).toContainText("Ada");
-  const flow = page.locator(".booking-app.embedded");
+  await expect(page).toHaveURL(new RegExp(`/book(/${slug})?\\?.*service=`));
+  const flow = page.locator(".booking-app.standalone");
+  await expect(flow.getByTestId("nav-me")).toContainText("Ada");
   await expect(flow.getByRole("heading", { name: "A time that works for you." })).toBeVisible();
   await expect(flow.locator(".booking-summary")).toContainText("Signature cut");
   await expect(flow.locator(".booking-summary")).toContainText("Jay");
   await expect(flow.getByRole("group", { name: "Choose an appointment time" }).locator("button[aria-pressed='true']")).toHaveCount(1);
-  await flow.getByRole("button", { name: "Your details", exact: true }).click();
+  // Signed in: no account step — straight to the review with the member's details and barber notes.
+  await flow.getByRole("button", { name: "Review booking", exact: true }).click();
+  await expect(flow.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
   await expect(flow.getByTestId("signed-in-note")).toContainText("Ada");
-  await expect(flow.getByLabel("Your name")).toHaveValue(/Ada/);
-  await expect(flow.getByLabel("Mobile number")).toHaveValue(PHONE);
+  await expect(flow.locator(".review-customer")).toContainText(PHONE);
   await expect(flow.locator("textarea[name=notes]")).toHaveValue("Scissors on top please");
-  await flow.getByRole("button", { name: "Review booking" }).click();
   await flow.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.locator(".public-reference")).toHaveText(/^BRB-\d{4}$/);
   expect(errors).toEqual([]);

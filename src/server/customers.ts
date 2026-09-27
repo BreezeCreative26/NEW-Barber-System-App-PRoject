@@ -2,6 +2,7 @@
 // Mounted under /api/public/shops/:slug/account. In the sandbox the code is never sent: it is
 // returned to the page (shown on screen) and written to the shop's audit log.
 import { Hono } from "hono";
+import { sessionCookieDomain } from "./hosts";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
 import { brandOf, dayStarts, phoneSchema, ref, shopToday, type Customer, type Shop, type StoredBooking } from "./domain";
@@ -51,7 +52,7 @@ const profileSchema = z
   .strict();
 
 function cookie(c: Ctx, raw: string) {
-  setCookie(c, CUSTOMER_COOKIE, raw, { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: SESSION_TTL / 1000 });
+  setCookie(c, CUSTOMER_COOKIE, raw, { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: SESSION_TTL / 1000, ...(sessionCookieDomain() ? { domain: sessionCookieDomain()! } : {}) });
 }
 
 // Signed-in customer for this shop, or null. Sessions are shop-scoped so a token from shop A
@@ -194,7 +195,7 @@ acct.post("/logout", async (c) => {
   await readInput(c, z.object({}).strict());
   const raw = getCookie(c, CUSTOMER_COOKIE);
   if (raw) await c.env.DB.prepare("DELETE FROM customer_sessions WHERE token_hash=?").bind(await digest(raw)).run();
-  deleteCookie(c, CUSTOMER_COOKIE, { path: "/", secure: true });
+  deleteCookie(c, CUSTOMER_COOKIE, { path: "/", secure: true, ...(sessionCookieDomain() ? { domain: sessionCookieDomain()! } : {}) });
   return c.json({ ok: true });
 });
 
@@ -405,7 +406,7 @@ acct.post("/delete", async (c) => {
     c.env.DB.prepare("DELETE FROM customer_accounts WHERE id=?").bind(a.id),
     audit(c, "customer_account", a.id, "CUSTOMER_ACCOUNT_DELETED", "Customer deleted their online account. Shop visit history is retained."),
   ]);
-  deleteCookie(c, CUSTOMER_COOKIE, { path: "/", secure: true });
+  deleteCookie(c, CUSTOMER_COOKIE, { path: "/", secure: true, ...(sessionCookieDomain() ? { domain: sessionCookieDomain()! } : {}) });
   return c.json({ ok: true });
 });
 

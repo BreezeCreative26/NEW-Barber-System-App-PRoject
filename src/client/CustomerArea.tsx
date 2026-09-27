@@ -2,6 +2,7 @@
 // move/cancel, "your usual" one-tap rebook, history, profile and privacy controls. Talks only to
 // /api/public/shops/:slug/account/*; the shop never sees another shop's history.
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ShopTabBar } from "./ShopTabBar";
 import { Avatar, Button, Icon, Notice, StatusPill } from "./ui";
 import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { ReviewCard, type OwnReview } from "./Reviews";
@@ -60,7 +61,7 @@ export function CustomerArea({ slug }: { slug: string }) {
   const [signedOut, setSignedOut] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [tab, setTab] = useState<"visits" | "profile">("visits");
+  const [tab, setTab] = useState<"visits" | "profile">(new URLSearchParams(location.search).get("tab") === "profile" ? "profile" : "visits");
   const load = async () => {
     setError("");
     try {
@@ -115,7 +116,7 @@ export function CustomerArea({ slug }: { slug: string }) {
           <strong>{me.shop.name}</strong>
         </a>
         <nav aria-label="Account">
-          <a href={shopPath(me.shop.slug, "/", "#book")}>Book</a>
+          <a href={shopPath(me.shop.slug, "/book")}>Book</a>
         </nav>
         <button type="button" className="button secondary" onClick={signOut} data-testid="sign-out">
           <Icon name="logout" size={15} /> Sign out
@@ -160,6 +161,7 @@ export function CustomerArea({ slug }: { slug: string }) {
         </span>
         <span className="sp-powered">Powered by foliyo</span>
       </footer>
+      <ShopTabBar slug={me.shop.slug} active={tab === "profile" ? "account" : "visits"} signedIn />
     </div>
   );
 }
@@ -169,7 +171,7 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
   const params = new URLSearchParams(location.search);
   const resetToken = params.get("reset") || params.get("welcome") || "";
   const isWelcome = params.has("welcome");
-  const [mode, setMode] = useState<SignInMode>(resetToken ? "reset" : "login");
+  const [mode, setMode] = useState<SignInMode>(resetToken ? "reset" : params.get("forgot") ? "forgot" : "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
@@ -360,6 +362,7 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
           <p className="ca-fine">Your account is for this shop's bookings. Delete it any time from your profile.</p>
         </div>
       </main>
+      <ShopTabBar slug={slug} active="account" signedIn={false} />
     </div>
   );
 }
@@ -510,7 +513,7 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
   const book = (q: Record<string, string | number | undefined>) => {
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") params.set(k, String(v));
-    location.href = shopPath(me.shop.slug, "/", `?${params.toString()}#book`);
+    location.href = shopPath(me.shop.slug, "/book", `?${params.toString()}`);
   };
   const history = showAll ? me.history : me.history.slice(0, 6);
   return (

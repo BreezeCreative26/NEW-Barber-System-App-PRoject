@@ -22,7 +22,7 @@ import { audit, fail } from "./sandbox";
 import { drain, enqueue, msgShop } from "./messaging";
 import { clientKey, shopBySlug, throttle, type Ctx } from "./public";
 import { pushStatus } from "./push";
-import { shopUrl } from "./hosts";
+import { shopUrl, sessionCookieDomain } from "./hosts";
 
 export const CUSTOMER_COOKIE = "ollo_customer";
 const uid = () => crypto.randomUUID();
@@ -51,7 +51,7 @@ const changeSchema = z.object({ current: z.string().max(128).default(""), passwo
 const pushSchema = z.object({ endpoint: z.string().url().max(2000), keys: z.object({ p256dh: z.string().min(20).max(400), auth: z.string().min(10).max(200) }) }).strict();
 
 export function setSession(c: Ctx, raw: string) {
-  setCookie(c, CUSTOMER_COOKIE, raw, { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: SESSION_TTL / 1000 });
+  setCookie(c, CUSTOMER_COOKIE, raw, { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: SESSION_TTL / 1000, ...(sessionCookieDomain() ? { domain: sessionCookieDomain()! } : {}) });
 }
 export async function openSession(c: Ctx, shop: Shop, account: AccountRow, how: string) {
   const now = Date.now();
@@ -140,12 +140,15 @@ export function accountLink(origin: string, shop: Shop, token: string, purpose: 
   return shopUrl(shop.slug!, `/me?${purpose === "RESET" ? "reset" : "welcome"}=${token}`, origin);
 }
 
-// Welcome message after a booking created an account without a password.
-export async function sendWelcome(c: Ctx, shop: Shop, account: AccountRow, origin: string, now = Date.now()) {
-  if (account.password_hash) return [];
-  const token = await issueToken(c, shop, account, "WELCOME", now);
+// Welcome message after a booking created an account. With a password already chosen the link
+// opens the account; without one (legacy/code-only accounts) it is a one-time "set your password" link.
+export async function sendWelcome(c: Ctx, shop: Shop, account: AccountRow, origin: string, now = Date.now(), created = !account.password_hash) {
+  if (!created) return [];
   const ms = await msgShop(c, shop.id);
-  return enqueue(c.env.DB, ms, { name: account.name, phone: account.phone, email: account.email }, "account_welcome", { link: accountLink(origin, shop, token, "WELCOME"), install: 1 }, { related: { type: "customer_account", id: account.id }, origin, channel: account.email ? "EMAIL" : "AUTO", now });
+  const vars = account.password_hash
+    ? { link: shopUrl(shop.slug || "", "/me", origin), install: 1, ready: 1, email: account.email }
+    : { link: accountLink(origin, shop, await issueToken(c, shop, account, "WELCOME", now), "WELCOME"), install: 1 };
+  return enqueue(c.env.DB, ms, { name: account.name, phone: account.phone, email: account.email }, "account_welcome", vars, { related: { type: "customer_account", id: account.id }, origin, channel: account.email ? "EMAIL" : "AUTO", now });
 }
 
 export const customerAuth = new Hono<AppEnv>();
