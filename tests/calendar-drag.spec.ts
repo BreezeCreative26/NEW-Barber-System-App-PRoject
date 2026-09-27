@@ -64,7 +64,7 @@ test("API: shop can double-book and book outside hours with force; customers can
   const tl = await (await page.request.get(base + `/bookings/${b.id}/timeline`)).json();
   expect(JSON.stringify(tl)).toContain("overrode: Slot taken");
   // Public booking never gets to force.
-  const pub = await page.request.post(origin + `/api/public/shops/${(await (await page.request.get(base + "/workspace")).json()).shop.slug}/bookings`, { headers: { Origin: origin }, data: { request_id: crypto.randomUUID(), staff_id: jay.id, service_id: svc.id, customer_name: "Sneaky", phone: "07700 900555", email: "", date, start_min: start, quote, force: true } });
+  const pub = await page.request.post(origin + `/api/public/shops/${(await (await page.request.get(base + "/workspace")).json()).shop.slug}/bookings`, { headers: { Origin: origin }, data: { request_id: crypto.randomUUID(), staff_id: jay.id, service_id: svc.id, customer_name: "Sneaky", phone: "07700 900555", email: "", password: "Fictional-test-pass-2026!", date, start_min: start, quote, force: true } });
   expect([400, 404, 409]).toContain(pub.status());
 });
 

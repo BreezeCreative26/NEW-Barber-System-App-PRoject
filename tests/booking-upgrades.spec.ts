@@ -94,7 +94,7 @@ test("group availability: together assigns distinct barbers, back to back chains
   const pick2 = together.find((o: { start_min: number }) => o.start_min !== pick.start_min && Math.abs(o.start_min - pick.start_min) > 120);
   expect(pick2).toBeTruthy();
   const single = await c.post(`${P}/bookings`, {
-    data: { request_id: crypto.randomUUID(), staff_id: pick2.assignment[0].staff_id, service_id: s0.id, customer_name: "Solo Walker", phone: "07700900999", email: "solo@example.test", notes: "", date, start_min: pick2.assignment[0].start_min, addon_ids: [], quote: av.quotes[0] },
+    data: { request_id: crypto.randomUUID(), staff_id: pick2.assignment[0].staff_id, service_id: s0.id, customer_name: "Solo Walker", phone: "07700900999", email: "solo@example.test", password: "Fictional-test-pass-2026!", notes: "", date, start_min: pick2.assignment[0].start_min, addon_ids: [], quote: av.quotes[0] },
   });
   expect(single.status(), await single.text()).toBe(201);
   const partial = await c.post(`${P}/group-bookings`, {
@@ -131,7 +131,8 @@ test("book for someone else: attendee saved and shown to owner, customer and man
   await page.getByLabel("Your name").fill("Parent Booker");
   await page.getByLabel("Mobile number").fill("07700 900444");
   await page.getByLabel("Email address", { exact: true }).fill("parent@example.test");
-  await page.getByTestId("want-password").uncheck();
+  await page.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
+  await page.getByTestId("booking-password2").fill("Fictional-test-pass-2026!");
   await page.getByTestId("for-someone-else").check();
   await page.getByRole("button", { name: "Review booking" }).click();
   await expect(page.getByText("Who is the visit for?")).toBeVisible(); // required once ticked
@@ -161,7 +162,7 @@ test("book for someone else: attendee saved and shown to owner, customer and man
   // The public API rejects a one-character attendee and accepts empty (booking for self).
   const bad = await page.request.post(`${P}/bookings`, {
     headers: { Origin: origin },
-    data: { request_id: crypto.randomUUID(), staff_id: row.staff_id, service_id: row.service_id, customer_name: "X Y", attendee_name: "Q", phone: "07700900445", email: "", notes: "", date: row.date, start_min: row.start_min, addon_ids: [], quote: { service_version: 0, shop_version: 0 } },
+    data: { request_id: crypto.randomUUID(), staff_id: row.staff_id, service_id: row.service_id, customer_name: "X Y", attendee_name: "Q", phone: "07700900445", email: "", password: "Fictional-test-pass-2026!", notes: "", date: row.date, start_min: row.start_min, addon_ids: [], quote: { service_version: 0, shop_version: 0 } },
   });
   expect(bad.status()).toBe(400);
 });

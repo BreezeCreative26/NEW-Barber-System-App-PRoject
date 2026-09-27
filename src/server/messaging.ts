@@ -209,14 +209,22 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         cta: { label: "Confirm my email", href: String(v.link) },
       };
     case "account_welcome":
-      // Customer account created from a booking or the shop app: set a password to finish.
-      return {
-        sms: `${s}: your account is ready. Set a password to see and manage your visits: ${v.link}`,
-        subject: `Your ${s} account`,
-        heading: who !== "there" ? `Welcome, ${who}.` : "Welcome.",
-        lines: [`Your ${s} account keeps every visit in one place: move or cancel, rebook your usual, and get reminders.`, "Set a password to finish. The link works once and lasts 24 hours.", v.install ? "Tip: add the shop to your home screen from the account page for one-tap access and reminders." : ""].filter(Boolean),
-        cta: { label: "Set my password", href: String(v.link) },
-      };
+      // Customer account created from a booking or the shop app. `ready`: password already chosen.
+      return v.ready
+        ? {
+            sms: `${s}: your account is ready. Sign in with ${v.email} to see and manage your visits: ${v.link}`,
+            subject: `Your ${s} account is ready`,
+            heading: who !== "there" ? `Welcome, ${who}.` : "Welcome.",
+            lines: [`Your ${s} account keeps every visit in one place: move or cancel, rebook your usual, and get reminders.`, `Sign in any time with ${v.email} and the password you chose.`, v.install ? "Tip: add the shop to your home screen from the account page for one-tap access and reminders." : ""].filter(Boolean),
+            cta: { label: "Open my account", href: String(v.link) },
+          }
+        : {
+            sms: `${s}: your account is ready. Set a password to see and manage your visits: ${v.link}`,
+            subject: `Your ${s} account`,
+            heading: who !== "there" ? `Welcome, ${who}.` : "Welcome.",
+            lines: [`Your ${s} account keeps every visit in one place: move or cancel, rebook your usual, and get reminders.`, "Set a password to finish. The link works once and lasts 24 hours.", v.install ? "Tip: add the shop to your home screen from the account page for one-tap access and reminders." : ""].filter(Boolean),
+            cta: { label: "Set my password", href: String(v.link) },
+          };
     case "account_reset":
       return {
         sms: `${s}: reset your password here (30 min): ${v.link}`,

@@ -64,6 +64,7 @@ async function bookOnline(
     customer_name: "Online Customer",
     phone: "07700 900222",
     email: "online@example.test",
+    password: "Fictional-test-pass-2026!",
     date,
     start_min,
     quote: avail.quote,
@@ -173,7 +174,7 @@ test("online booking shares owner guards: lead time, window, collisions, replay 
   expect(day.bookings[0].email).toBe("online@example.test");
   // Owner cannot reuse an online request_id with a different channel.
   const ownerReplay = await r.post(base + "/bookings", {
-    data: { ...first.data, source: "TEST_BOOKING", email: undefined },
+    data: { ...first.data, source: "TEST_BOOKING", email: undefined, password: undefined },
   });
   expect(ownerReplay.status()).toBe(409);
   // Beyond the window and inside lead time are refused.
@@ -345,7 +346,8 @@ test.describe("public booking pages", () => {
     await expect(page.getByText("Enter a valid email address")).toBeVisible();
     await page.getByLabel("Email address", { exact: true }).fill("browser@example.test");
     // Every booking ends with an account; leave the password for later (welcome link).
-    await page.getByTestId("want-password").uncheck();
+    await page.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
+    await page.getByTestId("booking-password2").fill("Fictional-test-pass-2026!");
     await page.getByRole("button", { name: "Review booking" }).click();
     await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
     await expect(page.getByText("Browser Customer")).toBeVisible();
@@ -620,7 +622,7 @@ test.describe("public booking v2 UI", () => {
     for (const [i, m] of [540, 615, 690, 840, 915, 990].entries()) {
       const av = await (await c.get(`${pub}/shops/${slug}/availability?date=${full}&staff_id=${w.staff[0].id}&service_id=${big.id}`)).json();
       const res = await c.post(`${pub}/shops/${slug}/bookings`, {
-        data: { request_id: crypto.randomUUID(), staff_id: w.staff[0].id, service_id: big.id, customer_name: "Filler " + m, phone: "0770090060" + i, email: `filler${i}-${m}@example.test`, date: full, start_min: m, quote: av.quote },
+        data: { request_id: crypto.randomUUID(), staff_id: w.staff[0].id, service_id: big.id, customer_name: "Filler " + m, phone: "0770090060" + i, email: `filler${i}-${m}@example.test`, password: "Fictional-test-pass-2026!", date: full, start_min: m, quote: av.quote },
       });
       expect(res.status(), await res.text()).toBe(201);
     }
@@ -656,7 +658,8 @@ test.describe("public booking v2 UI", () => {
     await page.getByRole("button", { name: "Your details", exact: true }).click();
     await expect(page.getByLabel("Your name")).toHaveValue("Waiting Wanda");
     await page.getByLabel("Email address", { exact: true }).fill("wanda@example.test");
-    await page.getByTestId("want-password").uncheck();
+    await page.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
+    await page.getByTestId("booking-password2").fill("Fictional-test-pass-2026!");
     await page.getByRole("button", { name: "Review booking" }).click();
     await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
     await page.getByRole("button", { name: "Confirm booking" }).click();

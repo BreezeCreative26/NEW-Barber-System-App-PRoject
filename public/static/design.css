@@ -2192,3 +2192,14 @@ html.ws-dark .shop-page { color-scheme: light; }
 @media (max-width: 400px) {
   .booking-app.standalone .barber-choices { grid-template-columns: 1fr; }
 }
+/* Account at booking: everyone creates one (or signs in) on the details step. */
+.account-block { margin-top: var(--s-3); padding: var(--s-4); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--canvas); }
+.account-block-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s-3); flex-wrap: wrap; }
+.account-block-head > span { display: grid; gap: 3px; min-width: 0; flex: 1 1 260px; }
+.account-block-head strong { font-size: 16px; }
+.account-block-head small { color: var(--muted); font-size: var(--fs-13); line-height: 1.5; }
+.account-block-head .link { font-size: var(--fs-13); font-weight: 600; white-space: nowrap; }
+.account-signin-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s-3); }
+.account-signin .field-error { grid-column: 1 / -1; margin: 0; }
+.shop-page .account-block { background: var(--sp-surface-2); border-color: var(--sp-line); }
+.shop-page .account-block-head small { color: var(--sp-muted); }

@@ -38,7 +38,7 @@ import {
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
 import customerAccounts from "./customers";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, pushFor, waAvailable, type Channel, type MessageTemplate, type Recipient } from "./messaging";
-import { currentAccount as currentCustomerAccount, customerPassword, ensureAccount, openSession as openCustomerSession, sendWelcome } from "./customerAuth";
+import { currentAccount as currentCustomerAccount, customerPassword, ensureAccount, hasPassword as hasCustomerPassword, openSession as openCustomerSession, sendWelcome } from "./customerAuth";
 import { autoOffer, slotFreed, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
 import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
 import { createDepositSession, depositView, depositsOnline, expireHolds, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
@@ -657,6 +657,10 @@ pub.post("/shops/:slug/bookings", async (c) => {
   const signedIn = await currentCustomerAccount(c, shop);
   if (!b.email && !signedIn?.email) fail(400, "Enter your email address");
   if (!b.email && signedIn?.email) b.email = signedIn.email;
+  // Every booking belongs to an account with a password. Signed-in customers already have one;
+  // a phone that already carries a password is a returning customer and keeps theirs. Anyone else
+  // must choose a password now, so the account is real from the first visit.
+  if (!signedIn && !password && !(await hasCustomerPassword(c, b.phone))) fail(400, "Choose a password for your account (at least 8 characters)");
   // Scoped per shop so one busy shop cannot lock customers out of another.
   await throttle(c, "book", `${shop.id}:${clientKey(c)}`, 120);
   await throttle(c, "book-phone", `${shop.id}:${b.phone}`, 12);
@@ -727,7 +731,7 @@ pub.post("/shops/:slug/bookings", async (c) => {
       if (!r.conflict) {
         if (!signedIn || signedIn.id !== r.account.id) await openCustomerSession(c, shop, r.account, password ? "booked with a new password" : "booked online");
         const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
-        const welcome = booking.deposit_status === "PENDING" ? [] : await sendWelcome(c, shop, r.account, origin);
+        const welcome = booking.deposit_status === "PENDING" ? [] : await sendWelcome(c, shop, r.account, origin, Date.now(), r.created || !r.account.password_hash);
         if (welcome.length) { await c.env.DB.batch(welcome); await drain(c.env.DB, welcome.length, Date.now(), { type: "customer_account", id: r.account.id }).catch(() => {}); }
         account = { created: r.created, has_password: !!(r.account.password_hash || password), email: r.account.email };
       }

@@ -488,11 +488,33 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
     setSlot(n.start_min);
     setAssigned({ id: n.staff_id, name: n.staff_name });
   };
-  // Account: every booking ends with one. Signed-in customers skip this; others set a password now
-  // (or get a "set your password" link with the confirmation if they leave it blank).
+  // Account: every booking creates one. Signed-in customers skip this; everyone else chooses a
+  // password here (returning customers sign in instead, right on this step).
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
-  const [wantPassword, setWantPassword] = useState(true);
+  const [signInOpen, setSignInOpen] = useState(false);
+  const [signIn, setSignIn] = useState({ email: "", password: "" });
+  const [signInError, setSignInError] = useState("");
+  const [signingIn, setSigningIn] = useState(false);
+  async function signInNow() {
+    setSignInError("");
+    if (!emailOk(signIn.email) || !signIn.password) { setSignInError("Enter your email and password."); return; }
+    setSigningIn(true);
+    try {
+      await api(`/shops/${encodeURIComponent(slug)}/account/login`, "POST", { email: signIn.email.trim(), password: signIn.password });
+      const r = await fetch(`/api/public/shops/${encodeURIComponent(slug)}/account/session`, { credentials: "same-origin" });
+      const d = r.ok ? await r.json() : { profile: null };
+      if (d.profile) {
+        setSession({ name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes });
+        setSignInOpen(false);
+        setErrors({});
+      } else setSignInError("Signed in, but we couldn't load your details. Try again.");
+    } catch (e) {
+      setSignInError(e instanceof Error ? e.message : "Could not sign in.");
+    } finally {
+      setSigningIn(false);
+    }
+  }
   const submitDetails = (e: FormEvent) => {
     e.preventDefault();
     const next: Record<string, string> = {};
@@ -500,8 +522,8 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
     if (!phoneOk(details.phone)) next.phone = "Enter a valid UK mobile number";
     if (!details.email.trim()) next.email = "Enter your email address";
     else if (!emailOk(details.email)) next.email = "Enter a valid email address";
-    if (!customer && wantPassword) {
-      if (password.length < 8) next.password = "Use at least 8 characters";
+    if (!customer) {
+      if (password.length < 8) next.password = "Choose a password of at least 8 characters";
       else if (password !== password2) next.password2 = "The two passwords don't match";
     }
     if (forOther && attendee.trim().length < 2) next.attendee = "Who is the visit for?";
@@ -529,7 +551,7 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
       addon_ids: [...extraIds].sort(),
       quote: availability.quote,
       ...(contactPref !== "AUTO" ? { contact_pref: contactPref } : {}),
-      ...(!customer && wantPassword && password ? { password } : {}),
+      ...(!customer && password ? { password } : {}),
     };
     const serialised = JSON.stringify(payload);
     // A changed payload gets a fresh request key; an unchanged retry replays safely.
@@ -1230,23 +1252,41 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
                     ))}
                     {!customer && (
                       <div className="account-block" data-testid="account-block">
-                        <label className="attendee-toggle">
-                          <input type="checkbox" checked={wantPassword} onChange={(e) => { setWantPassword(e.target.checked); setErrors((c) => ({ ...c, password: "", password2: "" })); }} data-testid="want-password" />
+                        <div className="account-block-head">
                           <span>
-                            <strong>Create a password for your account</strong>
-                            <small>Sign in with your email to see, move or rebook visits. Untick it and we'll email you a link to set one later.</small>
+                            <strong>Create your account</strong>
+                            <small>See, move or rebook visits any time, and get reminders. Sign in with your email and this password.</small>
                           </span>
-                        </label>
-                        {wantPassword && (
+                          <button type="button" className="link" onClick={() => { setSignInOpen((o) => !o); setSignInError(""); }} data-testid="have-account" aria-expanded={signInOpen}>
+                            {signInOpen ? "New here? Create an account" : "Already have an account? Sign in"}
+                          </button>
+                        </div>
+                        {signInOpen ? (
+                          <div className="account-fields account-signin" data-testid="signin-inline">
+                            <label>
+                              <span id="signin-email-label">Email</span>
+                              <input aria-labelledby="signin-email-label" type="email" name="signin-email" autoComplete="email" value={signIn.email} onChange={(e) => setSignIn((v) => ({ ...v, email: e.target.value }))} data-testid="signin-email" />
+                            </label>
+                            <label>
+                              <span id="signin-password-label">Password</span>
+                              <input aria-labelledby="signin-password-label" type="password" name="signin-password" autoComplete="current-password" value={signIn.password} onChange={(e) => setSignIn((v) => ({ ...v, password: e.target.value }))} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); signInNow(); } }} data-testid="signin-password" />
+                            </label>
+                            {signInError && <p className="field-error" role="alert" data-testid="signin-error">{signInError}</p>}
+                            <div className="account-signin-actions">
+                              <Button type="button" variant="secondary" onClick={signInNow} disabled={signingIn} aria-busy={signingIn} data-testid="signin-submit">{signingIn ? "Signing in…" : "Sign in"}</Button>
+                              <a className="link small" href={shopPath(slug, "/me", "?forgot=1")} target="_blank" rel="noopener">Forgot password?</a>
+                            </div>
+                          </div>
+                        ) : (
                           <div className="account-fields">
                             <label>
-                              <span id="booking-password-label">Password</span>
-                              <input aria-labelledby="booking-password-label" type="password" name="new-password" autoComplete="new-password" minLength={8} value={password} onChange={(e) => { setPassword(e.target.value); setErrors((c) => ({ ...c, password: "" })); }} aria-invalid={!!errors.password} aria-describedby={errors.password ? "booking-password-error" : undefined} data-testid="booking-password" />
-                              {errors.password ? <span className="field-error" id="booking-password-error">{errors.password}</span> : <small className="field-hint">At least 8 characters.</small>}
+                              <span id="booking-password-label">Choose a password</span>
+                              <input aria-labelledby="booking-password-label" type="password" name="new-password" autoComplete="new-password" required minLength={8} value={password} onChange={(e) => { setPassword(e.target.value); setErrors((c) => ({ ...c, password: "" })); }} aria-invalid={!!errors.password} aria-describedby={errors.password ? "booking-password-error" : "booking-password-hint"} data-testid="booking-password" />
+                              {errors.password ? <span className="field-error" id="booking-password-error">{errors.password}</span> : <small className="field-hint" id="booking-password-hint">At least 8 characters.</small>}
                             </label>
                             <label>
                               <span id="booking-password2-label">Repeat password</span>
-                              <input aria-labelledby="booking-password2-label" type="password" name="new-password-2" autoComplete="new-password" minLength={8} value={password2} onChange={(e) => { setPassword2(e.target.value); setErrors((c) => ({ ...c, password2: "" })); }} aria-invalid={!!errors.password2} aria-describedby={errors.password2 ? "booking-password2-error" : undefined} data-testid="booking-password2" />
+                              <input aria-labelledby="booking-password2-label" type="password" name="new-password-2" autoComplete="new-password" required minLength={8} value={password2} onChange={(e) => { setPassword2(e.target.value); setErrors((c) => ({ ...c, password2: "" })); }} aria-invalid={!!errors.password2} aria-describedby={errors.password2 ? "booking-password2-error" : undefined} data-testid="booking-password2" />
                               {errors.password2 && <span className="field-error" id="booking-password2-error">{errors.password2}</span>}
                             </label>
                           </div>
@@ -1687,11 +1727,11 @@ function ConfirmationCard({
       {!signedIn && (
         <section className="review-customer confirm-account" data-testid="confirm-account">
           <div>
-            <h3>{account?.has_password ? "Your account is ready" : "All your visits in one place"}</h3>
+            <h3>{account?.has_password ? (account.created ? "Your account is ready" : "Welcome back") : "All your visits in one place"}</h3>
           </div>
           <p>
             {account?.has_password
-              ? `You're signed in on this device. Sign in anywhere with ${account.email} and your password to see upcoming and past visits, move or cancel in a tap, and rebook your usual.`
+              ? `You're signed in on this device. Sign in anywhere with ${account.email} and your password to see upcoming and past visits, move or cancel in a tap, and rebook your usual. Add ${booking.shop.name} to your home screen from your account for one-tap access and reminders.`
               : account
                 ? `We've emailed ${account.email} a link to set your password. You're already signed in on this device — add ${booking.shop.name} to your home screen from your account for one-tap access and reminders.`
                 : `Sign in at ${booking.shop.name} to see upcoming and past visits, move or cancel in a tap, and rebook your usual.`}

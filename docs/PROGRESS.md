@@ -685,3 +685,9 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - `/book` is a focused flow: slim sticky top bar (back to shop · logo · Your visits), no marketing hero, larger step headings, bigger service/barber/date/time cards and inputs, slimmer sticky summary, fixed action bar on phones. All type sizes come off design tokens.
 - `PublicBooking` dropped the `embedded` prop; it now looks up the customer session itself. schema.org `ReserveAction` targets the `/book` URL via `shopUrl`.
 - Tests updated: `shop-page.spec`, `booking-upgrades.spec`, `customer-account.spec`. `nav-me` on the flow carries an accessible name (axe).
+
+## Accounts are created at booking, always
+- The details step now requires a password for anyone not signed in ("Create your account" — no opt-out checkbox). Returning customers use "Already have an account? Sign in" inline on the same step; on success their details fill in and the password fields disappear.
+- Server: `POST /shops/:slug/bookings` refuses (400) when the booker is not signed in, sends no password, and the mobile has no password on file yet. A phone that already has a password (returning customer on a new device) may still book without re-entering one.
+- Welcome email: newly created accounts with a password get "Your account is ready" (sign in with <email>, link to /me). Password-less legacy accounts still get the one-time set-password link.
+- `/me?forgot=1` opens the forgot-password panel directly (linked from the inline sign-in).
