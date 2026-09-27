@@ -1,5 +1,13 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-09-27 — Customer experience audit + fixes
+- `docs/CX_AUDIT.md`: walked shop page → booking → confirmation → passwordless sign-in → account (usual / upcoming / history / profile) → waiting list, on phone and laptop; screenshots in `docs/evidence/cx/`. Zero console errors. Shop scoping of accounts confirmed. Verdict: shop page, account area and manage link are commercial grade; booking flow had four rough edges, all fixed:
+  1. "Live shop prices · no payment taken" test-era copy removed from the booking summary.
+  2. Time step no longer opens on a closed/full "today": the first useful day in the week is selected until the customer picks one (`pickedDate`).
+  3. Booking hero collapses to a compact strip after step 1 on phones (`.booking-hero-compact`) so steps 2–5 start above the fold.
+  4. Confirmation: raw 90-char manage URL replaced by an "Open my booking" button; new "All your visits in one place → See my visits" card links to `/<slug>/me` (hidden when already signed in). Privacy line moved to the correct (details) step.
+- Tests updated to `open-manage`; customer-facing suites 34 passed / 1 skipped.
+
 ## 2026-09-27 — GDPR framework: legal documents, recorded acceptance, right to erasure
 - **Documents** in `src/server/legal.ts`, versioned (`LEGAL_VERSIONS`), server-rendered at `/legal/terms|privacy|dpa|cookies` (indexable, print-friendly, wordmark header). Terms of Service · Privacy Policy (two hats: controller for owner/staff account data, processor for shop customers) · Data Processing Agreement (Art. 28 terms, Schedule 1 sub-processors, Schedule 2 TOMs) · Cookie Policy (strictly-necessary only, no banner needed under PECR). `SUB_PROCESSORS` is the single list (Supabase, Vercel, Stripe, Resend, ClickSend, Infobip, ElevenLabs, Sentry). **Drafts — solicitor review before launch**; `COMPANY` has TODOs for registered name, office, ICO number.
 - **Acceptance** (`legal_acceptances`, migration 0026): signup requires `accept_legal: true` (Terms + Privacy + DPA), invite-accept requires it (Terms + Privacy); each stores document, version, time, SHA-256 of IP, user-agent. `GET /auth/legal/status` returns required / current / outstanding / history — the workspace can re-prompt after a version bump; `POST /auth/legal/accept`. Audit `LEGAL_ACCEPTED`. Checkbox with links on the signup and invite forms (`accept-legal`).

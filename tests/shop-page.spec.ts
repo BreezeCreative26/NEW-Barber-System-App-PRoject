@@ -67,7 +67,7 @@ test("shop page renders the seeded sections and every shortcut re-targets the em
   await expect(flow.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
   await flow.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.locator(".public-reference")).toHaveText(/^BRB-\d{4}$/);
-  await expect(page.locator(".public-manage-link")).toHaveAttribute("href", /^\/manage\//);
+  await expect(page.getByTestId("open-manage")).toHaveAttribute("href", /^\/manage\//);
   // The rest of the shop page is still around the confirmation.
   await expect(page.getByRole("heading", { name: "Opening hours", exact: true })).toBeVisible();
   expect(errors).toEqual([]);

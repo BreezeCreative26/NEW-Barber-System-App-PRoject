@@ -143,7 +143,7 @@ test("book for someone else: attendee saved and shown to owner, customer and man
   await expect(page.getByText(/Visit for/)).toContainText("Sam (age 8)");
   await expect(page.getByText(/booked by Parent Booker/)).toBeVisible();
   // Manage link shows it too.
-  const href = (await page.locator(".public-manage-link").getAttribute("href"))!;
+  const href = (await page.getByTestId("open-manage").getAttribute("href"))!;
   const managed = await (await page.request.get(`/api/public${href}`)).json();
   expect(managed.booking.attendee_name).toBe("Sam (age 8)");
   expect(managed.booking.customer_name).toBe("Parent Booker");

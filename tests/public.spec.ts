@@ -351,7 +351,7 @@ test.describe("public booking pages", () => {
     await expect(page.getByRole("heading", { level: 1, name: label })).toBeVisible();
     const reference = await page.locator(".public-reference").textContent();
     expect(reference).toMatch(/^BRB-\d{4}$/);
-    const link = page.locator(".public-manage-link");
+    const link = page.getByTestId("open-manage");
     await expect(link).toBeVisible();
     const href = await link.getAttribute("href");
     expect(href).toMatch(/^\/manage\/[a-f0-9-]{72}$/);

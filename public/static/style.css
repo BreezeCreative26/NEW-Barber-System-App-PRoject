@@ -2887,6 +2887,18 @@ input[aria-invalid="true"] {
   height: 14px;
   border-radius: 50%;
 }
+/* After step 1 the hero shrinks to a one-line strip on phones (title + eyebrow), so steps 2–5 start above the fold. */
+@media (max-width: 720px) {
+  .booking-hero.booking-hero-compact { padding: 14px 18px !important; min-height: 0 !important; display: block; }
+  .booking-hero.booking-hero-compact .hero-copy { padding: 0 !important; margin: 0 !important; }
+  .booking-hero.booking-hero-compact h1 { font-size: 20px; line-height: 1.1; margin: 2px 0 0; }
+  .booking-hero.booking-hero-compact h1 br { display: inline; content: " "; }
+  .booking-hero.booking-hero-compact h1 br::after { content: " "; }
+  .booking-hero.booking-hero-compact .hero-copy > p,
+  .booking-hero.booking-hero-compact .hero-details,
+  .booking-hero.booking-hero-compact .hero-art,
+  .booking-hero.booking-hero-compact > *:not(.hero-copy) { display: none; }
+}
 .booking-hero {
   max-width: 1120px;
   margin: 0 auto;
@@ -7671,6 +7683,7 @@ details.workspace-welcome > svg { display: none; }
 .auth-legal { display: flex; flex-direction: row; gap: 10px; align-items: flex-start; margin-top: 14px; font-size: 13px; line-height: 1.5; font-weight: 400; color: var(--muted); }
 .auth-legal input { margin-top: 3px; flex: 0 0 auto; width: 16px; height: 16px; }
 .auth-legal a { color: var(--ink); text-decoration: underline; }
+.public-manage-open, .confirm-account .button { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; }
 .booking-privacy { margin: 0 0 12px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
 .booking-privacy a { color: inherit; text-decoration: underline; }
 .booking-footer .booking-legal { margin-left: 10px; }

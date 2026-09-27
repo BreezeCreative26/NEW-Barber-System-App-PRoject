@@ -238,6 +238,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
   const [date, setDate] = useState("");
+  const [pickedDate, setPickedDate] = useState(false);
   const [days, setDays] = useState<DaySummary[] | null>(null);
   const [next, setNext] = useState<NextSlot[] | null>(null);
   const [availability, setAvailability] = useState<Availability | null>(null);
@@ -368,7 +369,19 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     api<{ days: DaySummary[] }>(
       `/shops/${encodeURIComponent(slug)}/days?staff_id=${barber}&service_id=${service}&from=${from}${addonQuery}`,
     )
-      .then((r) => !cancelled && setDays(r.days))
+      .then((r) => {
+        if (cancelled) return;
+        setDays(r.days);
+        // Opening on "today" when today is closed (or full) shows an empty day under the
+        // Soonest tiles. If the customer hasn't picked a day yet, land on the first useful one.
+        if (!pickedDate) {
+          const cur = r.days.find((x) => x.date === date);
+          if (!cur || cur.closed || cur.beyond || cur.available === 0) {
+            const first = r.days.find((x) => !x.closed && !x.beyond && x.available > 0);
+            if (first && first.date !== date) setDate(first.date);
+          }
+        }
+      })
       .catch(() => !cancelled && setDays([]));
     return () => {
       cancelled = true;
@@ -560,7 +573,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
         {!embedded && <TestBanner />}
         {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
         <main id={embedded ? undefined : "main-content"} className="booking-body">
-          <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} sentTo={confirmed.sent_to || []} />
+          <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} sentTo={confirmed.sent_to || []} signedIn={!!customer} />
         </main>
       </div>
     );
@@ -602,7 +615,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
       {!embedded && <TestBanner />}
       {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
       <main id={embedded ? undefined : "main-content"}>
-        {!embedded && <section className="booking-hero public-hero">
+        {!embedded && <section className={`booking-hero public-hero ${step > 0 && step < 5 ? "booking-hero-compact" : ""}`}>
           <div className="hero-copy">
             <span className="eyebrow">BOOK ONLINE</span>
             <h1>
@@ -954,6 +967,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                           disabled={disabled}
                           onClick={() => {
                             setDate(d);
+                            setPickedDate(true);
                             setSlot(null);
                           }}
                           aria-pressed={date === d}
@@ -1313,7 +1327,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   {saveError}
                 </p>
               )}
-              {step === 2 && (
+              {step === 3 && (
                 <p className="booking-privacy" data-testid="booking-privacy">
                   {shop.shop.name} uses your details to run this appointment and send you confirmations and reminders. It won't send marketing unless you say so. <a href="/legal/privacy" target="_blank" rel="noopener">How your data is handled</a>.
                 </p>
@@ -1478,10 +1492,6 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   {shop.shop.cancel_hours} hours ahead using your manage link.
                 </p>
               </div>
-              <div className="preview-summary-note">
-                <Icon name="eye" size={14} />
-                Live shop prices · no payment taken
-              </div>
             </aside>
           </div>
           </>
@@ -1503,11 +1513,13 @@ function ConfirmationCard({
   token,
   slug,
   sentTo = [],
+  signedIn = false,
 }: {
   booking: CustomerBooking;
   token: string | null;
   slug: string;
   sentTo?: string[];
+  signedIn?: boolean;
 }) {
   const link = token ? `${location.origin}/manage/${token}` : "";
   const sentWhere = [sentTo.includes("WA") && booking.phone && `on WhatsApp to ${booking.phone}`, sentTo.includes("SMS") && booking.phone && `by text to ${booking.phone}`, sentTo.includes("EMAIL") && booking.email && `by email to ${booking.email}`].filter(Boolean).join(" and ");
@@ -1583,8 +1595,8 @@ function ConfirmationCard({
             {sentWhere ? `We've sent this link ${sentWhere}. ` : ""}
             Use it any time to view, move or cancel your visit{sentWhere ? "" : " — keep it somewhere safe"}.
           </p>
-          <a className="public-manage-link" href={`/manage/${token}`}>
-            {link}
+          <a className="button secondary public-manage-open" href={`/manage/${token}`} data-testid="open-manage">
+            <Icon name="calendar" size={16} /> Open my booking
           </a>
         </section>
       ) : (
@@ -1593,6 +1605,19 @@ function ConfirmationCard({
         </Notice>
       )}
       {copied && <p role="status">{copied}</p>}
+      {!signedIn && (
+        <section className="review-customer confirm-account" data-testid="confirm-account">
+          <div>
+            <h3>All your visits in one place</h3>
+          </div>
+          <p>
+            Sign in with your mobile at {booking.shop.name} — no password — to see upcoming and past visits, move or cancel in a tap, and rebook your usual.
+          </p>
+          <a className="button secondary" href={`/${slug}/me`}>
+            <Icon name="user" size={16} /> See my visits
+          </a>
+        </section>
+      )}
       <div className="confirmation-actions">
         <a className="action-tile" href={gcal(booking)} target="_blank" rel="noreferrer">
           <Icon name="calendar" /> <span>Google Calendar</span>
