@@ -24,6 +24,7 @@ import { scheduledPayRuns } from "./payouts";
 import { expireRequests } from "./chair";
 import { sweepDailySummaries } from "./alerts";
 import { sweepPlatform } from "./lifecycle";
+import { sweepWaitlistPlatform } from "./waitlist";
 import { sendWhatsApp, waLive, waPayload, waStatus } from "./whatsapp";
 
 type Ctx = Context<AppEnv>;
@@ -42,7 +43,7 @@ export type Recipient = { name?: string; phone?: string; email?: string; pref?: 
 // ---- Template catalogue --------------------------------------------------------
 export const MESSAGE_TEMPLATES = [
   "booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon",
-  "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
+  "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_open", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
   "verify_contact", "password_reset", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
   "invoice", "credit_note", "owner_signin_link", "trial_ending", "trial_ended", "payment_overdue", "account_readonly", "broadcast", "admin_alert_digest",
   "owner_welcome", "email_verify",
@@ -132,6 +133,14 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         heading: `${when} is yours if you want it.`,
         lines: [`${v.service} with ${v.barber}`, `Held until ${v.expires}.`],
         cta: { label: "Take this time", href: String(v.link) },
+      };
+    case "waitlist_open":
+      return {
+        sms: `${s}: a ${v.service} with ${v.barber} has just opened on ${when}. First to book gets it: ${v.link}`,
+        subject: `A time has just opened at ${s}: ${when}`,
+        heading: `${when} has just opened.`,
+        lines: [`${v.service} with ${v.barber}`, "First to book gets it."],
+        cta: { label: "Book this time", href: String(v.link) },
       };
     case "waitlist_booked":
       return {
@@ -383,7 +392,7 @@ export function channelsFor(shop: MsgShop, to: Recipient, prefer: Channel | "AUT
   if (both && sms && email) return ["SMS", "EMAIL"];
   return sms ? ["SMS"] : email ? ["EMAIL"] : [];
 }
-const WA_CAPABLE = new Set<MessageTemplate>(["booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon", "signin_code", "verify_contact", "waitlist_offer", "pay_link", "staff_invite", "password_reset"]);
+const WA_CAPABLE = new Set<MessageTemplate>(["booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon", "signin_code", "verify_contact", "waitlist_offer", "waitlist_open", "pay_link", "staff_invite", "password_reset"]);
 
 // Returns prepared statements so callers can batch them with their own writes.
 export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageTemplate, vars: MessageVars, opts: EnqueueOpts, both = template === "booking_confirmed") {
@@ -621,10 +630,13 @@ export async function maybeSweep(db: DB, origin: string, intervalMs = 5 * 60000,
   await expireRequests(db, now).catch(() => 0);
   const summaries = await sweepDailySummaries(db, origin, now).catch(() => 0);
   const platform = await sweepPlatform(db, origin, now).catch(() => null);
+  // Waiting list: freed slots parked for the shop's delay are released here for every shop, so the
+  // "tell the next customer after N minutes" promise holds even when nobody opens the queue.
+  const waitlist = await sweepWaitlistPlatform(db, origin, now).catch(() => 0);
   // Retention: delivered/skipped/failed rows older than 180 days go; the outbox shows 30 days and the
   // audit trail keeps the fact a message was sent. Anything still QUEUED is never touched.
   await db.prepare("DELETE FROM notifications WHERE status IN ('SENT','SKIPPED','FAILED') AND created_at < ?").bind(now - 180 * 86400000).run().catch(() => null);
-  return { reminders, drained, holds_released: holds.length, pay_runs: runs, summaries, platform };
+  return { reminders, drained, holds_released: holds.length, pay_runs: runs, summaries, platform, waitlist };
 }
 
 export const fmtDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });

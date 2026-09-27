@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./fonts.css";
 import { Workspace } from "./Workspace";
 import { Admin } from "./Admin";
-import { PublicBooking, ManageBooking } from "./PublicBooking";
+import { PublicBooking, ManageBooking, presetFromLocation } from "./PublicBooking";
 import { ShopPage } from "./ShopPage";
 import { CustomerArea } from "./CustomerArea";
 import { OfferPage } from "./OfferPage";
@@ -65,7 +65,7 @@ createRoot(document.getElementById("root")!).render(
     ) : area === "verify" ? (
       <VerifyEmail />
     ) : area === "book" && param ? (
-      <PublicBooking slug={decodeURIComponent(param)} />
+      <PublicBooking slug={decodeURIComponent(param)} preset={presetFromLocation()} />
     ) : area === "manage" && param ? (
       <ManageBooking token={param} />
     ) : area === "offer" && param ? (

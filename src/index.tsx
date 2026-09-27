@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
+import { sweepWaitlistPlatform } from "./server/waitlist";
 import { report, telemetryStatus } from "./server/telemetry";
 import { landingPage, VERTICALS } from "./server/landing";
 import { legalPage, LEGAL_DOCS, type LegalDoc } from "./server/legal";
@@ -46,7 +47,8 @@ app.get("/api/cron/messages", async (c) => {
   const holds = await expireHolds(c.env.DB);
   const reminders = await sweepReminders(c.env.DB, origin);
   const drained = await drain(c.env.DB, 100);
-  return c.json({ ok: true, reminders, drained, holds_released: holds.length, providers: providerStatus() });
+  const waitlist = await sweepWaitlistPlatform(c.env.DB, origin).catch(() => 0);
+  return c.json({ ok: true, reminders, drained, holds_released: holds.length, waitlist, providers: providerStatus() });
 });
 // Stripe webhook: the guaranteed path for "deposit paid" (the customer's return trip is the fast
 // path). Signature-verified, idempotent on event id. Always 2xx once verified so Stripe stops retrying.

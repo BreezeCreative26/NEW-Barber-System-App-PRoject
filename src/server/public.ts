@@ -38,7 +38,7 @@ import {
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
 import customerAccounts from "./customers";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, waAvailable, type Channel, type MessageTemplate, type Recipient } from "./messaging";
-import { autoOffer, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
+import { autoOffer, slotFreed, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
 import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
 import { createDepositSession, depositView, depositsOnline, expireHolds, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
 import {
@@ -554,14 +554,27 @@ pub.post("/shops/:slug/waitlist", async (c) => {
         phone: publicBookingSchema.shape.phone,
         email: publicBookingSchema.shape.email,
         date: dateSchema,
+        // Optional last day: "any day between date and date_to". Defaults to the single day.
+        date_to: dateSchema.optional(),
         daypart: z.enum(["ANY", "MORNING", "AFTERNOON", "EVENING"]).default("ANY"),
+        // Optional explicit time window in minutes from midnight (15-min grid). Overrides daypart.
+        from_min: z.number().int().min(0).max(1425).refine((v) => v % 15 === 0).optional(),
+        to_min: z.number().int().min(15).max(1440).refine((v) => v % 15 === 0).optional(),
         notes: z.string().trim().max(300).default(""),
       })
-      .strict(),
+      .strict()
+      .refine((v) => (v.from_min === undefined) === (v.to_min === undefined), { message: "Give both a start and an end time", path: ["to_min"] })
+      .refine((v) => v.from_min === undefined || v.to_min === undefined || v.from_min < v.to_min, { message: "End time must be after the start time", path: ["to_min"] })
+      .refine((v) => !v.date_to || v.date_to >= v.date, { message: "Last day must be on or after the first day", path: ["date_to"] }),
   );
   await throttle(c, "waitlist", `${shop.id}:${b.phone}`, 10);
   const { today, maxDate } = limits(shop);
-  if (b.date < today || b.date > maxDate) fail(409, "outside_booking_window");
+  const dateTo = b.date_to ?? b.date;
+  if (b.date < today || b.date > maxDate || dateTo > maxDate) fail(409, "outside_booking_window");
+  // Explicit window wins; otherwise the daypart preset sets the window and vice-versa so both
+  // representations always agree on the row.
+  const [fromMin, toMin] = b.from_min !== undefined && b.to_min !== undefined ? [b.from_min, b.to_min] : wl.DAYPART_WINDOW[b.daypart];
+  const daypart = b.from_min !== undefined ? wl.daypartFor(fromMin, toMin) : b.daypart;
   const service = await c.env.DB.prepare("SELECT id FROM services WHERE shop_id=? AND id=? AND active=1")
     .bind(shop.id, b.service_id)
     .first();
@@ -576,15 +589,15 @@ pub.post("/shops/:slug/waitlist", async (c) => {
     now = Date.now();
   await c.env.DB.batch([
     c.env.DB.prepare(
-      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,daypart,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shop_id,date,phone,service_id) DO UPDATE SET staff_id=excluded.staff_id,daypart=excluded.daypart,notes=excluded.notes,customer_name=excluded.customer_name,email=excluded.email,status='OPEN',version=waitlist_entries.version+1,updated_at=excluded.updated_at",
-    ).bind(id, shop.id, b.staff_id, b.service_id, b.customer_name, b.phone, b.email, b.date, b.daypart, b.notes, now, now),
-    audit(c, "waitlist", id, "WAITLIST_JOINED", `Customer asked to be contacted for ${b.date} (${b.daypart.toLowerCase()}). Confirmation queued, not sent.`),
+      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,date_to,daypart,from_min,to_min,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shop_id,date,phone,service_id) DO UPDATE SET staff_id=excluded.staff_id,date_to=excluded.date_to,daypart=excluded.daypart,from_min=excluded.from_min,to_min=excluded.to_min,notes=excluded.notes,customer_name=excluded.customer_name,email=excluded.email,status='OPEN',version=waitlist_entries.version+1,updated_at=excluded.updated_at",
+    ).bind(id, shop.id, b.staff_id, b.service_id, b.customer_name, b.phone, b.email, b.date, dateTo, daypart, fromMin, toMin, b.notes, now, now),
+    audit(c, "waitlist", id, "WAITLIST_JOINED", `Customer asked to be contacted for ${wl.fmtRange(b.date, dateTo)} (${wl.fmtWindow(fromMin, toMin)}). Confirmation queued, not sent.`),
   ]);
   const q = await shopWithQueue(c, shop.id);
   const stored = await c.env.DB.prepare("SELECT id FROM waitlist_entries WHERE shop_id=? AND date=? AND phone=? AND service_id=?").bind(shop.id, b.date, b.phone, b.service_id).first<{ id: string }>();
-  await queueMessage(c, q, b, "waitlist_joined", render(templatesOf(q).waitlist_joined, { first: b.customer_name.split(" ")[0], shop: shop.name, date: wl.fmtDate(b.date), daypart: wl.daypartLabel[b.daypart] }), { type: "waitlist", id: stored?.id ?? id }).run();
+  await queueMessage(c, q, b, "waitlist_joined", render(templatesOf(q).waitlist_joined, { first: b.customer_name.split(" ")[0], shop: shop.name, date: wl.fmtRange(b.date, dateTo), daypart: wl.fmtWindow(fromMin, toMin) }), { type: "waitlist", id: stored?.id ?? id }).run();
   await drainSoon(c, 1, { type: "waitlist", id: stored?.id ?? id });
-  return c.json({ ok: true, date: b.date, daypart: b.daypart, auto_offer: !!q.waitlist_auto_offer, hold_min: q.waitlist_offer_hold_min }, 201);
+  return c.json({ ok: true, date: b.date, date_to: dateTo, daypart, from_min: fromMin, to_min: toMin, auto_offer: !!q.waitlist_auto_offer, hold_min: q.waitlist_offer_hold_min, mode: q.waitlist_mode, delay_min: q.waitlist_delay_min }, 201);
 });
 
 async function issueManageToken(c: Ctx, booking: StoredBooking) {
@@ -678,6 +691,20 @@ pub.post("/shops/:slug/bookings", async (c) => {
       ]);
       booking = await readBooking(c, booking.id);
     }
+  }
+  // Waiting list: if this customer was waiting for this service on a day covering the booking (e.g.
+  // they booked from a "time has opened" text), the request is now satisfied — close it so nobody
+  // offers them another time. Any pending held offer for it is superseded.
+  if (!result.replayed) {
+    const now = Date.now();
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        "UPDATE waitlist_offers SET status='SUPERSEDED',responded_at=? WHERE shop_id=? AND status='PENDING' AND entry_id IN (SELECT id FROM waitlist_entries WHERE shop_id=? AND phone=? AND service_id=? AND status IN ('OPEN','OFFERED') AND date<=? AND date_to>=?)",
+      ).bind(now, shop.id, shop.id, booking.phone, booking.service_id, booking.date, booking.date),
+      c.env.DB.prepare(
+        "UPDATE waitlist_entries SET status='BOOKED',booking_id=?,version=version+1,updated_at=? WHERE shop_id=? AND phone=? AND service_id=? AND status IN ('OPEN','OFFERED') AND date<=? AND date_to>=?",
+      ).bind(booking.id, now, shop.id, booking.phone, booking.service_id, booking.date, booking.date),
+    ]).catch(() => null);
   }
   const sent = result.replayed || booking.deposit_status === "PENDING" ? [] : await notifyBooking(c, shop.id, booking, staff?.name ?? null, "booking_confirmed", token);
   if (!result.replayed && booking.deposit_status !== "PENDING") await alertOwners(c.env.DB, shop.id, "new_booking", booking, { staffName: staff?.name, origin: new URL(c.req.url).origin }).catch(() => 0);
@@ -1141,7 +1168,7 @@ export async function cancelByCustomer(c: Ctx, shop: Shop, booking: StoredBookin
   } else if (booking.deposit_status === "PAID" && !late) {
     await refundDeposit(c.env.DB, shop, booking, "customer", "customer cancelled outside the policy window");
   }
-  await autoOffer(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-cancel");
+  await slotFreed(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-cancel");
   const after = await readBooking(c, booking.id);
   await notifyBooking(c, shop.id, after, staffName, "booking_cancelled");
   await alertOwners(c.env.DB, shop.id, "cancelled", after, { staffName, origin: new URL(c.req.url).origin }).catch(() => 0);
@@ -1209,7 +1236,7 @@ export async function moveByCustomer(c: Ctx, shop: Shop, booking: StoredBooking,
       true,
     ),
   );
-  await autoOffer(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-move");
+  await slotFreed(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-move");
   const after = await readBooking(c, booking.id);
   await notifyBooking(c, shop.id, after, staffName, "booking_moved");
   return {

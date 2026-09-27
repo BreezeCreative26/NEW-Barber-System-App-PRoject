@@ -17,20 +17,35 @@ export type WaitlistRow = {
   id: string; shop_id: string; staff_id: string | null; service_id: string; customer_name: string; phone: string; email: string; date: string;
   daypart: "ANY" | "MORNING" | "AFTERNOON" | "EVENING"; notes: string; status: "OPEN" | "OFFERED" | "BOOKED" | "CLOSED" | "EXPIRED";
   booking_id: string | null; offer_id: string | null; offers_made: number; version: number; created_at: number; updated_at: number;
+  // v2: the day window (minutes from midnight) and the last date of a range. `date` is the first.
+  date_to: string; from_min: number; to_min: number;
 };
 export type OfferRow = {
   id: string; shop_id: string; entry_id: string; staff_id: string; service_id: string; date: string; start_min: number; token_hash: string;
   status: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "SUPERSEDED" | "LOST"; source: "MANUAL" | "AUTO"; booking_id: string | null;
   expires_at: number; created_at: number; responded_at: number | null;
 };
-export type ShopQueueSettings = { waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_templates_json: string };
+export type ShopQueueSettings = {
+  waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_templates_json: string;
+  // ORDER: soft-hold offer to the next in line. EVERYONE: announce to all who fit; first to book wins.
+  waitlist_mode: "ORDER" | "EVERYONE";
+  // Minutes a freed slot waits before anyone is told, so the shop can re-book by hand first.
+  waitlist_delay_min: number;
+};
+// Daypart presets ↔ minute windows. The customer picks a preset or an explicit window; we store both.
+export const DAYPART_WINDOW: Record<WaitlistRow["daypart"], [number, number]> = { ANY: [0, 1440], MORNING: [0, 720], AFTERNOON: [720, 1020], EVENING: [1020, 1440] };
+export function daypartFor(from: number, to: number): WaitlistRow["daypart"] {
+  for (const k of ["MORNING", "AFTERNOON", "EVENING"] as const) { const [a, b] = DAYPART_WINDOW[k]; if (from === a && to === b) return k; }
+  return "ANY";
+}
 
 // ---- Templates -------------------------------------------------------------
-export const TEMPLATE_KEYS = ["waitlist_joined", "waitlist_offer", "waitlist_booked", "waitlist_released", "review_request"] as const;
+export const TEMPLATE_KEYS = ["waitlist_joined", "waitlist_offer", "waitlist_open", "waitlist_booked", "waitlist_released", "review_request"] as const;
 export type TemplateKey = (typeof TEMPLATE_KEYS)[number];
 export const DEFAULT_TEMPLATES: Record<TemplateKey, string> = {
   waitlist_joined: "Hi {first}, you're on the list at {shop} for {date} ({daypart}). We'll message you if a time opens up.",
   waitlist_offer: "Hi {first}, a {service} with {barber} has opened at {shop} on {date} at {time}. It's held for you until {expires}: {link}",
+  waitlist_open: "Hi {first}, a {service} with {barber} has just opened at {shop} on {date} at {time}. First to book gets it: {link}",
   waitlist_booked: "You're booked: {service} with {barber} at {shop}, {date} {time}. Ref {ref}. Manage: {manage}",
   waitlist_released: "No problem, {first} — we've put you back on the list at {shop} for {date}.",
   review_request: "Thanks for coming in, {first}. How was your {service} with {barber} at {shop}? Leave a quick rating: {link}",
@@ -52,6 +67,24 @@ const fmtDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en
 const fmtTime = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 const fmtStamp = (ms: number, tz: string) => new Date(ms).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: tz });
 const daypartLabel: Record<string, string> = { ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" };
+// Preset windows read as words ("morning"); anything else as an explicit HH:MM–HH:MM range.
+export const fmtWindow = (from: number, to: number) => {
+  for (const k of ["ANY", "MORNING", "AFTERNOON", "EVENING"] as const) { const [a, b] = DAYPART_WINDOW[k]; if (from === a && to === b) return daypartLabel[k]; }
+  return `${fmtTime(from)}–${fmtTime(to >= 1440 ? 1439 : to)}`;
+};
+// Inclusive ISO dates from..to (capped so a runaway range can't fan out).
+export function rangeDates(from: string, to: string, cap = 31) {
+  const out: string[] = [];
+  const d = new Date(`${from}T00:00:00Z`);
+  for (let i = 0; i < cap; i++) {
+    const iso = d.toISOString().slice(0, 10);
+    if (iso > to) break;
+    out.push(iso);
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+}
+export const fmtRange = (from: string, to: string) => (from === to ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`);
 
 // Outbox write. The owner's editable template is the SMS text; email wraps the same text in the
 // shop-branded shell. Channel is SMS when we have a mobile, EMAIL otherwise. Row is QUEUED; callers
@@ -60,6 +93,7 @@ type MsgShopLite = { id: string; name: string; address: string; slug: string | n
 const SUBJECTS: Record<TemplateKey, (shop: string) => string> = {
   waitlist_joined: (s) => `You're on the list at ${s}`,
   waitlist_offer: (s) => `A time has opened at ${s}`,
+  waitlist_open: (s) => `A time has just opened at ${s}`,
   waitlist_booked: (s) => `You're booked at ${s}`,
   waitlist_released: (s) => `Back on the list at ${s}`,
   review_request: (s) => `How was your visit to ${s}?`,
@@ -85,9 +119,15 @@ export type { MessageTemplate };
 
 // ---- Matching ----------------------------------------------------------------
 const inDaypart = (m: number, part: string) => part === "ANY" || (part === "MORNING" && m < 720) || (part === "AFTERNOON" && m >= 720 && m < 1020) || (part === "EVENING" && m >= 1020);
+// v2 entries carry an explicit window; legacy rows (from_min 0 / to_min 1440 with a daypart) fall back to the preset.
+const inWindow = (m: number, e: Pick<WaitlistRow, "from_min" | "to_min" | "daypart">) =>
+  e.from_min === 0 && e.to_min === 1440 ? inDaypart(m, e.daypart) : m >= e.from_min && m < e.to_min;
+const inRange = (d: string, e: Pick<WaitlistRow, "date" | "date_to">) => d >= e.date && d <= (e.date_to || e.date);
 
 // Open times on the entry's date that fit its request. Barber-agnostic when staff_id is null.
-export async function matchesFor(c: Ctx, shop: Shop & ShopQueueSettings, entry: WaitlistRow, now = Date.now()) {
+export async function matchesFor(c: Ctx, shop: Shop & ShopQueueSettings, entry0: WaitlistRow, now = Date.now(), onDate?: string) {
+  // For a date-range entry the caller says which day to look at; default is the first day.
+  const entry = onDate && onDate !== entry0.date ? { ...entry0, date: onDate } : entry0;
   const sid = shop.id;
   const r = await c.env.DB.batch([
     c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND active=1 ORDER BY sort_order,name").bind(sid),
@@ -114,7 +154,7 @@ export async function matchesFor(c: Ctx, shop: Shop & ShopQueueSettings, entry: 
     const q = calculateQuote(service, rules.find((x) => x.staff_id === st.id) ?? null, r[8].results as Addon[], r[9].results as AddonLink[], []);
     const h = effectiveHours((r[2].results as Hours[]).find((x) => x.staff_id === st.id) ?? null, (r[3].results as ScheduleOverride[]).find((o) => o.staff_id === st.id) ?? null);
     for (const m of dayStarts(shop, entry.date)) {
-      if (!inDaypart(m, entry.daypart) || pending.has(`${st.id}:${m}`)) continue;
+      if (!inWindow(m, entry) || pending.has(`${st.id}:${m}`)) continue;
       if (!slotReason(shop, st, h, r[4].results as Holiday[], r[6].results as StoredBooking[], entry.date, m, q.duration_min, minStart, undefined, r[5].results as StaffDayOff[])) {
         out.push({ staff_id: st.id, staff_name: st.name, start_min: m, price_pence: q.price_pence, duration_min: q.duration_min });
       }
@@ -143,8 +183,9 @@ export async function sweep(c: Ctx, shop: Shop & ShopQueueSettings, now = Date.n
   statements.push(c.env.DB.prepare("UPDATE waitlist_entries SET status='EXPIRED',version=version+1,updated_at=? WHERE shop_id=? AND status IN ('OPEN','OFFERED') AND date<?").bind(now, shop.id, today));
   await c.env.DB.batch(statements);
   if (expired.results.length) await drainSoon(c, expired.results.length);
-  // Re-offer freed slots to the next in line if auto-offer is on.
-  if (shop.waitlist_auto_offer) for (const o of expired.results) await autoOffer(c, shop, { staff_id: o.staff_id, date: o.date, start_min: o.start_min }, "expiry");
+  // Re-offer freed slots to the next in line if auto-offer is on (an expired hold is already "old news" — no extra delay).
+  if (shop.waitlist_auto_offer) for (const o of expired.results) await releaseSlot(c, shop, { staff_id: o.staff_id, date: o.date, start_min: o.start_min }, "expiry", now);
+  await releaseDueSlots(c, shop, now);
 }
 
 // ---- Offers ------------------------------------------------------------------------
@@ -177,26 +218,112 @@ export async function autoOffer(c: Ctx, shop: Shop & ShopQueueSettings, freed: {
   if (freed.date < today) return null;
   // Skip anyone who already declined or let this exact slot lapse — the slot goes to the next in line, not back to them.
   const candidates = await c.env.DB.prepare(
-    "SELECT e.* FROM waitlist_entries e WHERE e.shop_id=? AND e.status='OPEN' AND e.date=? AND (e.staff_id IS NULL OR e.staff_id=?) AND NOT EXISTS (SELECT 1 FROM waitlist_offers o WHERE o.entry_id=e.id AND o.staff_id=? AND o.start_min=? AND o.status IN ('DECLINED','EXPIRED')) ORDER BY e.created_at LIMIT 20",
+    "SELECT e.* FROM waitlist_entries e WHERE e.shop_id=? AND e.status='OPEN' AND e.date<=? AND e.date_to>=? AND (e.staff_id IS NULL OR e.staff_id=?) AND NOT EXISTS (SELECT 1 FROM waitlist_offers o WHERE o.entry_id=e.id AND o.staff_id=? AND o.date=? AND o.start_min=? AND o.status IN ('DECLINED','EXPIRED')) ORDER BY e.created_at LIMIT 20",
   )
-    .bind(shop.id, freed.date, freed.staff_id, freed.staff_id, freed.start_min)
+    .bind(shop.id, freed.date, freed.date, freed.staff_id, freed.staff_id, freed.date, freed.start_min)
     .all<WaitlistRow>();
   for (const entry of candidates.results) {
-    if (!inDaypart(freed.start_min, entry.daypart)) continue;
-    const matches = await matchesFor(c, shop, entry, now);
+    if (!inRange(freed.date, entry) || !inWindow(freed.start_min, entry)) continue;
+    const matches = await matchesFor(c, shop, entry, now, freed.date);
     const fit = matches.find((m) => m.staff_id === freed.staff_id && m.start_min === freed.start_min);
     if (!fit) continue;
-    return makeOffer(c, shop, entry, { staff_id: freed.staff_id, start_min: freed.start_min }, "AUTO", `system:waitlist:${why}`, now);
+    return makeOffer(c, shop, { ...entry, date: freed.date }, { staff_id: freed.staff_id, start_min: freed.start_min }, "AUTO", `system:waitlist:${why}`, now);
   }
   return null;
 }
 
+// EVERYONE mode: tell every OPEN entry that fits the freed slot, once per (entry, slot). No hold —
+// the link opens the booking flow with that slot preselected and the first to confirm gets it.
+export async function announceToAll(c: Ctx, shop: Shop & ShopQueueSettings, freed: { staff_id: string; date: string; start_min: number }, why: string, now = Date.now()) {
+  const rows = await c.env.DB.prepare(
+    "SELECT e.* FROM waitlist_entries e WHERE e.shop_id=? AND e.status='OPEN' AND e.date<=? AND e.date_to>=? AND (e.staff_id IS NULL OR e.staff_id=?) AND NOT EXISTS (SELECT 1 FROM waitlist_announcements a WHERE a.entry_id=e.id AND a.staff_id=? AND a.date=? AND a.start_min=?) ORDER BY e.created_at LIMIT 200",
+  ).bind(shop.id, freed.date, freed.date, freed.staff_id, freed.staff_id, freed.date, freed.start_min).all<WaitlistRow>();
+  const fits = rows.results.filter((e) => inRange(freed.date, e) && inWindow(freed.start_min, e));
+  if (!fits.length) return 0;
+  const staff = await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=? AND active=1").bind(shop.id, freed.staff_id).first<{ name: string }>();
+  if (!staff) return 0;
+  const templates = templatesOf(shop);
+  const origin = new URL(c.req.url).origin;
+  const stmts: D1PreparedStatement[] = [];
+  let told = 0;
+  for (const e of fits) {
+    // The slot must actually be bookable for this entry's service by this barber right now.
+    const matches = await matchesFor(c, shop, e, now, freed.date);
+    if (!matches.find((m) => m.staff_id === freed.staff_id && m.start_min === freed.start_min)) continue;
+    const service = await c.env.DB.prepare("SELECT name FROM services WHERE shop_id=? AND id=?").bind(shop.id, e.service_id).first<{ name: string }>();
+    const link = `${origin}/book/${shop.slug}?service=${e.service_id}&staff=${freed.staff_id}&date=${freed.date}&start=${freed.start_min}&step=2&wl=${e.id}`;
+    const body = render(templates.waitlist_open, { first: e.customer_name.split(" ")[0], shop: shop.name, service: service?.name || "visit", barber: staff.name.split(" ")[0], date: fmtDate(freed.date), time: fmtTime(freed.start_min), link });
+    stmts.push(
+      c.env.DB.prepare("INSERT INTO waitlist_announcements(id,shop_id,entry_id,staff_id,date,start_min,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING").bind(uid(), shop.id, e.id, freed.staff_id, freed.date, freed.start_min, now),
+      queueMessage(c, shop, e, "waitlist_open", body, { type: "waitlist", id: e.id }),
+    );
+    told++;
+  }
+  if (told) {
+    stmts.push(c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shop.id, "waitlist", `${freed.staff_id}:${freed.date}:${freed.start_min}`, "WAITLIST_ANNOUNCED", `system:waitlist:${why}`, `${staff.name} ${freed.date} ${fmtTime(freed.start_min)} announced to ${told} waiting customer${told === 1 ? "" : "s"}; first to book gets it.`, now));
+    await c.env.DB.batch(stmts);
+    await drainSoon(c, told + 1);
+  }
+  return told;
+}
+
+// A slot has just freed. Don't tell anyone yet: park it for `waitlist_delay_min` so the shop can
+// re-book by hand (cancel → book someone else) without a text firing. The sweep releases it.
+// Delay 0 = act now. Re-freeing the same slot pushes the timer back.
+export async function slotFreed(c: Ctx, shop: Shop & ShopQueueSettings, freed: { staff_id: string; date: string; start_min: number }, why: string, now = Date.now()) {
+  if (!shop.waitlist_auto_offer) return null;
+  const today = shopToday(shop.timezone, now);
+  if (freed.date < today) return null;
+  const delay = Math.max(0, Number(shop.waitlist_delay_min ?? 5));
+  if (delay === 0) return releaseSlot(c, shop, freed, why, now);
+  await c.env.DB.prepare(
+    "INSERT INTO waitlist_pending_slots(shop_id,staff_id,date,start_min,why,freed_at,notify_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(shop_id,staff_id,date,start_min) DO UPDATE SET why=EXCLUDED.why, freed_at=EXCLUDED.freed_at, notify_at=EXCLUDED.notify_at",
+  ).bind(shop.id, freed.staff_id, freed.date, freed.start_min, why, now, now + delay * 60000).run();
+  return { pending: true, notify_at: now + delay * 60000 };
+}
+// Actually offer / announce a freed slot, according to the shop's mode.
+async function releaseSlot(c: Ctx, shop: Shop & ShopQueueSettings, freed: { staff_id: string; date: string; start_min: number }, why: string, now = Date.now()) {
+  if (shop.waitlist_mode === "EVERYONE") return announceToAll(c, shop, freed, why, now);
+  return autoOffer(c, shop, freed, why, now);
+}
+// Sweep step: every parked slot whose delay has passed. If it has been re-filled meanwhile the row is
+// simply dropped (that's the whole point of the delay). Called from the shop sweep and the cron.
+export async function releaseDueSlots(c: Ctx, shop: Shop & ShopQueueSettings, now = Date.now()) {
+  const due = await c.env.DB.prepare("SELECT * FROM waitlist_pending_slots WHERE shop_id=? AND notify_at<=? ORDER BY notify_at LIMIT 50").bind(shop.id, now).all<{ staff_id: string; date: string; start_min: number; why: string }>();
+  let acted = 0;
+  for (const s of due.results) {
+    await c.env.DB.prepare("DELETE FROM waitlist_pending_slots WHERE shop_id=? AND staff_id=? AND date=? AND start_min=?").bind(shop.id, s.staff_id, s.date, s.start_min).run();
+    const taken = await c.env.DB.prepare(
+      "SELECT 1 AS x FROM bookings WHERE shop_id=? AND staff_id=? AND date=? AND status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE','COMPLETED') AND start_min<=? AND start_min+duration_min>? LIMIT 1",
+    ).bind(shop.id, s.staff_id, s.date, s.start_min, s.start_min).first();
+    if (taken) continue; // shop filled it by hand — nobody needed to know
+    const r = await releaseSlot(c, shop, s, `${s.why}+delay`, now);
+    if (r) acted++;
+  }
+  return acted;
+}
+
 // Load a shop with its queue settings.
+// Platform pass (lazy sweep / cron): release every parked slot whose delay has passed, across all
+// shops that have one. Builds a minimal request context because message links need the origin.
+export async function sweepWaitlistPlatform(db: Ctx["env"]["DB"], origin: string, now = Date.now()) {
+  const due = await db.prepare("SELECT DISTINCT shop_id FROM waitlist_pending_slots WHERE notify_at<=? LIMIT 100").bind(now).all<{ shop_id: string }>();
+  if (!due.results.length) return 0;
+  const c = { env: { DB: db }, req: { url: `${origin}/api/cron/messages` } } as unknown as Ctx;
+  let acted = 0;
+  for (const { shop_id } of due.results) {
+    const shop = await shopWithQueue(c, shop_id);
+    if (!shop) continue;
+    acted += await releaseDueSlots(c, shop, now).catch(() => 0);
+  }
+  return acted;
+}
+
 export async function shopWithQueue(c: Ctx, shopId: string) {
   return (await c.env.DB.prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.phone,'') AS page_phone, COALESCE(p.email,'') AS page_email FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?").bind(shopId).first<Shop & ShopQueueSettings & { logo_url: string; accent: string; theme_json: string; page_phone: string; page_email: string }>())!;
 }
 
-export const helpers = { fmtDate, fmtTime, fmtStamp, daypartLabel, ref, localInstant };
+export const helpers = { fmtDate, fmtTime, fmtStamp, daypartLabel, ref, localInstant, fmtWindow, fmtRange, daypartFor, rangeDates, DAYPART_WINDOW };
 
 // After a visit is completed: ask for a review through the customer's manage link (issued if
 // needed; never rotated here so an existing link keeps working). Recorded in the outbox only.

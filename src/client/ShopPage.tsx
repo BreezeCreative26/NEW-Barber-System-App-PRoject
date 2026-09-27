@@ -1,7 +1,7 @@
 // Public shop home page at /<slug>: the customer's front door. Booking is a section of this page
 // (embedded PublicBooking); every card on the page re-targets that flow.
 import { useEffect, useRef, useState } from "react";
-import { PublicBooking, type BookingPreset } from "./PublicBooking";
+import { PublicBooking, presetFromLocation, type BookingPreset } from "./PublicBooking";
 import { Avatar, Icon } from "./ui";
 import { money, time, dateLabel, setCurrency } from "./fixtures";
 import { PublicReviews, Stars, type PublicReview } from "./Reviews";
@@ -27,12 +27,7 @@ export function ShopPage({ slug }: { slug: string }) {
   const [data, setData] = useState<PageData | null>(null);
   const [error, setError] = useState("");
   // Deep links from the customer area ("book my usual") arrive as ?service=&staff=&date=&start=&step=.
-  const [preset, setPreset] = useState<BookingPreset | null>(() => {
-    const q = new URLSearchParams(location.search);
-    if (![...q.keys()].some((k) => ["service", "staff", "date", "start", "step"].includes(k))) return null;
-    const num = (k: string) => (q.get(k) !== null && /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : undefined);
-    return { service: q.get("service") || undefined, staff: q.get("staff") || undefined, date: q.get("date") || undefined, start: num("start"), step: num("step"), nonce: Date.now() };
-  });
+  const [preset, setPreset] = useState<BookingPreset | null>(() => presetFromLocation());
   const [me, setMe] = useState<{ name: string; phone: string; email: string; notes: string } | null>(null);
   const bookRef = useRef<HTMLElement>(null);
   useEffect(() => {

@@ -71,7 +71,7 @@ import {
   type AuditEvent,
  shopBuffer } from "./domain";
 
-import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
+import { slotFreed, makeOffer, matchesFor, rangeDates, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { optimiseImage } from "./images";
 import { billingSummary, entitlements, setFeature, syncSeats, hasFeature, features as billingFeatures } from "./billing";
 import { applyDecisions, changeSchema, decisionSchema, describeChange, previewChange, type ScheduleChange } from "./schedule";
@@ -1132,28 +1132,36 @@ sandbox.get("/waitlist", async (c) => {
     .bind(c.get("shopId"), ...statuses, assigned, assigned, p.data!.from ?? null, p.data!.from ?? null)
     .all();
   const counts = await c.env.DB.prepare("SELECT status, COUNT(*) AS n FROM waitlist_entries WHERE shop_id=? AND date>=? GROUP BY status").bind(c.get("shopId"), shopToday(shop.timezone)).all<{ status: string; n: number }>();
-  return c.json({ waitlist: rows.results, counts: Object.fromEntries(counts.results.map((r) => [r.status, r.n])), settings: { auto_offer: shop.waitlist_auto_offer, hold_min: shop.waitlist_offer_hold_min } });
+  return c.json({ waitlist: rows.results, counts: Object.fromEntries(counts.results.map((r) => [r.status, r.n])), settings: { auto_offer: shop.waitlist_auto_offer, hold_min: shop.waitlist_offer_hold_min, mode: shop.waitlist_mode, delay_min: shop.waitlist_delay_min } });
 });
 sandbox.get("/waitlist/:id/matches", async (c) => {
   const shop = await shopWithQueue(c, c.get("shopId"));
   const entry = await c.env.DB.prepare("SELECT * FROM waitlist_entries WHERE shop_id=? AND id=?").bind(shop.id, c.req.param("id")).first<WaitlistRow>();
   if (!entry) return fail(404, "Waitlist entry not found");
   const a = c.get("account");
-  const matches = (await matchesFor(c, shop, entry)).filter((m) => a?.role !== "BARBER" || m.staff_id === a.staff_id);
+  // Date-range entries: walk each day in the range (capped) and tag every match with its date.
+  const matches: (Awaited<ReturnType<typeof matchesFor>>[number] & { date: string })[] = [];
+  for (const d of rangeDates(entry.date, entry.date_to || entry.date, 14)) {
+    for (const m of await matchesFor(c, shop, entry, Date.now(), d)) if (a?.role !== "BARBER" || m.staff_id === a.staff_id) matches.push({ ...m, date: d });
+  }
   return c.json({ entry, matches });
 });
 // Offer a specific time to a waiting customer. Records the offer + queues the message (not sent).
 sandbox.post("/waitlist/:id/offer", async (c) => {
-  const b = await input(c, z.object({ staff_id: z.string().uuid(), start_min: z.number().int().min(0).max(1425).refine((v) => v % 15 === 0), version: z.number().int().min(0) }).strict());
+  const b = await input(c, z.object({ staff_id: z.string().uuid(), start_min: z.number().int().min(0).max(1425).refine((v) => v % 15 === 0), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), version: z.number().int().min(0) }).strict());
   const shop = await shopWithQueue(c, c.get("shopId"));
   scopeStaff(c, b.staff_id);
-  const entry = await c.env.DB.prepare("SELECT * FROM waitlist_entries WHERE shop_id=? AND id=?").bind(shop.id, c.req.param("id")).first<WaitlistRow>();
-  if (!entry) return fail(404, "Waitlist entry not found");
-  if (entry.version !== b.version) fail(409, "record_changed");
-  if (!["OPEN", "OFFERED"].includes(entry.status)) fail(409, "invalid_transition");
+  const entry0 = await c.env.DB.prepare("SELECT * FROM waitlist_entries WHERE shop_id=? AND id=?").bind(shop.id, c.req.param("id")).first<WaitlistRow>();
+  if (!entry0) return fail(404, "Waitlist entry not found");
+  if (entry0.version !== b.version) fail(409, "record_changed");
+  if (!["OPEN", "OFFERED"].includes(entry0.status)) fail(409, "invalid_transition");
+  // Range entries can be offered any day inside the range; the offer itself is pinned to that day.
+  const date = b.date ?? entry0.date;
+  if (date < entry0.date || date > (entry0.date_to || entry0.date)) fail(409, "Date is outside what the customer asked for");
+  const entry = { ...entry0, date };
   const matches = await matchesFor(c, shop, entry);
   if (!matches.some((m) => m.staff_id === b.staff_id && m.start_min === b.start_min)) fail(409, "slot_taken");
-  const offer = await makeOffer(c, shop, entry, b, "MANUAL", c.get("actor"));
+  const offer = await makeOffer(c, shop, entry, { staff_id: b.staff_id, start_min: b.start_min }, "MANUAL", c.get("actor"));
   if (!offer) return fail(404, "Barber or service not available");
   return c.json({ ok: true, offer }, 201);
 });
@@ -1185,6 +1193,10 @@ export const waitlistSettingsSchema = z
   .object({
     waitlist_auto_offer: z.union([z.literal(0), z.literal(1)]),
     waitlist_offer_hold_min: z.number().int().min(15).max(1440),
+    // ORDER = next in line gets a held offer; EVERYONE = all who fit are told, first to book wins.
+    waitlist_mode: z.enum(["ORDER", "EVERYONE"]).default("ORDER"),
+    // Minutes to wait after a cancellation before anyone is told (0–60). Lets the shop re-book by hand.
+    waitlist_delay_min: z.number().int().min(0).max(60).default(5),
     templates: templatesSchema,
     version: z.number().int().min(0),
   })
@@ -1193,8 +1205,8 @@ sandbox.put("/shop/waitlist", async (c) => {
   const b = await input(c, waitlistSettingsSchema);
   await checkVersionUpdate(
     c,
-    c.env.DB.prepare("UPDATE shops SET waitlist_auto_offer=?,waitlist_offer_hold_min=?,waitlist_templates_json=?,version=version+1 WHERE id=? AND version=?").bind(b.waitlist_auto_offer, b.waitlist_offer_hold_min, JSON.stringify(b.templates), c.get("shopId"), b.version),
-    audit(c, "shop", c.get("shopId"), "WAITLIST_SETTINGS_UPDATED", `Auto-offer ${b.waitlist_auto_offer ? "on" : "off"}; hold ${b.waitlist_offer_hold_min} min.`, true),
+    c.env.DB.prepare("UPDATE shops SET waitlist_auto_offer=?,waitlist_offer_hold_min=?,waitlist_mode=?,waitlist_delay_min=?,waitlist_templates_json=?,version=version+1 WHERE id=? AND version=?").bind(b.waitlist_auto_offer, b.waitlist_offer_hold_min, b.waitlist_mode, b.waitlist_delay_min, JSON.stringify(b.templates), c.get("shopId"), b.version),
+    audit(c, "shop", c.get("shopId"), "WAITLIST_SETTINGS_UPDATED", `Auto-notify ${b.waitlist_auto_offer ? "on" : "off"}; ${b.waitlist_mode === "EVERYONE" ? "tell everyone" : "next in line"}; wait ${b.waitlist_delay_min} min; hold ${b.waitlist_offer_hold_min} min.`, true),
   );
   const shop = await shopWithQueue(c, c.get("shopId"));
   return c.json({ shop: await readShop(c), templates: templatesOf(shop), defaults: DEFAULT_TEMPLATES });
@@ -1217,7 +1229,7 @@ sandbox.get("/notifications", async (c) => {
     messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "" },
     templates: templatesOf(shop),
     defaults: DEFAULT_TEMPLATES,
-    settings: { waitlist_auto_offer: shop.waitlist_auto_offer, waitlist_offer_hold_min: shop.waitlist_offer_hold_min },
+    settings: { waitlist_auto_offer: shop.waitlist_auto_offer, waitlist_offer_hold_min: shop.waitlist_offer_hold_min, waitlist_mode: shop.waitlist_mode, waitlist_delay_min: shop.waitlist_delay_min },
     // Current shop version: sibling forms on the same tab (messaging, alerts, voice) bump it without a
     // workspace re-read, so the waitlist save must not rely on the stale workspace copy.
     shop_version: shop.version,
@@ -2945,7 +2957,7 @@ sandbox.post("/bookings/:id/status", async (c) => {
   if (body.status === "CANCELLED") {
     if (b.deposit_status === "PAID") await refundDeposit(c.env.DB, await readShop(c), b, c.get("actor"), "cancelled by the shop");
     else if (b.deposit_status === "PENDING") await c.env.DB.prepare("UPDATE bookings SET deposit_status='EXPIRED', deposit_hold_until=NULL WHERE shop_id=? AND id=?").bind(c.get("shopId"), b.id).run();
-    await autoOffer(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "cancel");
+    await slotFreed(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "cancel");
   }
   // A completed visit earns a review request (outbox only).
   if (body.status === "COMPLETED") await queueReviewRequest(c, c.get("shopId"), b.id);
@@ -3427,7 +3439,7 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     audit(c, "booking", b.id, "RESCHEDULED", overridden ? `${body.reason} (overrode: ${reason})` : body.reason, true),
     overridden ? [forceSlot(c)] : [],
   );
-  await autoOffer(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "move");
+  await slotFreed(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "move");
   return c.json({ booking: await readBooking(c, b.id) });
 });
 // ---- Appointment panel: per-booking timeline and standing-series operations ----

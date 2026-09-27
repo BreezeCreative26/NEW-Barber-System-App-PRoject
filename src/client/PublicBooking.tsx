@@ -227,6 +227,14 @@ type NextSlot = {
 const ANY = "any";
 export type BookingPreset = { service?: string; staff?: string; date?: string; start?: number; step?: number; group?: boolean; nonce?: number };
 export type BookingCustomer = { name: string; phone: string; email: string; notes: string };
+// Deep links (customer area "book my usual", waiting-list "a time has opened" texts) arrive as
+// ?service=&staff=&date=&start=&step=. Shared by /book/:slug and the shop page.
+export function presetFromLocation(search = location.search): BookingPreset | null {
+  const q = new URLSearchParams(search);
+  if (![...q.keys()].some((k) => ["service", "staff", "date", "start", "step"].includes(k))) return null;
+  const num = (k: string) => (q.get(k) !== null && /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : undefined);
+  return { service: q.get("service") || undefined, staff: q.get("staff") || undefined, date: q.get("date") || undefined, start: num("start"), step: num("step"), nonce: Date.now() };
+}
 export function PublicBooking({ slug, embedded = false, preset, onLoaded, customer }: { slug: string; embedded?: boolean; preset?: BookingPreset | null; onLoaded?: (shop: PublicShop) => void; customer?: BookingCustomer | null }) {
   const [shop, setShop] = useState<PublicShop | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -261,6 +269,10 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   const [saveError, setSaveError] = useState("");
   const [waitlist, setWaitlist] = useState<"idle" | "open" | "done">("idle");
   const [waitDaypart, setWaitDaypart] = useState("ANY");
+  // "CUSTOM" = explicit from/to picked below; presets map to fixed windows on the server too.
+  const [waitWindow, setWaitWindow] = useState<{ from: number; to: number }>({ from: 540, to: 1020 });
+  const [waitDateTo, setWaitDateTo] = useState("");
+  const [waitDone, setWaitDone] = useState<{ date: string; date_to: string; mode?: string; delay_min?: number; auto_offer?: boolean } | null>(null);
   const [confirmed, setConfirmed] = useState<{
     booking: CustomerBooking;
     manage_token: string | null;
@@ -528,17 +540,23 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     setBusy(true);
     setSaveError("");
     try {
-      await api(`/shops/${encodeURIComponent(slug)}/waitlist`, "POST", {
+      if (waitDaypart === "CUSTOM" && waitWindow.from >= waitWindow.to) {
+        setErrors({ wwindow: "The end time must be after the start time" });
+        return;
+      }
+      const r = await api<{ date: string; date_to: string; mode?: string; delay_min?: number; auto_offer?: boolean }>(`/shops/${encodeURIComponent(slug)}/waitlist`, "POST", {
         staff_id: anyBarber ? null : barber,
         service_id: service,
         customer_name: name,
         phone,
         email: String(f.get("email") || "").trim(),
         date,
-        daypart: waitDaypart,
+        ...(waitDateTo && waitDateTo > date ? { date_to: waitDateTo } : {}),
+        ...(waitDaypart === "CUSTOM" ? { daypart: "ANY", from_min: waitWindow.from, to_min: waitWindow.to } : { daypart: waitDaypart }),
         notes: "",
       });
       setDetails((d) => ({ ...d, name, phone }));
+      setWaitDone(r);
       setWaitlist("done");
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Could not join the waitlist.");
@@ -1077,17 +1095,57 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                               <input name="email" type="email" aria-labelledby="waitlist-email" defaultValue={details.email} />
                             </label>
                           </div>
-                          <div className="filter-chips" role="group" aria-label="Preferred part of the day">
-                            {[
-                              ["ANY", "Any time"],
-                              ["MORNING", "Morning"],
-                              ["AFTERNOON", "Afternoon"],
-                              ["EVENING", "Evening"],
-                            ].map(([v, l]) => (
-                              <button type="button" key={v} aria-pressed={waitDaypart === v} onClick={() => setWaitDaypart(v)}>
-                                {l}
-                              </button>
-                            ))}
+                          <div className="waitlist-pref">
+                            <span className="waitlist-pref-label" id="waitlist-when">Times that suit you</span>
+                            <div className="filter-chips" role="group" aria-labelledby="waitlist-when">
+                              {[
+                                ["ANY", "Any time"],
+                                ["MORNING", "Morning"],
+                                ["AFTERNOON", "Afternoon"],
+                                ["EVENING", "Evening"],
+                                ["CUSTOM", "Between…"],
+                              ].map(([v, l]) => (
+                                <button type="button" key={v} aria-pressed={waitDaypart === v} onClick={() => setWaitDaypart(v)} data-testid={`waitlist-part-${v}`}>
+                                  {l}
+                                </button>
+                              ))}
+                            </div>
+                            {waitDaypart === "CUSTOM" && (
+                              <div className="waitlist-window" data-testid="waitlist-window">
+                                <label>
+                                  <span id="waitlist-from">From</span>
+                                  <select aria-labelledby="waitlist-from" value={waitWindow.from} onChange={(e) => setWaitWindow((w) => ({ ...w, from: Number(e.target.value) }))} data-testid="waitlist-from">
+                                    {Array.from({ length: 96 }, (_, i) => i * 15).map((m) => (
+                                      <option key={m} value={m}>{time(m)}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label>
+                                  <span id="waitlist-to">Until</span>
+                                  <select aria-labelledby="waitlist-to" value={waitWindow.to} onChange={(e) => setWaitWindow((w) => ({ ...w, to: Number(e.target.value) }))} data-testid="waitlist-to">
+                                    {Array.from({ length: 96 }, (_, i) => (i + 1) * 15).map((m) => (
+                                      <option key={m} value={m}>{m === 1440 ? "Close" : time(m)}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                {errors.wwindow && <span className="field-error">{errors.wwindow}</span>}
+                              </div>
+                            )}
+                          </div>
+                          <div className="waitlist-pref">
+                            <label className="waitlist-range">
+                              <span id="waitlist-date-to">Any day up to (optional)</span>
+                              <input
+                                type="date"
+                                aria-labelledby="waitlist-date-to"
+                                min={date}
+                                max={days?.filter((d) => !d.beyond).at(-1)?.date}
+                                value={waitDateTo}
+                                onChange={(e) => setWaitDateTo(e.target.value)}
+                                data-testid="waitlist-date-to"
+                              />
+                              <small>Leave blank to be told about {dateLabel(date, { weekday: "long", day: "numeric", month: "long" })} only.</small>
+                            </label>
                           </div>
                           {saveError && (
                             <p className="workspace-error" role="alert">
@@ -1109,7 +1167,16 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   {waitlist === "done" && (
                     <Notice icon="check">
                       <strong>You’re on the list.</strong> The shop can see your request for{" "}
-                      {dateLabel(date, { weekday: "long", day: "numeric", month: "long" })}. If a time opens up you’ll get a message with a link to take it — it’s held for you for a couple of hours. Nothing is reserved yet.
+                      {waitDone?.date_to && waitDone.date_to !== date
+                        ? `${dateLabel(date, { weekday: "short", day: "numeric", month: "short" })} to ${dateLabel(waitDone.date_to, { weekday: "short", day: "numeric", month: "short" })}`
+                        : dateLabel(date, { weekday: "long", day: "numeric", month: "long" })}
+                      .{" "}
+                      {waitDone?.auto_offer === false
+                        ? "They’ll get in touch if a time opens up."
+                        : waitDone?.mode === "EVERYONE"
+                          ? "If a time opens up you’ll get a text with the exact time and a link to book it — first to book gets it."
+                          : "If a time opens up you’ll get a text with the exact time and a link to take it — it’s held for you for a little while."}{" "}
+                      Nothing is reserved yet.
                     </Notice>
                   )}
                   <p className="slot-note">

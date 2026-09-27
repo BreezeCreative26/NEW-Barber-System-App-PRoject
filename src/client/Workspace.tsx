@@ -3189,7 +3189,10 @@ type WaitlistEntry = {
   phone: string;
   email: string;
   date: string;
+  date_to?: string | null;
   daypart: string;
+  from_min?: number;
+  to_min?: number;
   notes: string;
   status: string;
   version: number;
@@ -3204,7 +3207,17 @@ type WaitlistEntry = {
   offer_staff_name?: string | null;
   offer_source?: string | null;
 };
-type QueueMatch = { staff_id: string; staff_name: string; start_min: number; price_pence: number; duration_min: number };
+type QueueMatch = { staff_id: string; staff_name: string; start_min: number; price_pence: number; duration_min: number; date?: string };
+// "any time" / preset name for legacy rows; an explicit HH:MM–HH:MM window for v2 rows.
+const wlWindow = (e: { daypart: string; from_min?: number; to_min?: number }) => {
+  const part: Record<string, string> = { ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" };
+  const preset: Record<string, [number, number]> = { ANY: [0, 1440], MORNING: [0, 720], AFTERNOON: [720, 1020], EVENING: [1020, 1440] };
+  if (e.from_min == null || e.to_min == null) return part[e.daypart] ?? "any time";
+  for (const k of Object.keys(preset)) if (preset[k][0] === e.from_min && preset[k][1] === e.to_min) return part[k];
+  const t = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  return `${t(e.from_min)}–${t(Math.min(e.to_min, 1439))}`;
+};
+const wlDates = (e: { date: string; date_to?: string | null }, fmt: (d: string) => string) => (e.date_to && e.date_to !== e.date ? `${fmt(e.date)} – ${fmt(e.date_to)}` : fmt(e.date));
 // Settings → Shop page: content of the public home page at /<slug>. Presentation only.
 type PageForm = { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme: ThemeForm; published: number; version: number };
 type ThemeForm = { font: string; mode: string; corners: string; hero: string; logo: string };
@@ -3513,7 +3526,8 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
 type OutboxRow = { id: string; channel: string; recipient: string; template: string; body: string; status: string; status_note: string; related_type: string; created_at: number };
 const TEMPLATE_LABELS: Record<string, { label: string; hint: string }> = {
   waitlist_joined: { label: "Joined the list", hint: "{first} {shop} {date} {daypart}" },
-  waitlist_offer: { label: "A time is offered", hint: "{first} {shop} {service} {barber} {date} {time} {expires} {link}" },
+  waitlist_offer: { label: "A time is offered (next in line)", hint: "{first} {shop} {service} {barber} {date} {time} {expires} {link}" },
+  waitlist_open: { label: "A time has opened (tell everyone)", hint: "{first} {shop} {service} {barber} {date} {time} {link}" },
   waitlist_booked: { label: "Offer accepted", hint: "{service} {barber} {shop} {date} {time} {ref} {manage}" },
   waitlist_released: { label: "Declined or expired", hint: "{first} {shop} {date}" },
 };
@@ -3640,7 +3654,7 @@ const MSG_LABELS: Record<string, string> = {
   booking_confirmed: "Booking confirmed", booking_moved: "Booking moved", booking_cancelled: "Booking cancelled",
   booking_reminder: "Reminder (day before)", booking_reminder_soon: "Reminder (2 hours before)", signin_code: "Sign-in code",
   staff_invite: "Team invitation", review_request: "Review request", test_message: "Test message",
-  waitlist_joined: "Joined the list", waitlist_offer: "A time is offered", waitlist_booked: "Offer accepted", waitlist_released: "Declined or expired",
+  waitlist_joined: "Joined the list", waitlist_offer: "A time is offered", waitlist_open: "A time has opened", waitlist_booked: "Offer accepted", waitlist_released: "Declined or expired",
   pay_link: "Pay link", verify_contact: "Verification code", password_reset: "Password reset",
   owner_new_booking: "Alert · new booking", owner_cancelled: "Alert · cancellation", owner_no_show: "Alert · no-show", owner_daily_summary: "Alert · morning summary", owner_callback: "Alert · call back (AI receptionist)",
   owner_welcome: "Welcome (confirm email)", email_verify: "Confirm email", owner_signin_link: "One-time sign-in link",
@@ -3824,10 +3838,10 @@ type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms:
 type Messaging = { msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
 const CHANNEL_LABEL: Record<string, string> = { SMS: "Text", EMAIL: "Email", WA: "WhatsApp" };
 type OutboxData = {
-  shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number } };
+  shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_mode?: "ORDER" | "EVERYONE"; waitlist_delay_min?: number } };
 function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
   const [data, setData] = useState<OutboxData | null>(null);
-  const [form, setForm] = useState<{ auto: number; hold: number; templates: Record<string, string> } | null>(null);
+  const [form, setForm] = useState<{ auto: number; hold: number; mode: "ORDER" | "EVERYONE"; delay: number; templates: Record<string, string> } | null>(null);
   const [msg, setMsg] = useState<Messaging | null>(null);
   const [state, setState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
   const [msgState, setMsgState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
@@ -3839,7 +3853,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
     api<OutboxData>(`/notifications?limit=60${filter ? `&status=${filter}` : ""}`)
       .then((d) => {
         setData(d);
-        setForm((f) => f ?? { auto: d.settings.waitlist_auto_offer, hold: d.settings.waitlist_offer_hold_min, templates: { ...d.templates } });
+        setForm((f) => f ?? { auto: d.settings.waitlist_auto_offer, hold: d.settings.waitlist_offer_hold_min, mode: d.settings.waitlist_mode ?? "ORDER", delay: d.settings.waitlist_delay_min ?? 5, templates: { ...d.templates } });
         setMsg((m) => m ?? d.messaging);
       })
       .catch((e) => setState({ kind: "error", text: e instanceof Error ? e.message : "Could not load." }));
@@ -3851,7 +3865,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
     if (!form) return;
     setState({ kind: "saving", text: "" });
     try {
-      const r = await api<{ shop: { version: number } }>("/shop/waitlist", "PUT", { waitlist_auto_offer: form.auto, waitlist_offer_hold_min: form.hold, templates: form.templates, version: data?.shop_version ?? w.shop.version });
+      const r = await api<{ shop: { version: number } }>("/shop/waitlist", "PUT", { waitlist_auto_offer: form.auto, waitlist_offer_hold_min: form.hold, waitlist_mode: form.mode, waitlist_delay_min: form.delay, templates: form.templates, version: data?.shop_version ?? w.shop.version });
       setData((d) => (d ? { ...d, shop_version: r.shop.version } : d));
       setState({ kind: "saved", text: "Saved. New offers use this wording; existing messages are unchanged." });
     } catch (err) {
@@ -4026,18 +4040,36 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
           <div className="workspace-form-grid">
             <div className="workspace-switch-row">
               <span>
-                <strong>Offer freed slots automatically</strong>
-                <small>When a booking is cancelled or moved, the oldest matching request on that day is offered the time.</small>
+                <strong>Tell waiting customers when a time frees up</strong>
+                <small>When a booking is cancelled or moved, customers whose request fits that time (day, time window, barber) are texted — or emailed if we only have an email.</small>
               </span>
               <label className="switch">
-                <input type="checkbox" checked={!!form.auto} onChange={(e) => setForm({ ...form, auto: e.target.checked ? 1 : 0 })} aria-label="Offer freed slots automatically" data-testid="auto-offer" />
+                <input type="checkbox" checked={!!form.auto} onChange={(e) => setForm({ ...form, auto: e.target.checked ? 1 : 0 })} aria-label="Tell waiting customers when a time frees up" data-testid="auto-offer" />
                 <span />
               </label>
             </div>
-            <Field label="Hold an offer for (minutes)">
-              <input type="number" min={15} max={1440} step={15} value={form.hold} onChange={(e) => setForm({ ...form, hold: Number(e.target.value) })} data-testid="offer-hold" />
+            <Field label="Wait before telling anyone (minutes)">
+              <input type="number" min={0} max={60} step={1} value={form.delay} onChange={(e) => setForm({ ...form, delay: Math.max(0, Math.min(60, Number(e.target.value) || 0)) })} data-testid="waitlist-delay" />
+              <span className="field-help">If you cancel someone and book another customer straight back in, nothing is sent. 0 sends immediately.</span>
             </Field>
           </div>
+          <div className="waitlist-mode" role="radiogroup" aria-label="Who is told" data-testid="waitlist-mode">
+            <button type="button" role="radio" aria-checked={form.mode === "ORDER"} onClick={() => setForm({ ...form, mode: "ORDER" })} data-testid="waitlist-mode-ORDER">
+              <strong>Next in line</strong>
+              <small>The oldest matching request is offered the time and it is held for them. If they don't take it, it passes to the next.</small>
+            </button>
+            <button type="button" role="radio" aria-checked={form.mode === "EVERYONE"} onClick={() => setForm({ ...form, mode: "EVERYONE" })} data-testid="waitlist-mode-EVERYONE">
+              <strong>Tell everyone</strong>
+              <small>Every matching request gets the same text at once with a link to the time. First to book gets it; no hold.</small>
+            </button>
+          </div>
+          {form.mode === "ORDER" && (
+            <div className="workspace-form-grid">
+              <Field label="Hold an offer for (minutes)">
+                <input type="number" min={15} max={1440} step={15} value={form.hold} onChange={(e) => setForm({ ...form, hold: Number(e.target.value) })} data-testid="offer-hold" />
+              </Field>
+            </div>
+          )}
           <fieldset className="template-fields">
             <legend>Waiting-list wording</legend>
             {Object.keys(TEMPLATE_LABELS).map((k) => (
@@ -4376,7 +4408,7 @@ function QueueDrawer({
     setBusyId(entry.id);
     setError("");
     try {
-      const r = await api<{ offer: { link: string; body: string } }>(`/waitlist/${entry.id}/offer`, "POST", { staff_id: m.staff_id, start_min: m.start_min, version: entry.version });
+      const r = await api<{ offer: { link: string; body: string } }>(`/waitlist/${entry.id}/offer`, "POST", { staff_id: m.staff_id, start_min: m.start_min, ...(m.date ? { date: m.date } : {}), version: entry.version });
       setLastOffer({ link: r.offer.link, body: r.offer.body, name: entry.customer_name });
       setOffering(null);
       onRefresh();
@@ -4394,7 +4426,6 @@ function QueueDrawer({
       setCopied("Copy unavailable here; select the text instead.");
     }
   }
-  const part: Record<string, string> = { ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" };
   const shown = waitlist.filter((r) => (filter === "today" ? r.date === date : filter === "offered" ? r.status === "OFFERED" : true));
   const offered = waitlist.filter((r) => r.status === "OFFERED").length;
   const fmt = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" });
@@ -4450,7 +4481,7 @@ function QueueDrawer({
               <Icon name="send" size={16} /> Offer a time to {offering.entry.customer_name}
             </h3>
             <p className="drawer-note left">
-              {offering.entry.service_name} · {offering.entry.staff_name || "any barber"} · {fmt(offering.entry.date)} · {part[offering.entry.daypart]}. Free times that fit their request:
+              {offering.entry.service_name} · {offering.entry.staff_name || "any barber"} · {wlDates(offering.entry, fmt)} · {wlWindow(offering.entry)}. Free times that fit their request:
             </p>
             {offering.matches === null ? (
               <p className="drawer-note left">Checking the diary…</p>
@@ -4459,10 +4490,11 @@ function QueueDrawer({
             ) : (
               <ul className="queue-matches">
                 {offering.matches.map((m) => (
-                  <li key={`${m.staff_id}-${m.start_min}`}>
+                  <li key={`${m.date ?? ""}-${m.staff_id}-${m.start_min}`}>
                     <button type="button" onClick={() => sendOffer(offering.entry, m)} disabled={busyId === offering.entry.id} data-testid="queue-match">
                       <b>{time(m.start_min)}</b>
                       <span>
+                        {m.date && offering.entry.date_to && offering.entry.date_to !== offering.entry.date ? `${fmt(m.date)} · ` : ""}
                         {m.staff_name.split(" ")[0]} · {m.duration_min} min · {money(m.price_pence)}
                       </span>
                     </button>
@@ -4489,10 +4521,10 @@ function QueueDrawer({
                     )}
                   </strong>
                   <small>
-                    {r.service_name} · {r.staff_name || "Any barber"} · {part[r.daypart]}
+                    {r.service_name} · {r.staff_name || "Any barber"} · {wlWindow(r)}
                   </small>
                   <small>
-                    {fmt(r.date)} · {r.phone}
+                    {wlDates(r, fmt)} · {r.phone}
                     {r.offers_made > 0 && r.status !== "OFFERED" ? ` · ${r.offers_made} offer${r.offers_made === 1 ? "" : "s"} so far` : ""}
                   </small>
                   {r.status === "OFFERED" && r.offer_start_min != null && (

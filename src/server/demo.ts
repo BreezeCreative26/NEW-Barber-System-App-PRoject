@@ -290,11 +290,11 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   for (let i = 0; i < bookings.length; i += 80) await db.batch(bookings.slice(i, i + 80));
   await db.batch([
     db.prepare(
-      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,daypart,notes,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'OPEN',?,?)",
-    ).bind(uid(), shopId, staff[0].id, services[1].id, customers[5].name, customers[5].phone, "", day(2), "AFTERNOON", "Any time after 2pm works.", now, now),
+      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,date_to,daypart,from_min,to_min,notes,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,720,1020,?,'OPEN',?,?)",
+    ).bind(uid(), shopId, staff[0].id, services[1].id, customers[5].name, customers[5].phone, "", day(2), day(2), "AFTERNOON", "Any time after 2pm works.", now, now),
     db.prepare(
-      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,daypart,notes,status,created_at,updated_at) VALUES(?,?,NULL,?,?,?,?,?,?,?,'OPEN',?,?)",
-    ).bind(uid(), shopId, services[6].id, customers[9].name, customers[9].phone, customers[9].email, day(1), "MORNING", "", now, now),
+      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,date_to,daypart,from_min,to_min,notes,status,created_at,updated_at) VALUES(?,?,NULL,?,?,?,?,?,?,?,0,720,?,'OPEN',?,?)",
+    ).bind(uid(), shopId, services[6].id, customers[9].name, customers[9].phone, customers[9].email, day(1), day(1), "MORNING", "", now, now),
     db.prepare("INSERT INTO staff_days_off(id,shop_id,staff_id,date,reason,created_at) VALUES(?,?,?,?,?,?)").bind(uid(), shopId, staff[1].id, day(5), "Annual leave", now),
     db.prepare(
       "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,0,?)",
