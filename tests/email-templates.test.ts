@@ -1,6 +1,6 @@
 // Every message template renders, in both channels, for a shop-branded sender and (where it
 // applies) the foliyo platform sender. Checks the branding rules that matter commercially:
-//  - customer / shop-side messages carry the shop's name and never say "foliyo" or "OLLO";
+//  - customer / shop-side messages carry the shop's name and never say "foliyo" or "foliyo";
 //  - platform messages (billing, lifecycle, welcome) carry the foliyo lockup and company footer;
 //  - no unresolved placeholders ("undefined", "null", "{x}") leak into copy;
 //  - every CTA points at an https/http link; HTML is escaped; the accent matches shop-theme.css.

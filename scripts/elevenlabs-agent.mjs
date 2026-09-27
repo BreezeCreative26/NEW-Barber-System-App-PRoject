@@ -1,4 +1,4 @@
-// Configure an ElevenLabs Conversational AI agent as one shop's OLLO receptionist.
+// Configure an ElevenLabs Conversational AI agent as one shop's foliyo receptionist.
 //
 //   ELEVENLABS_API_KEY=sk_… node scripts/elevenlabs-agent.mjs <slug> <ollo_vk_secret> [--agent agent_id] [--origin https://…]
 //
@@ -23,11 +23,11 @@ const el = async (path, method = "GET", body) => {
   return json;
 };
 
-// Shop facts from OLLO — also proves the secret before touching ElevenLabs.
+// Shop facts from foliyo — also proves the secret before touching ElevenLabs.
 const base = `${origin}/api/voice/${slug}`;
 const infoRes = await fetch(`${base}/info`, { headers: { Authorization: `Bearer ${secret}` } });
 const info = await infoRes.json();
-if (!infoRes.ok || !info.shop) throw new Error(`OLLO ${base}/info → ${infoRes.status} ${JSON.stringify(info).slice(0, 200)}`);
+if (!infoRes.ok || !info.shop) throw new Error(`foliyo ${base}/info → ${infoRes.status} ${JSON.stringify(info).slice(0, 200)}`);
 const shopName = info.shop.name;
 
 const prompt = `You are the friendly receptionist for ${shopName}, a barbershop. Speak naturally and briefly, like a real front-desk person. Never invent availability, prices or policies — always use the tools.
@@ -84,14 +84,14 @@ const hooks = (await el("/v1/workspace/webhooks?include_usages=true")).webhooks 
 const mine = hooks.find((h) => h.webhook_url === hookUrl && !h.is_disabled);
 if (mine) { postCallId = mine.webhook_id; console.log(`reusing post-call webhook ${postCallId} (secret already issued)`); }
 else {
-  const created = await el("/v1/workspace/webhooks", "POST", { settings: { name: `OLLO post-call - ${shopName}`, webhook_url: hookUrl, auth_type: "hmac" } });
+  const created = await el("/v1/workspace/webhooks", "POST", { settings: { name: `foliyo post-call - ${shopName}`, webhook_url: hookUrl, auth_type: "hmac" } });
   postCallId = created.webhook_id; webhookSecret = created.webhook_secret;
   console.log(`created post-call webhook ${postCallId}`);
 }
 
 const dyn = { shop_name: shopName, today: "today", today_hours: "our usual hours", services: info.services.map((s) => `${s.name} (${s.duration}, ${s.price})`).join("; "), barbers: info.barbers.map((b) => b.name).join(", "), cancel_hours: (String(info.policies?.cancellation || "").match(/\d+/) || ["24"])[0], caller_phone: "", caller_name: "", caller_upcoming: "", shop_notes: info.notes || "" };
 const agentBody = {
-  name: `${shopName} — OLLO receptionist`,
+  name: `${shopName} — foliyo receptionist`,
   conversation_config: {
     agent: {
       first_message: `Hello, you're through to ${shopName}. How can I help today?`,

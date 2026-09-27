@@ -1,6 +1,6 @@
-# OLLO UX standard
+# foliyo UX standard
 
-The bar: a barber who has used Fresha, Squire or Square Appointments should find OLLO at least as
+The bar: a barber who has used Fresha, Squire or Square Appointments should find foliyo at least as
 polished, and never notice it was built by a small team. Every screen shipped from now on is held to
 this list. `npm run ux:lint` enforces the parts that can be checked mechanically; the rest is
 reviewed against the screenshots produced by `node scripts/audit/ux-review.mjs`.

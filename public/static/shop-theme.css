@@ -369,7 +369,7 @@
 .shop-page .sp-footer, .shop-page .customer-area > footer { background: var(--sp-surface); border-top: 1px solid var(--sp-line); color: var(--sp-muted); }
 .shop-page .sp-powered { color: var(--sp-muted); }
 
-/* Barber step: the "first available" tile and skill chips follow the accent, not OLLO blue. */
+/* Barber step: the "first available" tile and skill chips follow the accent, not foliyo blue. */
 .shop-page .barber-portrait.forest { background: linear-gradient(135deg, var(--sp-accent-dark), var(--sp-accent)); color: var(--sp-accent-ink); }
 .shop-page .barber-portrait .any-mark { background: color-mix(in srgb, var(--sp-accent-ink) 16%, transparent); }
 .shop-page .barber-choice.any-barber { background: var(--sp-surface); }

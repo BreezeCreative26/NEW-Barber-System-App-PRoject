@@ -1,4 +1,4 @@
-# OLLO calendar — commercial plan (Fresha/Booksy grade)
+# foliyo calendar — commercial plan (Fresha/Booksy grade)
 
 Brief from the owner (17 Sept 2026), with a Fresha screenshot as the reference:
 
@@ -113,7 +113,7 @@ Plus ~1 day to rewrite the 7 legacy Playwright tests already flagged in `PROGRES
 
 ## Positioning against Fresha / Booksy
 
-| | Fresha | Booksy | OLLO after this plan |
+| | Fresha | Booksy | foliyo after this plan |
 |---|---|---|---|
 | Drag-move with snap | ✅ | ✅ | ✅ + haptic tick on iPad/phone |
 | Edit price/service in place | ✅ | ✅ | ✅ with audit trail and deposit reconciliation |

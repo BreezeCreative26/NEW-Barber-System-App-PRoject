@@ -107,11 +107,11 @@
 - Verified: tsc, build, full Playwright **123 passed / 1 skipped / 0 failed**.
 - Slowest remaining tests are the 5-width responsive loops (7–9 s each ×15) and the 503-record pagination case (20 s); candidates for trimming if the gate needs to get faster.
 
-## Earlier — OLLO rebrand (2026-09-14)
+## Earlier — foliyo rebrand (2026-09-14)
 
 - Logo supplied by the user (calendar-bot mark in periwinkle `#6985e8` on cream, navy `#181b2a` wordmark). Saved to `public/static/brand/` (source PNG, transparent PNG, hand-drawn `ollo-mark.svg` used for favicon, sidebar brand and "Powered by" chips).
 - Palette: `:root` tokens re-pointed (`--accent #4a5fd9`, `--accent-dark #3546b4`, `--ink #181b2a`, `--muted #5b6178`, `--line #e2e4ee`, `--canvas #f5f6fb`, new `--ollo`, `--ollo-soft`, `--cream`). ~370 hard-coded forest/sage hexes were hue-rotated to the brand hue with lightness preserved; over-dark navies lifted into the accent range; hero uses an accent gradient. Enum calendar colours and semantic status tones were protected so bookings still read the same.
-- Brand strings: titles, theme-color, `.ics` PRODID/UID domain, "Booked with OLLO", `Brand` component and public "Powered by OLLO". `localStorage` key `barbershop-os:customer` deliberately kept so returning testers keep saved details.
+- Brand strings: titles, theme-color, `.ics` PRODID/UID domain, "Booked with foliyo", `Brand` component and public "Powered by foliyo". `localStorage` key `barbershop-os:customer` deliberately kept so returning testers keep saved details.
 - Contrast: eleven small-text-on-blue pairs failed AA after the rotation (in-chair card, on-dark badge, week strip, nav count, method chip); fixed to white / accent-dark. axe clean on entry, calendar (1440/390), service studio, public booking (1440/390) and the preview fixtures.
 - Verification: tsc, build, targeted a11y suites 22/22, preview suite 25/25, **full Playwright 123 passed / 1 skipped / 0 failed**. Evidence `docs/evidence/v5-ollo-{entry,calendar,services,public,calendar-390,public-390}.png`.
 - Why builds feel slow: the Vite build is ~0.7 s; the full browser suite is ~4 min and runs before every commit. Iterating now uses targeted suites, with one full run at the end.
@@ -422,7 +422,7 @@ Selected GitHub repository remains https://github.com/BreezeCreative26/NEW-Barbe
 
 Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git status. Continue from this tested slice. No production action unless the user explicitly changes the instruction.
 
-## 2026-09-14 — Timetable rebuilt to the OLLO shell design
+## 2026-09-14 — Timetable rebuilt to the foliyo shell design
 
 - **One-row toolbar** (`.calendar-toolbar-row`): Today · ‹ date › (native date picker under a compact label) · Barber select · **Filters** toggle (`data-testid="filters-toggle"`, reveals Status filter + Search appointments + Clear filters) · Refresh · Day/Week/Agenda segmented · New booking. Phone: wraps to two rows, icon-only Add, full-width view switch.
 - **Day stats** collapsed from four stat cards into a one-line summary (`.calendar-summary`, `aria-label="Selected day statistics"`): booked value · completed/visits · online · % chair time.
@@ -500,7 +500,7 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - Services: proper category subheads with rules, book chevron on every card, hover lift, `Tap a service to start booking it.`
 - Team: 72px photo/initials, "Next free today 14:30" pill, full-width Book button.
 - Hours/Find us: cards; Find us hides when the shop has no contact details (no half-empty column).
-- Footer: identity block + phone/Instagram/hours/Your visits links + Powered by OLLO.
+- Footer: identity block + phone/Instagram/hours/Your visits links + Powered by foliyo.
 - Embedded booking summary: shop name + address instead of the tagline; duration line only when add-ons change it; deposit "Payable in the shop".
 - `npm run ux:review` now also writes section-level shop-page shots (`*-40a…e`). Standard §8 added to docs/UX-STANDARD.md.
 - Gate: ux-lint clean, vitest 25, Playwright 137/137.
@@ -539,12 +539,12 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - **CSV import** (`import.ts`): RFC-4180 parser with delimiter + BOM detection; header aliases; UK mobile normalisation (+44 / 44 / 7…); d/m/y birthdays; marketing truthy words; dedupe against directory and within file; preview (first 200 rows + counts) then commit in 200-statement batches; updates fill blanks only (email if empty, notes appended once, tags unioned, birthday if null, marketing never turned off); 409 when nothing to do; audit `CUSTOMERS_IMPORTED`. Owner/manager only. Customers → Import modal with manual column mapping fallback.
 - Tests: payouts.spec +2 (chair routes refuse honestly in preview; browser Take by card), import.spec (3). AUDIT items 6 and 7 closed — **every audit item is now done**.
 
-## Stripe Connect platform — shops + barbers paid by OLLO (2026-09-17)
-- Decision: OLLO is the Connect platform (merchant of record), not per-shop Stripe. Adyen considered and rejected for this stage. Float-backed FAST tier for same-day barber money; STANDARD waits for settlement.
+## Stripe Connect platform — shops + barbers paid by foliyo (2026-09-17)
+- Decision: foliyo is the Connect platform (merchant of record), not per-shop Stripe. Adyen considered and rejected for this stage. Float-backed FAST tier for same-day barber money; STANDARD waits for settlement.
 - Migration 0008: connected_accounts (SHOP + STAFF Express), platform_payments (fee bps, fast_payouts, float alert), shops payout_tier/payrun_auto/payrun_reserve_bps, payments Stripe refs + fees + pay_run_id, pay_runs card/cash split + transfer/shop_transfer/reserve/cash_residual + TRANSFERRED status + transfer_group, transfers / payouts / disputes tables.
 - `payouts.ts`: beginOnboarding (idempotent per owner), accountState, splitFigures (ONLINE or CARD-with-PI = card; rest = cash; unsettled only), settlementFor (commission on card share + card tips share + fixed pay; chair-rent nets rent from card first; reserve; cash residual sign = who owes whom), executeRun (balance check by tier, idempotent per run+leg, skips barbers not payout-enabled and says so, settles payment rows, TRANSFERRED), reverseForPayment (proportional across legs), walletFor (transferred / paid out / in transit), scheduledPayRuns (DAILY/WEEKLY from the sweep), handleConnectEvent (account.updated, transfer.*, payout.*, dispute → reversal + audit, dashboard refunds → reversal).
 - Routes: GET/PUT /shop/payments (status + policy, barber-scoped), POST /shop/payments/connect, POST /staff/:id/payments/connect (owner/manager or the barber), POST /payments/accounts/:id/refresh|dashboard, PUT …/schedule, GET /payments/wallet, GET /payments/balance, pay-run preview/create carry split + settlement, approve → executeRun, POST /pay-runs/:id/transfer (retry), GET /pay-runs/:id/transfers, void after settlement → reversal.
-- Client: `Payouts.tsx` — Settings → Payments (status pill, shop account + Connect, OLLO balance/fee, 30-day money moved, barber list with Set up payouts / Refresh, policy form: deposits by card, hold, payout speed, auto runs, reserve); BarberPayoutCard on Team → Pay (four lines, Set up payouts, Balance & payouts dashboard link, payout schedule, transfer history). `Pay.tsx` — Settlement block (by card → barber/shop/reserve; in cash → residual), Send card money now, Mark settled for Stripe-only runs, TRANSFERRED status.
+- Client: `Payouts.tsx` — Settings → Payments (status pill, shop account + Connect, foliyo balance/fee, 30-day money moved, barber list with Set up payouts / Refresh, policy form: deposits by card, hold, payout speed, auto runs, reserve); BarberPayoutCard on Team → Pay (four lines, Set up payouts, Balance & payouts dashboard link, payout schedule, transfer history). `Pay.tsx` — Settlement block (by card → barber/shop/reserve; in cash → residual), Send card money now, Mark settled for Stripe-only runs, TRANSFERRED status.
 - Docs: `docs/PAYMENTS.md` runbook (env, webhook events incl. connected accounts, fee, float, onboarding order, test-mode checklist). README rewritten.
 - Tests: `tests/payouts.spec.ts` (5) — preview-mode honesty, policy save/validation, split + settlement on real fixture data, approve without money = no fake transfer, role boundaries (barber sees only self; 403 on shop policy/connect/others), Settings → Payments + barber Pay tab in the browser, 320px no-overflow. Endpoint snapshots updated. pay.spec copy "Settled by bank".
 - Not built: Terminal / Tap to Pay, Instant Payout upsell, platform-admin UI for fee/top-ups, Stripe Billing.
@@ -559,12 +559,12 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 
 ## Messages (real delivery) — done
 - Outbox is now a delivery queue: QUEUED → SENDING → SENT/FAILED with backoff (1m, 5m, 30m, 2h, 12h). Providers: Resend (email), Twilio (SMS); dev "mailbox" provider when no keys are set.
-- Every customer message is shop-branded (logo/initials tile, accent, "Sent by <shop>"). OLLO never appears.
+- Every customer message is shop-branded (logo/initials tile, accent, "Sent by <shop>"). foliyo never appears.
 - Send sites: booking confirmed/moved/cancelled, reminders (configurable hours + 2h, idempotent via unique index), sign-in code, waitlist joined/offer/expired, review request, staff invite.
 - Sweep: lazy once per 5 min on any /api request + Vercel Cron `/api/cron/messages` (CRON_SECRET).
 - Owner: Settings → Messages — provider status, SMS/email/reminder toggles, reply-to, SMS sender, test send, outbox filter/preview/copy/resend.
 - Env: RESEND_API_KEY, MAIL_FROM, TWILIO_ACCOUNT_SID/AUTH_TOKEN/FROM (or MESSAGING_SERVICE_SID), CRON_SECRET — see .env.example.
-- `tests/messaging.spec.ts` (7): confirmation on both channels, shop-branded, never OLLO; cancel notifies; channel toggles honoured (and `sent_to` now reports the channels actually queued — bug found by the test); reminder sweep idempotent + reminders-off; owner test send / resend rules / validation; OTP delivery mode; cron route + health; browser Settings → Messages (status pill, save, test send, preview modal, filter).
+- `tests/messaging.spec.ts` (7): confirmation on both channels, shop-branded, never foliyo; cancel notifies; channel toggles honoured (and `sent_to` now reports the channels actually queued — bug found by the test); reminder sweep idempotent + reminders-off; owner test send / resend rules / validation; OTP delivery mode; cron route + health; browser Settings → Messages (status pill, save, test send, preview modal, filter).
 - Fixed: Settings tab overflowed at 320px (status pill `nowrap` in a non-wrapping heading) — heading wraps and pill text wraps on small screens; pill copy shortened to "Preview mode · nothing is sent". `StatusPill` now forwards `data-testid`/`title`.
 - Gate: **142 passed, 2 skipped, 0 failed** (full Playwright suite). README has a Messages section (env vars, preview mode, cron). AUDIT item 3 complete.
 

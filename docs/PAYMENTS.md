@@ -1,27 +1,27 @@
-# Payments — OLLO as a Stripe Connect platform
+# Payments — foliyo as a Stripe Connect platform
 
-OLLO is the **merchant of record**. Every card payment (online deposit now; Terminal / Tap to Pay
-later) is charged on OLLO's Stripe balance. Every shop and every barber holds their own **Stripe
-Express account**. When a pay run is approved, OLLO **transfers** the barber's share to the barber's
+foliyo is the **merchant of record**. Every card payment (online deposit now; Terminal / Tap to Pay
+later) is charged on foliyo's Stripe balance. Every shop and every barber holds their own **Stripe
+Express account**. When a pay run is approved, foliyo **transfers** the barber's share to the barber's
 account and the shop's share to the shop's, tagged with one `transfer_group`. Stripe pays each
 account out to its bank on its own schedule. **Cash never enters** — the pay run shows it as a
 residual to settle by hand.
 
 ```
-customer card ──► OLLO platform balance ──┬─► barber Express account ──► barber's bank
+customer card ──► foliyo platform balance ──┬─► barber Express account ──► barber's bank
                     (float covers T+3)    ├─► shop   Express account ──► shop's bank
-                                          └─► OLLO application fee
+                                          └─► foliyo application fee
 ```
 
 ## Money model in one table
 
 | Flow | Who pays whom | How |
 |---|---|---|
-| Online deposit at booking | customer → OLLO | Stripe Checkout, `payment_intent` stored on the booking, posted to the till as `ONLINE` at checkout |
-| Card at the chair | customer → OLLO | **Tap on their phone** (QR → Stripe Checkout with Apple Pay / Google Pay / card — live) or a paired Stripe reader; till row carries `stripe_payment_intent` |
+| Online deposit at booking | customer → foliyo | Stripe Checkout, `payment_intent` stored on the booking, posted to the till as `ONLINE` at checkout |
+| Card at the chair | customer → foliyo | **Tap on their phone** (QR → Stripe Checkout with Apple Pay / Google Pay / card — live) or a paired Stripe reader; till row carries `stripe_payment_intent` |
 | Cash / transfer / voucher at the chair | customer → whoever holds the till | recorded in the ledger only |
-| Pay run approve | OLLO → barber, OLLO → shop | `transfers` rows; `pay_runs.status = TRANSFERRED` |
-| Refund / void / dispute after settlement | barber & shop → OLLO | proportional `transfer reversals`; never edits |
+| Pay run approve | foliyo → barber, foliyo → shop | `transfers` rows; `pay_runs.status = TRANSFERRED` |
+| Refund / void / dispute after settlement | barber & shop → foliyo | proportional `transfer reversals`; never edits |
 | Cash residual | shop ↔ barber by hand | `pay_runs.cash_residual_pence`; owner marks `PAID` with a method |
 
 Commission and tip share are snapshotted per payment row (existing behaviour), so a later terms
@@ -115,16 +115,16 @@ is: the money went to whoever held the machine.
 
 ## Not built yet
 
-- Tap to Pay driven from OLLO's own screen (needs the Terminal JS SDK + a native wrapper; the
+- Tap to Pay driven from foliyo's own screen (needs the Terminal JS SDK + a native wrapper; the
   server side — `/terminal/connection-token`, `reader_id: "sdk"` — is ready for it).
 - Instant Payouts upsell (barbers can already trigger them from their Express dashboard; the fee
   is Stripe's).
 - Platform-admin screen for `platform_payments` and top-ups (SQL for now).
-- Stripe Billing for the shop's OLLO subscription.
+- Stripe Billing for the shop's foliyo subscription.
 
 ## Tap at the chair (live)
 
-Checkout → **Card** → **Tap on their phone**. OLLO creates a Stripe Checkout Session for the
+Checkout → **Card** → **Tap on their phone**. foliyo creates a Stripe Checkout Session for the
 service + tip and shows a QR that encodes the short `/pay/:id?go=1` URL (dense Stripe URLs scan
 badly). The customer scans it with their camera, lands straight on Stripe Checkout and pays with
 Apple Pay / Google Pay if their phone has it, or types a card. `checkout.session.completed` →

@@ -1,4 +1,4 @@
-# OLLO product audit — 2026-09-16
+# foliyo product audit — 2026-09-16
 
 Method: signed in as owner, barber and customer on the running Next + Postgres build; walked every
 workspace section, completed a real online booking on a phone viewport, signed into the customer
@@ -159,6 +159,6 @@ audit trail, insights, customer directory/merge, shop page SEO/reviews/moderatio
    logo; no fictional seed staff for a new shop (an "add your first barber" empty state instead).
 5. **Owner booking UX** — slot grid in New booking; click-empty-slot to book; Walk-in now button;
    customer first in the form; quieter past-time shading.
-6. ~~**Deposits via Stripe Checkout**~~ — **done 2026-09-17**, and went further: OLLO is a Stripe Connect platform (per-barber Express accounts, pay runs transfer card money, reversals on refund/dispute), card at the chair via pay link/QR and Terminal readers. See `docs/PAYMENTS.md`.
+6. ~~**Deposits via Stripe Checkout**~~ — **done 2026-09-17**, and went further: foliyo is a Stripe Connect platform (per-barber Express accounts, pay runs transfer card money, reversals on refund/dispute), card at the chair via pay link/QR and Terminal readers. See `docs/PAYMENTS.md`.
 7. **CSV customer import** (Fresha/Booksy/Square shapes).
 8. Then run the one shop for a week and let the owner's complaints set the next list.

@@ -1,4 +1,4 @@
-// OLLO master admin: hidden from non-admins, full control for SUPER admins.
+// foliyo master admin: hidden from non-admins, full control for SUPER admins.
 import { test, expect, type Page } from "@playwright/test";
 import { base, origin, openFixtureShop } from "./fixture";
 

@@ -22,7 +22,7 @@ import voice from "./server/voice";
 import admin, { adminPublic } from "./server/admin";
 import type { Database } from "./db/client";
 import type { ObjectStore } from "./db/storage";
-export type AppBindings = { DB: Database; MEDIA?: ObjectStore; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string; OLLO_ADMIN_EMAILS?: string };
+export type AppBindings = { DB: Database; MEDIA?: ObjectStore; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string; FOLIYO_ADMIN_EMAILS?: string; OLLO_ADMIN_EMAILS?: string };
 const app = new Hono<{ Bindings: AppBindings; Variables: { shopId: string; actor: string; account: null } }>();
 // Lazy sweep: any public/app API request may trigger the reminder + outbox sweep, at most once per
 // 5 minutes across the deployment (platform_kv claim). Runs after the response so it never slows

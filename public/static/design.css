@@ -1,12 +1,12 @@
 /* ============================================================================
-   OLLO design system — tokens + shared components.
+   foliyo design system — tokens + shared components.
    Source of truth: docs/DESIGN.md and docs/mockups/*.html.
    Rules: tokens only (no raw colours below :root), Lucide line icons, one
    primary action per surface. Loaded after style.css and wins on conflicts.
    ========================================================================== */
 
 :root {
-  /* Brand — from the OLLO logo mockup: deep green-black ink, warm cream, matte mint. */
+  /* Brand — from the foliyo logo mockup: deep green-black ink, warm cream, matte mint. */
   --ollo: #0b1a17;
   --ollo-green: #a8d5c2;
   --ollo-soft: #e6f0eb;
@@ -1791,7 +1791,7 @@ td[data-state="leave"] .shifts-cell { background: #fbf6ee; border-color: #ead9bf
 .billing-timeline li svg { color: var(--accent-dark); }
 @media (max-width: 900px) { .billing-grid { grid-template-columns: 1fr; } }
 
-/* ---------- OLLO admin ---------- */
+/* ---------- foliyo admin ---------- */
 .ollo-admin-shell { min-height: 100dvh; display: flex; background: #f4f3ee; color: #0b1a17; --rail: #0b1a17; --accent: #0b1a17; --accent-dark: #000; }
 .ollo-admin-shell .rail { top: 0; height: 100dvh; }
 .ollo-admin-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }

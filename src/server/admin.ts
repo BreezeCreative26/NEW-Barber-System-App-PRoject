@@ -25,7 +25,7 @@ const uid = () => crypto.randomUUID();
 const fail = (status: 400 | 401 | 403 | 404 | 409, message: string): never => { throw new HTTPException(status, { message }); };
 
 // Resolve the signed-in user from the normal session cookie, then check platform_admins.
-// First request ever: seed from OLLO_ADMIN_EMAILS (comma-separated) if the table is empty.
+// First request ever: seed from FOLIYO_ADMIN_EMAILS (comma-separated; legacy OLLO_ADMIN_EMAILS still read) if the table is empty.
 async function resolveAdmin(c: Ctx): Promise<Admin | null> {
   const token = getCookie(c, ACCOUNT_COOKIE);
   if (!token) return null;
@@ -36,7 +36,7 @@ async function resolveAdmin(c: Ctx): Promise<Admin | null> {
   if (!user) return null;
   const count = (await db.prepare("SELECT COUNT(*)::int AS n FROM platform_admins").first<{ n: number }>())?.n ?? 0;
   if (count === 0) {
-    const seeds = (c.env.OLLO_ADMIN_EMAILS ?? process.env.OLLO_ADMIN_EMAILS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const seeds = (c.env.FOLIYO_ADMIN_EMAILS ?? process.env.FOLIYO_ADMIN_EMAILS ?? c.env.OLLO_ADMIN_EMAILS ?? process.env.OLLO_ADMIN_EMAILS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
     if (seeds.includes(user.email.toLowerCase())) {
       await db.prepare("INSERT INTO platform_admins(user_id,role,created_by,created_at) VALUES(?,?,?,?) ON CONFLICT(user_id) DO NOTHING").bind(user.id, "SUPER", "seed", Date.now()).run();
     }
@@ -540,7 +540,7 @@ admin.post("/shops/:id/signout-all", async (c) => {
 admin.get("/alerts", async (c) => {
   const all = c.req.query("all") === "1";
   const rows = (await c.env.DB.prepare(`SELECT a.*, s.name AS shop_name FROM admin_alerts a LEFT JOIN shops s ON s.id=a.shop_id WHERE ${all ? "1=1" : "a.acked_at IS NULL"} ORDER BY CASE a.severity WHEN 'CRIT' THEN 0 WHEN 'WARN' THEN 1 ELSE 2 END, a.created_at DESC LIMIT 300`).all()).results;
-  return c.json({ alerts: rows, alert_email: process.env.OLLO_ALERT_EMAIL || "" });
+  return c.json({ alerts: rows, alert_email: process.env.FOLIYO_ALERT_EMAIL || process.env.OLLO_ALERT_EMAIL || "" });
 });
 admin.post("/alerts/:id/ack", async (c) => {
   await c.env.DB.prepare("UPDATE admin_alerts SET acked_at=?, acked_by=? WHERE id=? AND acked_at IS NULL").bind(Date.now(), c.get("admin").user_id, c.req.param("id")).run();

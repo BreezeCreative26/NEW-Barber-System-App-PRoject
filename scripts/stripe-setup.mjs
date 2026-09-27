@@ -41,7 +41,7 @@ console.log(`Account ${acct.id} (${acct.settings?.dashboard?.display_name || "?"
 
 const existing = (await api("/webhook_endpoints?limit=100")).data.filter((w) => w.url === url);
 const form = (events, connect) => {
-  const f = new URLSearchParams({ url, description: connect ? "OLLO — connected accounts" : "OLLO — platform", "metadata[app]": "ollo" });
+  const f = new URLSearchParams({ url, description: connect ? "foliyo — connected accounts" : "foliyo — platform", "metadata[app]": "ollo" });
   events.forEach((e, i) => f.set(`enabled_events[${i}]`, e));
   if (connect) f.set("connect", "true");
   return f.toString();
@@ -49,7 +49,7 @@ const form = (events, connect) => {
 for (const [events, connect] of [[EVENTS, false], [CONNECT_EVENTS, true]]) {
   const have = existing.find((w) => !!w.application === false && (w.metadata?.connect === "true") === connect) || existing.find((w) => (w.description || "").includes(connect ? "connected" : "platform"));
   if (have) {
-    const f = new URLSearchParams({ description: connect ? "OLLO — connected accounts" : "OLLO — platform" });
+    const f = new URLSearchParams({ description: connect ? "foliyo — connected accounts" : "foliyo — platform" });
     events.forEach((e, i) => f.set(`enabled_events[${i}]`, e));
     await api(`/webhook_endpoints/${have.id}`, f.toString());
     console.log(`Updated ${connect ? "connected-account" : "platform"} endpoint ${have.id} (${events.length} events). Secret unchanged.`);
@@ -76,6 +76,6 @@ set, STRIPE_WEBHOOK_SECRET_CONNECT — set both.
 Dashboard to-dos (no API for these):
   1. https://dashboard.stripe.com/settings/connect/platform-profile  → accept loss liability
   2. https://dashboard.stripe.com/settings/radar                     → Radar for Platforms on
-  3. https://dashboard.stripe.com/settings/connect/branding           → OLLO logo + colour
+  3. https://dashboard.stripe.com/settings/connect/branding           → foliyo logo + colour
   ${acct.details_submitted ? "" : "5. Complete the platform business profile before going live (charges_enabled is false)."}
 `);

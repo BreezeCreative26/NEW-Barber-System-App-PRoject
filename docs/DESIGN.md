@@ -1,4 +1,4 @@
-# OLLO design system
+# foliyo design system
 
 Source of truth for how every screen looks and behaves. Reference renders: `docs/mockups/shell-wallet.html` (shop device / admin, 1440) and `docs/mockups/barber-mobile.html` (staff phone, 390). Tokens and shared components: `public/static/design.css`. React primitives: `src/client/ui.tsx`.
 
@@ -10,7 +10,7 @@ Enforced by `npm run test:design` (tokens only in design.css, no emoji in `src/`
 2. **Chrome stays out of the way.** 56 px top bar, 64 px rail; content gets the rest. One primary action per surface.
 3. **Glanceable money.** Wallet chip in the top bar; hero card on staff Today; column heads show takings. All amounts via `money()`.
 4. **Icons, never emoji.** Lucide line icons through `<Icon name>` only. Sizes: 18 default, 15 chip, 12 inline strip.
-5. **Records, not balances.** Wallet views are ledgers derived from recorded payments. Copy must never imply OLLO holds or moves money.
+5. **Records, not balances.** Wallet views are ledgers derived from recorded payments. Copy must never imply foliyo holds or moves money.
 6. **Tokens only.** No raw hex/rgb outside `:root`. New styling goes in `design.css`; `style.css` is legacy and may only shrink.
 7. **Stable hooks.** Interactive elements that tests or later screens rely on carry `data-testid`.
 

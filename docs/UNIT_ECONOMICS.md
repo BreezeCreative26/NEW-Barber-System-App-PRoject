@@ -1,4 +1,4 @@
-# Unit economics — what one shop costs OLLO to run
+# Unit economics — what one shop costs foliyo to run
 
 Reference shop: **3 barbers, 6 days/week, ~10 cuts each per day ≈ 780 bookings/month**, 70% booked
 online or by phone (the rest walk in). Rates are the providers' published UK/US list prices as of
@@ -15,7 +15,7 @@ September 2026, converted at £0.76/$. Recheck quarterly; Meta and ElevenLabs mo
 | **Stripe Connect** | 3 Express accounts, weekly payouts | $2/active account/mo + 0.25% + 25¢ per payout | **£15** |
 | Email | confirmations, owner alerts, summaries | Resend — inside the shared plan | ~£0 |
 
-Card processing (1.5% + 20p on deposits/prepayments) is **not** OLLO's cost — it's deducted from the
+Card processing (1.5% + 20p on deposits/prepayments) is **not** foliyo's cost — it's deducted from the
 shop's payment before payout, the same as every competitor. At 40% of bookings taking a £10 deposit
 that's ~£110/month flowing through, ~£3,100 in deposits.
 
@@ -79,7 +79,7 @@ the receptionist on.
   shops exhaust it; the overage is $0.08/min (~£24 per shop-month) which is what the model above assumes.
   Move to Scale ($299, 3,738 min) once ~8 shops use it.
 - **ClickSend tiers**: top-ups from $500 drop the per-SMS rate ~30%; buy credit in bulk once volume justifies it.
-- **WhatsApp**: the OLLO sender needs Meta business verification before the £0.018 rate applies; until
+- **WhatsApp**: the foliyo sender needs Meta business verification before the £0.018 rate applies; until
   then WA falls back to text and costs the SMS rate.
 - **Stripe active-account fee** only bills for accounts that received a payout that month — barbers on
   "pay in shop" cost nothing.

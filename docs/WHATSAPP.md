@@ -1,4 +1,4 @@
-# WhatsApp (Infobip, one OLLO sender)
+# WhatsApp (Infobip, one foliyo sender)
 
 Customers pick **Text / WhatsApp / Email** on the booking form ("How should we message you?").
 The choice is saved on the booking and on their customer record (`contact_pref = WA`), so later
@@ -27,7 +27,7 @@ WhatsApp off (Messages → WhatsApp, or the setup wizard); a WA preference then 
 
 ## Going live (user side)
 1. Infobip portal → Channels → WhatsApp → **Register sender** (Meta embedded signup; needs a
-   Meta Business, a phone number not on WhatsApp, display name "OLLO"). Or buy a UK virtual
+   Meta Business, a phone number not on WhatsApp, display name "foliyo"). Or buy a UK virtual
    number there (~€2.61/mo) and register that.
 2. Set `INFOBIP_WA_SENDER` to the new number (digits only) on Vercel; redeploy.
 3. `INFOBIP_API_KEY=… INFOBIP_WA_SENDER=… node scripts/whatsapp-templates.mjs --submit` and wait

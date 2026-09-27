@@ -1215,7 +1215,7 @@
   color: var(--muted);
 }
 :root {
-  /* OLLO brand: deep green ink, warm cream canvas, matte-mint accent. Legacy token names kept so existing rules keep working. */
+  /* foliyo brand: deep green ink, warm cream canvas, matte-mint accent. Legacy token names kept so existing rules keep working. */
   --canvas: #f4f3ee;
   --surface: #fff;
   --ink: #0f1f1b;
@@ -1584,7 +1584,7 @@ input[aria-invalid="true"] {
 .brand.light .brand-wordmark {
   /* white variant is chosen in markup; no colour filters (they would flip the mint accent). */
 }
-/* Shop-branded workspace: their logo/initial + name, OLLO as a quiet "Powered by" line. */
+/* Shop-branded workspace: their logo/initial + name, foliyo as a quiet "Powered by" line. */
 .brand-shop {
   gap: 10px;
   min-width: 0;

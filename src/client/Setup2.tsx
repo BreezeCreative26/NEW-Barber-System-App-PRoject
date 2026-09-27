@@ -137,7 +137,7 @@ export function StepMessages({ w, api, refresh, data, setNotice, setError, onNex
   const { busy, run } = useBusy();
   const ps = data.progress.messages.providers;
   const smsLive = ps.sms.provider !== "mailbox", emailLive = ps.email.provider !== "mailbox", waLive = ps.wa?.provider === "infobip";
-  const sender = m.msg_sms_sender || "OLLO";
+  const sender = m.msg_sms_sender || "foliyo";
   const barber = w.staff[0]?.name.split(" ")[0] || "Sam";
   const svc = w.services[0]?.name || "Haircut";
   const preview = `${shop.name}: you're booked — ${svc} with ${barber}, Fri 12 Sep at 10:30. Ref BRB-0412. Move or cancel: ${location.origin}/m/a1b2c3`;

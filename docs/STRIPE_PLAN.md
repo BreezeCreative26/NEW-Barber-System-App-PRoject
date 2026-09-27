@@ -1,16 +1,16 @@
-# Stripe integration plan — OLLO
+# Stripe integration plan — foliyo
 
 Generated 2026-09-20 with Stripe's `stripe_implementation_planner` (MCP, guide
 `iguide_61VR861qlKOggX04141CE9wUFm2s6`) against the live test account `acct_1UHjdYCE9wUFm2s6`
-("OLLO sandbox", GB, GBP), then checked against the code in `src/server/stripe.ts`,
+("foliyo sandbox", GB, GBP), then checked against the code in `src/server/stripe.ts`,
 `payouts.ts`, `chair.ts`, `public.ts`. Companion runbook: `docs/PAYMENTS.md`.
 
 ## 1. Verdict on the existing design
 
-| Planner question | OLLO's answer | Verdict |
+| Planner question | foliyo's answer | Verdict |
 |---|---|---|
 | Platform type | Software for shops that serve their own customers, **but** every payment is split two ways (barber + shop) and held until a pay run | Marketplace money-flow with **separate charges and transfers** — correct. Direct charges can't reach a second account; destination charges can't hold or split. |
-| Merchant of record | OLLO | Correct for this flow. Do **not** set `on_behalf_of`. |
+| Merchant of record | foliyo | Correct for this flow. Do **not** set `on_behalf_of`. |
 | Pricing owner | Platform (`fees_collector: application`) | Required with separate charges. Already the case. |
 | Loss liability | Platform (`losses_collector: application`) | Required. **Action:** accept loss liability once at dashboard.stripe.com/settings/connect/platform-profile before the first live account. |
 | Fraud | Platform manages | **Action:** enable Radar for Platforms (Dashboard → Radar). No code. |
@@ -42,7 +42,7 @@ Generated 2026-09-20 with Stripe's `stripe_implementation_planner` (MCP, guide
 - Receipts: set `payment_intent_data[receipt_email]` on Checkout; Stripe emails the receipt.
 - Radar rules for platforms: block when `:card_country: != 'GB'` and amount > £150 (tune).
 
-### Phase 2 — Billing (OLLO's own subscription)
+### Phase 2 — Billing (foliyo's own subscription)
 Charged on the **platform** account, not through Connect. One `Customer` per shop
 (`shops.stripe_customer_id`), tiers as Products/Prices:
 
@@ -60,7 +60,7 @@ Charged on the **platform** account, not through Connect. One `Customer` per sho
   `invoice.payment_failed` → `shops.plan`, `plan_status`, `plan_renews_at`; a `past_due` shop
   keeps read access, loses new bookings after 7 days.
 - UK VAT: Stripe Tax on the subscription Prices (`tax_behavior: exclusive`, automatic tax on
-  the Checkout session). OLLO must be VAT-registered first — until then no VAT line.
+  the Checkout session). foliyo must be VAT-registered first — until then no VAT line.
 
 ### Phase 3 — Invoicing
 - **Shop → customer** (weddings, corporate): `Invoice` on the platform account with
@@ -68,7 +68,7 @@ Charged on the **platform** account, not through Connect. One `Customer` per sho
   platform, `metadata.shop_id`, and let `invoice.paid` write a ledger row like a pay link
   (`method CARD`, `stripe_payment_intent`) so the pay run splits it. Hosted invoice page,
   `collection_method: send_invoice`, `days_until_due: 7`, bank transfer enabled for B2B.
-- **OLLO → shop**: Billing already emits invoices; enable *Invoice PDF* emails and set the
+- **foliyo → shop**: Billing already emits invoices; enable *Invoice PDF* emails and set the
   footer (company number, VAT number) in Dashboard → Branding.
 
 ### Phase 4 — Terminal
@@ -90,7 +90,7 @@ ask for faster money than Instant Payouts. Alternative today: nothing to build.
 ## 3. Owner checklist (Dashboard, ~10 minutes)
 1. Connect → Settings → Platform profile → **accept loss liability**.
 2. Radar → **Radar for Platforms** on.
-3. Connect → Branding → OLLO logo/colour (shows on Express onboarding).
+3. Connect → Branding → foliyo logo/colour (shows on Express onboarding).
 4. Payment methods → Apple Pay → register the domains.
 5. Complete the platform business profile (required before `sk_live_`).
 6. Vercel → env: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (from the endpoint created by

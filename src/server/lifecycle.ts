@@ -81,9 +81,9 @@ export async function sweepAlerts(db: DB, now = Date.now()) {
   for (const d of disputes) await raiseAlert(db, "DISPUTE", "WARN", d.shop_id, `${d.name}: ${d.n} open dispute${d.n === 1 ? "" : "s"}`, "Evidence is due within Stripe's window.", `dispute:${d.shop_id}`, now);
 }
 
-// Email unsent WARN/CRIT alerts to OLLO_ALERT_EMAIL (batched, at most every 30 minutes).
+// Email unsent WARN/CRIT alerts to FOLIYO_ALERT_EMAIL (legacy OLLO_ALERT_EMAIL still read; batched, at most every 30 minutes).
 export async function emailAlerts(db: DB, origin: string, now = Date.now()) {
-  const to = (process.env.OLLO_ALERT_EMAIL || "").trim();
+  const to = (process.env.FOLIYO_ALERT_EMAIL || process.env.OLLO_ALERT_EMAIL || "").trim();
   if (!to) return 0;
   const rows = (await db.prepare("SELECT * FROM admin_alerts WHERE emailed_at IS NULL AND acked_at IS NULL AND severity IN ('WARN','CRIT') ORDER BY created_at LIMIT 30").all<{ id: string; severity: string; title: string; detail: string }>()).results;
   if (!rows.length) return 0;

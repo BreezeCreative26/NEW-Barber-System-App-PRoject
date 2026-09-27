@@ -1,6 +1,6 @@
-# OLLO — direction (read this first)
+# foliyo — direction (read this first)
 
-OLLO is a barbershop SaaS: online booking, a working calendar for the shop, customers, payments,
+foliyo is a barbershop SaaS: online booking, a working calendar for the shop, customers, payments,
 messages. Many shops will run on one deployment. **Right now we are building one real shop and
 getting it right; SaaS signup/plans/billing come after that shop runs a real week.**
 
@@ -30,9 +30,9 @@ messages. One database; every business row carries `shop_id`.
    Never in code, never in chat if avoidable. Rotate anything that has been pasted anywhere.
 6. **Design system** stays: tokens in `design.css`, Lucide icons via `<Icon>`. Don't add a second
    styling system. That's it.
-7. **Customers see the shop, not OLLO.** Every customer-facing surface — shop page, booking, manage
+7. **Customers see the shop, not foliyo.** Every customer-facing surface — shop page, booking, manage
    a visit, account, waiting-list offers, and **all emails/SMS when messaging lands** — carries the
-   shop's name, logo and chosen theme. OLLO appears only as a small "Powered by OLLO" line at the
+   shop's name, logo and chosen theme. foliyo appears only as a small "Powered by foliyo" line at the
    bottom of pages (and nowhere in messages unless a plan later says otherwise). The theme travels
    with every public payload as `shop.brand` and renders through `themeClass()` + `shop-theme.css`.
 
