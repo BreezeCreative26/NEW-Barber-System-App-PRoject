@@ -45,6 +45,7 @@ export const MESSAGE_TEMPLATES = [
   "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
   "verify_contact", "password_reset", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
   "invoice", "credit_note", "owner_signin_link", "trial_ending", "trial_ended", "payment_overdue", "account_readonly", "broadcast", "admin_alert_digest",
+  "owner_welcome", "email_verify",
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
 
@@ -178,6 +179,16 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         heading: `${v.code}`,
         lines: [`Enter this code to confirm this is ${s}'s ${v.kind === "PHONE" ? "mobile number" : "email address"}. It expires in 10 minutes.`, "If you didn't ask for it, ignore this message."],
       };
+    case "email_verify":
+      // Shop-branded: an invited team member confirming the address they signed up with, or an
+      // owner re-sending from the workspace nudge.
+      return {
+        sms: `${s}: confirm your sign-in email here (24 h): ${v.link}`,
+        subject: `Confirm your email for ${s}`,
+        heading: who !== "there" ? `Nearly there, ${who}.` : "Nearly there.",
+        lines: [`Tap the button to confirm that ${v.email} is yours. That's what we'll use for sign-in help and password resets.`, "The link works once and expires in 24 hours.", "If you didn't create this account, ignore this message."],
+        cta: { label: "Confirm my email", href: String(v.link) },
+      };
     case "password_reset":
       return {
         sms: `${s}: reset your booking system password here (30 min): ${v.link}`,
@@ -251,6 +262,16 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         lines: String(v.items || "").split("\n").filter(Boolean),
         cta: { label: "Open admin alerts", href: String(v.link) },
       };
+    case "owner_welcome":
+      // foliyo → a brand-new owner, moments after signup. Doubles as the email confirmation.
+      return {
+        sms: `${s}: welcome! Confirm your email and finish setting up ${v.shop}: ${v.link}`,
+        subject: `Welcome to ${s} — confirm your email`,
+        heading: who !== "there" ? `Welcome, ${who}.` : "Welcome.",
+        lines: [`${v.shop} is ready for you. Tap the button to confirm this address — it's how you'll get back in if you ever forget your password.`, "Then finish the short setup: opening hours, services, your team and your booking link. Most shops take bookings the same day.", "The link works once and expires in 24 hours. If you didn't sign up, ignore this email."],
+        cta: { label: "Confirm email and continue", href: String(v.link) },
+        footnote: v.trial_days ? `Your ${v.trial_days}-day free trial has started. No card needed until you choose a plan.` : undefined,
+      };
     case "owner_signin_link":
       return {
         sms: `${s}: your one-time sign-in link (15 min): ${v.link}`,
@@ -302,12 +323,22 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
 }
 
 // ---- Email shell (shop-branded, inline CSS, dark-safe) ---------------------------
-const ACCENTS: Record<string, { bg: string; ink: string }> = {
-  ollo: { bg: "#0b1a17", ink: "#ffffff" }, ink: { bg: "#1d1f26", ink: "#ffffff" }, sage: { bg: "#3f7d5c", ink: "#ffffff" },
+// Button / tile colours mirror the six named accents in public/static/shop-theme.css (light mode),
+// so the email matches the shop page the customer just booked on. `ink` is the text colour on
+// the accent; every pair is ≥ 4.5:1 on white.
+export const EMAIL_ACCENTS: Record<string, { bg: string; ink: string }> = {
+  ollo: { bg: "#3a7563", ink: "#ffffff" }, ink: { bg: "#1d1f26", ink: "#ffffff" }, sage: { bg: "#3f7d5c", ink: "#ffffff" },
   clay: { bg: "#a8552f", ink: "#ffffff" }, plum: { bg: "#6e3b7a", ink: "#ffffff" }, slate: { bg: "#4a5568", ink: "#ffffff" },
 };
+// foliyo → owner emails (billing, lifecycle, admin sign-in links, welcome) go out as the platform:
+// foliyo lockup, foliyo green, company footer — never the shop's own logo, which would be odd
+// on an invoice addressed *to* that shop. `platformSender()` builds the MsgShop-shaped sender.
+export const PLATFORM_LOGO = "/static/brand/png/foliyo-lockup-ink-800.png";
+export function platformSender(shop: MsgShop, pb: { company_name?: string; company_address?: string; company_email?: string }): MsgShop {
+  return { ...shop, name: pb.company_name || "foliyo", logo_url: PLATFORM_LOGO, accent: "ollo", theme_json: "{}", address: pb.company_address || "", email: pb.company_email || "", phone: "" };
+}
 export function emailHtml(shop: { name: string; address?: string; slug?: string | null }, brand: ShopBrand, origin: string, r: Rendered, footer: { phone?: string; email?: string; unsubscribe?: string }) {
-  const a = ACCENTS[brand.accent] || ACCENTS.ollo;
+  const a = EMAIL_ACCENTS[brand.accent] || EMAIL_ACCENTS.ollo;
   const logo = brand.logo_url ? `<img src="${esc(brand.logo_url.startsWith("http") ? brand.logo_url : origin + brand.logo_url)}" alt="${esc(shop.name)}" height="40" style="height:40px;max-width:180px;object-fit:contain;display:block" />` : `<div style="display:inline-block;width:40px;height:40px;border-radius:10px;background:${a.bg};color:${a.ink};font:700 16px/40px -apple-system,Segoe UI,Inter,Arial,sans-serif;text-align:center">${esc(shop.name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase())}</div>`;
   const lines = r.lines.map((l) => `<p style="margin:0 0 8px;font:15px/1.5 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#3c3f48">${esc(l)}</p>`).join("");
   const cta = r.cta ? `<a href="${esc(r.cta.href)}" style="display:inline-block;margin:18px 0 6px;padding:13px 22px;border-radius:10px;background:${a.bg};color:${a.ink};font:600 15px -apple-system,Segoe UI,Inter,Arial,sans-serif;text-decoration:none">${esc(r.cta.label)}</a><p style="margin:6px 0 0;font:12px/1.5 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#8a8f9c;word-break:break-all">${esc(r.cta.href)}</p>` : "";
@@ -316,6 +347,7 @@ export function emailHtml(shop: { name: string; address?: string; slug?: string 
 <body style="margin:0;padding:0;background:#f5f6fb">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f6fb"><tr><td align="center" style="padding:28px 16px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden">
+<tr><td style="height:6px;background:${a.bg};font-size:0;line-height:0">&nbsp;</td></tr>
 <tr><td style="padding:24px 28px 0">${logo}</td></tr>
 <tr><td style="padding:20px 28px 0"><h1 style="margin:0 0 14px;font:700 24px/1.2 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#14151a;letter-spacing:-0.02em">${esc(r.heading)}</h1>${lines}${cta}${r.footnote ? `<p style="margin:16px 0 0;font:13px/1.5 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#6b6f7a">${esc(r.footnote)}</p>` : ""}</td></tr>
 <tr><td style="padding:24px 28px 26px"><p style="margin:0;font:12px/1.6 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#8a8f9c">${foot}</p></td></tr>

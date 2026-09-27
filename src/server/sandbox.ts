@@ -199,8 +199,8 @@ sandbox.use("*", async (c, next) => {
     method = c.req.method;
   const publicAuth =
     (method === "POST" &&
-      ["/auth/login", "/auth/signup", "/auth/accept", "/auth/logout", "/auth/demo", "/auth/forgot", "/auth/reset"].includes(path)) ||
-    (method === "GET" && ["/auth/me", "/auth/invites/peek", "/auth/reset/peek"].includes(path));
+      ["/auth/login", "/auth/signup", "/auth/accept", "/auth/logout", "/auth/demo", "/auth/forgot", "/auth/reset", "/auth/verify-email"].includes(path)) ||
+    (method === "GET" && ["/auth/me", "/auth/invites/peek", "/auth/reset/peek", "/auth/verify-email/peek"].includes(path));
   if (!account && !publicAuth)
     return c.json(
       {

@@ -11,7 +11,7 @@ import { z } from "zod";
 import type { Database as DB } from "../db/client";
 import { ACCOUNT_COOKIE, digest, type AppEnv } from "./accounts";
 import { entitlements, features, logBilling, plans, platformBilling, setFeature, usageFor, estimate, type PlanRow, type FeatureRow } from "./billing";
-import { providerStatus, enqueue, drain, msgShop } from "./messaging";
+import { providerStatus, enqueue, drain, msgShop, platformSender } from "./messaging";
 import { raiseAlert, segmentRecipients, sendBroadcast, snapshotMrr, sweepPlatform, type Segment } from "./lifecycle";
 import { payRunStatementHtml, applyDunning, invoiceHtml, invoiceStats, issueCreditNote, issueManualInvoice, issuePeriodInvoice, markPaid, markUncollectible, prevPeriodKey, runPeriodClose, sendInvoice, voidInvoice, type InvoiceRow } from "./invoicing";
 import { stripeStatus } from "./stripe";
@@ -518,7 +518,7 @@ admin.post("/shops/:id/signin-link", async (c) => {
   const link = `${origin}/api/admin-public/signin?token=${raw}`;
   const shop = await msgShop(c, shopId);
   const pb = await platformBilling(db);
-  const stmts = enqueue(db, { ...shop, name: pb.company_name || "foliyo" }, { email: m!.email, name: m!.name }, "owner_signin_link", { link, shop: shop.name }, { related: { type: "owner_link", id: m!.id + ":" + now }, origin, channel: "EMAIL", now, force: true });
+  const stmts = enqueue(db, platformSender(shop, pb), { email: m!.email, name: m!.name }, "owner_signin_link", { link, shop: shop.name }, { related: { type: "owner_link", id: m!.id + ":" + now }, origin, channel: "EMAIL", now, force: true });
   if (stmts.length) { await db.batch(stmts); await drain(db, stmts.length, now, { type: "owner_link", id: m!.id + ":" + now }).catch(() => {}); }
   await audit(c, shopId, "SIGNIN_LINK_SENT", {}, { to: m!.email, revealed: !!b.reveal }, b.reason);
   await db.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shopId, "shop", shopId, "SIGNIN_LINK_SENT", actor(c), `foliyo support sent a one-time sign-in link to ${m!.email}: ${b.reason}`, now).run();

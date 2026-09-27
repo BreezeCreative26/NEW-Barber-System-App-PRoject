@@ -3,10 +3,10 @@ import app from "../src/index";
 import { dateLabel, datePlus, money, time } from "../src/client/fixtures";
 
 describe("app route boundaries", () => {
-  it("redirects the root to the workspace", async () => {
+  it("serves the marketing landing page at the root (signed-out visitors)", async () => {
     const r = await app.request("/");
-    expect(r.status).toBe(302);
-    expect(r.headers.get("location")).toBe("/workspace");
+    expect(r.status).toBe(200);
+    expect(await r.text()).toContain("/signup");
   });
   it("serves the workspace shell with noindex and no-store", async () => {
     const r = await app.request("/workspace");

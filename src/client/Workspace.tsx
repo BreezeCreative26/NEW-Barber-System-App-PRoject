@@ -1156,6 +1156,46 @@ const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: s
 
 
 // Shown when foliyo support opened this workspace from the admin panel (cookie set by /api/admin/…/impersonate).
+// One-line nudge until the login email is confirmed. Soft: nothing is gated on it, but password
+// resets go to this address so it's worth a click. Re-send is rate-limited server-side (1/min).
+function VerifyEmailNudge({ email, onVerified }: { email: string; onVerified: () => void }) {
+  const [state, setState] = useState<{ sent?: boolean; sandbox?: string; error?: string; busy?: boolean; hidden?: boolean }>(() => ({ hidden: sessionStorage.getItem("foliyo:verify-nudge") === "hidden" }));
+  if (state.hidden) return null;
+  return (
+    <section className="setup-banner verify-nudge" data-testid="verify-nudge">
+      <div>
+        <strong>Confirm your email.</strong>
+        <span>
+          {state.sent
+            ? <>Sent to {email}. Check spam if it isn't there in a minute.{state.sandbox && <> No email provider is connected here, so: <a href={`/verify?token=${state.sandbox}`} data-testid="sandbox-verify-link">open the confirmation link</a>.</>}</>
+            : state.error
+              ? state.error
+              : <>We sent a link to {email}. Tap it so password resets reach you.</>}
+        </span>
+      </div>
+      <div className="setup-banner-actions">
+        <Button
+          variant="secondary"
+          disabled={state.busy}
+          data-testid="verify-resend"
+          onClick={async () => {
+            setState((s) => ({ ...s, busy: true, error: "" }));
+            try {
+              const r = await api<{ already?: boolean; sandbox_token?: string }>("/auth/verify-email/resend", "POST", {});
+              if (r.already) { onVerified(); return; }
+              setState({ sent: true, sandbox: r.sandbox_token });
+            } catch (e) {
+              setState({ error: e instanceof Error ? e.message : "Could not send the email." });
+            }
+          }}
+        >
+          {state.busy ? "Sending…" : state.sent ? "Send again" : "Resend email"}
+        </Button>
+        <button type="button" className="linklike" data-testid="verify-nudge-hide" onClick={() => { sessionStorage.setItem("foliyo:verify-nudge", "hidden"); setState((s) => ({ ...s, hidden: true })); }}>Later</button>
+      </div>
+    </section>
+  );
+}
 function ImpersonationBar() {
   const [info, setInfo] = useState<{ admin: string; until: number } | null>(() => {
     const m = document.cookie.match(/(?:^|; )ollo_impersonating=([^;]*)/);
@@ -2012,6 +2052,9 @@ export function Workspace() {
           )}
           {!w && !needsSession && !error && (
             <p role="status">Loading local workspace…</p>
+          )}
+          {w && !inviteToken && !setupOpen && w.account && !w.account.email_verified_at && (
+            <VerifyEmailNudge email={w.account.email} onVerified={() => refresh({ background: true })} />
           )}
           {w && !inviteToken && manager && setupOpen && (
             <SetupWizard w={w} api={api} refresh={async () => { await refresh(); }} goTo={goTo} onExit={() => { openSetup(false); refresh().catch(() => {}); }} />
@@ -3590,6 +3633,8 @@ const MSG_LABELS: Record<string, string> = {
   waitlist_joined: "Joined the list", waitlist_offer: "A time is offered", waitlist_booked: "Offer accepted", waitlist_released: "Declined or expired",
   pay_link: "Pay link", verify_contact: "Verification code", password_reset: "Password reset",
   owner_new_booking: "Alert · new booking", owner_cancelled: "Alert · cancellation", owner_no_show: "Alert · no-show", owner_daily_summary: "Alert · morning summary", owner_callback: "Alert · call back (AI receptionist)",
+  owner_welcome: "Welcome (confirm email)", email_verify: "Confirm email", owner_signin_link: "One-time sign-in link",
+  invoice: "Invoice", credit_note: "Credit note", trial_ending: "Trial ending", trial_ended: "Trial ended", payment_overdue: "Payment overdue", account_readonly: "Bookings paused", broadcast: "Announcement",
 };
 // Owner/manager alert preferences (Settings → Messages).
 type AlertCh = "OFF" | "EMAIL" | "SMS" | "BOTH";

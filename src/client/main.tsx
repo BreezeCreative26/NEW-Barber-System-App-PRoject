@@ -7,6 +7,7 @@ import { PublicBooking, ManageBooking } from "./PublicBooking";
 import { ShopPage } from "./ShopPage";
 import { CustomerArea } from "./CustomerArea";
 import { OfferPage } from "./OfferPage";
+import { VerifyEmail } from "./VerifyEmail";
 
 // Browser errors reach the same sink as server errors (see src/server/telemetry.ts). Dedupe by
 // message so a render loop cannot flood the endpoint; the server also rate-limits per client.
@@ -56,11 +57,13 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
   }
 }
 const [, area, param] = location.pathname.split("/");
-const APP_AREAS = new Set(["workspace", "signin", "signup", "forgot", "reset", "admin", ""]);
+const APP_AREAS = new Set(["workspace", "signin", "signup", "forgot", "reset", "verify", "admin", ""]);
 createRoot(document.getElementById("root")!).render(
   <AppErrorBoundary>
     {area === "admin" ? (
       <Admin />
+    ) : area === "verify" ? (
+      <VerifyEmail />
     ) : area === "book" && param ? (
       <PublicBooking slug={decodeURIComponent(param)} />
     ) : area === "manage" && param ? (

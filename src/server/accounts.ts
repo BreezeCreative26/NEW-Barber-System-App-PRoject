@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
-import { drain, enqueue, msgShop, providerStatus } from "./messaging";
+import { drain, enqueue, msgShop, platformSender, providerStatus } from "./messaging";
+import { platformBilling } from "./billing";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import type { Database } from "../db/client";
@@ -17,6 +18,8 @@ export type Account = {
   version: number;
   // Small per-user UI preferences (calendar density …). Raw JSON text; parsed on the client.
   prefs_json?: string;
+  // When the login email was confirmed via the welcome / confirm-email link; null until then.
+  email_verified_at?: number | null;
 };
 export type AppEnv = {
   Bindings: { DB: Database; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string; OLLO_ADMIN_EMAILS?: string };
@@ -207,7 +210,7 @@ export async function resolveAccount(
   token: string,
 ): Promise<Account | null> {
   return c.env.DB.prepare(
-    `SELECT m.id,m.user_id,m.shop_id,m.role,m.staff_id,m.version,m.prefs_json,u.name,u.email FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1 AND (m.role='OWNER' OR b.active=1)`,
+    `SELECT m.id,m.user_id,m.shop_id,m.role,m.staff_id,m.version,m.prefs_json,u.name,u.email,u.email_verified_at FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1 AND (m.role='OWNER' OR b.active=1)`,
   )
     .bind(await digest(token), Date.now())
     .first<Account>();
@@ -311,6 +314,31 @@ const signup = z
 // POST /auth/signup — the only way a real shop starts. Creates the shop, the owner's user +
 // OWNER membership, and adds the owner as the first bookable barber (most owners cut hair; the
 // profile can be deactivated in Team if not). No fictional services or staff are seeded.
+// ---- Login-email verification -----------------------------------------------------------------
+// One live token per user (issuing a new one retires the old). 24 h, single use, hash stored.
+// `owner_welcome` goes out as foliyo (it is the platform welcoming a new customer); `email_verify`
+// goes out as the shop (an invited barber confirming the address they joined with, or a re-send).
+const VERIFY_TTL = 24 * 3600000;
+async function issueEmailVerification(
+  c: Ctx,
+  user: { id: string; email: string; name: string; shop_id: string },
+  kind: "owner_welcome" | "email_verify",
+  now = Date.now(),
+): Promise<{ stmts: ReturnType<typeof enqueue>; token: string }> {
+  const token = uid() + uid();
+  const origin = new URL(c.req.url).origin;
+  const link = `${origin}/verify?token=${token}`;
+  const shop = await msgShop(c, user.shop_id);
+  const pb = kind === "owner_welcome" ? await platformBilling(c.env.DB) : null;
+  const sender = pb ? platformSender(shop, pb) : shop;
+  const vars = kind === "owner_welcome" ? { link, shop: shop.name, trial_days: pb!.trial_days } : { link, email: user.email };
+  const stmts = [
+    c.env.DB.prepare("UPDATE email_verifications SET used_at=? WHERE user_id=? AND used_at IS NULL").bind(now, user.id),
+    c.env.DB.prepare("INSERT INTO email_verifications(token_hash,user_id,email,created_at,expires_at) VALUES(?,?,?,?,?)").bind(await digest(token), user.id, user.email, now, now + VERIFY_TTL),
+    ...enqueue(c.env.DB, sender, { email: user.email, name: user.name }, kind, vars, { related: { type: "email_verify", id: user.id }, origin, channel: "EMAIL", now, force: true }),
+  ];
+  return { stmts, token };
+}
 accounts.post("/signup", async (c) => {
   const b = await readInput(c, signup);
   if (c.get("account")) return reject(409, "You are already signed in. Sign out first to create another shop.");
@@ -349,8 +377,19 @@ accounts.post("/signup", async (c) => {
     event(c, shop, `user:${user}`, user, "OWNER_ACCOUNT_CREATED"),
   );
   await c.env.DB.batch(writes);
+  // Welcome + confirm-email, after the shop exists (msgShop reads it). A mail failure must never
+  // fail the signup: the workspace nudge offers a re-send.
+  let sandboxToken: string | undefined;
+  try {
+    const v = await issueEmailVerification(c, { id: user, email: b.email, name: b.name, shop_id: shop }, "owner_welcome", now);
+    await c.env.DB.batch(v.stmts);
+    await drain(c.env.DB, 2, now, { type: "email_verify", id: user }).catch(() => {});
+    if (providerStatus().email.provider === "mailbox" && demoEnabled(c)) sandboxToken = v.token;
+  } catch (e) {
+    console.error("welcome email failed", e instanceof Error ? e.message : e);
+  }
   cookies(c, session.raw);
-  return c.json({ ok: true, shop_id: shop }, 201);
+  return c.json({ ok: true, shop_id: shop, ...(sandboxToken ? { sandbox_verify_token: sandboxToken } : {}) }, 201);
 });
 accounts.post("/login", async (c) => {
   const b = await readInput(c, credentials);
@@ -565,7 +604,7 @@ accounts.post("/accept", async (c) => {
     "SELECT i.* FROM staff_invitations i JOIN staff s ON s.shop_id=i.shop_id AND s.id=i.staff_id WHERE i.token_hash=? AND (i.email=? OR i.email LIKE '%@sms.invite') AND i.revoked=0 AND i.accepted_at IS NULL AND i.expires_at>? AND s.active=1",
   )
     .bind(await digest(b.token), b.email, Date.now())
-    .first<{ id: string; shop_id: string; staff_id: string; role: string; invited_by: string }>();
+    .first<{ id: string; shop_id: string; staff_id: string; role: string; invited_by: string; email: string }>();
   if (!invite)
     return reject(400, "Invitation is unavailable or details do not match");
   if (await c.env.DB.prepare("SELECT 1 AS x FROM app_users WHERE email=?").bind(b.email).first())
@@ -605,8 +644,67 @@ accounts.post("/accept", async (c) => {
       "STAFF_INVITATION_ACCEPTED",
     ),
   ]);
+  // An email invite already proved the address (the token came from that inbox); SMS/link
+  // invites did not, so those sign-ups get a confirm-email message.
+  const emailInvite = !String(invite.email || "").endsWith("@sms.invite") && invite.email === b.email;
+  const now = Date.now();
+  if (emailInvite) {
+    await c.env.DB.prepare("UPDATE app_users SET email_verified_at=? WHERE id=?").bind(now, user).run();
+  } else {
+    try {
+      const v = await issueEmailVerification(c, { id: user, email: b.email, name: b.name, shop_id: invite.shop_id }, "email_verify", now);
+      await c.env.DB.batch(v.stmts);
+      await drain(c.env.DB, 2, now, { type: "email_verify", id: user }).catch(() => {});
+    } catch (e) {
+      console.error("confirm email failed", e instanceof Error ? e.message : e);
+    }
+  }
   cookies(c, session.raw);
   return c.json({ ok: true }, 201);
+});
+// Confirm-email link: `GET /verify?token=` (page) → `peek` for the copy, then POST to stamp it.
+// Works signed-in or not; on success while signed out the page offers sign-in.
+accounts.get("/verify-email/peek", async (c) => {
+  const token = c.req.query("token") || "";
+  if (token.length < 60) return reject(404, "This confirmation link is not valid.");
+  const row = await c.env.DB.prepare("SELECT v.expires_at,v.used_at,v.email,u.email_verified_at FROM email_verifications v JOIN app_users u ON u.id=v.user_id WHERE v.token_hash=?").bind(await digest(token)).first<{ expires_at: number; used_at: number | null; email: string; email_verified_at: number | null }>();
+  if (!row) return reject(404, "This confirmation link is not valid.");
+  if (row.used_at) return row.email_verified_at ? c.json({ ok: true, already: true, email: row.email }) : reject(404, "This confirmation link has been replaced by a newer one. Use the latest email.");
+  if (row.expires_at <= Date.now()) return reject(409, "This confirmation link has expired. Sign in and ask for a new one.");
+  return c.json({ ok: true, already: false, email: row.email });
+});
+accounts.post("/verify-email", async (c) => {
+  const b = await readInput(c, z.object({ token: z.string().min(60).max(100) }).strict());
+  await throttle(c, "verify", b.token.slice(0, 16));
+  const now = Date.now();
+  const hash = await digest(b.token);
+  const row = await c.env.DB.prepare("SELECT v.user_id,v.email,v.expires_at,v.used_at,u.email AS current_email,m.shop_id FROM email_verifications v JOIN app_users u ON u.id=v.user_id LEFT JOIN app_memberships m ON m.user_id=u.id AND m.active=1 WHERE v.token_hash=?").bind(hash).first<{ user_id: string; email: string; expires_at: number; used_at: number | null; current_email: string; shop_id: string | null }>();
+  if (!row || row.used_at || row.expires_at <= now) return reject(409, "This confirmation link is no longer valid. Sign in and ask for a new one.");
+  // The link confirms the address it was sent to; if the login email changed since, it proves nothing.
+  if (row.email.toLowerCase() !== row.current_email.toLowerCase()) return reject(409, "Your sign-in email has changed since this link was sent. Ask for a new one.");
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE email_verifications SET used_at=? WHERE token_hash=? AND used_at IS NULL").bind(now, hash),
+    c.env.DB.prepare("UPDATE app_users SET email_verified_at=COALESCE(email_verified_at,?) WHERE id=?").bind(now, row.user_id),
+    ...(row.shop_id ? [event(c, row.shop_id, `user:${row.user_id}`, row.user_id, "EMAIL_VERIFIED")] : []),
+  ]);
+  return c.json({ ok: true, email: row.email, signed_in: !!c.get("account") });
+});
+// Re-send from the workspace nudge. Signed-in only; 1/min per user; a fresh token each time.
+accounts.post("/verify-email/resend", async (c) => {
+  await readInput(c, z.object({}).strict());
+  const a = member(c);
+  if (a.email_verified_at) return c.json({ ok: true, already: true });
+  const now = Date.now();
+  const last = await c.env.DB.prepare("SELECT created_at FROM email_verifications WHERE user_id=? ORDER BY created_at DESC LIMIT 1").bind(a.user_id).first<{ created_at: number }>();
+  if (last && now - Number(last.created_at) < 60000) {
+    c.header("Retry-After", "60");
+    return reject(429, "A confirmation email went out less than a minute ago. Check your inbox (and spam), then try again.");
+  }
+  const v = await issueEmailVerification(c, { id: a.user_id, email: a.email, name: a.name, shop_id: a.shop_id }, a.role === "OWNER" ? "owner_welcome" : "email_verify", now);
+  await c.env.DB.batch(v.stmts);
+  await drain(c.env.DB, 2, now, { type: "email_verify", id: a.user_id }).catch(() => {});
+  const ps = providerStatus();
+  return c.json({ ok: true, delivery: ps.email.provider === "mailbox" ? [] : ["email"], ...(ps.email.provider === "mailbox" && demoEnabled(c) ? { sandbox_token: v.token } : {}) });
 });
 accounts.put("/members/:id", async (c) => {
   const a = owner(c);

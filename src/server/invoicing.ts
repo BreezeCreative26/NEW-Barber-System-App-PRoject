@@ -7,7 +7,7 @@
 // Every invoice has a printable HTML copy reachable by a per-invoice token so it can be emailed.
 import type { Database as DB } from "../db/client";
 import { estimate, logBilling, platformBilling, subscriptionFor, type PlatformBilling } from "./billing";
-import { enqueue, drain, msgShop } from "./messaging";
+import { enqueue, drain, msgShop, platformSender } from "./messaging";
 
 const uid = () => crypto.randomUUID();
 const DAY = 86400000;
@@ -219,7 +219,7 @@ export async function sendInvoice(db: DB, inv: InvoiceRow, toOverride: string, a
   const now = Date.now();
   const link = `${origin}/invoice/${inv.id}?t=${inv.view_token}`;
   const pb = await platformBilling(db);
-  const stmts = enqueue(db, { ...shop, name: pb.company_name || "foliyo" } as typeof shop, { email: to, name: bt.owner || bt.name }, inv.kind === "CREDIT_NOTE" ? "credit_note" : "invoice", {
+  const stmts = enqueue(db, platformSender(shop, pb), { email: to, name: bt.owner || bt.name }, inv.kind === "CREDIT_NOTE" ? "credit_note" : "invoice", {
     number: inv.number, total: money(inv.total_pence), due: inv.due_at ? new Date(inv.due_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "", link, shop: bt.name, status: inv.status, bank: pb.bank_details,
   }, { related: { type: "invoice", id: inv.id + ":" + now }, origin, channel: "EMAIL", now, force: true });
   if (stmts.length) { await db.batch(stmts); await drain(db, stmts.length, now, { type: "invoice", id: inv.id + ":" + now }).catch(() => {}); }
