@@ -120,8 +120,9 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
       // A seeded shop is already set up: mark the wizard complete so the demo opens on the calendar.
       "INSERT INTO shops(id,name,address,created_at,slug,online_booking,lead_time_min,booking_window_days,phone,email,setup_json) VALUES(?,?,?,?,?,1,60,42,?,?,?)",
     ).bind(shopId, shopName, "14 Northline Road, London E8 4QJ", now, slug, "+447700900100", ownerEmail, JSON.stringify({ step: "payments", done: ["shop", "hours", "services", "team", "messages", "online"], skipped: ["payments"], started_at: now, completed_at: now })),
-    db.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)")
-      .bind(ownerUser, ownerEmail, "Sam Okafor", encoded, salt, now),
+    // Demo/fixture accounts are pre-verified so the confirm-email nudge stays out of screenshots and tests.
+    db.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at,email_verified_at) VALUES(?,?,?,?,?,?,?)")
+      .bind(ownerUser, ownerEmail, "Sam Okafor", encoded, salt, now, now),
     db.prepare("INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?)").bind(shopId, ownerUser),
     db.prepare("INSERT INTO app_memberships(id,shop_id,user_id,role) VALUES(?,?,?,'OWNER')").bind(ownerMembership, shopId, ownerUser),
   ];
@@ -154,8 +155,8 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   // Barber account for Jay via a pre-accepted invitation (trigger requires one).
   const inviteId = uid();
   s.push(
-    db.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)")
-      .bind(barberUser, barberEmail, "Jay Carter", encoded, salt, now),
+    db.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at,email_verified_at) VALUES(?,?,?,?,?,?,?)")
+      .bind(barberUser, barberEmail, "Jay Carter", encoded, salt, now, now),
     db.prepare(
       "INSERT INTO staff_invitations(id,shop_id,staff_id,email,role,token_hash,expires_at,created_at) VALUES(?,?,?,?,'BARBER',?,?,?)",
     ).bind(inviteId, shopId, staff[0].id, barberEmail, await digest(uid()), now + 86400000, now),
