@@ -44,23 +44,19 @@ test("customer screen tour", async ({ page }) => {
   await expect(page.getByRole("group", { name: "Choose an appointment time" }).locator("button:not([disabled])").first()).toBeVisible();
   await shot(page, "04-book-time");
   await page.getByRole("group", { name: "Choose an appointment time" }).locator("button:not([disabled])").first().click();
-  await page.getByRole("button", { name: "Your details", exact: true }).click();
+  await page.getByRole("button", { name: "Sign in to book", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Sign in to book." })).toBeVisible();
   await page.getByLabel("Your name").fill("Jordan Lee");
   await page.getByLabel("Mobile number").fill(`07${String(Date.now()).slice(-9)}`);
   const jordanEmail = `jordan-${Date.now()}@example.test`;
   await page.getByLabel("Email address", { exact: true }).fill(jordanEmail);
-  await shot(page, "05-book-details");
-  await page.getByRole("button", { name: "Review booking" }).click();
+  await page.getByTestId("booking-password").fill("jordan-pass-1");
+  await shot(page, "05-book-account");
+  await page.getByTestId("auth-submit").click();
   await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
   await shot(page, "06-book-review");
   await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByRole("heading", { level: 1, name: label })).toBeVisible();
-  // The account step comes after the booking: choose a password here.
-  await expect(page.getByTestId("confirm-account")).toContainText("Create your account");
-  await page.getByTestId("booking-password").fill("jordan-pass-1");
-  await page.getByTestId("booking-password2").fill("jordan-pass-1");
-  await page.getByTestId("account-create-submit").click();
-  await expect(page.getByTestId("account-done")).toContainText("Your account is ready");
   await shot(page, "07-book-confirmed");
 
   // 8. Manage link (what the text/email link opens)

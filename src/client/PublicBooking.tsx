@@ -5,6 +5,7 @@ import { Avatar, Button, Icon, Notice } from "./ui";
 import { GroupBooking } from "./GroupBooking";
 import { ReviewCard, type OwnReview } from "./Reviews";
 import { applyThemeColor, themeClass, type ShopBrand, shopPath } from "./theme";
+import { ShopTabBar } from "./ShopTabBar";
 
 // Connected customer booking for /book/:slug and /manage/:token.
 // Reads and writes the same local D1 records as the owner workspace.
@@ -220,20 +221,20 @@ function BookingTopBar({ slug, name, logo, customer }: { slug: string; name: str
     <header className="booking-topbar">
       <a className="booking-back" href={shopPath(slug, "/")} data-testid="booking-back">
         <Icon name="arrowLeft" size={16} />
-        <span>{name}</span>
+        <h1>{name}</h1>
       </a>
       <span className="booking-brand" aria-hidden="true">
         {logo ? <img className="shop-emblem shop-logo" src={logo} alt="" /> : <span className="shop-emblem">{initials(name)}</span>}
       </span>
       <a className="booking-me" href={shopPath(slug, "/me")} data-testid="nav-me" aria-label="Your visits">
         <Icon name="userRound" size={15} />
-        <span>{customer ? customer.name.split(" ")[0] || "Your visits" : "Your visits"}</span>
+        <span>{customer ? customer.name.split(" ")[0] || "Your visits" : "Sign in"}</span>
       </a>
     </header>
   );
 }
 
-const steps = ["Service", "Barber", "Date & time", "Your details", "Review"];
+const steps = ["Service", "Barber", "Date & time", "Your account", "Review"];
 type NextSlot = {
   date: string;
   start_min: number;
@@ -253,18 +254,19 @@ export function presetFromLocation(search = location.search): BookingPreset | nu
   const num = (k: string) => (q.get(k) !== null && /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : undefined);
   return { service: q.get("service") || undefined, staff: q.get("staff") || undefined, date: q.get("date") || undefined, start: num("start"), step: num("step"), nonce: Date.now() };
 }
-export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }: { slug: string; preset?: BookingPreset | null; onLoaded?: (shop: PublicShop) => void; customer?: BookingCustomer | null }) {
+export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: string; preset?: BookingPreset | null; onLoaded?: (shop: PublicShop) => void; onSignedIn?: (me: BookingCustomer) => void }) {
   const [shop, setShop] = useState<PublicShop | null>(null);
-  // A signed-in customer gets their details filled in and their name in the top bar. The flow looks
-  // the session up itself unless the parent already knows.
+  // Booking is for members of the shop: the flow knows who is signed in (details, name in the top bar)
+  // and asks visitors to sign in or create an account before they can confirm.
   const [session, setSession] = useState<BookingCustomer | null>(null);
-  const customer = customerProp === undefined ? session : customerProp;
+  const [sessionKnown, setSessionKnown] = useState(false);
+  const customer = session;
   useEffect(() => {
-    if (customerProp !== undefined) return;
     fetch(`/api/public/shops/${encodeURIComponent(slug)}/account/session`, { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : { profile: null }))
       .then((d) => d.profile && setSession({ name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes }))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setSessionKnown(true));
   }, [slug]);
   const [loadError, setLoadError] = useState("");
   const [step, setStep] = useState(preset?.step ?? (preset?.staff ? 2 : preset?.service ? 1 : 0));
@@ -293,6 +295,11 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
   const [attendee, setAttendee] = useState("");
   // Group mode swaps the single-visit flow for the party flow (2-4 people, same day).
   const [group, setGroup] = useState(!!preset?.group);
+  // A visitor who tapped "booking for two or more" signs in first, then lands in the group flow.
+  const [pendingGroup, setPendingGroup] = useState(false);
+  useEffect(() => {
+    if (customer && pendingGroup) { setPendingGroup(false); setGroup(true); }
+  }, [!!customer, pendingGroup]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -345,19 +352,14 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
     setGroup(!!preset.group);
     setTimeout(() => heading.current?.focus(), 50);
   }, [presetKey, !!shop]);
+  // The signed-in customer is the booker; their barber notes are prefilled too.
   useEffect(() => {
-    // Remember contact details on this device only; nothing is sent anywhere.
-    try {
-      const saved = localStorage.getItem("barbershop-os:customer");
-      if (saved) setDetails((d) => ({ ...d, ...JSON.parse(saved), notes: "" }));
-    } catch {
-      /* private mode */
-    }
-  }, []);
-  // A signed-in customer's details win over the device memory; their barber notes are prefilled too.
-  useEffect(() => {
-    if (customer) setDetails((d) => ({ ...d, name: customer.name || d.name, phone: customer.phone || d.phone, email: customer.email || d.email, notes: d.notes || customer.notes || "" }));
+    if (customer) setDetails((d) => ({ ...d, name: customer.name, phone: customer.phone, email: customer.email, notes: d.notes || customer.notes || "" }));
   }, [customer?.phone]);
+  // Step 3 (account) is only for signed-out visitors. Signed in → straight from the time to the review.
+  useEffect(() => {
+    if (customer && step === 3) setStep(4);
+  }, [!!customer, step]);
   const eligible = (staffId: string, serviceId: string) =>
     !shop?.service_rules.some(
       (r) => r.staff_id === staffId && r.service_id === serviceId && !r.enabled,
@@ -488,27 +490,65 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
     setSlot(n.start_min);
     setAssigned({ id: n.staff_id, name: n.staff_name });
   };
-  // Account: every booking creates one (server side, signed in on this device). Choosing a password
-  // or signing in happens on the confirmation screen, so nothing stands between the customer and the slot.
-  const submitDetails = (e: FormEvent) => {
+  // Booking needs an account: step 3 signs the visitor in or registers them for this shop.
+  const [authMode, setAuthMode] = useState<"register" | "login">("register");
+  const [reg, setReg] = useState({ name: "", phone: "", email: "", password: "" });
+  const [login, setLogin] = useState({ email: "", password: "" });
+  const [authError, setAuthError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  async function loadSession() {
+    const r = await fetch(`/api/public/shops/${encodeURIComponent(slug)}/account/session`, { credentials: "same-origin" });
+    const d = r.ok ? await r.json() : { profile: null };
+    if (!d.profile) throw new Error("Signed in, but we couldn't load your details. Try again.");
+    const me = { name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes };
+    setSession(me);
+    onSignedIn?.(me);
+  }
+  const submitAuth = async (e: FormEvent) => {
     e.preventDefault();
     const next: Record<string, string> = {};
-    if (details.name.trim().length < 2) next.name = "Enter your name";
-    if (!phoneOk(details.phone)) next.phone = "Enter a valid UK mobile number";
-    if (!details.email.trim()) next.email = "Enter your email address";
-    else if (!emailOk(details.email)) next.email = "Enter a valid email address";
+    if (authMode === "register") {
+      if (reg.name.trim().length < 2) next.name = "Enter your name";
+      if (!phoneOk(reg.phone)) next.phone = "Enter a valid UK mobile number";
+      if (!emailOk(reg.email)) next.email = "Enter a valid email address";
+      if (reg.password.length < 8) next.password = "Use at least 8 characters";
+    } else {
+      if (!emailOk(login.email)) next.email = "Enter your email address";
+      if (!login.password) next.password = "Enter your password";
+    }
+    setErrors(next);
+    setAuthError("");
+    if (Object.keys(next).length) {
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+      return;
+    }
+    setAuthBusy(true);
+    try {
+      if (authMode === "register") await api(`/shops/${encodeURIComponent(slug)}/account/register`, "POST", { name: reg.name.trim(), phone: reg.phone, email: reg.email.trim(), password: reg.password });
+      else await api(`/shops/${encodeURIComponent(slug)}/account/login`, "POST", { email: login.email.trim(), password: login.password });
+      await loadSession();
+      go(4);
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : "Could not sign in.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+  const submitReview = () => {
+    const next: Record<string, string> = {};
     if (forOther && attendee.trim().length < 2) next.attendee = "Who is the visit for?";
     setErrors(next);
-    if (Object.keys(next).length)
-      requestAnimationFrame(() =>
-        document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus(),
-      );
-    else go(4);
+    if (Object.keys(next).length) {
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+      return false;
+    }
+    return true;
   };
   const bookingStaff = anyBarber ? assigned?.id || "" : barber;
   const bookingStaffName = anyBarber ? assigned?.name : chosenBarber?.name;
   async function confirm() {
-    if (!availability || slot === null || busy || !bookingStaff) return;
+    if (!availability || slot === null || busy || !bookingStaff || !customer) return;
+    if (!submitReview()) return;
     const payload = {
       staff_id: bookingStaff,
       service_id: service,
@@ -589,6 +629,7 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
         notes: "",
       });
       setDetails((d) => ({ ...d, name, phone }));
+      setReg((r) => ({ ...r, name: r.name || name, phone: r.phone || phone }));
       setWaitDone(r);
       setWaitlist("done");
     } catch (err) {
@@ -626,6 +667,7 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
         <main id="main-content" className="booking-body">
           <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} sentTo={confirmed.sent_to || []} signedIn={!!customer} account={confirmed.account ?? null} />
         </main>
+        <ShopTabBar slug={slug} active="book" signedIn={!!customer} />
       </div>
     );
   const categories = ["All services", ...new Set(shop.services.map((s) => s.category))];
@@ -675,7 +717,8 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
             {steps.map((label, i) => (
               <button
                 key={label}
-                disabled={i > step}
+                hidden={i === 3 && !!customer}
+                disabled={i > step || (i === 3 && !!customer)}
                 onClick={() => go(i)}
                 aria-current={i === step ? "step" : undefined}
                 className={i < step ? "done" : ""}
@@ -689,14 +732,14 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
           <div className="booking-layout">
             <section className="booking-flow">
               <header className="step-heading">
-                <span className="eyebrow">STEP {String(step + 1).padStart(2, "0")} OF 05</span>
+                <span className="eyebrow">STEP {String(customer && step === 4 ? 4 : step + 1).padStart(2, "0")} OF {customer ? "04" : "05"}</span>
                 <h2 ref={heading} tabIndex={-1}>
                   {
                     [
                       "What are we doing today?",
                       "Find your kind of barber.",
                       "A time that works for you.",
-                      "Let’s get to know you.",
+                      "Sign in to book.",
                       "Check and confirm.",
                     ][step]
                   }
@@ -707,7 +750,7 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
                       "Pick your service and any extras.",
                       "Choose a barber, or let us find the first free chair.",
                       `Times are shown in ${shop.shop.timezone}. Online bookings need at least ${shop.shop.lead_time_min} minutes’ notice.`,
-                      "We’ll use these to confirm your visit.",
+                      `Your ${shop.shop.name} account keeps every visit in one place — move, cancel or rebook in a tap.`,
                       "Review your visit. Confirming saves it to the shop’s diary.",
                     ][step]
                   }
@@ -716,7 +759,7 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
               {step === 0 && (
                 <>
                   {shop.staff.length > 1 && (
-                    <button type="button" className="group-entry" onClick={() => setGroup(true)} data-testid="start-group">
+                    <button type="button" className="group-entry" disabled={!sessionKnown} onClick={() => (customer ? setGroup(true) : (setPendingGroup(true), go(3)))} data-testid="start-group">
                       <Icon name="users" size={18} />
                       <span>
                         <strong>Booking for two or more?</strong>
@@ -1177,49 +1220,111 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
                   </p>
                 </>
               )}
-              {step === 3 && (
-                <form id="customer-details" noValidate onSubmit={submitDetails}>
-                  {customer && (
-                    <Notice icon="userRound">
-                      <span data-testid="signed-in-note">Signed in as <strong>{customer.name}</strong> — details filled in for you.</span>
-                    </Notice>
-                  )}
-                  <div className="customer-fields">
-                    {[
-                      { id: "name", label: "Your name", placeholder: "Jamie Taylor", type: "text", auto: "name" },
-                      { id: "phone", label: "Mobile number", placeholder: "07700 900123", type: "tel", auto: "tel" },
-                      {
-                        id: "email",
-                        label: "Email address",
-                        placeholder: "jamie@example.com",
-                        type: "email",
-                        auto: "email",
-                      },
-                    ].map((field) => (
-                      <label key={field.id}>
-                        <span id={`booking-${field.id}-label`}>{field.label}</span>
-                        <input
-                          aria-labelledby={`booking-${field.id}-label`}
-                          required
-                          type={field.type}
-                          name={field.id}
-                          autoComplete={field.auto}
-                          value={details[field.id as keyof typeof details]}
-                          placeholder={field.placeholder}
-                          onChange={(e) => {
-                            setDetails((d) => ({ ...d, [field.id]: e.target.value }));
-                            setErrors((c) => ({ ...c, [field.id]: "" }));
-                          }}
-                          aria-invalid={!!errors[field.id]}
-                          aria-describedby={errors[field.id] ? `booking-${field.id}-error` : undefined}
-                        />
-                        {errors[field.id] && (
-                          <span className="field-error" id={`booking-${field.id}-error`}>
-                            {errors[field.id]}
-                          </span>
-                        )}
+              {step === 3 && !customer && sessionKnown && (
+                <form id="customer-auth" noValidate onSubmit={submitAuth} className="booking-auth" data-testid="booking-auth">
+                  <div className="auth-switch" role="tablist" aria-label="Sign in or create an account">
+                    <button type="button" role="tab" aria-selected={authMode === "register"} className={authMode === "register" ? "active" : ""} onClick={() => { setAuthMode("register"); setErrors({}); setAuthError(""); }} data-testid="auth-register">
+                      New here
+                    </button>
+                    <button type="button" role="tab" aria-selected={authMode === "login"} className={authMode === "login" ? "active" : ""} onClick={() => { setAuthMode("login"); setErrors({}); setAuthError(""); }} data-testid="auth-login">
+                      I have an account
+                    </button>
+                  </div>
+                  {authMode === "register" ? (
+                    <div className="customer-fields">
+                      {[
+                        { id: "name", label: "Your name", placeholder: "Jamie Taylor", type: "text", auto: "name" },
+                        { id: "phone", label: "Mobile number", placeholder: "07700 900123", type: "tel", auto: "tel" },
+                        { id: "email", label: "Email address", placeholder: "jamie@example.com", type: "email", auto: "email" },
+                        { id: "password", label: "Choose a password", placeholder: "", type: "password", auto: "new-password" },
+                      ].map((field) => (
+                        <label key={field.id}>
+                          <span id={`booking-${field.id}-label`}>{field.label}</span>
+                          <input
+                            aria-labelledby={`booking-${field.id}-label`}
+                            required
+                            type={field.type}
+                            name={field.id === "password" ? "new-password" : field.id}
+                            autoComplete={field.auto}
+                            minLength={field.id === "password" ? 8 : undefined}
+                            value={reg[field.id as keyof typeof reg]}
+                            placeholder={field.placeholder}
+                            onChange={(e) => {
+                              setReg((d) => ({ ...d, [field.id]: e.target.value }));
+                              setErrors((c) => ({ ...c, [field.id]: "" }));
+                            }}
+                            aria-invalid={!!errors[field.id]}
+                            aria-describedby={errors[field.id] ? `booking-${field.id}-error` : field.id === "password" ? "booking-password-hint" : undefined}
+                            data-testid={field.id === "password" ? "booking-password" : undefined}
+                          />
+                          {errors[field.id] ? (
+                            <span className="field-error" id={`booking-${field.id}-error`}>{errors[field.id]}</span>
+                          ) : field.id === "password" ? (
+                            <small className="field-hint" id="booking-password-hint">At least 8 characters. You'll use your email and this password to sign in.</small>
+                          ) : null}
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="customer-fields">
+                      <label>
+                        <span id="booking-email-label">Email address</span>
+                        <input aria-labelledby="booking-email-label" required type="email" name="email" autoComplete="email" value={login.email} onChange={(e) => { setLogin((d) => ({ ...d, email: e.target.value })); setErrors((c) => ({ ...c, email: "" })); }} aria-invalid={!!errors.email} aria-describedby={errors.email ? "booking-email-error" : undefined} data-testid="signin-email" />
+                        {errors.email && <span className="field-error" id="booking-email-error">{errors.email}</span>}
                       </label>
-                    ))}
+                      <label>
+                        <span id="booking-password-label">Password</span>
+                        <input aria-labelledby="booking-password-label" required type="password" name="current-password" autoComplete="current-password" value={login.password} onChange={(e) => { setLogin((d) => ({ ...d, password: e.target.value })); setErrors((c) => ({ ...c, password: "" })); }} aria-invalid={!!errors.password} aria-describedby={errors.password ? "booking-password-error" : undefined} data-testid="signin-password" />
+                        {errors.password && <span className="field-error" id="booking-password-error">{errors.password}</span>}
+                      </label>
+                      <a className="link small" href={shopPath(slug, "/me", "?forgot=1")} data-testid="auth-forgot">Forgot password?</a>
+                    </div>
+                  )}
+                  {authError && (
+                    <p className="workspace-error" role="alert" data-testid="auth-error">{authError}</p>
+                  )}
+                  <Notice icon="shield">
+                    Your account is with {shop.shop.name}. Your time is held while you sign in.
+                  </Notice>
+                </form>
+              )}
+              {step === 4 && (
+                <>
+                  <div className="review-appointment">
+                    <div className="review-icon">
+                      <Icon name="calendarCheck" size={32} />
+                    </div>
+                    <span className="eyebrow">YOUR VISIT</span>
+                    <h3>{dateLabel(date)}</h3>
+                    <p>
+                      {slot !== null ? time(slot) : "No time selected"} · {duration} minutes ·{" "}
+                      {shop.shop.timezone}
+                    </p>
+                    <div className="review-barber">
+                      {bookingStaffName && <Avatar initials={initials(bookingStaffName)} />}
+                      <span>
+                        {chosenService?.name}
+                        {bookingStaffName && (
+                          <>
+                            {" "}
+                            with <strong>{bookingStaffName.split(" ")[0]}</strong>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                  <section className="review-customer">
+                    <div>
+                      <h3>Booked by</h3>
+                      <a className="link small" href={shopPath(slug, "/me")} data-testid="signed-in-note">Signed in as {details.name.split(" ")[0]}</a>
+                    </div>
+                    <strong>{details.name}</strong>
+                    <p>
+                      {details.phone}
+                      {details.email && ` · ${details.email}`}
+                    </p>
+                  </section>
+                  <section className="review-options">
                     <div className="attendee-block">
                       <label className="attendee-toggle">
                         <input
@@ -1257,9 +1362,7 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
                             data-testid="attendee-name"
                           />
                           {errors.attendee && (
-                            <span className="field-error" id="booking-attendee-error">
-                              {errors.attendee}
-                            </span>
+                            <span className="field-error" id="booking-attendee-error">{errors.attendee}</span>
                           )}
                         </label>
                       )}
@@ -1271,7 +1374,7 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
                           {([
                             { v: "AUTO" as const, label: "Text", hint: "SMS to your mobile", show: true },
                             { v: "WA" as const, label: "WhatsApp", hint: "From foliyo on WhatsApp", show: waOffered },
-                            { v: "EMAIL" as const, label: "Email", hint: "Needs your email above", show: emailOffered },
+                            { v: "EMAIL" as const, label: "Email", hint: "To your account email", show: emailOffered },
                           ]).filter((o) => o.show).map((o) => (
                             <button
                               key={o.v}
@@ -1292,7 +1395,7 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
                         </small>
                       </fieldset>
                     )}
-                    <label>
+                    <label className="review-notes">
                       Anything you’d like us to know? (optional)
                       <textarea
                         value={details.notes}
@@ -1302,57 +1405,6 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
                       />
                       <span className="field-help">{details.notes.length}/500 characters</span>
                     </label>
-                  </div>
-                  <Notice icon="shield">
-                    Your details are saved with this booking only so the shop can find your visit, and remembered on this
-                    device to speed up next time.
-                  </Notice>
-                </form>
-              )}
-              {step === 4 && (
-                <>
-                  <div className="review-appointment">
-                    <div className="review-icon">
-                      <Icon name="calendarCheck" size={32} />
-                    </div>
-                    <span className="eyebrow">YOUR VISIT</span>
-                    <h3>{dateLabel(date)}</h3>
-                    <p>
-                      {slot !== null ? time(slot) : "No time selected"} · {duration} minutes ·{" "}
-                      {shop.shop.timezone}
-                    </p>
-                    <div className="review-barber">
-                      {bookingStaffName && <Avatar initials={initials(bookingStaffName)} />}
-                      <span>
-                        {chosenService?.name}
-                        {bookingStaffName && (
-                          <>
-                            {" "}
-                            with <strong>{bookingStaffName.split(" ")[0]}</strong>
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                  <section className="review-customer">
-                    <div>
-                      <h3>Your details</h3>
-                      <Button variant="ghost" onClick={() => go(3)}>
-                        Edit
-                        <Icon name="arrowUp" size={14} />
-                      </Button>
-                    </div>
-                    <strong>{details.name}</strong>
-                    <p>
-                      {details.phone}
-                      {details.email && ` · ${details.email}`}
-                    </p>
-                    {forOther && attendee.trim() && (
-                      <p className="review-attendee" data-testid="review-attendee">
-                        <Icon name="userRound" size={14} /> Visit for <strong>{attendee.trim()}</strong>
-                      </p>
-                    )}
-                    {details.notes && <p>{details.notes}</p>}
                   </section>
                   <Notice icon="shield">
                     <strong>Plans change.</strong> Cancel or move online at least{" "}
@@ -1380,9 +1432,9 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
                   {saveError}
                 </p>
               )}
-              {step === 3 && (
+              {step === 3 && !customer && (
                 <p className="booking-privacy" data-testid="booking-privacy">
-                  {shop.shop.name} uses your details to run this appointment and send you confirmations and reminders. It won't send marketing unless you say so. <a href="/legal/privacy" target="_blank" rel="noopener">How your data is handled</a>.
+                  {shop.shop.name} uses your details to run your appointments and send you confirmations and reminders. It won't send marketing unless you say so. <a href="/legal/privacy" target="_blank" rel="noopener">How your data is handled</a>.
                 </p>
               )}
               <footer className="booking-actions">
@@ -1393,7 +1445,7 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
                   </span>
                 )}
                 {step > 0 ? (
-                  <Button variant="secondary" onClick={() => go(step - 1)} disabled={busy}>
+                  <Button variant="secondary" onClick={() => go(step === 4 && customer ? 2 : step - 1)} disabled={busy}>
                     <Icon name="arrowLeft" />
                     Back
                   </Button>
@@ -1403,8 +1455,8 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
                   </span>
                 )}
                 {step === 3 ? (
-                  <Button key="submit-details" type="submit" form="customer-details">
-                    Review booking
+                  <Button key="submit-auth" type="submit" form="customer-auth" disabled={authBusy} aria-busy={authBusy} data-testid="auth-submit">
+                    {authBusy ? (authMode === "register" ? "Creating account…" : "Signing in…") : authMode === "register" ? "Create account and continue" : "Sign in and continue"}
                     <Icon name="arrowRight" />
                   </Button>
                 ) : step === 4 ? (
@@ -1437,9 +1489,9 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
                         (step === 1 && !barber) ||
                         (step === 2 && (slot === null || !availability || !bookingStaff))
                       }
-                      onClick={() => go(step + 1)}
+                      onClick={() => go(step === 2 && customer ? 4 : step + 1)}
                     >
-                      {["Choose your barber", "Find a time", "Your details"][step]}
+                      {["Choose your barber", "Find a time", customer ? "Review booking" : "Sign in to book"][step]}
                       <Icon name="arrowRight" />
                     </Button>
                   </span>
@@ -1548,115 +1600,8 @@ export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }
           </footer>
         </div>
       </main>
+      <ShopTabBar slug={slug} active="book" signedIn={!!customer} />
     </div>
-  );
-}
-
-// After the booking: the account step. New customers (signed in on this device by the booking) choose a
-// password; returning customers who booked without signing in can sign in here instead. Signed-in
-// customers never see this.
-function AccountPrompt({ slug, shopName, account }: { slug: string; shopName: string; account: { created: boolean; has_password: boolean; email: string } | null }) {
-  const A = `/shops/${encodeURIComponent(slug)}/account`;
-  const [mode, setMode] = useState<"create" | "signin" | "done">(account?.has_password && !account.created ? "signin" : "create");
-  const [password, setPassword] = useState("");
-  const [password2, setPassword2] = useState("");
-  const [signIn, setSignIn] = useState({ email: account?.email || "", password: "" });
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [doneMsg, setDoneMsg] = useState("");
-  // Password already set by an earlier visit and this booking re-used it: nothing to do but offer the account.
-  const alreadyReady = !!account?.has_password && !account.created;
-  async function create(e: FormEvent) {
-    e.preventDefault();
-    setError("");
-    if (password.length < 8) return setError("Use at least 8 characters.");
-    if (password !== password2) return setError("The two passwords don't match.");
-    setBusy(true);
-    try {
-      await api(`${A}/password`, "PUT", { current: "", password });
-      setDoneMsg(`Your account is ready. Sign in anywhere with ${account?.email || "your email"} and this password.`);
-      setMode("done");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not set your password.");
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function login(e: FormEvent) {
-    e.preventDefault();
-    setError("");
-    if (!emailOk(signIn.email) || !signIn.password) return setError("Enter your email and password.");
-    setBusy(true);
-    try {
-      await api(`${A}/login`, "POST", { email: signIn.email.trim(), password: signIn.password });
-      setDoneMsg("You're signed in. This visit is in your account.");
-      setMode("done");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not sign in.");
-    } finally {
-      setBusy(false);
-    }
-  }
-  if (mode === "done" || alreadyReady)
-    return (
-      <section className="review-customer confirm-account" data-testid="confirm-account">
-        <div>
-          <h3>{alreadyReady ? "Welcome back" : "Your account is ready"}</h3>
-        </div>
-        <p data-testid="account-done">{alreadyReady ? `You're signed in on this device. This visit is in your ${shopName} account.` : doneMsg}</p>
-        <a className="button secondary" href={shopPath(slug, "/me")} data-testid="open-account">
-          <Icon name="user" size={16} /> Open my account
-        </a>
-      </section>
-    );
-  return (
-    <section className="review-customer confirm-account" data-testid="confirm-account">
-      <div>
-        <h3>{mode === "create" ? "Create your account" : "Sign in"}</h3>
-        <button type="button" className="link" onClick={() => { setMode(mode === "create" ? "signin" : "create"); setError(""); }} data-testid="account-switch">
-          {mode === "create" ? "Already have an account? Sign in" : "New here? Create an account"}
-        </button>
-      </div>
-      {mode === "create" ? (
-        <form onSubmit={create} noValidate className="account-form" data-testid="account-create">
-          <p>See, move or rebook visits any time and get reminders. Choose a password for {account?.email || "your email"}.</p>
-          <div className="account-fields">
-            <label>
-              <span id="acct-password-label">Choose a password</span>
-              <input aria-labelledby="acct-password-label" type="password" name="new-password" autoComplete="new-password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} data-testid="booking-password" />
-              <small className="field-hint">At least 8 characters.</small>
-            </label>
-            <label>
-              <span id="acct-password2-label">Repeat password</span>
-              <input aria-labelledby="acct-password2-label" type="password" name="new-password-2" autoComplete="new-password" minLength={8} value={password2} onChange={(e) => setPassword2(e.target.value)} data-testid="booking-password2" />
-            </label>
-          </div>
-          {error && <p className="field-error" role="alert">{error}</p>}
-          <div className="account-signin-actions">
-            <Button type="submit" disabled={busy} aria-busy={busy} data-testid="account-create-submit">{busy ? "Saving\u2026" : "Create account"}</Button>
-          </div>
-        </form>
-      ) : (
-        <form onSubmit={login} noValidate className="account-form" data-testid="account-signin">
-          <p>Sign in and this visit joins your account.</p>
-          <div className="account-fields">
-            <label>
-              <span id="acct-signin-email-label">Email</span>
-              <input aria-labelledby="acct-signin-email-label" type="email" name="signin-email" autoComplete="email" value={signIn.email} onChange={(e) => setSignIn((v) => ({ ...v, email: e.target.value }))} data-testid="signin-email" />
-            </label>
-            <label>
-              <span id="acct-signin-password-label">Password</span>
-              <input aria-labelledby="acct-signin-password-label" type="password" name="signin-password" autoComplete="current-password" value={signIn.password} onChange={(e) => setSignIn((v) => ({ ...v, password: e.target.value }))} data-testid="signin-password" />
-            </label>
-          </div>
-          {error && <p className="field-error" role="alert" data-testid="signin-error">{error}</p>}
-          <div className="account-signin-actions">
-            <Button type="submit" variant="secondary" disabled={busy} aria-busy={busy} data-testid="signin-submit">{busy ? "Signing in\u2026" : "Sign in"}</Button>
-            <a className="link small" href={shopPath(slug, "/me", "?forgot=1")}>Forgot password?</a>
-          </div>
-        </form>
-      )}
-    </section>
   );
 }
 
@@ -1759,7 +1704,15 @@ function ConfirmationCard({
         </Notice>
       )}
       {copied && <p role="status">{copied}</p>}
-      {!signedIn && <AccountPrompt slug={slug} shopName={booking.shop.name} account={account} />}
+      <section className="review-customer confirm-account" data-testid="confirm-account">
+        <div>
+          <h3>In your account</h3>
+        </div>
+        <p>This visit is saved to your {booking.shop.name} account. Move or cancel it there, rebook your usual, and add {booking.shop.name} to your home screen for one-tap access and reminders.</p>
+        <a className="button secondary" href={shopPath(slug, "/me")} data-testid="open-account">
+          <Icon name="user" size={16} /> Open my account
+        </a>
+      </section>
       <div className="confirmation-actions">
         <a className="action-tile" href={gcal(booking)} target="_blank" rel="noreferrer">
           <Icon name="calendar" /> <span>Google Calendar</span>

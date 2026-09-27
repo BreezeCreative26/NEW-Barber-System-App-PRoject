@@ -69,11 +69,12 @@ test("shop page renders the seeded sections and every shortcut deep-links into t
   await expect(flow.getByRole("heading", { name: "A time that works for you." })).toBeVisible();
 
   // Complete the booking.
-  await flow.getByRole("button", { name: "Your details", exact: true }).click();
+  await flow.getByRole("button", { name: "Sign in to book", exact: true }).click();
   await flow.getByLabel("Your name").fill("Home Page Customer");
-  await flow.getByLabel("Mobile number").fill("07700 900444");
-  await flow.getByLabel("Email address").fill("homepage@example.com");
-  await flow.getByRole("button", { name: "Review booking" }).click();
+  await flow.getByLabel("Mobile number").fill(`07${String(Date.now()).slice(-9)}`);
+  await flow.getByLabel("Email address").fill(`homepage-${Date.now()}@example.test`);
+  await flow.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
+  await flow.getByTestId("auth-submit").click();
   await expect(flow.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
   await flow.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.locator(".public-reference")).toHaveText(/^BRB-\d{4}$/);

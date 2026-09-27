@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { type BookingPreset } from "./PublicBooking";
 import { Avatar, Icon } from "./ui";
+import { ShopTabBar } from "./ShopTabBar";
 import { money, time, dateLabel, setCurrency } from "./fixtures";
 import { PublicReviews, Stars, type PublicReview } from "./Reviews";
 import { applyThemeColor, themeClass, type ShopTheme, shopPath } from "./theme";
@@ -19,6 +20,13 @@ type PageData = {
   soonest: { staff_id: string; staff_name: string; date: string; start_min: number; service_id: string; price_pence: number }[];
   reviews: PublicReview[];
   rating: { count: number; average: number | null };
+};
+type MemberHome = {
+  profile: { name: string; phone: string; email: string; notes: string };
+  upcoming: { id: string; date: string; start_min: number; service_name: string; staff_name: string | null; reference: string }[];
+  usual: null | { service_id: string; service_name: string; staff_id: string; staff_name: string | null; price_pence: number };
+  next_usual: null | { date: string; start_min: number; price_pence: number };
+  stats: { visits: number };
 };
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const initials = (n: string) => n.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
@@ -42,10 +50,19 @@ export function ShopPage({ slug }: { slug: string }) {
   const [data, setData] = useState<PageData | null>(null);
   const [error, setError] = useState("");
   const [me, setMe] = useState<{ name: string; phone: string; email: string; notes: string } | null>(null);
+  // Members see their shop: next visit and "your usual" up top.
+  const [mine, setMine] = useState<MemberHome | null>(null);
   useEffect(() => {
-    fetch(`/api/public/shops/${encodeURIComponent(slug)}/account/session`, { credentials: "same-origin" })
+    const A = `/api/public/shops/${encodeURIComponent(slug)}/account`;
+    // /session answers 200 whether or not there is a session; /me is only asked for once we know there is.
+    fetch(`${A}/session`, { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : { profile: null }))
-      .then((d) => d.profile && setMe({ name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes }))
+      .then(async (d) => {
+        if (!d.profile) return;
+        setMe({ name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes });
+        const r = await fetch(`${A}/me`, { credentials: "same-origin" });
+        if (r.ok) setMine((await r.json()) as MemberHome);
+      })
       .catch(() => {});
   }, [slug]);
   // Older links (and the schema.org ReserveAction) point at /<slug>?service=…#book; send them on to the flow.
@@ -113,7 +130,7 @@ export function ShopPage({ slug }: { slug: string }) {
           {has("find") && hasContact && <a href="#find">Find us</a>}
           {has("reviews") && data.reviews.length > 0 && <a href="#reviews">Reviews</a>}
           <a href={shopPath(shop.slug, "/me")} className="sp-me" data-testid="nav-me">
-            <Icon name="userRound" size={15} /> {me ? me.name.split(" ")[0] || "Your visits" : "Your visits"}
+            <Icon name="userRound" size={15} /> {me ? me.name.split(" ")[0] || "Your visits" : "Sign in"}
           </a>
         </nav>
         <a className="button primary sp-book-btn" href={book()} data-testid="nav-book">
@@ -166,6 +183,40 @@ export function ShopPage({ slug }: { slug: string }) {
                 <div className="sp-hero-side">
                   <img src={page.cover_url} alt="" fetchPriority="high" decoding="async" />
                 </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {mine && (
+          <section className="sp-section sp-member" aria-labelledby="sp-member-heading" data-testid="member-home">
+            <div className="sp-section-head">
+              <h2 id="sp-member-heading">Hi {mine.profile.name.split(" ")[0] || "there"}</h2>
+              <p>{mine.stats.visits ? `${mine.stats.visits} visit${mine.stats.visits === 1 ? "" : "s"} with ${shop.name}.` : `Welcome to ${shop.name}.`}</p>
+            </div>
+            <div className="sp-member-cards">
+              {mine.upcoming[0] ? (
+                <a className="sp-member-card" href={shopPath(shop.slug, "/me")} data-testid="member-upcoming">
+                  <span className="sp-member-label"><Icon name="calendar" size={14} /> Next visit</span>
+                  <b>{mine.upcoming[0].date === data.today ? "Today" : dateLabel(mine.upcoming[0].date, { weekday: "short", day: "numeric", month: "short" })} · {time(mine.upcoming[0].start_min)}</b>
+                  <small>{mine.upcoming[0].service_name}{mine.upcoming[0].staff_name ? ` with ${mine.upcoming[0].staff_name.split(" ")[0]}` : ""}</small>
+                  <span className="sp-member-go">Manage <Icon name="right" size={14} /></span>
+                </a>
+              ) : (
+                <a className="sp-member-card" href={book()} data-testid="member-book">
+                  <span className="sp-member-label"><Icon name="calendar" size={14} /> Next visit</span>
+                  <b>Nothing booked</b>
+                  <small>Pick a time that suits you.</small>
+                  <span className="sp-member-go">Book now <Icon name="right" size={14} /></span>
+                </a>
+              )}
+              {mine.usual && (
+                <a className="sp-member-card accent" href={book(mine.next_usual ? { service: mine.usual.service_id, staff: mine.usual.staff_id, date: mine.next_usual.date, start: mine.next_usual.start_min, step: 2 } : { service: mine.usual.service_id, staff: mine.usual.staff_id, step: 2 })} data-testid="member-usual">
+                  <span className="sp-member-label"><Icon name="sparkles" size={14} /> Your usual</span>
+                  <b>{mine.usual.service_name}{mine.usual.staff_name ? ` with ${mine.usual.staff_name.split(" ")[0]}` : ""}</b>
+                  <small>{mine.next_usual ? `Next free ${mine.next_usual.date === data.today ? "today" : dateLabel(mine.next_usual.date, { weekday: "short", day: "numeric", month: "short" })} ${time(mine.next_usual.start_min)} · ${money(mine.next_usual.price_pence)}` : money(mine.usual.price_pence)}</small>
+                  <span className="sp-member-go">Rebook <Icon name="right" size={14} /></span>
+                </a>
               )}
             </div>
           </section>
@@ -424,6 +475,7 @@ export function ShopPage({ slug }: { slug: string }) {
           <span className="powered-by">Powered by foliyo · <a href="/legal/privacy">Privacy</a> · <a href="/legal/terms">Terms</a></span>
         </div>
       </footer>
+      <ShopTabBar slug={shop.slug} active="home" signedIn={!!me} />
     </div>
   );
 }

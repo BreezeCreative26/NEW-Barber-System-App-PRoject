@@ -1154,7 +1154,7 @@
 .sp-cta-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--s-5); background: var(--sp-accent); color: var(--on-accent); border-radius: var(--r-xl); padding: clamp(24px, 4vw, 44px) clamp(20px, 4vw, 48px); }
 .sp-cta-copy { display: grid; gap: 6px; }
 .sp-cta-copy h2 { color: inherit; font-size: clamp(24px, 3vw, 34px); letter-spacing: -0.6px; }
-.sp-cta-copy p { margin: 0; font-size: var(--fs-15); opacity: 0.9; max-width: 52ch; line-height: 1.5; }
+.sp-cta-copy p { margin: 0; font-size: var(--fs-15); max-width: 52ch; line-height: 1.5; }
 .shop-page .sp-cta-btn { background: var(--on-accent); color: var(--sp-accent-dark); border-color: transparent; min-height: 54px; padding: 0 28px; font-size: 16px; border-radius: 14px; }
 .shop-page .sp-cta-btn:hover { background: var(--on-accent); filter: brightness(0.96); }
 @media (max-width: 767px) {
@@ -2065,6 +2065,7 @@ html.ws-dark .shop-page { color-scheme: light; }
 .booking-topbar { position: sticky; top: 0; z-index: 20; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: var(--s-3); min-height: 60px; padding: 8px clamp(16px, 4vw, 40px); background: var(--surface); border-bottom: 1px solid var(--line); }
 .booking-back, .booking-me { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); text-decoration: none; font-weight: 600; font-size: var(--fs-14); min-height: 40px; padding: 0 10px; border-radius: var(--r); }
 .booking-back { justify-self: start; margin-left: -10px; }
+.booking-back h1 { font-size: var(--fs-14); font-weight: 600; margin: 0; letter-spacing: 0; }
 .booking-me { justify-self: end; margin-right: -10px; color: var(--muted); }
 .booking-back:hover, .booking-me:hover { background: var(--canvas); color: var(--ink); }
 .booking-brand .shop-emblem { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; font-size: var(--fs-12); font-weight: 700; }
@@ -2193,18 +2194,57 @@ html.ws-dark .shop-page { color-scheme: light; }
 @media (max-width: 400px) {
   .booking-app.standalone .barber-choices { grid-template-columns: 1fr; }
 }
-/* Account step after the booking: create an account or sign in. Signed-in customers never see it. */
+/* ---- Shop app chrome: bottom tab bar (phones only) ---- */
+.shop-tabbar { display: none; }
+@media (max-width: 740px) {
+  .shop-tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(4, 1fr); background: var(--surface); border-top: 1px solid var(--line); padding: 6px 0 calc(6px + env(safe-area-inset-bottom)); }
+  .shop-tabbar a { display: grid; justify-items: center; gap: 3px; padding: 6px 0 2px; color: var(--muted); text-decoration: none; font-size: var(--fs-11); font-weight: 600; min-height: 48px; }
+  .shop-tabbar a[aria-current="page"] { color: var(--sp-accent-dark, var(--accent)); }
+  .shop-page .shop-tabbar { background: color-mix(in srgb, var(--sp-surface) 92%, transparent); backdrop-filter: saturate(1.4) blur(12px); border-top-color: var(--sp-line); }
+  .shop-page .shop-tabbar a { color: var(--sp-muted); }
+  .shop-page .shop-tabbar a[aria-current="page"] { color: var(--sp-ink); }
+  /* Leave room for the bar under every shop surface. */
+  .shop-page > footer.sp-footer, .customer-area > footer.sp-footer { padding-bottom: 84px; }
+  .booking-app.standalone .booking-body { padding-bottom: 176px; }
+  .booking-app.standalone .booking-actions { bottom: calc(60px + env(safe-area-inset-bottom)); }
+  .sp-nav .sp-book-btn, .sp-nav .sp-me { display: none; }
+}
+
+/* ---- Member home on the shop page ---- */
+.sp-member { padding-top: clamp(20px, 3vw, 32px); padding-bottom: 0; }
+.sp-member-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--s-3); }
+.sp-member-card { display: grid; gap: 4px; padding: 18px 18px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-xl); color: var(--ink); text-decoration: none; transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
+.sp-member-card:hover { border-color: var(--sp-accent); box-shadow: var(--shadow-2); transform: translateY(-1px); }
+.sp-member-card.accent { background: var(--sp-accent); border-color: var(--sp-accent); color: var(--on-accent); }
+.sp-member-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-12); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.8; }
+.sp-member-card b { font-size: 18px; letter-spacing: -0.3px; }
+.sp-member-card small { font-size: var(--fs-13); opacity: 0.85; }
+.sp-member-go { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; font-size: var(--fs-13); font-weight: 700; }
+.shop-page .sp-member-card { background: var(--sp-surface); border-color: var(--sp-line); color: var(--sp-ink); border-radius: var(--sp-r-lg); }
+.shop-page .sp-member-card.accent { background: var(--sp-accent); border-color: var(--sp-accent); color: var(--sp-accent-ink); }
+.shop-page.accent-ink .sp-member-card.accent { background: var(--sp-hero-bg); color: #fff; }
+.shop-page.mode-dark.accent-ink .sp-member-card.accent { background: var(--sp-surface-2); color: var(--sp-ink); }
+
+/* ---- Account step in the booking flow ---- */
+.booking-auth { display: grid; gap: var(--s-4); }
+.auth-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--canvas); border: 1px solid var(--line); border-radius: var(--r-pill); }
+.auth-switch button { border: 0; background: transparent; border-radius: var(--r-pill); min-height: 42px; font: inherit; font-size: var(--fs-14); font-weight: 600; color: var(--muted); cursor: pointer; }
+.auth-switch button.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1); }
+.shop-page .auth-switch { background: var(--sp-surface-2); border-color: var(--sp-line); }
+.shop-page .auth-switch button { color: var(--sp-muted); }
+.shop-page .auth-switch button.active { background: var(--sp-surface); color: var(--sp-ink); }
+.booking-auth .customer-fields .link { justify-self: start; font-size: var(--fs-13); }
+.booking-app.standalone .booking-auth .customer-fields { grid-template-columns: minmax(0, 1fr); max-width: 520px; }
+.review-options { display: grid; gap: var(--s-4); padding: 20px 0; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+.review-options .attendee-block { margin: 0; }
+.review-options .review-notes { display: grid; gap: 6px; font-size: var(--fs-14); font-weight: 600; }
+.review-options textarea { min-height: 80px; font: inherit; font-weight: 400; }
 .confirm-account { padding: 20px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--canvas); margin: 20px 0; }
-.confirm-account > div { display: flex; justify-content: space-between; align-items: center; gap: var(--s-3); flex-wrap: wrap; margin-bottom: 6px; }
 .confirm-account h3 { font-size: 18px; letter-spacing: -0.2px; }
-.confirm-account > div .link { font-size: var(--fs-13); font-weight: 600; }
 .confirm-account p { font-size: var(--fs-14); color: var(--muted); line-height: 1.5; margin: 0 0 12px; }
-.account-fields label { display: grid; gap: 6px; }
-.account-fields label > span { font-size: var(--fs-14); font-weight: 600; }
-.account-fields input { font-size: 16px; min-height: 48px; padding: 10px 14px; }
-.account-fields .field-hint { font-size: var(--fs-12); color: var(--muted); }
-.confirm-account .field-error { margin: 10px 0 0; font-size: var(--fs-13); }
-.account-signin-actions { display: flex; align-items: center; gap: var(--s-3); margin-top: 14px; }
-.account-signin-actions .button { min-height: 46px; }
 .shop-page .confirm-account { background: var(--sp-surface-2); border-color: var(--sp-line); }
-.shop-page .confirm-account p, .shop-page .account-fields .field-hint { color: var(--sp-muted); }
+.shop-page .confirm-account p { color: var(--sp-muted); }
+.review-options .contact-pref legend { color: var(--ink); font-size: var(--fs-14); }
+.review-options .contact-pref-hint { color: var(--muted); font-size: var(--fs-13); }
+.shop-page .contact-pref legend { color: var(--sp-ink); }
+.shop-page .contact-pref-hint { color: var(--sp-muted); }

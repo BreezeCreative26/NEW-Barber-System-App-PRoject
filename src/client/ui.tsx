@@ -85,6 +85,7 @@ import {
   Image as ImageIcon,
   Palette,
   type LucideIcon,
+  House,
 } from "lucide-react";
 
 const icons: Record<string, LucideIcon> = {
@@ -123,6 +124,7 @@ const icons: Record<string, LucideIcon> = {
   refresh: RefreshCw,
   repeat: Repeat,
   scissors: Scissors,
+  home: House,
   razor: Scissors,
   search: Search,
   settings: Settings2,

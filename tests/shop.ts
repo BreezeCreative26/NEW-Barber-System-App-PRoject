@@ -118,3 +118,43 @@ export function shopPayload(shop: { name: string; address: string; timezone: str
     ...overrides,
   };
 }
+
+// Customer accounts: booking online needs a signed-in member of the shop. `registerCustomer` creates
+// one on an API context (cookie jar keeps the session); `signInCustomer` does the same for a browser page.
+export const CUSTOMER_PASSWORD = "Fictional-test-pass-2026!";
+let customerSeq = 0;
+export function customerIdentity(name = "Test Customer") {
+  const n = `${Date.now()}${customerSeq++}`.slice(-9);
+  return { name, phone: `07${n}`, email: `cust-${n}@example.test`, password: CUSTOMER_PASSWORD };
+}
+export async function registerCustomer(ctx: APIRequestContext, slug: string, who: Partial<{ name: string; phone: string; email: string; password: string }> = {}) {
+  // Fixed phones/emails from a caller may already exist from an earlier run (accounts are global by
+  // phone): try to log in with our password; if that fails, fall back to a fresh unique identity.
+  let id = { ...customerIdentity(), ...who };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await ctx.post(`${origin}/api/public/shops/${slug}/account/register`, { headers: { Origin: origin }, data: id });
+    if (r.status() === 201) return id;
+    if (r.status() === 409) {
+      const l = await ctx.post(`${origin}/api/public/shops/${slug}/account/login`, { headers: { Origin: origin }, data: { email: id.email, password: id.password } });
+      if (l.status() === 201) return id;
+    }
+    if (attempt === 1) expect(r.status(), await r.text()).toBe(201);
+    id = { ...customerIdentity(who.name), password: who.password || CUSTOMER_PASSWORD };
+  }
+  return id;
+}
+// Browser sign-in: the page must be on the shop's host first (locally that is <slug>.localhost after
+// the 301 from /<slug>), because the session cookie belongs to that host. Registers via fetch from the page.
+export async function signInCustomer(page: Page, slug: string, who: Partial<{ name: string; phone: string; email: string; password: string }> = {}) {
+  const id = { ...customerIdentity(who.name), ...who, password: who.password || CUSTOMER_PASSWORD };
+  if (!/\/(book\/)?[a-z0-9-]/.test(new URL(page.url() === "about:blank" ? origin + "/" : page.url()).pathname) || !page.url().includes(slug)) await page.goto(`/${slug}`, { waitUntil: "load" });
+  const status = await page.evaluate(async ({ slug, id }) => {
+    const post = (path: string, body: unknown) => fetch(`/api/public/shops/${slug}/account/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify(body) }).then((r) => r.status);
+    const r = await post("register", id);
+    if (r === 201) return 201;
+    if (r === 409) return post("login", { email: id.email, password: id.password });
+    return r;
+  }, { slug, id });
+  expect(status).toBe(201);
+  return id;
+}

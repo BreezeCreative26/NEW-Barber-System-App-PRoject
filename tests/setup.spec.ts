@@ -1,4 +1,5 @@
 import { test, expect, request } from "@playwright/test";
+import { registerCustomer } from "./shop";
 const origin = "http://localhost:3000";
 test("shop setup: signup → 7-step wizard → done; invite accepted by SMS+email link; forgot/reset password", async ({ page }) => {
   page.on("pageerror", (e) => console.log("PAGEERROR", e.message));
@@ -123,7 +124,8 @@ test("owner alerts: new online booking and no-show land in the outbox for the ow
   const c = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
   const avail = await (await c.get(`${origin}/api/public/shops/${slug}/availability?date=${date}&staff_id=${staff}&service_id=${svc}`)).json();
   const slot = avail.slots?.[0]?.start_min ?? avail.slots?.[0] ?? 600;
-  const bk = await c.post(`${origin}/api/public/shops/${slug}/bookings`, { data: { request_id: crypto.randomUUID(), staff_id: staff, service_id: svc, customer_name: "Cal Customer", phone: "07700 900888", email: "cal@example.test", password: "Fictional-test-pass-2026!", date, start_min: typeof slot === "number" ? slot : 600, quote: avail.quote } });
+  await registerCustomer(c, slug, { name: "Cal Customer", phone: "07700 900888", email: "cal@example.test" });
+  const bk = await c.post(`${origin}/api/public/shops/${slug}/bookings`, { data: { request_id: crypto.randomUUID(), staff_id: staff, service_id: svc, customer_name: "Cal Customer", phone: "07700 900888", email: "cal@example.test", date, start_min: typeof slot === "number" ? slot : 600, quote: avail.quote } });
   expect(bk.status(), await bk.text()).toBe(201);
   const box = await (await r.get(base + "/notifications?limit=60")).json();
   const alert = box.notifications.find((n: { template: string; recipient: string }) => n.template === "owner_new_booking" && n.recipient === email);

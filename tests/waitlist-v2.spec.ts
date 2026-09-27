@@ -2,6 +2,7 @@
 // line" vs "tell everyone", time windows on the day, and date ranges. API-level; the only direct
 // DB touch is to fast-forward the delay timer (there is no clock to travel otherwise).
 import { test, expect, request, type APIRequestContext } from "@playwright/test";
+import { registerCustomer } from "./shop";
 import postgres from "postgres";
 import AxeBuilder from "@axe-core/playwright";
 import { base, origin, openFixtureShop, openQueue } from "./fixture";
@@ -48,7 +49,9 @@ async function settings(r: APIRequestContext, patch: Record<string, unknown>) {
 }
 async function bookOnline(c: APIRequestContext, P: string, staff: string, service: string, date: string, start_min: number, phone: string, name = "Online Customer") {
   const avail = await (await c.get(`${P}/availability?date=${date}&staff_id=${staff}&service_id=${service}`)).json();
-  const res = await c.post(`${P}/bookings`, { data: { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: name, phone, email: `${phone.replace(/\D/g, "")}@example.test`, password: "Fictional-test-pass-2026!", date, start_min, quote: avail.quote } });
+  const slug = P.split("/shops/")[1].split("/")[0];
+  await registerCustomer(c, slug, { name, phone, email: `${phone.replace(/\D/g, "")}@example.test` });
+  const res = await c.post(`${P}/bookings`, { data: { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: name, phone, email: `${phone.replace(/\D/g, "")}@example.test`, date, start_min, quote: avail.quote } });
   expect(res.status(), await res.text()).toBe(201);
   return (await res.json()).booking as { id: string; version: number; start_min: number };
 }

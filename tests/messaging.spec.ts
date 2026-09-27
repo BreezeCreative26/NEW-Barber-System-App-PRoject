@@ -4,7 +4,7 @@
 // settings, test send, resend and the cron route. Every test creates its own fictional shop.
 import { test, expect, request, type APIRequestContext } from "@playwright/test";
 import type { WorkspaceData } from "../src/server/domain";
-import { base, origin, newShop, enterNewShop } from "./shop";
+import { base, origin, newShop, enterNewShop, registerCustomer } from "./shop";
 import { section } from "./fixture";
 
 const pub = origin + "/api/public";
@@ -50,7 +50,8 @@ async function bookOnline(c: APIRequestContext, slug: string, w: WorkspaceData, 
   const wanted = avail.slots.find((x: { start_min: number; reason?: string }) => x.start_min === start_min && !x.reason);
   const free = wanted ?? avail.slots.find((x: { reason?: string }) => !x.reason);
   expect(free, `no free slot on ${date}`).toBeTruthy();
-  const data = { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: "Message Customer", phone: "07700 900333", email: "msg-customer@example.test", password: "Fictional-test-pass-2026!", date, start_min: free.start_min, quote: avail.quote, ...extra };
+  const data = { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: "Message Customer", phone: "07700 900333", email: "msg-customer@example.test", date, start_min: free.start_min, quote: avail.quote, ...extra };
+  await registerCustomer(c, slug, { name: String(data.customer_name), phone: String(data.phone), email: String(data.email) });
   const res = await c.post(`${pub}/shops/${slug}/bookings`, { data });
   expect(res.status(), await res.text()).toBe(201);
   return res.json() as Promise<{ booking: { id: string; version: number }; manage_token: string; sent_to: string[] }>;

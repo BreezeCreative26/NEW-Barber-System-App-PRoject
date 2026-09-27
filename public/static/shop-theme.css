@@ -282,7 +282,7 @@
 .shop-page .booking-back { color: var(--sp-ink); }
 .shop-page .booking-me { color: var(--sp-muted); }
 .shop-page .booking-back:hover, .shop-page .booking-me:hover { background: var(--sp-surface-2); color: var(--sp-ink); }
-.shop-page .booking-back span { font-family: var(--sp-display); font-weight: var(--sp-display-weight); letter-spacing: var(--sp-display-tracking); text-transform: var(--sp-display-case); }
+.shop-page .booking-back h1 { font-family: var(--sp-display); font-weight: var(--sp-display-weight); letter-spacing: var(--sp-display-tracking); text-transform: var(--sp-display-case); }
 .shop-page .shop-header h1, .shop-page .shop-header .shop-name { font-family: var(--sp-display); font-weight: var(--sp-display-weight); letter-spacing: var(--sp-display-tracking); text-transform: var(--sp-display-case); color: var(--sp-ink); }
 .shop-page .shop-header .shop-header-right, .shop-page .shop-header small, .shop-page .shop-header p { color: var(--sp-muted); }
 .shop-page .shop-emblem { background: var(--sp-accent); color: var(--sp-accent-ink); border-radius: var(--sp-r-sm); }

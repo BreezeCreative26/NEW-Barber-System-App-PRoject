@@ -77,63 +77,47 @@ test("forgot → reset link (sandbox token) → new password signs in and signs 
   expect((await c3.post(`${A(slug)}/login`, { data: { email, password: "second-pass-word" } })).status()).toBe(201);
 });
 
-test("booking requires email; creates the account, signs the browser in, sends a welcome link; password set afterwards; returning customers reuse the account", async () => {
+test("booking is members only: 401 without a session; a registered customer books under their own account; returning members reuse it", async () => {
   const { r, w, slug } = await shop();
   const c = await customer();
-  const date = futureDate();
+  const date = futureDate(8);
   const staff = w.staff[0].id, service = w.services[0].id;
   const avail = await (await c.get(`${pub}/shops/${slug}/availability?date=${date}&staff_id=${staff}&service_id=${service}`)).json();
   const phone = phoneFor(), email = emailFor();
-  const body = { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: "Noor Ali", phone, date, start_min: 600, quote: avail.quote };
-  // No email → 400
-  expect((await c.post(`${pub}/shops/${slug}/bookings`, { data: { ...body, email: "" } })).status()).toBe(400);
-  // With email, no password → booking + account (signed in on this device) + welcome link to set a password
-  const res = await c.post(`${pub}/shops/${slug}/bookings`, { data: { ...body, email } });
+  const body = { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: "Noor Ali", phone, email, date, start_min: 600, quote: avail.quote };
+  // No session → 401, nothing booked.
+  expect((await c.post(`${pub}/shops/${slug}/bookings`, { data: body })).status()).toBe(401);
+  // Register, then book: the booking belongs to the account (its phone/email win over the payload).
+  expect((await c.post(`${A(slug)}/register`, { data: { name: "Noor Ali", phone, email, password: "Fictional-test-pass-2026!" } })).status()).toBe(201);
+  const res = await c.post(`${pub}/shops/${slug}/bookings`, { data: { ...body, phone: phoneFor(), email: emailFor() } });
   expect(res.status(), await res.text()).toBe(201);
   const j = await res.json();
-  expect(j.account).toMatchObject({ created: true, has_password: false, email });
-  // Browser is signed in for this shop
+  expect(j.booking.phone).toBe(phone);
+  expect(j.account).toMatchObject({ created: false, has_password: true, email });
   const me = await (await c.get(`${A(slug)}/me`)).json();
   expect(me.profile.name).toBe("Noor Ali");
-  expect(me.profile.has_password).toBe(false);
+  expect(me.profile.has_password).toBe(true);
   expect(me.upcoming).toHaveLength(1);
-  // Welcome message queued for the account (email channel)
-  const msgs = await (await r.get(base + "/notifications?limit=50")).json();
-  const welcome = (msgs.notifications ?? msgs.results ?? []).find((m: { template: string; recipient: string }) => m.template === "account_welcome" && m.recipient === email);
-  expect(welcome, JSON.stringify(msgs).slice(0, 300)).toBeTruthy();
-  // The signed-in customer sets a password from the confirmation screen (no current password needed)
-  expect((await c.put(`${A(slug)}/password`, { data: { current: "", password: "Fictional-test-pass-2026!" } })).status()).toBe(200);
-  // A returning customer books again without a password; the account is reused, not recreated.
-  const nextFree = async () => {
-    const a = await (await c.get(`${pub}/shops/${slug}/availability?date=${date}&staff_id=${staff}&service_id=${service}`)).json();
-    return (a.slots as { start_min: number; available: boolean }[]).filter((x) => x.available).map((x) => x.start_min).pop()!;
-  };
-  const again = await c.post(`${pub}/shops/${slug}/bookings`, { data: { ...body, request_id: crypto.randomUUID(), email, start_min: await nextFree() } });
-  expect(again.status(), await again.text()).toBe(201);
-  const c3 = await customer();
-  const again2 = await c3.post(`${pub}/shops/${slug}/bookings`, { data: { ...body, request_id: crypto.randomUUID(), email, start_min: await nextFree() } });
-  expect(again2.status(), await again2.text()).toBe(201);
-  expect((await again2.json()).account).toMatchObject({ created: false, has_password: true });
-  // Sign in works with the password chosen at booking
+  // The owner's directory has the member once, by phone.
+  const dir = await (await r.get(base + `/customers?q=${phone.replace(/\D/g, "")}`)).json();
+  expect(dir.customers).toHaveLength(1);
+  // Sign in on another device and book again: same account, no re-registration.
   const c2 = await customer();
   expect((await c2.post(`${A(slug)}/login`, { data: { email, password: "Fictional-test-pass-2026!" } })).status()).toBe(201);
+  const a2 = await (await c2.get(`${pub}/shops/${slug}/availability?date=${date}&staff_id=${staff}&service_id=${service}`)).json();
+  const free = (a2.slots as { start_min: number; available: boolean }[]).filter((x) => x.available).map((x) => x.start_min).pop()!;
+  const again = await c2.post(`${pub}/shops/${slug}/bookings`, { data: { ...body, request_id: crypto.randomUUID(), start_min: free } });
+  expect(again.status(), await again.text()).toBe(201);
+  expect((await c2.get(`${A(slug)}/me`)).ok()).toBe(true);
+  expect(((await (await c2.get(`${A(slug)}/me`)).json()).upcoming as unknown[]).length).toBe(2);
 });
 
-test("booking with a password in the same step creates a ready account", async () => {
+test("group bookings are members only too", async () => {
   const { w, slug } = await shop();
   const c = await customer();
   const date = futureDate(9);
-  const staff = w.staff[0].id, service = w.services[0].id;
-  const avail = await (await c.get(`${pub}/shops/${slug}/availability?date=${date}&staff_id=${staff}&service_id=${service}`)).json();
-  const phone = phoneFor(), email = emailFor();
-  const res = await c.post(`${pub}/shops/${slug}/bookings`, { data: { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: "Jess Kim", phone, email, date, start_min: 660, quote: avail.quote, password: "my-shop-pass-1" } });
-  expect(res.status(), await res.text()).toBe(201);
-  expect((await res.json()).account).toMatchObject({ created: true, has_password: true });
-  const c2 = await customer();
-  expect((await c2.post(`${A(slug)}/login`, { data: { email, password: "my-shop-pass-1" } })).status()).toBe(201);
-  // Weak password in the booking step is rejected before the booking is made
-  const bad = await c.post(`${pub}/shops/${slug}/bookings`, { data: { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: "Weak", phone: phoneFor(), email: emailFor(), date, start_min: 720, quote: avail.quote, password: "short" } });
-  expect(bad.status()).toBe(400);
+  const res = await c.post(`${pub}/shops/${slug}/group-bookings`, { data: { request_id: crypto.randomUUID(), customer_name: "Nobody", phone: phoneFor(), email: emailFor(), notes: "", date, members: [{ attendee_name: "", staff_id: w.staff[0].id, service_id: w.services[0].id, addon_ids: [], start_min: 600, quote: { service_version: 0, shop_version: 0 } }, { attendee_name: "Kid", staff_id: w.staff[1].id, service_id: w.services[0].id, addon_ids: [], start_min: 600, quote: { service_version: 0, shop_version: 0 } }] } });
+  expect(res.status()).toBe(401);
 });
 
 test("per-shop web app: manifest carries the shop's name/colours/start_url; icons render; sw.js served", async () => {

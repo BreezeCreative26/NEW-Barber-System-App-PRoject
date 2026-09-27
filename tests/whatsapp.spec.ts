@@ -4,7 +4,7 @@
 // inbound STOP/START and delivery-report webhooks land on the right rows.
 import { test, expect, request, type APIRequestContext } from "@playwright/test";
 import type { WorkspaceData } from "../src/server/domain";
-import { base, origin, newShop } from "./shop";
+import { base, origin, newShop, registerCustomer } from "./shop";
 
 const pub = origin + "/api/public";
 type Note = { id: string; channel: "SMS" | "EMAIL" | "WA"; recipient: string; template: string; body: string; status: string; provider: string; provider_id: string; related_id: string; error: string; status_note: string };
@@ -37,7 +37,8 @@ async function bookOnline(c: APIRequestContext, slug: string, w: WorkspaceData, 
   const avail = await (await c.get(`${pub}/shops/${slug}/availability?date=${date}&staff_id=${staff}&service_id=${service}`)).json();
   const free = avail.slots.find((x: { reason?: string }) => !x.reason);
   expect(free, `no free slot on ${date}`).toBeTruthy();
-  const data = { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: "WhatsApp Customer", phone, email: "wa-customer@example.test", password: "Fictional-test-pass-2026!", date, start_min: free.start_min, quote: avail.quote, ...extra };
+  const data = { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: "WhatsApp Customer", phone, email: `wa-${phone.replace(/\D/g, "")}@example.test`, date, start_min: free.start_min, quote: avail.quote, ...extra };
+  await registerCustomer(c, slug, { name: String(data.customer_name), phone, email: String(data.email) });
   const res = await c.post(`${pub}/shops/${slug}/bookings`, { data });
   return { res, json: (await res.json()) as { booking: { id: string; version: number; contact_pref?: string }; manage_token: string; sent_to: string[]; error?: string } };
 }

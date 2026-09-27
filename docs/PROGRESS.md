@@ -686,8 +686,10 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - `PublicBooking` dropped the `embedded` prop; it now looks up the customer session itself. schema.org `ReserveAction` targets the `/book` URL via `shopUrl`.
 - Tests updated: `shop-page.spec`, `booking-upgrades.spec`, `customer-account.spec`. `nav-me` on the flow carries an accessible name (axe).
 
-## Account step after the booking
-- Nothing stands between the customer and the slot: the details step asks for name, mobile and email only. The booking itself creates (or reuses) the account and signs this device in.
-- The confirmation screen then shows **Create your account** (choose a password for the email used) with **Already have an account? Sign in** as the alternative. Signed-in customers never see this block. A returning customer whose account already has a password sees "Welcome back".
-- Server: no password is required on `POST /bookings`; the password is set afterwards via `PUT /account/password` (no current password needed when none is set). The welcome email carries a one-time set-password link as a fallback.
-- `/me?forgot=1` opens the forgot-password panel directly.
+## Members-only booking: the shop as an app
+- Customers browse freely (services, team, times) but must **sign in or create an account before confirming**. Step 4 of the flow is "Sign in to book" (New here / I have an account); signed-in members skip it (4 steps, not 5). The server refuses `POST /bookings` and `/group-bookings` without a customer session (401) and takes the booker's name/phone/email from the account, never the payload.
+- Review step now carries the visit options (for someone else, message channel, notes). Confirmation says "In your account" with a link to it.
+- Shop home for members: "Hi Jordan" with **Next visit** and **Your usual** (one-tap rebook to the next free slot). Nav shows "Sign in" when signed out.
+- Bottom tab bar on phones across shop home, /book and /me: Home · Book · Visits · Account (`ShopTabBar`).
+- Customer session cookie now carries `Domain=.<root>` like the owner cookie, so a sign-in on the shop host is seen on the root host and vice versa.
+- Tests: `registerCustomer`/`signInCustomer` helpers in `tests/shop.ts`; all booking suites updated to sign in first; new members-only API tests in `customer-auth.spec`.

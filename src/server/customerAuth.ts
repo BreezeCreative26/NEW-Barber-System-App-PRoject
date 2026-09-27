@@ -22,7 +22,7 @@ import { audit, fail } from "./sandbox";
 import { drain, enqueue, msgShop } from "./messaging";
 import { clientKey, shopBySlug, throttle, type Ctx } from "./public";
 import { pushStatus } from "./push";
-import { shopUrl } from "./hosts";
+import { shopUrl, sessionCookieDomain } from "./hosts";
 
 export const CUSTOMER_COOKIE = "ollo_customer";
 const uid = () => crypto.randomUUID();
@@ -51,7 +51,7 @@ const changeSchema = z.object({ current: z.string().max(128).default(""), passwo
 const pushSchema = z.object({ endpoint: z.string().url().max(2000), keys: z.object({ p256dh: z.string().min(20).max(400), auth: z.string().min(10).max(200) }) }).strict();
 
 export function setSession(c: Ctx, raw: string) {
-  setCookie(c, CUSTOMER_COOKIE, raw, { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: SESSION_TTL / 1000 });
+  setCookie(c, CUSTOMER_COOKIE, raw, { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: SESSION_TTL / 1000, ...(sessionCookieDomain() ? { domain: sessionCookieDomain()! } : {}) });
 }
 export async function openSession(c: Ctx, shop: Shop, account: AccountRow, how: string) {
   const now = Date.now();

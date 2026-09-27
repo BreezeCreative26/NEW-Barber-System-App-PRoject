@@ -2,6 +2,7 @@
 // move/cancel, "your usual" one-tap rebook, history, profile and privacy controls. Talks only to
 // /api/public/shops/:slug/account/*; the shop never sees another shop's history.
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ShopTabBar } from "./ShopTabBar";
 import { Avatar, Button, Icon, Notice, StatusPill } from "./ui";
 import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { ReviewCard, type OwnReview } from "./Reviews";
@@ -60,7 +61,7 @@ export function CustomerArea({ slug }: { slug: string }) {
   const [signedOut, setSignedOut] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [tab, setTab] = useState<"visits" | "profile">("visits");
+  const [tab, setTab] = useState<"visits" | "profile">(new URLSearchParams(location.search).get("tab") === "profile" ? "profile" : "visits");
   const load = async () => {
     setError("");
     try {
@@ -160,6 +161,7 @@ export function CustomerArea({ slug }: { slug: string }) {
         </span>
         <span className="sp-powered">Powered by foliyo</span>
       </footer>
+      <ShopTabBar slug={me.shop.slug} active={tab === "profile" ? "account" : "visits"} signedIn />
     </div>
   );
 }
@@ -360,6 +362,7 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
           <p className="ca-fine">Your account is for this shop's bookings. Delete it any time from your profile.</p>
         </div>
       </main>
+      <ShopTabBar slug={slug} active="account" signedIn={false} />
     </div>
   );
 }
