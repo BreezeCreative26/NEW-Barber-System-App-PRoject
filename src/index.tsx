@@ -9,6 +9,7 @@ import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
 import { report, telemetryStatus } from "./server/telemetry";
 import { landingPage, VERTICALS } from "./server/landing";
+import { legalPage, LEGAL_DOCS, type LegalDoc } from "./server/legal";
 import { getCookie } from "hono/cookie";
 import { ACCOUNT_COOKIE } from "./server/accounts";
 import { expireHolds, markDepositPaid, stripeStatus, verifyWebhook } from "./server/stripe";
@@ -277,6 +278,14 @@ app.get("/.well-known/apple-developer-merchantid-domain-association", async (c) 
   return c.body(await res.text(), 200, { "Content-Type": "text/plain" });
 });
 // Search engines: shop pages are indexable, everything private is not.
+// Legal documents: server-rendered, indexable, no JS. Versioned in src/server/legal.ts.
+app.get("/legal/:doc", (c) => {
+  const doc = c.req.param("doc") as LegalDoc;
+  if (!LEGAL_DOCS.includes(doc)) return c.notFound();
+  c.header("Cache-Control", "public, max-age=600");
+  return c.html(legalPage(doc, publicOrigin(c)));
+});
+app.get("/legal", (c) => c.redirect("/legal/terms", 302));
 app.get("/robots.txt", (c) => {
   c.header("Cache-Control", "public, max-age=3600");
   return c.text(["User-agent: *", "Allow: /", "Disallow: /api/", "Disallow: /workspace", "Disallow: /manage/", "Disallow: /offer/", "Disallow: /book/", "Disallow: /*/me$", `Sitemap: ${publicOrigin(c)}/sitemap.xml`, ""].join("\n"));

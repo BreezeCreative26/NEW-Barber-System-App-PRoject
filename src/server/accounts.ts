@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { drain, enqueue, msgShop, platformSender, providerStatus } from "./messaging";
 import { platformBilling } from "./billing";
+import { acceptanceStatements, ipHash, outstandingFor, LEGAL_VERSIONS, OWNER_DOCS, STAFF_DOCS, type LegalDoc } from "./legal";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import type { Database } from "../db/client";
@@ -309,6 +310,9 @@ const signup = z
     password,
     timezone: timezone.default("Europe/London"),
     kind: z.enum(["BARBER", "HAIR", "SALON"]).default("BARBER"),
+    // Explicit agreement to Terms + Privacy + DPA is required to create a shop (the owner becomes
+    // a data controller and appoints foliyo as processor). Recorded with version, time, IP hash.
+    accept_legal: z.literal(true, { error: "You need to agree to the Terms, Privacy Policy and Data Processing Agreement." }),
   })
   .strict();
 // POST /auth/signup — the only way a real shop starts. Creates the shop, the owner's user +
@@ -375,6 +379,8 @@ accounts.post("/signup", async (c) => {
       "INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
     ).bind(uid(), shop, "shop", shop, "SHOP_CREATED", `user:${user}`, "Shop created at signup.", now),
     event(c, shop, `user:${user}`, user, "OWNER_ACCOUNT_CREATED"),
+    ...acceptanceStatements(c.env.DB, c, { user_id: user, shop_id: shop, subject: "OWNER" }, OWNER_DOCS, { ip_hash: await ipHash(c), now }),
+    event(c, shop, `user:${user}`, user, "LEGAL_ACCEPTED"),
   );
   await c.env.DB.batch(writes);
   // Welcome + confirm-email, after the shop exists (msgShop reads it). A mail failure must never
@@ -595,7 +601,7 @@ accounts.get("/invites/peek", async (c) => {
 accounts.post("/accept", async (c) => {
   const b = await readInput(
     c,
-    registration.extend({ token: z.string().min(60).max(100) }).strict(),
+    registration.extend({ token: z.string().min(60).max(100), accept_legal: z.literal(true, { error: "You need to agree to the Terms and Privacy Policy." }) }).strict(),
   );
   await throttle(c, "accept", b.email);
   // Email invites are bound to the address they went to; SMS/link invites take whatever address
@@ -643,6 +649,7 @@ accounts.post("/accept", async (c) => {
       membership,
       "STAFF_INVITATION_ACCEPTED",
     ),
+    ...acceptanceStatements(c.env.DB, c, { user_id: user, shop_id: invite.shop_id, subject: "STAFF" }, STAFF_DOCS, { ip_hash: await ipHash(c) }),
   ]);
   // An email invite already proved the address (the token came from that inbox); SMS/link
   // invites did not, so those sign-ups get a confirm-email message.
@@ -808,6 +815,30 @@ accounts.post("/reset", async (c) => {
   ]);
   cookies(c, session.raw);
   return c.json({ ok: true });
+});
+// ---- Legal acceptance -------------------------------------------------------------------------
+// Which documents this account has agreed to, at which version, and which still need agreeing
+// (after a version bump). The workspace shows a re-accept prompt when `outstanding` is non-empty.
+accounts.get("/legal/status", async (c) => {
+  const a = member(c);
+  const required = a.role === "OWNER" ? OWNER_DOCS : STAFF_DOCS;
+  const outstanding = await outstandingFor(c.env.DB, a.user_id, required);
+  const history = (
+    await c.env.DB.prepare("SELECT document, version, accepted_at FROM legal_acceptances WHERE user_id=? ORDER BY accepted_at DESC LIMIT 50").bind(a.user_id).all<{ document: LegalDoc; version: string; accepted_at: number }>()
+  ).results;
+  return c.json({ required, current: LEGAL_VERSIONS, outstanding, history });
+});
+accounts.post("/legal/accept", async (c) => {
+  const a = member(c);
+  const b = await readInput(c, z.object({ documents: z.array(z.enum(["terms", "privacy", "dpa", "cookies"])).min(1).max(4) }).strict());
+  const required = a.role === "OWNER" ? OWNER_DOCS : STAFF_DOCS;
+  const docs = b.documents.filter((d) => required.includes(d));
+  if (!docs.length) return reject(400, "Nothing to accept for your role.");
+  await c.env.DB.batch([
+    ...acceptanceStatements(c.env.DB, c, { user_id: a.user_id, shop_id: a.shop_id, subject: a.role === "OWNER" ? "OWNER" : "STAFF" }, docs, { ip_hash: await ipHash(c) }),
+    event(c, a.shop_id, `user:${a.user_id}`, a.user_id, "LEGAL_ACCEPTED"),
+  ]);
+  return c.json({ ok: true, outstanding: await outstandingFor(c.env.DB, a.user_id, required) });
 });
 accounts.post("/password", async (c) => {
   const a = member(c);

@@ -272,6 +272,7 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && ["/notifications/test", "/notifications/sweep", "/shop/payments/connect"].includes(path)) ||
       (method === "POST" && /^\/notifications\/[^/]+\/resend$/.test(path)) ||
       (method === "POST" && /^\/reviews\/[^/]+\/(status|reply)$/.test(path)) ||
+      (method === "POST" && /^\/customers\/[^/]+\/erase$/.test(path)) ||
       (method === "POST" && path === "/media") ||
       (["GET", "POST", "PUT"].includes(method) && path.startsWith("/billing")) ||
       (method === "DELETE" && /^\/media\/[^/]+$/.test(path)) ||
@@ -1039,6 +1040,49 @@ sandbox.put("/customers/:id", async (c) => {
     audit(c, "customer", current.id, "CUSTOMER_UPDATED", changes.length ? `Changed ${changes.join(", ")}.` : "No field changes.", true),
   );
   return c.json({ customer: await readCustomer(c, current.id) });
+});
+// Right to erasure (UK GDPR Art. 17). Bookings, payments and pay runs are financial records the
+// shop must keep, and the database forbids deleting them — so every *personal* field is blanked
+// instead: the customer row, their bookings, waiting-list entries, standing series, review display
+// names, message-log recipients, OTP codes, and this shop's link to their online account. The
+// row stays with `erased_at` set so history still adds up (visits, takings, pay) as "Erased customer".
+// Owner/manager only; a reason is recorded in the audit trail; the action cannot be undone.
+sandbox.post("/customers/:id/erase", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const b = await input(c, z.object({ version: z.number().int().min(0), reason: z.string().trim().min(3).max(300) }).strict());
+  const current = await readCustomer(c, c.req.param("id"));
+  if (current.erased_at) fail(409, "This customer has already been erased");
+  if (current.merged_into) fail(409, "This customer was merged into another record — erase that one");
+  const sid = c.get("shopId"), now = Date.now();
+  const phone = current.phone, email = current.email;
+  // Unique(shop_id, phone) means the blanked phone must still be unique → use an opaque token.
+  const tomb = `erased:${current.id.slice(0, 12)}`;
+  const upcoming = await c.env.DB.prepare("SELECT COUNT(*)::int AS n FROM bookings WHERE shop_id=? AND customer_id=? AND status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') AND start_at>?").bind(sid, current.id, now).first<{ n: number }>();
+  if ((upcoming?.n ?? 0) > 0) fail(409, `This customer has ${upcoming!.n} upcoming appointment(s). Cancel them first so they are not left without a way to be contacted.`);
+  const stmts: D1PreparedStatement[] = [
+    c.env.DB.prepare("SELECT set_config('ollo.erase', '1', true)"),
+    c.env.DB.prepare("UPDATE customers SET name='Erased customer', phone=?, email='', notes='', tags='[]', birthday=NULL, preferred_staff_id=NULL, marketing_opt_in=0, erased_at=?, version=version+1, updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(tomb, now, now, sid, current.id, b.version),
+    c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
+    c.env.DB.prepare("DELETE FROM account_assertions"),
+    c.env.DB.prepare("UPDATE bookings SET customer_name='Erased customer', phone=?, email='', attendee_name='', notes='' WHERE shop_id=? AND (customer_id=? OR phone=?)").bind(tomb, sid, current.id, phone),
+    c.env.DB.prepare("UPDATE waitlist_entries SET customer_name='Erased customer', phone=?, email='', notes='' WHERE shop_id=? AND phone=?").bind(tomb, sid, phone),
+    c.env.DB.prepare("UPDATE booking_series SET customer_name='Erased customer', phone=? WHERE shop_id=? AND phone=?").bind(tomb, sid, phone),
+    c.env.DB.prepare("UPDATE reviews SET display_name='Former customer', updated_at=? WHERE shop_id=? AND customer_id=?").bind(now, sid, current.id),
+    c.env.DB.prepare("UPDATE notifications SET recipient='' WHERE shop_id=? AND (recipient=? OR (?<>'' AND recipient=?))").bind(sid, phone, email, email),
+    c.env.DB.prepare("DELETE FROM customer_otp WHERE shop_id=? AND phone=?").bind(sid, phone),
+    c.env.DB.prepare("DELETE FROM customer_sessions WHERE shop_id=? AND account_id IN (SELECT account_id FROM customer_account_links WHERE shop_id=? AND customer_id=?)").bind(sid, sid, current.id),
+    c.env.DB.prepare("DELETE FROM customer_account_links WHERE shop_id=? AND customer_id=?").bind(sid, current.id),
+    audit(c, "customer", current.id, "CUSTOMER_ERASED", `Personal data erased on request. ${b.reason}`),
+  ];
+  // Payment requests carry `sent_to` (phone or email the pay link went to).
+  stmts.push(c.env.DB.prepare("UPDATE payment_requests SET sent_to='' WHERE shop_id=? AND (sent_to=? OR (?<>'' AND sent_to=?))").bind(sid, phone, email, email));
+  try {
+    await c.env.DB.batch(stmts);
+  } catch (e) {
+    if (String(e).includes("account_assertions")) fail(409, "This customer changed in another view. Reload and try again.");
+    throw e;
+  }
+  return c.json({ ok: true, customer: await readCustomer(c, current.id) });
 });
 // Merge duplicate records: every booking of the loser moves to the winner; the loser
 // row stays (pointing at the winner) so old links keep resolving.

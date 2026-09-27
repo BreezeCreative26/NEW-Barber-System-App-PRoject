@@ -113,6 +113,14 @@ reminders and the 07:00 summaries go out even on a quiet morning.
 - [ ] Deploy PR #1 (`genspark_ai_developer` → `main`) — the code that uses 0025 is not on production yet; the column is there waiting.
 
 
+## 6b. Legal (before the first real customer)
+
+- [ ] Fill `COMPANY` in `src/server/legal.ts`: registered company name + number, registered office, privacy mailbox (create `privacy@…`), ICO registration number.
+- [ ] **Register with the ICO** (data-protection fee, ~£40–60/yr for most small companies) — required for any UK company processing personal data.
+- [ ] Have a solicitor review `/legal/terms`, `/legal/privacy`, `/legal/dpa`, `/legal/cookies`. They are drafted to UK GDPR / DPA 2018 / PECR shape but are not legal advice. Bump `LEGAL_VERSIONS` when the wording changes — owners are re-asked on next sign-in.
+- [ ] Confirm each sub-processor's DPA is signed/accepted in its dashboard (Stripe, Supabase, Vercel, Resend, ClickSend, Infobip, ElevenLabs) — Schedule 1 of the DPA relies on them.
+- [ ] Decide a breach-response owner and write the runbook (who is told, within what time, by whom). Privacy Policy promises 72 h.
+
 ## 7. WhatsApp (Infobip) — pending your account setup
 
 Credential received is an **Infobip** API key. Account: balance **€0.00**; only WhatsApp sender is

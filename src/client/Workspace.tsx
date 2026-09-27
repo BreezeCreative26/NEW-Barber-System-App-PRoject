@@ -385,9 +385,10 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
                 password: text(f, "password"),
                 timezone: tz,
                 kind,
+                accept_legal: f.get("accept_legal") === "on",
               });
             else if (mode === "invite")
-              await api("/auth/accept", "POST", { email: peek?.email_fixed ? peek.email : text(f, "email"), password: text(f, "password"), name: text(f, "name"), token });
+              await api("/auth/accept", "POST", { email: peek?.email_fixed ? peek.email : text(f, "email"), password: text(f, "password"), name: text(f, "name"), token, accept_legal: f.get("accept_legal") === "on" });
             else if (mode === "forgot") {
               const r = await api<{ delivery: string[]; sandbox_token?: string }>("/auth/forgot", "POST", { email: text(f, "email") });
               setForgotSent(r);
@@ -438,6 +439,15 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
             </Field>
           )}
           {(mode === "signup" || mode === "invite") && <p className="helper">At least 12 characters.{mode === "signup" ? ` Timezone will be set to ${tz}; change it in setup.` : ""}</p>}
+          {(mode === "signup" || mode === "invite") && (
+            <label className="auth-legal" data-testid="accept-legal">
+              <input name="accept_legal" type="checkbox" required />
+              <span>
+                I agree to the <a href="/legal/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/legal/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+                {mode === "signup" && <>, and to the <a href="/legal/dpa" target="_blank" rel="noopener">Data Processing Agreement</a> under which foliyo handles my customers' data</>}.
+              </span>
+            </label>
+          )}
         </SaveForm>
         )}
         {mode === "signin" && (
@@ -4728,6 +4738,7 @@ function OnlineBookingPanel({
   );
 }
 type CustomerRow = {
+  erased_at?: number | null;
   id: string;
   name: string;
   phone: string;
@@ -5098,7 +5109,7 @@ function CustomersPanel({
                     readOnly={!canEdit}
                     onDone={() => setReload((n) => n + 1)}
                   />
-                  {canMerge && rows && rows.length > 1 && (
+                  {canMerge && rows && rows.length > 1 && !profile.customer.erased_at && (
                     <MergeCustomer
                       customer={profile.customer}
                       candidates={rows.filter((r) => r.id !== profile.customer.id)}
@@ -5107,6 +5118,9 @@ function CustomersPanel({
                         onSelect(winner);
                       }}
                     />
+                  )}
+                  {canMerge && (
+                    <EraseCustomer customer={profile.customer} onDone={() => setReload((n) => n + 1)} />
                   )}
                 </>
               )}
@@ -5234,6 +5248,49 @@ function CustomerForm({
         )}
       </fieldset>
       {readOnly && <p className="workspace-footnote">View only for your role.</p>}
+    </SaveForm>
+  );
+}
+// Right to erasure (UK GDPR Art. 17): blanks every personal field on this customer and their
+// bookings, waiting-list entries, series, review names and message log; keeps the rows so the
+// shop's history and pay still add up. Owner/manager only; cannot be undone.
+function EraseCustomer({ customer, onDone }: { customer: CustomerRow; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  if (customer.erased_at)
+    return (
+      <p className="customer-merge-hint" data-testid="customer-erased">
+        <span className="customer-erased"><Icon name="shield" size={12} /> Personal data erased {new Date(customer.erased_at).toLocaleDateString("en-GB")}</span>
+      </p>
+    );
+  if (!open)
+    return (
+      <p className="customer-merge-hint">
+        Asked to be forgotten?{" "}
+        <button type="button" className="panel-inline" onClick={() => setOpen(true)} data-testid="customer-erase-open">
+          Erase personal data
+        </button>
+      </p>
+    );
+  return (
+    <SaveForm
+      className="customer-merge"
+      label="Erase personal data"
+      onSave={async () => {
+        await api(`/customers/${customer.id}/erase`, "POST", { version: customer.version, reason });
+        setOpen(false);
+        onDone();
+      }}
+    >
+      <Notice tone="warning">
+        <strong>{customer.name}</strong>'s name, number, email, notes, birthday and tags are removed from this record, every past
+        visit, waiting-list entry and message. Visits stay as "Erased customer" so your takings and pay runs still add up.
+        Upcoming appointments must be cancelled first. <strong>This cannot be undone.</strong>
+      </Notice>
+      <Field label="Reason (kept in the audit trail)">
+        <input value={reason} onChange={(e) => setReason(e.target.value)} required minLength={3} maxLength={300} placeholder="e.g. Customer asked by text on 27 Sept" data-testid="customer-erase-reason" />
+      </Field>
+      <button type="button" className="linklike" onClick={() => setOpen(false)}>Cancel</button>
     </SaveForm>
   );
 }

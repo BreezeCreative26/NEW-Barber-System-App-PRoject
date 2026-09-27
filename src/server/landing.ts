@@ -505,7 +505,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
       <a class="l-brand" href="/" aria-label="foliyo home"><img src="/static/brand/foliyo-wordmark-white.svg" alt="foliyo" width="75" height="28"/></a>
       <p class="l-tiny">© ${new Date().getFullYear()} foliyo. All rights reserved.</p>
     </div>
-    <nav aria-label="Footer"><a href="/">foliyo for every business</a><a href="/barbers">foliyo for barbers</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/signin">Sign in</a><a href="/signup">Create your shop</a></nav>
+    <nav aria-label="Footer"><a href="/">foliyo for every business</a><a href="/barbers">foliyo for barbers</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/legal/terms">Terms</a><a href="/legal/privacy">Privacy</a><a href="/legal/dpa">DPA</a><a href="/legal/cookies">Cookies</a><a href="/signin">Sign in</a><a href="/signup">Create your shop</a></nav>
     <div class="l-footer-right">
       <div class="l-social" aria-label="Social">
         <a href="https://instagram.com" aria-label="Instagram" rel="noopener">${ICO.ig}</a>

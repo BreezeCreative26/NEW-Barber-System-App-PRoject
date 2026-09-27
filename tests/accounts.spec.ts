@@ -45,7 +45,7 @@ async function invite(
 async function accept(i: { token: string; address: string }) {
   const r = await client();
   const result = await r.post(base + "/auth/accept", {
-    data: {
+    data: { accept_legal: true,
       token: i.token,
       name: "Fictional Staff",
       email: i.address,
@@ -93,6 +93,7 @@ const mutations = [
   ["POST", "/demo"],
   ["POST", "/verify-email"],
   ["POST", "/verify-email/resend"],
+  ["POST", "/legal/accept"],
 ];
 test("account mutation inventory enforces origin and anonymous authorization", async () => {
   const source = readFileSync("src/server/accounts.ts", "utf8");
@@ -158,10 +159,10 @@ test("signup creates the shop with the owner as first barber; login and password
   expect(cookies.some((c) => c.name.startsWith("barbershop_"))).toBeFalsy();
   // Duplicate email is refused without leaking which field; already-signed-in users cannot double up.
   const dup = await client();
-  expect((await dup.post(base + "/auth/signup", { data: { shop_name: "Twin", name: "Twin Owner", email: address, password } })).status()).toBe(409);
-  expect((await r.post(base + "/auth/signup", { data: { shop_name: "Twin", name: "Twin Owner", email: email(), password } })).status()).toBe(409);
-  expect((await dup.post(base + "/auth/signup", { data: { shop_name: "Twin", name: "Twin Owner", email: email(), password: "short" } })).status()).toBe(400);
-  expect((await dup.post(base + "/auth/signup", { data: { shop_name: "Twin", name: "Twin Owner", email: email(), password, timezone: "Mars/Olympus" } })).status()).toBe(400);
+  expect((await dup.post(base + "/auth/signup", { data: { accept_legal: true, shop_name: "Twin", name: "Twin Owner", email: address, password } })).status()).toBe(409);
+  expect((await r.post(base + "/auth/signup", { data: { accept_legal: true, shop_name: "Twin", name: "Twin Owner", email: email(), password } })).status()).toBe(409);
+  expect((await dup.post(base + "/auth/signup", { data: { accept_legal: true, shop_name: "Twin", name: "Twin Owner", email: email(), password: "short" } })).status()).toBe(400);
+  expect((await dup.post(base + "/auth/signup", { data: { accept_legal: true, shop_name: "Twin", name: "Twin Owner", email: email(), password, timezone: "Mars/Olympus" } })).status()).toBe(400);
   await dup.dispose();
   const second = await client();
   expect(
@@ -295,6 +296,7 @@ test("invites reject revoked replaced wrong-email and replayed tokens", async ()
     current = await invite(r, w);
   const anon = await client();
   const body = {
+    accept_legal: true,
     token: old.token,
     email: old.address,
     name: "Fictional staff",
@@ -400,6 +402,7 @@ test("competing invite accepts create one membership and competing password chan
     a = await client(),
     b = await client();
   const data = {
+    accept_legal: true,
     token: i.token,
     email: i.address,
     name: "Fictional concurrent staff",
@@ -525,6 +528,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     await page.getByLabel("Your name", { exact: true }).fill("Fictional UI Owner");
     await page.getByLabel("Email", { exact: true }).fill(email());
     await page.getByLabel("Password", { exact: true }).fill(password);
+    await page.getByTestId("accept-legal").locator("input").check();
     await page.getByRole("button", { name: "Create shop", exact: true }).click();
     // Signup lands in the guided setup; leave it for the calendar.
     await expect(page.getByTestId("setup-wizard")).toBeVisible();
@@ -578,6 +582,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
       .getByLabel("Your name", { exact: true })
       .fill("Fictional UI Barber");
     await staffPage.getByLabel("Password", { exact: true }).fill(password);
+    await staffPage.getByTestId("accept-legal").locator("input").check();
     await staffPage
       .getByRole("button", { name: "Join the team", exact: true })
       .click();
@@ -635,7 +640,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
 
 test("same-origin guard accepts forwarded proxy hosts and refuses foreign origins", async () => {
   // Signup is the anonymous write every visitor can reach, so it is the probe.
-  const probe = () => ({ shop_name: "Origin probe", name: "Probe Owner", email: email(), password });
+  const probe = () => ({ shop_name: "Origin probe", name: "Probe Owner", email: email(), password, accept_legal: true });
   const r = await request.newContext();
   // Bare mismatch is refused.
   const foreign = await r.post(base + "/auth/signup", { headers: { Origin: "https://evil.example" }, data: probe() });

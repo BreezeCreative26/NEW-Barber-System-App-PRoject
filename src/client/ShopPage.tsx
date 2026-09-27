@@ -406,7 +406,7 @@ export function ShopPage({ slug }: { slug: string }) {
             {has("hours") && <a href="#hours">Opening hours</a>}
             <a href={`/${shop.slug}/me`}>Your visits</a>
           </div>
-          <span className="powered-by">Powered by foliyo</span>
+          <span className="powered-by">Powered by foliyo · <a href="/legal/privacy">Privacy</a> · <a href="/legal/terms">Terms</a></span>
         </div>
       </footer>
     </div>

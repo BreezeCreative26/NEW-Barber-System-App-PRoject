@@ -1313,6 +1313,11 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   {saveError}
                 </p>
               )}
+              {step === 2 && (
+                <p className="booking-privacy" data-testid="booking-privacy">
+                  {shop.shop.name} uses your details to run this appointment and send you confirmations and reminders. It won't send marketing unless you say so. <a href="/legal/privacy" target="_blank" rel="noopener">How your data is handled</a>.
+                </p>
+              )}
               <footer className="booking-actions">
                 {step === 0 && (
                   <span className="mobile-checkout-total">
@@ -1484,6 +1489,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
           {!embedded && (
             <footer className="booking-footer">
               <span>Powered by foliyo</span>
+              <span className="booking-legal"><a href="/legal/privacy" target="_blank" rel="noopener">Privacy</a> · <a href="/legal/terms" target="_blank" rel="noopener">Terms</a></span>
             </footer>
           )}
         </div>
@@ -1963,6 +1969,7 @@ export function ManageBooking({ token }: { token: string }) {
         </section>
         <footer className="booking-footer">
           <span>Powered by foliyo</span>
+          <span className="booking-legal"><a href="/legal/privacy" target="_blank" rel="noopener">Privacy</a> · <a href="/legal/terms" target="_blank" rel="noopener">Terms</a></span>
         </footer>
       </main>
     </div>

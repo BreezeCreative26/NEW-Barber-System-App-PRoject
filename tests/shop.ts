@@ -31,7 +31,7 @@ export type Seeded = { r: APIRequestContext; email: string; shop_id: string };
 
 export async function signup(r: APIRequestContext, name = "API test shop", address = email()) {
   const res = await r.post(base + "/auth/signup", {
-    data: { shop_name: name, name: "Zed Owner", email: address, password: PASSWORD },
+    data: { accept_legal: true, shop_name: name, name: "Zed Owner", email: address, password: PASSWORD },
   });
   expect(res.status(), await res.text()).toBe(201);
   return { email: address, shop_id: (await res.json()).shop_id as string };

@@ -8,6 +8,7 @@ test("signup → welcome email in outbox (as foliyo) → nudge → confirm on /v
   await page.fill('input[name="name"]', "Vera Owner");
   await page.fill('input[name="email"]', email);
   await page.fill('input[name="password"]', "Passw0rd!passw0rd");
+  await page.getByTestId("accept-legal").locator("input").check();
   await page.getByRole("button", { name: "Create shop" }).click();
   await expect(page.getByTestId("setup-wizard")).toBeVisible({ timeout: 15000 });
 

@@ -388,6 +388,8 @@ export type Customer = {
   shop_id: string;
   name: string;
   phone: string;
+  // Set by POST /customers/:id/erase (right to erasure); personal fields are blanked, row kept.
+  erased_at?: number | null;
   email: string;
   notes: string;
   tags: string;
@@ -569,7 +571,7 @@ export const slugSchema = z
     "Use lowercase letters, numbers and single hyphens",
   )
   .refine(
-    (s) => !["api", "static", "workspace", "preview", "manage", "book", "offer", "media", "docs", "signin", "signup", "forgot", "reset", "verify", "admin", "demo-shop", "robots.txt", "sitemap.xml", "barbers", "salons", "beauty", "tattoo", "clinics", "trainers", "pricing", "industries", "pay"].includes(s),
+    (s) => !["api", "static", "workspace", "preview", "manage", "book", "offer", "media", "docs", "signin", "signup", "forgot", "reset", "verify", "legal", "admin", "demo-shop", "robots.txt", "sitemap.xml", "barbers", "salons", "beauty", "tattoo", "clinics", "trainers", "pricing", "industries", "pay"].includes(s),
     "This address is reserved",
   );
 export type ShopPage = {
