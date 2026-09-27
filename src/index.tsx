@@ -6,6 +6,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
+import { shopManifest } from "./server/customerAuth";
+import { shopIcon } from "./server/images";
 import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
 import { sweepWaitlistPlatform } from "./server/waitlist";
 import { report, telemetryStatus } from "./server/telemetry";
@@ -188,8 +190,11 @@ function workspaceShell(c: Context<{ Bindings: AppBindings }>) {
 }
 // Head is either the generic private one (noindex) or a server-rendered SEO head for shop pages.
 const shell = (head: string, boot = "Opening online booking…") =>
-  `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="#0b1a17"/>${head}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/><link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/><link rel="stylesheet" href="/static/style.css"/><link rel="stylesheet" href="/static/design.css"/><link rel="stylesheet" href="/static/app.css"/><link rel="stylesheet" href="/static/theme-fonts.css"/><link rel="stylesheet" href="/static/shop-theme.css"/></head><body><div id="root"><p class="boot-message">${boot}</p></div><noscript>Online booking needs JavaScript.</noscript><script type="module" src="/static/app.js"></script></body></html>`;
-const publicPage = (title: string, description: string) => shell(`<meta name="robots" content="noindex,nofollow"/><meta name="description" content="${description}"/><title>${title}</title>`);
+  `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="#0b1a17"/>${head}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/>${head.includes("data-shop") ? "" : `<link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>`}<link rel="stylesheet" href="/static/style.css"/><link rel="stylesheet" href="/static/design.css"/><link rel="stylesheet" href="/static/app.css"/><link rel="stylesheet" href="/static/theme-fonts.css"/><link rel="stylesheet" href="/static/shop-theme.css"/></head><body><div id="root"><p class="boot-message">${boot}</p></div><noscript>Online booking needs JavaScript.</noscript><script type="module" src="/static/app.js"></script></body></html>`;
+const publicPage = (title: string, description: string, slug?: string) => shell(`<meta name="robots" content="noindex,nofollow"/><meta name="description" content="${description}"/><title>${title}</title>${slug ? shopAppHead(slug) : ""}`);
+// Installable shop app: per-shop manifest (name/icon/colours from the shop page) and the shared
+// service worker registered at the shop's scope. Overrides the platform manifest in shell().
+const shopAppHead = (slug: string) => `<link rel="manifest" href="/${encodeURIComponent(slug)}/manifest.webmanifest" data-shop/><link rel="apple-touch-icon" href="/${encodeURIComponent(slug)}/icon-192.png"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="default"/>`;
 // Public origin as the visitor sees it (dev proxies rewrite Host).
 const publicOrigin = (c: { req: { url: string; header: (k: string) => string | undefined } }) => {
   const u = new URL(c.req.url);
@@ -246,12 +251,38 @@ app.get("/docs/customer-plan", (c) => {
 });
 app.get("/book/:slug", (c) => {
   secure(c);
-  return c.html(
-    publicPage(
-      "Book a visit — foliyo",
-      "Book your next visit online.",
-    ),
-  );
+  return c.html(publicPage("Book a visit", "Book your next visit online.", c.req.param("slug").toLowerCase()));
+});
+// Installable shop app: manifest + icons + service worker, per shop.
+app.get("/:slug/manifest.webmanifest", async (c, next) => {
+  const slug = c.req.param("slug").toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(slug)) return next();
+  try { return await shopManifest(c as unknown as Parameters<typeof shopManifest>[0], slug); } catch { return next(); }
+});
+app.get("/:slug/:icon{icon-(192|512)\\.png}", async (c, next) => {
+  const slug = c.req.param("slug").toLowerCase();
+  const size = (c.req.param("icon").includes("512") ? 512 : 192) as 192 | 512;
+  const shop = await c.env.DB.prepare("SELECT s.id,s.name,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ id: string; name: string; logo_url: string; accent: string; theme_json: string }>();
+  if (!shop) return next();
+  let logo: Uint8Array | null = null;
+  const m = /^\/media\/([a-f0-9-]{36})$/.exec(shop.logo_url);
+  if (m && c.env.MEDIA) {
+    const row = await c.env.DB.prepare("SELECT object_key FROM shop_media WHERE id=?").bind(m[1]).first<{ object_key: string }>();
+    const obj = row ? await c.env.MEDIA.get(row.object_key) : null;
+    if (obj) logo = obj.body instanceof Uint8Array ? obj.body : new Uint8Array(await new Response(obj.body as ReadableStream).arrayBuffer());
+  } else if (/^https?:\/\//.test(shop.logo_url) || shop.logo_url.startsWith("/static/")) {
+    try {
+      const r = await fetch(shop.logo_url.startsWith("/") ? publicOrigin(c) + shop.logo_url : shop.logo_url, { signal: AbortSignal.timeout(4000) });
+      if (r.ok) logo = new Uint8Array(await r.arrayBuffer());
+    } catch { /* monogram fallback */ }
+  }
+  const dark = (() => { try { return (JSON.parse(shop.theme_json) as { mode?: string }).mode === "dark"; } catch { return false; } })();
+  const ACCENT: Record<string, string> = { ollo: "#1f6f5f", ink: "#111318", sage: "#5b7a68", clay: "#a0522d", plum: "#5a3e6b", slate: "#4a5568" };
+  const bg = logo ? (dark ? "#0b0b0c" : "#ffffff") : ACCENT[shop.accent] || ACCENT.ollo;
+  const png = await shopIcon(size, logo, shop.name, bg, "#ffffff");
+  c.header("Content-Type", "image/png");
+  c.header("Cache-Control", "public, max-age=3600");
+  return c.body(png as unknown as ArrayBuffer);
 });
 // Shop home page: /<slug>. Only for shops that are online; anything else falls through to 404.
 app.get("/:slug", async (c, next) => {
@@ -269,7 +300,7 @@ app.get("/:slug", async (c, next) => {
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
   const head = shopPageHead({ origin: publicOrigin(c), shop, ...data });
-  return c.html(shell(head.html, `Opening ${shop.name}…`));
+  return c.html(shell(head.html + shopAppHead(slug), `Opening ${shop.name}…`));
 });
 // Apple Pay on the pay-link / deposit checkout: Stripe verifies the domain by fetching this file
 // (public/.well-known/…). Served explicitly so no hosting rewrite can swallow the dot-directory.
@@ -328,7 +359,7 @@ app.get("/:slug/me", async (c, next) => {
   if (!shop) return next();
   secure(c);
   const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
-  return c.html(publicPage(`Your visits · ${esc(shop.name)}`, esc(`Sign in to see, move or rebook your visits at ${shop.name}.`)));
+  return c.html(publicPage(`Your visits · ${esc(shop.name)}`, esc(`Sign in to see, move or rebook your visits at ${shop.name}.`), slug));
 });
 app.get("/offer/:token", (c) => {
   secure(c);

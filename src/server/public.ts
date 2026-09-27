@@ -37,7 +37,8 @@ import {
 } from "./domain";
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
 import customerAccounts from "./customers";
-import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, waAvailable, type Channel, type MessageTemplate, type Recipient } from "./messaging";
+import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, pushFor, waAvailable, type Channel, type MessageTemplate, type Recipient } from "./messaging";
+import { currentAccount as currentCustomerAccount, customerPassword, ensureAccount, openSession as openCustomerSession, sendWelcome } from "./customerAuth";
 import { autoOffer, slotFreed, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
 import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
 import { createDepositSession, depositView, depositsOnline, expireHolds, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
@@ -639,15 +640,22 @@ export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooki
     deposit_note: booking.deposit_policy_pence > 0 ? `deposit ${new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.deposit_policy_pence / 100)} payable in the shop` : "pay in the shop",
   };
   const channels = channelsFor(shop, to, "AUTO", template === "booking_confirmed");
-  const stmts = enqueue(c.env.DB, shop, to, template, vars, { related: { type: "booking", id: booking.id }, origin });
+  const opts = { related: { type: "booking", id: booking.id }, origin };
+  const stmts = [...enqueue(c.env.DB, shop, to, template, vars, opts), ...(await pushFor(c.env.DB, shop, to, template, vars, opts))];
   if (!stmts.length) return [];
   await c.env.DB.batch(stmts);
   await drain(c.env.DB, stmts.length, Date.now(), { type: "booking", id: booking.id }).catch(() => {});
   return channels;
 }
+// Every online booking ends with an account: email is required, and a password may be set in the
+// same step. A signed-in customer's details are trusted from the session.
+const onlineBookingSchema = publicBookingSchema.extend({ password: z.union([z.literal(""), customerPassword]).default("") });
 pub.post("/shops/:slug/bookings", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug"));
-  const b = await readInput(c, publicBookingSchema);
+  const { password, ...b } = await readInput(c, onlineBookingSchema);
+  const signedIn = await currentCustomerAccount(c, shop);
+  if (!b.email && !signedIn?.email) fail(400, "Enter your email address");
+  if (!b.email && signedIn?.email) b.email = signedIn.email;
   // Scoped per shop so one busy shop cannot lock customers out of another.
   await throttle(c, "book", `${shop.id}:${clientKey(c)}`, 120);
   await throttle(c, "book-phone", `${shop.id}:${b.phone}`, 12);
@@ -709,6 +717,21 @@ pub.post("/shops/:slug/bookings", async (c) => {
   }
   const sent = result.replayed || booking.deposit_status === "PENDING" ? [] : await notifyBooking(c, shop.id, booking, staff?.name ?? null, "booking_confirmed", token);
   if (!result.replayed && booking.deposit_status !== "PENDING") await alertOwners(c.env.DB, shop.id, "new_booking", booking, { staffName: staff?.name, origin: new URL(c.req.url).origin }).catch(() => 0);
+  // Account: create or adopt for this booker, sign the browser in for this shop, and — when no
+  // password was chosen — send the one-time "set your password" link with the confirmation.
+  let account: { created: boolean; has_password: boolean; email: string } | null = null;
+  if (!result.replayed) {
+    try {
+      const r = await ensureAccount(c, shop, { name: booking.customer_name, phone: booking.phone, email: b.email }, password || undefined);
+      if (!r.conflict) {
+        if (!signedIn || signedIn.id !== r.account.id) await openCustomerSession(c, shop, r.account, password ? "booked with a new password" : "booked online");
+        const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
+        const welcome = booking.deposit_status === "PENDING" ? [] : await sendWelcome(c, shop, r.account, origin);
+        if (welcome.length) { await c.env.DB.batch(welcome); await drain(c.env.DB, welcome.length, Date.now(), { type: "customer_account", id: r.account.id }).catch(() => {}); }
+        account = { created: r.created, has_password: !!(r.account.password_hash || password), email: r.account.email };
+      }
+    } catch { /* the booking stands even if account bookkeeping fails */ }
+  }
   return c.json(
     {
       booking: customerView(booking, shop, staff?.name ?? null),
@@ -717,6 +740,7 @@ pub.post("/shops/:slug/bookings", async (c) => {
       reference: ref(booking),
       sent_to: sent,
       checkout_url: checkoutUrl,
+      account,
     },
     result.replayed ? 200 : 201,
   );

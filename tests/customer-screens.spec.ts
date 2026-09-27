@@ -47,7 +47,9 @@ test("customer screen tour", async ({ page }) => {
   await page.getByRole("button", { name: "Your details", exact: true }).click();
   await page.getByLabel("Your name").fill("Jordan Lee");
   await page.getByLabel("Mobile number").fill("07700 900123");
-  await page.getByLabel("Email address (optional)").fill("jordan@example.test");
+  await page.getByLabel("Email address", { exact: true }).fill("jordan@example.test");
+  await page.getByTestId("booking-password").fill("jordan-pass-1");
+  await page.getByTestId("booking-password2").fill("jordan-pass-1");
   await shot(page, "05-book-details");
   await page.getByRole("button", { name: "Review booking" }).click();
   await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
@@ -68,14 +70,13 @@ test("customer screen tour", async ({ page }) => {
   await shot(page, "09-manage-move");
 
   // 10–11. Customer account: branded sign-in, then the account
+  await page.context().clearCookies();
   await page.goto(`/${slug}/me`);
   await expect(page.getByTestId("customer-signin")).toBeVisible();
-  await page.getByLabel(/mobile/i).fill("07700 900123");
+  await page.getByTestId("signin-email").fill("jordan@example.test");
+  await page.getByTestId("signin-password").fill("jordan-pass-1");
   await shot(page, "10-account-signin");
-  await page.getByRole("button", { name: /code|continue|send/i }).first().click();
-  const code = await page.getByTestId("shown-code").textContent();
-  await page.getByLabel(/code/i).fill(code!.trim());
-  await page.getByRole("button", { name: /sign in|verify|continue/i }).first().click();
+  await page.getByTestId("signin-submit").click();
   await expect(page.getByTestId("customer-area")).toBeVisible();
   await shot(page, "11-account");
 });

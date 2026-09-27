@@ -277,6 +277,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     booking: CustomerBooking;
     manage_token: string | null;
     sent_to?: string[];
+    account?: { created: boolean; has_password: boolean; email: string } | null;
   } | null>(null);
   const request = useRef({ key: crypto.randomUUID(), payload: "" });
   const heading = useRef<HTMLHeadingElement>(null);
@@ -457,13 +458,22 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     setSlot(n.start_min);
     setAssigned({ id: n.staff_id, name: n.staff_name });
   };
+  // Account: every booking ends with one. Signed-in customers skip this; others set a password now
+  // (or get a "set your password" link with the confirmation if they leave it blank).
+  const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
+  const [wantPassword, setWantPassword] = useState(true);
   const submitDetails = (e: FormEvent) => {
     e.preventDefault();
     const next: Record<string, string> = {};
     if (details.name.trim().length < 2) next.name = "Enter your name";
     if (!phoneOk(details.phone)) next.phone = "Enter a valid UK mobile number";
-    if (!emailOk(details.email)) next.email = "Enter a valid email address";
-    if (contactPref === "EMAIL" && !details.email.trim()) next.email = "Add your email so we can send your confirmation there";
+    if (!details.email.trim()) next.email = "Enter your email address";
+    else if (!emailOk(details.email)) next.email = "Enter a valid email address";
+    if (!customer && wantPassword) {
+      if (password.length < 8) next.password = "Use at least 8 characters";
+      else if (password !== password2) next.password2 = "The two passwords don't match";
+    }
     if (forOther && attendee.trim().length < 2) next.attendee = "Who is the visit for?";
     setErrors(next);
     if (Object.keys(next).length)
@@ -489,6 +499,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
       addon_ids: [...extraIds].sort(),
       quote: availability.quote,
       ...(contactPref !== "AUTO" ? { contact_pref: contactPref } : {}),
+      ...(!customer && wantPassword && password ? { password } : {}),
     };
     const serialised = JSON.stringify(payload);
     // A changed payload gets a fresh request key; an unchanged retry replays safely.
@@ -497,7 +508,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     setBusy(true);
     setSaveError("");
     try {
-      const r = await api<{ booking: CustomerBooking; manage_token: string | null; checkout_url?: string | null }>(
+      const r = await api<{ booking: CustomerBooking; manage_token: string | null; checkout_url?: string | null; account?: { created: boolean; has_password: boolean; email: string } | null }>(
         `/shops/${encodeURIComponent(slug)}/bookings`,
         "POST",
         { request_id: request.current.key, ...payload },
@@ -591,7 +602,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
         {!embedded && <TestBanner />}
         {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
         <main id={embedded ? undefined : "main-content"} className="booking-body">
-          <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} sentTo={confirmed.sent_to || []} signedIn={!!customer} />
+          <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} sentTo={confirmed.sent_to || []} signedIn={!!customer} account={confirmed.account ?? null} />
         </main>
       </div>
     );
@@ -1204,7 +1215,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                       { id: "phone", label: "Mobile number", placeholder: "07700 900123", type: "tel", auto: "tel" },
                       {
                         id: "email",
-                        label: "Email address (optional)",
+                        label: "Email address",
                         placeholder: "jamie@example.com",
                         type: "email",
                         auto: "email",
@@ -1214,7 +1225,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                         <span id={`booking-${field.id}-label`}>{field.label}</span>
                         <input
                           aria-labelledby={`booking-${field.id}-label`}
-                          required={field.id !== "email"}
+                          required
                           type={field.type}
                           name={field.id}
                           autoComplete={field.auto}
@@ -1234,6 +1245,31 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                         )}
                       </label>
                     ))}
+                    {!customer && (
+                      <div className="account-block" data-testid="account-block">
+                        <label className="attendee-toggle">
+                          <input type="checkbox" checked={wantPassword} onChange={(e) => { setWantPassword(e.target.checked); setErrors((c) => ({ ...c, password: "", password2: "" })); }} data-testid="want-password" />
+                          <span>
+                            <strong>Create a password for your account</strong>
+                            <small>Sign in with your email to see, move or rebook visits. Untick it and we'll email you a link to set one later.</small>
+                          </span>
+                        </label>
+                        {wantPassword && (
+                          <div className="account-fields">
+                            <label>
+                              <span id="booking-password-label">Password</span>
+                              <input aria-labelledby="booking-password-label" type="password" name="new-password" autoComplete="new-password" minLength={8} value={password} onChange={(e) => { setPassword(e.target.value); setErrors((c) => ({ ...c, password: "" })); }} aria-invalid={!!errors.password} aria-describedby={errors.password ? "booking-password-error" : undefined} data-testid="booking-password" />
+                              {errors.password ? <span className="field-error" id="booking-password-error">{errors.password}</span> : <small className="field-hint">At least 8 characters.</small>}
+                            </label>
+                            <label>
+                              <span id="booking-password2-label">Repeat password</span>
+                              <input aria-labelledby="booking-password2-label" type="password" name="new-password-2" autoComplete="new-password" minLength={8} value={password2} onChange={(e) => { setPassword2(e.target.value); setErrors((c) => ({ ...c, password2: "" })); }} aria-invalid={!!errors.password2} aria-describedby={errors.password2 ? "booking-password2-error" : undefined} data-testid="booking-password2" />
+                              {errors.password2 && <span className="field-error" id="booking-password2-error">{errors.password2}</span>}
+                            </label>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <div className="attendee-block">
                       <label className="attendee-toggle">
                         <input
@@ -1581,12 +1617,14 @@ function ConfirmationCard({
   slug,
   sentTo = [],
   signedIn = false,
+  account = null,
 }: {
   booking: CustomerBooking;
   token: string | null;
   slug: string;
   sentTo?: string[];
   signedIn?: boolean;
+  account?: { created: boolean; has_password: boolean; email: string } | null;
 }) {
   const link = token ? `${location.origin}/manage/${token}` : "";
   const sentWhere = [sentTo.includes("WA") && booking.phone && `on WhatsApp to ${booking.phone}`, sentTo.includes("SMS") && booking.phone && `by text to ${booking.phone}`, sentTo.includes("EMAIL") && booking.email && `by email to ${booking.email}`].filter(Boolean).join(" and ");
@@ -1675,13 +1713,17 @@ function ConfirmationCard({
       {!signedIn && (
         <section className="review-customer confirm-account" data-testid="confirm-account">
           <div>
-            <h3>All your visits in one place</h3>
+            <h3>{account?.has_password ? "Your account is ready" : "All your visits in one place"}</h3>
           </div>
           <p>
-            Sign in with your mobile at {booking.shop.name} — no password — to see upcoming and past visits, move or cancel in a tap, and rebook your usual.
+            {account?.has_password
+              ? `You're signed in on this device. Sign in anywhere with ${account.email} and your password to see upcoming and past visits, move or cancel in a tap, and rebook your usual.`
+              : account
+                ? `We've emailed ${account.email} a link to set your password. You're already signed in on this device — add ${booking.shop.name} to your home screen from your account for one-tap access and reminders.`
+                : `Sign in at ${booking.shop.name} to see upcoming and past visits, move or cancel in a tap, and rebook your usual.`}
           </p>
           <a className="button secondary" href={`/${slug}/me`}>
-            <Icon name="user" size={16} /> See my visits
+            <Icon name="user" size={16} /> {account ? "Open my account" : "See my visits"}
           </a>
         </section>
       )}

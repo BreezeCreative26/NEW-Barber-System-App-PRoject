@@ -25,6 +25,7 @@ import { expireRequests } from "./chair";
 import { sweepDailySummaries } from "./alerts";
 import { sweepPlatform } from "./lifecycle";
 import { sweepWaitlistPlatform } from "./waitlist";
+import { pushToAccount, accountForPhone, type PushPayload } from "./push";
 import { sendWhatsApp, waLive, waPayload, waStatus } from "./whatsapp";
 
 type Ctx = Context<AppEnv>;
@@ -44,7 +45,7 @@ export type Recipient = { name?: string; phone?: string; email?: string; pref?: 
 export const MESSAGE_TEMPLATES = [
   "booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon",
   "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_open", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
-  "verify_contact", "password_reset", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
+  "verify_contact", "password_reset", "account_welcome", "account_reset", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
   "invoice", "credit_note", "owner_signin_link", "trial_ending", "trial_ended", "payment_overdue", "account_readonly", "broadcast", "admin_alert_digest",
   "owner_welcome", "email_verify", "google_review",
 ] as const;
@@ -205,6 +206,23 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         heading: who !== "there" ? `Nearly there, ${who}.` : "Nearly there.",
         lines: [`Tap the button to confirm that ${v.email} is yours. That's what we'll use for sign-in help and password resets.`, "The link works once and expires in 24 hours.", "If you didn't create this account, ignore this message."],
         cta: { label: "Confirm my email", href: String(v.link) },
+      };
+    case "account_welcome":
+      // Customer account created from a booking or the shop app: set a password to finish.
+      return {
+        sms: `${s}: your account is ready. Set a password to see and manage your visits: ${v.link}`,
+        subject: `Your ${s} account`,
+        heading: who !== "there" ? `Welcome, ${who}.` : "Welcome.",
+        lines: [`Your ${s} account keeps every visit in one place: move or cancel, rebook your usual, and get reminders.`, "Set a password to finish. The link works once and lasts 24 hours.", v.install ? "Tip: add the shop to your home screen from the account page for one-tap access and reminders." : ""].filter(Boolean),
+        cta: { label: "Set my password", href: String(v.link) },
+      };
+    case "account_reset":
+      return {
+        sms: `${s}: reset your password here (30 min): ${v.link}`,
+        subject: `Reset your ${s} password`,
+        heading: "Reset your password.",
+        lines: ["Someone asked to reset the password for your account. If it was you, use the button below within 30 minutes.", "If it wasn't you, ignore this message — nothing has changed."],
+        cta: { label: "Choose a new password", href: String(v.link) },
       };
     case "password_reset":
       return {
@@ -376,7 +394,7 @@ export function emailHtml(shop: { name: string; address?: string; slug?: string 
 // ---- Enqueue -------------------------------------------------------------------
 // `force`: shop-side messages (verification codes, password resets, owner alerts) ignore the shop's
 // customer-facing SMS/email toggles — those switches are about what customers receive.
-export type Channel = "SMS" | "EMAIL" | "WA";
+export type Channel = "SMS" | "EMAIL" | "WA" | "PUSH";
 export type EnqueueOpts = { related: { type: string; id: string }; channel?: Channel | "AUTO"; origin: string; now?: number; force?: boolean };
 
 // Channel choice. Customer preference first: WA (when the shop sends WhatsApp and the recipient has
@@ -528,6 +546,33 @@ async function sendWa(db: DB, row: Row): Promise<Delivery> {
 
 // ---- Drain ---------------------------------------------------------------------
 const BACKOFF_MIN = [1, 5, 30, 120, 720]; // minutes between attempts; after the last, FAILED.
+// PUSH rows: recipient = customer account id, html = JSON payload. Delivered to every subscription
+// the account holds for this shop; "no subscriptions" is a quiet success, not a failure.
+async function sendPush(db: DB, row: Row): Promise<Delivery> {
+  const payload = JSON.parse(row.html || "{}") as PushPayload;
+  const r = await pushToAccount(db, row.shop_id, row.recipient, payload);
+  return { ok: true, provider: "webpush", id: `${r.sent} device${r.sent === 1 ? "" : "s"}` };
+}
+const PUSH_TEMPLATES = new Set<MessageTemplate>(["booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon", "waitlist_offer", "waitlist_open", "waitlist_booked", "review_request", "pay_link"]);
+// Queue an app notification next to the text/email for a customer who has the shop's app. Async
+// because it needs the account id behind the phone; callers spread the result into their batch.
+export async function pushFor(db: DB, shop: MsgShop, to: Recipient, template: MessageTemplate, vars: MessageVars, opts: EnqueueOpts) {
+  if (!PUSH_TEMPLATES.has(template) || !to.phone) return [];
+  const accountId = await accountForPhone(db, to.phone);
+  if (!accountId) return [];
+  const has = await db.prepare("SELECT 1 AS x FROM customer_push_subscriptions WHERE shop_id=? AND account_id=? LIMIT 1").bind(shop.id, accountId).first();
+  if (!has) return [];
+  const r = copyFor(template, { first: to.name, ...vars }, shop);
+  const url = String(vars.link || `${opts.origin}/${shop.slug || ""}/me`);
+  const payload: PushPayload = { title: r.heading.replace(/\.$/, ""), body: r.lines[0] || r.sms, url, tag: `${template}:${opts.related.id}`, icon: shop.logo_url ? (shop.logo_url.startsWith("http") ? shop.logo_url : opts.origin + shop.logo_url) : undefined };
+  const now = opts.now ?? Date.now();
+  return [
+    db.prepare(
+      "INSERT INTO notifications(id,shop_id,channel,recipient,template,body,subject,html,status,status_note,related_type,related_id,created_at,next_attempt_at) VALUES(?,?,'PUSH',?,?,?,?,?,'QUEUED','',?,?,?,?) ON CONFLICT DO NOTHING",
+    ).bind(uid(), shop.id, accountId, template, payload.body, payload.title, JSON.stringify(payload), opts.related.type, opts.related.id, now, now),
+  ];
+}
+
 // `related` narrows the drain to one record's messages: the in-request drain after a booking must
 // send *that* customer's confirmation now, not the oldest rows of a backlog (which starved fresh
 // confirmations whenever the sweep fell behind). The sweep drains everything oldest-first.
@@ -550,9 +595,9 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
     const attempt = row.attempts + 1;
     let d: Delivery;
     try {
-      d = row.channel === "EMAIL" ? await sendEmail(row) : row.channel === "WA" ? await sendWa(db, row) : await sendSms(row);
+      d = row.channel === "EMAIL" ? await sendEmail(row) : row.channel === "WA" ? await sendWa(db, row) : row.channel === "PUSH" ? await sendPush(db, row) : await sendSms(row);
     } catch (e) {
-      d = { ok: false, provider: row.channel === "EMAIL" ? "resend" : row.channel === "WA" ? "infobip" : "sms", error: e instanceof Error ? e.message : "network error" };
+      d = { ok: false, provider: row.channel === "EMAIL" ? "resend" : row.channel === "WA" ? "infobip" : row.channel === "PUSH" ? "webpush" : "sms", error: e instanceof Error ? e.message : "network error" };
     }
     // A WhatsApp message that can't be delivered (not on WhatsApp, opted out, template not approved)
     // falls back to SMS once, so the customer still hears from the shop.

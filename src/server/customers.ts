@@ -9,6 +9,7 @@ import { digest, readInput, type AppEnv } from "./accounts";
 import { audit, checkVersionUpdate, fail, readBooking } from "./sandbox";
 import { leaveReview, ownReviewView, reviewEligibility, reviewSchema, type ReviewRow } from "./presence";
 import { drain, enqueue, msgShop, providerStatus } from "./messaging";
+import { customerAuth } from "./customerAuth";
 import {
   calendarResponse,
   cancelBody,
@@ -33,7 +34,7 @@ const uid = () => crypto.randomUUID();
 const CODE_TTL = 10 * 60000;
 const SESSION_TTL = 90 * 86400000;
 
-type AccountRow = { id: string; phone: string; email: string; name: string; created_at: number; last_seen_at: number; version: number };
+type AccountRow = { id: string; phone: string; email: string; name: string; created_at: number; last_seen_at: number; version: number; password_hash?: string; email_verified?: number };
 
 const startSchema = z.object({ phone: phoneSchema }).strict();
 const verifySchema = z.object({ phone: phoneSchema, code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code") }).strict();
@@ -118,9 +119,15 @@ const profileOf = (a: AccountRow, cust: Customer) => ({
   notes: cust.notes,
   version: cust.version,
   member_since: a.created_at,
+  has_password: !!a.password_hash,
+  account_email: a.email,
+  email_verified: !!a.email_verified,
 });
 
 const acct = new Hono<AppEnv>();
+// Email + password sign-in, reset links, push subscriptions (customerAuth.ts). The OTP routes below
+// stay as the recovery path.
+acct.route("/", customerAuth);
 
 // Step 1: request a code. Sandbox: returned in the response; production would send it.
 acct.post("/start", async (c) => {

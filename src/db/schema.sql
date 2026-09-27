@@ -259,8 +259,37 @@ CREATE TABLE customer_accounts (
   name TEXT NOT NULL DEFAULT '',
   created_at BIGINT NOT NULL,
   last_seen_at BIGINT NOT NULL,
-  version INTEGER NOT NULL DEFAULT 0
+  version INTEGER NOT NULL DEFAULT 0,
+  password_hash TEXT NOT NULL DEFAULT '',
+  password_salt TEXT NOT NULL DEFAULT '',
+  email_verified INTEGER NOT NULL DEFAULT 0,
+  password_set_at BIGINT
 );
+CREATE UNIQUE INDEX customer_accounts_email ON customer_accounts(lower(email)) WHERE email <> '';
+CREATE TABLE customer_reset_tokens (
+  token_hash TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES customer_accounts(id),
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  purpose TEXT NOT NULL CHECK(purpose IN ('RESET','WELCOME')),
+  created_at BIGINT NOT NULL,
+  expires_at BIGINT NOT NULL,
+  used_at BIGINT
+);
+CREATE INDEX customer_reset_tokens_account ON customer_reset_tokens(account_id);
+CREATE TABLE customer_push_subscriptions (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES customer_accounts(id),
+  shop_id TEXT NOT NULL REFERENCES shops(id),
+  endpoint TEXT NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  user_agent TEXT NOT NULL DEFAULT '',
+  created_at BIGINT NOT NULL,
+  last_used_at BIGINT,
+  failures INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (shop_id, endpoint)
+);
+CREATE INDEX customer_push_account ON customer_push_subscriptions(account_id, shop_id);
 CREATE TABLE customer_account_links (
   account_id TEXT NOT NULL REFERENCES customer_accounts(id),
   shop_id TEXT NOT NULL,
@@ -461,7 +490,7 @@ CREATE INDEX waitlist_offers_slot ON waitlist_offers(shop_id,staff_id,date,start
 CREATE TABLE notifications (
   id TEXT PRIMARY KEY,
   shop_id TEXT NOT NULL REFERENCES shops(id),
-  channel TEXT NOT NULL CHECK(channel IN ('SMS','EMAIL')),
+  channel TEXT NOT NULL CHECK(channel IN ('SMS','EMAIL','WA','PUSH')),
   recipient TEXT NOT NULL, template TEXT NOT NULL, body TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'QUEUED' CHECK(status IN ('QUEUED','SENDING','SENT','FAILED','SKIPPED')),
   status_note TEXT NOT NULL DEFAULT '',

@@ -58,6 +58,12 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
 }
 const [, area, param] = location.pathname.split("/");
 const APP_AREAS = new Set(["workspace", "signin", "signup", "forgot", "reset", "verify", "admin", ""]);
+// Shop surfaces register the per-shop service worker so "Add to Home Screen" gives the customer the
+// shop's app (manifest is per shop; the worker is shared and scoped to /<slug>/).
+const shopSlugForWorker = area === "book" && param ? param : area && !APP_AREAS.has(area) ? area : "";
+if (shopSlugForWorker && "serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js", { scope: `/${decodeURIComponent(shopSlugForWorker)}/` }).catch(() => null);
+}
 createRoot(document.getElementById("root")!).render(
   <AppErrorBoundary>
     {area === "admin" ? (

@@ -48,7 +48,7 @@ async function settings(r: APIRequestContext, patch: Record<string, unknown>) {
 }
 async function bookOnline(c: APIRequestContext, P: string, staff: string, service: string, date: string, start_min: number, phone: string, name = "Online Customer") {
   const avail = await (await c.get(`${P}/availability?date=${date}&staff_id=${staff}&service_id=${service}`)).json();
-  const res = await c.post(`${P}/bookings`, { data: { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: name, phone, email: "", date, start_min, quote: avail.quote } });
+  const res = await c.post(`${P}/bookings`, { data: { request_id: crypto.randomUUID(), staff_id: staff, service_id: service, customer_name: name, phone, email: `${phone.replace(/\D/g, "")}@example.test`, date, start_min, quote: avail.quote } });
   expect(res.status(), await res.text()).toBe(201);
   return (await res.json()).booking as { id: string; version: number; start_min: number };
 }
