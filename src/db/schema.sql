@@ -594,7 +594,7 @@ CREATE INDEX reviews_staff ON reviews(shop_id,staff_id);
 CREATE TABLE shop_media (
   id TEXT PRIMARY KEY,
   shop_id TEXT NOT NULL REFERENCES shops(id),
-  kind TEXT NOT NULL CHECK(kind IN ('cover','gallery','staff')),
+  kind TEXT NOT NULL CHECK(kind IN ('cover','gallery','staff','logo')),
   object_key TEXT NOT NULL UNIQUE,
   content_type TEXT NOT NULL, bytes INTEGER NOT NULL, width INTEGER, height INTEGER,
   alt TEXT NOT NULL DEFAULT '', uploaded_by TEXT NOT NULL, created_at BIGINT NOT NULL
