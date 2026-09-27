@@ -101,7 +101,17 @@ reminders and the 07:00 summaries go out even on a quiet morning.
 - [x] ClickSend: credentials verified (balance £1.96)
 - [x] Vercel env vars (step 2) — set 2026-09-20 via API: Stripe key + both webhook secrets (endpoints `we_1UHm1G…`, `we_1UHm1H…`), ClickSend, Resend, CRON_SECRET; empty MAIL_FROM/Twilio removed; redeployed. `/api/health` shows stripe test + clicksend + resend.
 - [ ] Resend domain (step 3) — **needs your domain**
-- [ ] Credential rotation (step 0) — **needs you**
+- [ ] Credential rotation (step 0) — **needs you** for Stripe / ClickSend / Resend / Vercel token / Supabase access token (all pasted in chat on 2026-09-27)
+
+## Status (2026-09-27)
+
+- [x] **Supabase migrations 0001–0025 applied** — prod was running the base schema only; `ollo_migrations` did not exist. Now tracked.
+- [x] **Database password rotated** via Supabase Management API; `DATABASE_URL` / `DIRECT_URL` updated in Vercel (production + preview); redeployed; `/api/diag?ping=1` → `db_ping: ok`. The new password lives only in Vercel and Supabase — nowhere else.
+- [x] `OLLO_ADMIN_EMAILS=ollosoftwareio@gmail.com` — sign up (or sign in) with that address and open `/admin`; you are seeded as SUPER. Add others from Admin → Team.
+- [x] `CLICKSEND_FROM=foliyo` — texts from shops without their own sender name now show **foliyo**, not a shared number. `/api/health` → `sms.from: "foliyo"`.
+- [ ] Rotate the rest yourself (API keys can't roll themselves): Stripe secret key → re-run `stripe-setup.mjs`; ClickSend API key; Resend key (current one is send-only — fine for the app, but it was pasted); Vercel token `vcp_…`; Supabase access token `sbp_…`. Then paste the new values **only into Vercel**, not chat.
+- [ ] Deploy PR #1 (`genspark_ai_developer` → `main`) — the code that uses 0025 is not on production yet; the column is there waiting.
+
 
 ## 7. WhatsApp (Infobip) — pending your account setup
 
