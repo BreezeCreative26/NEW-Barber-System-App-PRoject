@@ -648,3 +648,10 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - New shop template `waitlist_open`; admin panel: mode cards, delay input, hold only in ORDER mode. Customer join form: "Between…" from/until pickers and "Any day up to".
 - Migration `0027_waitlist_v2.sql` (+ defaults trigger for legacy inserts). Applied locally; **not yet on Supabase prod**.
 - Tests: `tests/waitlist-v2.spec.ts` (delay/cron path, everyone mode, windows/ranges, browser); `tests/waitlist.spec.ts` updated for delay 0.
+
+## 2026-09-27 — Shop page live preview, theme audit, /me waiting list, auto-migrate
+- `ShopPreview` in Settings → Shop page (Workspace.tsx): real `themeClass` stack, phone/desktop toggle, updates on every edit. Workspace shell now loads `theme-fonts.css` so previews use the real faces.
+- Theme matrix test (`tests/theme-matrix.spec.ts`): all accents/looks/fonts/corners/heroes on shop page + booking flow, axe clean; new-shop defaults; preview → save → public page parity.
+- `/me`: Waiting list section always present; shows date ranges and time windows; offer line shows the offer's date for range requests.
+- `vercel.json` `buildCommand` runs `npm run db:migrate` before `next build`, so 0027 (and future migrations) apply on deploy; a failing migration fails the build.
+- Tests: waitlist-v2 uses per-run phone numbers (no throttle collisions); public.spec updated for auto-closing of waiting requests on booking.

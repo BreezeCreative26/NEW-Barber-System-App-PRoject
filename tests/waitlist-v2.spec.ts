@@ -7,7 +7,10 @@ import AxeBuilder from "@axe-core/playwright";
 import { base, origin, openFixtureShop, openQueue } from "./fixture";
 
 const pub = origin + "/api/public";
-const sql = postgres(process.env.DATABASE_URL || "postgresql://postgres:postgres@127.0.0.1:5432/ollo", { max: 1 });
+// Per-run phone suffix so reruns inside the 10-minute join throttle never collide.
+const RUN = String(Date.now() % 900 + 100);
+const ph = (n: number) => `0770${RUN}${String(n).padStart(4, "0")}`;
+const sql = postgres(process.env.DATABASE_URL || "postgresql://postgres:postgres@127.0.0.1:5432/ollo", { max: 3, idle_timeout: 20, connect_timeout: 10 });
 test.afterAll(() => sql.end());
 
 async function fixture() {
@@ -60,28 +63,28 @@ test("delay: a cancelled slot is parked, a re-book by hand drops it silently, ot
   const s = await settings(r, { waitlist_delay_min: 5, waitlist_mode: "ORDER" });
   expect(s.shop ?? s).toBeTruthy();
   // Customer A holds 10:00; Wendy waits for any time that day.
-  const a = await bookOnline(c, P, staff, service, date, 600, "07700900701", "Holder Hal");
-  await join(c, P, service, date, "07700900702", "Waiting Wendy");
+  const a = await bookOnline(c, P, staff, service, date, 600, ph(1), "Holder Hal");
+  await join(c, P, service, date, ph(2), "Waiting Wendy");
   const cancel = await r.post(base + `/bookings/${a.id}/status`, { data: { status: "CANCELLED", reason: "Rang to cancel", version: a.version } });
   expect(cancel.status(), await cancel.text()).toBe(200);
   // Nothing yet: the slot is parked, Wendy is still OPEN and has no offer text.
   let q = await queue(r);
   expect(q.settings).toMatchObject({ mode: "ORDER", delay_min: 5 });
   expect(q.waitlist.find((e) => e.customer_name === "Waiting Wendy")).toMatchObject({ status: "OPEN" });
-  expect((await outbox(r)).filter((n) => n.recipient === "07700900702" && n.template === "waitlist_offer")).toHaveLength(0);
+  expect((await outbox(r)).filter((n) => n.recipient === ph(2) && n.template === "waitlist_offer")).toHaveLength(0);
   const parked = await sql`SELECT staff_id, start_min, notify_at FROM waitlist_pending_slots WHERE shop_id = ${shopId}`;
   expect(parked).toHaveLength(1);
   expect(Number(parked[0].start_min)).toBe(600);
   expect(Number(parked[0].notify_at)).toBeGreaterThan(Date.now() + 4 * 60000);
   // The shop books someone else straight back in. When the delay passes, the parked row is dropped — no text.
-  const walkIn = await bookOnline(c, P, staff, service, date, 600, "07700900703", "Walk-in Will");
+  const walkIn = await bookOnline(c, P, staff, service, date, 600, ph(3), "Walk-in Will");
   await fastForward(shopId);
   const cron = await c.get(origin + "/api/cron/messages");
   expect(cron.status()).toBe(200);
   expect(await sql`SELECT 1 FROM waitlist_pending_slots WHERE shop_id = ${shopId}`).toHaveLength(0);
   q = await queue(r);
   expect(q.waitlist.find((e) => e.customer_name === "Waiting Wendy")).toMatchObject({ status: "OPEN" });
-  expect((await outbox(r)).filter((n) => n.recipient === "07700900702" && n.template === "waitlist_offer")).toHaveLength(0);
+  expect((await outbox(r)).filter((n) => n.recipient === ph(2) && n.template === "waitlist_offer")).toHaveLength(0);
   // Now the walk-in cancels and nobody re-books: after the delay Wendy gets the offer with the exact time.
   const cancel2 = await r.post(base + `/bookings/${walkIn.id}/status`, { data: { status: "CANCELLED", reason: "Changed plans", version: walkIn.version } });
   expect(cancel2.status(), await cancel2.text()).toBe(200);
@@ -89,13 +92,13 @@ test("delay: a cancelled slot is parked, a re-book by hand drops it silently, ot
   await c.get(origin + "/api/cron/messages");
   q = await queue(r);
   expect(q.waitlist.find((e) => e.customer_name === "Waiting Wendy")).toMatchObject({ status: "OFFERED", offer_source: "AUTO", offer_start_min: 600 });
-  const msg = (await outbox(r)).find((n) => n.recipient === "07700900702" && n.template === "waitlist_offer");
+  const msg = (await outbox(r)).find((n) => n.recipient === ph(2) && n.template === "waitlist_offer");
   expect(msg?.body).toMatch(/10:00/);
   expect(msg?.body).toMatch(/\/offer\//);
   // Re-freeing the same slot twice only ever parks one row (upsert) — and delay 0 acts at once.
   await settings(r, { waitlist_delay_min: 0 });
   const acc = await (await c.post(`${pub}/offer/${msg!.body.match(/\/offer\/([a-f0-9-]{72})/)![1]}/accept`, { data: {} })).json();
-  await join(c, P, service, date, "07700900704", "Instant Ivy");
+  await join(c, P, service, date, ph(4), "Instant Ivy");
   const cancel3 = await r.post(base + `/bookings/${acc.booking.id}/status`, { data: { status: "CANCELLED", reason: "Testing instant", version: acc.booking.version } });
   expect(cancel3.status(), await cancel3.text()).toBe(200);
   expect((await queue(r)).waitlist.find((e) => e.customer_name === "Instant Ivy")).toMatchObject({ status: "OFFERED", offer_source: "AUTO", offer_start_min: 600 });
@@ -108,17 +111,17 @@ test("tell everyone: every matching waiter gets one text with the exact time and
   const date = weekdayAhead();
   const staff = w.staff[0].id, service = w.services[0].id;
   await settings(r, { waitlist_mode: "EVERYONE", waitlist_delay_min: 0 });
-  const held = await bookOnline(c, P, staff, service, date, 630, "07700900711", "Holder Hal");
-  await join(c, P, service, date, "07700900712", "Early Erin", { daypart: "MORNING" });
-  await join(c, P, service, date, "07700900713", "Anytime Andy");
-  await join(c, P, service, date, "07700900714", "Evening Eve", { daypart: "EVENING" }); // 10:30 is not evening → not told
+  const held = await bookOnline(c, P, staff, service, date, 630, ph(11), "Holder Hal");
+  await join(c, P, service, date, ph(12), "Early Erin", { daypart: "MORNING" });
+  await join(c, P, service, date, ph(13), "Anytime Andy");
+  await join(c, P, service, date, ph(14), "Evening Eve", { daypart: "EVENING" }); // 10:30 is not evening → not told
   const cancel = await r.post(base + `/bookings/${held.id}/status`, { data: { status: "CANCELLED", reason: "Rang to cancel", version: held.version } });
   expect(cancel.status(), await cancel.text()).toBe(200);
   const q = await queue(r);
   // No hold in this mode: everyone stays OPEN.
   for (const n of ["Early Erin", "Anytime Andy", "Evening Eve"]) expect(q.waitlist.find((e) => e.customer_name === n)).toMatchObject({ status: "OPEN" });
   const texts = (await outbox(r)).filter((n) => n.template === "waitlist_open");
-  expect(texts.map((t) => t.recipient).sort()).toEqual(["07700900712", "07700900713"]);
+  expect(texts.map((t) => t.recipient).sort()).toEqual([ph(12), ph(13)]);
   for (const t of texts) {
     expect(t.body).toMatch(/10:30/);
     expect(t.body).toMatch(/First to book gets it/);
@@ -126,7 +129,7 @@ test("tell everyone: every matching waiter gets one text with the exact time and
   }
   expect(await sql`SELECT count(*)::int AS n FROM waitlist_announcements WHERE shop_id = ${shopId}`).toEqual([{ n: 2 }]);
   // Andy books it from the link → his request is BOOKED and linked; Erin stays OPEN.
-  const booked = await bookOnline(c, P, staff, service, date, 630, "07700900713", "Anytime Andy");
+  const booked = await bookOnline(c, P, staff, service, date, 630, ph(13), "Anytime Andy");
   const after = await queue(r);
   expect(after.waitlist.find((e) => e.customer_name === "Anytime Andy")).toBeUndefined();
   expect((await queue(r, "BOOKED")).waitlist.find((e) => e.customer_name === "Anytime Andy")).toMatchObject({ status: "BOOKED" });
@@ -134,7 +137,7 @@ test("tell everyone: every matching waiter gets one text with the exact time and
   // Same slot frees again → Erin was already told about it, so no second text to her.
   const cancel2 = await r.post(base + `/bookings/${booked.id}/status`, { data: { status: "CANCELLED", reason: "Again", version: booked.version } });
   expect(cancel2.status(), await cancel2.text()).toBe(200);
-  expect((await outbox(r)).filter((n) => n.template === "waitlist_open" && n.recipient === "07700900712")).toHaveLength(1);
+  expect((await outbox(r)).filter((n) => n.template === "waitlist_open" && n.recipient === ph(12))).toHaveLength(1);
   await Promise.all([r.dispose(), c.dispose()]);
 });
 
@@ -145,27 +148,27 @@ test("time windows and date ranges: a customer's own from/to and 'any day up to'
   const staff = w.staff[0].id, service = w.services[0].id;
   await settings(r, { waitlist_mode: "ORDER", waitlist_delay_min: 0 });
   // Validation: end before start, half-window, last day before first, out of the booking window.
-  const bad = (data: Record<string, unknown>) => c.post(`${P}/waitlist`, { data: { staff_id: null, service_id: service, customer_name: "Bad Bob", phone: "07700900720", email: "", date: d1, daypart: "ANY", notes: "", ...data } });
+  const bad = (data: Record<string, unknown>) => c.post(`${P}/waitlist`, { data: { staff_id: null, service_id: service, customer_name: "Bad Bob", phone: ph(20), email: "", date: d1, daypart: "ANY", notes: "", ...data } });
   expect((await bad({ from_min: 720, to_min: 600 })).status()).toBe(400);
   expect((await bad({ from_min: 720 })).status()).toBe(400);
   expect((await bad({ date_to: dateIn(1) })).status()).toBe(400);
   expect((await bad({ date_to: dateIn(400) })).status()).toBe(409);
   // Nina wants 11:00–13:00 on d1 only. Rory wants any time from d1 up to d2.
-  const nina = await join(c, P, service, d1, "07700900721", "Window Nina", { from_min: 660, to_min: 780 });
+  const nina = await join(c, P, service, d1, ph(21), "Window Nina", { from_min: 660, to_min: 780 });
   expect(nina).toMatchObject({ from_min: 660, to_min: 780, daypart: "ANY", date: d1, date_to: d1 });
-  const rory = await join(c, P, service, d1, "07700900722", "Range Rory", { date_to: d2 });
+  const rory = await join(c, P, service, d1, ph(22), "Range Rory", { date_to: d2 });
   expect(rory).toMatchObject({ date: d1, date_to: d2, from_min: 0, to_min: 1440 });
   // Joined confirmations spell the request out.
   const joined = (await outbox(r)).filter((n) => n.template === "waitlist_joined");
-  expect(joined.find((n) => n.recipient === "07700900721")?.body).toMatch(/11:00–13:00/);
-  expect(joined.find((n) => n.recipient === "07700900722")?.body).toMatch(/ – /);
+  expect(joined.find((n) => n.recipient === ph(21))?.body).toMatch(/11:00–13:00/);
+  expect(joined.find((n) => n.recipient === ph(22))?.body).toMatch(/ – /);
   const q = await queue(r);
   const ninaRow = q.waitlist.find((e) => e.customer_name === "Window Nina")!;
   const roryRow = q.waitlist.find((e) => e.customer_name === "Range Rory")!;
   expect(ninaRow).toMatchObject({ from_min: 660, to_min: 780 });
   expect(roryRow).toMatchObject({ date: d1, date_to: d2 });
   // Matches honour the window; range matches carry their date and span both days.
-  const nm = (await (await r.get(base + `/waitlist/${ninaRow.id}/matches`)).json()).matches as { start_min: number; date: string }[];
+  const nm = (await (await r.get(base + `/waitlist/${ninaRow.id}/matches`)).json()).matches as { start_min: number; date: string; staff_id: string }[];
   expect(nm.length).toBeGreaterThan(0);
   expect(nm.every((m) => m.start_min >= 660 && m.start_min < 780)).toBe(true);
   const rm = (await (await r.get(base + `/waitlist/${roryRow.id}/matches`)).json()).matches as { start_min: number; date: string; staff_id: string }[];
@@ -179,16 +182,17 @@ test("time windows and date ranges: a customer's own from/to and 'any day up to'
   expect(offer.status(), await offer.text()).toBe(201);
   const acc = await (await c.post(`${pub}/offer/${(await offer.json()).offer.link.split("/offer/")[1]}/accept`, { data: {} })).json();
   expect(acc.booking.date).toBe(d2);
-  // A cancellation on d1 outside Nina's window → she is not offered it (nobody else fits either, so it stays free).
+  // Rory (any time, d1–d2) has just accepted a d2 time, so only Nina is still waiting on d1.
+  // A cancellation on d1 outside Nina's window → she is not offered it.
   const avail = await (await c.get(`${P}/availability?date=${d1}&staff_id=${staff}&service_id=${service}`)).json();
   const outside = (avail.slots as { start_min: number; available: boolean }[]).find((x) => x.available && (x.start_min < 660 || x.start_min >= 780))!;
-  const nine = await bookOnline(c, P, staff, service, d1, outside.start_min, "07700900723", "Nine Nick");
-  expect((await r.post(base + `/bookings/${nine.id}/status`, { data: { status: "CANCELLED", reason: "x", version: nine.version } })).status()).toBe(200);
+  const nine = await bookOnline(c, P, staff, service, d1, outside.start_min, ph(23), "Nine Nick");
+  expect((await r.post(base + `/bookings/${nine.id}/status`, { data: { status: "CANCELLED", reason: "Customer rang to cancel", version: nine.version } })).status()).toBe(200);
   expect((await queue(r)).waitlist.find((e) => e.id === ninaRow.id)).toMatchObject({ status: "OPEN" });
   // An 11:30 cancellation is inside it → offered.
-  const inside = nm.find((m) => (m as { staff_id?: string }).staff_id === staff) ?? nm[0];
-  const half = await bookOnline(c, P, (inside as { staff_id: string }).staff_id, service, d1, inside.start_min, "07700900724", "Half Eleven Hank");
-  expect((await r.post(base + `/bookings/${half.id}/status`, { data: { status: "CANCELLED", reason: "x", version: half.version } })).status()).toBe(200);
+  const inside = nm.find((m) => m.staff_id === staff) ?? nm[0];
+  const half = await bookOnline(c, P, inside.staff_id, service, d1, inside.start_min, ph(24), "Half Eleven Hank");
+  expect((await r.post(base + `/bookings/${half.id}/status`, { data: { status: "CANCELLED", reason: "Customer rang to cancel", version: half.version } })).status()).toBe(200);
   expect((await queue(r)).waitlist.find((e) => e.id === ninaRow.id)).toMatchObject({ status: "OFFERED", offer_source: "AUTO", offer_start_min: inside.start_min });
   await Promise.all([r.dispose(), c.dispose()]);
 });
@@ -240,7 +244,7 @@ test("browser: settings panel saves the mode and delay; customer join form offer
   const until = weekdayAhead(6) === full ? dateIn(8) : weekdayAhead(6);
   await cp.getByTestId("waitlist-date-to").fill(until);
   await cp.locator(".waitlist-form input[name=name]").fill("Browser Bea");
-  await cp.locator(".waitlist-form input[name=phone]").fill("07700900740");
+  await cp.locator(".waitlist-form input[name=phone]").fill(ph(40));
   const ca11y = await new AxeBuilder({ page: cp }).withTags(["wcag2a", "wcag2aa"]).analyze();
   expect(ca11y.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
   await cp.getByRole("button", { name: /Ask the shop to contact me/ }).click();

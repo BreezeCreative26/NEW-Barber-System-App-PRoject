@@ -45,7 +45,14 @@ Confirmed in code and tests (`tests/customer-account.spec.ts`):
 | 2 | Calendar opens on the first *open* day with availability, not today when today is closed | S | **fixed** |
 | 3 | Collapse the booking hero after step 1 on phones | S | **fixed** |
 | 4 | Confirmation: hide the raw manage URL (keep Copy link), add "Create your account / see all your visits" card → `/<slug>/me` | S | **fixed** |
-| 5 | Waiting list for closed / out-of-window days ("tell me when you open bookings for…") | M | later |
+| 5 | Waiting list for closed / out-of-window days ("tell me when you open bookings for…") | M | partly — customers can now ask for **any day up to** a later date and a **time window**, so a closed day is covered by the range; a bare closed-day request is still later |
 | 6 | Code-splitting: booking, shop page, customer area each as their own chunk | M | later |
-| 7 | Account: show "Waiting list" section even when empty with a link to book | XS | later |
+| 7 | Account: show "Waiting list" section even when empty with a link to book | XS | done |
 | 8 | Booking hero: allow the owner to turn it off entirely in Settings → Shop page | S | later |
+
+
+## 2026-09-27 — follow-up
+- Waiting list v2 shipped (delay, order/everyone, windows, ranges) — see PROGRESS.md.
+- `/me` always shows the Waiting list section (empty state links to booking); range and window requests display correctly; offers show their date when it differs.
+- **Themes audited**: `tests/theme-matrix.spec.ts` renders all 6 accents × 2 looks (rotating through every typeface, corner and hero choice) on the shop page and booking flow with axe colour-contrast on — zero violations, zero console errors. Every typeface × hero layout checked with and without a cover photo. A brand-new shop with no `shop_pages` row gets the default theme immediately, and the first save applies on the next load (public API is `no-store`).
+- **Live preview** in Settings → Shop page: phone/desktop frame using the real theme classes; cover, logo, gallery, strapline, accent, typeface, look, corners and hero all update as you edit, before saving. Evidence: `docs/evidence/cx/shop-preview-*.png`.

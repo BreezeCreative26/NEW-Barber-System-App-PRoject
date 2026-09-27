@@ -105,6 +105,7 @@ reminders and the 07:00 summaries go out even on a quiet morning.
 
 ## Status (2026-09-27)
 
+- [x] **Migrations run on every Vercel build** (`vercel.json` → `buildCommand: npm run db:migrate && npm run build`, against `DIRECT_URL`). A failed migration fails the build, so code never deploys ahead of its schema. 0027 (waiting list v2) ships this way.
 - [x] **Supabase migrations 0001–0025 applied** — prod was running the base schema only; `ollo_migrations` did not exist. Now tracked.
 - [x] **Database password rotated** via Supabase Management API; `DATABASE_URL` / `DIRECT_URL` updated in Vercel (production + preview); redeployed; `/api/diag?ping=1` → `db_ping: ok`. The new password lives only in Vercel and Supabase — nowhere else.
 - [x] `OLLO_ADMIN_EMAILS=ollosoftwareio@gmail.com` — sign up (or sign in) with that address and open `/admin`; you are seeded as SUPER. Add others from Admin → Team.

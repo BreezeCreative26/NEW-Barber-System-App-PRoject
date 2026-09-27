@@ -572,11 +572,11 @@ test("waitlist: customer joins a full day, owner sees, books and links the entry
   const booked = await bookOnline(c, slug, w, date, 600, { customer_name: "Waiting Wanda", phone: "07700900555" });
   expect(booked.res.status()).toBe(201);
   const bookingId = (await booked.res.json()).booking.id;
+  // Booking online for the same service on a day the request covers closes the request itself
+  // (waiting list v2) — the entry is already BOOKED and linked, so a manual link is now a stale write.
+  expect((await (await r.get(base + "/waitlist")).json()).waitlist).toHaveLength(0);
   const stale = await r.post(base + `/waitlist/${entry.id}/status`, { data: { status: "BOOKED", booking_id: bookingId, version: 99 } });
   expect(stale.status()).toBe(409);
-  const link = await r.post(base + `/waitlist/${entry.id}/status`, { data: { status: "BOOKED", booking_id: bookingId, version: entry.version } });
-  expect(link.status()).toBe(200);
-  expect((await (await r.get(base + "/waitlist")).json()).waitlist).toHaveLength(0);
   const bookedList = await (await r.get(base + "/waitlist?status=BOOKED")).json();
   expect(bookedList.waitlist[0].booking_id).toBe(bookingId);
   // Other shops cannot see or touch it.
@@ -641,7 +641,7 @@ test.describe("public booking v2 UI", () => {
     await page.getByRole("button", { name: "Join the waitlist" }).click();
     await page.getByLabel("Your name").fill("Waiting Wanda");
     await page.getByLabel("Mobile number").fill("07700900555");
-    await page.getByRole("group", { name: "Preferred part of the day" }).getByRole("button", { name: "Afternoon" }).click();
+    await page.getByRole("group", { name: "Times that suit you" }).getByRole("button", { name: "Afternoon" }).click();
     await page.getByRole("button", { name: "Ask the shop to contact me" }).click();
     await expect(page.getByText("You’re on the list.")).toBeVisible();
     const list = await (await r.get(base + "/waitlist")).json();

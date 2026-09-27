@@ -23,7 +23,7 @@ type Me = {
   next_usual: null | { date: string; start_min: number; price_pence: number };
   staff: { id: string; name: string }[];
   stats: { visits: number; spent_pence: number; first_visit: string | null };
-  waiting: { id: string; date: string; daypart: string; status: "OPEN" | "OFFERED"; version: number; service_name: string; staff_name: string | null; offer_start_min: number | null; offer_expires_at: number | null; offer_staff_name: string | null }[];
+  waiting: { id: string; date: string; date_to?: string; daypart: string; from_min?: number; to_min?: number; status: "OPEN" | "OFFERED"; version: number; service_name: string; staff_name: string | null; offer_start_min: number | null; offer_date?: string | null; offer_expires_at: number | null; offer_staff_name: string | null }[];
 };
 class ApiError extends Error {
   constructor(message: string, public status: number, public code = "") {
@@ -37,6 +37,14 @@ async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> 
   return json as T;
 }
 const initials = (n: string) => n.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
+// Preset windows read as words; a customer's own window as HH:MM–HH:MM.
+function windowLabel(e: { daypart: string; from_min?: number; to_min?: number }) {
+  const words: Record<string, string> = { ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" };
+  const preset: Record<string, [number, number]> = { ANY: [0, 1440], MORNING: [0, 720], AFTERNOON: [720, 1020], EVENING: [1020, 1440] };
+  if (e.from_min == null || e.to_min == null) return words[e.daypart] ?? "any time";
+  for (const k of Object.keys(preset)) if (preset[k][0] === e.from_min && preset[k][1] === e.to_min) return words[k];
+  return `${time(e.from_min)}–${time(Math.min(e.to_min, 1439))}`;
+}
 const statusLabel: Record<string, { text: string; tone: "good" | "next" | "paid" | "warn" | "note" }> = {
   CONFIRMED: { text: "Confirmed", tone: "good" },
   CHECKED_IN: { text: "Checked in", tone: "next" },
@@ -312,24 +320,24 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
           </div>
         </section>
       )}
-      {me.waiting?.length > 0 && (
-        <section className="ca-section" aria-labelledby="waiting-heading" data-testid="waiting-list">
-          <div className="sp-section-head">
-            <h2 id="waiting-heading">Waiting list</h2>
-            <p>Days you asked to be told about. When a time opens we message you a link to take it.</p>
-          </div>
+      <section className="ca-section" aria-labelledby="waiting-heading" data-testid="waiting-list">
+        <div className="sp-section-head">
+          <h2 id="waiting-heading">Waiting list</h2>
+          <p>{me.waiting?.length ? "Days you asked to be told about. When a time opens we message you a link to take it." : "Nothing at the moment. If the day you want is full, join the list from the booking page and we’ll text you when a time opens."}</p>
+        </div>
+        {me.waiting?.length > 0 ? (
           <ul className="ca-visits">
             {me.waiting.map((wt) => (
               <li key={wt.id} className="ca-visit">
                 <div className="ca-visit-when">
-                  <b>{dateLabel(wt.date)}</b>
-                  <span>{{ ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" }[wt.daypart]}</span>
+                  <b>{wt.date_to && wt.date_to !== wt.date ? `${dateLabel(wt.date, { day: "numeric", month: "short" })} – ${dateLabel(wt.date_to, { day: "numeric", month: "short" })}` : dateLabel(wt.date)}</b>
+                  <span>{windowLabel(wt)}</span>
                 </div>
                 <div className="ca-visit-what">
                   <b>{wt.service_name}</b>
                   <span>
                     {wt.staff_name ? `with ${wt.staff_name}` : "any barber"}
-                    {wt.status === "OFFERED" && wt.offer_start_min != null && ` · offered ${time(wt.offer_start_min)}${wt.offer_staff_name ? ` with ${wt.offer_staff_name.split(" ")[0]}` : ""} — check your messages`}
+                    {wt.status === "OFFERED" && wt.offer_start_min != null && ` · offered ${wt.offer_date && wt.offer_date !== wt.date ? `${dateLabel(wt.offer_date, { weekday: "short", day: "numeric", month: "short" })} ` : ""}${time(wt.offer_start_min)}${wt.offer_staff_name ? ` with ${wt.offer_staff_name.split(" ")[0]}` : ""} — check your messages`}
                   </span>
                 </div>
                 <StatusPill tone={wt.status === "OFFERED" ? "next" : "note"}>{wt.status === "OFFERED" ? "Time offered" : "Waiting"}</StatusPill>
@@ -348,8 +356,12 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
               </li>
             ))}
           </ul>
-        </section>
-      )}
+        ) : (
+          <div className="ca-visit-actions">
+            <a className="button secondary" href={`/book/${me.shop.slug}`} data-testid="waiting-empty-book">Book a visit</a>
+          </div>
+        )}
+      </section>
       <section className="ca-section" aria-labelledby="upcoming-heading">
         <div className="sp-section-head">
           <h2 id="upcoming-heading">Upcoming</h2>

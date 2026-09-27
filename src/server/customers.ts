@@ -265,7 +265,7 @@ acct.get("/me", async (c) => {
   const staff = await c.env.DB.prepare("SELECT id,name FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name").bind(shop.id).all<{ id: string; name: string }>();
   // Waiting-list requests (open or with an offer pending) for this customer at this shop.
   const waiting = await c.env.DB.prepare(
-    "SELECT w.id,w.date,w.daypart,w.status,w.version,s.name AS service_name,st.name AS staff_name,o.start_min AS offer_start_min,o.expires_at AS offer_expires_at,os.name AS offer_staff_name FROM waitlist_entries w JOIN services s ON s.shop_id=w.shop_id AND s.id=w.service_id LEFT JOIN staff st ON st.shop_id=w.shop_id AND st.id=w.staff_id LEFT JOIN waitlist_offers o ON o.id=w.offer_id LEFT JOIN staff os ON os.shop_id=o.shop_id AND os.id=o.staff_id WHERE w.shop_id=? AND w.phone=? AND w.status IN ('OPEN','OFFERED') AND w.date>=? ORDER BY w.date",
+    "SELECT w.id,w.date,w.date_to,w.daypart,w.from_min,w.to_min,w.status,w.version,s.name AS service_name,st.name AS staff_name,o.start_min AS offer_start_min,o.date AS offer_date,o.expires_at AS offer_expires_at,os.name AS offer_staff_name FROM waitlist_entries w JOIN services s ON s.shop_id=w.shop_id AND s.id=w.service_id LEFT JOIN staff st ON st.shop_id=w.shop_id AND st.id=w.staff_id LEFT JOIN waitlist_offers o ON o.id=w.offer_id LEFT JOIN staff os ON os.shop_id=o.shop_id AND os.id=o.staff_id WHERE w.shop_id=? AND w.phone=? AND w.status IN ('OPEN','OFFERED') AND w.date_to>=? ORDER BY w.date",
   )
     .bind(shop.id, cust.phone, shopToday(shop.timezone, now))
     .all();

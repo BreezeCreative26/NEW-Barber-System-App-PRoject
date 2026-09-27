@@ -37,6 +37,7 @@ import { PaymentsPanel } from "./Payouts";
 import { SetupWizard } from "./Setup";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
+import { themeClass } from "./theme";
 import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
 
 const reference = (b: StoredBooking) =>
@@ -3247,6 +3248,77 @@ const PAGE_SECTIONS: { key: string; label: string }[] = [
   { key: "find", label: "Find us" },
   { key: "policies", label: "Good to know" },
 ];
+// Live preview of the public shop page. Same class stack and markup family as ShopPage.tsx, so
+// whatever the owner picks (photos, logo, accent, typeface, look, corners, hero) shows here first —
+// before saving. Phone/desktop toggle; nothing here is interactive.
+function ShopPreview({ w, form }: { w: WorkspaceData; form: PageForm }) {
+  const [device, setDevice] = useState<"phone" | "desktop">("phone");
+  const ini = (w.shop.name || "Your shop").split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
+  const cls = themeClass({ accent: form.accent, theme: form.theme }, `shop-preview-page hero-${form.theme.hero}`);
+  const services = w.services.filter((x) => x.active !== 0).slice(0, 3);
+  const has = (k: string) => form.sections.includes(k);
+  return (
+    <section className="shop-preview" aria-label="Preview of your shop page" data-testid="shop-preview">
+      <div className="shop-preview-bar">
+        <strong>Preview</strong>
+        <small>Updates as you edit. Save to publish.</small>
+        <div className="segmented" role="group" aria-label="Preview size">
+          {(["phone", "desktop"] as const).map((d) => (
+            <button key={d} type="button" aria-pressed={device === d} onClick={() => setDevice(d)} data-testid={`preview-${d}`}>{d === "phone" ? "Phone" : "Desktop"}</button>
+          ))}
+        </div>
+      </div>
+      <div className={`shop-preview-frame ${device}`} data-testid="shop-preview-frame" tabIndex={0} role="region" aria-label="Shop page preview (scrollable)">
+        <div className={cls} aria-hidden="true">
+          <header className="sp-nav">
+            <span className="sp-brand">
+              {form.logo_url ? <img className="shop-emblem shop-logo" src={form.logo_url} alt="" /> : <span className="shop-emblem">{ini}</span>}
+              <strong>{w.shop.name || "Your shop"}</strong>
+            </span>
+            <nav>{has("services") && <a>Services</a>}{has("team") && <a>Team</a>}{has("hours") && <a>Hours</a>}</nav>
+            <span className="button primary sp-book-btn">Book now</span>
+          </header>
+          {has("hero") && (
+            <section className={`sp-hero ${form.cover_url ? "has-cover" : "no-cover"}`}>
+              {form.cover_url && <img className="sp-hero-img" src={form.cover_url} alt="" />}
+              <div className="sp-hero-inner">
+                <div className="sp-hero-copy">
+                  {form.logo_url ? <img className="sp-hero-logo" src={form.logo_url} alt="" /> : <span className="sp-hero-logo sp-hero-initials">{ini}</span>}
+                  <span className="sp-open open"><i aria-hidden="true" />Open now · until 18:00</span>
+                  <h1>{w.shop.name || "Your shop"}</h1>
+                  <p className="sp-strap">{form.strapline || "Book your next visit online in under a minute."}</p>
+                  {w.shop.address && <div className="sp-hero-meta"><span className="sp-hero-address"><Icon name="pin" size={14} /> {w.shop.address}</span></div>}
+                  <div className="sp-hero-actions">
+                    <span className="button primary"><Icon name="calendar" size={16} /> Book now</span>
+                    {form.phone && <span className="button secondary"><Icon name="call" size={16} /> Call</span>}
+                  </div>
+                </div>
+                {form.theme.hero === "split" && form.cover_url && <div className="sp-hero-side"><img src={form.cover_url} alt="" /></div>}
+              </div>
+            </section>
+          )}
+          {has("services") && services.length > 0 && (
+            <section className="sp-section">
+              <div className="sp-section-head"><h2>Services</h2></div>
+              <ul className="sp-services sp-preview-services">
+                {services.map((x) => (
+                  <li key={x.id}><span className="sp-service"><b>{x.name}</b><small>{x.duration_min} min</small><span className="sp-service-go">→</span></span></li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {has("gallery") && form.gallery.filter(Boolean).length > 0 && (
+            <section className="sp-section">
+              <div className="sp-section-head"><h2>Gallery</h2></div>
+              <div className="sp-preview-gallery">{form.gallery.filter(Boolean).slice(0, 6).map((u, i) => <img key={i} src={u} alt="" loading="lazy" />)}</div>
+            </section>
+          )}
+          {form.about && <section className="sp-section sp-about"><p>{form.about}</p></section>}
+        </div>
+      </div>
+    </section>
+  );
+}
 function ShopPagePanel({ w }: { w: WorkspaceData }) {
   const [form, setForm] = useState<PageForm | null>(null);
   const [saved, setSavedForm] = useState<PageForm | null>(null);
@@ -3315,6 +3387,7 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
           </>
         )}
       </p>
+      <ShopPreview w={w} form={form} />
       <form
         className="page-editor"
         data-dirty={dirty ? "true" : undefined}
