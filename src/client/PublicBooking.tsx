@@ -1719,7 +1719,7 @@ function ConfirmationCard({
 
 export function ManageBooking({ token }: { token: string }) {
   const [booking, setBooking] = useState<CustomerBooking | null>(null);
-  const [review, setReview] = useState<{ review: OwnReview; can: boolean }>({ review: null, can: false });
+  const [review, setReview] = useState<{ review: OwnReview; can: boolean; google?: string }>({ review: null, can: false });
   const [error, setError] = useState("");
   const [mode, setMode] = useState<"view" | "move" | "cancel">("view");
   const [date, setDate] = useState("");
@@ -1733,7 +1733,7 @@ export function ManageBooking({ token }: { token: string }) {
   async function load() {
     setError("");
     try {
-      let r = await api<{ booking: CustomerBooking; review: OwnReview; can_review: boolean }>(`/manage/${token}`);
+      let r = await api<{ booking: CustomerBooking; review: OwnReview; can_review: boolean; google_review_url?: string }>(`/manage/${token}`);
       // Back from Stripe (or refreshing while a deposit is pending): confirm against Stripe directly.
       if (r.booking.deposit_status === "PENDING") {
         const paid = new URLSearchParams(location.search).get("paid");
@@ -1748,7 +1748,7 @@ export function ManageBooking({ token }: { token: string }) {
       }
       setBooking(r.booking);
       applyThemeColor(r.booking.shop.brand);
-      setReview({ review: r.review ?? null, can: !!r.can_review });
+      setReview({ review: r.review ?? null, can: !!r.can_review, google: r.google_review_url || "" });
       setDate((d) => d || r.booking.date);
     } catch (e) {
       setError(e instanceof Error ? e.message : "This link could not be opened.");
@@ -1907,9 +1907,10 @@ export function ManageBooking({ token }: { token: string }) {
             <ReviewCard
               review={review.review}
               canReview={review.can}
+              googleUrl={review.google || ""}
               post={async (rating, body) => {
                 const r = await api<{ review: OwnReview; google_review_url?: string }>(`/manage/${token}/review`, "POST", { rating, body });
-                setReview({ review: r.review, can: false });
+                setReview((prev) => ({ review: r.review, can: false, google: r.google_review_url || prev.google }));
                 return r;
               }}
             />

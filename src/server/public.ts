@@ -1058,7 +1058,9 @@ pub.get("/manage/:token", async (c) => {
   const { shop, booking, staffName } = await bookingByToken(c);
   const review = await reviewForBooking(c.env.DB, booking.id);
   const can = reviewEligibility(booking, review);
-  return c.json({ booking: customerView(booking, shop, staffName), review: ownReviewView(review), can_review: can.ok, review_blocked: can.ok ? null : can.reason });
+  // Google link rides along so a returning happy customer still sees the "Review on Google" button.
+  const gp = booking.status === "COMPLETED" ? await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ google_review_url: string }>() : null;
+  return c.json({ booking: customerView(booking, shop, staffName), review: ownReviewView(review), can_review: can.ok, review_blocked: can.ok ? null : can.reason, google_review_url: gp?.google_review_url || "" });
 });
 // Leave a review for a completed visit through the manage link (one per booking, 60 days).
 pub.post("/manage/:token/review", async (c) => {

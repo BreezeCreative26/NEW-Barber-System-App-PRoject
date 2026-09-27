@@ -15,7 +15,7 @@ type Visit = {
   price_pence: number; cancel_hours: number; version: number; can_manage: boolean; late_change: boolean; series_id: string | null; attendee_name?: string; group_id?: string | null; items: { id: string; name: string; price_pence: number }[];
 };
 type Me = {
-  shop: { name: string; slug: string; address: string; timezone: string; currency?: string; cancel_hours: number; lead_time_min: number; today: string; logo_url?: string; brand?: ShopBrand };
+  shop: { name: string; slug: string; address: string; timezone: string; currency?: string; cancel_hours: number; lead_time_min: number; today: string; logo_url?: string; brand?: ShopBrand; google_review_url?: string };
   profile: Profile;
   upcoming: Visit[];
   history: Visit[];
@@ -437,6 +437,7 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
                     compact
                     review={v.review ?? null}
                     canReview={!!v.can_review}
+                    googleUrl={me.shop.google_review_url || ""}
                     post={async (rating, body) => {
                       return api<{ review: OwnReview; google_review_url?: string }>(`/bookings/${v.id}/review`, "POST", { rating, body });
                     }}

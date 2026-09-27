@@ -270,9 +270,11 @@ acct.get("/me", async (c) => {
   )
     .bind(shop.id, cust.phone, shopToday(shop.timezone, now))
     .all();
+  // Google review link (shop page setting) so already-reviewed visits can still nudge a public review.
+  const gp = await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ google_review_url: string }>();
   return c.json({
     waiting: waiting.results,
-    shop: { name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now), logo_url: shop.logo_url || "", brand: brandOf(shop) },
+    shop: { name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now), logo_url: shop.logo_url || "", brand: brandOf(shop), google_review_url: gp?.google_review_url || "" },
     profile: profileOf(a, cust),
     upcoming,
     history,
