@@ -12,6 +12,7 @@
 // Uses Stripe's REST API over fetch (no SDK) so it runs on Node and edge alike.
 import type { Database as DB } from "../db/client";
 import type { Shop, StoredBooking } from "./domain";
+import { shopUrl } from "./hosts";
 
 type Env = { STRIPE_SECRET_KEY?: string; STRIPE_WEBHOOK_SECRET?: string; STRIPE_WEBHOOK_SECRET_CONNECT?: string; STRIPE_CONNECT?: string; APP_ORIGIN?: string };
 const env = (): Env => (typeof process !== "undefined" ? (process.env as Env) : {});
@@ -99,7 +100,7 @@ export async function createDepositSession(shop: Shop, booking: StoredBooking, o
   const amount = Math.min(booking.deposit_policy_pence || Math.min(shop.deposit_pence, booking.price_pence), booking.price_pence);
   const prepay = amount >= booking.price_pence;
   const currency = (shop.currency || "GBP").toLowerCase();
-  const manage = `${origin}/manage/${manageToken}`;
+  const manage = shopUrl(shop.slug!, `/manage/${manageToken}`, origin);
   const expires = Math.floor(Date.now() / 1000) + Math.max(30, holdMinutes) * 60; // Stripe minimum 30 min
   const body: Record<string, string | number | boolean> = {
     mode: "payment",

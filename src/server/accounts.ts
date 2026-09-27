@@ -7,6 +7,8 @@ import { HTTPException } from "hono/http-exception";
 import type { Database } from "../db/client";
 import { z } from "zod";
 import { demoRoute } from "./demo";
+import { slugSchema } from "./domain";
+import { RESERVED_SUBDOMAINS, SHOP_HOST_HEADER, rootHost, sessionCookieDomain, shopOrigin } from "./hosts";
 
 export type Account = {
   id: string;
@@ -210,10 +212,14 @@ export async function resolveAccount(
   c: Ctx,
   token: string,
 ): Promise<Account | null> {
+  // On a shop's sub-domain the session must belong to that shop: a cookie shared across
+  // *.foliyo.co.uk never opens another shop's workspace. Platform admin routes (/api/admin) are
+  // served on the root host and are unaffected.
+  const hostSlug = c.req.header(SHOP_HOST_HEADER) || "";
   return c.env.DB.prepare(
-    `SELECT m.id,m.user_id,m.shop_id,m.role,m.staff_id,m.version,m.prefs_json,u.name,u.email,u.email_verified_at FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1 AND (m.role='OWNER' OR b.active=1)`,
+    `SELECT m.id,m.user_id,m.shop_id,m.role,m.staff_id,m.version,m.prefs_json,u.name,u.email,u.email_verified_at FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id JOIN shops sh ON sh.id=m.shop_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1 AND (m.role='OWNER' OR b.active=1)${hostSlug ? " AND sh.slug=?" : ""}`,
   )
-    .bind(await digest(token), Date.now())
+    .bind(...(hostSlug ? [await digest(token), Date.now(), hostSlug] : [await digest(token), Date.now()]))
     .first<Account>();
 }
 const email = z.string().trim().toLowerCase().email().max(254);
@@ -278,12 +284,15 @@ export async function newSession(
   };
 }
 export function cookies(c: Ctx, raw: string) {
+  const domain = sessionCookieDomain();
   setCookie(c, ACCOUNT_COOKIE, raw, {
     httpOnly: true,
     secure: true,
-    sameSite: "Strict",
+    // Lax (not Strict) so the redirect from root signup to <slug>.<root>/workspace carries it.
+    sameSite: "Lax",
     path: "/",
     maxAge: 7 * 86400,
+    ...(domain ? { domain } : {}),
   });
   for (const name of LEGACY_COOKIES) deleteCookie(c, name, { path: "/", secure: true });
 }
@@ -305,6 +314,9 @@ const timezone = z
 const signup = z
   .object({
     shop_name: z.string().trim().min(2).max(100),
+    // The shop's address: <slug>.foliyo.co.uk. Chosen at signup so the owner lands on their own
+    // sub-domain; unique, validated, reserved words refused. Optional only for legacy callers.
+    slug: slugSchema.optional(),
     name: z.string().trim().min(2).max(100),
     email,
     password,
@@ -343,12 +355,51 @@ async function issueEmailVerification(
   ];
   return { stmts, token };
 }
+// Root-host sign-in helper: "where do I sign in?". A typed shop address resolves instantly; an
+// email gets the link mailed (never revealed in the response, so addresses can't be enumerated).
+accounts.post("/find-shop", async (c) => {
+  const b = await readInput(c, z.object({ slug: z.string().trim().toLowerCase().max(64).default(""), email: z.union([z.literal(""), email]).default("") }).strict());
+  await throttle(c, "find-shop", `${c.req.header("x-forwarded-for") || "local"}:${Math.floor(Date.now() / 60000)}`);
+  const origin = new URL(c.req.url).origin;
+  if (b.slug) {
+    const row = await c.env.DB.prepare("SELECT slug FROM shops WHERE slug=?").bind(b.slug.replace(/^https?:\/\//, "").split(".")[0].replace(/[^a-z0-9-]/g, "")).first<{ slug: string }>();
+    return c.json(row ? { ok: true, workspace_url: `${shopOrigin(row.slug, origin)}/signin` } : { ok: false, reason: "We couldn't find a shop at that address." });
+  }
+  if (b.email) {
+    const rows = await c.env.DB.prepare("SELECT DISTINCT s.id, s.slug, s.name, u.name AS user_name FROM app_users u JOIN app_memberships m ON m.user_id=u.id AND m.active=1 JOIN shops s ON s.id=m.shop_id WHERE u.email=? AND s.slug IS NOT NULL").bind(b.email).all<{ id: string; slug: string; name: string; user_name: string }>();
+    const now = Date.now();
+    for (const r of rows.results) {
+      const ms = await msgShop(c, r.id);
+      const stmts = enqueue(c.env.DB, ms, { email: b.email, name: r.user_name }, "shop_address", { shop: r.name, link: `${shopOrigin(r.slug, origin)}/signin` }, { related: { type: "signin_link", id: r.id }, origin, channel: "EMAIL", now, force: true });
+      if (stmts.length) { await c.env.DB.batch(stmts); await drain(c.env.DB, stmts.length, now, { type: "signin_link", id: r.id }).catch(() => {}); }
+    }
+    return c.json({ ok: true, mailed: true });
+  }
+  return c.json({ ok: false, reason: "Enter your shop address or email." });
+});
+// Signup form: is this address free? Public, throttled, no side effects.
+accounts.get("/slug-check", async (c) => {
+  const raw = (c.req.query("slug") || "").trim().toLowerCase();
+  // Typing in the form fires this per keystroke; key the throttle per minute bucket so a genuine
+  // signup never trips it while a scraper still does.
+  await throttle(c, "slug-check", `${c.req.header("x-forwarded-for") || "local"}:${Math.floor(Date.now() / 60000)}`);
+  const parsed = slugSchema.safeParse(raw);
+  if (!parsed.success) return c.json({ ok: false, reason: parsed.error.issues[0]?.message || "Letters, numbers and dashes only" });
+  if (RESERVED_SUBDOMAINS.has(raw)) return c.json({ ok: false, reason: "That address is reserved" });
+  const taken = await c.env.DB.prepare("SELECT 1 AS x FROM shops WHERE slug=?").bind(raw).first();
+  return c.json({ ok: !taken, reason: taken ? "Already taken" : "", host: rootHost() ? `${raw}.${rootHost()}` : "" });
+});
 accounts.post("/signup", async (c) => {
   const b = await readInput(c, signup);
   if (c.get("account")) return reject(409, "You are already signed in. Sign out first to create another shop.");
   await throttle(c, "signup", b.email);
   const existing = await c.env.DB.prepare("SELECT 1 AS x FROM app_users WHERE email=?").bind(b.email).first();
   if (existing) return reject(409, "An account with this email already exists. Sign in instead.");
+  if (b.slug) {
+    if (RESERVED_SUBDOMAINS.has(b.slug)) return reject(409, "That address is reserved. Try another.");
+    const taken = await c.env.DB.prepare("SELECT 1 AS x FROM shops WHERE slug=?").bind(b.slug).first();
+    if (taken) return reject(409, "That address is already taken. Try another.");
+  }
   const shop = uid(),
     user = uid(),
     membership = uid(),
@@ -358,7 +409,7 @@ accounts.post("/signup", async (c) => {
   const encoded = await passwordHash(b.password, salt);
   const session = await newSession(c, membership);
   const writes = [
-    c.env.DB.prepare("INSERT INTO shops(id,name,timezone,kind,email,setup_json,created_at) VALUES(?,?,?,?,?,?,?)").bind(shop, b.shop_name, b.timezone, b.kind, b.email, JSON.stringify({ step: "shop", done: [], skipped: [], started_at: now }), now),
+    c.env.DB.prepare("INSERT INTO shops(id,name,timezone,kind,email,setup_json,created_at,slug) VALUES(?,?,?,?,?,?,?,?)").bind(shop, b.shop_name, b.timezone, b.kind, b.email, JSON.stringify({ step: "shop", done: [], skipped: [], started_at: now }), now, b.slug ?? null),
     c.env.DB.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)").bind(user, b.email, b.name, encoded, salt, now),
     c.env.DB.prepare("INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?)").bind(shop, user),
     c.env.DB.prepare("INSERT INTO staff(id,shop_id,name,role,title,start_date) VALUES(?,?,?,?,?,?)").bind(staffId, shop, b.name, "Owner", "Owner & barber", new Date(now).toISOString().slice(0, 10)),
@@ -395,7 +446,10 @@ accounts.post("/signup", async (c) => {
     console.error("welcome email failed", e instanceof Error ? e.message : e);
   }
   cookies(c, session.raw);
-  return c.json({ ok: true, shop_id: shop, ...(sandboxToken ? { sandbox_verify_token: sandboxToken } : {}) }, 201);
+  // Where the owner works from now on: their own sub-domain (when the platform has a root host).
+  const origin = new URL(c.req.url).origin;
+  const workspace = b.slug ? `${shopOrigin(b.slug, origin)}/workspace` : `${origin}/workspace`;
+  return c.json({ ok: true, shop_id: shop, slug: b.slug ?? null, workspace_url: workspace, cross_host_session: !!sessionCookieDomain(), ...(sandboxToken ? { sandbox_verify_token: sandboxToken } : {}) }, 201);
 });
 accounts.post("/login", async (c) => {
   const b = await readInput(c, credentials);
@@ -406,13 +460,21 @@ accounts.post("/login", async (c) => {
     .bind(b.email)
     .first<{ id: string; password_hash: string; password_salt: string }>();
   const valid = await matches(b.password, u);
+  // On a shop's sub-domain only that shop's team can sign in; on the root host (local dev, legacy)
+  // the first active membership wins as before.
+  const hostSlug = c.req.header(SHOP_HOST_HEADER) || "";
   const m = u
     ? await c.env.DB.prepare(
-        "SELECT m.id,m.shop_id,m.version FROM app_memberships m LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE m.user_id=? AND m.active=1 AND (m.role='OWNER' OR b.active=1)",
+        `SELECT m.id,m.shop_id,m.version,s.slug FROM app_memberships m JOIN shops s ON s.id=m.shop_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE m.user_id=? AND m.active=1 AND (m.role='OWNER' OR b.active=1)${hostSlug ? " AND s.slug=?" : ""} ORDER BY m.role='OWNER' DESC LIMIT 1`,
       )
-        .bind(u.id)
-        .first<{ id: string; shop_id: string; version: number }>()
+        .bind(...(hostSlug ? [u.id, hostSlug] : [u.id]))
+        .first<{ id: string; shop_id: string; version: number; slug: string | null }>()
     : null;
+  if (valid && u && !m && hostSlug) {
+    // Right password, wrong shop address: point them at theirs rather than a bare 401.
+    const theirs = await c.env.DB.prepare("SELECT s.slug FROM app_memberships m JOIN shops s ON s.id=m.shop_id WHERE m.user_id=? AND m.active=1 AND s.slug IS NOT NULL ORDER BY m.role='OWNER' DESC LIMIT 1").bind(u.id).first<{ slug: string }>();
+    if (theirs?.slug) return c.json({ error: "wrong_shop", message: `Your account belongs to a different shop. Sign in at ${theirs.slug}.${rootHost()}.`, workspace_url: `${shopOrigin(theirs.slug, new URL(c.req.url).origin)}/workspace` }, 403);
+  }
   if (!valid || !m || !u)
     return reject(401, "Unable to sign in with these details");
   const session = await newSession(c, m.id, u.password_hash, m.version);
@@ -440,7 +502,7 @@ accounts.post("/logout", async (c) => {
     await c.env.DB.prepare("DELETE FROM app_sessions WHERE token_hash=?")
       .bind(await digest(token))
       .run();
-  deleteCookie(c, ACCOUNT_COOKIE, { path: "/", secure: true });
+  deleteCookie(c, ACCOUNT_COOKIE, { path: "/", secure: true, ...(sessionCookieDomain() ? { domain: sessionCookieDomain() } : {}) });
   for (const name of LEGACY_COOKIES) deleteCookie(c, name, { path: "/", secure: true });
   return c.json({ ok: true });
 });
@@ -478,7 +540,7 @@ async function sendInvite(c: Ctx, shopId: string, inviterUserId: string, inv: { 
   const ms = await msgShop(c, shopId);
   const origin = new URL(c.req.url).origin;
   const inviter = await c.env.DB.prepare("SELECT name FROM app_users WHERE id=?").bind(inviterUserId).first<{ name: string }>();
-  const vars = { inviter: inviter?.name || ms.name, role: inv.role.charAt(0) + inv.role.slice(1).toLowerCase(), link: `${origin}/workspace?invite=${token}` };
+  const vars = { inviter: inviter?.name || ms.name, role: inv.role.charAt(0) + inv.role.slice(1).toLowerCase(), link: `${ms.slug ? shopOrigin(ms.slug, origin) : origin}/workspace?invite=${token}` };
   const opts = { related: { type: "invite", id: inv.id }, origin, force: true as const };
   const stmts = [
     ...(inv.channel === "EMAIL" || inv.channel === "BOTH" ? enqueue(c.env.DB, ms, { email: inv.email }, "staff_invite", vars, { ...opts, channel: "EMAIL" }) : []),
@@ -765,7 +827,7 @@ accounts.post("/forgot", async (c) => {
     const token = uid() + uid();
     const shop = await msgShop(c, user.shop_id);
     const origin = new URL(c.req.url).origin;
-    const link = `${origin}/reset?token=${token}`;
+    const link = `${shop.slug ? shopOrigin(shop.slug, origin) : origin}/reset?token=${token}`;
     // msgShop's `phone` is the public shop-page number; the verified owner mobile lives on shops.
     const own = user.role === "OWNER" ? await c.env.DB.prepare("SELECT phone, phone_verified_at FROM shops WHERE id=?").bind(user.shop_id).first<{ phone: string; phone_verified_at: number | null }>() : null;
     const ownerPhone = own?.phone_verified_at ? own.phone : "";

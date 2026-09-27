@@ -94,6 +94,7 @@ const mutations = [
   ["POST", "/verify-email"],
   ["POST", "/verify-email/resend"],
   ["POST", "/legal/accept"],
+  ["POST", "/find-shop"],
 ];
 test("account mutation inventory enforces origin and anonymous authorization", async () => {
   const source = readFileSync("src/server/accounts.ts", "utf8");
@@ -118,7 +119,7 @@ test("account mutation inventory enforces origin and anonymous authorization", a
         ).status(),
       ).toBe(403);
     }
-    if (!["/login", "/signup", "/logout", "/accept", "/demo", "/forgot", "/reset", "/verify-email"].includes(path))
+    if (!["/login", "/signup", "/logout", "/accept", "/demo", "/forgot", "/reset", "/verify-email", "/find-shop"].includes(path))
       expect(
         (
           await anonymous.fetch(
@@ -153,8 +154,11 @@ test("signup creates the shop with the owner as first barber; login and password
   expect(before.audit.some((a) => a.action === "SHOP_CREATED")).toBeTruthy();
   const cookies = (await r.storageState()).cookies;
   const session = cookies.find((c) => c.name === "ollo_session")!;
+  // Lax (not Strict): the session must survive the top-level redirect from signup on the platform
+  // host to <slug>.<root>/workspace. Cross-site POSTs still never carry it, and every mutation
+  // checks Origin (see the inventory test above).
   expect(
-    session.httpOnly && session.secure && session.sameSite === "Strict",
+    session.httpOnly && session.secure && session.sameSite === "Lax",
   ).toBeTruthy();
   expect(cookies.some((c) => c.name.startsWith("barbershop_"))).toBeFalsy();
   // Duplicate email is refused without leaking which field; already-signed-in users cannot double up.
@@ -525,6 +529,8 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     await page.goto(origin + "/signup");
     await expect(page.getByRole("heading", { name: "Set up your shop" })).toBeVisible();
     await page.getByLabel("Shop name").fill("UI Signup Shop");
+    // Web address is suggested from the name; make it unique per run.
+    await page.getByTestId("signup-slug").locator("input").fill(`ui-signup-${crypto.randomUUID().slice(0, 6)}`);
     await page.getByLabel("Your name", { exact: true }).fill("Fictional UI Owner");
     await page.getByLabel("Email", { exact: true }).fill(email());
     await page.getByLabel("Password", { exact: true }).fill(password);

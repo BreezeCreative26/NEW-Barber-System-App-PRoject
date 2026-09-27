@@ -4,7 +4,7 @@ import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { Avatar, Button, Icon, Notice } from "./ui";
 import { GroupBooking } from "./GroupBooking";
 import { ReviewCard, type OwnReview } from "./Reviews";
-import { applyThemeColor, themeClass, type ShopBrand } from "./theme";
+import { applyThemeColor, themeClass, type ShopBrand, shopPath } from "./theme";
 
 // Connected customer booking for /book/:slug and /manage/:token.
 // Reads and writes the same local D1 records as the owner workspace.
@@ -1722,7 +1722,7 @@ function ConfirmationCard({
                 ? `We've emailed ${account.email} a link to set your password. You're already signed in on this device — add ${booking.shop.name} to your home screen from your account for one-tap access and reminders.`
                 : `Sign in at ${booking.shop.name} to see upcoming and past visits, move or cancel in a tap, and rebook your usual.`}
           </p>
-          <a className="button secondary" href={`/${slug}/me`}>
+          <a className="button secondary" href={shopPath(slug, "/me")}>
             <Icon name="user" size={16} /> {account ? "Open my account" : "See my visits"}
           </a>
         </section>
@@ -1751,7 +1751,7 @@ function ConfirmationCard({
         )}
       </div>
       <footer className="booking-actions">
-        <a className="button primary" href={`/book/${slug}`}>
+        <a className="button primary" href={shopPath(slug, "/book")}>
           Book another visit
         </a>
       </footer>
@@ -1997,7 +1997,7 @@ export function ManageBooking({ token }: { token: string }) {
                   </>
                 )}
                 {booking.shop.slug && (
-                  <a className="button primary" href={`/book/${booking.shop.slug}`}>
+                  <a className="button primary" href={shopPath(booking.shop.slug, "/book")}>
                     Book again
                   </a>
                 )}

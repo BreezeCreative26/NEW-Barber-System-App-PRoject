@@ -22,6 +22,7 @@ import { audit, fail } from "./sandbox";
 import { drain, enqueue, msgShop } from "./messaging";
 import { clientKey, shopBySlug, throttle, type Ctx } from "./public";
 import { pushStatus } from "./push";
+import { shopUrl } from "./hosts";
 
 export const CUSTOMER_COOKIE = "ollo_customer";
 const uid = () => crypto.randomUUID();
@@ -136,7 +137,7 @@ export async function issueToken(c: Ctx, shop: Shop, account: AccountRow, purpos
   return raw;
 }
 export function accountLink(origin: string, shop: Shop, token: string, purpose: "RESET" | "WELCOME") {
-  return `${origin}/${shop.slug}/me?${purpose === "RESET" ? "reset" : "welcome"}=${token}`;
+  return shopUrl(shop.slug!, `/me?${purpose === "RESET" ? "reset" : "welcome"}=${token}`, origin);
 }
 
 // Welcome message after a booking created an account without a password.
@@ -268,36 +269,36 @@ customerAuth.delete("/push", async (c) => {
 // installed app is the shop's, not foliyo's. start_url is the account page.
 export async function shopManifest(c: Ctx, slug: string) {
   const shop = await shopBySlug(c, slug);
+  // On the shop's own host every path is short and the app scope is the whole origin.
+  const onHost = (c.req.header("x-foliyo-shop-host") || "") === slug;
+  const P = (p: "/" | "/book" | "/me") => (onHost ? p : p === "/" ? `/${slug}` : p === "/book" ? `/book/${slug}` : `/${slug}/me`);
+  const scope = onHost ? "/" : `/${slug}/`;
   const page = await c.env.DB.prepare("SELECT logo_url, accent, theme_json FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ logo_url: string; accent: string; theme_json: string }>();
   const brand = brandOf({ ...shop, ...(page || {}) } as Shop & { logo_url?: string; accent?: string; theme_json?: string });
   const theme = (() => { try { return JSON.parse(page?.theme_json || "{}") as { mode?: string }; } catch { return {}; } })();
   const dark = theme.mode === "dark";
   const ACCENT_HEX: Record<string, string> = { ollo: "#1f6f5f", ink: "#111318", sage: "#5b7a68", clay: "#a0522d", plum: "#5a3e6b", slate: "#4a5568" };
   const accent = ACCENT_HEX[brand.accent] || ACCENT_HEX.ollo;
-  const icons = page?.logo_url
-    ? [
-        { src: `/${encodeURIComponent(slug)}/icon-192.png`, sizes: "192x192", type: "image/png" },
-        { src: `/${encodeURIComponent(slug)}/icon-512.png`, sizes: "512x512", type: "image/png", purpose: "any maskable" },
-      ]
-    : [
-        { src: `/${encodeURIComponent(slug)}/icon-192.png`, sizes: "192x192", type: "image/png" },
-        { src: `/${encodeURIComponent(slug)}/icon-512.png`, sizes: "512x512", type: "image/png", purpose: "any maskable" },
-      ];
+  const iconBase = onHost ? "" : `/${encodeURIComponent(slug)}`;
+  const icons = [
+    { src: `${iconBase}/icon-192.png`, sizes: "192x192", type: "image/png" },
+    { src: `${iconBase}/icon-512.png`, sizes: "512x512", type: "image/png", purpose: "any maskable" },
+  ];
   const manifest = {
-    id: `/${slug}/me`,
+    id: `${P("/me")}`,
     name: shop.name,
     short_name: shop.name.length > 12 ? shop.name.split(/\s+/)[0].slice(0, 12) : shop.name,
     description: `Book and manage your visits at ${shop.name}.`,
-    start_url: `/${slug}/me?source=pwa`,
-    scope: `/${slug}/`,
+    start_url: `${P("/me")}?source=pwa`,
+    scope,
     display: "standalone",
     orientation: "portrait",
     background_color: dark ? "#0b0b0c" : "#ffffff",
     theme_color: dark ? "#0b0b0c" : accent,
     icons,
     shortcuts: [
-      { name: "Book a visit", url: `/book/${slug}?source=pwa`, description: `Book at ${shop.name}` },
-      { name: "My visits", url: `/${slug}/me?source=pwa` },
+      { name: "Book a visit", url: `${P("/book")}?source=pwa`, description: `Book at ${shop.name}` },
+      { name: "My visits", url: `${P("/me")}?source=pwa` },
     ],
   };
   c.header("Content-Type", "application/manifest+json");

@@ -27,6 +27,7 @@ import { sweepPlatform } from "./lifecycle";
 import { sweepWaitlistPlatform } from "./waitlist";
 import { pushToAccount, accountForPhone, type PushPayload } from "./push";
 import { sendWhatsApp, waLive, waPayload, waStatus } from "./whatsapp";
+import { shopUrl } from "./hosts";
 
 type Ctx = Context<AppEnv>;
 type DB = Database;
@@ -45,7 +46,7 @@ export type Recipient = { name?: string; phone?: string; email?: string; pref?: 
 export const MESSAGE_TEMPLATES = [
   "booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon",
   "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_open", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
-  "verify_contact", "password_reset", "account_welcome", "account_reset", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
+  "verify_contact", "password_reset", "account_welcome", "account_reset", "shop_address", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
   "invoice", "credit_note", "owner_signin_link", "trial_ending", "trial_ended", "payment_overdue", "account_readonly", "broadcast", "admin_alert_digest",
   "owner_welcome", "email_verify", "google_review",
 ] as const;
@@ -223,6 +224,15 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         heading: "Reset your password.",
         lines: ["Someone asked to reset the password for your account. If it was you, use the button below within 30 minutes.", "If it wasn't you, ignore this message — nothing has changed."],
         cta: { label: "Choose a new password", href: String(v.link) },
+      };
+    case "shop_address":
+      // Owner/staff asked "where do I sign in?" on the foliyo home page.
+      return {
+        sms: `${s}: sign in at ${v.link}`,
+        subject: `Where to sign in for ${s}`,
+        heading: "Here's your sign-in address.",
+        lines: [`${s}'s team signs in at the shop's own address. Bookmark it or add it to your home screen.`, "If you didn't ask for this, ignore it — nothing changes."],
+        cta: { label: "Open sign-in", href: String(v.link) },
       };
     case "password_reset":
       return {
@@ -656,7 +666,7 @@ export async function sweepReminders(db: DB, origin: string, now = Date.now()) {
       for (const b of rows.results) {
         // The manage link needs the raw token, which we don't store. Reminders link to /<slug>/me
         // (one-time code sign-in) — always valid, and the customer sees every visit there.
-        const link = `${origin}/${shop.slug}/me`;
+        const link = shopUrl(shop.slug!, "/me", origin);
         const stmts = enqueue(db, shop, { name: b.attendee_name || b.customer_name, phone: b.phone, email: b.email }, w.template, {
           service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], date: fmtDate(b.date), time: fmtTime(b.start_min), ref: b.id.slice(0, 6).toUpperCase(),
           address: shop.address, link, map_link: shop.map_url || (shop.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.address)}` : link),

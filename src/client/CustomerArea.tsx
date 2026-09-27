@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Avatar, Button, Icon, Notice, StatusPill } from "./ui";
 import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { ReviewCard, type OwnReview } from "./Reviews";
-import { applyThemeColor, themeClass, type ShopBrand } from "./theme";
+import { applyThemeColor, themeClass, type ShopBrand, shopPath } from "./theme";
 
 type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; notes: string; version: number; member_since: number; has_password?: boolean; account_email?: string; email_verified?: boolean };
 type Visit = {
@@ -110,12 +110,12 @@ export function CustomerArea({ slug }: { slug: string }) {
   return (
     <div className={themeClass(me.shop.brand, "customer-area")} data-testid="customer-area">
       <header className="sp-nav">
-        <a className="sp-brand" href={`/${me.shop.slug}`}>
+        <a className="sp-brand" href={shopPath(me.shop.slug, "/")}>
           {me.shop.logo_url ? <img className="shop-emblem shop-logo" src={me.shop.logo_url} alt="" /> : <span className="shop-emblem">{initials(me.shop.name)}</span>}
           <strong>{me.shop.name}</strong>
         </a>
         <nav aria-label="Account">
-          <a href={`/${me.shop.slug}#book`}>Book</a>
+          <a href={shopPath(me.shop.slug, "/", "#book")}>Book</a>
         </nav>
         <button type="button" className="button secondary" onClick={signOut} data-testid="sign-out">
           <Icon name="logout" size={15} /> Sign out
@@ -258,7 +258,7 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
   return (
     <div className={themeClass(shopBrand, "customer-area")} data-testid="customer-signin">
       <header className="sp-nav">
-        <a className="sp-brand" href={`/${slug}`}>
+        <a className="sp-brand" href={shopPath(slug, "/")}>
           {shopBrand?.logo_url ? <img className="shop-emblem shop-logo" src={shopBrand.logo_url} alt="" /> : <span className="shop-emblem">{shopName ? initials(shopName) : "··"}</span>}
           <strong>{shopName || "Back to the shop"}</strong>
         </a>
@@ -510,7 +510,7 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
   const book = (q: Record<string, string | number | undefined>) => {
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") params.set(k, String(v));
-    location.href = `/${me.shop.slug}?${params.toString()}#book`;
+    location.href = shopPath(me.shop.slug, "/", `?${params.toString()}#book`);
   };
   const history = showAll ? me.history : me.history.slice(0, 6);
   return (
@@ -578,7 +578,7 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
           </ul>
         ) : (
           <div className="ca-visit-actions">
-            <a className="button secondary" href={`/book/${me.shop.slug}`} data-testid="waiting-empty-book">Book a visit</a>
+            <a className="button secondary" href={shopPath(me.shop.slug, "/book")} data-testid="waiting-empty-book">Book a visit</a>
           </div>
         )}
       </section>

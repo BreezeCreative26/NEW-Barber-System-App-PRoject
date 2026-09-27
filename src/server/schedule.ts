@@ -34,6 +34,7 @@ import {
 } from "./domain";
 import { channelsFor, enqueue, fmtDate, fmtTime, msgShop, drain } from "./messaging";
 import { refundDeposit } from "./stripe";
+import { shopUrl } from "./hosts";
 
 export const changeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("override"), staff_id: z.string().uuid(), override_id: z.string().uuid().optional(), change: overrideSchema }),
@@ -243,7 +244,7 @@ export async function applyDecisions(
     const pref = (b.contact_pref || "AUTO") as "AUTO" | "SMS" | "WA" | "EMAIL" | "NONE";
     const to = { name: b.attendee_name || b.customer_name, phone: b.phone, email: b.email || b.customer_email || "" };
     const ch = pref === "NONE" ? null : pref;
-    const vars = { service: b.service_name, barber: first, date: fmtDate(b.date), time: fmtTime(b.start_min), ref: ref(b), link: `${origin}/${shop.slug}/me`, book_link: `${origin}/book/${shop.slug}`, address: shop.address };
+    const vars = { service: b.service_name, barber: first, date: fmtDate(b.date), time: fmtTime(b.start_min), ref: ref(b), link: shopUrl(shop.slug!, "/me", origin), book_link: shopUrl(shop.slug!, "/book", origin), address: shop.address };
     let notified: string[] = [];
     try {
       if (d.action === "KEEP") {

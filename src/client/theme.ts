@@ -27,3 +27,19 @@ export function applyThemeColor(brand: Partial<ShopBrand> | null | undefined) {
   document.documentElement.style.colorScheme = dark ? "dark" : "light";
   document.body.classList.toggle("theme-dark", dark);
 }
+
+// Shop URLs from the browser. On the shop's own host (<slug>.foliyo.co.uk) the short paths are
+// used; on the platform host (local dev, legacy links) the path form. Detection: the current host
+// has more labels than the root and its first label is the slug.
+export function onShopHost(slug: string): boolean {
+  // The server tags shells served on a shop's host; that is the source of truth (works for
+  // northline.foliyo.co.uk and northline.localhost alike).
+  const tagged = typeof document !== "undefined" ? document.querySelector<HTMLMetaElement>('meta[name="foliyo-shop"]')?.content : "";
+  return !!tagged && tagged.toLowerCase() === slug.toLowerCase();
+}
+export function shopPath(slug: string, path: "" | "/" | "/book" | "/me", suffix = ""): string {
+  if (onShopHost(slug)) return `${path === "" ? "/" : path}${suffix}`;
+  if (path === "" || path === "/") return `/${slug}${suffix}`;
+  if (path === "/book") return `/book/${slug}${suffix}`;
+  return `/${slug}${path}${suffix}`;
+}

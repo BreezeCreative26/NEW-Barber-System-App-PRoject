@@ -9,6 +9,7 @@ import type { AppEnv } from "./accounts";
 import { digest } from "./accounts";
 import { drain, emailHtml, type MessageTemplate } from "./messaging";
 import { brandOf } from "./domain";
+import { shopUrl } from "./hosts";
 
 type Ctx = Context<AppEnv>;
 const uid = () => crypto.randomUUID();
@@ -196,7 +197,7 @@ export async function makeOffer(c: Ctx, shop: Shop & ShopQueueSettings, entry: W
   const raw = uid() + uid();
   const offerId = uid();
   const expires = now + shop.waitlist_offer_hold_min * 60000;
-  const link = `${new URL(c.req.url).origin}/offer/${raw}`;
+  const link = shopUrl(shop.slug!, `/offer/${raw}`, new URL(c.req.url).origin);
   const templates = templatesOf(shop);
   const body = render(templates.waitlist_offer, { first: entry.customer_name.split(" ")[0], shop: shop.name, service: service.name, barber: staff.name.split(" ")[0], date: fmtDate(entry.date), time: fmtTime(slot.start_min), expires: fmtStamp(expires, shop.timezone), link });
   await c.env.DB.batch([
@@ -251,7 +252,7 @@ export async function announceToAll(c: Ctx, shop: Shop & ShopQueueSettings, free
     const matches = await matchesFor(c, shop, e, now, freed.date);
     if (!matches.find((m) => m.staff_id === freed.staff_id && m.start_min === freed.start_min)) continue;
     const service = await c.env.DB.prepare("SELECT name FROM services WHERE shop_id=? AND id=?").bind(shop.id, e.service_id).first<{ name: string }>();
-    const link = `${origin}/book/${shop.slug}?service=${e.service_id}&staff=${freed.staff_id}&date=${freed.date}&start=${freed.start_min}&step=2&wl=${e.id}`;
+    const link = shopUrl(shop.slug!, `/book?service=${e.service_id}&staff=${freed.staff_id}&date=${freed.date}&start=${freed.start_min}&step=2&wl=${e.id}`, origin);
     const body = render(templates.waitlist_open, { first: e.customer_name.split(" ")[0], shop: shop.name, service: service?.name || "visit", barber: staff.name.split(" ")[0], date: fmtDate(freed.date), time: fmtTime(freed.start_min), link });
     stmts.push(
       c.env.DB.prepare("INSERT INTO waitlist_announcements(id,shop_id,entry_id,staff_id,date,start_min,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING").bind(uid(), shop.id, e.id, freed.staff_id, freed.date, freed.start_min, now),
@@ -343,7 +344,7 @@ export async function queueReviewRequest(c: Ctx, shopId: string, bookingId: stri
   }
   // When a link already exists we cannot recover the raw token; the message points at the shop's
   // account area instead, where the customer can review from their history.
-  const link = raw ? `${new URL(c.req.url).origin}/manage/${raw}` : `${new URL(c.req.url).origin}/${shop.slug}/me`;
+  const link = raw ? shopUrl(shop.slug!, `/manage/${raw}`, new URL(c.req.url).origin) : shopUrl(shop.slug!, "/me", new URL(c.req.url).origin);
   const body = render(templatesOf(shop).review_request, { first: (b.attendee_name || b.customer_name).split(" ")[0], shop: shop.name, service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], link });
   await queueMessage(c, shop, b, "review_request", body, { type: "booking", id: bookingId }).run();
   await drainSoon(c, 2, { type: "booking", id: bookingId });

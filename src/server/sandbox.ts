@@ -85,6 +85,7 @@ import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
 import { accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, type ConnectedAccount } from "./payouts";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
+import { RESERVED_SUBDOMAINS, shopUrl } from "./hosts";
 import accounts, {
   ACCOUNT_COOKIE,
   resolveAccount,
@@ -199,8 +200,8 @@ sandbox.use("*", async (c, next) => {
     method = c.req.method;
   const publicAuth =
     (method === "POST" &&
-      ["/auth/login", "/auth/signup", "/auth/accept", "/auth/logout", "/auth/demo", "/auth/forgot", "/auth/reset", "/auth/verify-email"].includes(path)) ||
-    (method === "GET" && ["/auth/me", "/auth/invites/peek", "/auth/reset/peek", "/auth/verify-email/peek"].includes(path));
+      ["/auth/login", "/auth/signup", "/auth/accept", "/auth/logout", "/auth/demo", "/auth/forgot", "/auth/reset", "/auth/verify-email", "/auth/find-shop"].includes(path)) ||
+    (method === "GET" && ["/auth/me", "/auth/invites/peek", "/auth/reset/peek", "/auth/verify-email/peek", "/auth/slug-check"].includes(path));
   if (!account && !publicAuth)
     return c.json(
       {
@@ -783,6 +784,7 @@ sandbox.put("/shop/reviews", async (c) => {
 });
 sandbox.put("/shop/online", async (c) => {
   const b = await input(c, onlineBookingSchema);
+  if (RESERVED_SUBDOMAINS.has(b.slug)) fail(409, "That address is reserved. Try another.");
   try {
     await checkVersionUpdate(
       c,
@@ -2038,7 +2040,7 @@ sandbox.post("/staff/:id/blocks", async (c) => {
     const r = decided.get(a.id)!;
     const booking = await readBooking(c, a.id);
     const to = { name: a.attendee_name || a.customer_name, phone: a.phone, email: a.email };
-    const vars = { service: a.service_name, barber: staff!.name.split(" ")[0], date: fmtDate(b.date), time: fmtTime(a.start_min), ref: ref(booking), link: `${origin}/${shop.slug}/me`, book_link: `${origin}/book/${shop.slug}`, address: shop.address };
+    const vars = { service: a.service_name, barber: staff!.name.split(" ")[0], date: fmtDate(b.date), time: fmtTime(a.start_min), ref: ref(booking), link: shopUrl(shop.slug!, "/me", origin), book_link: shopUrl(shop.slug!, "/book", origin), address: shop.address };
     const pref = a.contact_pref === "NONE" ? null : a.contact_pref === "AUTO" ? "AUTO" : a.contact_pref;
     let notified: string[] = [];
     try {

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { shopManifest } from "./server/customerAuth";
+import { SHOP_HOST_HEADER, shopOrigin } from "./server/hosts";
 import { shopIcon } from "./server/images";
 import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
 import { sweepWaitlistPlatform } from "./server/waitlist";
@@ -177,6 +178,13 @@ app.get("/forgot", workspaceShell);
 app.get("/reset", workspaceShell);
 app.get("/verify", workspaceShell);
 function workspaceShell(c: Context<{ Bindings: AppBindings }>) {
+  // In production every shop's team signs in on the shop's own address. The root host only
+  // hosts signup (and a "find your shop" helper at /signin); the shell tells the client which.
+  const hostSlug = c.req.header(SHOP_HOST_HEADER) || "";
+  const root = process.env.APP_ORIGIN ? new URL(process.env.APP_ORIGIN).host : "";
+  // "local" on localhost/IP roots: every shop's team can still sign in at the root, as before.
+  const rootIsLocal = !root || /^(localhost|\d+\.\d+\.\d+\.\d+)(:\d+)?$/.test(root);
+  const meta = `<meta name="foliyo-host" content="${hostSlug ? "shop" : rootIsLocal ? "local" : "root"}"/>${hostSlug ? `<meta name="foliyo-shop" content="${hostSlug}"/>` : ""}${root ? `<meta name="foliyo-root" content="${root}"/>` : ""}`;
   c.header("Cache-Control", "no-store");
   c.header("X-Content-Type-Options", "nosniff");
   c.header("Referrer-Policy", "same-origin");
@@ -185,16 +193,17 @@ function workspaceShell(c: Context<{ Bindings: AppBindings }>) {
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
   return c.html(
-    `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>foliyo</title><link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/><link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/><link rel="stylesheet" href="/static/style.css"/><link rel="stylesheet" href="/static/design.css"/><link rel="stylesheet" href="/static/app.css"/><link rel="stylesheet" href="/static/theme-fonts.css"/><link rel="stylesheet" href="/static/shop-theme.css"/></head><body><div id="root"><p class="boot-message">Opening workspace…</p></div><noscript>JavaScript is required.</noscript><script type="module" src="/static/app.js"></script></body></html>`,
+    `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>foliyo</title>${meta}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/><link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/><link rel="stylesheet" href="/static/style.css"/><link rel="stylesheet" href="/static/design.css"/><link rel="stylesheet" href="/static/app.css"/><link rel="stylesheet" href="/static/theme-fonts.css"/><link rel="stylesheet" href="/static/shop-theme.css"/></head><body><div id="root"><p class="boot-message">Opening workspace…</p></div><noscript>JavaScript is required.</noscript><script type="module" src="/static/app.js"></script></body></html>`,
   );
 }
 // Head is either the generic private one (noindex) or a server-rendered SEO head for shop pages.
 const shell = (head: string, boot = "Opening online booking…") =>
   `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="#0b1a17"/>${head}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/>${head.includes("data-shop") ? "" : `<link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>`}<link rel="stylesheet" href="/static/style.css"/><link rel="stylesheet" href="/static/design.css"/><link rel="stylesheet" href="/static/app.css"/><link rel="stylesheet" href="/static/theme-fonts.css"/><link rel="stylesheet" href="/static/shop-theme.css"/></head><body><div id="root"><p class="boot-message">${boot}</p></div><noscript>Online booking needs JavaScript.</noscript><script type="module" src="/static/app.js"></script></body></html>`;
-const publicPage = (title: string, description: string, slug?: string) => shell(`<meta name="robots" content="noindex,nofollow"/><meta name="description" content="${description}"/><title>${title}</title>${slug ? shopAppHead(slug) : ""}`);
+const onShopHost = (c: { req: { header: (k: string) => string | undefined } }, slug: string) => (c.req.header(SHOP_HOST_HEADER) || "") === slug;
+const publicPage = (title: string, description: string, slug?: string, onHost = false) => shell(`<meta name="robots" content="noindex,nofollow"/><meta name="description" content="${description}"/><title>${title}</title>${slug ? shopAppHead(slug, onHost) : ""}`);
 // Installable shop app: per-shop manifest (name/icon/colours from the shop page) and the shared
 // service worker registered at the shop's scope. Overrides the platform manifest in shell().
-const shopAppHead = (slug: string) => `<link rel="manifest" href="/${encodeURIComponent(slug)}/manifest.webmanifest" data-shop/><link rel="apple-touch-icon" href="/${encodeURIComponent(slug)}/icon-192.png"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="default"/>`;
+const shopAppHead = (slug: string, onHost = false) => `${onHost ? `<meta name="foliyo-shop" content="${slug}"/>` : ""}<link rel="manifest" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/manifest.webmanifest" data-shop/><link rel="apple-touch-icon" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/icon-192.png"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="default"/>`;
 // Public origin as the visitor sees it (dev proxies rewrite Host).
 const publicOrigin = (c: { req: { url: string; header: (k: string) => string | undefined } }) => {
   const u = new URL(c.req.url);
@@ -251,7 +260,8 @@ app.get("/docs/customer-plan", (c) => {
 });
 app.get("/book/:slug", (c) => {
   secure(c);
-  return c.html(publicPage("Book a visit", "Book your next visit online.", c.req.param("slug").toLowerCase()));
+  const slug = c.req.param("slug").toLowerCase();
+  return c.html(publicPage("Book a visit", "Book your next visit online.", slug, onShopHost(c, slug)));
 });
 // Installable shop app: manifest + icons + service worker, per shop.
 app.get("/:slug/manifest.webmanifest", async (c, next) => {
@@ -300,7 +310,7 @@ app.get("/:slug", async (c, next) => {
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
   const head = shopPageHead({ origin: publicOrigin(c), shop, ...data });
-  return c.html(shell(head.html + shopAppHead(slug), `Opening ${shop.name}…`));
+  return c.html(shell(head.html + shopAppHead(slug, onShopHost(c, slug)), `Opening ${shop.name}…`));
 });
 // Apple Pay on the pay-link / deposit checkout: Stripe verifies the domain by fetching this file
 // (public/.well-known/…). Served explicitly so no hosting rewrite can swallow the dot-directory.
@@ -359,7 +369,7 @@ app.get("/:slug/me", async (c, next) => {
   if (!shop) return next();
   secure(c);
   const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
-  return c.html(publicPage(`Your visits · ${esc(shop.name)}`, esc(`Sign in to see, move or rebook your visits at ${shop.name}.`), slug));
+  return c.html(publicPage(`Your visits · ${esc(shop.name)}`, esc(`Sign in to see, move or rebook your visits at ${shop.name}.`), slug, onShopHost(c, slug)));
 });
 app.get("/offer/:token", (c) => {
   secure(c);

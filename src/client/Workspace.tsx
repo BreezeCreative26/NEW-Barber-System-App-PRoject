@@ -257,15 +257,86 @@ function SaveForm({
   );
 }
 const DEMO_ENABLED_KEY = "ollo:demo";
-type AuthMode = "signin" | "signup" | "invite" | "forgot" | "reset";
+type AuthMode = "signin" | "signup" | "invite" | "forgot" | "reset" | "find";
+// Which host is this shell on? "shop" = <slug>.foliyo.co.uk (sign in for that shop), "root" = the
+// platform address (create a shop; sign-in redirects to the shop), "local" = dev, everything works.
+const hostKind = () => (document.querySelector<HTMLMetaElement>('meta[name="foliyo-host"]')?.content as "shop" | "root" | "local" | undefined) || "local";
+const hostShopSlug = () => document.querySelector<HTMLMetaElement>('meta[name="foliyo-shop"]')?.content || "";
+const platformRoot = () => document.querySelector<HTMLMetaElement>('meta[name="foliyo-root"]')?.content || location.host;
 type InvitePeek = { shop_name: string; logo_url: string; staff_name: string; role: string; inviter: string; email: string; email_fixed: boolean; phone_hint: string; expires_at: number };
 // Real front door. `/signin` and `/signup` render this; `/workspace` shows it when signed out.
 // The demo shortcut appears only when the server reports DEMO_ENABLED=1.
+function FindShop({ state, setState, root }: { state: { error?: string; mailed?: boolean } | null; setState: (s: { error?: string; mailed?: boolean } | null) => void; root: string }) {
+  const [slug, setSlug] = useState("");
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function go(kind: "slug" | "email") {
+    setBusy(true); setState(null);
+    try {
+      const r = await api<{ ok: boolean; reason?: string; workspace_url?: string; mailed?: boolean }>("/auth/find-shop", "POST", kind === "slug" ? { slug: slug.trim().toLowerCase() } : { email: email.trim() });
+      if (r.ok && r.workspace_url) { location.assign(r.workspace_url); return; }
+      if (r.ok && r.mailed) { setState({ mailed: true }); return; }
+      setState({ error: r.reason || "Not found." });
+    } catch (e) { setState({ error: e instanceof Error ? e.message : "Something went wrong." }); } finally { setBusy(false); }
+  }
+  if (state?.mailed) return (
+    <div className="auth-sent" role="status" data-testid="find-sent">
+      <Icon name="send" />
+      <p>If that email belongs to a shop team, the sign-in address is on its way. Check spam if it hasn't arrived in a minute.</p>
+    </div>
+  );
+  return (
+    <div className="ca-form" data-testid="find-shop">
+      <form onSubmit={(e) => { e.preventDefault(); go("slug"); }}>
+        <Field label="Your shop address">
+          <div className="slug-input">
+            <input value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} placeholder="northline" autoCapitalize="off" autoCorrect="off" spellCheck={false} required data-testid="find-slug" />
+            <span className="slug-suffix">.{root}</span>
+          </div>
+        </Field>
+        <Button type="submit" disabled={busy || !slug} data-testid="find-go">Go to sign in <Icon name="arrowRight" size={16} /></Button>
+      </form>
+      <p className="helper auth-switch">Don't remember it?</p>
+      <form onSubmit={(e) => { e.preventDefault(); go("email"); }}>
+        <Field label="Your email">
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required data-testid="find-email" />
+        </Field>
+        <Button type="submit" variant="secondary" disabled={busy || !email} data-testid="find-mail">Email me the link</Button>
+      </form>
+      {state?.error && <p className="form-error" role="alert">{state.error}</p>}
+    </div>
+  );
+}
 function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Promise<void> }) {
   const resetToken = new URLSearchParams(location.search).get("token") || "";
-  const initial: AuthMode = token ? "invite" : location.pathname === "/signup" ? "signup" : location.pathname === "/forgot" ? "forgot" : location.pathname === "/reset" && resetToken ? "reset" : "signin";
+  const onRoot = hostKind() === "root";
+  const shopSlug = hostShopSlug();
+  const [shopHead, setShopHead] = useState<{ name: string; logo_url: string } | null>(null);
+  useEffect(() => {
+    if (!shopSlug) return;
+    fetch(`/api/public/shops/${encodeURIComponent(shopSlug)}`).then((r) => (r.ok ? r.json() : null)).then((d) => d && setShopHead({ name: d.shop.name, logo_url: d.shop.logo_url || "" })).catch(() => {});
+  }, [shopSlug]);
+  // On the platform host there is nothing to sign in to: owners sign in at their shop's address.
+  const initial: AuthMode = token ? "invite" : location.pathname === "/signup" ? "signup" : location.pathname === "/forgot" ? "forgot" : location.pathname === "/reset" && resetToken ? "reset" : onRoot ? "find" : "signin";
   const [mode, setMode] = useState<AuthMode>(initial);
+  const [findState, setFindState] = useState<{ error?: string; mailed?: boolean } | null>(null);
   const [kind, setKind] = useState<"BARBER" | "HAIR" | "SALON">("BARBER");
+  // Shop address (<slug>.foliyo.co.uk). Suggested from the shop name until the owner edits it.
+  const [slug, setSlug] = useState("");
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [slugState, setSlugState] = useState<{ ok: boolean; reason: string; host: string } | null>(null);
+  const slugify = (v: string) => v.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  useEffect(() => {
+    if (!slug) { setSlugState(null); return; }
+    const t = setTimeout(() => {
+      fetch(`/api/app/auth/slug-check?slug=${encodeURIComponent(slug)}`, { credentials: "same-origin" })
+        .then((r) => r.json())
+        .then((j) => setSlugState(j))
+        .catch(() => setSlugState(null));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [slug]);
+  const rootHost = location.hostname.replace(/^www\./, "");
   const [peek, setPeek] = useState<InvitePeek | null>(null);
   const [peekError, setPeekError] = useState("");
   const [forgotSent, setForgotSent] = useState<{ delivery: string[]; sandbox_token?: string } | null>(null);
@@ -330,9 +401,18 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
       <div className="auth-main">
       <section className="workspace-panel account-entry auth-card" aria-labelledby="auth-heading">
         <Brand />
-        {mode !== "invite" && (
+        {shopHead && (
+          <div className="auth-invite-card" data-testid="auth-shop">
+            {shopHead.logo_url ? <img src={shopHead.logo_url} alt="" width={44} height={44} /> : <span className="auth-invite-mark" aria-hidden="true">{shopHead.name.slice(0, 1)}</span>}
+            <div>
+              <strong>{shopHead.name}</strong>
+              <span>Team sign-in · {location.host}</span>
+            </div>
+          </div>
+        )}
+        {mode !== "invite" && !shopSlug && (
           <div className="auth-tabs" role="tablist" aria-label="Sign in or create a shop">
-            <button type="button" role="tab" aria-selected={mode === "signin"} onClick={() => setMode("signin")}>
+            <button type="button" role="tab" aria-selected={mode === "signin" || mode === "find"} onClick={() => setMode(onRoot ? "find" : "signin")}>
               Sign in
             </button>
             <button type="button" role="tab" aria-selected={mode === "signup"} onClick={() => setMode("signup")}>
@@ -350,7 +430,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
           </div>
         )}
         <h2 id="auth-heading">
-          {mode === "invite" ? (peek ? `Join ${peek.shop_name}` : "Accept your invitation") : mode === "signup" ? "Set up your shop" : mode === "forgot" ? "Forgot your password?" : mode === "reset" ? "Choose a new password" : "Welcome back"}
+          {mode === "invite" ? (peek ? `Join ${peek.shop_name}` : "Accept your invitation") : mode === "signup" ? "Set up your shop" : mode === "forgot" ? "Forgot your password?" : mode === "reset" ? "Choose a new password" : mode === "find" ? "Find your shop" : "Welcome back"}
         </h2>
         <p>
           {mode === "invite"
@@ -361,9 +441,13 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
                 ? "Enter your login email. We'll send a link to choose a new password — it works for 30 minutes."
                 : mode === "reset"
                   ? resetState && "error" in resetState ? resetState.error : resetState ? `For ${resetState.email_hint}. At least 12 characters.` : "Checking your link…"
-                  : "Sign in to your shop's workspace."}
+                  : mode === "find"
+                    ? "Every shop has its own address. Type yours, or tell us your email and we'll send you the link."
+                    : shopHead ? `Sign in to ${shopHead.name}'s workspace.` : "Sign in to your shop's workspace."}
         </p>
-        {mode === "forgot" && forgotSent ? (
+        {mode === "find" ? (
+          <FindShop state={findState} setState={setFindState} root={platformRoot()} />
+        ) : mode === "forgot" && forgotSent ? (
           <div className="auth-sent" role="status" data-testid="forgot-sent">
             <Icon name="send" />
             <p>If that address has an account, a reset link is on its way{forgotSent.delivery.includes("sms") ? " by email and text" : ""}. Check spam if it hasn't arrived in a minute.</p>
@@ -379,9 +463,10 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
           key={mode}
           label={mode === "invite" ? "Join the team" : mode === "signup" ? "Create shop" : mode === "forgot" ? "Send reset link" : mode === "reset" ? "Set password and sign in" : "Sign in"}
           onSave={async (f) => {
-            if (mode === "signup")
-              await api("/auth/signup", "POST", {
+            if (mode === "signup") {
+              const r = await api<{ workspace_url?: string; cross_host_session?: boolean }>("/auth/signup", "POST", {
                 shop_name: text(f, "shop_name"),
+                slug,
                 name: text(f, "name"),
                 email: text(f, "email"),
                 password: text(f, "password"),
@@ -389,7 +474,9 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
                 kind,
                 accept_legal: f.get("accept_legal") === "on",
               });
-            else if (mode === "invite")
+              // The owner's home is their shop's own address. Same host (local dev) → carry on here.
+              if (r.workspace_url && r.cross_host_session && new URL(r.workspace_url).host !== location.host) { location.assign(`${r.workspace_url}/setup`); return; }
+            } else if (mode === "invite")
               await api("/auth/accept", "POST", { email: peek?.email_fixed ? peek.email : text(f, "email"), password: text(f, "password"), name: text(f, "name"), token, accept_legal: f.get("accept_legal") === "on" });
             else if (mode === "forgot") {
               const r = await api<{ delivery: string[]; sandbox_token?: string }>("/auth/forgot", "POST", { email: text(f, "email") });
@@ -404,7 +491,13 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
           {mode === "signup" && (
             <>
               <Field label="Shop name">
-                <input name="shop_name" autoComplete="organization" required minLength={2} maxLength={100} placeholder="e.g. Fade Society" />
+                <input name="shop_name" autoComplete="organization" required minLength={2} maxLength={100} placeholder="e.g. Fade Society" onChange={(e) => { if (!slugTouched) setSlug(slugify(e.target.value)); }} />
+              </Field>
+              <Field label="Your web address" hint={slugState === null ? "Where customers book and where you and your team sign in." : slugState.ok ? `Available — ${slug}.${slugState.host ? slugState.host.split(".").slice(1).join(".") : rootHost}` : slugState.reason}>
+                <div className="slug-input" data-testid="signup-slug">
+                  <input name="slug" value={slug} required minLength={2} maxLength={40} pattern="[a-z0-9](?:[a-z0-9-]*[a-z0-9])?" autoCapitalize="off" autoCorrect="off" spellCheck={false} placeholder="fade-society" aria-invalid={slugState ? !slugState.ok : undefined} onChange={(e) => { setSlugTouched(true); setSlug(slugify(e.target.value)); }} />
+                  <span className="slug-suffix">.{rootHost}</span>
+                </div>
               </Field>
               <div className="auth-kind" role="radiogroup" aria-label="What kind of shop">
                 {(["BARBER", "HAIR", "SALON"] as const).map((k) => (

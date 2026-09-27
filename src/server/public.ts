@@ -42,6 +42,7 @@ import { currentAccount as currentCustomerAccount, customerPassword, ensureAccou
 import { autoOffer, slotFreed, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
 import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
 import { createDepositSession, depositView, depositsOnline, expireHolds, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
+import { shopUrl } from "./hosts";
 import {
   audit,
   availabilityContext,
@@ -625,7 +626,7 @@ async function issueManageToken(c: Ctx, booking: StoredBooking) {
 export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooking, staffName: string | null, template: MessageTemplate, manageToken?: string | null): Promise<Channel[]> {
   const shop = await msgShop(c, shopId);
   const origin = new URL(c.req.url).origin;
-  const link = manageToken ? `${origin}/manage/${manageToken}` : `${origin}/${shop.slug}/me`;
+  const link = manageToken ? shopUrl(shop.slug!, `/manage/${manageToken}`, origin) : shopUrl(shop.slug!, "/me", origin);
   // The booking's own choice wins (picked at checkout); otherwise the customer record's standing preference.
   let pref: Recipient["pref"] = booking.contact_pref && booking.contact_pref !== "AUTO" ? booking.contact_pref : undefined;
   if (!pref && booking.customer_id) {
@@ -635,7 +636,7 @@ export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooki
   const to: Recipient = { name: booking.attendee_name || booking.customer_name, phone: booking.phone, email: booking.email, pref };
   const vars = {
     service: booking.service_name, barber: (staffName || "us").split(" ")[0], date: fmtDate(booking.date), time: fmtTime(booking.start_min), ref: ref(booking),
-    address: shop.address, link, book_link: `${origin}/book/${shop.slug}`, cancel_hours: booking.cancel_hours_snapshot,
+    address: shop.address, link, book_link: shopUrl(shop.slug!, "/book", origin), cancel_hours: booking.cancel_hours_snapshot,
     price: new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.price_pence / 100),
     deposit_note: booking.deposit_policy_pence > 0 ? `deposit ${new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.deposit_policy_pence / 100)} payable in the shop` : "pay in the shop",
   };
@@ -978,7 +979,7 @@ pub.post("/offer/:token/accept", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE waitlist_offers SET status='ACCEPTED',booking_id=?,responded_at=? WHERE id=? AND status='PENDING'").bind(result!.booking.id, now, offer.id),
     c.env.DB.prepare("UPDATE waitlist_entries SET status='BOOKED',booking_id=?,version=version+1,updated_at=? WHERE id=?").bind(result!.booking.id, now, entry.id),
-    queueMessage(c, shop, entry, "waitlist_booked", render(templates.waitlist_booked, { service: service?.name ?? "", barber: staffName.split(" ")[0], shop: shop.name, date: wl.fmtDate(offer.date), time: wl.fmtTime(offer.start_min), ref: ref(result!.booking), manage: manage ? `${new URL(c.req.url).origin}/manage/${manage}` : "(see the shop)" }), { type: "booking", id: result!.booking.id }),
+    queueMessage(c, shop, entry, "waitlist_booked", render(templates.waitlist_booked, { service: service?.name ?? "", barber: staffName.split(" ")[0], shop: shop.name, date: wl.fmtDate(offer.date), time: wl.fmtTime(offer.start_min), ref: ref(result!.booking), manage: manage ? shopUrl(shop.slug!, `/manage/${manage}`, new URL(c.req.url).origin) : "(see the shop)" }), { type: "booking", id: result!.booking.id }),
     audit(c, "waitlist", entry.id, "WAITLIST_OFFER_ACCEPTED", `Customer accepted the offer online; booking ${ref(result!.booking)} created.`),
   ]);
   await drainSoon(c, 2, { type: "booking", id: result!.booking.id });

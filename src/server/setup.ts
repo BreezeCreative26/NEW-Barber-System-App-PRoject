@@ -11,6 +11,7 @@ import { slugSchema, type Shop } from "./domain";
 import { audit, fail, readShop } from "./sandbox";
 import { digest, readInput, throttle, type AppEnv } from "./accounts";
 import { drain, enqueue, msgShop, providerStatus } from "./messaging";
+import { shopUrl } from "./hosts";
 
 type Env = AppEnv;
 const setup = new Hono<Env>();
@@ -304,9 +305,9 @@ setup.get("/share", async (c) => {
   const shop = await readShop(c);
   if (!shop.slug) return c.json({ url: "", qr: "" });
   const origin = new URL(c.req.url).origin;
-  const url = `${origin}/book/${shop.slug}`;
+  const url = shopUrl(shop.slug!, "/book", origin);
   const { default: QRCode } = await import("qrcode");
   const qr = await QRCode.toDataURL(url, { margin: 1, width: 480 });
-  return c.json({ url, page: `${origin}/${shop.slug}`, qr, embed: `<a href="${url}" style="display:inline-block;padding:12px 20px;border-radius:999px;background:#111;color:#fff;text-decoration:none;font:600 15px system-ui">Book at ${shop.name.replace(/"/g, "&quot;")}</a>` });
+  return c.json({ url, page: shopUrl(shop.slug!, "/", origin), qr, embed: `<a href="${url}" style="display:inline-block;padding:12px 20px;border-radius:999px;background:#111;color:#fff;text-decoration:none;font:600 15px system-ui">Book at ${shop.name.replace(/"/g, "&quot;")}</a>` });
 });
 export default setup;

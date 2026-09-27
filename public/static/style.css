@@ -8336,3 +8336,8 @@ li[data-done="true"] .setup-wiz-num { background: var(--good); color: #fff; bord
 .account-block { margin-top: 6px; }
 .account-fields { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
 @media (max-width: 560px) { .account-fields { grid-template-columns: minmax(0, 1fr); } }
+/* Shop web-address input (signup + find-shop) */
+.slug-input { display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
+.slug-input input { flex: 1; min-width: 0; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+.slug-input .slug-suffix { display: flex; align-items: center; padding: 0 12px; background: var(--surface-2, #f4f4f5); color: var(--muted); font-size: 13px; white-space: nowrap; border-left: 1px solid var(--line); }
+.slug-input:focus-within { border-color: var(--accent, #1f6f5f); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #1f6f5f) 18%, transparent); }

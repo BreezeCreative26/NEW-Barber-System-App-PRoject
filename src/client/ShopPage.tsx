@@ -5,7 +5,7 @@ import { PublicBooking, presetFromLocation, type BookingPreset } from "./PublicB
 import { Avatar, Icon } from "./ui";
 import { money, time, dateLabel, setCurrency } from "./fixtures";
 import { PublicReviews, Stars, type PublicReview } from "./Reviews";
-import { applyThemeColor, themeClass, type ShopTheme } from "./theme";
+import { applyThemeColor, themeClass, type ShopTheme, shopPath } from "./theme";
 
 type PageData = {
   shop: { id: string; name: string; address: string; slug: string; timezone: string; currency?: string; opens: number; closes: number; deposit_pence: number; cancel_hours: number; lead_time_min: number; booking_window_days: number };
@@ -91,7 +91,7 @@ export function ShopPage({ slug }: { slug: string }) {
         Skip to booking
       </a>
       <header className="sp-nav">
-        <a className="sp-brand" href={`/${shop.slug}`}>
+        <a className="sp-brand" href={shopPath(shop.slug, "/")}>
           {page.logo_url ? <img className="shop-emblem shop-logo" src={page.logo_url} alt="" /> : <span className="shop-emblem">{initials(shop.name)}</span>}
           <strong>{shop.name}</strong>
         </a>
@@ -101,7 +101,7 @@ export function ShopPage({ slug }: { slug: string }) {
           {has("hours") && <a href="#hours">Hours</a>}
           {has("find") && hasContact && <a href="#find">Find us</a>}
           {has("reviews") && data.reviews.length > 0 && <a href="#reviews">Reviews</a>}
-          <a href={`/${shop.slug}/me`} className="sp-me" data-testid="nav-me">
+          <a href={shopPath(shop.slug, "/me")} className="sp-me" data-testid="nav-me">
             <Icon name="userRound" size={15} /> {me ? me.name.split(" ")[0] || "Your visits" : "Your visits"}
           </a>
         </nav>
@@ -404,7 +404,7 @@ export function ShopPage({ slug }: { slug: string }) {
                 Review us on Google
               </a>
             )}
-            <a href={`/${shop.slug}/me`}>Your visits</a>
+            <a href={shopPath(shop.slug, "/me")}>Your visits</a>
           </div>
           <span className="powered-by">Powered by foliyo · <a href="/legal/privacy">Privacy</a> · <a href="/legal/terms">Terms</a></span>
         </div>

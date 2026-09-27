@@ -56,13 +56,22 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: bool
     );
   }
 }
-const [, area, param] = location.pathname.split("/");
 const APP_AREAS = new Set(["workspace", "signin", "signup", "forgot", "reset", "verify", "admin", ""]);
+// On a shop's own host (<slug>.foliyo.co.uk) the server tags the page with the slug and the short
+// paths apply: "/" = shop page, "/book" = booking, "/me" = account. Elsewhere the slug is in the path.
+const hostSlug = document.querySelector<HTMLMetaElement>('meta[name="foliyo-shop"]')?.content || "";
+const segs = location.pathname.split("/");
+let [, area, param] = segs;
+if (hostSlug) {
+  if (area === "") { area = hostSlug; param = ""; }
+  else if (area === "book" && !param) { param = hostSlug; }
+  else if (area === "me" && !param) { area = hostSlug; param = "me"; }
+}
 // Shop surfaces register the per-shop service worker so "Add to Home Screen" gives the customer the
-// shop's app (manifest is per shop; the worker is shared and scoped to /<slug>/).
+// shop's app (manifest is per shop; the worker is shared, scoped to the shop: "/" on its host).
 const shopSlugForWorker = area === "book" && param ? param : area && !APP_AREAS.has(area) ? area : "";
 if (shopSlugForWorker && "serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/sw.js", { scope: `/${decodeURIComponent(shopSlugForWorker)}/` }).catch(() => null);
+  navigator.serviceWorker.register("/sw.js", { scope: hostSlug ? "/" : `/${decodeURIComponent(shopSlugForWorker)}/` }).catch(() => null);
 }
 createRoot(document.getElementById("root")!).render(
   <AppErrorBoundary>
