@@ -1,7 +1,7 @@
-// Public shop home page at /<slug>: the customer's front door. Booking is a section of this page
-// (embedded PublicBooking); every card on the page re-targets that flow.
-import { useEffect, useRef, useState } from "react";
-import { PublicBooking, presetFromLocation, type BookingPreset } from "./PublicBooking";
+// Public shop home page at /<slug>: the customer's front door. Booking lives on its own page
+// (/book on the shop's host); every card here deep-links into that flow with the choice made.
+import { useEffect, useState } from "react";
+import { type BookingPreset } from "./PublicBooking";
 import { Avatar, Icon } from "./ui";
 import { money, time, dateLabel, setCurrency } from "./fixtures";
 import { PublicReviews, Stars, type PublicReview } from "./Reviews";
@@ -22,23 +22,37 @@ type PageData = {
 };
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const initials = (n: string) => n.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
+// Deep link into the booking flow with a choice already made (?service=&staff=&date=&start=&step=).
+export function bookHref(slug: string, p: BookingPreset = {}): string {
+  const q = new URLSearchParams();
+  if (p.service) q.set("service", p.service);
+  if (p.staff) q.set("staff", p.staff);
+  if (p.date) q.set("date", p.date);
+  if (p.start !== undefined) q.set("start", String(p.start));
+  if (p.step !== undefined) q.set("step", String(p.step));
+  const qs = q.toString();
+  return shopPath(slug, "/book", qs ? `?${qs}` : "");
+}
+function presetFromQuery(q: URLSearchParams): BookingPreset {
+  const num = (k: string) => (q.get(k) !== null && /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : undefined);
+  return { service: q.get("service") || undefined, staff: q.get("staff") || undefined, date: q.get("date") || undefined, start: num("start"), step: num("step") };
+}
 
 export function ShopPage({ slug }: { slug: string }) {
   const [data, setData] = useState<PageData | null>(null);
   const [error, setError] = useState("");
-  // Deep links from the customer area ("book my usual") arrive as ?service=&staff=&date=&start=&step=.
-  const [preset, setPreset] = useState<BookingPreset | null>(() => presetFromLocation());
   const [me, setMe] = useState<{ name: string; phone: string; email: string; notes: string } | null>(null);
-  const bookRef = useRef<HTMLElement>(null);
   useEffect(() => {
     fetch(`/api/public/shops/${encodeURIComponent(slug)}/account/session`, { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : { profile: null }))
       .then((d) => d.profile && setMe({ name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes }))
       .catch(() => {});
   }, [slug]);
+  // Older links (and the schema.org ReserveAction) point at /<slug>?service=…#book; send them on to the flow.
   useEffect(() => {
-    if (preset && data && location.hash === "#book") requestAnimationFrame(() => bookRef.current?.scrollIntoView({ block: "start" }));
-  }, [!!data]);
+    const q = new URLSearchParams(location.search);
+    if (location.hash === "#book" || ["service", "staff", "date", "start", "step"].some((k) => q.has(k))) location.replace(bookHref(slug, presetFromQuery(q)));
+  }, [slug]);
   useEffect(() => {
     fetch(`/api/public/shops/${encodeURIComponent(slug)}/page`)
       .then(async (r) => {
@@ -53,10 +67,7 @@ export function ShopPage({ slug }: { slug: string }) {
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load this shop."));
   }, [slug]);
-  function book(p: BookingPreset = {}) {
-    setPreset({ ...p, nonce: Date.now() });
-    requestAnimationFrame(() => bookRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  }
+  const book = (p: BookingPreset = {}) => bookHref(slug, p);
   if (error)
     return (
       <main className="state-card">
@@ -87,7 +98,7 @@ export function ShopPage({ slug }: { slug: string }) {
   const mapHref = page.map_url || (shop.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.address)}` : "");
   return (
     <div className={themeClass({ accent: page.accent, theme })} data-testid="shop-page">
-      <a className="skip-link" href="#book">
+      <a className="skip-link" href={book()}>
         Skip to booking
       </a>
       <header className="sp-nav">
@@ -105,9 +116,9 @@ export function ShopPage({ slug }: { slug: string }) {
             <Icon name="userRound" size={15} /> {me ? me.name.split(" ")[0] || "Your visits" : "Your visits"}
           </a>
         </nav>
-        <button type="button" className="button primary sp-book-btn" onClick={() => book()} data-testid="nav-book">
+        <a className="button primary sp-book-btn" href={book()} data-testid="nav-book">
           Book now
-        </button>
+        </a>
       </header>
 
       <main id="main-content">
@@ -136,9 +147,9 @@ export function ShopPage({ slug }: { slug: string }) {
                   )}
                 </div>
                 <div className="sp-hero-actions">
-                  <button type="button" className="button primary" onClick={() => book()} data-testid="hero-book">
+                  <a className="button primary" href={book()} data-testid="hero-book">
                     <Icon name="calendar" size={16} /> Book now
-                  </button>
+                  </a>
                   {page.phone && (
                     <a className="button secondary" href={`tel:${page.phone.replace(/\s/g, "")}`}>
                       <Icon name="call" size={16} /> Call
@@ -171,14 +182,14 @@ export function ShopPage({ slug }: { slug: string }) {
                 const member = data.staff.find((s) => s.id === n.staff_id);
                 return (
                   <li key={n.staff_id}>
-                    <button type="button" onClick={() => book({ service: n.service_id, staff: n.staff_id, date: n.date, start: n.start_min, step: 2 })} data-testid="soonest">
+                    <a href={book({ service: n.service_id, staff: n.staff_id, date: n.date, start: n.start_min, step: 2 })} data-testid="soonest">
                       {member?.photo_url ? <img src={member.photo_url} alt="" loading="lazy" decoding="async" className="sp-next-photo" /> : <Avatar initials={initials(n.staff_name)} colour={member?.colour || "sage"} />}
                       <span className="sp-next-text">
                         <b>{n.staff_name.split(" ")[0]}</b>
                         <small>{n.date === data.today ? "Today" : dateLabel(n.date, { weekday: "short", day: "numeric", month: "short" })} · {money(n.price_pence)}</small>
                       </span>
                       <span className="sp-next-time">{time(n.start_min)}</span>
-                    </button>
+                    </a>
                   </li>
                 );
               })}
@@ -206,7 +217,7 @@ export function ShopPage({ slug }: { slug: string }) {
                     .filter((s) => s.category === cat)
                     .map((s) => (
                       <li key={s.id}>
-                        <button type="button" onClick={() => book({ service: s.id, step: 1 })} data-testid="service-book">
+                        <a href={book({ service: s.id, step: 1 })} data-testid="service-book">
                           <span className="sp-service-text">
                             <b>
                               {s.name}
@@ -221,7 +232,7 @@ export function ShopPage({ slug }: { slug: string }) {
                           <span className="sp-service-go" aria-hidden="true">
                             <Icon name="right" size={16} />
                           </span>
-                        </button>
+                        </a>
                       </li>
                     ))}
                 </ul>
@@ -260,9 +271,9 @@ export function ShopPage({ slug }: { slug: string }) {
                     )}
                   </div>
                   <div className="sp-barber-actions">
-                    <button type="button" className="button secondary" onClick={() => book({ staff: b.id, step: 0 })} data-testid="barber-book">
+                    <a className="button secondary" href={book({ staff: b.id, step: 0 })} data-testid="barber-book">
                       Book with {b.name.split(" ")[0]}
-                    </button>
+                    </a>
                     {b.instagram && (
                       <a href={`https://instagram.com/${b.instagram}`} target="_blank" rel="noreferrer" className="sp-ig">
                         @{b.instagram}
@@ -276,12 +287,16 @@ export function ShopPage({ slug }: { slug: string }) {
           </section>
         )}
 
-        <section className="sp-section sp-booking" id="book" ref={bookRef} aria-labelledby="sp-book-heading">
-          <div className="sp-section-head">
-            <h2 id="sp-book-heading">Book a visit</h2>
-            <p>Choose a service, a barber and a time. You'll get a link to move or cancel it.</p>
+        <section className="sp-section sp-booking-cta" id="book" aria-labelledby="sp-book-heading">
+          <div className="sp-cta-card">
+            <div className="sp-cta-copy">
+              <h2 id="sp-book-heading">Book a visit</h2>
+              <p>Choose a service, a barber and a time. Takes under a minute, and you'll get a link to move or cancel it.</p>
+            </div>
+            <a className="button primary sp-cta-btn" href={book()} data-testid="section-book">
+              <Icon name="calendar" size={18} /> Start booking
+            </a>
           </div>
-          <PublicBooking slug={slug} embedded preset={preset} customer={me} />
         </section>
 
         {(has("hours") || (has("find") && hasContact)) && (

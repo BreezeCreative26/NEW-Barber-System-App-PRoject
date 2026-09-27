@@ -115,7 +115,7 @@ export function CustomerArea({ slug }: { slug: string }) {
           <strong>{me.shop.name}</strong>
         </a>
         <nav aria-label="Account">
-          <a href={shopPath(me.shop.slug, "/", "#book")}>Book</a>
+          <a href={shopPath(me.shop.slug, "/book")}>Book</a>
         </nav>
         <button type="button" className="button secondary" onClick={signOut} data-testid="sign-out">
           <Icon name="logout" size={15} /> Sign out
@@ -510,7 +510,7 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
   const book = (q: Record<string, string | number | undefined>) => {
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") params.set(k, String(v));
-    location.href = shopPath(me.shop.slug, "/", `?${params.toString()}#book`);
+    location.href = shopPath(me.shop.slug, "/book", `?${params.toString()}`);
   };
   const history = showAll ? me.history : me.history.slice(0, 6);
   return (

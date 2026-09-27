@@ -194,28 +194,33 @@
 .shop-page.font-editorial .sp-about p, .shop-page.font-heritage .sp-about p { font-family: var(--sp-display); font-weight: 400; font-size: clamp(19px, 1.8vw, 24px); letter-spacing: -0.01em; text-transform: none; }
 
 /* Cards */
-.shop-page .sp-next-list button, .shop-page .sp-services button, .shop-page .sp-barber, .shop-page .sp-two > .sp-section {
+.shop-page .sp-next-list :is(button, a), .shop-page .sp-services :is(button, a), .shop-page .sp-barber, .shop-page .sp-two > .sp-section {
   background: var(--sp-surface); border: 1px solid var(--sp-line); border-radius: var(--sp-r-lg); color: var(--sp-ink); box-shadow: var(--sp-shadow);
 }
-.shop-page .sp-next-list button:hover, .shop-page .sp-services button:hover { border-color: var(--sp-line-2); box-shadow: var(--sp-shadow-2); }
-.shop-page .sp-next-list button { border-radius: var(--sp-r); }
+.shop-page .sp-next-list :is(button, a):hover, .shop-page .sp-services :is(button, a):hover { border-color: var(--sp-line-2); box-shadow: var(--sp-shadow-2); }
+.shop-page .sp-next-list :is(button, a) { border-radius: var(--sp-r); }
 .shop-page .sp-next-list small, .shop-page .sp-service-text small, .shop-page .sp-service-meta small, .shop-page .sp-barber-text small { color: var(--sp-muted); }
 .shop-page .sp-next-time { color: var(--sp-accent-dark); font-size: 20px; }
 .shop-page .sp-next-list .avatar, .shop-page .sp-next-photo { border-radius: var(--sp-r-sm); }
 .shop-page .sp-cat h3 { color: var(--sp-ink); font-size: 17px; }
 .shop-page .sp-cat h3::after { background: var(--sp-line-2); }
-.shop-page .sp-services button { border-radius: var(--sp-r); }
+.shop-page .sp-services :is(button, a) { border-radius: var(--sp-r); }
 .shop-page .sp-service-go { background: var(--sp-surface-2); color: var(--sp-muted); }
-.shop-page .sp-services button:hover .sp-service-go { background: var(--sp-accent); color: var(--sp-accent-ink); }
+.shop-page .sp-services :is(button, a):hover .sp-service-go { background: var(--sp-accent); color: var(--sp-accent-ink); }
 .shop-page .sp-popular { background: var(--sp-soft); color: var(--sp-accent-dark); border-radius: var(--sp-r-pill); }
 .shop-page .sp-barber .avatar.large, .shop-page .sp-photo, .shop-page .sp-barber-next { border-radius: var(--sp-r); }
 .shop-page .sp-barber-next { background: var(--sp-soft); color: var(--sp-accent-dark); border-radius: var(--sp-r-pill); }
 .shop-page .sp-skills em { background: var(--sp-surface-2); border-color: var(--sp-line); color: var(--sp-ink-2); border-radius: var(--sp-r-pill); }
 .shop-page .sp-ig { color: var(--sp-muted); }
 
-/* Booking block */
-.shop-page .sp-booking { background: var(--sp-surface); border-color: var(--sp-line); }
-.shop-page.mode-dark .sp-booking { background: var(--sp-surface); }
+/* Booking call to action */
+.shop-page .sp-cta-card { background: var(--sp-accent); color: var(--sp-accent-ink); border-radius: var(--sp-r-lg); }
+.shop-page .sp-cta-copy h2 { font-family: var(--sp-display); font-weight: var(--sp-display-weight); letter-spacing: var(--sp-display-tracking); text-transform: var(--sp-display-case); color: inherit; }
+.shop-page .sp-cta-card .sp-cta-btn { background: var(--sp-accent-ink); color: var(--sp-accent); border-color: transparent; border-radius: var(--sp-r); }
+.shop-page.accent-ink .sp-cta-card { background: var(--sp-hero-bg); color: #fff; }
+.shop-page.accent-ink .sp-cta-card .sp-cta-btn { background: #fff; color: #111318; }
+.shop-page.mode-dark.accent-ink .sp-cta-card { background: var(--sp-surface-2); color: var(--sp-ink); }
+.shop-page.mode-dark.accent-ink .sp-cta-card .sp-cta-btn { background: var(--sp-ink); color: var(--sp-bg); }
 
 /* Hours / find */
 .shop-page .sp-hours > div.today { background: var(--sp-soft); }
@@ -273,11 +278,17 @@
 
 /* Standalone header */
 .shop-page .shop-header { color: var(--sp-ink); }
+.shop-page .booking-topbar { background: color-mix(in srgb, var(--sp-surface) 88%, transparent); backdrop-filter: saturate(1.4) blur(12px); border-bottom-color: var(--sp-line); }
+.shop-page .booking-back { color: var(--sp-ink); }
+.shop-page .booking-me { color: var(--sp-muted); }
+.shop-page .booking-back:hover, .shop-page .booking-me:hover { background: var(--sp-surface-2); color: var(--sp-ink); }
+.shop-page .booking-back span { font-family: var(--sp-display); font-weight: var(--sp-display-weight); letter-spacing: var(--sp-display-tracking); text-transform: var(--sp-display-case); }
 .shop-page .shop-header h1, .shop-page .shop-header .shop-name { font-family: var(--sp-display); font-weight: var(--sp-display-weight); letter-spacing: var(--sp-display-tracking); text-transform: var(--sp-display-case); color: var(--sp-ink); }
 .shop-page .shop-header .shop-header-right, .shop-page .shop-header small, .shop-page .shop-header p { color: var(--sp-muted); }
 .shop-page .shop-emblem { background: var(--sp-accent); color: var(--sp-accent-ink); border-radius: var(--sp-r-sm); }
 .shop-page .mini-shop-emblem { background: var(--sp-soft); color: var(--sp-accent-dark); border-radius: var(--sp-r-sm); }
 .shop-page.mode-dark.logo-flip .shop-header img.shop-logo,
+.shop-page.mode-dark.logo-flip .booking-topbar img.shop-logo,
 .shop-page.mode-dark.logo-flip .mini-shop-emblem.shop-logo,
 .shop-page.mode-dark.logo-flip .customer-area .sp-brand img.shop-logo { filter: invert(1) brightness(1.6) grayscale(1); }
 

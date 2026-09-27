@@ -171,8 +171,8 @@ test("browser: group booking together then confirm; owner calendar marks the gro
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
-  await page.goto(`/${slug}`);
-  const flow = page.locator(".booking-app.embedded");
+  await page.goto(`/book/${slug}`);
+  const flow = page.locator(".booking-app.standalone");
   await flow.getByTestId("start-group").click();
   await expect(flow.getByRole("heading", { name: "Who’s coming?" })).toBeVisible();
   await expect(flow.getByTestId("group-next")).toBeDisabled(); // second person needs a name

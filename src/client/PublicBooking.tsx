@@ -214,6 +214,24 @@ function ShopHeader({ name, address, logo }: { name: string; address: string; lo
 function TestBanner() {
   return null;
 }
+// The booking flow's own chrome: a way back to the shop, the shop's name, and the customer's account.
+function BookingTopBar({ slug, name, logo, customer }: { slug: string; name: string; logo?: string; customer?: BookingCustomer | null }) {
+  return (
+    <header className="booking-topbar">
+      <a className="booking-back" href={shopPath(slug, "/")} data-testid="booking-back">
+        <Icon name="arrowLeft" size={16} />
+        <span>{name}</span>
+      </a>
+      <span className="booking-brand" aria-hidden="true">
+        {logo ? <img className="shop-emblem shop-logo" src={logo} alt="" /> : <span className="shop-emblem">{initials(name)}</span>}
+      </span>
+      <a className="booking-me" href={shopPath(slug, "/me")} data-testid="nav-me" aria-label="Your visits">
+        <Icon name="userRound" size={15} />
+        <span>{customer ? customer.name.split(" ")[0] || "Your visits" : "Your visits"}</span>
+      </a>
+    </header>
+  );
+}
 
 const steps = ["Service", "Barber", "Date & time", "Your details", "Review"];
 type NextSlot = {
@@ -235,8 +253,19 @@ export function presetFromLocation(search = location.search): BookingPreset | nu
   const num = (k: string) => (q.get(k) !== null && /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : undefined);
   return { service: q.get("service") || undefined, staff: q.get("staff") || undefined, date: q.get("date") || undefined, start: num("start"), step: num("step"), nonce: Date.now() };
 }
-export function PublicBooking({ slug, embedded = false, preset, onLoaded, customer }: { slug: string; embedded?: boolean; preset?: BookingPreset | null; onLoaded?: (shop: PublicShop) => void; customer?: BookingCustomer | null }) {
+export function PublicBooking({ slug, preset, onLoaded, customer: customerProp }: { slug: string; preset?: BookingPreset | null; onLoaded?: (shop: PublicShop) => void; customer?: BookingCustomer | null }) {
   const [shop, setShop] = useState<PublicShop | null>(null);
+  // A signed-in customer gets their details filled in and their name in the top bar. The flow looks
+  // the session up itself unless the parent already knows.
+  const [session, setSession] = useState<BookingCustomer | null>(null);
+  const customer = customerProp === undefined ? session : customerProp;
+  useEffect(() => {
+    if (customerProp !== undefined) return;
+    fetch(`/api/public/shops/${encodeURIComponent(slug)}/account/session`, { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : { profile: null }))
+      .then((d) => d.profile && setSession({ name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes }))
+      .catch(() => {});
+  }, [slug]);
   const [loadError, setLoadError] = useState("");
   const [step, setStep] = useState(preset?.step ?? (preset?.staff ? 2 : preset?.service ? 1 : 0));
   const [service, setService] = useState(preset?.service || "");
@@ -287,7 +316,8 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
       const s = await api<PublicShop>(`/shops/${encodeURIComponent(slug)}`);
       setCurrency(s.shop.currency);
       setShop(s);
-      if (!embedded) applyThemeColor(s.shop.brand);
+      applyThemeColor(s.shop.brand);
+      document.title = `Book a visit · ${s.shop.name}`;
       onLoaded?.(s);
       setFrom((f) => f || preset?.date || s.today);
       setDate((d) => d || preset?.date || s.today);
@@ -595,13 +625,13 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
         </p>
       </div>
     );
-  const wrap = embedded ? `booking-app embedded` : themeClass(shop.shop.brand, "booking-app standalone");
+  const wrap = themeClass(shop.shop.brand, "booking-app standalone");
   if (confirmed)
     return (
       <div className={wrap}>
-        {!embedded && <TestBanner />}
-        {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
-        <main id={embedded ? undefined : "main-content"} className="booking-body">
+        <TestBanner />
+        <BookingTopBar slug={slug} name={shop.shop.name} logo={shop.shop.logo_url} customer={customer} />
+        <main id="main-content" className="booking-body">
           <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} sentTo={confirmed.sent_to || []} signedIn={!!customer} account={confirmed.account ?? null} />
         </main>
       </div>
@@ -641,56 +671,9 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   const nextElsewhere = next?.filter((n) => n.date !== date) || [];
   return (
     <div className={wrap}>
-      {!embedded && <TestBanner />}
-      {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
-      <main id={embedded ? undefined : "main-content"}>
-        {!embedded && <section className={`booking-hero public-hero ${step > 0 && step < 5 ? "booking-hero-compact" : ""}`}>
-          <div className="hero-copy">
-            <span className="eyebrow">BOOK ONLINE</span>
-            <h1>
-              Look sharp.
-              <br />
-              Feel like yourself.
-            </h1>
-            <p>
-              Choose your service, your barber and a time that suits you.
-              <br className="desktop-only" /> Prices and availability are the shop’s
-              live records.
-            </p>
-            <div className="hero-details">
-              <span>
-                <Icon name="scissors" size={16} />
-                {shop.staff.length} barber{shop.staff.length === 1 ? "" : "s"}
-              </span>
-              <span>
-                <Icon name="clock" size={16} />
-                {time(shop.shop.opens)}–{time(shop.shop.closes)} · {shop.shop.timezone}
-              </span>
-              {shop.shop.address && (
-                <a
-                  className="hero-link"
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.shop.address)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <Icon name="pin" size={16} />
-                  Directions
-                </a>
-              )}
-            </div>
-          </div>
-          <div className="hero-art" aria-hidden="true">
-            <div className="art-orbit orbit-one" />
-            <div className="art-orbit orbit-two" />
-            <div className="art-orbit orbit-three" />
-            <div className="hero-seal">
-              <span>BOOK IN SECONDS</span>
-              <strong>{initials(shop.shop.name)}</strong>
-              <div className="seal-rule" />
-              <span>{shop.shop.name.toUpperCase().slice(0, 24)}</span>
-            </div>
-          </div>
-        </section>}
+      <TestBanner />
+      <BookingTopBar slug={slug} name={shop.shop.name} logo={shop.shop.logo_url} customer={customer} />
+      <main id="main-content">
         <div className="booking-body">
           {group ? (
             <GroupBooking shop={shop} slug={slug} customer={customer} onExit={() => setGroup(false)} />
@@ -1500,13 +1483,6 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
               )}
             </section>
             <aside className="booking-summary" aria-label="Your visit summary">
-              <div className="summary-shop">
-                {shop.shop.logo_url ? <img className="mini-shop-emblem shop-logo" src={shop.shop.logo_url} alt="" /> : <span className="mini-shop-emblem">{initials(shop.shop.name)}</span>}
-                <div>
-                  <strong>{shop.shop.name}</strong>
-                  <span>{shop.shop.address || "Your visit summary"}</span>
-                </div>
-              </div>
               <h3>Your visit</h3>
               {chosenService && (
                 <div className="summary-service">
@@ -1599,12 +1575,10 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
           </div>
           </>
           )}
-          {!embedded && (
-            <footer className="booking-footer">
-              <span>Powered by foliyo</span>
-              <span className="booking-legal"><a href="/legal/privacy" target="_blank" rel="noopener">Privacy</a> · <a href="/legal/terms" target="_blank" rel="noopener">Terms</a></span>
-            </footer>
-          )}
+          <footer className="booking-footer">
+            <span>{shop.shop.address ? `${shop.shop.name} · ${shop.shop.address}` : shop.shop.name}</span>
+            <span className="booking-legal"><a href="/legal/privacy" target="_blank" rel="noopener">Privacy</a> · <a href="/legal/terms" target="_blank" rel="noopener">Terms</a> · Powered by foliyo</span>
+          </footer>
         </div>
       </main>
     </div>

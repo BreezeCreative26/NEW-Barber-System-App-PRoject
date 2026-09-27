@@ -679,3 +679,9 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - **Links**: every customer-facing URL (manage, offer, pay, book, /me, welcome/reset, waitlist) is built with `shopUrl()`; client links use `shopPath()` (reads the `foliyo-shop` meta). Manifest/SW scope is `/` on the shop host.
 - **Test shop**: `northline` (Northline Barbers seed, owner `owner@northline.test` / `Demo1234!`) — `http://northline.localhost:3000` locally; in production it will be `northline.foliyo.co.uk` once a shop with that slug exists there.
 - Tests: `tests/subdomain.spec.ts` (6), `tests/subdomain-screens.spec.ts`; accounts suite updated (find-shop in inventory, slug field, SameSite=Lax). Evidence: `docs/evidence/subdomain/`.
+
+## Booking flow v2 — its own page
+- Booking no longer sits embedded mid-way down the shop page. The shop page carries one clear "Book a visit" call-to-action card and every shortcut (nav, hero, Next available, service cards, "Book with X") deep-links to `/book?service=&staff=&date=&start=&step=` on the shop's host (`/book/<slug>` on the root host). Old `/<slug>?…#book` links are forwarded.
+- `/book` is a focused flow: slim sticky top bar (back to shop · logo · Your visits), no marketing hero, larger step headings, bigger service/barber/date/time cards and inputs, slimmer sticky summary, fixed action bar on phones. All type sizes come off design tokens.
+- `PublicBooking` dropped the `embedded` prop; it now looks up the customer session itself. schema.org `ReserveAction` targets the `/book` URL via `shopUrl`.
+- Tests updated: `shop-page.spec`, `booking-upgrades.spec`, `customer-account.spec`. `nav-me` on the flow carries an accessible name (axe).

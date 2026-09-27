@@ -227,10 +227,9 @@ test("browser: sign in on /<slug>/me, see usual and visits, rebook the usual wit
   // "Your usual" deep-links to the shop page with the flow on the time step, barber + service set, details prefilled.
   await page.getByTestId("tab-visits").click();
   await page.getByTestId("book-usual-next").click();
-  await expect(page).toHaveURL(new RegExp(`/${slug}\\?.*service=.*#book`));
-  await expect(page.getByTestId("shop-page")).toBeVisible();
-  await expect(page.getByTestId("nav-me")).toContainText("Ada");
-  const flow = page.locator(".booking-app.embedded");
+  await expect(page).toHaveURL(new RegExp(`/book(/${slug})?\\?.*service=`));
+  const flow = page.locator(".booking-app.standalone");
+  await expect(flow.getByTestId("nav-me")).toContainText("Ada");
   await expect(flow.getByRole("heading", { name: "A time that works for you." })).toBeVisible();
   await expect(flow.locator(".booking-summary")).toContainText("Signature cut");
   await expect(flow.locator(".booking-summary")).toContainText("Jay");
