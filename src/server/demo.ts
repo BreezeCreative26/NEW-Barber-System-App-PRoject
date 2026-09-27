@@ -120,8 +120,9 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
       // A seeded shop is already set up: mark the wizard complete so the demo opens on the calendar.
       "INSERT INTO shops(id,name,address,created_at,slug,online_booking,lead_time_min,booking_window_days,phone,email,setup_json) VALUES(?,?,?,?,?,1,60,42,?,?,?)",
     ).bind(shopId, shopName, "14 Northline Road, London E8 4QJ", now, slug, "+447700900100", ownerEmail, JSON.stringify({ step: "payments", done: ["shop", "hours", "services", "team", "messages", "online"], skipped: ["payments"], started_at: now, completed_at: now })),
-    db.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)")
-      .bind(ownerUser, ownerEmail, "Sam Okafor", encoded, salt, now),
+    // Demo/fixture accounts are pre-verified so the confirm-email nudge stays out of screenshots and tests.
+    db.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at,email_verified_at) VALUES(?,?,?,?,?,?,?)")
+      .bind(ownerUser, ownerEmail, "Sam Okafor", encoded, salt, now, now),
     db.prepare("INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?)").bind(shopId, ownerUser),
     db.prepare("INSERT INTO app_memberships(id,shop_id,user_id,role) VALUES(?,?,?,'OWNER')").bind(ownerMembership, shopId, ownerUser),
   ];
@@ -154,8 +155,8 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   // Barber account for Jay via a pre-accepted invitation (trigger requires one).
   const inviteId = uid();
   s.push(
-    db.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)")
-      .bind(barberUser, barberEmail, "Jay Carter", encoded, salt, now),
+    db.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at,email_verified_at) VALUES(?,?,?,?,?,?,?)")
+      .bind(barberUser, barberEmail, "Jay Carter", encoded, salt, now, now),
     db.prepare(
       "INSERT INTO staff_invitations(id,shop_id,staff_id,email,role,token_hash,expires_at,created_at) VALUES(?,?,?,?,'BARBER',?,?,?)",
     ).bind(inviteId, shopId, staff[0].id, barberEmail, await digest(uid()), now + 86400000, now),
@@ -289,11 +290,11 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
   for (let i = 0; i < bookings.length; i += 80) await db.batch(bookings.slice(i, i + 80));
   await db.batch([
     db.prepare(
-      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,daypart,notes,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'OPEN',?,?)",
-    ).bind(uid(), shopId, staff[0].id, services[1].id, customers[5].name, customers[5].phone, "", day(2), "AFTERNOON", "Any time after 2pm works.", now, now),
+      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,date_to,daypart,from_min,to_min,notes,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,720,1020,?,'OPEN',?,?)",
+    ).bind(uid(), shopId, staff[0].id, services[1].id, customers[5].name, customers[5].phone, "", day(2), day(2), "AFTERNOON", "Any time after 2pm works.", now, now),
     db.prepare(
-      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,daypart,notes,status,created_at,updated_at) VALUES(?,?,NULL,?,?,?,?,?,?,?,'OPEN',?,?)",
-    ).bind(uid(), shopId, services[6].id, customers[9].name, customers[9].phone, customers[9].email, day(1), "MORNING", "", now, now),
+      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,date_to,daypart,from_min,to_min,notes,status,created_at,updated_at) VALUES(?,?,NULL,?,?,?,?,?,?,?,0,720,?,'OPEN',?,?)",
+    ).bind(uid(), shopId, services[6].id, customers[9].name, customers[9].phone, customers[9].email, day(1), day(1), "MORNING", "", now, now),
     db.prepare("INSERT INTO staff_days_off(id,shop_id,staff_id,date,reason,created_at) VALUES(?,?,?,?,?,?)").bind(uid(), shopId, staff[1].id, day(5), "Annual leave", now),
     db.prepare(
       "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,0,?)",

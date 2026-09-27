@@ -37,6 +37,8 @@ import { PaymentsPanel } from "./Payouts";
 import { SetupWizard } from "./Setup";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
+import { themeClass } from "./theme";
+import { WS_ACCENTS, DEFAULT_WS_THEME, applyWsTheme, parseWsTheme, readLocalWsTheme, writeLocalWsTheme, type WorkspaceTheme } from "./workspaceTheme";
 import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
 
 const reference = (b: StoredBooking) =>
@@ -255,15 +257,86 @@ function SaveForm({
   );
 }
 const DEMO_ENABLED_KEY = "ollo:demo";
-type AuthMode = "signin" | "signup" | "invite" | "forgot" | "reset";
+type AuthMode = "signin" | "signup" | "invite" | "forgot" | "reset" | "find";
+// Which host is this shell on? "shop" = <slug>.foliyo.co.uk (sign in for that shop), "root" = the
+// platform address (create a shop; sign-in redirects to the shop), "local" = dev, everything works.
+const hostKind = () => (document.querySelector<HTMLMetaElement>('meta[name="foliyo-host"]')?.content as "shop" | "root" | "local" | undefined) || "local";
+const hostShopSlug = () => document.querySelector<HTMLMetaElement>('meta[name="foliyo-shop"]')?.content || "";
+const platformRoot = () => document.querySelector<HTMLMetaElement>('meta[name="foliyo-root"]')?.content || location.host;
 type InvitePeek = { shop_name: string; logo_url: string; staff_name: string; role: string; inviter: string; email: string; email_fixed: boolean; phone_hint: string; expires_at: number };
 // Real front door. `/signin` and `/signup` render this; `/workspace` shows it when signed out.
 // The demo shortcut appears only when the server reports DEMO_ENABLED=1.
+function FindShop({ state, setState, root }: { state: { error?: string; mailed?: boolean } | null; setState: (s: { error?: string; mailed?: boolean } | null) => void; root: string }) {
+  const [slug, setSlug] = useState("");
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function go(kind: "slug" | "email") {
+    setBusy(true); setState(null);
+    try {
+      const r = await api<{ ok: boolean; reason?: string; workspace_url?: string; mailed?: boolean }>("/auth/find-shop", "POST", kind === "slug" ? { slug: slug.trim().toLowerCase() } : { email: email.trim() });
+      if (r.ok && r.workspace_url) { location.assign(r.workspace_url); return; }
+      if (r.ok && r.mailed) { setState({ mailed: true }); return; }
+      setState({ error: r.reason || "Not found." });
+    } catch (e) { setState({ error: e instanceof Error ? e.message : "Something went wrong." }); } finally { setBusy(false); }
+  }
+  if (state?.mailed) return (
+    <div className="auth-sent" role="status" data-testid="find-sent">
+      <Icon name="send" />
+      <p>If that email belongs to a shop team, the sign-in address is on its way. Check spam if it hasn't arrived in a minute.</p>
+    </div>
+  );
+  return (
+    <div className="ca-form" data-testid="find-shop">
+      <form onSubmit={(e) => { e.preventDefault(); go("slug"); }}>
+        <Field label="Your shop address">
+          <div className="slug-input">
+            <input value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} placeholder="northline" autoCapitalize="off" autoCorrect="off" spellCheck={false} required data-testid="find-slug" />
+            <span className="slug-suffix">.{root}</span>
+          </div>
+        </Field>
+        <Button type="submit" disabled={busy || !slug} data-testid="find-go">Go to sign in <Icon name="arrowRight" size={16} /></Button>
+      </form>
+      <p className="helper auth-switch">Don't remember it?</p>
+      <form onSubmit={(e) => { e.preventDefault(); go("email"); }}>
+        <Field label="Your email">
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required data-testid="find-email" />
+        </Field>
+        <Button type="submit" variant="secondary" disabled={busy || !email} data-testid="find-mail">Email me the link</Button>
+      </form>
+      {state?.error && <p className="form-error" role="alert">{state.error}</p>}
+    </div>
+  );
+}
 function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Promise<void> }) {
   const resetToken = new URLSearchParams(location.search).get("token") || "";
-  const initial: AuthMode = token ? "invite" : location.pathname === "/signup" ? "signup" : location.pathname === "/forgot" ? "forgot" : location.pathname === "/reset" && resetToken ? "reset" : "signin";
+  const onRoot = hostKind() === "root";
+  const shopSlug = hostShopSlug();
+  const [shopHead, setShopHead] = useState<{ name: string; logo_url: string } | null>(null);
+  useEffect(() => {
+    if (!shopSlug) return;
+    fetch(`/api/public/shops/${encodeURIComponent(shopSlug)}`).then((r) => (r.ok ? r.json() : null)).then((d) => d && setShopHead({ name: d.shop.name, logo_url: d.shop.logo_url || "" })).catch(() => {});
+  }, [shopSlug]);
+  // On the platform host there is nothing to sign in to: owners sign in at their shop's address.
+  const initial: AuthMode = token ? "invite" : location.pathname === "/signup" ? "signup" : location.pathname === "/forgot" ? "forgot" : location.pathname === "/reset" && resetToken ? "reset" : onRoot ? "find" : "signin";
   const [mode, setMode] = useState<AuthMode>(initial);
+  const [findState, setFindState] = useState<{ error?: string; mailed?: boolean } | null>(null);
   const [kind, setKind] = useState<"BARBER" | "HAIR" | "SALON">("BARBER");
+  // Shop address (<slug>.foliyo.co.uk). Suggested from the shop name until the owner edits it.
+  const [slug, setSlug] = useState("");
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [slugState, setSlugState] = useState<{ ok: boolean; reason: string; host: string } | null>(null);
+  const slugify = (v: string) => v.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  useEffect(() => {
+    if (!slug) { setSlugState(null); return; }
+    const t = setTimeout(() => {
+      fetch(`/api/app/auth/slug-check?slug=${encodeURIComponent(slug)}`, { credentials: "same-origin" })
+        .then((r) => r.json())
+        .then((j) => setSlugState(j))
+        .catch(() => setSlugState(null));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [slug]);
+  const rootHost = location.hostname.replace(/^www\./, "");
   const [peek, setPeek] = useState<InvitePeek | null>(null);
   const [peekError, setPeekError] = useState("");
   const [forgotSent, setForgotSent] = useState<{ delivery: string[]; sandbox_token?: string } | null>(null);
@@ -328,9 +401,18 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
       <div className="auth-main">
       <section className="workspace-panel account-entry auth-card" aria-labelledby="auth-heading">
         <Brand />
-        {mode !== "invite" && (
+        {shopHead && (
+          <div className="auth-invite-card" data-testid="auth-shop">
+            {shopHead.logo_url ? <img src={shopHead.logo_url} alt="" width={44} height={44} /> : <span className="auth-invite-mark" aria-hidden="true">{shopHead.name.slice(0, 1)}</span>}
+            <div>
+              <strong>{shopHead.name}</strong>
+              <span>Team sign-in · {location.host}</span>
+            </div>
+          </div>
+        )}
+        {mode !== "invite" && !shopSlug && (
           <div className="auth-tabs" role="tablist" aria-label="Sign in or create a shop">
-            <button type="button" role="tab" aria-selected={mode === "signin"} onClick={() => setMode("signin")}>
+            <button type="button" role="tab" aria-selected={mode === "signin" || mode === "find"} onClick={() => setMode(onRoot ? "find" : "signin")}>
               Sign in
             </button>
             <button type="button" role="tab" aria-selected={mode === "signup"} onClick={() => setMode("signup")}>
@@ -348,7 +430,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
           </div>
         )}
         <h2 id="auth-heading">
-          {mode === "invite" ? (peek ? `Join ${peek.shop_name}` : "Accept your invitation") : mode === "signup" ? "Set up your shop" : mode === "forgot" ? "Forgot your password?" : mode === "reset" ? "Choose a new password" : "Welcome back"}
+          {mode === "invite" ? (peek ? `Join ${peek.shop_name}` : "Accept your invitation") : mode === "signup" ? "Set up your shop" : mode === "forgot" ? "Forgot your password?" : mode === "reset" ? "Choose a new password" : mode === "find" ? "Find your shop" : "Welcome back"}
         </h2>
         <p>
           {mode === "invite"
@@ -359,9 +441,13 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
                 ? "Enter your login email. We'll send a link to choose a new password — it works for 30 minutes."
                 : mode === "reset"
                   ? resetState && "error" in resetState ? resetState.error : resetState ? `For ${resetState.email_hint}. At least 12 characters.` : "Checking your link…"
-                  : "Sign in to your shop's workspace."}
+                  : mode === "find"
+                    ? "Every shop has its own address. Type yours, or tell us your email and we'll send you the link."
+                    : shopHead ? `Sign in to ${shopHead.name}'s workspace.` : "Sign in to your shop's workspace."}
         </p>
-        {mode === "forgot" && forgotSent ? (
+        {mode === "find" ? (
+          <FindShop state={findState} setState={setFindState} root={platformRoot()} />
+        ) : mode === "forgot" && forgotSent ? (
           <div className="auth-sent" role="status" data-testid="forgot-sent">
             <Icon name="send" />
             <p>If that address has an account, a reset link is on its way{forgotSent.delivery.includes("sms") ? " by email and text" : ""}. Check spam if it hasn't arrived in a minute.</p>
@@ -377,17 +463,21 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
           key={mode}
           label={mode === "invite" ? "Join the team" : mode === "signup" ? "Create shop" : mode === "forgot" ? "Send reset link" : mode === "reset" ? "Set password and sign in" : "Sign in"}
           onSave={async (f) => {
-            if (mode === "signup")
-              await api("/auth/signup", "POST", {
+            if (mode === "signup") {
+              const r = await api<{ workspace_url?: string; cross_host_session?: boolean }>("/auth/signup", "POST", {
                 shop_name: text(f, "shop_name"),
+                slug,
                 name: text(f, "name"),
                 email: text(f, "email"),
                 password: text(f, "password"),
                 timezone: tz,
                 kind,
+                accept_legal: f.get("accept_legal") === "on",
               });
-            else if (mode === "invite")
-              await api("/auth/accept", "POST", { email: peek?.email_fixed ? peek.email : text(f, "email"), password: text(f, "password"), name: text(f, "name"), token });
+              // The owner's home is their shop's own address. Same host (local dev) → carry on here.
+              if (r.workspace_url && r.cross_host_session && new URL(r.workspace_url).host !== location.host) { location.assign(`${r.workspace_url}/setup`); return; }
+            } else if (mode === "invite")
+              await api("/auth/accept", "POST", { email: peek?.email_fixed ? peek.email : text(f, "email"), password: text(f, "password"), name: text(f, "name"), token, accept_legal: f.get("accept_legal") === "on" });
             else if (mode === "forgot") {
               const r = await api<{ delivery: string[]; sandbox_token?: string }>("/auth/forgot", "POST", { email: text(f, "email") });
               setForgotSent(r);
@@ -401,7 +491,13 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
           {mode === "signup" && (
             <>
               <Field label="Shop name">
-                <input name="shop_name" autoComplete="organization" required minLength={2} maxLength={100} placeholder="e.g. Fade Society" />
+                <input name="shop_name" autoComplete="organization" required minLength={2} maxLength={100} placeholder="e.g. Fade Society" onChange={(e) => { if (!slugTouched) setSlug(slugify(e.target.value)); }} />
+              </Field>
+              <Field label="Your web address" hint={slugState === null ? "Where customers book and where you and your team sign in." : slugState.ok ? `Available — ${slug}.${slugState.host ? slugState.host.split(".").slice(1).join(".") : rootHost}` : slugState.reason}>
+                <div className="slug-input" data-testid="signup-slug">
+                  <input name="slug" value={slug} required minLength={2} maxLength={40} pattern="[a-z0-9](?:[a-z0-9-]*[a-z0-9])?" autoCapitalize="off" autoCorrect="off" spellCheck={false} placeholder="fade-society" aria-invalid={slugState ? !slugState.ok : undefined} onChange={(e) => { setSlugTouched(true); setSlug(slugify(e.target.value)); }} />
+                  <span className="slug-suffix">.{rootHost}</span>
+                </div>
               </Field>
               <div className="auth-kind" role="radiogroup" aria-label="What kind of shop">
                 {(["BARBER", "HAIR", "SALON"] as const).map((k) => (
@@ -438,6 +534,15 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
             </Field>
           )}
           {(mode === "signup" || mode === "invite") && <p className="helper">At least 12 characters.{mode === "signup" ? ` Timezone will be set to ${tz}; change it in setup.` : ""}</p>}
+          {(mode === "signup" || mode === "invite") && (
+            <label className="auth-legal" data-testid="accept-legal">
+              <input name="accept_legal" type="checkbox" required />
+              <span>
+                I agree to the <a href="/legal/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/legal/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+                {mode === "signup" && <>, and to the <a href="/legal/dpa" target="_blank" rel="noopener">Data Processing Agreement</a> under which foliyo handles my customers' data</>}.
+              </span>
+            </label>
+          )}
         </SaveForm>
         )}
         {mode === "signin" && (
@@ -1144,18 +1249,66 @@ type Editor =
   | { kind: "holiday" }
   | { kind: "removeHoliday"; item: Holiday };
 
-type SettingsTabKey = "general" | "booking" | "page" | "messages" | "payments" | "billing";
-const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: string; owner?: boolean }[] = [
-  { key: "general", label: "General", hint: "Details, hours, policies", icon: "settings" },
-  { key: "booking", label: "Online booking", hint: "Link, notice, customer pages", icon: "globe" },
-  { key: "page", label: "Shop page", hint: "Public page & reviews", icon: "star" },
-  { key: "messages", label: "Messages & AI", hint: "Texts, WhatsApp, email, calls", icon: "message" },
-  { key: "payments", label: "Payments", hint: "Cards, deposits, payouts", icon: "card" },
-  { key: "billing", label: "Billing", hint: "Your foliyo plan, usage, invoices", icon: "file", owner: true },
+type SettingsTabKey = "general" | "hours" | "calendar" | "booking" | "page" | "reviews" | "messages" | "waitlist" | "alerts" | "ai" | "payments" | "billing";
+type SettingsGroup = "Business" | "Customers" | "Communication" | "Money";
+const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: string; group: SettingsGroup; owner?: boolean }[] = [
+  { key: "general", label: "Business details", hint: "Name, address, currency", icon: "settings", group: "Business" },
+  { key: "hours", label: "Hours & closures", hint: "Opening times, holidays", icon: "clock", group: "Business" },
+  { key: "calendar", label: "Calendar & workspace", hint: "Policies, density, colours", icon: "calendar", group: "Business" },
+  { key: "booking", label: "Online booking", hint: "Link, notice, customer pages", icon: "globe", group: "Customers" },
+  { key: "page", label: "Shop page", hint: "Photos, theme, live preview", icon: "image", group: "Customers" },
+  { key: "reviews", label: "Reviews & Google", hint: "Ratings, replies, Google link", icon: "star", group: "Customers" },
+  { key: "waitlist", label: "Waiting list", hint: "Freed slots, who gets told", icon: "bell", group: "Customers" },
+  { key: "messages", label: "Messages", hint: "Texts, WhatsApp, email, outbox", icon: "message", group: "Communication" },
+  { key: "alerts", label: "Owner alerts", hint: "What you hear about, and how", icon: "bell", group: "Communication" },
+  { key: "ai", label: "AI receptionist", hint: "Phone answering", icon: "phone", group: "Communication" },
+  { key: "payments", label: "Payments", hint: "Cards, deposits, payouts", icon: "card", group: "Money" },
+  { key: "billing", label: "Your foliyo plan", hint: "Plan, usage, invoices", icon: "file", group: "Money", owner: true },
 ];
+const SETTINGS_GROUPS: SettingsGroup[] = ["Business", "Customers", "Communication", "Money"];
 
 
 // Shown when foliyo support opened this workspace from the admin panel (cookie set by /api/admin/…/impersonate).
+// One-line nudge until the login email is confirmed. Soft: nothing is gated on it, but password
+// resets go to this address so it's worth a click. Re-send is rate-limited server-side (1/min).
+function VerifyEmailNudge({ email, onVerified }: { email: string; onVerified: () => void }) {
+  const [state, setState] = useState<{ sent?: boolean; sandbox?: string; error?: string; busy?: boolean; hidden?: boolean }>(() => ({ hidden: sessionStorage.getItem("foliyo:verify-nudge") === "hidden" }));
+  if (state.hidden) return null;
+  return (
+    <section className="setup-banner verify-nudge" data-testid="verify-nudge">
+      <div>
+        <strong>Confirm your email.</strong>
+        <span>
+          {state.sent
+            ? <>Sent to {email}. Check spam if it isn't there in a minute.{state.sandbox && <> No email provider is connected here, so: <a href={`/verify?token=${state.sandbox}`} data-testid="sandbox-verify-link">open the confirmation link</a>.</>}</>
+            : state.error
+              ? state.error
+              : <>We sent a link to {email}. Tap it so password resets reach you.</>}
+        </span>
+      </div>
+      <div className="setup-banner-actions">
+        <Button
+          variant="secondary"
+          disabled={state.busy}
+          data-testid="verify-resend"
+          onClick={async () => {
+            setState((s) => ({ ...s, busy: true, error: "" }));
+            try {
+              const r = await api<{ already?: boolean; sandbox_token?: string }>("/auth/verify-email/resend", "POST", {});
+              if (r.already) { onVerified(); return; }
+              setState({ sent: true, sandbox: r.sandbox_token });
+            } catch (e) {
+              setState({ error: e instanceof Error ? e.message : "Could not send the email." });
+            }
+          }}
+        >
+          {state.busy ? "Sending…" : state.sent ? "Send again" : "Resend email"}
+        </Button>
+        <button type="button" className="linklike" data-testid="verify-nudge-hide" onClick={() => { sessionStorage.setItem("foliyo:verify-nudge", "hidden"); setState((s) => ({ ...s, hidden: true })); }}>Later</button>
+      </div>
+    </section>
+  );
+}
 function ImpersonationBar() {
   const [info, setInfo] = useState<{ admin: string; until: number } | null>(() => {
     const m = document.cookie.match(/(?:^|; )ollo_impersonating=([^;]*)/);
@@ -1674,6 +1827,18 @@ export function Workspace() {
   );
   const manager = !w?.account || ["OWNER", "MANAGER"].includes(w.account.role);
   const userPref = (() => { try { return (JSON.parse(w?.account?.prefs_json || "{}") as { calendar_density?: string }).calendar_density; } catch { return undefined; } })();
+  // Personal workspace look: local copy first (no flash), then the account's saved choice wins.
+  useEffect(() => {
+    const local = readLocalWsTheme();
+    if (local) applyWsTheme(local);
+  }, []);
+  useEffect(() => {
+    if (!w?.account) return;
+    try {
+      const t = parseWsTheme((JSON.parse(w.account.prefs_json || "{}") as { workspace_theme?: unknown }).workspace_theme);
+      if (t) { applyWsTheme(t); writeLocalWsTheme(t); }
+    } catch { /* ignore */ }
+  }, [w?.account?.prefs_json]);
   const density: Density = densityChoice ?? resolveDensity(userPref, w?.shop.calendar_density, phoneDevice);
   function chooseDensity(d: Density) {
     setDensityChoice(d);
@@ -1917,7 +2082,7 @@ export function Workspace() {
           }}
           onOpenSettings={() => {
             setQueueOpen(false);
-            setSettingsTab("messages");
+            setSettingsTab("waitlist");
             setTab("Settings");
           }}
           onClose={() => setQueueOpen(false)}
@@ -2012,6 +2177,9 @@ export function Workspace() {
           )}
           {!w && !needsSession && !error && (
             <p role="status">Loading local workspace…</p>
+          )}
+          {w && !inviteToken && !setupOpen && w.account && !w.account.email_verified_at && (
+            <VerifyEmailNudge email={w.account.email} onVerified={() => refresh({ background: true })} />
           )}
           {w && !inviteToken && manager && setupOpen && (
             <SetupWizard w={w} api={api} refresh={async () => { await refresh(); }} goTo={goTo} onExit={() => { openSetup(false); refresh().catch(() => {}); }} />
@@ -2554,171 +2722,133 @@ export function Workspace() {
               {tab === "Settings" && (
                 <div className="settings-shell" data-testid="settings">
                   <nav className="settings-nav" role="tablist" aria-label="Settings sections">
-                    {SETTINGS_TABS.filter((t) => !t.owner || !w.account || w.account.role === "OWNER").map((t) => (
-                      <button key={t.key} type="button" role="tab" aria-selected={settingsTab === t.key} aria-controls={`settings-${t.key}`} onClick={() => setSettingsTab(t.key)} data-testid={`settings-tab-${t.key}`}>
-                        <Icon name={t.icon} size={18} />
-                        <span><b>{t.label}</b><small>{t.hint}</small></span>
-                      </button>
+                    {SETTINGS_GROUPS.map((g) => (
+                      <div key={g} className="settings-nav-group" role="presentation">
+                        <span className="settings-nav-label" aria-hidden="true">{g}</span>
+                        {SETTINGS_TABS.filter((t) => t.group === g && (!t.owner || !w.account || w.account.role === "OWNER")).map((t) => (
+                          <button key={t.key} type="button" role="tab" aria-selected={settingsTab === t.key} aria-controls={`settings-${t.key}`} onClick={() => setSettingsTab(t.key)} data-testid={`settings-tab-${t.key}`}>
+                            <Icon name={t.icon} size={18} />
+                            <span><b>{t.label}</b><small>{t.hint}</small></span>
+                          </button>
+                        ))}
+                      </div>
                     ))}
                   </nav>
                   <div className="settings-body" id={`settings-${settingsTab}`} role="tabpanel">
                     {settingsTab === "general" && (
                       <>
-                        <header className="settings-head"><h2>General</h2><p>Your business details, opening hours and booking policies.</p></header>
-                  <section className="workspace-panel">
-                    <h2>Shop settings</h2>
-                    <SaveForm
-                      key={w.shop.version}
-                      onSave={(f) =>
-                        saved("/shop", "PUT", {
-                          name: text(f, "name"),
-                          address: text(f, "address"),
-                          timezone: text(f, "timezone"),
-                          currency: text(f, "currency") || "GBP",
-                          week: days.map((_, i) => ({
-                            enabled: f.get(`open_${i}`) ? 1 : 0,
-                            starts: minute(text(f, `starts_${i}`) || "09:00"),
-                            ends: minute(text(f, `ends_${i}`) || "18:00"),
-                          })),
-                          deposit_pence: Math.round(number(f, "deposit") * 100),
-                          cancel_hours: number(f, "cancel_hours"),
-                          buffer_min: number(f, "buffer_min"),
-                          card_colour: text(f, "card_colour") === "SERVICE" ? "SERVICE" : "BARBER",
-                          calendar_density: (["COMPACT", "STANDARD", "LARGE"].includes(text(f, "calendar_density")) ? text(f, "calendar_density") : "STANDARD") as "COMPACT" | "STANDARD" | "LARGE",
-                          no_show_grace: number(f, "no_show_grace"),
-                          till_access: text(f, "till_access") === "ALL" ? "ALL" : "OWNER",
-                          version: w.shop.version,
-                        })
-                      }
-                    >
-                      <Field label="Shop name">
-                        <input
-                          name="name"
-                          required
-                          minLength={2}
-                          maxLength={100}
-                          defaultValue={w.shop.name}
-                        />
-                      </Field>
-                      <Field label="Address">
-                        <textarea
-                          name="address"
-                          maxLength={200}
-                          defaultValue={w.shop.address}
-                        />
-                      </Field>
-                      <Field label="Timezone">
-                        <select name="timezone" defaultValue={w.shop.timezone}>
-                          {timezoneOptions(w.shop.timezone).map((tz) => (
-                            <option key={tz} value={tz}>
-                              {tz.replace(/_/g, " ")}
-                            </option>
+                        <header className="settings-head"><h2>Business details</h2><p>Who you are and where you are. Customers see the name and address on every page and message.</p></header>
+                        <section className="workspace-panel">
+                          <h2>Shop settings</h2>
+                          <ShopSaveForm w={w} saved={saved} label="Save changes">
+                            <Field label="Shop name">
+                              <input name="name" required minLength={2} maxLength={100} defaultValue={w.shop.name} />
+                            </Field>
+                            <Field label="Address">
+                              <textarea name="address" maxLength={200} defaultValue={w.shop.address} />
+                            </Field>
+                            <div className="workspace-form-grid">
+                              <Field label="Timezone">
+                                <select name="timezone" defaultValue={w.shop.timezone}>
+                                  {timezoneOptions(w.shop.timezone).map((tz) => (
+                                    <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
+                                  ))}
+                                </select>
+                              </Field>
+                              <Field label="Currency · how prices are shown">
+                                <select name="currency" defaultValue={w.shop.currency || "GBP"} data-testid="shop-currency">
+                                  {CURRENCIES.map((c) => (
+                                    <option key={c.code} value={c.code}>{c.code} · {c.label}</option>
+                                  ))}
+                                </select>
+                              </Field>
+                            </div>
+                          </ShopSaveForm>
+                        </section>
+                      </>
+                    )}
+                    {settingsTab === "hours" && (
+                      <>
+                        <header className="settings-head"><h2>Hours &amp; closures</h2><p>When the shop is open, and dated closures like bank holidays. Each team member has their own hours under Team.</p></header>
+                        <section className="workspace-panel">
+                          <h2>Opening hours</h2>
+                          <ShopSaveForm w={w} saved={saved} label="Save hours">
+                            <WeekHoursEditor week={shopWeekOf(w.shop)} />
+                          </ShopSaveForm>
+                        </section>
+                        <section className="workspace-panel">
+                          <div className="workspace-section-heading">
+                            <h2>Shop closures</h2>
+                            <Button variant="secondary" onClick={() => setEditor({ kind: "holiday" })}>Add closure</Button>
+                          </div>
+                          {w.holidays.length === 0 && <p>No dated closures.</p>}
+                          {w.holidays.map((h) => (
+                            <article className="workspace-closure" key={h.id}>
+                              <strong>{h.date}</strong>
+                              <p>{h.label}</p>
+                              <Button variant="ghost" onClick={() => setEditor({ kind: "removeHoliday", item: h })}>Remove closure</Button>
+                            </article>
                           ))}
-                        </select>
-                      </Field>
-                      <Field label="Currency · how prices are shown">
-                        <select name="currency" defaultValue={w.shop.currency || "GBP"} data-testid="shop-currency">
-                          {CURRENCIES.map((c) => (
-                            <option key={c.code} value={c.code}>
-                              {c.code} · {c.label}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <WeekHoursEditor week={shopWeekOf(w.shop)} />
-                      <p className="helper">Times between visits include a 10-minute buffer. Each barber has their own hours under Team.</p>
-                      <Field label={`Deposit (${currencySymbol(w.shop.currency || "GBP")}) · shown to customers, payable in the shop`}>
-                        <input
-                          type="number"
-                          name="deposit"
-                          min={0}
-                          max={100}
-                          step="0.01"
-                          required
-                          defaultValue={w.shop.deposit_pence / 100}
-                        />
-                      </Field>
-                      <Field label="Cancellation policy hours">
-                        <input
-                          type="number"
-                          name="cancel_hours"
-                          min={0}
-                          max={168}
-                          required
-                          defaultValue={w.shop.cancel_hours}
-                        />
-                      </Field>
-                      <Field label="No-show grace minutes">
-                        <input
-                          type="number"
-                          name="no_show_grace"
-                          min={0}
-                          max={120}
-                          required
-                          defaultValue={w.shop.no_show_grace}
-                        />
-                      </Field>
-                      <Field label="Gap between appointments" hint="Time held after every appointment for tidy-up. Off means back-to-back bookings.">
-                        <select name="buffer_min" defaultValue={String(w.shop.buffer_min ?? 10)} data-testid="shop-buffer">
-                          <option value="0">Off · back to back</option>
-                          <option value="5">5 minutes</option>
-                          <option value="10">10 minutes</option>
-                          <option value="15">15 minutes</option>
-                          <option value="20">20 minutes</option>
-                          <option value="30">30 minutes</option>
-                        </select>
-                      </Field>
-                      <Field label="Calendar density (shop default)" hint="How much of the day fits on one screen. Each person can pick their own from the timetable; this is the starting point.">
-                        <select name="calendar_density" defaultValue={w.shop.calendar_density || "STANDARD"} data-testid="shop-calendar-density">
-                          <option value="COMPACT">Compact — whole day on one screen</option>
-                          <option value="STANDARD">Standard</option>
-                          <option value="LARGE">Large — bigger appointment blocks</option>
-                        </select>
-                      </Field>
-                      <Field label="Calendar card colour" hint="Colour every appointment by who is doing it, or by the service booked.">
-                        <select name="card_colour" defaultValue={w.shop.card_colour || "BARBER"} data-testid="shop-card-colour">
-                          <option value="BARBER">By team member</option>
-                          <option value="SERVICE">By service</option>
-                        </select>
-                      </Field>
-                      <Field label="Who can take payment">
-                        <select name="till_access" defaultValue={w.shop.till_access}>
-                          <option value="OWNER">Shop device only (owner or manager)</option>
-                          <option value="ALL">Barbers too, for their own visits</option>
-                        </select>
-                      </Field>
-                    </SaveForm>
-                  </section>
-                                          <section className="workspace-panel">
-                    <div className="workspace-section-heading">
-                      <h2>Shop closures</h2>
-                      <Button
-                        variant="secondary"
-                        onClick={() => setEditor({ kind: "holiday" })}
-                      >
-                        Add closure
-                      </Button>
-                    </div>
-                    {w.holidays.length === 0 && <p>No dated closures.</p>}
-                    {w.holidays.map((h) => (
-                      <article className="workspace-closure" key={h.id}>
-                        <strong>{h.date}</strong>
-                        <p>{h.label}</p>
-                        <Button
-                          variant="ghost"
-                          onClick={() =>
-                            setEditor({ kind: "removeHoliday", item: h })
-                          }
-                        >
-                          Remove closure
-                        </Button>
-                      </article>
-                    ))}
-                    <Notice>
-                      Changes do not silently cancel existing appointments.
-                      Affected future appointments are flagged for review.
-                    </Notice>
-                  </section>
+                          <Notice>Changes do not silently cancel existing appointments. Affected future appointments are flagged for review.</Notice>
+                        </section>
+                      </>
+                    )}
+                    {settingsTab === "calendar" && (
+                      <>
+                        <header className="settings-head"><h2>Calendar &amp; workspace</h2><p>Booking policies, how the diary looks, and who can take payment.</p></header>
+                        <section className="workspace-panel">
+                          <h2>Booking policies</h2>
+                          <ShopSaveForm w={w} saved={saved} label="Save policies">
+                            <div className="workspace-form-grid">
+                              <Field label={`Deposit (${currencySymbol(w.shop.currency || "GBP")}) · shown to customers, payable in the shop`}>
+                                <input type="number" name="deposit" min={0} max={100} step="0.01" required defaultValue={w.shop.deposit_pence / 100} />
+                              </Field>
+                              <Field label="Cancellation policy hours">
+                                <input type="number" name="cancel_hours" min={0} max={168} required defaultValue={w.shop.cancel_hours} />
+                              </Field>
+                              <Field label="No-show grace minutes">
+                                <input type="number" name="no_show_grace" min={0} max={120} required defaultValue={w.shop.no_show_grace} />
+                              </Field>
+                              <Field label="Gap between appointments" hint="Time held after every appointment for tidy-up. Off means back-to-back bookings.">
+                                <select name="buffer_min" defaultValue={String(w.shop.buffer_min ?? 10)} data-testid="shop-buffer">
+                                  <option value="0">Off · back to back</option>
+                                  <option value="5">5 minutes</option>
+                                  <option value="10">10 minutes</option>
+                                  <option value="15">15 minutes</option>
+                                  <option value="20">20 minutes</option>
+                                  <option value="30">30 minutes</option>
+                                </select>
+                              </Field>
+                              <Field label="Who can take payment">
+                                <select name="till_access" defaultValue={w.shop.till_access}>
+                                  <option value="OWNER">Shop device only (owner or manager)</option>
+                                  <option value="ALL">Barbers too, for their own visits</option>
+                                </select>
+                              </Field>
+                            </div>
+                          </ShopSaveForm>
+                        </section>
+                        <section className="workspace-panel">
+                          <h2>Diary</h2>
+                          <ShopSaveForm w={w} saved={saved} label="Save diary settings">
+                            <div className="workspace-form-grid">
+                              <Field label="Calendar density (shop default)" hint="How much of the day fits on one screen. Each person can pick their own from the timetable; this is the starting point.">
+                                <select name="calendar_density" defaultValue={w.shop.calendar_density || "STANDARD"} data-testid="shop-calendar-density">
+                                  <option value="COMPACT">Compact — whole day on one screen</option>
+                                  <option value="STANDARD">Standard</option>
+                                  <option value="LARGE">Large — bigger appointment blocks</option>
+                                </select>
+                              </Field>
+                              <Field label="Calendar card colour" hint="Colour every appointment by who is doing it, or by the service booked.">
+                                <select name="card_colour" defaultValue={w.shop.card_colour || "BARBER"} data-testid="shop-card-colour">
+                                  <option value="BARBER">By team member</option>
+                                  <option value="SERVICE">By service</option>
+                                </select>
+                              </Field>
+                            </div>
+                          </ShopSaveForm>
+                        </section>
+                        <WorkspaceLookPanel w={w} />
                       </>
                     )}
                     {settingsTab === "booking" && (
@@ -2730,15 +2860,39 @@ export function Workspace() {
                     )}
                     {settingsTab === "page" && (
                       <>
-                        <header className="settings-head"><h2>Shop page &amp; reviews</h2><p>How your business looks to the public: page content, photos, reviews.</p></header>
+                        <header className="settings-head"><h2>Shop page</h2><p>How your business looks to the public: photos, theme and content, with a live preview.</p></header>
                         <ShopPagePanel w={w} />
+                      </>
+                    )}
+                    {settingsTab === "reviews" && (
+                      <>
+                        <header className="settings-head"><h2>Reviews &amp; Google</h2><p>Ratings customers leave in foliyo, your replies, and turning happy customers into Google reviews.</p></header>
+                        <GoogleReviewsPanel w={w} />
                         <ReviewsPanel w={w} />
+                      </>
+                    )}
+                    {settingsTab === "waitlist" && (
+                      <>
+                        <header className="settings-head"><h2>Waiting list</h2><p>What happens when a time frees up: who is told, how long you wait first, and the wording.</p></header>
+                        <WaitlistSettingsPanel w={w} show="waitlist" />
                       </>
                     )}
                     {settingsTab === "messages" && (
                       <>
-                        <header className="settings-head"><h2>Messages &amp; AI</h2><p>Text, WhatsApp and email confirmations, reminders, owner alerts and the AI receptionist.</p></header>
-                        <WaitlistSettingsPanel w={w} />
+                        <header className="settings-head"><h2>Messages</h2><p>Text, WhatsApp and email channels, reminders, a test send, and every message with its delivery status.</p></header>
+                        <WaitlistSettingsPanel w={w} show="messages" />
+                      </>
+                    )}
+                    {settingsTab === "alerts" && (
+                      <>
+                        <header className="settings-head"><h2>Owner alerts</h2><p>What you and your managers hear about — new bookings, cancellations, no-shows, the morning summary — and how.</p></header>
+                        <WaitlistSettingsPanel w={w} show="alerts" />
+                      </>
+                    )}
+                    {settingsTab === "ai" && (
+                      <>
+                        <header className="settings-head"><h2>AI receptionist</h2><p>Answers the phone when you can't, books into the same diary, and tells you who to call back.</p></header>
+                        <WaitlistSettingsPanel w={w} show="ai" />
                       </>
                     )}
                     {settingsTab === "payments" && (
@@ -2749,7 +2903,7 @@ export function Workspace() {
                     )}
                     {settingsTab === "billing" && (
                       <>
-                        <header className="settings-head"><h2>Billing</h2><p>Your foliyo plan, seats, usage and invoices. Prices are what you pay — no VAT is added.</p></header>
+                        <header className="settings-head"><h2>Your foliyo plan</h2><p>Plan, seats, usage and invoices. Prices are what you pay — no VAT is added.</p></header>
                         <BillingPanel api={api} isOwner={!w.account || w.account.role === "OWNER"} onOpenOutbox={() => setSettingsTab("messages")} />
                       </>
                     )}
@@ -3136,7 +3290,10 @@ type WaitlistEntry = {
   phone: string;
   email: string;
   date: string;
+  date_to?: string | null;
   daypart: string;
+  from_min?: number;
+  to_min?: number;
   notes: string;
   status: string;
   version: number;
@@ -3151,7 +3308,17 @@ type WaitlistEntry = {
   offer_staff_name?: string | null;
   offer_source?: string | null;
 };
-type QueueMatch = { staff_id: string; staff_name: string; start_min: number; price_pence: number; duration_min: number };
+type QueueMatch = { staff_id: string; staff_name: string; start_min: number; price_pence: number; duration_min: number; date?: string };
+// "any time" / preset name for legacy rows; an explicit HH:MM–HH:MM window for v2 rows.
+const wlWindow = (e: { daypart: string; from_min?: number; to_min?: number }) => {
+  const part: Record<string, string> = { ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" };
+  const preset: Record<string, [number, number]> = { ANY: [0, 1440], MORNING: [0, 720], AFTERNOON: [720, 1020], EVENING: [1020, 1440] };
+  if (e.from_min == null || e.to_min == null) return part[e.daypart] ?? "any time";
+  for (const k of Object.keys(preset)) if (preset[k][0] === e.from_min && preset[k][1] === e.to_min) return part[k];
+  const t = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  return `${t(e.from_min)}–${t(Math.min(e.to_min, 1439))}`;
+};
+const wlDates = (e: { date: string; date_to?: string | null }, fmt: (d: string) => string) => (e.date_to && e.date_to !== e.date ? `${fmt(e.date)} – ${fmt(e.date_to)}` : fmt(e.date));
 // Settings → Shop page: content of the public home page at /<slug>. Presentation only.
 type PageForm = { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme: ThemeForm; published: number; version: number };
 type ThemeForm = { font: string; mode: string; corners: string; hero: string; logo: string };
@@ -3181,6 +3348,234 @@ const PAGE_SECTIONS: { key: string; label: string }[] = [
   { key: "find", label: "Find us" },
   { key: "policies", label: "Good to know" },
 ];
+// Shop settings are one strict record on the server (`PUT /shop`). Each Settings section shows
+// only its own fields; this wrapper fills the rest from the current shop so a short form still
+// sends a complete, valid payload. Fields present in the form win.
+function ShopSaveForm({ w, saved, label, children }: { w: WorkspaceData; saved: EditorProps["saved"]; label: string; children: ReactNode }) {
+  const week0 = shopWeekOf(w.shop);
+  return (
+    <SaveForm
+      key={w.shop.version}
+      label={label}
+      onSave={(f) => {
+        const has = (k: string) => f.has(k);
+        return saved("/shop", "PUT", {
+          name: has("name") ? text(f, "name") : w.shop.name,
+          address: has("address") ? text(f, "address") : w.shop.address,
+          timezone: has("timezone") ? text(f, "timezone") : w.shop.timezone,
+          currency: has("currency") ? text(f, "currency") || "GBP" : w.shop.currency || "GBP",
+          week: has("starts_0") || has("open_0") || has("ends_0")
+            ? days.map((_, i) => ({ enabled: f.get(`open_${i}`) ? 1 : 0, starts: minute(text(f, `starts_${i}`) || "09:00"), ends: minute(text(f, `ends_${i}`) || "18:00") }))
+            : week0.map((d) => ({ enabled: d.enabled, starts: d.starts, ends: d.ends })),
+          deposit_pence: has("deposit") ? Math.round(number(f, "deposit") * 100) : w.shop.deposit_pence,
+          cancel_hours: has("cancel_hours") ? number(f, "cancel_hours") : w.shop.cancel_hours,
+          buffer_min: has("buffer_min") ? number(f, "buffer_min") : (w.shop.buffer_min ?? 10),
+          card_colour: has("card_colour") ? (text(f, "card_colour") === "SERVICE" ? "SERVICE" : "BARBER") : (w.shop.card_colour || "BARBER"),
+          calendar_density: has("calendar_density") ? (["COMPACT", "STANDARD", "LARGE"].includes(text(f, "calendar_density")) ? text(f, "calendar_density") : "STANDARD") : (w.shop.calendar_density || "STANDARD"),
+          no_show_grace: has("no_show_grace") ? number(f, "no_show_grace") : w.shop.no_show_grace,
+          till_access: has("till_access") ? (text(f, "till_access") === "ALL" ? "ALL" : "OWNER") : w.shop.till_access,
+          version: w.shop.version,
+        });
+      }}
+    >
+      {children}
+    </SaveForm>
+  );
+}
+
+// Personal look for the admin side: one accent, light or dark. Saved to the signed-in user's
+// prefs (server) and localStorage (instant on next load). Customers never see this.
+function WorkspaceLookPanel({ w }: { w: WorkspaceData }) {
+  const initial = (() => { try { return parseWsTheme((JSON.parse(w.account?.prefs_json || "{}") as { workspace_theme?: unknown }).workspace_theme); } catch { return null; } })() ?? readLocalWsTheme() ?? DEFAULT_WS_THEME;
+  const [t, setT] = useState<WorkspaceTheme>(initial);
+  const [state, setState] = useState("");
+  function pick(next: WorkspaceTheme) {
+    setT(next);
+    applyWsTheme(next);
+    writeLocalWsTheme(next);
+    api("/me/prefs", "PUT", { workspace_theme: next }).then(() => setState("Saved for your account.")).catch(() => setState("Saved on this device."));
+  }
+  return (
+    <section className="workspace-panel" aria-labelledby="ws-look-heading" data-testid="workspace-look">
+      <div className="workspace-section-heading">
+        <div>
+          <h2 id="ws-look-heading">Your workspace look</h2>
+          <p className="workspace-footnote">Just for you, on the admin side: buttons, highlights and the side rail. Your shop page and customer pages keep their own theme (Settings → Shop page).</p>
+        </div>
+      </div>
+      <div className="ws-look">
+        <div>
+          <span className="workspace-field"><span>Accent colour</span></span>
+          <div className="ws-swatches" role="radiogroup" aria-label="Workspace accent colour">
+            {WS_ACCENTS.map((a) => (
+              <button key={a.id} type="button" role="radio" aria-checked={t.accent === a.id} aria-label={a.name} title={a.name} className="ws-swatch" style={{ background: a.accent }} onClick={() => pick({ ...t, accent: a.id })} data-testid={`ws-accent-${a.id}`}>
+                {t.accent === a.id && <Icon name="check" size={16} />}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="helper">A dark look for the admin side is coming; the customer pages already have one under Settings → Shop page.</p>
+        {state && <p className="workspace-success" role="status">{state}</p>}
+      </div>
+    </section>
+  );
+}
+
+// Reviews → Google: the shop's Google review link, and whether happy customers get a follow-up text.
+function GoogleReviewsPanel({ w }: { w: WorkspaceData }) {
+  const [page, setPage] = useState<{ google_review_url: string; version: number } | null>(null);
+  const [url, setUrl] = useState("");
+  const [nudge, setNudge] = useState<number>(w.shop.google_review_nudge ?? 0);
+  const [state, setState] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api<{ page: Record<string, unknown> }>("/shop/page").then((r) => {
+      const u = String(r.page.google_review_url || "");
+      setPage({ google_review_url: u, version: Number(r.page.version ?? 0) });
+      setUrl(u);
+    }).catch(() => setPage({ google_review_url: "", version: 0 }));
+  }, [w.shop.version]);
+  useEffect(() => setNudge(w.shop.google_review_nudge ?? 0), [w.shop.google_review_nudge]);
+  async function saveUrl(e: FormEvent) {
+    e.preventDefault();
+    if (!page) return;
+    setBusy(true); setState(null);
+    try {
+      // The page record is strict; read it fresh and change only the link.
+      const cur = (await api<{ page: Record<string, unknown> }>("/shop/page")).page;
+      const body = {
+        strapline: String(cur.strapline || ""), about: String(cur.about || ""), cover_url: String(cur.cover_url || ""), logo_url: String(cur.logo_url || ""),
+        gallery: JSON.parse(String(cur.gallery_json || "[]")), phone: String(cur.phone || ""), email: String(cur.email || ""), instagram: String(cur.instagram || ""),
+        map_url: String(cur.map_url || ""), transport_note: String(cur.transport_note || ""), policy_text: String(cur.policy_text || ""), sections: JSON.parse(String(cur.sections_json || "[]")),
+        accent: String(cur.accent || "ollo"), theme: (() => { try { return { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto", ...(JSON.parse(String(cur.theme_json || "{}")) as object) }; } catch { return { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto" }; } })(),
+        google_review_url: url.trim(), published: Number(cur.published ?? 1), version: Number(cur.version ?? 0),
+      };
+      const r = await api<{ page: Record<string, unknown> }>("/shop/page", "PUT", body);
+      setPage({ google_review_url: String(r.page.google_review_url || ""), version: Number(r.page.version ?? 0) });
+      setState({ kind: "ok", text: url.trim() ? "Google link saved. It shows in your shop page footer and after a 4–5★ rating." : "Google link removed." });
+    } catch (err) {
+      setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
+    } finally { setBusy(false); }
+  }
+  async function toggleNudge(on: boolean) {
+    setBusy(true); setState(null);
+    try {
+      // Read the live version first: saving the Google link bumps the workspace behind this panel.
+      const live = (await api<{ shop: { version: number } }>("/workspace")).shop.version;
+      const r = await api<{ shop: { version: number; google_review_nudge: number } }>("/shop/reviews", "PUT", { google_review_nudge: on ? 1 : 0, version: live });
+      setNudge(r.shop.google_review_nudge);
+      w.shop.version = r.shop.version;
+      setState({ kind: "ok", text: on ? "On. Customers who rate you 4 or 5 stars get one follow-up with your Google link." : "Off. The Google link still shows on the thank-you screen." });
+    } catch (err) {
+      setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
+    } finally { setBusy(false); }
+  }
+  return (
+    <section className="workspace-panel" aria-labelledby="google-reviews-heading" data-testid="google-reviews">
+      <div className="workspace-section-heading">
+        <div>
+          <h2 id="google-reviews-heading">Google reviews</h2>
+          <p className="workspace-footnote">Customers rate you inside foliyo first. When it's 4 or 5 stars they're shown your Google link straight away — and, if you turn it on, texted it once so they can do it from their phone. Lower ratings stay private between you and them.</p>
+        </div>
+        {page && <StatusPill tone={page.google_review_url ? (nudge ? "good" : "note") : "warn"}>{page.google_review_url ? (nudge ? "Link set · follow-up on" : "Link set · follow-up off") : "No Google link yet"}</StatusPill>}
+      </div>
+      <form className="workspace-form" onSubmit={saveUrl} data-testid="google-review-form">
+        <Field label="Google review link" hint="In Google Business Profile: Home → “Ask for reviews” → copy the link (looks like g.page/r/…/review). Or a Google Maps link to your listing.">
+          <input type="url" inputMode="url" value={url} maxLength={500} placeholder="https://g.page/r/…/review" onChange={(e) => setUrl(e.target.value)} data-testid="google-review-url" />
+        </Field>
+        <div className="workspace-form-actions">
+          <Button type="submit" disabled={busy || !page || url.trim() === page.google_review_url} data-testid="save-google-review">Save link</Button>
+          {page?.google_review_url && (
+            <a className="button ghost" href={page.google_review_url} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> Open</a>
+          )}
+        </div>
+      </form>
+      <div className="workspace-switch-row">
+        <span>
+          <strong>Follow up happy customers by text</strong>
+          <small>One message after a 4–5★ rating, from your shop, with the Google link. Never sent twice for the same visit.</small>
+        </span>
+        <label className="switch">
+          <input type="checkbox" checked={!!nudge} disabled={busy || !page?.google_review_url} onChange={(e) => toggleNudge(e.target.checked)} aria-label="Follow up happy customers by text" data-testid="google-review-nudge" />
+          <span />
+        </label>
+      </div>
+      {state && <p className={state.kind === "error" ? "workspace-error" : "workspace-success"} role={state.kind === "error" ? "alert" : "status"}>{state.text}</p>}
+    </section>
+  );
+}
+
+// Live preview of the public shop page. Same class stack and markup family as ShopPage.tsx, so
+// whatever the owner picks (photos, logo, accent, typeface, look, corners, hero) shows here first —
+// before saving. Phone/desktop toggle; nothing here is interactive.
+function ShopPreview({ w, form }: { w: WorkspaceData; form: PageForm }) {
+  const [device, setDevice] = useState<"phone" | "desktop">("phone");
+  const ini = (w.shop.name || "Your shop").split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
+  const cls = themeClass({ accent: form.accent, theme: form.theme }, `shop-preview-page hero-${form.theme.hero}`);
+  const services = w.services.filter((x) => x.active !== 0).slice(0, 3);
+  const has = (k: string) => form.sections.includes(k);
+  return (
+    <section className="shop-preview" aria-label="Preview of your shop page" data-testid="shop-preview">
+      <div className="shop-preview-bar">
+        <strong>Preview</strong>
+        <small>Updates as you edit. Save to publish.</small>
+        <div className="segmented" role="group" aria-label="Preview size">
+          {(["phone", "desktop"] as const).map((d) => (
+            <button key={d} type="button" aria-pressed={device === d} onClick={() => setDevice(d)} data-testid={`preview-${d}`}>{d === "phone" ? "Phone" : "Desktop"}</button>
+          ))}
+        </div>
+      </div>
+      <div className={`shop-preview-frame ${device}`} data-testid="shop-preview-frame" tabIndex={0} role="region" aria-label="Shop page preview (scrollable)">
+        <div className={cls} aria-hidden="true">
+          <header className="sp-nav">
+            <span className="sp-brand">
+              {form.logo_url ? <img className="shop-emblem shop-logo" src={form.logo_url} alt="" /> : <span className="shop-emblem">{ini}</span>}
+              <strong>{w.shop.name || "Your shop"}</strong>
+            </span>
+            <nav>{has("services") && <a>Services</a>}{has("team") && <a>Team</a>}{has("hours") && <a>Hours</a>}</nav>
+            <span className="button primary sp-book-btn">Book now</span>
+          </header>
+          {has("hero") && (
+            <section className={`sp-hero ${form.cover_url ? "has-cover" : "no-cover"}`}>
+              {form.cover_url && <img className="sp-hero-img" src={form.cover_url} alt="" />}
+              <div className="sp-hero-inner">
+                <div className="sp-hero-copy">
+                  {form.logo_url ? <img className="sp-hero-logo" src={form.logo_url} alt="" /> : <span className="sp-hero-logo sp-hero-initials">{ini}</span>}
+                  <span className="sp-open open"><i aria-hidden="true" />Open now · until 18:00</span>
+                  <h1>{w.shop.name || "Your shop"}</h1>
+                  <p className="sp-strap">{form.strapline || "Book your next visit online in under a minute."}</p>
+                  {w.shop.address && <div className="sp-hero-meta"><span className="sp-hero-address"><Icon name="pin" size={14} /> {w.shop.address}</span></div>}
+                  <div className="sp-hero-actions">
+                    <span className="button primary"><Icon name="calendar" size={16} /> Book now</span>
+                    {form.phone && <span className="button secondary"><Icon name="call" size={16} /> Call</span>}
+                  </div>
+                </div>
+                {form.theme.hero === "split" && form.cover_url && <div className="sp-hero-side"><img src={form.cover_url} alt="" /></div>}
+              </div>
+            </section>
+          )}
+          {has("services") && services.length > 0 && (
+            <section className="sp-section">
+              <div className="sp-section-head"><h2>Services</h2></div>
+              <ul className="sp-services sp-preview-services">
+                {services.map((x) => (
+                  <li key={x.id}><span className="sp-service"><b>{x.name}</b><small>{x.duration_min} min</small><span className="sp-service-go">→</span></span></li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {has("gallery") && form.gallery.filter(Boolean).length > 0 && (
+            <section className="sp-section">
+              <div className="sp-section-head"><h2>Gallery</h2></div>
+              <div className="sp-preview-gallery">{form.gallery.filter(Boolean).slice(0, 6).map((u, i) => <img key={i} src={u} alt="" loading="lazy" />)}</div>
+            </section>
+          )}
+          {form.about && <section className="sp-section sp-about"><p>{form.about}</p></section>}
+        </div>
+      </div>
+    </section>
+  );
+}
 function ShopPagePanel({ w }: { w: WorkspaceData }) {
   const [form, setForm] = useState<PageForm | null>(null);
   const [saved, setSavedForm] = useState<PageForm | null>(null);
@@ -3249,6 +3644,7 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
           </>
         )}
       </p>
+      <ShopPreview w={w} form={form} />
       <form
         className="page-editor"
         data-dirty={dirty ? "true" : undefined}
@@ -3460,7 +3856,8 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
 type OutboxRow = { id: string; channel: string; recipient: string; template: string; body: string; status: string; status_note: string; related_type: string; created_at: number };
 const TEMPLATE_LABELS: Record<string, { label: string; hint: string }> = {
   waitlist_joined: { label: "Joined the list", hint: "{first} {shop} {date} {daypart}" },
-  waitlist_offer: { label: "A time is offered", hint: "{first} {shop} {service} {barber} {date} {time} {expires} {link}" },
+  waitlist_offer: { label: "A time is offered (next in line)", hint: "{first} {shop} {service} {barber} {date} {time} {expires} {link}" },
+  waitlist_open: { label: "A time has opened (tell everyone)", hint: "{first} {shop} {service} {barber} {date} {time} {link}" },
   waitlist_booked: { label: "Offer accepted", hint: "{service} {barber} {shop} {date} {time} {ref} {manage}" },
   waitlist_released: { label: "Declined or expired", hint: "{first} {shop} {date}" },
 };
@@ -3587,9 +3984,11 @@ const MSG_LABELS: Record<string, string> = {
   booking_confirmed: "Booking confirmed", booking_moved: "Booking moved", booking_cancelled: "Booking cancelled",
   booking_reminder: "Reminder (day before)", booking_reminder_soon: "Reminder (2 hours before)", signin_code: "Sign-in code",
   staff_invite: "Team invitation", review_request: "Review request", test_message: "Test message",
-  waitlist_joined: "Joined the list", waitlist_offer: "A time is offered", waitlist_booked: "Offer accepted", waitlist_released: "Declined or expired",
+  waitlist_joined: "Joined the list", waitlist_offer: "A time is offered", waitlist_open: "A time has opened", waitlist_booked: "Offer accepted", waitlist_released: "Declined or expired",
   pay_link: "Pay link", verify_contact: "Verification code", password_reset: "Password reset",
   owner_new_booking: "Alert · new booking", owner_cancelled: "Alert · cancellation", owner_no_show: "Alert · no-show", owner_daily_summary: "Alert · morning summary", owner_callback: "Alert · call back (AI receptionist)",
+  owner_welcome: "Welcome (confirm email)", email_verify: "Confirm email", owner_signin_link: "One-time sign-in link",
+  invoice: "Invoice", credit_note: "Credit note", trial_ending: "Trial ending", trial_ended: "Trial ended", payment_overdue: "Payment overdue", account_readonly: "Bookings paused", broadcast: "Announcement",
 };
 // Owner/manager alert preferences (Settings → Messages).
 type AlertCh = "OFF" | "EMAIL" | "SMS" | "BOTH";
@@ -3769,10 +4168,13 @@ type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms:
 type Messaging = { msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
 const CHANNEL_LABEL: Record<string, string> = { SMS: "Text", EMAIL: "Email", WA: "WhatsApp" };
 type OutboxData = {
-  shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number } };
-function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
+  shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_mode?: "ORDER" | "EVERYONE"; waitlist_delay_min?: number } };
+// One data load (providers, channels, templates, outbox) feeds four Settings sections. `show`
+// picks which slice renders so each section stays short; test ids are unchanged.
+type MessagesSlice = "messages" | "waitlist" | "alerts" | "ai";
+function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; show?: MessagesSlice }) {
   const [data, setData] = useState<OutboxData | null>(null);
-  const [form, setForm] = useState<{ auto: number; hold: number; templates: Record<string, string> } | null>(null);
+  const [form, setForm] = useState<{ auto: number; hold: number; mode: "ORDER" | "EVERYONE"; delay: number; templates: Record<string, string> } | null>(null);
   const [msg, setMsg] = useState<Messaging | null>(null);
   const [state, setState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
   const [msgState, setMsgState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
@@ -3784,7 +4186,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
     api<OutboxData>(`/notifications?limit=60${filter ? `&status=${filter}` : ""}`)
       .then((d) => {
         setData(d);
-        setForm((f) => f ?? { auto: d.settings.waitlist_auto_offer, hold: d.settings.waitlist_offer_hold_min, templates: { ...d.templates } });
+        setForm((f) => f ?? { auto: d.settings.waitlist_auto_offer, hold: d.settings.waitlist_offer_hold_min, mode: d.settings.waitlist_mode ?? "ORDER", delay: d.settings.waitlist_delay_min ?? 5, templates: { ...d.templates } });
         setMsg((m) => m ?? d.messaging);
       })
       .catch((e) => setState({ kind: "error", text: e instanceof Error ? e.message : "Could not load." }));
@@ -3796,7 +4198,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
     if (!form) return;
     setState({ kind: "saving", text: "" });
     try {
-      const r = await api<{ shop: { version: number } }>("/shop/waitlist", "PUT", { waitlist_auto_offer: form.auto, waitlist_offer_hold_min: form.hold, templates: form.templates, version: data?.shop_version ?? w.shop.version });
+      const r = await api<{ shop: { version: number } }>("/shop/waitlist", "PUT", { waitlist_auto_offer: form.auto, waitlist_offer_hold_min: form.hold, waitlist_mode: form.mode, waitlist_delay_min: form.delay, templates: form.templates, version: data?.shop_version ?? w.shop.version });
       setData((d) => (d ? { ...d, shop_version: r.shop.version } : d));
       setState({ kind: "saved", text: "Saved. New offers use this wording; existing messages are unchanged." });
     } catch (err) {
@@ -3855,9 +4257,10 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
   const c30 = data?.counts_30d || {};
   return (
     <section className="workspace-panel" aria-labelledby="waitlist-settings-heading" data-testid="waitlist-settings">
+      {show === "messages" && (
       <div className="workspace-section-heading">
         <div>
-          <h2 id="waitlist-settings-heading">Messages</h2>
+          <h2 id="waitlist-settings-heading">Channels</h2>
           <p className="workspace-footnote">Confirmations, reminders, sign-in codes and waiting-list offers go out from your shop — your name, your logo. Choose the channels below; every message is listed at the bottom with its delivery status.</p>
         </div>
         {data && (
@@ -3866,12 +4269,13 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
           </StatusPill>
         )}
       </div>
-      {data && !live && (
+      )}
+      {show === "messages" && data && !live && (
         <p className="workspace-footnote" data-testid="messaging-preview-note">
           No email or SMS provider is connected to this deployment yet, so messages are delivered to a preview mailbox here instead of to customers. Once a provider is connected they go out for real without any other change.
         </p>
       )}
-      {msg && data && (
+      {show === "messages" && msg && data && (
         <form className="workspace-form" onSubmit={saveMessaging} data-testid="messaging-form">
           <div className="workspace-form-grid">
             <div className="workspace-switch-row">
@@ -3939,7 +4343,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
           </div>
         </form>
       )}
-      {data && (
+      {show === "messages" && data && (
         <form className="workspace-form test-message-form" onSubmit={sendTest} data-testid="test-message-form">
           <h3>Send yourself a test</h3>
           <div className="workspace-form-grid">
@@ -3965,24 +4369,42 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
           </div>
         </form>
       )}
-      {form && data && (
+      {show === "waitlist" && form && data && (
         <form className="workspace-form" onSubmit={save} data-testid="waitlist-settings-form">
-          <h3>Waiting list</h3>
+          <h3>When a time frees up</h3>
           <div className="workspace-form-grid">
             <div className="workspace-switch-row">
               <span>
-                <strong>Offer freed slots automatically</strong>
-                <small>When a booking is cancelled or moved, the oldest matching request on that day is offered the time.</small>
+                <strong>Tell waiting customers when a time frees up</strong>
+                <small>When a booking is cancelled or moved, customers whose request fits that time (day, time window, barber) are texted — or emailed if we only have an email.</small>
               </span>
               <label className="switch">
-                <input type="checkbox" checked={!!form.auto} onChange={(e) => setForm({ ...form, auto: e.target.checked ? 1 : 0 })} aria-label="Offer freed slots automatically" data-testid="auto-offer" />
+                <input type="checkbox" checked={!!form.auto} onChange={(e) => setForm({ ...form, auto: e.target.checked ? 1 : 0 })} aria-label="Tell waiting customers when a time frees up" data-testid="auto-offer" />
                 <span />
               </label>
             </div>
-            <Field label="Hold an offer for (minutes)">
-              <input type="number" min={15} max={1440} step={15} value={form.hold} onChange={(e) => setForm({ ...form, hold: Number(e.target.value) })} data-testid="offer-hold" />
+            <Field label="Wait before telling anyone (minutes)">
+              <input type="number" min={0} max={60} step={1} value={form.delay} onChange={(e) => setForm({ ...form, delay: Math.max(0, Math.min(60, Number(e.target.value) || 0)) })} data-testid="waitlist-delay" />
+              <span className="field-help">If you cancel someone and book another customer straight back in, nothing is sent. 0 sends immediately.</span>
             </Field>
           </div>
+          <div className="waitlist-mode" role="radiogroup" aria-label="Who is told" data-testid="waitlist-mode">
+            <button type="button" role="radio" aria-checked={form.mode === "ORDER"} onClick={() => setForm({ ...form, mode: "ORDER" })} data-testid="waitlist-mode-ORDER">
+              <strong>Next in line</strong>
+              <small>The oldest matching request is offered the time and it is held for them. If they don't take it, it passes to the next.</small>
+            </button>
+            <button type="button" role="radio" aria-checked={form.mode === "EVERYONE"} onClick={() => setForm({ ...form, mode: "EVERYONE" })} data-testid="waitlist-mode-EVERYONE">
+              <strong>Tell everyone</strong>
+              <small>Every matching request gets the same text at once with a link to the time. First to book gets it; no hold.</small>
+            </button>
+          </div>
+          {form.mode === "ORDER" && (
+            <div className="workspace-form-grid">
+              <Field label="Hold an offer for (minutes)">
+                <input type="number" min={15} max={1440} step={15} value={form.hold} onChange={(e) => setForm({ ...form, hold: Number(e.target.value) })} data-testid="offer-hold" />
+              </Field>
+            </div>
+          )}
           <fieldset className="template-fields">
             <legend>Waiting-list wording</legend>
             {Object.keys(TEMPLATE_LABELS).map((k) => (
@@ -4014,8 +4436,9 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
           </div>
         </form>
       )}
-      {data && <AlertsPanel smsLive={smsLive} />}
-      {data && <VoicePanel timezone={w.shop.timezone} />}
+      {show === "alerts" && data && <AlertsPanel smsLive={smsLive} />}
+      {show === "ai" && data && <VoicePanel timezone={w.shop.timezone} />}
+      {show === "messages" && (
       <div className="outbox" data-testid="outbox">
         <div className="outbox-head">
           <h3>
@@ -4064,6 +4487,7 @@ function WaitlistSettingsPanel({ w }: { w: WorkspaceData }) {
           ))}
         </ul>
       </div>
+      )}
       {preview && (
         <div className="modal-scrim" onClick={() => setPreview(null)} role="presentation">
           <div className="modal email-preview" role="dialog" aria-label="Email preview" onClick={(e) => e.stopPropagation()}>
@@ -4321,7 +4745,7 @@ function QueueDrawer({
     setBusyId(entry.id);
     setError("");
     try {
-      const r = await api<{ offer: { link: string; body: string } }>(`/waitlist/${entry.id}/offer`, "POST", { staff_id: m.staff_id, start_min: m.start_min, version: entry.version });
+      const r = await api<{ offer: { link: string; body: string } }>(`/waitlist/${entry.id}/offer`, "POST", { staff_id: m.staff_id, start_min: m.start_min, ...(m.date ? { date: m.date } : {}), version: entry.version });
       setLastOffer({ link: r.offer.link, body: r.offer.body, name: entry.customer_name });
       setOffering(null);
       onRefresh();
@@ -4339,7 +4763,6 @@ function QueueDrawer({
       setCopied("Copy unavailable here; select the text instead.");
     }
   }
-  const part: Record<string, string> = { ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" };
   const shown = waitlist.filter((r) => (filter === "today" ? r.date === date : filter === "offered" ? r.status === "OFFERED" : true));
   const offered = waitlist.filter((r) => r.status === "OFFERED").length;
   const fmt = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" });
@@ -4395,7 +4818,7 @@ function QueueDrawer({
               <Icon name="send" size={16} /> Offer a time to {offering.entry.customer_name}
             </h3>
             <p className="drawer-note left">
-              {offering.entry.service_name} · {offering.entry.staff_name || "any barber"} · {fmt(offering.entry.date)} · {part[offering.entry.daypart]}. Free times that fit their request:
+              {offering.entry.service_name} · {offering.entry.staff_name || "any barber"} · {wlDates(offering.entry, fmt)} · {wlWindow(offering.entry)}. Free times that fit their request:
             </p>
             {offering.matches === null ? (
               <p className="drawer-note left">Checking the diary…</p>
@@ -4404,10 +4827,11 @@ function QueueDrawer({
             ) : (
               <ul className="queue-matches">
                 {offering.matches.map((m) => (
-                  <li key={`${m.staff_id}-${m.start_min}`}>
+                  <li key={`${m.date ?? ""}-${m.staff_id}-${m.start_min}`}>
                     <button type="button" onClick={() => sendOffer(offering.entry, m)} disabled={busyId === offering.entry.id} data-testid="queue-match">
                       <b>{time(m.start_min)}</b>
                       <span>
+                        {m.date && offering.entry.date_to && offering.entry.date_to !== offering.entry.date ? `${fmt(m.date)} · ` : ""}
                         {m.staff_name.split(" ")[0]} · {m.duration_min} min · {money(m.price_pence)}
                       </span>
                     </button>
@@ -4434,10 +4858,10 @@ function QueueDrawer({
                     )}
                   </strong>
                   <small>
-                    {r.service_name} · {r.staff_name || "Any barber"} · {part[r.daypart]}
+                    {r.service_name} · {r.staff_name || "Any barber"} · {wlWindow(r)}
                   </small>
                   <small>
-                    {fmt(r.date)} · {r.phone}
+                    {wlDates(r, fmt)} · {r.phone}
                     {r.offers_made > 0 && r.status !== "OFFERED" ? ` · ${r.offers_made} offer${r.offers_made === 1 ? "" : "s"} so far` : ""}
                   </small>
                   {r.status === "OFFERED" && r.offer_start_min != null && (
@@ -4466,7 +4890,7 @@ function QueueDrawer({
         )}
         {w.account?.role !== "BARBER" && (
           <button type="button" className="queue-settings-link" onClick={onOpenSettings} data-testid="queue-settings">
-            <Icon name="settings" size={14} /> Auto-offer, hold time and message wording are in Settings → Messages
+            <Icon name="settings" size={14} /> Who gets told, the delay and the wording are in Settings → Waiting list
           </button>
         )}
         <p className="drawer-note">Messages are recorded in the outbox; connect a provider in Settings to send them.</p>
@@ -4683,6 +5107,7 @@ function OnlineBookingPanel({
   );
 }
 type CustomerRow = {
+  erased_at?: number | null;
   id: string;
   name: string;
   phone: string;
@@ -5053,7 +5478,7 @@ function CustomersPanel({
                     readOnly={!canEdit}
                     onDone={() => setReload((n) => n + 1)}
                   />
-                  {canMerge && rows && rows.length > 1 && (
+                  {canMerge && rows && rows.length > 1 && !profile.customer.erased_at && (
                     <MergeCustomer
                       customer={profile.customer}
                       candidates={rows.filter((r) => r.id !== profile.customer.id)}
@@ -5062,6 +5487,9 @@ function CustomersPanel({
                         onSelect(winner);
                       }}
                     />
+                  )}
+                  {canMerge && (
+                    <EraseCustomer customer={profile.customer} onDone={() => setReload((n) => n + 1)} />
                   )}
                 </>
               )}
@@ -5189,6 +5617,49 @@ function CustomerForm({
         )}
       </fieldset>
       {readOnly && <p className="workspace-footnote">View only for your role.</p>}
+    </SaveForm>
+  );
+}
+// Right to erasure (UK GDPR Art. 17): blanks every personal field on this customer and their
+// bookings, waiting-list entries, series, review names and message log; keeps the rows so the
+// shop's history and pay still add up. Owner/manager only; cannot be undone.
+function EraseCustomer({ customer, onDone }: { customer: CustomerRow; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  if (customer.erased_at)
+    return (
+      <p className="customer-merge-hint" data-testid="customer-erased">
+        <span className="customer-erased"><Icon name="shield" size={12} /> Personal data erased {new Date(customer.erased_at).toLocaleDateString("en-GB")}</span>
+      </p>
+    );
+  if (!open)
+    return (
+      <p className="customer-merge-hint">
+        Asked to be forgotten?{" "}
+        <button type="button" className="panel-inline" onClick={() => setOpen(true)} data-testid="customer-erase-open">
+          Erase personal data
+        </button>
+      </p>
+    );
+  return (
+    <SaveForm
+      className="customer-merge"
+      label="Erase personal data"
+      onSave={async () => {
+        await api(`/customers/${customer.id}/erase`, "POST", { version: customer.version, reason });
+        setOpen(false);
+        onDone();
+      }}
+    >
+      <Notice tone="warning">
+        <strong>{customer.name}</strong>'s name, number, email, notes, birthday and tags are removed from this record, every past
+        visit, waiting-list entry and message. Visits stay as "Erased customer" so your takings and pay runs still add up.
+        Upcoming appointments must be cancelled first. <strong>This cannot be undone.</strong>
+      </Notice>
+      <Field label="Reason (kept in the audit trail)">
+        <input value={reason} onChange={(e) => setReason(e.target.value)} required minLength={3} maxLength={300} placeholder="e.g. Customer asked by text on 27 Sept" data-testid="customer-erase-reason" />
+      </Field>
+      <button type="button" className="linklike" onClick={() => setOpen(false)}>Cancel</button>
     </SaveForm>
   );
 }

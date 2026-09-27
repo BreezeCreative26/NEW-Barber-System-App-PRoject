@@ -10,8 +10,8 @@ Colours: ink `#0b0b0c` · white `#ffffff` · mint `#00e8b0`.
 | `foliyo-wordmark.svg` | "foliyo" with mint dot + clock; letters use `currentColor` | In-app, inherits text colour |
 | `foliyo-wordmark-white.svg` / `-ink.svg` | Same, colour baked | Email, dark/light backgrounds without CSS |
 | `foliyo-lockup*.svg` | Wordmark + "APPOINTMENTS" tagline | Marketing, social, print |
-| `foliyo-mark.svg` | The "o" clock on its own (`currentColor` ring) | Small spaces, avatars |
-| `foliyo-icon.svg` | Mark on a dark rounded square | App icon |
+| `foliyo-mark.svg` | The "o" clock on its own (`currentColor` ring) | **Favicon / app icon only** (decision 2026-09-27: the wordmark is the logo everywhere a logo is shown; the clock never stands alone in product, marketing or email) |
+| `foliyo-icon.svg` | Mark on a dark rounded square | App icon / PWA only |
 | `../favicon.svg` | Mark, auto-switches ink/white with OS theme | Browser tab |
 
 ## Raster (PNG) — `png/`

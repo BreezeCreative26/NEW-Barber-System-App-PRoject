@@ -22,8 +22,8 @@ export async function openFixtureShop(page: Page, as: "owner" | "barber" = "owne
 
 // Phone tab bar labels the calendar "Today"; desktop rail labels it "Appointments".
 const PHONE_ALIAS: Record<string, string> = { Appointments: "Today" };
-// Settings is tabbed; "Settings" alone opens General. Use "Settings/booking", "Settings/page",
-// "Settings/messages" or "Settings/payments" to land on a sub-tab.
+// Settings is tabbed; "Settings" alone opens Business details. Use "Settings/<key>" to land on a
+// section: general, hours, calendar, booking, page, reviews, waitlist, messages, alerts, ai, payments, billing.
 export async function section(page: Page, name: string) {
   let settingsTab = "";
   if (name.startsWith("Settings/")) { settingsTab = name.slice(9); name = "Settings"; }

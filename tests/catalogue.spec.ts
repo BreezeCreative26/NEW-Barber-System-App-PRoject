@@ -613,7 +613,7 @@ test("services empty state and category rename", async ({ page }) => {
   // Fresh shop straight from signup: no services yet.
   const res = await page.request.post(base + "/auth/signup", {
     headers: { Origin: origin },
-    data: { shop_name: "Empty Cuts", name: "Em Owner", email: `em-${crypto.randomUUID().slice(0, 8)}@ollo.test`, password: "Unique fictional test password 438!" },
+    data: { accept_legal: true, shop_name: "Empty Cuts", name: "Em Owner", email: `em-${crypto.randomUUID().slice(0, 8)}@ollo.test`, password: "Unique fictional test password 438!" },
   });
   expect(res.status(), await res.text()).toBe(201);
   await page.goto("/workspace");
@@ -644,7 +644,7 @@ test("services empty state and category rename", async ({ page }) => {
 test("shop currency and logo flow through settings, workspace, and the public page", async ({ page }) => {
   const res = await page.request.post(base + "/auth/signup", {
     headers: { Origin: origin },
-    data: { shop_name: "Euro Cuts", name: "Eu Owner", email: `eu-${crypto.randomUUID().slice(0, 8)}@ollo.test`, password: "Unique fictional test password 438!" },
+    data: { accept_legal: true, shop_name: "Euro Cuts", name: "Eu Owner", email: `eu-${crypto.randomUUID().slice(0, 8)}@ollo.test`, password: "Unique fictional test password 438!" },
   });
   expect(res.status(), await res.text()).toBe(201);
   const w0 = await (await page.request.get(base + "/workspace")).json();
@@ -659,6 +659,7 @@ test("shop currency and logo flow through settings, workspace, and the public pa
   await page.goto("/workspace");
   await section(page, "Settings");
   await expect(page.getByTestId("shop-currency")).toHaveValue("EUR");
+  await section(page, "Settings/calendar");
   await expect(page.getByLabel(/Deposit \(€\)/)).toBeVisible();
   await expect(page.locator("img.avatar-logo").first()).toHaveAttribute("src", "https://example.com/logo.png");
   await section(page, "Services");

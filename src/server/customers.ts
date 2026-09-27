@@ -9,12 +9,14 @@ import { digest, readInput, type AppEnv } from "./accounts";
 import { audit, checkVersionUpdate, fail, readBooking } from "./sandbox";
 import { leaveReview, ownReviewView, reviewEligibility, reviewSchema, type ReviewRow } from "./presence";
 import { drain, enqueue, msgShop, providerStatus } from "./messaging";
+import { customerAuth } from "./customerAuth";
 import {
   calendarResponse,
   cancelBody,
   cancelByCustomer,
   clientKey,
   customerView,
+  googleReviewFollowUp,
   datePlus,
   limits,
   moveBody,
@@ -32,7 +34,7 @@ const uid = () => crypto.randomUUID();
 const CODE_TTL = 10 * 60000;
 const SESSION_TTL = 90 * 86400000;
 
-type AccountRow = { id: string; phone: string; email: string; name: string; created_at: number; last_seen_at: number; version: number };
+type AccountRow = { id: string; phone: string; email: string; name: string; created_at: number; last_seen_at: number; version: number; password_hash?: string; email_verified?: number };
 
 const startSchema = z.object({ phone: phoneSchema }).strict();
 const verifySchema = z.object({ phone: phoneSchema, code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code") }).strict();
@@ -117,9 +119,15 @@ const profileOf = (a: AccountRow, cust: Customer) => ({
   notes: cust.notes,
   version: cust.version,
   member_since: a.created_at,
+  has_password: !!a.password_hash,
+  account_email: a.email,
+  email_verified: !!a.email_verified,
 });
 
 const acct = new Hono<AppEnv>();
+// Email + password sign-in, reset links, push subscriptions (customerAuth.ts). The OTP routes below
+// stay as the recovery path.
+acct.route("/", customerAuth);
 
 // Step 1: request a code. Sandbox: returned in the response; production would send it.
 acct.post("/start", async (c) => {
@@ -265,13 +273,15 @@ acct.get("/me", async (c) => {
   const staff = await c.env.DB.prepare("SELECT id,name FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name").bind(shop.id).all<{ id: string; name: string }>();
   // Waiting-list requests (open or with an offer pending) for this customer at this shop.
   const waiting = await c.env.DB.prepare(
-    "SELECT w.id,w.date,w.daypart,w.status,w.version,s.name AS service_name,st.name AS staff_name,o.start_min AS offer_start_min,o.expires_at AS offer_expires_at,os.name AS offer_staff_name FROM waitlist_entries w JOIN services s ON s.shop_id=w.shop_id AND s.id=w.service_id LEFT JOIN staff st ON st.shop_id=w.shop_id AND st.id=w.staff_id LEFT JOIN waitlist_offers o ON o.id=w.offer_id LEFT JOIN staff os ON os.shop_id=o.shop_id AND os.id=o.staff_id WHERE w.shop_id=? AND w.phone=? AND w.status IN ('OPEN','OFFERED') AND w.date>=? ORDER BY w.date",
+    "SELECT w.id,w.date,w.date_to,w.daypart,w.from_min,w.to_min,w.status,w.version,s.name AS service_name,st.name AS staff_name,o.start_min AS offer_start_min,o.date AS offer_date,o.expires_at AS offer_expires_at,os.name AS offer_staff_name FROM waitlist_entries w JOIN services s ON s.shop_id=w.shop_id AND s.id=w.service_id LEFT JOIN staff st ON st.shop_id=w.shop_id AND st.id=w.staff_id LEFT JOIN waitlist_offers o ON o.id=w.offer_id LEFT JOIN staff os ON os.shop_id=o.shop_id AND os.id=o.staff_id WHERE w.shop_id=? AND w.phone=? AND w.status IN ('OPEN','OFFERED') AND w.date_to>=? ORDER BY w.date",
   )
     .bind(shop.id, cust.phone, shopToday(shop.timezone, now))
     .all();
+  // Google review link (shop page setting) so already-reviewed visits can still nudge a public review.
+  const gp = await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ google_review_url: string }>();
   return c.json({
     waiting: waiting.results,
-    shop: { name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now), logo_url: shop.logo_url || "", brand: brandOf(shop) },
+    shop: { name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now), logo_url: shop.logo_url || "", brand: brandOf(shop), google_review_url: gp?.google_review_url || "" },
     profile: profileOf(a, cust),
     upcoming,
     history,
@@ -340,7 +350,8 @@ acct.post("/bookings/:id/review", async (c) => {
   const { booking } = await ownBooking(c, shop, cust, c.req.param("id")!);
   const r = await leaveReview(c, shop, booking, body, `customer:${a.id}`);
   if (r.error) fail(409, r.error);
-  return c.json({ review: ownReviewView(r.review) }, 201);
+  const google = await googleReviewFollowUp(c, shop, booking, r.review?.rating ?? 0);
+  return c.json({ review: ownReviewView(r.review), google_review_url: google }, 201);
 });
 acct.get("/bookings/:id/calendar.ics", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug")!);

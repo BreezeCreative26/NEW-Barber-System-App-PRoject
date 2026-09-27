@@ -289,7 +289,7 @@ test("owner customer directory aggregates visits by phone and scopes barbers", a
   await bookOnline(c, slug, w, date, 960, {
     phone: "07700 900999",
     customer_name: "Second Person",
-    email: "",
+    email: "second@example.test",
   });
   const list = await (await r.get(base + "/customers")).json();
   expect(list.customers).toHaveLength(2);
@@ -340,10 +340,12 @@ test.describe("public booking pages", () => {
     await page.getByRole("button", { name: "Your details", exact: true }).click();
     await page.getByLabel("Your name").fill("Browser Customer");
     await page.getByLabel("Mobile number").fill("07700 900777");
-    await page.getByLabel("Email address (optional)").fill("not-an-email");
+    await page.getByLabel("Email address", { exact: true }).fill("not-an-email");
     await page.getByRole("button", { name: "Review booking" }).click();
     await expect(page.getByText("Enter a valid email address")).toBeVisible();
-    await page.getByLabel("Email address (optional)").fill("browser@example.test");
+    await page.getByLabel("Email address", { exact: true }).fill("browser@example.test");
+    // Every booking ends with an account; leave the password for later (welcome link).
+    await page.getByTestId("want-password").uncheck();
     await page.getByRole("button", { name: "Review booking" }).click();
     await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
     await expect(page.getByText("Browser Customer")).toBeVisible();
@@ -351,7 +353,7 @@ test.describe("public booking pages", () => {
     await expect(page.getByRole("heading", { level: 1, name: label })).toBeVisible();
     const reference = await page.locator(".public-reference").textContent();
     expect(reference).toMatch(/^BRB-\d{4}$/);
-    const link = page.locator(".public-manage-link");
+    const link = page.getByTestId("open-manage");
     await expect(link).toBeVisible();
     const href = await link.getAttribute("href");
     expect(href).toMatch(/^\/manage\/[a-f0-9-]{72}$/);
@@ -572,11 +574,11 @@ test("waitlist: customer joins a full day, owner sees, books and links the entry
   const booked = await bookOnline(c, slug, w, date, 600, { customer_name: "Waiting Wanda", phone: "07700900555" });
   expect(booked.res.status()).toBe(201);
   const bookingId = (await booked.res.json()).booking.id;
+  // Booking online for the same service on a day the request covers closes the request itself
+  // (waiting list v2) — the entry is already BOOKED and linked, so a manual link is now a stale write.
+  expect((await (await r.get(base + "/waitlist")).json()).waitlist).toHaveLength(0);
   const stale = await r.post(base + `/waitlist/${entry.id}/status`, { data: { status: "BOOKED", booking_id: bookingId, version: 99 } });
   expect(stale.status()).toBe(409);
-  const link = await r.post(base + `/waitlist/${entry.id}/status`, { data: { status: "BOOKED", booking_id: bookingId, version: entry.version } });
-  expect(link.status()).toBe(200);
-  expect((await (await r.get(base + "/waitlist")).json()).waitlist).toHaveLength(0);
   const bookedList = await (await r.get(base + "/waitlist?status=BOOKED")).json();
   expect(bookedList.waitlist[0].booking_id).toBe(bookingId);
   // Other shops cannot see or touch it.
@@ -618,7 +620,7 @@ test.describe("public booking v2 UI", () => {
     for (const [i, m] of [540, 615, 690, 840, 915, 990].entries()) {
       const av = await (await c.get(`${pub}/shops/${slug}/availability?date=${full}&staff_id=${w.staff[0].id}&service_id=${big.id}`)).json();
       const res = await c.post(`${pub}/shops/${slug}/bookings`, {
-        data: { request_id: crypto.randomUUID(), staff_id: w.staff[0].id, service_id: big.id, customer_name: "Filler " + m, phone: "0770090060" + i, email: "", date: full, start_min: m, quote: av.quote },
+        data: { request_id: crypto.randomUUID(), staff_id: w.staff[0].id, service_id: big.id, customer_name: "Filler " + m, phone: "0770090060" + i, email: `filler${i}-${m}@example.test`, date: full, start_min: m, quote: av.quote },
       });
       expect(res.status(), await res.text()).toBe(201);
     }
@@ -641,7 +643,7 @@ test.describe("public booking v2 UI", () => {
     await page.getByRole("button", { name: "Join the waitlist" }).click();
     await page.getByLabel("Your name").fill("Waiting Wanda");
     await page.getByLabel("Mobile number").fill("07700900555");
-    await page.getByRole("group", { name: "Preferred part of the day" }).getByRole("button", { name: "Afternoon" }).click();
+    await page.getByRole("group", { name: "Times that suit you" }).getByRole("button", { name: "Afternoon" }).click();
     await page.getByRole("button", { name: "Ask the shop to contact me" }).click();
     await expect(page.getByText("You’re on the list.")).toBeVisible();
     const list = await (await r.get(base + "/waitlist")).json();
@@ -653,6 +655,8 @@ test.describe("public booking v2 UI", () => {
     await expect(page.locator(".slot-note")).toContainText("is free at");
     await page.getByRole("button", { name: "Your details", exact: true }).click();
     await expect(page.getByLabel("Your name")).toHaveValue("Waiting Wanda");
+    await page.getByLabel("Email address", { exact: true }).fill("wanda@example.test");
+    await page.getByTestId("want-password").uncheck();
     await page.getByRole("button", { name: "Review booking" }).click();
     await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
     await page.getByRole("button", { name: "Confirm booking" }).click();

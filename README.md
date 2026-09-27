@@ -1,4 +1,4 @@
-# foliyo appointments (formerly OLLO)
+# foliyo appointments (formerly foliyo)
 
 Online booking, a live calendar for the shop, customers, waiting list, reviews, payments ledger and
 staff pay — built to run many shops on one deployment. Read **`DIRECTION.md`** first: it holds the
@@ -52,7 +52,7 @@ Production: https://new-barber-system-app-p-roject.vercel.app
 
 ## Payments (Stripe Connect platform)
 
-OLLO is the merchant of record. Card money — online deposits now, Terminal later — lands on OLLO's
+foliyo is the merchant of record. Card money — online deposits now, Terminal later — lands on foliyo's
 Stripe balance; **approving a pay run transfers each barber's share to their own Stripe Express
 account and the shop's share to the shop's**, tagged per run. Cash never enters and shows as a
 residual to settle by hand. Refunds, voids and disputes create reversals, never edits.
@@ -125,7 +125,7 @@ Full plan, decisions and status: **`docs/CALENDAR_PLAN.md`**.
 
 Every customer message — booking confirmed / moved / cancelled, reminders, sign-in codes,
 waiting-list offers, review requests, staff invites — is sent **as the shop** (shop name, logo,
-accent). OLLO never appears in a customer's inbox.
+accent). foliyo never appears in a customer's inbox.
 
 | Env var | Purpose |
 | --- | --- |

@@ -32,3 +32,29 @@ export async function optimiseImage(input: Uint8Array, kind: UploadKind, sniffed
   if (out.data.byteLength >= input.byteLength && out.info.width === meta.width) return { bytes: input, type: sniffed, width: meta.width ?? null, height: meta.height ?? null };
   return { bytes: new Uint8Array(out.data), type, width: out.info.width, height: out.info.height };
 }
+
+// Home-screen icon for a shop's installed app: the logo centred on a solid background with safe
+// padding (maskable icons get cropped to a circle/squircle by the launcher), or a two-letter
+// monogram when the shop has no logo yet. Always PNG, always square.
+export async function shopIcon(size: 192 | 512, logo: Uint8Array | null, name: string, bg: string, ink: string): Promise<Uint8Array> {
+  const initials = name.split(/\s+/).map((w) => w[0]).filter(Boolean).join("").slice(0, 2).toUpperCase() || "•";
+  const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
+  const monogram = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><rect width="${size}" height="${size}" fill="${bg}"/><text x="50%" y="50%" dy="0.36em" text-anchor="middle" font-family="-apple-system, Inter, Arial, sans-serif" font-weight="700" font-size="${Math.round(size * 0.42)}" fill="${ink}">${esc(initials)}</text></svg>`;
+  let sharp: (typeof import("sharp"))["default"];
+  try {
+    const mod = await import("sharp");
+    sharp = (mod.default ?? (mod as unknown)) as typeof sharp;
+  } catch {
+    return new TextEncoder().encode(monogram);
+  }
+  if (!logo) return new Uint8Array(await sharp(Buffer.from(monogram)).png().toBuffer());
+  try {
+    const inner = Math.round(size * 0.62); // 19% padding each side keeps the logo inside the maskable safe zone
+    const logoBuf = await sharp(Buffer.from(logo), { failOn: "none" }).resize({ width: inner, height: inner, fit: "inside", withoutEnlargement: false }).png().toBuffer({ resolveWithObject: true });
+    const left = Math.round((size - logoBuf.info.width) / 2), top = Math.round((size - logoBuf.info.height) / 2);
+    const out = await sharp({ create: { width: size, height: size, channels: 4, background: bg } }).composite([{ input: logoBuf.data, left, top }]).png().toBuffer();
+    return new Uint8Array(out);
+  } catch {
+    return new Uint8Array(await sharp(Buffer.from(monogram)).png().toBuffer());
+  }
+}

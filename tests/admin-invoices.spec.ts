@@ -1,4 +1,4 @@
-// OLLO invoicing without Stripe: period close, credits carried, amend, pay, credit notes, void,
+// foliyo invoicing without Stripe: period close, credits carried, amend, pay, credit notes, void,
 // write-off, dunning; plus shop lifecycle (sign-in link, suspend) and the owner-visible record.
 import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";

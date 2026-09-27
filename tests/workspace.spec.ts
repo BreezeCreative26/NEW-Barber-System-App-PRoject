@@ -405,6 +405,7 @@ test("saved setup and appointment workflow survives reload, move and completion"
   await expect(page.getByLabel("Shop name", { exact: true })).toHaveValue(
     "Saved matte test shop",
   );
+  await section(page, "Settings/hours");
   await page.getByRole("button", { name: "Add closure", exact: true }).click();
   await page.getByLabel("Closure date").fill("2030-12-25");
   await page.getByLabel("Closure reason").fill("Christmas test closure");

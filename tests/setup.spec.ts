@@ -10,6 +10,7 @@ test("shop setup: signup → 7-step wizard → done; invite accepted by SMS+emai
   const email = `wiz-${Date.now()}@example.com`;
   await page.fill('input[name="email"]', email);
   await page.fill('input[name="password"]', "Passw0rd!passw0rd");
+  await page.getByTestId("accept-legal").locator("input").check();
   await page.getByRole("button", { name: "Create shop" }).click();
   await expect(page.getByTestId("setup-wizard")).toBeVisible({ timeout: 15000 });
   expect(page.url()).toContain("/workspace/setup");
@@ -37,7 +38,7 @@ test("shop setup: signup → 7-step wizard → done; invite accepted by SMS+emai
   await expect(page.getByTestId("setup-team-list")).toBeVisible();
   await page.getByTestId("setup-add-name").fill("Marcus Reed");
   await page.getByTestId("setup-add-staff").click();
-  await expect(page.getByText("Marcus Reed")).toBeVisible();
+  await expect(page.getByText("Marcus Reed").first()).toBeVisible();
   const inviteBtn = page.locator('[data-testid^="invite-"]').filter({ hasText: "Invite" }).first();
   await inviteBtn.click();
   await page.getByTestId("invite-email").fill("marcus@example.com");
@@ -77,6 +78,7 @@ test("shop setup: signup → 7-step wizard → done; invite accepted by SMS+emai
   
   await p2.fill('input[name="name"]', "Marcus Reed");
   await p2.fill('input[name="password"]', "Passw0rd!passw0rd");
+  await p2.getByTestId("accept-legal").locator("input").check();
   await p2.getByRole("button", { name: "Join the team" }).click();
   await expect(p2.locator("#workspace-main")).toBeVisible();
   await p2.waitForTimeout(1500);
@@ -105,7 +107,7 @@ test("shop setup: signup → 7-step wizard → done; invite accepted by SMS+emai
 test("owner alerts: new online booking and no-show land in the outbox for the owner; prefs save", async () => {
   const r = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
   const email = `alert-${Date.now()}@example.com`;
-  expect((await r.post(origin + "/api/app/auth/signup", { data: { shop_name: "Alert Shop", name: "Ava Owner", email, password: "Passw0rd!passw0rd", kind: "BARBER" } })).status()).toBe(201);
+  expect((await r.post(origin + "/api/app/auth/signup", { data: { accept_legal: true, shop_name: "Alert Shop", name: "Ava Owner", email, password: "Passw0rd!passw0rd", kind: "BARBER" } })).status()).toBe(201);
   const base = origin + "/api/app";
   // Prefs: default email-on for bookings; switch no-show to email too.
   const prefs = await (await r.get(base + "/shop/alerts")).json();

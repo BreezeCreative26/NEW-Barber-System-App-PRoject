@@ -102,6 +102,13 @@ test("join → matches → manual offer → outbox → customer accepts → book
 test("decline puts the customer back in line and the slot cascades to the next waiter; decline+leave closes; auto-offer on owner cancel and customer cancel", async () => {
   const { r, c, w, P } = await fixture();
   const date = weekdayAhead();
+  // v2 waits `waitlist_delay_min` (default 5) before telling anyone a slot freed; this test checks the cascade itself, so act at once.
+  {
+    const shop0 = (await (await r.get(base + "/workspace")).json()).shop;
+    const nb0 = await (await r.get(base + "/notifications")).json();
+    const set = await r.put(base + "/shop/waitlist", { data: { waitlist_auto_offer: 1, waitlist_offer_hold_min: 60, waitlist_mode: "ORDER", waitlist_delay_min: 0, templates: nb0.templates, version: shop0.version } });
+    expect(set.status(), await set.text()).toBe(200);
+  }
   await join(c, P, w.services[0].id, date, "07700900561", "First Fay", "ANY");
   await join(c, P, w.services[0].id, date, "07700900562", "Next Ned", "ANY");
   const q = await queue(r);
@@ -153,7 +160,7 @@ test("decline puts the customer back in line and the slot cascades to the next w
   // Auto-offer off: a cancel leaves the next waiter OPEN.
   const shop = (await (await r.get(base + "/workspace")).json()).shop;
   const nb = await (await r.get(base + "/notifications")).json();
-  const off = await r.put(base + "/shop/waitlist", { data: { waitlist_auto_offer: 0, waitlist_offer_hold_min: 60, templates: nb.templates, version: shop.version } });
+  const off = await r.put(base + "/shop/waitlist", { data: { waitlist_auto_offer: 0, waitlist_offer_hold_min: 60, waitlist_delay_min: 0, templates: nb.templates, version: shop.version } });
   expect(off.status(), await off.text()).toBe(200);
   const finnMsg = nb.notifications.find((n: { template: string; recipient: string }) => n.template === "waitlist_offer" && n.recipient === "07700900564");
   const finnAcc = await (await c.post(`${pub}/offer/${finnMsg.body.match(/\/offer\/([a-f0-9-]{72})/)![1]}/accept`, { data: {} })).json();
@@ -244,7 +251,10 @@ test("browser: queue chip → drawer → offer a time → copy message; bell kee
   await drawer.getByTestId("queue-settings").click();
   const panel = page.getByTestId("waitlist-settings");
   await expect(panel).toBeVisible();
-  await expect(panel.getByTestId("outbox").getByTestId("outbox-row").first()).toContainText(/Sent/i);
+  // The outbox lives in Settings → Messages; the drawer link lands on Waiting list.
+  await page.getByTestId("settings-tab-messages").click();
+  await expect(page.getByTestId("waitlist-settings").getByTestId("outbox").getByTestId("outbox-row").first()).toContainText(/Sent/i);
+  await page.getByTestId("settings-tab-waitlist").click();
   await panel.getByTestId("template-waitlist_released").fill("Sorry {first}, that one went. Still holding your place at {shop} for {date}.");
   await panel.getByTestId("save-waitlist-settings").click();
   await expect(panel.getByRole("status")).toContainText("Saved");

@@ -5,6 +5,7 @@ import app, { type AppBindings } from "../../src/index";
 import { getDb } from "../../src/db/client";
 import { getStore } from "../../src/db/storage";
 import { report, telemetryStatus } from "../../src/server/telemetry";
+import { routeByHost } from "../../src/server/hosts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,14 +61,30 @@ async function diag(req: Request) {
     telemetry: telemetryStatus(),
   });
 }
-const handle = async (req: Request) => {
-  const path = new URL(req.url).pathname;
-  if (path === "/api/diag") return diag(req);
+// Slug lookup for root-host redirects; cached briefly so the landing page doesn't hit the DB per path.
+const slugCache = new Map<string, { ok: boolean; at: number }>();
+async function isShopSlug(slug: string): Promise<boolean> {
+  const hit = slugCache.get(slug);
+  if (hit && Date.now() - hit.at < 60000) return hit.ok;
+  let ok = false;
   try {
+    const e = env();
+    ok = !!(await e.DB.prepare("SELECT 1 AS x FROM shops WHERE slug=? AND online_booking=1").bind(slug).first());
+  } catch { ok = false; }
+  slugCache.set(slug, { ok, at: Date.now() });
+  return ok;
+}
+const handle = async (incoming: Request) => {
+  const path = new URL(incoming.url).pathname;
+  if (path === "/api/diag") return diag(incoming);
+  try {
+    const routed = await routeByHost(incoming, isShopSlug);
+    if (routed instanceof Response) return routed;
+    const req = routed;
     return await app.fetch(req, env());
   } catch (err) {
     // Last resort: a readable 500 instead of an empty one.
-    void report({ message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined, route: path, method: req.method, status: 500, source: "server", tags: { boot_error: bootError ?? "" } });
+    void report({ message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined, route: path, method: incoming.method, status: 500, source: "server", tags: { boot_error: bootError ?? "" } });
     return Response.json({ error: "server_error", message: err instanceof Error ? err.message : String(err), boot_error: bootError }, { status: 500 });
   }
 };

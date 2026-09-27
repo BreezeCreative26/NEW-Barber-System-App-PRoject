@@ -1,15 +1,15 @@
 // Public shop home page at /<slug>: the customer's front door. Booking is a section of this page
 // (embedded PublicBooking); every card on the page re-targets that flow.
 import { useEffect, useRef, useState } from "react";
-import { PublicBooking, type BookingPreset } from "./PublicBooking";
+import { PublicBooking, presetFromLocation, type BookingPreset } from "./PublicBooking";
 import { Avatar, Icon } from "./ui";
 import { money, time, dateLabel, setCurrency } from "./fixtures";
 import { PublicReviews, Stars, type PublicReview } from "./Reviews";
-import { applyThemeColor, themeClass, type ShopTheme } from "./theme";
+import { applyThemeColor, themeClass, type ShopTheme, shopPath } from "./theme";
 
 type PageData = {
   shop: { id: string; name: string; address: string; slug: string; timezone: string; currency?: string; opens: number; closes: number; deposit_pence: number; cancel_hours: number; lead_time_min: number; booking_window_days: number };
-  page: { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme?: ShopTheme; published: number };
+  page: { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme?: ShopTheme; google_review_url?: string; published: number };
   staff: { id: string; name: string; role: string; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[];
   services: { id: string; name: string; category: string; duration_min: number; price_pence: number; description?: string; colour?: string; popular?: number }[];
   week: ({ weekday: number; open: false } | { weekday: number; open: true; starts: number; ends: number })[];
@@ -27,12 +27,7 @@ export function ShopPage({ slug }: { slug: string }) {
   const [data, setData] = useState<PageData | null>(null);
   const [error, setError] = useState("");
   // Deep links from the customer area ("book my usual") arrive as ?service=&staff=&date=&start=&step=.
-  const [preset, setPreset] = useState<BookingPreset | null>(() => {
-    const q = new URLSearchParams(location.search);
-    if (![...q.keys()].some((k) => ["service", "staff", "date", "start", "step"].includes(k))) return null;
-    const num = (k: string) => (q.get(k) !== null && /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : undefined);
-    return { service: q.get("service") || undefined, staff: q.get("staff") || undefined, date: q.get("date") || undefined, start: num("start"), step: num("step"), nonce: Date.now() };
-  });
+  const [preset, setPreset] = useState<BookingPreset | null>(() => presetFromLocation());
   const [me, setMe] = useState<{ name: string; phone: string; email: string; notes: string } | null>(null);
   const bookRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -96,7 +91,7 @@ export function ShopPage({ slug }: { slug: string }) {
         Skip to booking
       </a>
       <header className="sp-nav">
-        <a className="sp-brand" href={`/${shop.slug}`}>
+        <a className="sp-brand" href={shopPath(shop.slug, "/")}>
           {page.logo_url ? <img className="shop-emblem shop-logo" src={page.logo_url} alt="" /> : <span className="shop-emblem">{initials(shop.name)}</span>}
           <strong>{shop.name}</strong>
         </a>
@@ -106,7 +101,7 @@ export function ShopPage({ slug }: { slug: string }) {
           {has("hours") && <a href="#hours">Hours</a>}
           {has("find") && hasContact && <a href="#find">Find us</a>}
           {has("reviews") && data.reviews.length > 0 && <a href="#reviews">Reviews</a>}
-          <a href={`/${shop.slug}/me`} className="sp-me" data-testid="nav-me">
+          <a href={shopPath(shop.slug, "/me")} className="sp-me" data-testid="nav-me">
             <Icon name="userRound" size={15} /> {me ? me.name.split(" ")[0] || "Your visits" : "Your visits"}
           </a>
         </nav>
@@ -404,9 +399,14 @@ export function ShopPage({ slug }: { slug: string }) {
               </a>
             )}
             {has("hours") && <a href="#hours">Opening hours</a>}
-            <a href={`/${shop.slug}/me`}>Your visits</a>
+            {page.google_review_url && (
+              <a href={page.google_review_url} target="_blank" rel="noreferrer" data-testid="footer-google-review">
+                Review us on Google
+              </a>
+            )}
+            <a href={shopPath(shop.slug, "/me")}>Your visits</a>
           </div>
-          <span className="powered-by">Powered by foliyo</span>
+          <span className="powered-by">Powered by foliyo · <a href="/legal/privacy">Privacy</a> · <a href="/legal/terms">Terms</a></span>
         </div>
       </footer>
     </div>

@@ -71,7 +71,7 @@ import {
   type AuditEvent,
  shopBuffer } from "./domain";
 
-import { autoOffer, makeOffer, matchesFor, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
+import { slotFreed, makeOffer, matchesFor, rangeDates, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { optimiseImage } from "./images";
 import { billingSummary, entitlements, setFeature, syncSeats, hasFeature, features as billingFeatures } from "./billing";
 import { applyDecisions, changeSchema, decisionSchema, describeChange, previewChange, type ScheduleChange } from "./schedule";
@@ -85,6 +85,7 @@ import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
 import { accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, type ConnectedAccount } from "./payouts";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
+import { RESERVED_SUBDOMAINS, shopUrl } from "./hosts";
 import accounts, {
   ACCOUNT_COOKIE,
   resolveAccount,
@@ -199,8 +200,8 @@ sandbox.use("*", async (c, next) => {
     method = c.req.method;
   const publicAuth =
     (method === "POST" &&
-      ["/auth/login", "/auth/signup", "/auth/accept", "/auth/logout", "/auth/demo", "/auth/forgot", "/auth/reset"].includes(path)) ||
-    (method === "GET" && ["/auth/me", "/auth/invites/peek", "/auth/reset/peek"].includes(path));
+      ["/auth/login", "/auth/signup", "/auth/accept", "/auth/logout", "/auth/demo", "/auth/forgot", "/auth/reset", "/auth/verify-email", "/auth/find-shop"].includes(path)) ||
+    (method === "GET" && ["/auth/me", "/auth/invites/peek", "/auth/reset/peek", "/auth/verify-email/peek", "/auth/slug-check"].includes(path));
   if (!account && !publicAuth)
     return c.json(
       {
@@ -266,12 +267,13 @@ sandbox.use("*", async (c, next) => {
     const setup =
       // The setup wizard (owner/manager): its own routes enforce the role again.
       path.startsWith("/setup") ||
-      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/waitlist", "/shop/messaging", "/shop/payments", "/shop/alerts", "/shop/voice"].includes(path)) ||
+      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/reviews", "/shop/waitlist", "/shop/messaging", "/shop/payments", "/shop/alerts", "/shop/voice"].includes(path)) ||
       (method === "GET" && (path === "/shop/alerts" || path.startsWith("/shop/voice"))) ||
       (method === "POST" && path === "/shop/voice/rotate") ||
       (method === "POST" && ["/notifications/test", "/notifications/sweep", "/shop/payments/connect"].includes(path)) ||
       (method === "POST" && /^\/notifications\/[^/]+\/resend$/.test(path)) ||
       (method === "POST" && /^\/reviews\/[^/]+\/(status|reply)$/.test(path)) ||
+      (method === "POST" && /^\/customers\/[^/]+\/erase$/.test(path)) ||
       (method === "POST" && path === "/media") ||
       (["GET", "POST", "PUT"].includes(method) && path.startsWith("/billing")) ||
       (method === "DELETE" && /^\/media\/[^/]+$/.test(path)) ||
@@ -755,17 +757,34 @@ sandbox.put("/shop/page", async (c) => {
   const sections = JSON.stringify([...new Set(b.sections)]);
   const stmt = existing
     ? c.env.DB.prepare(
-        "UPDATE shop_pages SET strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
-      ).bind(b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.published, now, sid, b.version)
+        "UPDATE shop_pages SET strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
+      ).bind(b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version)
     : c.env.DB.prepare(
-        "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
-      ).bind(sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.published, now);
+        "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+      ).bind(sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now);
   await checkVersionUpdate(c, stmt, audit(c, "shop", sid, "SHOP_PAGE_UPDATED", `${b.published ? "Published" : "Unpublished"}; ${b.sections.length} sections.`, true));
   const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>();
   return c.json({ page: row });
 });
+// Reviews: ask happy customers (4–5★ in-app) to repeat it on Google. Needs the Google link on the page.
+sandbox.put("/shop/reviews", async (c) => {
+  const b = await input(c, z.object({ google_review_nudge: z.union([z.literal(0), z.literal(1)]), version: z.number().int().min(0) }).strict());
+  const sid = c.get("shopId");
+  if (b.google_review_nudge) {
+    const page = await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(sid).first<{ google_review_url: string }>();
+    if (!page?.google_review_url) fail(409, "Add your Google review link first (Settings → Shop page → Reviews).");
+  }
+  await checkVersionUpdate(
+    c,
+    c.env.DB.prepare("UPDATE shops SET google_review_nudge=?,version=version+1 WHERE id=? AND version=?").bind(b.google_review_nudge, sid, b.version),
+    audit(c, "shop", sid, "SHOP_UPDATED", `Google review follow-up ${b.google_review_nudge ? "on" : "off"}.`, true),
+  );
+  const shop = await c.env.DB.prepare("SELECT version, google_review_nudge FROM shops WHERE id=?").bind(sid).first<{ version: number; google_review_nudge: number }>();
+  return c.json({ ok: true, shop });
+});
 sandbox.put("/shop/online", async (c) => {
   const b = await input(c, onlineBookingSchema);
+  if (RESERVED_SUBDOMAINS.has(b.slug)) fail(409, "That address is reserved. Try another.");
   try {
     await checkVersionUpdate(
       c,
@@ -1040,6 +1059,49 @@ sandbox.put("/customers/:id", async (c) => {
   );
   return c.json({ customer: await readCustomer(c, current.id) });
 });
+// Right to erasure (UK GDPR Art. 17). Bookings, payments and pay runs are financial records the
+// shop must keep, and the database forbids deleting them — so every *personal* field is blanked
+// instead: the customer row, their bookings, waiting-list entries, standing series, review display
+// names, message-log recipients, OTP codes, and this shop's link to their online account. The
+// row stays with `erased_at` set so history still adds up (visits, takings, pay) as "Erased customer".
+// Owner/manager only; a reason is recorded in the audit trail; the action cannot be undone.
+sandbox.post("/customers/:id/erase", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const b = await input(c, z.object({ version: z.number().int().min(0), reason: z.string().trim().min(3).max(300) }).strict());
+  const current = await readCustomer(c, c.req.param("id"));
+  if (current.erased_at) fail(409, "This customer has already been erased");
+  if (current.merged_into) fail(409, "This customer was merged into another record — erase that one");
+  const sid = c.get("shopId"), now = Date.now();
+  const phone = current.phone, email = current.email;
+  // Unique(shop_id, phone) means the blanked phone must still be unique → use an opaque token.
+  const tomb = `erased:${current.id.slice(0, 12)}`;
+  const upcoming = await c.env.DB.prepare("SELECT COUNT(*)::int AS n FROM bookings WHERE shop_id=? AND customer_id=? AND status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') AND start_at>?").bind(sid, current.id, now).first<{ n: number }>();
+  if ((upcoming?.n ?? 0) > 0) fail(409, `This customer has ${upcoming!.n} upcoming appointment(s). Cancel them first so they are not left without a way to be contacted.`);
+  const stmts: D1PreparedStatement[] = [
+    c.env.DB.prepare("SELECT set_config('ollo.erase', '1', true)"),
+    c.env.DB.prepare("UPDATE customers SET name='Erased customer', phone=?, email='', notes='', tags='[]', birthday=NULL, preferred_staff_id=NULL, marketing_opt_in=0, erased_at=?, version=version+1, updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(tomb, now, now, sid, current.id, b.version),
+    c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
+    c.env.DB.prepare("DELETE FROM account_assertions"),
+    c.env.DB.prepare("UPDATE bookings SET customer_name='Erased customer', phone=?, email='', attendee_name='', notes='' WHERE shop_id=? AND (customer_id=? OR phone=?)").bind(tomb, sid, current.id, phone),
+    c.env.DB.prepare("UPDATE waitlist_entries SET customer_name='Erased customer', phone=?, email='', notes='' WHERE shop_id=? AND phone=?").bind(tomb, sid, phone),
+    c.env.DB.prepare("UPDATE booking_series SET customer_name='Erased customer', phone=? WHERE shop_id=? AND phone=?").bind(tomb, sid, phone),
+    c.env.DB.prepare("UPDATE reviews SET display_name='Former customer', updated_at=? WHERE shop_id=? AND customer_id=?").bind(now, sid, current.id),
+    c.env.DB.prepare("UPDATE notifications SET recipient='' WHERE shop_id=? AND (recipient=? OR (?<>'' AND recipient=?))").bind(sid, phone, email, email),
+    c.env.DB.prepare("DELETE FROM customer_otp WHERE shop_id=? AND phone=?").bind(sid, phone),
+    c.env.DB.prepare("DELETE FROM customer_sessions WHERE shop_id=? AND account_id IN (SELECT account_id FROM customer_account_links WHERE shop_id=? AND customer_id=?)").bind(sid, sid, current.id),
+    c.env.DB.prepare("DELETE FROM customer_account_links WHERE shop_id=? AND customer_id=?").bind(sid, current.id),
+    audit(c, "customer", current.id, "CUSTOMER_ERASED", `Personal data erased on request. ${b.reason}`),
+  ];
+  // Payment requests carry `sent_to` (phone or email the pay link went to).
+  stmts.push(c.env.DB.prepare("UPDATE payment_requests SET sent_to='' WHERE shop_id=? AND (sent_to=? OR (?<>'' AND sent_to=?))").bind(sid, phone, email, email));
+  try {
+    await c.env.DB.batch(stmts);
+  } catch (e) {
+    if (String(e).includes("account_assertions")) fail(409, "This customer changed in another view. Reload and try again.");
+    throw e;
+  }
+  return c.json({ ok: true, customer: await readCustomer(c, current.id) });
+});
 // Merge duplicate records: every booking of the loser moves to the winner; the loser
 // row stays (pointing at the winner) so old links keep resolving.
 sandbox.post("/customers/:id/merge", async (c) => {
@@ -1088,28 +1150,36 @@ sandbox.get("/waitlist", async (c) => {
     .bind(c.get("shopId"), ...statuses, assigned, assigned, p.data!.from ?? null, p.data!.from ?? null)
     .all();
   const counts = await c.env.DB.prepare("SELECT status, COUNT(*) AS n FROM waitlist_entries WHERE shop_id=? AND date>=? GROUP BY status").bind(c.get("shopId"), shopToday(shop.timezone)).all<{ status: string; n: number }>();
-  return c.json({ waitlist: rows.results, counts: Object.fromEntries(counts.results.map((r) => [r.status, r.n])), settings: { auto_offer: shop.waitlist_auto_offer, hold_min: shop.waitlist_offer_hold_min } });
+  return c.json({ waitlist: rows.results, counts: Object.fromEntries(counts.results.map((r) => [r.status, r.n])), settings: { auto_offer: shop.waitlist_auto_offer, hold_min: shop.waitlist_offer_hold_min, mode: shop.waitlist_mode, delay_min: shop.waitlist_delay_min } });
 });
 sandbox.get("/waitlist/:id/matches", async (c) => {
   const shop = await shopWithQueue(c, c.get("shopId"));
   const entry = await c.env.DB.prepare("SELECT * FROM waitlist_entries WHERE shop_id=? AND id=?").bind(shop.id, c.req.param("id")).first<WaitlistRow>();
   if (!entry) return fail(404, "Waitlist entry not found");
   const a = c.get("account");
-  const matches = (await matchesFor(c, shop, entry)).filter((m) => a?.role !== "BARBER" || m.staff_id === a.staff_id);
+  // Date-range entries: walk each day in the range (capped) and tag every match with its date.
+  const matches: (Awaited<ReturnType<typeof matchesFor>>[number] & { date: string })[] = [];
+  for (const d of rangeDates(entry.date, entry.date_to || entry.date, 14)) {
+    for (const m of await matchesFor(c, shop, entry, Date.now(), d)) if (a?.role !== "BARBER" || m.staff_id === a.staff_id) matches.push({ ...m, date: d });
+  }
   return c.json({ entry, matches });
 });
 // Offer a specific time to a waiting customer. Records the offer + queues the message (not sent).
 sandbox.post("/waitlist/:id/offer", async (c) => {
-  const b = await input(c, z.object({ staff_id: z.string().uuid(), start_min: z.number().int().min(0).max(1425).refine((v) => v % 15 === 0), version: z.number().int().min(0) }).strict());
+  const b = await input(c, z.object({ staff_id: z.string().uuid(), start_min: z.number().int().min(0).max(1425).refine((v) => v % 15 === 0), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), version: z.number().int().min(0) }).strict());
   const shop = await shopWithQueue(c, c.get("shopId"));
   scopeStaff(c, b.staff_id);
-  const entry = await c.env.DB.prepare("SELECT * FROM waitlist_entries WHERE shop_id=? AND id=?").bind(shop.id, c.req.param("id")).first<WaitlistRow>();
-  if (!entry) return fail(404, "Waitlist entry not found");
-  if (entry.version !== b.version) fail(409, "record_changed");
-  if (!["OPEN", "OFFERED"].includes(entry.status)) fail(409, "invalid_transition");
+  const entry0 = await c.env.DB.prepare("SELECT * FROM waitlist_entries WHERE shop_id=? AND id=?").bind(shop.id, c.req.param("id")).first<WaitlistRow>();
+  if (!entry0) return fail(404, "Waitlist entry not found");
+  if (entry0.version !== b.version) fail(409, "record_changed");
+  if (!["OPEN", "OFFERED"].includes(entry0.status)) fail(409, "invalid_transition");
+  // Range entries can be offered any day inside the range; the offer itself is pinned to that day.
+  const date = b.date ?? entry0.date;
+  if (date < entry0.date || date > (entry0.date_to || entry0.date)) fail(409, "Date is outside what the customer asked for");
+  const entry = { ...entry0, date };
   const matches = await matchesFor(c, shop, entry);
   if (!matches.some((m) => m.staff_id === b.staff_id && m.start_min === b.start_min)) fail(409, "slot_taken");
-  const offer = await makeOffer(c, shop, entry, b, "MANUAL", c.get("actor"));
+  const offer = await makeOffer(c, shop, entry, { staff_id: b.staff_id, start_min: b.start_min }, "MANUAL", c.get("actor"));
   if (!offer) return fail(404, "Barber or service not available");
   return c.json({ ok: true, offer }, 201);
 });
@@ -1141,6 +1211,10 @@ export const waitlistSettingsSchema = z
   .object({
     waitlist_auto_offer: z.union([z.literal(0), z.literal(1)]),
     waitlist_offer_hold_min: z.number().int().min(15).max(1440),
+    // ORDER = next in line gets a held offer; EVERYONE = all who fit are told, first to book wins.
+    waitlist_mode: z.enum(["ORDER", "EVERYONE"]).default("ORDER"),
+    // Minutes to wait after a cancellation before anyone is told (0–60). Lets the shop re-book by hand.
+    waitlist_delay_min: z.number().int().min(0).max(60).default(5),
     templates: templatesSchema,
     version: z.number().int().min(0),
   })
@@ -1149,8 +1223,8 @@ sandbox.put("/shop/waitlist", async (c) => {
   const b = await input(c, waitlistSettingsSchema);
   await checkVersionUpdate(
     c,
-    c.env.DB.prepare("UPDATE shops SET waitlist_auto_offer=?,waitlist_offer_hold_min=?,waitlist_templates_json=?,version=version+1 WHERE id=? AND version=?").bind(b.waitlist_auto_offer, b.waitlist_offer_hold_min, JSON.stringify(b.templates), c.get("shopId"), b.version),
-    audit(c, "shop", c.get("shopId"), "WAITLIST_SETTINGS_UPDATED", `Auto-offer ${b.waitlist_auto_offer ? "on" : "off"}; hold ${b.waitlist_offer_hold_min} min.`, true),
+    c.env.DB.prepare("UPDATE shops SET waitlist_auto_offer=?,waitlist_offer_hold_min=?,waitlist_mode=?,waitlist_delay_min=?,waitlist_templates_json=?,version=version+1 WHERE id=? AND version=?").bind(b.waitlist_auto_offer, b.waitlist_offer_hold_min, b.waitlist_mode, b.waitlist_delay_min, JSON.stringify(b.templates), c.get("shopId"), b.version),
+    audit(c, "shop", c.get("shopId"), "WAITLIST_SETTINGS_UPDATED", `Auto-notify ${b.waitlist_auto_offer ? "on" : "off"}; ${b.waitlist_mode === "EVERYONE" ? "tell everyone" : "next in line"}; wait ${b.waitlist_delay_min} min; hold ${b.waitlist_offer_hold_min} min.`, true),
   );
   const shop = await shopWithQueue(c, c.get("shopId"));
   return c.json({ shop: await readShop(c), templates: templatesOf(shop), defaults: DEFAULT_TEMPLATES });
@@ -1173,7 +1247,7 @@ sandbox.get("/notifications", async (c) => {
     messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "" },
     templates: templatesOf(shop),
     defaults: DEFAULT_TEMPLATES,
-    settings: { waitlist_auto_offer: shop.waitlist_auto_offer, waitlist_offer_hold_min: shop.waitlist_offer_hold_min },
+    settings: { waitlist_auto_offer: shop.waitlist_auto_offer, waitlist_offer_hold_min: shop.waitlist_offer_hold_min, waitlist_mode: shop.waitlist_mode, waitlist_delay_min: shop.waitlist_delay_min },
     // Current shop version: sibling forms on the same tab (messaging, alerts, voice) bump it without a
     // workspace re-read, so the waitlist save must not rely on the stale workspace copy.
     shop_version: shop.version,
@@ -1966,7 +2040,7 @@ sandbox.post("/staff/:id/blocks", async (c) => {
     const r = decided.get(a.id)!;
     const booking = await readBooking(c, a.id);
     const to = { name: a.attendee_name || a.customer_name, phone: a.phone, email: a.email };
-    const vars = { service: a.service_name, barber: staff!.name.split(" ")[0], date: fmtDate(b.date), time: fmtTime(a.start_min), ref: ref(booking), link: `${origin}/${shop.slug}/me`, book_link: `${origin}/book/${shop.slug}`, address: shop.address };
+    const vars = { service: a.service_name, barber: staff!.name.split(" ")[0], date: fmtDate(b.date), time: fmtTime(a.start_min), ref: ref(booking), link: shopUrl(shop.slug!, "/me", origin), book_link: shopUrl(shop.slug!, "/book", origin), address: shop.address };
     const pref = a.contact_pref === "NONE" ? null : a.contact_pref === "AUTO" ? "AUTO" : a.contact_pref;
     let notified: string[] = [];
     try {
@@ -2901,7 +2975,7 @@ sandbox.post("/bookings/:id/status", async (c) => {
   if (body.status === "CANCELLED") {
     if (b.deposit_status === "PAID") await refundDeposit(c.env.DB, await readShop(c), b, c.get("actor"), "cancelled by the shop");
     else if (b.deposit_status === "PENDING") await c.env.DB.prepare("UPDATE bookings SET deposit_status='EXPIRED', deposit_hold_until=NULL WHERE shop_id=? AND id=?").bind(c.get("shopId"), b.id).run();
-    await autoOffer(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "cancel");
+    await slotFreed(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "cancel");
   }
   // A completed visit earns a review request (outbox only).
   if (body.status === "COMPLETED") await queueReviewRequest(c, c.get("shopId"), b.id);
@@ -3004,7 +3078,13 @@ sandbox.post("/payments/:id/void", async (c) => {
 });
 // Wallet: ledger totals for a date range (defaults to today), per method and per barber.
 // Per-user UI preferences. Sparse patch; unknown keys rejected so the column stays small.
-const prefsSchema = z.object({ calendar_density: z.enum(["COMPACT", "STANDARD", "LARGE"]).optional() }).strict();
+const prefsSchema = z
+  .object({
+    calendar_density: z.enum(["COMPACT", "STANDARD", "LARGE"]).optional(),
+    // Personal workspace look (admin side only): curated accent + light/dark.
+    workspace_theme: z.object({ accent: z.enum(["forest", "ink", "ocean", "clay", "plum", "slate"]), mode: z.enum(["light", "dark"]) }).strict().optional(),
+  })
+  .strict();
 sandbox.put("/me/prefs", async (c) => {
   const account = c.get("account");
   if (!account) fail(401, "Sign in to save preferences");
@@ -3383,7 +3463,7 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     audit(c, "booking", b.id, "RESCHEDULED", overridden ? `${body.reason} (overrode: ${reason})` : body.reason, true),
     overridden ? [forceSlot(c)] : [],
   );
-  await autoOffer(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "move");
+  await slotFreed(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "move");
   return c.json({ booking: await readBooking(c, b.id) });
 });
 // ---- Appointment panel: per-booking timeline and standing-series operations ----

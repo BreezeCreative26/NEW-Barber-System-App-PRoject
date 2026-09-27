@@ -1,4 +1,4 @@
-// OLLO ↔ shop billing: trial, seats, add-ons, estimate, entitlements on the workspace.
+// foliyo ↔ shop billing: trial, seats, add-ons, estimate, entitlements on the workspace.
 import { test, expect } from "@playwright/test";
 import { base, origin, openFixtureShop, section } from "./fixture";
 

@@ -1,10 +1,14 @@
 import { Hono, type Context } from "hono";
-import { drain, enqueue, msgShop, providerStatus } from "./messaging";
+import { drain, enqueue, msgShop, platformSender, providerStatus } from "./messaging";
+import { platformBilling } from "./billing";
+import { acceptanceStatements, ipHash, outstandingFor, LEGAL_VERSIONS, OWNER_DOCS, STAFF_DOCS, type LegalDoc } from "./legal";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 import type { Database } from "../db/client";
 import { z } from "zod";
 import { demoRoute } from "./demo";
+import { slugSchema } from "./domain";
+import { RESERVED_SUBDOMAINS, SHOP_HOST_HEADER, rootHost, sessionCookieDomain, shopOrigin } from "./hosts";
 
 export type Account = {
   id: string;
@@ -17,9 +21,11 @@ export type Account = {
   version: number;
   // Small per-user UI preferences (calendar density …). Raw JSON text; parsed on the client.
   prefs_json?: string;
+  // When the login email was confirmed via the welcome / confirm-email link; null until then.
+  email_verified_at?: number | null;
 };
 export type AppEnv = {
-  Bindings: { DB: Database; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string; OLLO_ADMIN_EMAILS?: string };
+  Bindings: { DB: Database; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string; FOLIYO_ADMIN_EMAILS?: string; OLLO_ADMIN_EMAILS?: string };
   Variables: { shopId: string; actor: string; account: Account | null };
 };
 type Ctx = Context<AppEnv>;
@@ -206,10 +212,14 @@ export async function resolveAccount(
   c: Ctx,
   token: string,
 ): Promise<Account | null> {
+  // On a shop's sub-domain the session must belong to that shop: a cookie shared across
+  // *.foliyo.co.uk never opens another shop's workspace. Platform admin routes (/api/admin) are
+  // served on the root host and are unaffected.
+  const hostSlug = c.req.header(SHOP_HOST_HEADER) || "";
   return c.env.DB.prepare(
-    `SELECT m.id,m.user_id,m.shop_id,m.role,m.staff_id,m.version,m.prefs_json,u.name,u.email FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1 AND (m.role='OWNER' OR b.active=1)`,
+    `SELECT m.id,m.user_id,m.shop_id,m.role,m.staff_id,m.version,m.prefs_json,u.name,u.email,u.email_verified_at FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id JOIN shops sh ON sh.id=m.shop_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1 AND (m.role='OWNER' OR b.active=1)${hostSlug ? " AND sh.slug=?" : ""}`,
   )
-    .bind(await digest(token), Date.now())
+    .bind(...(hostSlug ? [await digest(token), Date.now(), hostSlug] : [await digest(token), Date.now()]))
     .first<Account>();
 }
 const email = z.string().trim().toLowerCase().email().max(254);
@@ -274,12 +284,15 @@ export async function newSession(
   };
 }
 export function cookies(c: Ctx, raw: string) {
+  const domain = sessionCookieDomain();
   setCookie(c, ACCOUNT_COOKIE, raw, {
     httpOnly: true,
     secure: true,
-    sameSite: "Strict",
+    // Lax (not Strict) so the redirect from root signup to <slug>.<root>/workspace carries it.
+    sameSite: "Lax",
     path: "/",
     maxAge: 7 * 86400,
+    ...(domain ? { domain } : {}),
   });
   for (const name of LEGACY_COOKIES) deleteCookie(c, name, { path: "/", secure: true });
 }
@@ -301,22 +314,92 @@ const timezone = z
 const signup = z
   .object({
     shop_name: z.string().trim().min(2).max(100),
+    // The shop's address: <slug>.foliyo.co.uk. Chosen at signup so the owner lands on their own
+    // sub-domain; unique, validated, reserved words refused. Optional only for legacy callers.
+    slug: slugSchema.optional(),
     name: z.string().trim().min(2).max(100),
     email,
     password,
     timezone: timezone.default("Europe/London"),
     kind: z.enum(["BARBER", "HAIR", "SALON"]).default("BARBER"),
+    // Explicit agreement to Terms + Privacy + DPA is required to create a shop (the owner becomes
+    // a data controller and appoints foliyo as processor). Recorded with version, time, IP hash.
+    accept_legal: z.literal(true, { error: "You need to agree to the Terms, Privacy Policy and Data Processing Agreement." }),
   })
   .strict();
 // POST /auth/signup — the only way a real shop starts. Creates the shop, the owner's user +
 // OWNER membership, and adds the owner as the first bookable barber (most owners cut hair; the
 // profile can be deactivated in Team if not). No fictional services or staff are seeded.
+// ---- Login-email verification -----------------------------------------------------------------
+// One live token per user (issuing a new one retires the old). 24 h, single use, hash stored.
+// `owner_welcome` goes out as foliyo (it is the platform welcoming a new customer); `email_verify`
+// goes out as the shop (an invited barber confirming the address they joined with, or a re-send).
+const VERIFY_TTL = 24 * 3600000;
+async function issueEmailVerification(
+  c: Ctx,
+  user: { id: string; email: string; name: string; shop_id: string },
+  kind: "owner_welcome" | "email_verify",
+  now = Date.now(),
+): Promise<{ stmts: ReturnType<typeof enqueue>; token: string }> {
+  const token = uid() + uid();
+  const origin = new URL(c.req.url).origin;
+  const link = `${origin}/verify?token=${token}`;
+  const shop = await msgShop(c, user.shop_id);
+  const pb = kind === "owner_welcome" ? await platformBilling(c.env.DB) : null;
+  const sender = pb ? platformSender(shop, pb) : shop;
+  const vars = kind === "owner_welcome" ? { link, shop: shop.name, trial_days: pb!.trial_days } : { link, email: user.email };
+  const stmts = [
+    c.env.DB.prepare("UPDATE email_verifications SET used_at=? WHERE user_id=? AND used_at IS NULL").bind(now, user.id),
+    c.env.DB.prepare("INSERT INTO email_verifications(token_hash,user_id,email,created_at,expires_at) VALUES(?,?,?,?,?)").bind(await digest(token), user.id, user.email, now, now + VERIFY_TTL),
+    ...enqueue(c.env.DB, sender, { email: user.email, name: user.name }, kind, vars, { related: { type: "email_verify", id: user.id }, origin, channel: "EMAIL", now, force: true }),
+  ];
+  return { stmts, token };
+}
+// Root-host sign-in helper: "where do I sign in?". A typed shop address resolves instantly; an
+// email gets the link mailed (never revealed in the response, so addresses can't be enumerated).
+accounts.post("/find-shop", async (c) => {
+  const b = await readInput(c, z.object({ slug: z.string().trim().toLowerCase().max(64).default(""), email: z.union([z.literal(""), email]).default("") }).strict());
+  await throttle(c, "find-shop", `${c.req.header("x-forwarded-for") || "local"}:${Math.floor(Date.now() / 60000)}`);
+  const origin = new URL(c.req.url).origin;
+  if (b.slug) {
+    const row = await c.env.DB.prepare("SELECT slug FROM shops WHERE slug=?").bind(b.slug.replace(/^https?:\/\//, "").split(".")[0].replace(/[^a-z0-9-]/g, "")).first<{ slug: string }>();
+    return c.json(row ? { ok: true, workspace_url: `${shopOrigin(row.slug, origin)}/signin` } : { ok: false, reason: "We couldn't find a shop at that address." });
+  }
+  if (b.email) {
+    const rows = await c.env.DB.prepare("SELECT DISTINCT s.id, s.slug, s.name, u.name AS user_name FROM app_users u JOIN app_memberships m ON m.user_id=u.id AND m.active=1 JOIN shops s ON s.id=m.shop_id WHERE u.email=? AND s.slug IS NOT NULL").bind(b.email).all<{ id: string; slug: string; name: string; user_name: string }>();
+    const now = Date.now();
+    for (const r of rows.results) {
+      const ms = await msgShop(c, r.id);
+      const stmts = enqueue(c.env.DB, ms, { email: b.email, name: r.user_name }, "shop_address", { shop: r.name, link: `${shopOrigin(r.slug, origin)}/signin` }, { related: { type: "signin_link", id: r.id }, origin, channel: "EMAIL", now, force: true });
+      if (stmts.length) { await c.env.DB.batch(stmts); await drain(c.env.DB, stmts.length, now, { type: "signin_link", id: r.id }).catch(() => {}); }
+    }
+    return c.json({ ok: true, mailed: true });
+  }
+  return c.json({ ok: false, reason: "Enter your shop address or email." });
+});
+// Signup form: is this address free? Public, throttled, no side effects.
+accounts.get("/slug-check", async (c) => {
+  const raw = (c.req.query("slug") || "").trim().toLowerCase();
+  // Typing in the form fires this per keystroke; key the throttle per minute bucket so a genuine
+  // signup never trips it while a scraper still does.
+  await throttle(c, "slug-check", `${c.req.header("x-forwarded-for") || "local"}:${Math.floor(Date.now() / 60000)}`);
+  const parsed = slugSchema.safeParse(raw);
+  if (!parsed.success) return c.json({ ok: false, reason: parsed.error.issues[0]?.message || "Letters, numbers and dashes only" });
+  if (RESERVED_SUBDOMAINS.has(raw)) return c.json({ ok: false, reason: "That address is reserved" });
+  const taken = await c.env.DB.prepare("SELECT 1 AS x FROM shops WHERE slug=?").bind(raw).first();
+  return c.json({ ok: !taken, reason: taken ? "Already taken" : "", host: rootHost() ? `${raw}.${rootHost()}` : "" });
+});
 accounts.post("/signup", async (c) => {
   const b = await readInput(c, signup);
   if (c.get("account")) return reject(409, "You are already signed in. Sign out first to create another shop.");
   await throttle(c, "signup", b.email);
   const existing = await c.env.DB.prepare("SELECT 1 AS x FROM app_users WHERE email=?").bind(b.email).first();
   if (existing) return reject(409, "An account with this email already exists. Sign in instead.");
+  if (b.slug) {
+    if (RESERVED_SUBDOMAINS.has(b.slug)) return reject(409, "That address is reserved. Try another.");
+    const taken = await c.env.DB.prepare("SELECT 1 AS x FROM shops WHERE slug=?").bind(b.slug).first();
+    if (taken) return reject(409, "That address is already taken. Try another.");
+  }
   const shop = uid(),
     user = uid(),
     membership = uid(),
@@ -326,7 +409,7 @@ accounts.post("/signup", async (c) => {
   const encoded = await passwordHash(b.password, salt);
   const session = await newSession(c, membership);
   const writes = [
-    c.env.DB.prepare("INSERT INTO shops(id,name,timezone,kind,email,setup_json,created_at) VALUES(?,?,?,?,?,?,?)").bind(shop, b.shop_name, b.timezone, b.kind, b.email, JSON.stringify({ step: "shop", done: [], skipped: [], started_at: now }), now),
+    c.env.DB.prepare("INSERT INTO shops(id,name,timezone,kind,email,setup_json,created_at,slug) VALUES(?,?,?,?,?,?,?,?)").bind(shop, b.shop_name, b.timezone, b.kind, b.email, JSON.stringify({ step: "shop", done: [], skipped: [], started_at: now }), now, b.slug ?? null),
     c.env.DB.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)").bind(user, b.email, b.name, encoded, salt, now),
     c.env.DB.prepare("INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?)").bind(shop, user),
     c.env.DB.prepare("INSERT INTO staff(id,shop_id,name,role,title,start_date) VALUES(?,?,?,?,?,?)").bind(staffId, shop, b.name, "Owner", "Owner & barber", new Date(now).toISOString().slice(0, 10)),
@@ -347,10 +430,26 @@ accounts.post("/signup", async (c) => {
       "INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
     ).bind(uid(), shop, "shop", shop, "SHOP_CREATED", `user:${user}`, "Shop created at signup.", now),
     event(c, shop, `user:${user}`, user, "OWNER_ACCOUNT_CREATED"),
+    ...acceptanceStatements(c.env.DB, c, { user_id: user, shop_id: shop, subject: "OWNER" }, OWNER_DOCS, { ip_hash: await ipHash(c), now }),
+    event(c, shop, `user:${user}`, user, "LEGAL_ACCEPTED"),
   );
   await c.env.DB.batch(writes);
+  // Welcome + confirm-email, after the shop exists (msgShop reads it). A mail failure must never
+  // fail the signup: the workspace nudge offers a re-send.
+  let sandboxToken: string | undefined;
+  try {
+    const v = await issueEmailVerification(c, { id: user, email: b.email, name: b.name, shop_id: shop }, "owner_welcome", now);
+    await c.env.DB.batch(v.stmts);
+    await drain(c.env.DB, 2, now, { type: "email_verify", id: user }).catch(() => {});
+    if (providerStatus().email.provider === "mailbox" && demoEnabled(c)) sandboxToken = v.token;
+  } catch (e) {
+    console.error("welcome email failed", e instanceof Error ? e.message : e);
+  }
   cookies(c, session.raw);
-  return c.json({ ok: true, shop_id: shop }, 201);
+  // Where the owner works from now on: their own sub-domain (when the platform has a root host).
+  const origin = new URL(c.req.url).origin;
+  const workspace = b.slug ? `${shopOrigin(b.slug, origin)}/workspace` : `${origin}/workspace`;
+  return c.json({ ok: true, shop_id: shop, slug: b.slug ?? null, workspace_url: workspace, cross_host_session: !!sessionCookieDomain(), ...(sandboxToken ? { sandbox_verify_token: sandboxToken } : {}) }, 201);
 });
 accounts.post("/login", async (c) => {
   const b = await readInput(c, credentials);
@@ -361,13 +460,21 @@ accounts.post("/login", async (c) => {
     .bind(b.email)
     .first<{ id: string; password_hash: string; password_salt: string }>();
   const valid = await matches(b.password, u);
+  // On a shop's sub-domain only that shop's team can sign in; on the root host (local dev, legacy)
+  // the first active membership wins as before.
+  const hostSlug = c.req.header(SHOP_HOST_HEADER) || "";
   const m = u
     ? await c.env.DB.prepare(
-        "SELECT m.id,m.shop_id,m.version FROM app_memberships m LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE m.user_id=? AND m.active=1 AND (m.role='OWNER' OR b.active=1)",
+        `SELECT m.id,m.shop_id,m.version,s.slug FROM app_memberships m JOIN shops s ON s.id=m.shop_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE m.user_id=? AND m.active=1 AND (m.role='OWNER' OR b.active=1)${hostSlug ? " AND s.slug=?" : ""} ORDER BY m.role='OWNER' DESC LIMIT 1`,
       )
-        .bind(u.id)
-        .first<{ id: string; shop_id: string; version: number }>()
+        .bind(...(hostSlug ? [u.id, hostSlug] : [u.id]))
+        .first<{ id: string; shop_id: string; version: number; slug: string | null }>()
     : null;
+  if (valid && u && !m && hostSlug) {
+    // Right password, wrong shop address: point them at theirs rather than a bare 401.
+    const theirs = await c.env.DB.prepare("SELECT s.slug FROM app_memberships m JOIN shops s ON s.id=m.shop_id WHERE m.user_id=? AND m.active=1 AND s.slug IS NOT NULL ORDER BY m.role='OWNER' DESC LIMIT 1").bind(u.id).first<{ slug: string }>();
+    if (theirs?.slug) return c.json({ error: "wrong_shop", message: `Your account belongs to a different shop. Sign in at ${theirs.slug}.${rootHost()}.`, workspace_url: `${shopOrigin(theirs.slug, new URL(c.req.url).origin)}/workspace` }, 403);
+  }
   if (!valid || !m || !u)
     return reject(401, "Unable to sign in with these details");
   const session = await newSession(c, m.id, u.password_hash, m.version);
@@ -395,7 +502,7 @@ accounts.post("/logout", async (c) => {
     await c.env.DB.prepare("DELETE FROM app_sessions WHERE token_hash=?")
       .bind(await digest(token))
       .run();
-  deleteCookie(c, ACCOUNT_COOKIE, { path: "/", secure: true });
+  deleteCookie(c, ACCOUNT_COOKIE, { path: "/", secure: true, ...(sessionCookieDomain() ? { domain: sessionCookieDomain() } : {}) });
   for (const name of LEGACY_COOKIES) deleteCookie(c, name, { path: "/", secure: true });
   return c.json({ ok: true });
 });
@@ -433,7 +540,7 @@ async function sendInvite(c: Ctx, shopId: string, inviterUserId: string, inv: { 
   const ms = await msgShop(c, shopId);
   const origin = new URL(c.req.url).origin;
   const inviter = await c.env.DB.prepare("SELECT name FROM app_users WHERE id=?").bind(inviterUserId).first<{ name: string }>();
-  const vars = { inviter: inviter?.name || ms.name, role: inv.role.charAt(0) + inv.role.slice(1).toLowerCase(), link: `${origin}/workspace?invite=${token}` };
+  const vars = { inviter: inviter?.name || ms.name, role: inv.role.charAt(0) + inv.role.slice(1).toLowerCase(), link: `${ms.slug ? shopOrigin(ms.slug, origin) : origin}/workspace?invite=${token}` };
   const opts = { related: { type: "invite", id: inv.id }, origin, force: true as const };
   const stmts = [
     ...(inv.channel === "EMAIL" || inv.channel === "BOTH" ? enqueue(c.env.DB, ms, { email: inv.email }, "staff_invite", vars, { ...opts, channel: "EMAIL" }) : []),
@@ -556,7 +663,7 @@ accounts.get("/invites/peek", async (c) => {
 accounts.post("/accept", async (c) => {
   const b = await readInput(
     c,
-    registration.extend({ token: z.string().min(60).max(100) }).strict(),
+    registration.extend({ token: z.string().min(60).max(100), accept_legal: z.literal(true, { error: "You need to agree to the Terms and Privacy Policy." }) }).strict(),
   );
   await throttle(c, "accept", b.email);
   // Email invites are bound to the address they went to; SMS/link invites take whatever address
@@ -565,7 +672,7 @@ accounts.post("/accept", async (c) => {
     "SELECT i.* FROM staff_invitations i JOIN staff s ON s.shop_id=i.shop_id AND s.id=i.staff_id WHERE i.token_hash=? AND (i.email=? OR i.email LIKE '%@sms.invite') AND i.revoked=0 AND i.accepted_at IS NULL AND i.expires_at>? AND s.active=1",
   )
     .bind(await digest(b.token), b.email, Date.now())
-    .first<{ id: string; shop_id: string; staff_id: string; role: string; invited_by: string }>();
+    .first<{ id: string; shop_id: string; staff_id: string; role: string; invited_by: string; email: string }>();
   if (!invite)
     return reject(400, "Invitation is unavailable or details do not match");
   if (await c.env.DB.prepare("SELECT 1 AS x FROM app_users WHERE email=?").bind(b.email).first())
@@ -604,9 +711,69 @@ accounts.post("/accept", async (c) => {
       membership,
       "STAFF_INVITATION_ACCEPTED",
     ),
+    ...acceptanceStatements(c.env.DB, c, { user_id: user, shop_id: invite.shop_id, subject: "STAFF" }, STAFF_DOCS, { ip_hash: await ipHash(c) }),
   ]);
+  // An email invite already proved the address (the token came from that inbox); SMS/link
+  // invites did not, so those sign-ups get a confirm-email message.
+  const emailInvite = !String(invite.email || "").endsWith("@sms.invite") && invite.email === b.email;
+  const now = Date.now();
+  if (emailInvite) {
+    await c.env.DB.prepare("UPDATE app_users SET email_verified_at=? WHERE id=?").bind(now, user).run();
+  } else {
+    try {
+      const v = await issueEmailVerification(c, { id: user, email: b.email, name: b.name, shop_id: invite.shop_id }, "email_verify", now);
+      await c.env.DB.batch(v.stmts);
+      await drain(c.env.DB, 2, now, { type: "email_verify", id: user }).catch(() => {});
+    } catch (e) {
+      console.error("confirm email failed", e instanceof Error ? e.message : e);
+    }
+  }
   cookies(c, session.raw);
   return c.json({ ok: true }, 201);
+});
+// Confirm-email link: `GET /verify?token=` (page) → `peek` for the copy, then POST to stamp it.
+// Works signed-in or not; on success while signed out the page offers sign-in.
+accounts.get("/verify-email/peek", async (c) => {
+  const token = c.req.query("token") || "";
+  if (token.length < 60) return reject(404, "This confirmation link is not valid.");
+  const row = await c.env.DB.prepare("SELECT v.expires_at,v.used_at,v.email,u.email_verified_at FROM email_verifications v JOIN app_users u ON u.id=v.user_id WHERE v.token_hash=?").bind(await digest(token)).first<{ expires_at: number; used_at: number | null; email: string; email_verified_at: number | null }>();
+  if (!row) return reject(404, "This confirmation link is not valid.");
+  if (row.used_at) return row.email_verified_at ? c.json({ ok: true, already: true, email: row.email }) : reject(404, "This confirmation link has been replaced by a newer one. Use the latest email.");
+  if (row.expires_at <= Date.now()) return reject(409, "This confirmation link has expired. Sign in and ask for a new one.");
+  return c.json({ ok: true, already: false, email: row.email });
+});
+accounts.post("/verify-email", async (c) => {
+  const b = await readInput(c, z.object({ token: z.string().min(60).max(100) }).strict());
+  await throttle(c, "verify", b.token.slice(0, 16));
+  const now = Date.now();
+  const hash = await digest(b.token);
+  const row = await c.env.DB.prepare("SELECT v.user_id,v.email,v.expires_at,v.used_at,u.email AS current_email,m.shop_id FROM email_verifications v JOIN app_users u ON u.id=v.user_id LEFT JOIN app_memberships m ON m.user_id=u.id AND m.active=1 WHERE v.token_hash=?").bind(hash).first<{ user_id: string; email: string; expires_at: number; used_at: number | null; current_email: string; shop_id: string | null }>();
+  if (!row || row.used_at || row.expires_at <= now) return reject(409, "This confirmation link is no longer valid. Sign in and ask for a new one.");
+  // The link confirms the address it was sent to; if the login email changed since, it proves nothing.
+  if (row.email.toLowerCase() !== row.current_email.toLowerCase()) return reject(409, "Your sign-in email has changed since this link was sent. Ask for a new one.");
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE email_verifications SET used_at=? WHERE token_hash=? AND used_at IS NULL").bind(now, hash),
+    c.env.DB.prepare("UPDATE app_users SET email_verified_at=COALESCE(email_verified_at,?) WHERE id=?").bind(now, row.user_id),
+    ...(row.shop_id ? [event(c, row.shop_id, `user:${row.user_id}`, row.user_id, "EMAIL_VERIFIED")] : []),
+  ]);
+  return c.json({ ok: true, email: row.email, signed_in: !!c.get("account") });
+});
+// Re-send from the workspace nudge. Signed-in only; 1/min per user; a fresh token each time.
+accounts.post("/verify-email/resend", async (c) => {
+  await readInput(c, z.object({}).strict());
+  const a = member(c);
+  if (a.email_verified_at) return c.json({ ok: true, already: true });
+  const now = Date.now();
+  const last = await c.env.DB.prepare("SELECT created_at FROM email_verifications WHERE user_id=? ORDER BY created_at DESC LIMIT 1").bind(a.user_id).first<{ created_at: number }>();
+  if (last && now - Number(last.created_at) < 60000) {
+    c.header("Retry-After", "60");
+    return reject(429, "A confirmation email went out less than a minute ago. Check your inbox (and spam), then try again.");
+  }
+  const v = await issueEmailVerification(c, { id: a.user_id, email: a.email, name: a.name, shop_id: a.shop_id }, a.role === "OWNER" ? "owner_welcome" : "email_verify", now);
+  await c.env.DB.batch(v.stmts);
+  await drain(c.env.DB, 2, now, { type: "email_verify", id: a.user_id }).catch(() => {});
+  const ps = providerStatus();
+  return c.json({ ok: true, delivery: ps.email.provider === "mailbox" ? [] : ["email"], ...(ps.email.provider === "mailbox" && demoEnabled(c) ? { sandbox_token: v.token } : {}) });
 });
 accounts.put("/members/:id", async (c) => {
   const a = owner(c);
@@ -660,7 +827,7 @@ accounts.post("/forgot", async (c) => {
     const token = uid() + uid();
     const shop = await msgShop(c, user.shop_id);
     const origin = new URL(c.req.url).origin;
-    const link = `${origin}/reset?token=${token}`;
+    const link = `${shop.slug ? shopOrigin(shop.slug, origin) : origin}/reset?token=${token}`;
     // msgShop's `phone` is the public shop-page number; the verified owner mobile lives on shops.
     const own = user.role === "OWNER" ? await c.env.DB.prepare("SELECT phone, phone_verified_at FROM shops WHERE id=?").bind(user.shop_id).first<{ phone: string; phone_verified_at: number | null }>() : null;
     const ownerPhone = own?.phone_verified_at ? own.phone : "";
@@ -710,6 +877,30 @@ accounts.post("/reset", async (c) => {
   ]);
   cookies(c, session.raw);
   return c.json({ ok: true });
+});
+// ---- Legal acceptance -------------------------------------------------------------------------
+// Which documents this account has agreed to, at which version, and which still need agreeing
+// (after a version bump). The workspace shows a re-accept prompt when `outstanding` is non-empty.
+accounts.get("/legal/status", async (c) => {
+  const a = member(c);
+  const required = a.role === "OWNER" ? OWNER_DOCS : STAFF_DOCS;
+  const outstanding = await outstandingFor(c.env.DB, a.user_id, required);
+  const history = (
+    await c.env.DB.prepare("SELECT document, version, accepted_at FROM legal_acceptances WHERE user_id=? ORDER BY accepted_at DESC LIMIT 50").bind(a.user_id).all<{ document: LegalDoc; version: string; accepted_at: number }>()
+  ).results;
+  return c.json({ required, current: LEGAL_VERSIONS, outstanding, history });
+});
+accounts.post("/legal/accept", async (c) => {
+  const a = member(c);
+  const b = await readInput(c, z.object({ documents: z.array(z.enum(["terms", "privacy", "dpa", "cookies"])).min(1).max(4) }).strict());
+  const required = a.role === "OWNER" ? OWNER_DOCS : STAFF_DOCS;
+  const docs = b.documents.filter((d) => required.includes(d));
+  if (!docs.length) return reject(400, "Nothing to accept for your role.");
+  await c.env.DB.batch([
+    ...acceptanceStatements(c.env.DB, c, { user_id: a.user_id, shop_id: a.shop_id, subject: a.role === "OWNER" ? "OWNER" : "STAFF" }, docs, { ip_hash: await ipHash(c) }),
+    event(c, a.shop_id, `user:${a.user_id}`, a.user_id, "LEGAL_ACCEPTED"),
+  ]);
+  return c.json({ ok: true, outstanding: await outstandingFor(c.env.DB, a.user_id, required) });
 });
 accounts.post("/password", async (c) => {
   const a = member(c);

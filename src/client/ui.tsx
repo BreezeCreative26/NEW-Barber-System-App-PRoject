@@ -82,10 +82,14 @@ import {
   ImagePlus,
   Trash2,
   EyeOff,
+  Image as ImageIcon,
+  Palette,
   type LucideIcon,
 } from "lucide-react";
 
 const icons: Record<string, LucideIcon> = {
+  image: ImageIcon,
+  palette: Palette,
   arrowDown: ArrowDownToLine,
   rows: Rows3,
   arrowLeft: ArrowLeft,

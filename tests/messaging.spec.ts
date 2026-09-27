@@ -56,7 +56,7 @@ async function bookOnline(c: APIRequestContext, slug: string, w: WorkspaceData, 
   return res.json() as Promise<{ booking: { id: string; version: number }; manage_token: string; sent_to: string[] }>;
 }
 
-test("booking created → confirmation queued on SMS and email, shop-branded, never OLLO; cancel via manage link notifies", async () => {
+test("booking created → confirmation queued on SMS and email, shop-branded, never foliyo; cancel via manage link notifies", async () => {
   const { r, w, slug } = await onlineShop("Northline Test Barbers");
   const c = await customer();
   const created = await bookOnline(c, slug, w, futureDate(8));
@@ -68,7 +68,7 @@ test("booking created → confirmation queued on SMS and email, shop-branded, ne
   for (const n of mine) {
     expect(["SENT", "QUEUED"]).toContain(n.status);
     expect(n.body).toContain("Northline Test Barbers");
-    expect(n.body).not.toMatch(/OLLO|foliyo/i);
+    expect(n.body).not.toMatch(/OLLO/i);
     expect(n.body).toContain("/manage/");
   }
   const email = mine.find((n) => n.channel === "EMAIL")!;

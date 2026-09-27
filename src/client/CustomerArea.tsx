@@ -5,9 +5,9 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Avatar, Button, Icon, Notice, StatusPill } from "./ui";
 import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { ReviewCard, type OwnReview } from "./Reviews";
-import { applyThemeColor, themeClass, type ShopBrand } from "./theme";
+import { applyThemeColor, themeClass, type ShopBrand, shopPath } from "./theme";
 
-type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; notes: string; version: number; member_since: number };
+type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; notes: string; version: number; member_since: number; has_password?: boolean; account_email?: string; email_verified?: boolean };
 type Visit = {
   review?: OwnReview;
   can_review?: boolean;
@@ -15,7 +15,7 @@ type Visit = {
   price_pence: number; cancel_hours: number; version: number; can_manage: boolean; late_change: boolean; series_id: string | null; attendee_name?: string; group_id?: string | null; items: { id: string; name: string; price_pence: number }[];
 };
 type Me = {
-  shop: { name: string; slug: string; address: string; timezone: string; currency?: string; cancel_hours: number; lead_time_min: number; today: string; logo_url?: string; brand?: ShopBrand };
+  shop: { name: string; slug: string; address: string; timezone: string; currency?: string; cancel_hours: number; lead_time_min: number; today: string; logo_url?: string; brand?: ShopBrand; google_review_url?: string };
   profile: Profile;
   upcoming: Visit[];
   history: Visit[];
@@ -23,7 +23,7 @@ type Me = {
   next_usual: null | { date: string; start_min: number; price_pence: number };
   staff: { id: string; name: string }[];
   stats: { visits: number; spent_pence: number; first_visit: string | null };
-  waiting: { id: string; date: string; daypart: string; status: "OPEN" | "OFFERED"; version: number; service_name: string; staff_name: string | null; offer_start_min: number | null; offer_expires_at: number | null; offer_staff_name: string | null }[];
+  waiting: { id: string; date: string; date_to?: string; daypart: string; from_min?: number; to_min?: number; status: "OPEN" | "OFFERED"; version: number; service_name: string; staff_name: string | null; offer_start_min: number | null; offer_date?: string | null; offer_expires_at: number | null; offer_staff_name: string | null }[];
 };
 class ApiError extends Error {
   constructor(message: string, public status: number, public code = "") {
@@ -37,6 +37,14 @@ async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> 
   return json as T;
 }
 const initials = (n: string) => n.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
+// Preset windows read as words; a customer's own window as HH:MM–HH:MM.
+function windowLabel(e: { daypart: string; from_min?: number; to_min?: number }) {
+  const words: Record<string, string> = { ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" };
+  const preset: Record<string, [number, number]> = { ANY: [0, 1440], MORNING: [0, 720], AFTERNOON: [720, 1020], EVENING: [1020, 1440] };
+  if (e.from_min == null || e.to_min == null) return words[e.daypart] ?? "any time";
+  for (const k of Object.keys(preset)) if (preset[k][0] === e.from_min && preset[k][1] === e.to_min) return words[k];
+  return `${time(e.from_min)}–${time(Math.min(e.to_min, 1439))}`;
+}
 const statusLabel: Record<string, { text: string; tone: "good" | "next" | "paid" | "warn" | "note" }> = {
   CONFIRMED: { text: "Confirmed", tone: "good" },
   CHECKED_IN: { text: "Checked in", tone: "next" },
@@ -102,12 +110,12 @@ export function CustomerArea({ slug }: { slug: string }) {
   return (
     <div className={themeClass(me.shop.brand, "customer-area")} data-testid="customer-area">
       <header className="sp-nav">
-        <a className="sp-brand" href={`/${me.shop.slug}`}>
+        <a className="sp-brand" href={shopPath(me.shop.slug, "/")}>
           {me.shop.logo_url ? <img className="shop-emblem shop-logo" src={me.shop.logo_url} alt="" /> : <span className="shop-emblem">{initials(me.shop.name)}</span>}
           <strong>{me.shop.name}</strong>
         </a>
         <nav aria-label="Account">
-          <a href={`/${me.shop.slug}#book`}>Book</a>
+          <a href={shopPath(me.shop.slug, "/", "#book")}>Book</a>
         </nav>
         <button type="button" className="button secondary" onClick={signOut} data-testid="sign-out">
           <Icon name="logout" size={15} /> Sign out
@@ -130,6 +138,7 @@ export function CustomerArea({ slug }: { slug: string }) {
             <span role="status">{notice}</span>
           </Notice>
         )}
+        <AppCard slug={me.shop.slug} A={A} shopName={me.shop.name} hasPassword={!!me.profile.has_password} onSetPassword={() => setTab("profile")} />
         <div className="ca-tabs" role="tablist" aria-label="Account sections">
           <button type="button" role="tab" aria-selected={tab === "visits"} onClick={() => setTab("visits")} data-testid="tab-visits">
             <Icon name="calendar" size={15} /> Visits
@@ -155,11 +164,20 @@ export function CustomerArea({ slug }: { slug: string }) {
   );
 }
 
+type SignInMode = "login" | "register" | "forgot" | "code" | "code-verify" | "reset" | "sent";
 function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => void }) {
+  const params = new URLSearchParams(location.search);
+  const resetToken = params.get("reset") || params.get("welcome") || "";
+  const isWelcome = params.has("welcome");
+  const [mode, setMode] = useState<SignInMode>(resetToken ? "reset" : "login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
+  const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
-  const [stage, setStage] = useState<"phone" | "code">("phone");
   const [shownCode, setShownCode] = useState("");
+  const [sandboxToken, setSandboxToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [shopName, setShopName] = useState("");
@@ -178,38 +196,69 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
       })
       .catch(() => {});
   }, [slug]);
-  async function start(e: FormEvent) {
-    e.preventDefault();
+  const go = (m: SignInMode) => { setMode(m); setError(""); };
+  async function run(fn: () => Promise<void>, fallback: string) {
     setBusy(true);
     setError("");
-    try {
-      const r = await api<{ sandbox_code?: string; delivery: "sms" | "on_screen" }>(`${A}/start`, "POST", { phone });
-      setShownCode(r.delivery === "sms" ? "" : r.sandbox_code || "");
-      setStage("code");
-      setTimeout(() => codeRef.current?.focus(), 30);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send a code.");
-    } finally {
-      setBusy(false);
-    }
+    try { await fn(); } catch (err) { setError(err instanceof Error ? err.message : fallback); } finally { setBusy(false); }
   }
-  async function verify(e: FormEvent) {
+  const finish = () => {
+    if (resetToken) history.replaceState(null, "", location.pathname);
+    onDone();
+  };
+  const login = (e: FormEvent) => { e.preventDefault(); run(async () => { await api(`${A}/login`, "POST", { email, password }); finish(); }, "Could not sign in."); };
+  const register = (e: FormEvent) => {
     e.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await api(`${A}/verify`, "POST", { phone, code });
-      onDone();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not verify the code.");
-    } finally {
-      setBusy(false);
-    }
-  }
+    if (password !== password2) { setError("The two passwords don't match."); return; }
+    run(async () => { await api(`${A}/register`, "POST", { name, phone, email, password }); finish(); }, "Could not create your account.");
+  };
+  const forgot = (e: FormEvent) => { e.preventDefault(); run(async () => { const r = await api<{ sandbox_token?: string }>(`${A}/forgot`, "POST", { email }); setSandboxToken(r.sandbox_token || ""); go("sent"); }, "Could not send the link."); };
+  const reset = (e: FormEvent) => {
+    e.preventDefault();
+    if (password !== password2) { setError("The two passwords don't match."); return; }
+    run(async () => { await api(`${A}/reset`, "POST", { token: resetToken || sandboxToken, password }); finish(); }, "Could not set your password.");
+  };
+  const startCode = (e: FormEvent) => { e.preventDefault(); run(async () => { const r = await api<{ sandbox_code?: string; delivery: "sms" | "on_screen" }>(`${A}/start`, "POST", { phone }); setShownCode(r.delivery === "sms" ? "" : r.sandbox_code || ""); go("code-verify"); setTimeout(() => codeRef.current?.focus(), 30); }, "Could not send a code."); };
+  const verifyCode = (e: FormEvent) => { e.preventDefault(); run(async () => { await api(`${A}/verify`, "POST", { phone, code }); finish(); }, "Could not verify the code."); };
+
+  const title: Record<SignInMode, string> = {
+    login: "Sign in.",
+    register: "Create your account.",
+    forgot: "Forgot your password?",
+    sent: "Check your email.",
+    reset: isWelcome ? "Choose a password." : "Choose a new password.",
+    code: "Sign in with a text code.",
+    "code-verify": "Enter your code.",
+  };
+  const lead: Record<string, string> = {
+    login: `See upcoming visits, move or cancel them, and rebook your usual in one tap${shopName ? ` at ${shopName}` : ""}.`,
+    register: "Your account keeps every visit in one place and lets you add this shop to your home screen for reminders.",
+    forgot: "Enter the email on your account and we'll send a link to choose a new password. It lasts 30 minutes.",
+    sent: `If there's an account for ${email}, a reset link is on its way. It lasts 30 minutes.`,
+    reset: isWelcome ? "Your account was created when you booked. Set a password to finish — you'll use your email and this password to sign in." : "Your other devices will be signed out.",
+    code: "No password? We text a 6-digit code to the mobile you booked with. You can set a password once you're in.",
+    "code-verify": `Code for ${phone}. It lasts ten minutes.`,
+  };
+  const Err = () => (error ? <p className="form-error" role="alert">{error}</p> : null);
+  const PasswordFields = ({ confirm }: { confirm: boolean }) => (
+    <>
+      <label>
+        <span>{confirm ? "Password" : "Password"}</span>
+        <input type="password" autoComplete={confirm ? "new-password" : "current-password"} minLength={confirm ? 8 : 1} value={password} onChange={(e) => setPassword(e.target.value)} required data-testid="signin-password" />
+        {confirm && <small className="ca-hint">At least 8 characters.</small>}
+      </label>
+      {confirm && (
+        <label>
+          <span>Repeat password</span>
+          <input type="password" autoComplete="new-password" minLength={8} value={password2} onChange={(e) => setPassword2(e.target.value)} required data-testid="signin-password2" />
+        </label>
+      )}
+    </>
+  );
   return (
     <div className={themeClass(shopBrand, "customer-area")} data-testid="customer-signin">
       <header className="sp-nav">
-        <a className="sp-brand" href={`/${slug}`}>
+        <a className="sp-brand" href={shopPath(slug, "/")}>
           {shopBrand?.logo_url ? <img className="shop-emblem shop-logo" src={shopBrand.logo_url} alt="" /> : <span className="shop-emblem">{shopName ? initials(shopName) : "··"}</span>}
           <strong>{shopName || "Back to the shop"}</strong>
         </a>
@@ -217,61 +266,240 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
       <main id="main-content" className="ca-main ca-signin">
         <div className="ca-card">
           <span className="eyebrow">YOUR VISITS</span>
-          <h1>{stage === "phone" ? "Sign in with your mobile." : "Enter your code."}</h1>
-          <p className="ca-lead">
-            {stage === "phone"
-              ? "No password. We send a 6-digit code to your mobile; enter it and you are in. See upcoming visits, move or cancel them, and rebook your usual in one tap."
-              : `Code for ${phone}. It lasts ten minutes.`}
-          </p>
-          {stage === "phone" ? (
-            <form onSubmit={start} className="ca-form">
+          <h1>{title[mode]}</h1>
+          <p className="ca-lead">{lead[mode]}</p>
+
+          {mode === "login" && (
+            <form onSubmit={login} className="ca-form" data-testid="login-form">
               <label>
-                <span>Mobile number</span>
-                <input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07700 900123" required data-testid="signin-phone" />
+                <span>Email</span>
+                <input type="email" inputMode="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="signin-email" />
               </label>
-              {error && (
-                <p className="form-error" role="alert">
-                  {error}
-                </p>
-              )}
-              <Button type="submit" disabled={busy} data-testid="signin-send">
-                {busy ? "Sending…" : "Send code"} <Icon name="arrowRight" size={16} />
-              </Button>
+              <PasswordFields confirm={false} />
+              <Err />
+              <Button type="submit" disabled={busy} data-testid="signin-submit">{busy ? "Signing in…" : "Sign in"} <Icon name="arrowRight" size={16} /></Button>
+              <div className="ca-links">
+                <button type="button" className="link" onClick={() => go("forgot")} data-testid="signin-forgot">Forgot password?</button>
+                <button type="button" className="link" onClick={() => go("code")} data-testid="signin-use-code">Text me a code instead</button>
+              </div>
+              <p className="ca-switch">New here? <button type="button" className="link" onClick={() => go("register")} data-testid="signin-register">Create an account</button></p>
             </form>
-          ) : (
-            <form onSubmit={verify} className="ca-form">
-              {shownCode ? (
-                <Notice icon="shield" tone="info">
-                  <strong>Preview mode:</strong> your code is <code data-testid="shown-code">{shownCode}</code>.
-                </Notice>
+          )}
+
+          {mode === "register" && (
+            <form onSubmit={register} className="ca-form" data-testid="register-form">
+              <label><span>Your name</span><input type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required minLength={2} data-testid="register-name" /></label>
+              <label><span>Mobile number</span><input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07700 900123" required data-testid="register-phone" /><small className="ca-hint">Reminders go here by text.</small></label>
+              <label><span>Email</span><input type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="register-email" /><small className="ca-hint">You'll sign in with this.</small></label>
+              <PasswordFields confirm />
+              <Err />
+              <Button type="submit" disabled={busy} data-testid="register-submit">{busy ? "Creating…" : "Create account"} <Icon name="arrowRight" size={16} /></Button>
+              <p className="ca-switch">Already have one? <button type="button" className="link" onClick={() => go("login")}>Sign in</button></p>
+            </form>
+          )}
+
+          {mode === "forgot" && (
+            <form onSubmit={forgot} className="ca-form" data-testid="forgot-form">
+              <label><span>Email</span><input type="email" inputMode="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="forgot-email" /></label>
+              <Err />
+              <div className="ca-form-actions">
+                <Button variant="ghost" onClick={() => go("login")}>Back</Button>
+                <Button type="submit" disabled={busy} data-testid="forgot-submit">{busy ? "Sending…" : "Send reset link"}</Button>
+              </div>
+            </form>
+          )}
+
+          {mode === "sent" && (
+            <div className="ca-form">
+              {sandboxToken ? (
+                <Notice icon="shield" tone="info"><strong>Preview mode:</strong> no email provider is set up, so <button type="button" className="link" onClick={() => go("reset")} data-testid="sandbox-reset-link">open the reset link here</button>.</Notice>
               ) : (
-                <Notice icon="message" tone="info">
-                  We've texted a 6-digit code to <strong>{phone}</strong>. It expires in 10 minutes.
-                </Notice>
+                <Notice icon="message" tone="info">Didn't get it? Check spam, or <button type="button" className="link" onClick={() => go("code")}>sign in with a text code</button>.</Notice>
+              )}
+              <Button variant="ghost" onClick={() => go("login")}>Back to sign in</Button>
+            </div>
+          )}
+
+          {mode === "reset" && (
+            <form onSubmit={reset} className="ca-form" data-testid="reset-form">
+              <PasswordFields confirm />
+              <Err />
+              <Button type="submit" disabled={busy} data-testid="reset-submit">{busy ? "Saving…" : isWelcome ? "Set password and sign in" : "Save new password"}</Button>
+            </form>
+          )}
+
+          {mode === "code" && (
+            <form onSubmit={startCode} className="ca-form" data-testid="code-form">
+              <label><span>Mobile number</span><input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07700 900123" required data-testid="signin-phone" /></label>
+              <Err />
+              <div className="ca-form-actions">
+                <Button variant="ghost" onClick={() => go("login")}>Back</Button>
+                <Button type="submit" disabled={busy} data-testid="signin-send">{busy ? "Sending…" : "Send code"} <Icon name="arrowRight" size={16} /></Button>
+              </div>
+            </form>
+          )}
+
+          {mode === "code-verify" && (
+            <form onSubmit={verifyCode} className="ca-form">
+              {shownCode ? (
+                <Notice icon="shield" tone="info"><strong>Preview mode:</strong> your code is <code data-testid="shown-code">{shownCode}</code>.</Notice>
+              ) : (
+                <Notice icon="message" tone="info">We've texted a 6-digit code to <strong>{phone}</strong>. It expires in 10 minutes.</Notice>
               )}
               <label>
                 <span>6-digit code</span>
                 <input ref={codeRef} type="text" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} required data-testid="signin-code" />
               </label>
-              {error && (
-                <p className="form-error" role="alert">
-                  {error}
-                </p>
-              )}
+              <Err />
               <div className="ca-form-actions">
-                <Button variant="ghost" onClick={() => { setStage("phone"); setCode(""); setError(""); }}>
-                  Different number
-                </Button>
-                <Button type="submit" disabled={busy || code.length !== 6} data-testid="signin-verify">
-                  {busy ? "Checking…" : "Sign in"}
-                </Button>
+                <Button variant="ghost" onClick={() => { go("code"); setCode(""); }}>Different number</Button>
+                <Button type="submit" disabled={busy || code.length !== 6} data-testid="signin-verify">{busy ? "Checking…" : "Sign in"}</Button>
               </div>
             </form>
           )}
-          <p className="ca-fine">Signing in creates a customer account for this shop only. Delete it any time from your profile.</p>
+          <p className="ca-fine">Your account is for this shop's bookings. Delete it any time from your profile.</p>
         </div>
       </main>
     </div>
+  );
+}
+
+// ---- Installed app: home-screen install + notifications ----------------------------------
+type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
+const standalone = () => (typeof matchMedia !== "undefined" && matchMedia("(display-mode: standalone)").matches) || (navigator as unknown as { standalone?: boolean }).standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !/crios|fxios/i.test(navigator.userAgent);
+function urlB64ToUint8Array(b64: string) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from([...raw].map((ch) => ch.charCodeAt(0)));
+}
+// Registers the shared worker at this shop's scope so the installed app is per shop.
+export async function registerShopWorker(slug: string) {
+  if (!("serviceWorker" in navigator)) return null;
+  try { return await navigator.serviceWorker.register("/sw.js", { scope: `/${slug}/` }); } catch { return null; }
+}
+function AppCard({ slug, A, shopName, hasPassword, onSetPassword }: { slug: string; A: string; shopName: string; hasPassword: boolean; onSetPassword: () => void }) {
+  const [installEvt, setInstallEvt] = useState<InstallEvent | null>(null);
+  const [installed, setInstalled] = useState(standalone());
+  const [push, setPush] = useState<{ enabled: boolean; public_key: string; subscribed: boolean; permission: NotificationPermission | "unsupported" } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [dismissed, setDismissed] = useState(() => localStorage.getItem(`foliyo:${slug}:install-dismissed`) === "1");
+  useEffect(() => {
+    registerShopWorker(slug);
+    const onPrompt = (e: Event) => { e.preventDefault(); setInstallEvt(e as InstallEvent); };
+    const onInstalled = () => setInstalled(true);
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => { window.removeEventListener("beforeinstallprompt", onPrompt); window.removeEventListener("appinstalled", onInstalled); };
+  }, [slug]);
+  useEffect(() => {
+    (async () => {
+      const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+      let endpoint = "";
+      if (supported) {
+        const reg = await navigator.serviceWorker.getRegistration(`/${slug}/`);
+        const sub = await reg?.pushManager.getSubscription();
+        endpoint = sub?.endpoint || "";
+      }
+      const r = await api<{ enabled: boolean; public_key: string; subscribed: boolean }>(`${A}/push${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ""}`).catch(() => null);
+      if (r) setPush({ ...r, permission: supported ? Notification.permission : "unsupported" });
+    })();
+  }, [A, slug]);
+  async function install() {
+    if (!installEvt) return;
+    await installEvt.prompt();
+    const { outcome } = await installEvt.userChoice;
+    if (outcome === "accepted") setInstalled(true);
+    setInstallEvt(null);
+  }
+  async function togglePush() {
+    if (!push || !push.enabled || push.permission === "unsupported") return;
+    setBusy(true);
+    try {
+      const reg = (await navigator.serviceWorker.getRegistration(`/${slug}/`)) || (await registerShopWorker(slug));
+      if (!reg) return;
+      await navigator.serviceWorker.ready;
+      if (push.subscribed) {
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) { await api(`${A}/push`, "DELETE", { endpoint: sub.endpoint }); await sub.unsubscribe(); }
+        setPush({ ...push, subscribed: false });
+      } else {
+        const perm = await Notification.requestPermission();
+        if (perm !== "granted") { setPush({ ...push, permission: perm }); return; }
+        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(push.public_key) });
+        const j = sub.toJSON();
+        await api(`${A}/push`, "POST", { endpoint: sub.endpoint, keys: { p256dh: j.keys!.p256dh, auth: j.keys!.auth } });
+        setPush({ ...push, subscribed: true, permission: "granted" });
+      }
+    } catch { /* leave state */ } finally { setBusy(false); }
+  }
+  const showInstall = !installed && !dismissed && (installEvt || isIOS());
+  if (!showInstall && !(push?.enabled && push.permission !== "unsupported") && hasPassword) return null;
+  return (
+    <section className="ca-app" data-testid="app-card" aria-label="Shop app">
+      {!hasPassword && (
+        <div className="ca-app-row">
+          <Icon name="lock" size={18} />
+          <div>
+            <strong>Finish your account</strong>
+            <p>Set a password so you can sign in with your email from any device.</p>
+          </div>
+          <Button variant="secondary" onClick={onSetPassword} data-testid="set-password-cta">Set password</Button>
+        </div>
+      )}
+      {showInstall && (
+        <div className="ca-app-row">
+          <Icon name="phone" size={18} />
+          <div>
+            <strong>Add {shopName} to your home screen</strong>
+            <p>{installEvt ? "One tap to your visits, and reminders as notifications." : "In Safari tap Share, then \u201cAdd to Home Screen\u201d."}</p>
+          </div>
+          {installEvt ? <Button onClick={install} data-testid="install-app">Install</Button> : null}
+          <button type="button" className="link small" onClick={() => { localStorage.setItem(`foliyo:${slug}:install-dismissed`, "1"); setDismissed(true); }} aria-label="Dismiss">Not now</button>
+        </div>
+      )}
+      {push?.enabled && push.permission !== "unsupported" && (
+        <div className="ca-app-row">
+          <Icon name="bell" size={18} />
+          <div>
+            <strong>Notifications</strong>
+            <p>{push.permission === "denied" ? "Blocked in your browser settings for this site." : push.subscribed ? "On for this device: confirmations, changes and reminders." : "Get confirmations, changes and reminders on this device."}</p>
+          </div>
+          {push.permission !== "denied" && (
+            <Button variant={push.subscribed ? "secondary" : "primary"} onClick={togglePush} disabled={busy} data-testid="push-toggle">{push.subscribed ? "Turn off" : "Turn on"}</Button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+function PasswordPanel({ me, A, onSaved }: { me: Me; A: string; onSaved: (msg: string) => void }) {
+  const [current, setCurrent] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const has = !!me.profile.has_password;
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (pw !== pw2) { setError("The two passwords don't match."); return; }
+    setBusy(true); setError("");
+    try {
+      await api(`${A}/password`, "PUT", { current, password: pw });
+      setCurrent(""); setPw(""); setPw2("");
+      onSaved(has ? "Password changed." : "Password set. You can now sign in with your email.");
+    } catch (err) { setError(err instanceof Error ? err.message : "Could not save."); } finally { setBusy(false); }
+  }
+  return (
+    <form className="ca-form ca-password" onSubmit={save} data-testid="password-form">
+      <h3>{has ? "Change password" : "Set a password"}</h3>
+      <p>{has ? "Use at least 8 characters." : "Sign in with your email and a password from any device. At least 8 characters."}</p>
+      {has && <label><span>Current password</span><input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required data-testid="pw-current" /></label>}
+      <label><span>New password</span><input type="password" autoComplete="new-password" minLength={8} value={pw} onChange={(e) => setPw(e.target.value)} required data-testid="pw-new" /></label>
+      <label><span>Repeat new password</span><input type="password" autoComplete="new-password" minLength={8} value={pw2} onChange={(e) => setPw2(e.target.value)} required data-testid="pw-new2" /></label>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <div className="ca-form-actions start"><Button type="submit" variant="secondary" disabled={busy} data-testid="pw-save">{busy ? "Saving…" : has ? "Change password" : "Set password"}</Button></div>
+    </form>
   );
 }
 
@@ -282,7 +510,7 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
   const book = (q: Record<string, string | number | undefined>) => {
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") params.set(k, String(v));
-    location.href = `/${me.shop.slug}?${params.toString()}#book`;
+    location.href = shopPath(me.shop.slug, "/", `?${params.toString()}#book`);
   };
   const history = showAll ? me.history : me.history.slice(0, 6);
   return (
@@ -312,24 +540,24 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
           </div>
         </section>
       )}
-      {me.waiting?.length > 0 && (
-        <section className="ca-section" aria-labelledby="waiting-heading" data-testid="waiting-list">
-          <div className="sp-section-head">
-            <h2 id="waiting-heading">Waiting list</h2>
-            <p>Days you asked to be told about. When a time opens we message you a link to take it.</p>
-          </div>
+      <section className="ca-section" aria-labelledby="waiting-heading" data-testid="waiting-list">
+        <div className="sp-section-head">
+          <h2 id="waiting-heading">Waiting list</h2>
+          <p>{me.waiting?.length ? "Days you asked to be told about. When a time opens we message you a link to take it." : "Nothing at the moment. If the day you want is full, join the list from the booking page and we’ll text you when a time opens."}</p>
+        </div>
+        {me.waiting?.length > 0 ? (
           <ul className="ca-visits">
             {me.waiting.map((wt) => (
               <li key={wt.id} className="ca-visit">
                 <div className="ca-visit-when">
-                  <b>{dateLabel(wt.date)}</b>
-                  <span>{{ ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" }[wt.daypart]}</span>
+                  <b>{wt.date_to && wt.date_to !== wt.date ? `${dateLabel(wt.date, { day: "numeric", month: "short" })} – ${dateLabel(wt.date_to, { day: "numeric", month: "short" })}` : dateLabel(wt.date)}</b>
+                  <span>{windowLabel(wt)}</span>
                 </div>
                 <div className="ca-visit-what">
                   <b>{wt.service_name}</b>
                   <span>
                     {wt.staff_name ? `with ${wt.staff_name}` : "any barber"}
-                    {wt.status === "OFFERED" && wt.offer_start_min != null && ` · offered ${time(wt.offer_start_min)}${wt.offer_staff_name ? ` with ${wt.offer_staff_name.split(" ")[0]}` : ""} — check your messages`}
+                    {wt.status === "OFFERED" && wt.offer_start_min != null && ` · offered ${wt.offer_date && wt.offer_date !== wt.date ? `${dateLabel(wt.offer_date, { weekday: "short", day: "numeric", month: "short" })} ` : ""}${time(wt.offer_start_min)}${wt.offer_staff_name ? ` with ${wt.offer_staff_name.split(" ")[0]}` : ""} — check your messages`}
                   </span>
                 </div>
                 <StatusPill tone={wt.status === "OFFERED" ? "next" : "note"}>{wt.status === "OFFERED" ? "Time offered" : "Waiting"}</StatusPill>
@@ -348,8 +576,12 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
               </li>
             ))}
           </ul>
-        </section>
-      )}
+        ) : (
+          <div className="ca-visit-actions">
+            <a className="button secondary" href={shopPath(me.shop.slug, "/book")} data-testid="waiting-empty-book">Book a visit</a>
+          </div>
+        )}
+      </section>
       <section className="ca-section" aria-labelledby="upcoming-heading">
         <div className="sp-section-head">
           <h2 id="upcoming-heading">Upcoming</h2>
@@ -425,9 +657,9 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
                     compact
                     review={v.review ?? null}
                     canReview={!!v.can_review}
+                    googleUrl={me.shop.google_review_url || ""}
                     post={async (rating, body) => {
-                      const r = await api<{ review: OwnReview }>(`/bookings/${v.id}/review`, "POST", { rating, body });
-                      return r.review;
+                      return api<{ review: OwnReview; google_review_url?: string }>(`/bookings/${v.id}/review`, "POST", { rating, body });
                     }}
                   />
                 )}
@@ -614,7 +846,7 @@ function ProfileForm({ me, A, onSaved, onDeleted }: { me: Me; A: string; onSaved
     <section className="ca-section" aria-labelledby="profile-heading">
       <div className="sp-section-head">
         <h2 id="profile-heading">Your profile</h2>
-        <p>Shared with {me.shop.name} only. Your mobile ({p.phone}) is how you sign in.</p>
+        <p>Shared with {me.shop.name} only. You sign in with {p.account_email || "your email"}; reminders go to {p.phone}.</p>
       </div>
       <form className="ca-form ca-profile" onSubmit={save} data-testid="profile-form">
         <label>
@@ -622,8 +854,8 @@ function ProfileForm({ me, A, onSaved, onDeleted }: { me: Me; A: string; onSaved
           <input value={form.name} onChange={(e) => set("name", e.target.value)} required minLength={2} maxLength={100} data-testid="profile-name" />
         </label>
         <label>
-          <span>Email (optional)</span>
-          <input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} maxLength={254} />
+          <span>Email</span>
+          <input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} maxLength={254} required />
         </label>
         <label>
           <span>Birthday (optional)</span>
@@ -660,6 +892,7 @@ function ProfileForm({ me, A, onSaved, onDeleted }: { me: Me; A: string; onSaved
         </div>
       </form>
       <div className="ca-privacy">
+        <PasswordPanel me={me} A={A} onSaved={onSaved} />
         <h3>Your data</h3>
         <p>Download everything this shop holds about you, or delete your online account. Deleting removes sign-in and your account; the shop keeps its own visit records as required for its books.</p>
         <div className="ca-form-actions start">

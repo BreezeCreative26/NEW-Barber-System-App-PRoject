@@ -1,5 +1,28 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-09-27 — Customer experience audit + fixes
+- `docs/CX_AUDIT.md`: walked shop page → booking → confirmation → passwordless sign-in → account (usual / upcoming / history / profile) → waiting list, on phone and laptop; screenshots in `docs/evidence/cx/`. Zero console errors. Shop scoping of accounts confirmed. Verdict: shop page, account area and manage link are commercial grade; booking flow had four rough edges, all fixed:
+  1. "Live shop prices · no payment taken" test-era copy removed from the booking summary.
+  2. Time step no longer opens on a closed/full "today": the first useful day in the week is selected until the customer picks one (`pickedDate`).
+  3. Booking hero collapses to a compact strip after step 1 on phones (`.booking-hero-compact`) so steps 2–5 start above the fold.
+  4. Confirmation: raw 90-char manage URL replaced by an "Open my booking" button; new "All your visits in one place → See my visits" card links to `/<slug>/me` (hidden when already signed in). Privacy line moved to the correct (details) step.
+- Tests updated to `open-manage`; customer-facing suites 34 passed / 1 skipped.
+
+## 2026-09-27 — GDPR framework: legal documents, recorded acceptance, right to erasure
+- **Documents** in `src/server/legal.ts`, versioned (`LEGAL_VERSIONS`), server-rendered at `/legal/terms|privacy|dpa|cookies` (indexable, print-friendly, wordmark header). Terms of Service · Privacy Policy (two hats: controller for owner/staff account data, processor for shop customers) · Data Processing Agreement (Art. 28 terms, Schedule 1 sub-processors, Schedule 2 TOMs) · Cookie Policy (strictly-necessary only, no banner needed under PECR). `SUB_PROCESSORS` is the single list (Supabase, Vercel, Stripe, Resend, ClickSend, Infobip, ElevenLabs, Sentry). **Drafts — solicitor review before launch**; `COMPANY` has TODOs for registered name, office, ICO number.
+- **Acceptance** (`legal_acceptances`, migration 0026): signup requires `accept_legal: true` (Terms + Privacy + DPA), invite-accept requires it (Terms + Privacy); each stores document, version, time, SHA-256 of IP, user-agent. `GET /auth/legal/status` returns required / current / outstanding / history — the workspace can re-prompt after a version bump; `POST /auth/legal/accept`. Audit `LEGAL_ACCEPTED`. Checkbox with links on the signup and invite forms (`accept-legal`).
+- **Customer-facing**: privacy line on the booking details step naming the shop as controller; Privacy/Terms links in the booking, shop-page and landing footers (underlined — axe `link-in-text-block`).
+- **Right to erasure** `POST /customers/:id/erase` (owner/manager, reason ≥3 chars, version-checked, refuses if upcoming appointments): blanks the customer row (name → "Erased customer", phone → opaque `erased:` token to keep the unique index, email/notes/tags/birthday/preferred/marketing cleared, `erased_at` set), their bookings (name/phone/email/attendee/notes), waiting-list entries, standing series, review display names, message-log recipients, pay-link `sent_to`; deletes OTPs, customer sessions and the shop's link to their online account. Rows stay so visits, takings and pay runs still add up. Transaction-scoped `ollo.erase` flag lets the notifications/reviews immutability triggers permit exactly those two blanks. Audit `CUSTOMER_ERASED`. UI: Customers → profile → "Erase personal data" with reason; erased marker afterwards; merge hidden.
+- `legal` reserved slug. Tests: `tests/legal.spec.ts` (3) — pages/footer/404/sub-processors; signup gate (API 400 ×2, browser `required`, status/accept, audit); erasure end-to-end incl. 409 on repeat and 403 for barbers. Suites updated for the checkbox/flag (accounts, setup, verify-email, landing, shop.ts); inventories +2 routes. Unit 71/71; legal + accounts + setup + verify + landing + sandbox + public + shop-page + booking-upgrades + customer-account: 72 passed / 1 skipped.
+- Not built (next): owner-side "erase my shop" (account deletion flow with 30-day export window); customer-facing cookie/legal links inside `/<slug>/me`; re-accept prompt UI in the workspace when `outstanding` is non-empty (API exists); DPIA template; breach-response runbook doc.
+
+## 2026-09-27 — Email branding audit + login-email verification
+- **Brand rule:** the foliyo *wordmark* is the logo everywhere; the clock mark is for favicon / app icon only. Landing mockups (calendar side rail, WhatsApp header) swapped to the wordmark; platform emails use `png/foliyo-wordmark-ink-800.png`.
+- **Emails:** `EMAIL_ACCENTS` now equal the six light-mode accents in `shop-theme.css` (default was near-black, now foliyo green) with a 6 px accent bar; test fails on drift. `platformSender()` makes foliyo → owner mail (invoice, credit note, trial/overdue/read-only, broadcast, admin digest, one-time sign-in link, welcome) carry the foliyo wordmark + company footer instead of the recipient shop's logo.
+- **Verification:** migration `0025_email_verification.sql`; `owner_welcome` (as foliyo, mentions trial) at signup; `email_verify` (as shop) for SMS/link-invited staff and re-sends; email-invited staff auto-verified. Routes `GET /auth/verify-email/peek`, `POST /auth/verify-email`, `POST /auth/verify-email/resend` (1/min). `/verify` page (`VerifyEmail.tsx`) works signed-out; `VerifyEmailNudge` banner with Resend / Later; `Account.email_verified_at`; audit `EMAIL_VERIFIED`; `verify` reserved slug. Nothing is gated on it yet.
+- **Tests:** `tests/email-templates.test.ts` renders all 32 templates × 2 channels × shop/platform sender — no placeholder leaks, sender named in SMS, absolute CTAs, shop mail never names foliyo, platform mail has wordmark + footer, escaping, accent parity — and writes `docs/evidence/emails/*.html|png`. `tests/verify-email.spec.ts` e2e. Drift fixed: root landing test, `setup.spec` strict-mode, `accounts.spec` inventory + "My pay" nav. Unit 71/71; accounts + verify + setup + messaging + landing e2e green.
+- **Ops:** run `npm run db:migrate` on Supabase with the deploy (0025). Sandbox now has local Postgres 17 + Playwright for the full gate.
+
 ## Latest — platform move: Cloudflare Pages + D1 → Next.js + Postgres (Supabase) (2026-09-16)
 
 - **Decision** in `DIRECTION.md` (replaces `AGENTS.md`): SaaS needs cron, Postgres, the Node ecosystem and push-to-deploy. Cloudflare kept for DNS/custom domains later.
@@ -84,11 +107,11 @@
 - Verified: tsc, build, full Playwright **123 passed / 1 skipped / 0 failed**.
 - Slowest remaining tests are the 5-width responsive loops (7–9 s each ×15) and the 503-record pagination case (20 s); candidates for trimming if the gate needs to get faster.
 
-## Earlier — OLLO rebrand (2026-09-14)
+## Earlier — foliyo rebrand (2026-09-14)
 
 - Logo supplied by the user (calendar-bot mark in periwinkle `#6985e8` on cream, navy `#181b2a` wordmark). Saved to `public/static/brand/` (source PNG, transparent PNG, hand-drawn `ollo-mark.svg` used for favicon, sidebar brand and "Powered by" chips).
 - Palette: `:root` tokens re-pointed (`--accent #4a5fd9`, `--accent-dark #3546b4`, `--ink #181b2a`, `--muted #5b6178`, `--line #e2e4ee`, `--canvas #f5f6fb`, new `--ollo`, `--ollo-soft`, `--cream`). ~370 hard-coded forest/sage hexes were hue-rotated to the brand hue with lightness preserved; over-dark navies lifted into the accent range; hero uses an accent gradient. Enum calendar colours and semantic status tones were protected so bookings still read the same.
-- Brand strings: titles, theme-color, `.ics` PRODID/UID domain, "Booked with OLLO", `Brand` component and public "Powered by OLLO". `localStorage` key `barbershop-os:customer` deliberately kept so returning testers keep saved details.
+- Brand strings: titles, theme-color, `.ics` PRODID/UID domain, "Booked with foliyo", `Brand` component and public "Powered by foliyo". `localStorage` key `barbershop-os:customer` deliberately kept so returning testers keep saved details.
 - Contrast: eleven small-text-on-blue pairs failed AA after the rotation (in-chair card, on-dark badge, week strip, nav count, method chip); fixed to white / accent-dark. axe clean on entry, calendar (1440/390), service studio, public booking (1440/390) and the preview fixtures.
 - Verification: tsc, build, targeted a11y suites 22/22, preview suite 25/25, **full Playwright 123 passed / 1 skipped / 0 failed**. Evidence `docs/evidence/v5-ollo-{entry,calendar,services,public,calendar-390,public-390}.png`.
 - Why builds feel slow: the Vite build is ~0.7 s; the full browser suite is ~4 min and runs before every commit. Iterating now uses targeted suites, with one full run at the end.
@@ -399,7 +422,7 @@ Selected GitHub repository remains https://github.com/BreezeCreative26/NEW-Barbe
 
 Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git status. Continue from this tested slice. No production action unless the user explicitly changes the instruction.
 
-## 2026-09-14 — Timetable rebuilt to the OLLO shell design
+## 2026-09-14 — Timetable rebuilt to the foliyo shell design
 
 - **One-row toolbar** (`.calendar-toolbar-row`): Today · ‹ date › (native date picker under a compact label) · Barber select · **Filters** toggle (`data-testid="filters-toggle"`, reveals Status filter + Search appointments + Clear filters) · Refresh · Day/Week/Agenda segmented · New booking. Phone: wraps to two rows, icon-only Add, full-width view switch.
 - **Day stats** collapsed from four stat cards into a one-line summary (`.calendar-summary`, `aria-label="Selected day statistics"`): booked value · completed/visits · online · % chair time.
@@ -477,7 +500,7 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - Services: proper category subheads with rules, book chevron on every card, hover lift, `Tap a service to start booking it.`
 - Team: 72px photo/initials, "Next free today 14:30" pill, full-width Book button.
 - Hours/Find us: cards; Find us hides when the shop has no contact details (no half-empty column).
-- Footer: identity block + phone/Instagram/hours/Your visits links + Powered by OLLO.
+- Footer: identity block + phone/Instagram/hours/Your visits links + Powered by foliyo.
 - Embedded booking summary: shop name + address instead of the tagline; duration line only when add-ons change it; deposit "Payable in the shop".
 - `npm run ux:review` now also writes section-level shop-page shots (`*-40a…e`). Standard §8 added to docs/UX-STANDARD.md.
 - Gate: ux-lint clean, vitest 25, Playwright 137/137.
@@ -516,12 +539,12 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 - **CSV import** (`import.ts`): RFC-4180 parser with delimiter + BOM detection; header aliases; UK mobile normalisation (+44 / 44 / 7…); d/m/y birthdays; marketing truthy words; dedupe against directory and within file; preview (first 200 rows + counts) then commit in 200-statement batches; updates fill blanks only (email if empty, notes appended once, tags unioned, birthday if null, marketing never turned off); 409 when nothing to do; audit `CUSTOMERS_IMPORTED`. Owner/manager only. Customers → Import modal with manual column mapping fallback.
 - Tests: payouts.spec +2 (chair routes refuse honestly in preview; browser Take by card), import.spec (3). AUDIT items 6 and 7 closed — **every audit item is now done**.
 
-## Stripe Connect platform — shops + barbers paid by OLLO (2026-09-17)
-- Decision: OLLO is the Connect platform (merchant of record), not per-shop Stripe. Adyen considered and rejected for this stage. Float-backed FAST tier for same-day barber money; STANDARD waits for settlement.
+## Stripe Connect platform — shops + barbers paid by foliyo (2026-09-17)
+- Decision: foliyo is the Connect platform (merchant of record), not per-shop Stripe. Adyen considered and rejected for this stage. Float-backed FAST tier for same-day barber money; STANDARD waits for settlement.
 - Migration 0008: connected_accounts (SHOP + STAFF Express), platform_payments (fee bps, fast_payouts, float alert), shops payout_tier/payrun_auto/payrun_reserve_bps, payments Stripe refs + fees + pay_run_id, pay_runs card/cash split + transfer/shop_transfer/reserve/cash_residual + TRANSFERRED status + transfer_group, transfers / payouts / disputes tables.
 - `payouts.ts`: beginOnboarding (idempotent per owner), accountState, splitFigures (ONLINE or CARD-with-PI = card; rest = cash; unsettled only), settlementFor (commission on card share + card tips share + fixed pay; chair-rent nets rent from card first; reserve; cash residual sign = who owes whom), executeRun (balance check by tier, idempotent per run+leg, skips barbers not payout-enabled and says so, settles payment rows, TRANSFERRED), reverseForPayment (proportional across legs), walletFor (transferred / paid out / in transit), scheduledPayRuns (DAILY/WEEKLY from the sweep), handleConnectEvent (account.updated, transfer.*, payout.*, dispute → reversal + audit, dashboard refunds → reversal).
 - Routes: GET/PUT /shop/payments (status + policy, barber-scoped), POST /shop/payments/connect, POST /staff/:id/payments/connect (owner/manager or the barber), POST /payments/accounts/:id/refresh|dashboard, PUT …/schedule, GET /payments/wallet, GET /payments/balance, pay-run preview/create carry split + settlement, approve → executeRun, POST /pay-runs/:id/transfer (retry), GET /pay-runs/:id/transfers, void after settlement → reversal.
-- Client: `Payouts.tsx` — Settings → Payments (status pill, shop account + Connect, OLLO balance/fee, 30-day money moved, barber list with Set up payouts / Refresh, policy form: deposits by card, hold, payout speed, auto runs, reserve); BarberPayoutCard on Team → Pay (four lines, Set up payouts, Balance & payouts dashboard link, payout schedule, transfer history). `Pay.tsx` — Settlement block (by card → barber/shop/reserve; in cash → residual), Send card money now, Mark settled for Stripe-only runs, TRANSFERRED status.
+- Client: `Payouts.tsx` — Settings → Payments (status pill, shop account + Connect, foliyo balance/fee, 30-day money moved, barber list with Set up payouts / Refresh, policy form: deposits by card, hold, payout speed, auto runs, reserve); BarberPayoutCard on Team → Pay (four lines, Set up payouts, Balance & payouts dashboard link, payout schedule, transfer history). `Pay.tsx` — Settlement block (by card → barber/shop/reserve; in cash → residual), Send card money now, Mark settled for Stripe-only runs, TRANSFERRED status.
 - Docs: `docs/PAYMENTS.md` runbook (env, webhook events incl. connected accounts, fee, float, onboarding order, test-mode checklist). README rewritten.
 - Tests: `tests/payouts.spec.ts` (5) — preview-mode honesty, policy save/validation, split + settlement on real fixture data, approve without money = no fake transfer, role boundaries (barber sees only self; 403 on shop policy/connect/others), Settings → Payments + barber Pay tab in the browser, 320px no-overflow. Endpoint snapshots updated. pay.spec copy "Settled by bank".
 - Not built: Terminal / Tap to Pay, Instant Payout upsell, platform-admin UI for fee/top-ups, Stripe Billing.
@@ -536,12 +559,12 @@ Next session: read AGENTS, this handoff, DECISIONS, actual schema/tests and git 
 
 ## Messages (real delivery) — done
 - Outbox is now a delivery queue: QUEUED → SENDING → SENT/FAILED with backoff (1m, 5m, 30m, 2h, 12h). Providers: Resend (email), Twilio (SMS); dev "mailbox" provider when no keys are set.
-- Every customer message is shop-branded (logo/initials tile, accent, "Sent by <shop>"). OLLO never appears.
+- Every customer message is shop-branded (logo/initials tile, accent, "Sent by <shop>"). foliyo never appears.
 - Send sites: booking confirmed/moved/cancelled, reminders (configurable hours + 2h, idempotent via unique index), sign-in code, waitlist joined/offer/expired, review request, staff invite.
 - Sweep: lazy once per 5 min on any /api request + Vercel Cron `/api/cron/messages` (CRON_SECRET).
 - Owner: Settings → Messages — provider status, SMS/email/reminder toggles, reply-to, SMS sender, test send, outbox filter/preview/copy/resend.
 - Env: RESEND_API_KEY, MAIL_FROM, TWILIO_ACCOUNT_SID/AUTH_TOKEN/FROM (or MESSAGING_SERVICE_SID), CRON_SECRET — see .env.example.
-- `tests/messaging.spec.ts` (7): confirmation on both channels, shop-branded, never OLLO; cancel notifies; channel toggles honoured (and `sent_to` now reports the channels actually queued — bug found by the test); reminder sweep idempotent + reminders-off; owner test send / resend rules / validation; OTP delivery mode; cron route + health; browser Settings → Messages (status pill, save, test send, preview modal, filter).
+- `tests/messaging.spec.ts` (7): confirmation on both channels, shop-branded, never foliyo; cancel notifies; channel toggles honoured (and `sent_to` now reports the channels actually queued — bug found by the test); reminder sweep idempotent + reminders-off; owner test send / resend rules / validation; OTP delivery mode; cron route + health; browser Settings → Messages (status pill, save, test send, preview modal, filter).
 - Fixed: Settings tab overflowed at 320px (status pill `nowrap` in a non-wrapping heading) — heading wraps and pill text wraps on small screens; pill copy shortened to "Preview mode · nothing is sent". `StatusPill` now forwards `data-testid`/`title`.
 - Gate: **142 passed, 2 skipped, 0 failed** (full Playwright suite). README has a Messages section (env vars, preview mode, cron). AUDIT item 3 complete.
 
@@ -617,3 +640,42 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - Messaging: Resend fallback sender is `onboarding@resend.dev` until `MAIL_FROM` is set; outbox labels for the shop-side templates. Demo/fixture shops seed `setup_json` complete so they open on the calendar.
 - Tests: inventories updated (invites resend, forgot, reset, alerts); manager may invite + read access; landing journey = wizard + banner; Accounts link is `?invite=`; Sunday-aware skips for fixture-date tests (payouts chair test, customer "usual"). Gate: **157 passed, 4 skipped**; remaining 3 visual + 1 ECONNRESET were Sunday-fixture / transient — desktop+tablet visuals pass on rerun, phone visual differs only because the fixture is closed today.
 - `docs/GO_LIVE.md`: the owner's click list (rotate keys, Stripe dashboard switches, Vercel env vars, Resend domain, ClickSend top-up, smoke test).
+
+## 2026-09-27 — Waiting list v2 (delay, order vs everyone, time windows, date ranges)
+- **5-minute delay** (`shops.waitlist_delay_min`, 0–60, default 5): a freed slot (cancel/move, owner or customer) is parked in `waitlist_pending_slots`; the sweep/cron (`sweepWaitlistPlatform`, all shops) releases it after the delay. If the shop re-booked the slot by hand meanwhile, the row is dropped and nobody is texted.
+- **Mode** (`shops.waitlist_mode`): `ORDER` = held offer to the oldest matching request (existing cascade); `EVERYONE` = one text to every matching request with the exact time and a `/book/<slug>?service=&staff=&date=&start=&step=2&wl=` link, deduped per (entry, slot) in `waitlist_announcements`; first to book wins and their request is marked BOOKED (public booking route closes matching OPEN/OFFERED entries).
+- **Time windows** (`from_min`/`to_min`) and **date ranges** (`date_to`) on entries; presets still map to windows. Public join accepts `from_min`, `to_min`, `date_to`; matches/offer routes iterate range days and accept `date`.
+- New shop template `waitlist_open`; admin panel: mode cards, delay input, hold only in ORDER mode. Customer join form: "Between…" from/until pickers and "Any day up to".
+- Migration `0027_waitlist_v2.sql` (+ defaults trigger for legacy inserts). Applied locally; **not yet on Supabase prod**.
+- Tests: `tests/waitlist-v2.spec.ts` (delay/cron path, everyone mode, windows/ranges, browser); `tests/waitlist.spec.ts` updated for delay 0.
+
+## 2026-09-27 — Shop page live preview, theme audit, /me waiting list, auto-migrate
+- `ShopPreview` in Settings → Shop page (Workspace.tsx): real `themeClass` stack, phone/desktop toggle, updates on every edit. Workspace shell now loads `theme-fonts.css` so previews use the real faces.
+- Theme matrix test (`tests/theme-matrix.spec.ts`): all accents/looks/fonts/corners/heroes on shop page + booking flow, axe clean; new-shop defaults; preview → save → public page parity.
+- `/me`: Waiting list section always present; shows date ranges and time windows; offer line shows the offer's date for range requests.
+- `vercel.json` `buildCommand` runs `npm run db:migrate` before `next build`, so 0027 (and future migrations) apply on deploy; a failing migration fails the build.
+- Tests: waitlist-v2 uses per-run phone numbers (no throttle collisions); public.spec updated for auto-closing of waiting requests on booking.
+
+## 2026-09-27 — Brand sweep, Settings reorganised, Google reviews, workspace accent
+- **foliyo everywhere**: remaining OLLO mentions in code/docs/tests replaced (DB identifiers, CSS tokens, storage keys and migrations untouched). Env: `FOLIYO_ADMIN_EMAILS` / `FOLIYO_ALERT_EMAIL` (legacy `OLLO_*` still read).
+- **Settings**: 12 sections in 4 groups — Business (details, hours & closures, calendar & workspace), Customers (online booking, shop page, reviews & Google, waiting list), Communication (messages, owner alerts, AI receptionist), Money (payments, plan). The old "General" mega-form is split; `ShopSaveForm` fills the rest of the strict `/shop` record so short forms save safely. Deep links `#settings/<key>` work for every section.
+- **Google reviews** (`0028_google_reviews_prefs.sql`): `shop_pages.google_review_url` (validated Google host), `shops.google_review_nudge`. After a 4–5★ in-app rating the customer sees "Review on Google"; with the follow-up on, one `google_review` text/email goes out per visit. Footer link on the shop page. `PUT /shop/reviews`.
+- **Workspace accent** (personal, admin side): 6 curated accents via `prefs_json.workspace_theme`, applied as `--ws-*` on `<html>`; localStorage for instant load. Dark admin canvas is parked (many admin surfaces still hard-code white) — CSS scaffold is in `design.css` behind `html.ws-dark`.
+- Tests: `tests/settings-v2.spec.ts`; drifted suites updated (calendar-density, catalogue, workspace, waitlist, shop.ts signup helper now sends `accept_legal`).
+- Follow-up: `GET /manage/:token` and `/me` now carry `google_review_url`, so the Google CTA shows on manage-link reloads and on account history cards for already-reviewed visits. `settings-v2`, `public`, `customer-account` suites green.
+
+## 2026-09-27 — Customer accounts v2: email + password, per-shop installable app, push
+- **Accounts**: `customer_accounts` gains password (PBKDF2, same as owners), `email_verified`, unique email index (0029). New routes under `/account`: `register`, `login` (email + password), `forgot` → `reset` (30-min link, single-use, signs other devices out), `PUT /password`. The mobile one-time code stays as the recovery path ("Text me a code instead"). Sessions last a year so the installed app stays signed in.
+- **Booking = account**: online bookings now require an email; the Details step offers "Create a password" (on by default). No password → an `account_welcome` email/text carries a 24-hour "set your password" link. The booking response returns `account`; the browser is signed in for that shop straight away. Signed-in customers skip the account block.
+- **Per-shop PWA**: `/<slug>/manifest.webmanifest` (shop name, colours from the page theme, `start_url=/<slug>/me`, scope `/<slug>/`, shortcuts), `/<slug>/icon-192|512.png` rendered from the logo (or monogram) with sharp, shared `public/sw.js` registered at the shop scope from the shop page, booking flow and account. `/me` shows an **App card**: install prompt (Android/desktop native; iOS instructions), notifications toggle, "Finish your account" when no password yet.
+- **Push**: `customer_push_subscriptions` (per account + shop); `PUSH` channel in `notifications`; `pushFor()` queues an app notification next to the text/email for confirmed/moved/cancelled/reminders/waitlist/review/pay-link; delivered by `web-push` with VAPID (`PUSH_VAPID_*` env — **not yet set in Vercel**). Dead endpoints are pruned.
+- Tests: `tests/customer-auth.spec.ts` (7). Booking suites updated for required email (`want-password` unchecked where the test isn't about accounts). Group bookings (`/group-bookings`) still accept an empty email — follow-up.
+- Domains (done via Vercel API this session): `foliyo.co.uk` serves the app, `*.foliyo.co.uk` wildcard added, `www`/`folyio.*`/`folyioappointments.*` redirect to it; `APP_ORIGIN=https://foliyo.co.uk`; `FOLIYO_ADMIN_EMAILS` mirrored. Sub-domain **routing in code** is not built yet — `<slug>.foliyo.co.uk` reaches the app but serves the landing page.
+
+## 2026-09-27 — Shop sub-domains: <slug>.foliyo.co.uk
+- **Routing** (`src/server/hosts.ts`, wired in `app/[[...path]]/route.ts` before Hono): on `<slug>.<root>` the short paths `/`, `/book`, `/me`, `/manifest.webmanifest`, `/icon-*.png` are rewritten to the historical path routes and the request is tagged `x-foliyo-shop-host`. Root = `APP_ORIGIN` host. The root host keeps marketing + signup; `/<slug>`, `/book/<slug>`, `/<slug>/me` there 301 to the sub-domain (GET only; APIs untouched). Reserved sub-domains (`www`, `app`, `api`, `mail`, `admin`, …) never resolve to a shop and are refused at signup and in Settings → Online booking.
+- **Owner/team sign-in is per shop**: `/signin` + `/workspace` on the shop's host; login and session resolution are scoped to that shop (right password on another shop's address → `403 wrong_shop` with the correct URL). Session cookie is `Domain=.<root>` + `SameSite=Lax` so signup on the root lands straight on `<slug>.<root>/workspace/setup`. Invite, reset and verify links use the shop's host.
+- **Signup picks the address**: new "Your web address" field (suggested from the shop name, live `GET /auth/slug-check`), taken/reserved refused, response carries `workspace_url`. Root `/signin` in production shows **Find your shop** (type the address → redirect; or email → `shop_address` message with the link). Locally (`localhost` root) the classic sign-in remains so existing suites work.
+- **Links**: every customer-facing URL (manage, offer, pay, book, /me, welcome/reset, waitlist) is built with `shopUrl()`; client links use `shopPath()` (reads the `foliyo-shop` meta). Manifest/SW scope is `/` on the shop host.
+- **Test shop**: `northline` (Northline Barbers seed, owner `owner@northline.test` / `Demo1234!`) — `http://northline.localhost:3000` locally; in production it will be `northline.foliyo.co.uk` once a shop with that slug exists there.
+- Tests: `tests/subdomain.spec.ts` (6), `tests/subdomain-screens.spec.ts`; accounts suite updated (find-shop in inventory, slug field, SameSite=Lax). Evidence: `docs/evidence/subdomain/`.

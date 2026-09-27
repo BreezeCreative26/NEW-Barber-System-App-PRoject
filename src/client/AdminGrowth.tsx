@@ -24,7 +24,7 @@ export function AdminAlerts({ onShop }: { onShop: (id: string) => void }) {
           {open.length > 0 && <Button variant="secondary" onClick={async () => { await adminApi("/alerts/ack-all", "POST", {}); await load(); }}>Acknowledge all</Button>}
         </div>
       </header>
-      <Notice icon="bell">{d.alert_email ? <>Warnings and critical alerts are emailed to <strong>{d.alert_email}</strong> (batched, at most every 30 minutes).</> : <>Set <code>OLLO_ALERT_EMAIL</code> in the environment to get warnings and critical alerts by email. Until then they only appear here.</>} Checks run automatically every few minutes while the app is in use.</Notice>
+      <Notice icon="bell">{d.alert_email ? <>Warnings and critical alerts are emailed to <strong>{d.alert_email}</strong> (batched, at most every 30 minutes).</> : <>Set <code>FOLIYO_ALERT_EMAIL</code> in the environment to get warnings and critical alerts by email. Until then they only appear here.</>} Checks run automatically every few minutes while the app is in use.</Notice>
       {swept && <p className="workspace-footnote" data-testid="admin-swept">{swept}</p>}
       {d.alerts.length === 0 ? <p className="muted">Nothing to report.</p> : (
         <ul className="admin-alert-list">

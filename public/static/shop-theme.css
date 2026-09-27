@@ -148,7 +148,7 @@
 .shop-page .sp-open { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.16); color: var(--sp-hero-ink); border-radius: var(--sp-r-pill); }
 .shop-page.mode-light .sp-hero.no-cover .sp-open { background: var(--sp-surface-2); border-color: var(--sp-line); }
 .shop-page .sp-hero-meta { color: var(--sp-hero-muted); justify-content: flex-start; }
-.shop-page .sp-hero-rating { color: var(--sp-hero-ink); }
+.shop-page .sp-hero a.sp-hero-rating, .shop-page .sp-hero a.sp-hero-rating:hover { color: var(--sp-hero-ink); }
 .shop-page .sp-hero-actions { justify-content: flex-start; margin-top: 8px; }
 .shop-page .sp-hero-actions .button { min-height: 48px; padding: 0 24px; font-size: 15px; font-weight: 600; }
 .shop-page .sp-hero .button.secondary { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.22); color: var(--sp-hero-ink); }
@@ -163,7 +163,18 @@
 .shop-page.hero-centred .sp-hero-inner { justify-items: center; text-align: center; min-height: min(70vh, 640px); align-content: center; }
 .shop-page.hero-centred .sp-hero-copy { justify-items: center; }
 .shop-page.hero-centred .sp-hero-meta, .shop-page.hero-centred .sp-hero-actions { justify-content: center; }
-.shop-page.hero-centred .sp-hero.has-cover .sp-hero-inner::before { background: rgba(8, 9, 12, 0.6); inset: -100vh -100vw; }
+.shop-page.hero-centred .sp-hero.has-cover .sp-hero-inner::before { background: radial-gradient(ellipse 70% 80% at 50% 55%, rgba(8, 9, 12, 0.72) 0%, rgba(8, 9, 12, 0.62) 55%, rgba(8, 9, 12, 0.5) 100%); inset: -100vh -100vw; }
+/* Bright covers: a soft shadow keeps small hero text (rating, address, strapline) readable on any photo. */
+.shop-page .sp-hero.has-cover .sp-hero-copy h1,
+.shop-page .sp-hero.has-cover .sp-strap,
+.shop-page .sp-hero.has-cover .sp-hero-meta,
+.shop-page .sp-hero.has-cover .sp-hero-rating { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 14px rgba(0, 0, 0, 0.35); }
+.shop-page.mode-light.hero-split .sp-hero.has-cover .sp-hero-copy h1,
+.shop-page.mode-light.hero-split .sp-hero.has-cover .sp-strap,
+.shop-page.mode-light.hero-split .sp-hero.has-cover .sp-hero-meta,
+.shop-page.mode-light.hero-split .sp-hero.has-cover .sp-hero-rating { text-shadow: none; }
+.shop-page .sp-hero.has-cover .sp-open { background: rgba(8, 9, 12, 0.45); border-color: rgba(255, 255, 255, 0.22); backdrop-filter: blur(6px); }
+.shop-page.mode-light.hero-split .sp-hero.has-cover .sp-open { background: var(--sp-surface-2); border-color: var(--sp-line); backdrop-filter: none; }
 
 /* Split: text left on a solid panel, photo right. */
 .shop-page.hero-split .sp-hero .sp-hero-img { display: none; }
@@ -358,7 +369,7 @@
 .shop-page .sp-footer, .shop-page .customer-area > footer { background: var(--sp-surface); border-top: 1px solid var(--sp-line); color: var(--sp-muted); }
 .shop-page .sp-powered { color: var(--sp-muted); }
 
-/* Barber step: the "first available" tile and skill chips follow the accent, not OLLO blue. */
+/* Barber step: the "first available" tile and skill chips follow the accent, not foliyo blue. */
 .shop-page .barber-portrait.forest { background: linear-gradient(135deg, var(--sp-accent-dark), var(--sp-accent)); color: var(--sp-accent-ink); }
 .shop-page .barber-portrait .any-mark { background: color-mix(in srgb, var(--sp-accent-ink) 16%, transparent); }
 .shop-page .barber-choice.any-barber { background: var(--sp-surface); }

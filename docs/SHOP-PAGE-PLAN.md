@@ -9,7 +9,7 @@ This slice closes them without changing how booking works.
 - **Server-rendered head.** `/<slug>` is still the SPA, but the worker now writes the head from
   the database: `<title>{Shop} · Barbers in {town}</title>` (town = last comma part of the
   address), meta description (strapline → about → address), `<link rel=canonical>`, Open Graph
-  (`og:type business.business`, title, description, url, image = cover or the OLLO default card),
+  (`og:type business.business`, title, description, url, image = cover or the foliyo default card),
   Twitter summary card, and JSON-LD `HairSalon` (name, url, telephone, address, image,
   `openingHoursSpecification` from the shop's weekly hours, `priceRange` from the catalogue,
   `aggregateRating` when there are published reviews, `hasOfferCatalog` listing bookable services

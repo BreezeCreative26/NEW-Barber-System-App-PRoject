@@ -37,10 +37,12 @@ import {
 } from "./domain";
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
 import customerAccounts from "./customers";
-import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, waAvailable, type Channel, type MessageTemplate, type Recipient } from "./messaging";
-import { autoOffer, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
+import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, pushFor, waAvailable, type Channel, type MessageTemplate, type Recipient } from "./messaging";
+import { currentAccount as currentCustomerAccount, customerPassword, ensureAccount, openSession as openCustomerSession, sendWelcome } from "./customerAuth";
+import { autoOffer, slotFreed, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
 import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
 import { createDepositSession, depositView, depositsOnline, expireHolds, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
+import { shopUrl } from "./hosts";
 import {
   audit,
   availabilityContext,
@@ -386,6 +388,7 @@ pub.get("/shops/:slug/page", async (c) => {
       sections: JSON.parse(content.sections_json) as string[],
       accent: content.accent,
       theme: parseTheme(content.theme_json),
+      google_review_url: content.google_review_url || "",
       published: content.published,
     },
     staff: staff.results,
@@ -554,14 +557,27 @@ pub.post("/shops/:slug/waitlist", async (c) => {
         phone: publicBookingSchema.shape.phone,
         email: publicBookingSchema.shape.email,
         date: dateSchema,
+        // Optional last day: "any day between date and date_to". Defaults to the single day.
+        date_to: dateSchema.optional(),
         daypart: z.enum(["ANY", "MORNING", "AFTERNOON", "EVENING"]).default("ANY"),
+        // Optional explicit time window in minutes from midnight (15-min grid). Overrides daypart.
+        from_min: z.number().int().min(0).max(1425).refine((v) => v % 15 === 0).optional(),
+        to_min: z.number().int().min(15).max(1440).refine((v) => v % 15 === 0).optional(),
         notes: z.string().trim().max(300).default(""),
       })
-      .strict(),
+      .strict()
+      .refine((v) => (v.from_min === undefined) === (v.to_min === undefined), { message: "Give both a start and an end time", path: ["to_min"] })
+      .refine((v) => v.from_min === undefined || v.to_min === undefined || v.from_min < v.to_min, { message: "End time must be after the start time", path: ["to_min"] })
+      .refine((v) => !v.date_to || v.date_to >= v.date, { message: "Last day must be on or after the first day", path: ["date_to"] }),
   );
   await throttle(c, "waitlist", `${shop.id}:${b.phone}`, 10);
   const { today, maxDate } = limits(shop);
-  if (b.date < today || b.date > maxDate) fail(409, "outside_booking_window");
+  const dateTo = b.date_to ?? b.date;
+  if (b.date < today || b.date > maxDate || dateTo > maxDate) fail(409, "outside_booking_window");
+  // Explicit window wins; otherwise the daypart preset sets the window and vice-versa so both
+  // representations always agree on the row.
+  const [fromMin, toMin] = b.from_min !== undefined && b.to_min !== undefined ? [b.from_min, b.to_min] : wl.DAYPART_WINDOW[b.daypart];
+  const daypart = b.from_min !== undefined ? wl.daypartFor(fromMin, toMin) : b.daypart;
   const service = await c.env.DB.prepare("SELECT id FROM services WHERE shop_id=? AND id=? AND active=1")
     .bind(shop.id, b.service_id)
     .first();
@@ -576,15 +592,15 @@ pub.post("/shops/:slug/waitlist", async (c) => {
     now = Date.now();
   await c.env.DB.batch([
     c.env.DB.prepare(
-      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,daypart,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shop_id,date,phone,service_id) DO UPDATE SET staff_id=excluded.staff_id,daypart=excluded.daypart,notes=excluded.notes,customer_name=excluded.customer_name,email=excluded.email,status='OPEN',version=waitlist_entries.version+1,updated_at=excluded.updated_at",
-    ).bind(id, shop.id, b.staff_id, b.service_id, b.customer_name, b.phone, b.email, b.date, b.daypart, b.notes, now, now),
-    audit(c, "waitlist", id, "WAITLIST_JOINED", `Customer asked to be contacted for ${b.date} (${b.daypart.toLowerCase()}). Confirmation queued, not sent.`),
+      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,date_to,daypart,from_min,to_min,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shop_id,date,phone,service_id) DO UPDATE SET staff_id=excluded.staff_id,date_to=excluded.date_to,daypart=excluded.daypart,from_min=excluded.from_min,to_min=excluded.to_min,notes=excluded.notes,customer_name=excluded.customer_name,email=excluded.email,status='OPEN',version=waitlist_entries.version+1,updated_at=excluded.updated_at",
+    ).bind(id, shop.id, b.staff_id, b.service_id, b.customer_name, b.phone, b.email, b.date, dateTo, daypart, fromMin, toMin, b.notes, now, now),
+    audit(c, "waitlist", id, "WAITLIST_JOINED", `Customer asked to be contacted for ${wl.fmtRange(b.date, dateTo)} (${wl.fmtWindow(fromMin, toMin)}). Confirmation queued, not sent.`),
   ]);
   const q = await shopWithQueue(c, shop.id);
   const stored = await c.env.DB.prepare("SELECT id FROM waitlist_entries WHERE shop_id=? AND date=? AND phone=? AND service_id=?").bind(shop.id, b.date, b.phone, b.service_id).first<{ id: string }>();
-  await queueMessage(c, q, b, "waitlist_joined", render(templatesOf(q).waitlist_joined, { first: b.customer_name.split(" ")[0], shop: shop.name, date: wl.fmtDate(b.date), daypart: wl.daypartLabel[b.daypart] }), { type: "waitlist", id: stored?.id ?? id }).run();
+  await queueMessage(c, q, b, "waitlist_joined", render(templatesOf(q).waitlist_joined, { first: b.customer_name.split(" ")[0], shop: shop.name, date: wl.fmtRange(b.date, dateTo), daypart: wl.fmtWindow(fromMin, toMin) }), { type: "waitlist", id: stored?.id ?? id }).run();
   await drainSoon(c, 1, { type: "waitlist", id: stored?.id ?? id });
-  return c.json({ ok: true, date: b.date, daypart: b.daypart, auto_offer: !!q.waitlist_auto_offer, hold_min: q.waitlist_offer_hold_min }, 201);
+  return c.json({ ok: true, date: b.date, date_to: dateTo, daypart, from_min: fromMin, to_min: toMin, auto_offer: !!q.waitlist_auto_offer, hold_min: q.waitlist_offer_hold_min, mode: q.waitlist_mode, delay_min: q.waitlist_delay_min }, 201);
 });
 
 async function issueManageToken(c: Ctx, booking: StoredBooking) {
@@ -610,7 +626,7 @@ async function issueManageToken(c: Ctx, booking: StoredBooking) {
 export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooking, staffName: string | null, template: MessageTemplate, manageToken?: string | null): Promise<Channel[]> {
   const shop = await msgShop(c, shopId);
   const origin = new URL(c.req.url).origin;
-  const link = manageToken ? `${origin}/manage/${manageToken}` : `${origin}/${shop.slug}/me`;
+  const link = manageToken ? shopUrl(shop.slug!, `/manage/${manageToken}`, origin) : shopUrl(shop.slug!, "/me", origin);
   // The booking's own choice wins (picked at checkout); otherwise the customer record's standing preference.
   let pref: Recipient["pref"] = booking.contact_pref && booking.contact_pref !== "AUTO" ? booking.contact_pref : undefined;
   if (!pref && booking.customer_id) {
@@ -620,20 +636,27 @@ export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooki
   const to: Recipient = { name: booking.attendee_name || booking.customer_name, phone: booking.phone, email: booking.email, pref };
   const vars = {
     service: booking.service_name, barber: (staffName || "us").split(" ")[0], date: fmtDate(booking.date), time: fmtTime(booking.start_min), ref: ref(booking),
-    address: shop.address, link, book_link: `${origin}/book/${shop.slug}`, cancel_hours: booking.cancel_hours_snapshot,
+    address: shop.address, link, book_link: shopUrl(shop.slug!, "/book", origin), cancel_hours: booking.cancel_hours_snapshot,
     price: new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.price_pence / 100),
     deposit_note: booking.deposit_policy_pence > 0 ? `deposit ${new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.deposit_policy_pence / 100)} payable in the shop` : "pay in the shop",
   };
   const channels = channelsFor(shop, to, "AUTO", template === "booking_confirmed");
-  const stmts = enqueue(c.env.DB, shop, to, template, vars, { related: { type: "booking", id: booking.id }, origin });
+  const opts = { related: { type: "booking", id: booking.id }, origin };
+  const stmts = [...enqueue(c.env.DB, shop, to, template, vars, opts), ...(await pushFor(c.env.DB, shop, to, template, vars, opts))];
   if (!stmts.length) return [];
   await c.env.DB.batch(stmts);
   await drain(c.env.DB, stmts.length, Date.now(), { type: "booking", id: booking.id }).catch(() => {});
   return channels;
 }
+// Every online booking ends with an account: email is required, and a password may be set in the
+// same step. A signed-in customer's details are trusted from the session.
+const onlineBookingSchema = publicBookingSchema.extend({ password: z.union([z.literal(""), customerPassword]).default("") });
 pub.post("/shops/:slug/bookings", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug"));
-  const b = await readInput(c, publicBookingSchema);
+  const { password, ...b } = await readInput(c, onlineBookingSchema);
+  const signedIn = await currentCustomerAccount(c, shop);
+  if (!b.email && !signedIn?.email) fail(400, "Enter your email address");
+  if (!b.email && signedIn?.email) b.email = signedIn.email;
   // Scoped per shop so one busy shop cannot lock customers out of another.
   await throttle(c, "book", `${shop.id}:${clientKey(c)}`, 120);
   await throttle(c, "book-phone", `${shop.id}:${b.phone}`, 12);
@@ -679,8 +702,37 @@ pub.post("/shops/:slug/bookings", async (c) => {
       booking = await readBooking(c, booking.id);
     }
   }
+  // Waiting list: if this customer was waiting for this service on a day covering the booking (e.g.
+  // they booked from a "time has opened" text), the request is now satisfied — close it so nobody
+  // offers them another time. Any pending held offer for it is superseded.
+  if (!result.replayed) {
+    const now = Date.now();
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        "UPDATE waitlist_offers SET status='SUPERSEDED',responded_at=? WHERE shop_id=? AND status='PENDING' AND entry_id IN (SELECT id FROM waitlist_entries WHERE shop_id=? AND phone=? AND service_id=? AND status IN ('OPEN','OFFERED') AND date<=? AND date_to>=?)",
+      ).bind(now, shop.id, shop.id, booking.phone, booking.service_id, booking.date, booking.date),
+      c.env.DB.prepare(
+        "UPDATE waitlist_entries SET status='BOOKED',booking_id=?,version=version+1,updated_at=? WHERE shop_id=? AND phone=? AND service_id=? AND status IN ('OPEN','OFFERED') AND date<=? AND date_to>=?",
+      ).bind(booking.id, now, shop.id, booking.phone, booking.service_id, booking.date, booking.date),
+    ]).catch(() => null);
+  }
   const sent = result.replayed || booking.deposit_status === "PENDING" ? [] : await notifyBooking(c, shop.id, booking, staff?.name ?? null, "booking_confirmed", token);
   if (!result.replayed && booking.deposit_status !== "PENDING") await alertOwners(c.env.DB, shop.id, "new_booking", booking, { staffName: staff?.name, origin: new URL(c.req.url).origin }).catch(() => 0);
+  // Account: create or adopt for this booker, sign the browser in for this shop, and — when no
+  // password was chosen — send the one-time "set your password" link with the confirmation.
+  let account: { created: boolean; has_password: boolean; email: string } | null = null;
+  if (!result.replayed) {
+    try {
+      const r = await ensureAccount(c, shop, { name: booking.customer_name, phone: booking.phone, email: b.email }, password || undefined);
+      if (!r.conflict) {
+        if (!signedIn || signedIn.id !== r.account.id) await openCustomerSession(c, shop, r.account, password ? "booked with a new password" : "booked online");
+        const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
+        const welcome = booking.deposit_status === "PENDING" ? [] : await sendWelcome(c, shop, r.account, origin);
+        if (welcome.length) { await c.env.DB.batch(welcome); await drain(c.env.DB, welcome.length, Date.now(), { type: "customer_account", id: r.account.id }).catch(() => {}); }
+        account = { created: r.created, has_password: !!(r.account.password_hash || password), email: r.account.email };
+      }
+    } catch { /* the booking stands even if account bookkeeping fails */ }
+  }
   return c.json(
     {
       booking: customerView(booking, shop, staff?.name ?? null),
@@ -689,6 +741,7 @@ pub.post("/shops/:slug/bookings", async (c) => {
       reference: ref(booking),
       sent_to: sent,
       checkout_url: checkoutUrl,
+      account,
     },
     result.replayed ? 200 : 201,
   );
@@ -926,7 +979,7 @@ pub.post("/offer/:token/accept", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE waitlist_offers SET status='ACCEPTED',booking_id=?,responded_at=? WHERE id=? AND status='PENDING'").bind(result!.booking.id, now, offer.id),
     c.env.DB.prepare("UPDATE waitlist_entries SET status='BOOKED',booking_id=?,version=version+1,updated_at=? WHERE id=?").bind(result!.booking.id, now, entry.id),
-    queueMessage(c, shop, entry, "waitlist_booked", render(templates.waitlist_booked, { service: service?.name ?? "", barber: staffName.split(" ")[0], shop: shop.name, date: wl.fmtDate(offer.date), time: wl.fmtTime(offer.start_min), ref: ref(result!.booking), manage: manage ? `${new URL(c.req.url).origin}/manage/${manage}` : "(see the shop)" }), { type: "booking", id: result!.booking.id }),
+    queueMessage(c, shop, entry, "waitlist_booked", render(templates.waitlist_booked, { service: service?.name ?? "", barber: staffName.split(" ")[0], shop: shop.name, date: wl.fmtDate(offer.date), time: wl.fmtTime(offer.start_min), ref: ref(result!.booking), manage: manage ? shopUrl(shop.slug!, `/manage/${manage}`, new URL(c.req.url).origin) : "(see the shop)" }), { type: "booking", id: result!.booking.id }),
     audit(c, "waitlist", entry.id, "WAITLIST_OFFER_ACCEPTED", `Customer accepted the offer online; booking ${ref(result!.booking)} created.`),
   ]);
   await drainSoon(c, 2, { type: "booking", id: result!.booking.id });
@@ -988,6 +1041,22 @@ export function customerView(b: StoredBooking, shop: Shop & Partial<BrandedShop>
     ...depositView(b),
   };
 }
+export async function googleReviewFollowUp(c: Ctx, shop: Shop, booking: StoredBooking, rating: number): Promise<string> {
+  if (rating < 4) return "";
+  const page = await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ google_review_url: string }>();
+  const link = page?.google_review_url || "";
+  if (!link) return "";
+  if (shop.google_review_nudge) {
+    const already = await c.env.DB.prepare("SELECT 1 AS x FROM notifications WHERE shop_id=? AND template='google_review' AND related_type='booking' AND related_id=?").bind(shop.id, booking.id).first();
+    if (!already) {
+      const ms = await msgShop(c, shop.id);
+      const staff = booking.staff_id ? await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(shop.id, booking.staff_id).first<{ name: string }>() : null;
+      const stmts = enqueue(c.env.DB, ms, { name: booking.attendee_name || booking.customer_name, phone: booking.phone, email: booking.email, pref: booking.contact_pref }, "google_review", { rating, service: booking.service_name, barber: (staff?.name || "us").split(" ")[0], link }, { related: { type: "booking", id: booking.id }, origin: new URL(c.req.url).origin, now: Date.now() });
+      if (stmts.length) { await c.env.DB.batch(stmts); await drain(c.env.DB, stmts.length, Date.now(), { type: "booking", id: booking.id }).catch(() => null); }
+    }
+  }
+  return link;
+}
 async function bookingByToken(c: Ctx) {
   const token = c.req.param("token") || "";
   if (token.length < 60 || token.length > 100) fail(404, "Booking link not found");
@@ -1014,7 +1083,9 @@ pub.get("/manage/:token", async (c) => {
   const { shop, booking, staffName } = await bookingByToken(c);
   const review = await reviewForBooking(c.env.DB, booking.id);
   const can = reviewEligibility(booking, review);
-  return c.json({ booking: customerView(booking, shop, staffName), review: ownReviewView(review), can_review: can.ok, review_blocked: can.ok ? null : can.reason });
+  // Google link rides along so a returning happy customer still sees the "Review on Google" button.
+  const gp = booking.status === "COMPLETED" ? await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ google_review_url: string }>() : null;
+  return c.json({ booking: customerView(booking, shop, staffName), review: ownReviewView(review), can_review: can.ok, review_blocked: can.ok ? null : can.reason, google_review_url: gp?.google_review_url || "" });
 });
 // Leave a review for a completed visit through the manage link (one per booking, 60 days).
 pub.post("/manage/:token/review", async (c) => {
@@ -1023,7 +1094,10 @@ pub.post("/manage/:token/review", async (c) => {
   const b = await readInput(c, reviewSchema);
   const r = await leaveReview(c, shop, booking, b, `customer:manage:${booking.id}`);
   if (r.error) fail(409, r.error);
-  return c.json({ review: ownReviewView(r.review) }, 201);
+  // Happy customer (4–5★): offer the shop's Google review link right away, and — if the shop has
+  // turned it on — follow up by text/email so they can do it later from their phone.
+  const google = await googleReviewFollowUp(c, shop, booking, r.review?.rating ?? 0);
+  return c.json({ review: ownReviewView(r.review), google_review_url: google }, 201);
 });
 export function calendarResponse(c: Ctx, shop: Shop, booking: StoredBooking, staffName: string | null) {
   const stamp = (ms: number) =>
@@ -1141,7 +1215,7 @@ export async function cancelByCustomer(c: Ctx, shop: Shop, booking: StoredBookin
   } else if (booking.deposit_status === "PAID" && !late) {
     await refundDeposit(c.env.DB, shop, booking, "customer", "customer cancelled outside the policy window");
   }
-  await autoOffer(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-cancel");
+  await slotFreed(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-cancel");
   const after = await readBooking(c, booking.id);
   await notifyBooking(c, shop.id, after, staffName, "booking_cancelled");
   await alertOwners(c.env.DB, shop.id, "cancelled", after, { staffName, origin: new URL(c.req.url).origin }).catch(() => 0);
@@ -1209,7 +1283,7 @@ export async function moveByCustomer(c: Ctx, shop: Shop, booking: StoredBooking,
       true,
     ),
   );
-  await autoOffer(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-move");
+  await slotFreed(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-move");
   const after = await readBooking(c, booking.id);
   await notifyBooking(c, shop.id, after, staffName, "booking_moved");
   return {

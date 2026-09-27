@@ -94,7 +94,7 @@ test("group availability: together assigns distinct barbers, back to back chains
   const pick2 = together.find((o: { start_min: number }) => o.start_min !== pick.start_min && Math.abs(o.start_min - pick.start_min) > 120);
   expect(pick2).toBeTruthy();
   const single = await c.post(`${P}/bookings`, {
-    data: { request_id: crypto.randomUUID(), staff_id: pick2.assignment[0].staff_id, service_id: s0.id, customer_name: "Solo Walker", phone: "07700900999", email: "", notes: "", date, start_min: pick2.assignment[0].start_min, addon_ids: [], quote: av.quotes[0] },
+    data: { request_id: crypto.randomUUID(), staff_id: pick2.assignment[0].staff_id, service_id: s0.id, customer_name: "Solo Walker", phone: "07700900999", email: "solo@example.test", notes: "", date, start_min: pick2.assignment[0].start_min, addon_ids: [], quote: av.quotes[0] },
   });
   expect(single.status(), await single.text()).toBe(201);
   const partial = await c.post(`${P}/group-bookings`, {
@@ -130,6 +130,8 @@ test("book for someone else: attendee saved and shown to owner, customer and man
   await page.getByRole("button", { name: "Your details", exact: true }).click();
   await page.getByLabel("Your name").fill("Parent Booker");
   await page.getByLabel("Mobile number").fill("07700 900444");
+  await page.getByLabel("Email address", { exact: true }).fill("parent@example.test");
+  await page.getByTestId("want-password").uncheck();
   await page.getByTestId("for-someone-else").check();
   await page.getByRole("button", { name: "Review booking" }).click();
   await expect(page.getByText("Who is the visit for?")).toBeVisible(); // required once ticked
@@ -143,7 +145,7 @@ test("book for someone else: attendee saved and shown to owner, customer and man
   await expect(page.getByText(/Visit for/)).toContainText("Sam (age 8)");
   await expect(page.getByText(/booked by Parent Booker/)).toBeVisible();
   // Manage link shows it too.
-  const href = (await page.locator(".public-manage-link").getAttribute("href"))!;
+  const href = (await page.getByTestId("open-manage").getAttribute("href"))!;
   const managed = await (await page.request.get(`/api/public${href}`)).json();
   expect(managed.booking.attendee_name).toBe("Sam (age 8)");
   expect(managed.booking.customer_name).toBe("Parent Booker");

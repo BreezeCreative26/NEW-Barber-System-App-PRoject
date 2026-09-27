@@ -26,7 +26,7 @@ are ready; these are the keys and switches. ~15 minutes.
 3. Dashboard, one time each:
    - https://dashboard.stripe.com/settings/connect/platform-profile → **accept loss liability**
    - https://dashboard.stripe.com/settings/radar → Radar for Platforms **on**
-   - https://dashboard.stripe.com/settings/connect/branding → OLLO logo + colour
+   - https://dashboard.stripe.com/settings/connect/branding → foliyo logo + colour
    - Settings → Payment methods → Apple Pay → add `new-barber-system-app-p-roject.vercel.app`
 4. Going live later: complete the business profile, switch to `sk_live_…`, run step 2 again with the
    live key (live-mode endpoints are separate).
@@ -43,7 +43,7 @@ Vercel → project `new-barber-system-app-p-roject` → Settings → Environment
 | `STRIPE_WEBHOOK_SECRET_CONNECT` | from step 1.2 |
 | `CLICKSEND_USERNAME` | `ollosoftwareio@gmail.com` |
 | `CLICKSEND_API_KEY` | new key from step 0 |
-| `CLICKSEND_FROM` | optional, e.g. `OLLO` (shops override with their own sender name) |
+| `CLICKSEND_FROM` | optional, e.g. `foliyo` (shops override with their own sender name) |
 | `RESEND_API_KEY` | new key from step 0 |
 | `MAIL_FROM` | **leave unset** until step 3 is done; then `bookings@<your domain>` |
 | `CRON_SECRET` | any long random string, e.g. `openssl rand -hex 24` |
@@ -101,7 +101,26 @@ reminders and the 07:00 summaries go out even on a quiet morning.
 - [x] ClickSend: credentials verified (balance £1.96)
 - [x] Vercel env vars (step 2) — set 2026-09-20 via API: Stripe key + both webhook secrets (endpoints `we_1UHm1G…`, `we_1UHm1H…`), ClickSend, Resend, CRON_SECRET; empty MAIL_FROM/Twilio removed; redeployed. `/api/health` shows stripe test + clicksend + resend.
 - [ ] Resend domain (step 3) — **needs your domain**
-- [ ] Credential rotation (step 0) — **needs you**
+- [ ] Credential rotation (step 0) — **needs you** for Stripe / ClickSend / Resend / Vercel token / Supabase access token (all pasted in chat on 2026-09-27)
+
+## Status (2026-09-27)
+
+- [x] **Migrations run on every Vercel build** (`vercel.json` → `buildCommand: npm run db:migrate && npm run build`, against `DIRECT_URL`). A failed migration fails the build, so code never deploys ahead of its schema. 0027 (waiting list v2) ships this way.
+- [x] **Supabase migrations 0001–0025 applied** — prod was running the base schema only; `ollo_migrations` did not exist. Now tracked.
+- [x] **Database password rotated** via Supabase Management API; `DATABASE_URL` / `DIRECT_URL` updated in Vercel (production + preview); redeployed; `/api/diag?ping=1` → `db_ping: ok`. The new password lives only in Vercel and Supabase — nowhere else.
+- [x] `FOLIYO_ADMIN_EMAILS=ollosoftwareio@gmail.com` — sign up (or sign in) with that address and open `/admin`; you are seeded as SUPER. Add others from Admin → Team.
+- [x] `CLICKSEND_FROM=foliyo` — texts from shops without their own sender name now show **foliyo**, not a shared number. `/api/health` → `sms.from: "foliyo"`.
+- [ ] Rotate the rest yourself (API keys can't roll themselves): Stripe secret key → re-run `stripe-setup.mjs`; ClickSend API key; Resend key (current one is send-only — fine for the app, but it was pasted); Vercel token `vcp_…`; Supabase access token `sbp_…`. Then paste the new values **only into Vercel**, not chat.
+- [ ] Deploy PR #1 (`genspark_ai_developer` → `main`) — the code that uses 0025 is not on production yet; the column is there waiting.
+
+
+## 6b. Legal (before the first real customer)
+
+- [ ] Fill `COMPANY` in `src/server/legal.ts`: registered company name + number, registered office, privacy mailbox (create `privacy@…`), ICO registration number.
+- [ ] **Register with the ICO** (data-protection fee, ~£40–60/yr for most small companies) — required for any UK company processing personal data.
+- [ ] Have a solicitor review `/legal/terms`, `/legal/privacy`, `/legal/dpa`, `/legal/cookies`. They are drafted to UK GDPR / DPA 2018 / PECR shape but are not legal advice. Bump `LEGAL_VERSIONS` when the wording changes — owners are re-asked on next sign-in.
+- [ ] Confirm each sub-processor's DPA is signed/accepted in its dashboard (Stripe, Supabase, Vercel, Resend, ClickSend, Infobip, ElevenLabs) — Schedule 1 of the DPA relies on them.
+- [ ] Decide a breach-response owner and write the runbook (who is told, within what time, by whom). Privacy Policy promises 72 h.
 
 ## 7. WhatsApp (Infobip) — pending your account setup
 
@@ -110,6 +129,6 @@ Infobip's shared **test** number `+44 7860 088970` (keyword `OLLOSOFTWAREIO`, st
 To go real:
 1. portal.infobip.com → Billing → add funds (WhatsApp ≈ €0.03–0.05 per UK conversation).
 2. Channels → WhatsApp → **Register sender**: a number not on personal WhatsApp (Infobip can sell a
-   virtual UK number), display name "OLLO", Meta Business verification (company docs; 1–5 days).
-3. Tell me the sender number; I submit OLLO's templates for approval via API and switch `INFOBIP_WA_SENDER`.
+   virtual UK number), display name "foliyo", Meta Business verification (company docs; 1–5 days).
+3. Tell me the sender number; I submit foliyo's templates for approval via API and switch `INFOBIP_WA_SENDER`.
 Until then the app runs WhatsApp in "try it" mode against the test sender.

@@ -4,7 +4,7 @@ import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { Avatar, Button, Icon, Notice } from "./ui";
 import { GroupBooking } from "./GroupBooking";
 import { ReviewCard, type OwnReview } from "./Reviews";
-import { applyThemeColor, themeClass, type ShopBrand } from "./theme";
+import { applyThemeColor, themeClass, type ShopBrand, shopPath } from "./theme";
 
 // Connected customer booking for /book/:slug and /manage/:token.
 // Reads and writes the same local D1 records as the owner workspace.
@@ -227,6 +227,14 @@ type NextSlot = {
 const ANY = "any";
 export type BookingPreset = { service?: string; staff?: string; date?: string; start?: number; step?: number; group?: boolean; nonce?: number };
 export type BookingCustomer = { name: string; phone: string; email: string; notes: string };
+// Deep links (customer area "book my usual", waiting-list "a time has opened" texts) arrive as
+// ?service=&staff=&date=&start=&step=. Shared by /book/:slug and the shop page.
+export function presetFromLocation(search = location.search): BookingPreset | null {
+  const q = new URLSearchParams(search);
+  if (![...q.keys()].some((k) => ["service", "staff", "date", "start", "step"].includes(k))) return null;
+  const num = (k: string) => (q.get(k) !== null && /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : undefined);
+  return { service: q.get("service") || undefined, staff: q.get("staff") || undefined, date: q.get("date") || undefined, start: num("start"), step: num("step"), nonce: Date.now() };
+}
 export function PublicBooking({ slug, embedded = false, preset, onLoaded, customer }: { slug: string; embedded?: boolean; preset?: BookingPreset | null; onLoaded?: (shop: PublicShop) => void; customer?: BookingCustomer | null }) {
   const [shop, setShop] = useState<PublicShop | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -238,6 +246,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
   const [date, setDate] = useState("");
+  const [pickedDate, setPickedDate] = useState(false);
   const [days, setDays] = useState<DaySummary[] | null>(null);
   const [next, setNext] = useState<NextSlot[] | null>(null);
   const [availability, setAvailability] = useState<Availability | null>(null);
@@ -260,10 +269,15 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
   const [saveError, setSaveError] = useState("");
   const [waitlist, setWaitlist] = useState<"idle" | "open" | "done">("idle");
   const [waitDaypart, setWaitDaypart] = useState("ANY");
+  // "CUSTOM" = explicit from/to picked below; presets map to fixed windows on the server too.
+  const [waitWindow, setWaitWindow] = useState<{ from: number; to: number }>({ from: 540, to: 1020 });
+  const [waitDateTo, setWaitDateTo] = useState("");
+  const [waitDone, setWaitDone] = useState<{ date: string; date_to: string; mode?: string; delay_min?: number; auto_offer?: boolean } | null>(null);
   const [confirmed, setConfirmed] = useState<{
     booking: CustomerBooking;
     manage_token: string | null;
     sent_to?: string[];
+    account?: { created: boolean; has_password: boolean; email: string } | null;
   } | null>(null);
   const request = useRef({ key: crypto.randomUUID(), payload: "" });
   const heading = useRef<HTMLHeadingElement>(null);
@@ -368,7 +382,19 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     api<{ days: DaySummary[] }>(
       `/shops/${encodeURIComponent(slug)}/days?staff_id=${barber}&service_id=${service}&from=${from}${addonQuery}`,
     )
-      .then((r) => !cancelled && setDays(r.days))
+      .then((r) => {
+        if (cancelled) return;
+        setDays(r.days);
+        // Opening on "today" when today is closed (or full) shows an empty day under the
+        // Soonest tiles. If the customer hasn't picked a day yet, land on the first useful one.
+        if (!pickedDate) {
+          const cur = r.days.find((x) => x.date === date);
+          if (!cur || cur.closed || cur.beyond || cur.available === 0) {
+            const first = r.days.find((x) => !x.closed && !x.beyond && x.available > 0);
+            if (first && first.date !== date) setDate(first.date);
+          }
+        }
+      })
       .catch(() => !cancelled && setDays([]));
     return () => {
       cancelled = true;
@@ -432,13 +458,22 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     setSlot(n.start_min);
     setAssigned({ id: n.staff_id, name: n.staff_name });
   };
+  // Account: every booking ends with one. Signed-in customers skip this; others set a password now
+  // (or get a "set your password" link with the confirmation if they leave it blank).
+  const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
+  const [wantPassword, setWantPassword] = useState(true);
   const submitDetails = (e: FormEvent) => {
     e.preventDefault();
     const next: Record<string, string> = {};
     if (details.name.trim().length < 2) next.name = "Enter your name";
     if (!phoneOk(details.phone)) next.phone = "Enter a valid UK mobile number";
-    if (!emailOk(details.email)) next.email = "Enter a valid email address";
-    if (contactPref === "EMAIL" && !details.email.trim()) next.email = "Add your email so we can send your confirmation there";
+    if (!details.email.trim()) next.email = "Enter your email address";
+    else if (!emailOk(details.email)) next.email = "Enter a valid email address";
+    if (!customer && wantPassword) {
+      if (password.length < 8) next.password = "Use at least 8 characters";
+      else if (password !== password2) next.password2 = "The two passwords don't match";
+    }
     if (forOther && attendee.trim().length < 2) next.attendee = "Who is the visit for?";
     setErrors(next);
     if (Object.keys(next).length)
@@ -464,6 +499,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
       addon_ids: [...extraIds].sort(),
       quote: availability.quote,
       ...(contactPref !== "AUTO" ? { contact_pref: contactPref } : {}),
+      ...(!customer && wantPassword && password ? { password } : {}),
     };
     const serialised = JSON.stringify(payload);
     // A changed payload gets a fresh request key; an unchanged retry replays safely.
@@ -472,7 +508,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     setBusy(true);
     setSaveError("");
     try {
-      const r = await api<{ booking: CustomerBooking; manage_token: string | null; checkout_url?: string | null }>(
+      const r = await api<{ booking: CustomerBooking; manage_token: string | null; checkout_url?: string | null; account?: { created: boolean; has_password: boolean; email: string } | null }>(
         `/shops/${encodeURIComponent(slug)}/bookings`,
         "POST",
         { request_id: request.current.key, ...payload },
@@ -515,17 +551,23 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
     setBusy(true);
     setSaveError("");
     try {
-      await api(`/shops/${encodeURIComponent(slug)}/waitlist`, "POST", {
+      if (waitDaypart === "CUSTOM" && waitWindow.from >= waitWindow.to) {
+        setErrors({ wwindow: "The end time must be after the start time" });
+        return;
+      }
+      const r = await api<{ date: string; date_to: string; mode?: string; delay_min?: number; auto_offer?: boolean }>(`/shops/${encodeURIComponent(slug)}/waitlist`, "POST", {
         staff_id: anyBarber ? null : barber,
         service_id: service,
         customer_name: name,
         phone,
         email: String(f.get("email") || "").trim(),
         date,
-        daypart: waitDaypart,
+        ...(waitDateTo && waitDateTo > date ? { date_to: waitDateTo } : {}),
+        ...(waitDaypart === "CUSTOM" ? { daypart: "ANY", from_min: waitWindow.from, to_min: waitWindow.to } : { daypart: waitDaypart }),
         notes: "",
       });
       setDetails((d) => ({ ...d, name, phone }));
+      setWaitDone(r);
       setWaitlist("done");
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Could not join the waitlist.");
@@ -560,7 +602,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
         {!embedded && <TestBanner />}
         {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
         <main id={embedded ? undefined : "main-content"} className="booking-body">
-          <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} sentTo={confirmed.sent_to || []} />
+          <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} sentTo={confirmed.sent_to || []} signedIn={!!customer} account={confirmed.account ?? null} />
         </main>
       </div>
     );
@@ -602,7 +644,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
       {!embedded && <TestBanner />}
       {!embedded && <ShopHeader name={shop.shop.name} address={shop.shop.address} logo={shop.shop.logo_url} />}
       <main id={embedded ? undefined : "main-content"}>
-        {!embedded && <section className="booking-hero public-hero">
+        {!embedded && <section className={`booking-hero public-hero ${step > 0 && step < 5 ? "booking-hero-compact" : ""}`}>
           <div className="hero-copy">
             <span className="eyebrow">BOOK ONLINE</span>
             <h1>
@@ -954,6 +996,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                           disabled={disabled}
                           onClick={() => {
                             setDate(d);
+                            setPickedDate(true);
                             setSlot(null);
                           }}
                           aria-pressed={date === d}
@@ -1063,17 +1106,57 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                               <input name="email" type="email" aria-labelledby="waitlist-email" defaultValue={details.email} />
                             </label>
                           </div>
-                          <div className="filter-chips" role="group" aria-label="Preferred part of the day">
-                            {[
-                              ["ANY", "Any time"],
-                              ["MORNING", "Morning"],
-                              ["AFTERNOON", "Afternoon"],
-                              ["EVENING", "Evening"],
-                            ].map(([v, l]) => (
-                              <button type="button" key={v} aria-pressed={waitDaypart === v} onClick={() => setWaitDaypart(v)}>
-                                {l}
-                              </button>
-                            ))}
+                          <div className="waitlist-pref">
+                            <span className="waitlist-pref-label" id="waitlist-when">Times that suit you</span>
+                            <div className="filter-chips" role="group" aria-labelledby="waitlist-when">
+                              {[
+                                ["ANY", "Any time"],
+                                ["MORNING", "Morning"],
+                                ["AFTERNOON", "Afternoon"],
+                                ["EVENING", "Evening"],
+                                ["CUSTOM", "Between…"],
+                              ].map(([v, l]) => (
+                                <button type="button" key={v} aria-pressed={waitDaypart === v} onClick={() => setWaitDaypart(v)} data-testid={`waitlist-part-${v}`}>
+                                  {l}
+                                </button>
+                              ))}
+                            </div>
+                            {waitDaypart === "CUSTOM" && (
+                              <div className="waitlist-window" data-testid="waitlist-window">
+                                <label>
+                                  <span id="waitlist-from">From</span>
+                                  <select aria-labelledby="waitlist-from" value={waitWindow.from} onChange={(e) => setWaitWindow((w) => ({ ...w, from: Number(e.target.value) }))} data-testid="waitlist-from">
+                                    {Array.from({ length: 96 }, (_, i) => i * 15).map((m) => (
+                                      <option key={m} value={m}>{time(m)}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label>
+                                  <span id="waitlist-to">Until</span>
+                                  <select aria-labelledby="waitlist-to" value={waitWindow.to} onChange={(e) => setWaitWindow((w) => ({ ...w, to: Number(e.target.value) }))} data-testid="waitlist-to">
+                                    {Array.from({ length: 96 }, (_, i) => (i + 1) * 15).map((m) => (
+                                      <option key={m} value={m}>{m === 1440 ? "Close" : time(m)}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                {errors.wwindow && <span className="field-error">{errors.wwindow}</span>}
+                              </div>
+                            )}
+                          </div>
+                          <div className="waitlist-pref">
+                            <label className="waitlist-range">
+                              <span id="waitlist-date-to">Any day up to (optional)</span>
+                              <input
+                                type="date"
+                                aria-labelledby="waitlist-date-to"
+                                min={date}
+                                max={days?.filter((d) => !d.beyond).at(-1)?.date}
+                                value={waitDateTo}
+                                onChange={(e) => setWaitDateTo(e.target.value)}
+                                data-testid="waitlist-date-to"
+                              />
+                              <small>Leave blank to be told about {dateLabel(date, { weekday: "long", day: "numeric", month: "long" })} only.</small>
+                            </label>
                           </div>
                           {saveError && (
                             <p className="workspace-error" role="alert">
@@ -1095,7 +1178,16 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   {waitlist === "done" && (
                     <Notice icon="check">
                       <strong>You’re on the list.</strong> The shop can see your request for{" "}
-                      {dateLabel(date, { weekday: "long", day: "numeric", month: "long" })}. If a time opens up you’ll get a message with a link to take it — it’s held for you for a couple of hours. Nothing is reserved yet.
+                      {waitDone?.date_to && waitDone.date_to !== date
+                        ? `${dateLabel(date, { weekday: "short", day: "numeric", month: "short" })} to ${dateLabel(waitDone.date_to, { weekday: "short", day: "numeric", month: "short" })}`
+                        : dateLabel(date, { weekday: "long", day: "numeric", month: "long" })}
+                      .{" "}
+                      {waitDone?.auto_offer === false
+                        ? "They’ll get in touch if a time opens up."
+                        : waitDone?.mode === "EVERYONE"
+                          ? "If a time opens up you’ll get a text with the exact time and a link to book it — first to book gets it."
+                          : "If a time opens up you’ll get a text with the exact time and a link to take it — it’s held for you for a little while."}{" "}
+                      Nothing is reserved yet.
                     </Notice>
                   )}
                   <p className="slot-note">
@@ -1123,7 +1215,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                       { id: "phone", label: "Mobile number", placeholder: "07700 900123", type: "tel", auto: "tel" },
                       {
                         id: "email",
-                        label: "Email address (optional)",
+                        label: "Email address",
                         placeholder: "jamie@example.com",
                         type: "email",
                         auto: "email",
@@ -1133,7 +1225,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                         <span id={`booking-${field.id}-label`}>{field.label}</span>
                         <input
                           aria-labelledby={`booking-${field.id}-label`}
-                          required={field.id !== "email"}
+                          required
                           type={field.type}
                           name={field.id}
                           autoComplete={field.auto}
@@ -1153,6 +1245,31 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                         )}
                       </label>
                     ))}
+                    {!customer && (
+                      <div className="account-block" data-testid="account-block">
+                        <label className="attendee-toggle">
+                          <input type="checkbox" checked={wantPassword} onChange={(e) => { setWantPassword(e.target.checked); setErrors((c) => ({ ...c, password: "", password2: "" })); }} data-testid="want-password" />
+                          <span>
+                            <strong>Create a password for your account</strong>
+                            <small>Sign in with your email to see, move or rebook visits. Untick it and we'll email you a link to set one later.</small>
+                          </span>
+                        </label>
+                        {wantPassword && (
+                          <div className="account-fields">
+                            <label>
+                              <span id="booking-password-label">Password</span>
+                              <input aria-labelledby="booking-password-label" type="password" name="new-password" autoComplete="new-password" minLength={8} value={password} onChange={(e) => { setPassword(e.target.value); setErrors((c) => ({ ...c, password: "" })); }} aria-invalid={!!errors.password} aria-describedby={errors.password ? "booking-password-error" : undefined} data-testid="booking-password" />
+                              {errors.password ? <span className="field-error" id="booking-password-error">{errors.password}</span> : <small className="field-hint">At least 8 characters.</small>}
+                            </label>
+                            <label>
+                              <span id="booking-password2-label">Repeat password</span>
+                              <input aria-labelledby="booking-password2-label" type="password" name="new-password-2" autoComplete="new-password" minLength={8} value={password2} onChange={(e) => { setPassword2(e.target.value); setErrors((c) => ({ ...c, password2: "" })); }} aria-invalid={!!errors.password2} aria-describedby={errors.password2 ? "booking-password2-error" : undefined} data-testid="booking-password2" />
+                              {errors.password2 && <span className="field-error" id="booking-password2-error">{errors.password2}</span>}
+                            </label>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <div className="attendee-block">
                       <label className="attendee-toggle">
                         <input
@@ -1311,6 +1428,11 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
               {saveError && step !== 4 && waitlist !== "open" && (
                 <p className="workspace-error" role="alert">
                   {saveError}
+                </p>
+              )}
+              {step === 3 && (
+                <p className="booking-privacy" data-testid="booking-privacy">
+                  {shop.shop.name} uses your details to run this appointment and send you confirmations and reminders. It won't send marketing unless you say so. <a href="/legal/privacy" target="_blank" rel="noopener">How your data is handled</a>.
                 </p>
               )}
               <footer className="booking-actions">
@@ -1473,10 +1595,6 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
                   {shop.shop.cancel_hours} hours ahead using your manage link.
                 </p>
               </div>
-              <div className="preview-summary-note">
-                <Icon name="eye" size={14} />
-                Live shop prices · no payment taken
-              </div>
             </aside>
           </div>
           </>
@@ -1484,6 +1602,7 @@ export function PublicBooking({ slug, embedded = false, preset, onLoaded, custom
           {!embedded && (
             <footer className="booking-footer">
               <span>Powered by foliyo</span>
+              <span className="booking-legal"><a href="/legal/privacy" target="_blank" rel="noopener">Privacy</a> · <a href="/legal/terms" target="_blank" rel="noopener">Terms</a></span>
             </footer>
           )}
         </div>
@@ -1497,11 +1616,15 @@ function ConfirmationCard({
   token,
   slug,
   sentTo = [],
+  signedIn = false,
+  account = null,
 }: {
   booking: CustomerBooking;
   token: string | null;
   slug: string;
   sentTo?: string[];
+  signedIn?: boolean;
+  account?: { created: boolean; has_password: boolean; email: string } | null;
 }) {
   const link = token ? `${location.origin}/manage/${token}` : "";
   const sentWhere = [sentTo.includes("WA") && booking.phone && `on WhatsApp to ${booking.phone}`, sentTo.includes("SMS") && booking.phone && `by text to ${booking.phone}`, sentTo.includes("EMAIL") && booking.email && `by email to ${booking.email}`].filter(Boolean).join(" and ");
@@ -1577,8 +1700,8 @@ function ConfirmationCard({
             {sentWhere ? `We've sent this link ${sentWhere}. ` : ""}
             Use it any time to view, move or cancel your visit{sentWhere ? "" : " — keep it somewhere safe"}.
           </p>
-          <a className="public-manage-link" href={`/manage/${token}`}>
-            {link}
+          <a className="button secondary public-manage-open" href={`/manage/${token}`} data-testid="open-manage">
+            <Icon name="calendar" size={16} /> Open my booking
           </a>
         </section>
       ) : (
@@ -1587,6 +1710,23 @@ function ConfirmationCard({
         </Notice>
       )}
       {copied && <p role="status">{copied}</p>}
+      {!signedIn && (
+        <section className="review-customer confirm-account" data-testid="confirm-account">
+          <div>
+            <h3>{account?.has_password ? "Your account is ready" : "All your visits in one place"}</h3>
+          </div>
+          <p>
+            {account?.has_password
+              ? `You're signed in on this device. Sign in anywhere with ${account.email} and your password to see upcoming and past visits, move or cancel in a tap, and rebook your usual.`
+              : account
+                ? `We've emailed ${account.email} a link to set your password. You're already signed in on this device — add ${booking.shop.name} to your home screen from your account for one-tap access and reminders.`
+                : `Sign in at ${booking.shop.name} to see upcoming and past visits, move or cancel in a tap, and rebook your usual.`}
+          </p>
+          <a className="button secondary" href={shopPath(slug, "/me")}>
+            <Icon name="user" size={16} /> {account ? "Open my account" : "See my visits"}
+          </a>
+        </section>
+      )}
       <div className="confirmation-actions">
         <a className="action-tile" href={gcal(booking)} target="_blank" rel="noreferrer">
           <Icon name="calendar" /> <span>Google Calendar</span>
@@ -1611,7 +1751,7 @@ function ConfirmationCard({
         )}
       </div>
       <footer className="booking-actions">
-        <a className="button primary" href={`/book/${slug}`}>
+        <a className="button primary" href={shopPath(slug, "/book")}>
           Book another visit
         </a>
       </footer>
@@ -1621,7 +1761,7 @@ function ConfirmationCard({
 
 export function ManageBooking({ token }: { token: string }) {
   const [booking, setBooking] = useState<CustomerBooking | null>(null);
-  const [review, setReview] = useState<{ review: OwnReview; can: boolean }>({ review: null, can: false });
+  const [review, setReview] = useState<{ review: OwnReview; can: boolean; google?: string }>({ review: null, can: false });
   const [error, setError] = useState("");
   const [mode, setMode] = useState<"view" | "move" | "cancel">("view");
   const [date, setDate] = useState("");
@@ -1635,7 +1775,7 @@ export function ManageBooking({ token }: { token: string }) {
   async function load() {
     setError("");
     try {
-      let r = await api<{ booking: CustomerBooking; review: OwnReview; can_review: boolean }>(`/manage/${token}`);
+      let r = await api<{ booking: CustomerBooking; review: OwnReview; can_review: boolean; google_review_url?: string }>(`/manage/${token}`);
       // Back from Stripe (or refreshing while a deposit is pending): confirm against Stripe directly.
       if (r.booking.deposit_status === "PENDING") {
         const paid = new URLSearchParams(location.search).get("paid");
@@ -1650,7 +1790,7 @@ export function ManageBooking({ token }: { token: string }) {
       }
       setBooking(r.booking);
       applyThemeColor(r.booking.shop.brand);
-      setReview({ review: r.review ?? null, can: !!r.can_review });
+      setReview({ review: r.review ?? null, can: !!r.can_review, google: r.google_review_url || "" });
       setDate((d) => d || r.booking.date);
     } catch (e) {
       setError(e instanceof Error ? e.message : "This link could not be opened.");
@@ -1809,10 +1949,11 @@ export function ManageBooking({ token }: { token: string }) {
             <ReviewCard
               review={review.review}
               canReview={review.can}
+              googleUrl={review.google || ""}
               post={async (rating, body) => {
-                const r = await api<{ review: OwnReview }>(`/manage/${token}/review`, "POST", { rating, body });
-                setReview({ review: r.review, can: false });
-                return r.review;
+                const r = await api<{ review: OwnReview; google_review_url?: string }>(`/manage/${token}/review`, "POST", { rating, body });
+                setReview((prev) => ({ review: r.review, can: false, google: r.google_review_url || prev.google }));
+                return r;
               }}
             />
           )}
@@ -1856,7 +1997,7 @@ export function ManageBooking({ token }: { token: string }) {
                   </>
                 )}
                 {booking.shop.slug && (
-                  <a className="button primary" href={`/book/${booking.shop.slug}`}>
+                  <a className="button primary" href={shopPath(booking.shop.slug, "/book")}>
                     Book again
                   </a>
                 )}
@@ -1963,6 +2104,7 @@ export function ManageBooking({ token }: { token: string }) {
         </section>
         <footer className="booking-footer">
           <span>Powered by foliyo</span>
+          <span className="booking-legal"><a href="/legal/privacy" target="_blank" rel="noopener">Privacy</a> · <a href="/legal/terms" target="_blank" rel="noopener">Terms</a></span>
         </footer>
       </main>
     </div>

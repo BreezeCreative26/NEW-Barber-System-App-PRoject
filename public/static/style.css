@@ -1215,7 +1215,7 @@
   color: var(--muted);
 }
 :root {
-  /* OLLO brand: deep green ink, warm cream canvas, matte-mint accent. Legacy token names kept so existing rules keep working. */
+  /* foliyo brand: deep green ink, warm cream canvas, matte-mint accent. Legacy token names kept so existing rules keep working. */
   --canvas: #f4f3ee;
   --surface: #fff;
   --ink: #0f1f1b;
@@ -1584,7 +1584,7 @@ input[aria-invalid="true"] {
 .brand.light .brand-wordmark {
   /* white variant is chosen in markup; no colour filters (they would flip the mint accent). */
 }
-/* Shop-branded workspace: their logo/initial + name, OLLO as a quiet "Powered by" line. */
+/* Shop-branded workspace: their logo/initial + name, foliyo as a quiet "Powered by" line. */
 .brand-shop {
   gap: 10px;
   min-width: 0;
@@ -2886,6 +2886,18 @@ input[aria-invalid="true"] {
   width: 14px;
   height: 14px;
   border-radius: 50%;
+}
+/* After step 1 the hero shrinks to a one-line strip on phones (title + eyebrow), so steps 2–5 start above the fold. */
+@media (max-width: 720px) {
+  .booking-hero.booking-hero-compact { padding: 14px 18px !important; min-height: 0 !important; display: block; }
+  .booking-hero.booking-hero-compact .hero-copy { padding: 0 !important; margin: 0 !important; }
+  .booking-hero.booking-hero-compact h1 { font-size: 20px; line-height: 1.1; margin: 2px 0 0; }
+  .booking-hero.booking-hero-compact h1 br { display: inline; content: " "; }
+  .booking-hero.booking-hero-compact h1 br::after { content: " "; }
+  .booking-hero.booking-hero-compact .hero-copy > p,
+  .booking-hero.booking-hero-compact .hero-details,
+  .booking-hero.booking-hero-compact .hero-art,
+  .booking-hero.booking-hero-compact > *:not(.hero-copy) { display: none; }
 }
 .booking-hero {
   max-width: 1120px;
@@ -5977,8 +5989,15 @@ input[aria-invalid="true"] {
   max-width: 720px;
   margin: 0 auto;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
+/* Manage view's move step: date strip and slot grid must shrink to the phone, never widen the page. */
+.public-confirmation > section,
+.public-confirmation .review-customer { min-width: 0; }
+.review-customer > .booking-dates,
+.review-customer > .time-slots { display: grid; justify-content: normal; margin-bottom: 0; }
+.review-customer > .time-slots { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .public-confirmation .review-appointment h1 {
   font-size: 25px;
   font-weight: 560;
@@ -6395,6 +6414,17 @@ input[aria-invalid="true"] {
 .customer-fields.compact label > span {
   font-size: 11px;
 }
+.review-google { display: grid; gap: 10px; margin: 12px 0 0; padding: 12px 14px; border-radius: var(--r, 12px); background: var(--ollo-soft); color: var(--ink); font-size: 13.5px; }
+.review-google .button { justify-self: start; }
+.waitlist-pref { display: grid; gap: 8px; }
+.waitlist-pref-label { font-size: 11px; font-weight: 600; color: #6b5f48; text-transform: uppercase; letter-spacing: .04em; }
+.waitlist-window { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+.waitlist-window label { display: grid; gap: 4px; font-size: 11px; }
+.waitlist-window select { min-width: 110px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 14px; background: #fff; }
+.waitlist-range { display: grid; gap: 4px; }
+.waitlist-range > span { font-size: 11px; }
+.waitlist-range input[type="date"] { max-width: 220px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 14px; background: #fff; }
+.waitlist-range small { font-size: 12px; color: #6b5f48; }
 .waitlist-actions {
   display: flex;
   justify-content: flex-end;
@@ -7668,6 +7698,16 @@ details.workspace-welcome > svg { display: none; }
   .auth-main { padding: 20px 16px 40px; }
 }
 .auth-switch { margin-top: 14px; }
+.auth-legal { display: flex; flex-direction: row; gap: 10px; align-items: flex-start; margin-top: 14px; font-size: 13px; line-height: 1.5; font-weight: 400; color: var(--muted); }
+.auth-legal input { margin-top: 3px; flex: 0 0 auto; width: 16px; height: 16px; }
+.auth-legal a { color: var(--ink); text-decoration: underline; }
+.public-manage-open, .confirm-account .button { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; }
+.booking-privacy { margin: 0 0 12px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.booking-privacy a { color: inherit; text-decoration: underline; }
+.booking-footer .booking-legal { margin-left: 10px; }
+.booking-footer .booking-legal a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.powered-by a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.customer-erased { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; background: #f1f2f6; color: var(--muted); font-size: 12px; }
 .linklike { border: 0; background: none; padding: 0; font: inherit; color: var(--accent, #4f5bd5); text-decoration: underline; cursor: pointer; }
 .auth-demo h3 { margin: 10px 0 6px; }
 .auth-demo .demo-actions { display: grid; gap: 8px; margin-top: 12px; }
@@ -7734,6 +7774,35 @@ details.workspace-welcome > svg { display: none; }
 .stock-cover:hover { border-color: var(--line-2); }
 .stock-cover.selected { border-color: var(--accent); }
 .stock-cover.selected span { color: var(--accent-dark); font-weight: 600; }
+/* Shop page live preview (Settings → Shop page). Real theme classes, scaled into a frame. */
+.shop-preview { display: grid; gap: 10px; margin: 8px 0 20px; }
+.shop-preview-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.shop-preview-bar strong { font-size: 14px; }
+.shop-preview-bar small { color: var(--muted); font-size: 12.5px; }
+.shop-preview-bar .segmented { margin-left: auto; }
+.shop-preview-frame { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--canvas); box-shadow: var(--shadow-1); margin: 0 auto; width: 100%; max-height: 560px; overflow-y: auto; }
+.shop-preview-frame.phone { max-width: 400px; container-type: inline-size; }
+.shop-preview-frame.desktop { max-width: 100%; }
+.shop-preview-frame .shop-preview-page { min-height: 480px; pointer-events: none; }
+.shop-preview-frame .sp-nav { position: static; }
+.shop-preview-frame .sp-nav nav a { cursor: default; }
+.shop-preview-frame .sp-hero-inner { padding: clamp(32px, 6cqw, 72px) 24px clamp(28px, 5cqw, 56px); min-height: 0; }
+.shop-preview-frame .shop-preview-page.hero-editorial .sp-hero.has-cover .sp-hero-inner { min-height: 340px; }
+.shop-preview-frame .shop-preview-page.hero-centred .sp-hero-inner { min-height: 320px; }
+.shop-preview-frame .sp-hero h1 { font-size: clamp(26px, 7.5cqw, 52px); overflow-wrap: anywhere; }
+.shop-preview-frame .sp-hero-logo { height: 48px; }
+.shop-preview-frame .sp-strap { font-size: 15px; }
+.shop-preview-frame.phone .sp-nav nav { display: none; }
+.shop-preview-frame.phone .shop-preview-page.hero-split .sp-hero.has-cover .sp-hero-inner { grid-template-columns: 1fr; }
+.shop-preview-frame .sp-section { padding: 24px; }
+.shop-preview-frame .sp-section h2 { font-size: 22px; }
+.sp-preview-services { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.sp-preview-services .sp-service { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--sp-surface); border: 1px solid var(--sp-line); border-radius: var(--sp-r); }
+.sp-preview-services .sp-service b { flex: 1; }
+.sp-preview-services .sp-service small { color: var(--sp-muted); }
+.sp-preview-services .sp-service-go { width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--sp-r-pill); background: var(--sp-soft); color: var(--sp-accent-dark); }
+.sp-preview-gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.sp-preview-gallery img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--sp-r); }
 .theme-editor { display: grid; gap: 16px; grid-column: 1 / -1; }
 .theme-fonts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .theme-font { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; text-align: left; font: inherit; color: var(--ink); }
@@ -8067,6 +8136,11 @@ li[data-done="true"] .setup-wiz-num { background: var(--good); color: #fff; bord
 .auth-kind { display: flex; gap: 6px; flex-wrap: wrap; margin: -4px 0 8px; }
 .auth-kind [role="radio"] { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1.5px solid var(--line); border-radius: 999px; background: #fff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 .auth-kind [role="radio"][aria-checked="true"] { border-color: var(--ink); background: var(--ink); color: #fff; }
+.waitlist-mode { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin: 4px 0 12px; }
+.waitlist-mode [role="radio"] { display: grid; gap: 4px; text-align: left; padding: 12px 14px; border: 1.5px solid var(--line); border-radius: var(--r); background: #fff; font: inherit; cursor: pointer; }
+.waitlist-mode [role="radio"] strong { font-size: 14px; }
+.waitlist-mode [role="radio"] small { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.waitlist-mode [role="radio"][aria-checked="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 /* verification */
 .setup-verify { display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--r); background: var(--surface); border: 1px solid var(--line-2); }
 .setup-verify-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0; font-size: 14px; }
@@ -8242,3 +8316,28 @@ li[data-done="true"] .setup-wiz-num { background: var(--good); color: #fff; bord
 .service-thumb.rose, .barber-portrait.rose   { background: #f3e5ea; color: #7c3f56; }
 .service-thumb.ink, .barber-portrait.ink     { background: #e4e6e8; color: #1f2529; }
 .colour-picker-row { flex-wrap: wrap; }
+
+/* ---- Customer accounts v2: sign-in modes, app card, password panel, booking account block ---- */
+.ca-links { display: flex; gap: 14px; flex-wrap: wrap; justify-content: space-between; margin-top: 4px; }
+.ca-switch { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+.ca-hint, .field-hint { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+.customer-area button.link, .booking-app button.link { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font: inherit; }
+.customer-area button.link.small { font-size: 12px; color: var(--muted); }
+.ca-app { display: grid; gap: 10px; margin: 0 0 18px; }
+.ca-app-row { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface, #fff); }
+.ca-app-row > svg { color: var(--accent, #1f6f5f); }
+.ca-app-row strong { display: block; font-size: 14px; }
+.ca-app-row p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.ca-app-row .link.small { grid-column: 3; justify-self: end; }
+@media (max-width: 480px) { .ca-app-row { grid-template-columns: auto 1fr; } .ca-app-row .button, .ca-app-row .link.small { grid-column: 2; justify-self: start; } }
+.ca-password { margin: 22px 0 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.ca-password h3 { margin: 0 0 4px; }
+.ca-password > p { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
+.account-block { margin-top: 6px; }
+.account-fields { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
+@media (max-width: 560px) { .account-fields { grid-template-columns: minmax(0, 1fr); } }
+/* Shop web-address input (signup + find-shop) */
+.slug-input { display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
+.slug-input input { flex: 1; min-width: 0; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+.slug-input .slug-suffix { display: flex; align-items: center; padding: 0 12px; background: var(--surface-2, #f4f4f5); color: var(--muted); font-size: 13px; white-space: nowrap; border-left: 1px solid var(--line); }
+.slug-input:focus-within { border-color: var(--accent, #1f6f5f); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #1f6f5f) 18%, transparent); }

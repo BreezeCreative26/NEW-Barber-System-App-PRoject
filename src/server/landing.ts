@@ -257,7 +257,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
       <div class="l-devices">
         <div class="l-laptop" role="img" aria-label="The foliyo calendar on a laptop: a week of colour-coded appointments across the team.">
           <div class="l-laptop-screen">
-            <div class="l-cal-side"><img src="/static/brand/foliyo-icon.svg" alt="" width="18" height="18"/><span class="on">Calendar</span><span>Clients</span><span>Team</span><span>Payments</span><span>Reports</span><span>Settings</span></div>
+            <div class="l-cal-side"><img src="/static/brand/foliyo-wordmark-ink.svg" alt="" width="48" height="18"/><span class="on">Calendar</span><span>Clients</span><span>Team</span><span>Payments</span><span>Reports</span><span>Settings</span></div>
             <div class="l-cal">
               <div class="l-cal-head"><b>Fri, 15 May 2026</b><span>Jay · Marcus · Dani</span></div>
               <div class="l-cal-grid">
@@ -310,7 +310,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
     <div class="l-wrap l-two">
       <div class="l-action-visual">
         <div class="l-phone l-phone-wa" role="img" aria-label="A WhatsApp message from foliyo confirming an appointment.">
-          <div class="l-phone-top l-phone-top-wa"><img src="/static/brand/foliyo-icon.svg" alt="" width="22" height="22"/><b>foliyo</b><small>online</small></div>
+          <div class="l-phone-top l-phone-top-wa"><img src="/static/brand/foliyo-wordmark-ink.svg" alt="foliyo" width="58" height="22"/><small>online</small></div>
           <div class="l-wa-bubble">
             <p>Hi Jake,<br/>Your appointment is confirmed for <strong>Friday 15th May at 11:30am</strong> with <strong>Sam</strong>.</p>
             <p>See you soon!<br/>— The team at foliyo</p>
@@ -505,7 +505,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
       <a class="l-brand" href="/" aria-label="foliyo home"><img src="/static/brand/foliyo-wordmark-white.svg" alt="foliyo" width="75" height="28"/></a>
       <p class="l-tiny">© ${new Date().getFullYear()} foliyo. All rights reserved.</p>
     </div>
-    <nav aria-label="Footer"><a href="/">foliyo for every business</a><a href="/barbers">foliyo for barbers</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/signin">Sign in</a><a href="/signup">Create your shop</a></nav>
+    <nav aria-label="Footer"><a href="/">foliyo for every business</a><a href="/barbers">foliyo for barbers</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/legal/terms">Terms</a><a href="/legal/privacy">Privacy</a><a href="/legal/dpa">DPA</a><a href="/legal/cookies">Cookies</a><a href="/signin">Sign in</a><a href="/signup">Create your shop</a></nav>
     <div class="l-footer-right">
       <div class="l-social" aria-label="Social">
         <a href="https://instagram.com" aria-label="Instagram" rel="noopener">${ICO.ig}</a>

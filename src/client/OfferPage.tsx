@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { Avatar, Button, Icon, Notice } from "./ui";
 import { dateLabel, money, time, setCurrency } from "./fixtures";
-import { applyThemeColor, themeClass, type ShopBrand } from "./theme";
+import { applyThemeColor, themeClass, type ShopBrand, shopPath } from "./theme";
 
 type Offer = {
   id: string; status: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "SUPERSEDED" | "LOST"; date: string; start_min: number; expires_at: number;
@@ -90,7 +90,7 @@ export function OfferPage({ token }: { token: string }) {
   return (
     <div className={themeClass(offer.shop.brand, "customer-area")} data-testid="offer-page">
       <header className="sp-nav">
-        <a className="sp-brand" href={offer.shop.slug ? `/${offer.shop.slug}` : "#"}>
+        <a className="sp-brand" href={offer.shop.slug ? shopPath(offer.shop.slug, "/") : "#"}>
           {offer.shop.logo_url ? <img className="shop-emblem shop-logo" src={offer.shop.logo_url} alt="" /> : <span className="shop-emblem">{initials(offer.shop.name)}</span>}
           <strong>{offer.shop.name}</strong>
         </a>
@@ -168,7 +168,7 @@ export function OfferPage({ token }: { token: string }) {
                     : `We’ll message you if another time opens up on ${dateLabel(offer.date)}.`}
               </p>
               {offer.shop.slug && (
-                <a className="button secondary" href={`/${offer.shop.slug}#book`}>
+                <a className="button secondary" href={shopPath(offer.shop.slug, "/", "#book")}>
                   Book another time instead
                 </a>
               )}

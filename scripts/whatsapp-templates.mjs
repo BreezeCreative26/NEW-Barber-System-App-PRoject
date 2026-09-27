@@ -1,7 +1,7 @@
-// Submit OLLO's WhatsApp message templates to the configured Infobip sender and report status.
+// Submit foliyo's WhatsApp message templates to the configured Infobip sender and report status.
 //   INFOBIP_API_KEY=… INFOBIP_WA_SENDER=447… node scripts/whatsapp-templates.mjs [--submit]
 // Without --submit it only lists what the sender has vs what src/server/whatsapp.ts expects.
-// The shared Infobip test sender (447860088970) cannot take custom templates — register OLLO's
+// The shared Infobip test sender (447860088970) cannot take custom templates — register foliyo's
 // own sender in the Infobip portal first (docs/WHATSAPP.md).
 import { readFileSync } from "node:fs";
 const key = process.env.INFOBIP_API_KEY, sender = (process.env.INFOBIP_WA_SENDER || "").replace(/\D/g, "");

@@ -24,7 +24,10 @@ import { scheduledPayRuns } from "./payouts";
 import { expireRequests } from "./chair";
 import { sweepDailySummaries } from "./alerts";
 import { sweepPlatform } from "./lifecycle";
+import { sweepWaitlistPlatform } from "./waitlist";
+import { pushToAccount, accountForPhone, type PushPayload } from "./push";
 import { sendWhatsApp, waLive, waPayload, waStatus } from "./whatsapp";
+import { shopUrl } from "./hosts";
 
 type Ctx = Context<AppEnv>;
 type DB = Database;
@@ -42,9 +45,10 @@ export type Recipient = { name?: string; phone?: string; email?: string; pref?: 
 // ---- Template catalogue --------------------------------------------------------
 export const MESSAGE_TEMPLATES = [
   "booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon",
-  "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
-  "verify_contact", "password_reset", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
+  "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_open", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
+  "verify_contact", "password_reset", "account_welcome", "account_reset", "shop_address", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
   "invoice", "credit_note", "owner_signin_link", "trial_ending", "trial_ended", "payment_overdue", "account_readonly", "broadcast", "admin_alert_digest",
+  "owner_welcome", "email_verify", "google_review",
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
 
@@ -132,6 +136,14 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         lines: [`${v.service} with ${v.barber}`, `Held until ${v.expires}.`],
         cta: { label: "Take this time", href: String(v.link) },
       };
+    case "waitlist_open":
+      return {
+        sms: `${s}: a ${v.service} with ${v.barber} has just opened on ${when}. First to book gets it: ${v.link}`,
+        subject: `A time has just opened at ${s}: ${when}`,
+        heading: `${when} has just opened.`,
+        lines: [`${v.service} with ${v.barber}`, "First to book gets it."],
+        cta: { label: "Book this time", href: String(v.link) },
+      };
     case "waitlist_booked":
       return {
         sms: `${s}: you're booked — ${v.service} with ${v.barber}, ${when}. Ref ${v.ref}. Manage: ${v.link}`,
@@ -146,6 +158,14 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         subject: `Back on the list at ${s}`,
         heading: `Back on the list for ${v.date}.`,
         lines: ["We'll message you if another time opens up."],
+      };
+    case "google_review":
+      return {
+        sms: `${s}: thanks for the ${v.rating}★, ${who}! If you have 30 seconds, the same on Google helps us a lot: ${v.link}`,
+        subject: `Thanks for the ${v.rating}★ — one more favour?`,
+        heading: `Thanks, ${who}.`,
+        lines: [`You gave your ${v.service} with ${v.barber} ${v.rating} stars. If you have 30 seconds, the same review on Google helps other people find us.`],
+        cta: { label: "Review us on Google", href: String(v.link) },
       };
     case "review_request":
       return {
@@ -177,6 +197,42 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         subject: `${v.code} is your ${s} verification code`,
         heading: `${v.code}`,
         lines: [`Enter this code to confirm this is ${s}'s ${v.kind === "PHONE" ? "mobile number" : "email address"}. It expires in 10 minutes.`, "If you didn't ask for it, ignore this message."],
+      };
+    case "email_verify":
+      // Shop-branded: an invited team member confirming the address they signed up with, or an
+      // owner re-sending from the workspace nudge.
+      return {
+        sms: `${s}: confirm your sign-in email here (24 h): ${v.link}`,
+        subject: `Confirm your email for ${s}`,
+        heading: who !== "there" ? `Nearly there, ${who}.` : "Nearly there.",
+        lines: [`Tap the button to confirm that ${v.email} is yours. That's what we'll use for sign-in help and password resets.`, "The link works once and expires in 24 hours.", "If you didn't create this account, ignore this message."],
+        cta: { label: "Confirm my email", href: String(v.link) },
+      };
+    case "account_welcome":
+      // Customer account created from a booking or the shop app: set a password to finish.
+      return {
+        sms: `${s}: your account is ready. Set a password to see and manage your visits: ${v.link}`,
+        subject: `Your ${s} account`,
+        heading: who !== "there" ? `Welcome, ${who}.` : "Welcome.",
+        lines: [`Your ${s} account keeps every visit in one place: move or cancel, rebook your usual, and get reminders.`, "Set a password to finish. The link works once and lasts 24 hours.", v.install ? "Tip: add the shop to your home screen from the account page for one-tap access and reminders." : ""].filter(Boolean),
+        cta: { label: "Set my password", href: String(v.link) },
+      };
+    case "account_reset":
+      return {
+        sms: `${s}: reset your password here (30 min): ${v.link}`,
+        subject: `Reset your ${s} password`,
+        heading: "Reset your password.",
+        lines: ["Someone asked to reset the password for your account. If it was you, use the button below within 30 minutes.", "If it wasn't you, ignore this message — nothing has changed."],
+        cta: { label: "Choose a new password", href: String(v.link) },
+      };
+    case "shop_address":
+      // Owner/staff asked "where do I sign in?" on the foliyo home page.
+      return {
+        sms: `${s}: sign in at ${v.link}`,
+        subject: `Where to sign in for ${s}`,
+        heading: "Here's your sign-in address.",
+        lines: [`${s}'s team signs in at the shop's own address. Bookmark it or add it to your home screen.`, "If you didn't ask for this, ignore it — nothing changes."],
+        cta: { label: "Open sign-in", href: String(v.link) },
       };
     case "password_reset":
       return {
@@ -251,6 +307,16 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         lines: String(v.items || "").split("\n").filter(Boolean),
         cta: { label: "Open admin alerts", href: String(v.link) },
       };
+    case "owner_welcome":
+      // foliyo → a brand-new owner, moments after signup. Doubles as the email confirmation.
+      return {
+        sms: `${s}: welcome! Confirm your email and finish setting up ${v.shop}: ${v.link}`,
+        subject: `Welcome to ${s} — confirm your email`,
+        heading: who !== "there" ? `Welcome, ${who}.` : "Welcome.",
+        lines: [`${v.shop} is ready for you. Tap the button to confirm this address — it's how you'll get back in if you ever forget your password.`, "Then finish the short setup: opening hours, services, your team and your booking link. Most shops take bookings the same day.", "The link works once and expires in 24 hours. If you didn't sign up, ignore this email."],
+        cta: { label: "Confirm email and continue", href: String(v.link) },
+        footnote: v.trial_days ? `Your ${v.trial_days}-day free trial has started. No card needed until you choose a plan.` : undefined,
+      };
     case "owner_signin_link":
       return {
         sms: `${s}: your one-time sign-in link (15 min): ${v.link}`,
@@ -302,12 +368,22 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
 }
 
 // ---- Email shell (shop-branded, inline CSS, dark-safe) ---------------------------
-const ACCENTS: Record<string, { bg: string; ink: string }> = {
-  ollo: { bg: "#0b1a17", ink: "#ffffff" }, ink: { bg: "#1d1f26", ink: "#ffffff" }, sage: { bg: "#3f7d5c", ink: "#ffffff" },
+// Button / tile colours mirror the six named accents in public/static/shop-theme.css (light mode),
+// so the email matches the shop page the customer just booked on. `ink` is the text colour on
+// the accent; every pair is ≥ 4.5:1 on white.
+export const EMAIL_ACCENTS: Record<string, { bg: string; ink: string }> = {
+  ollo: { bg: "#3a7563", ink: "#ffffff" }, ink: { bg: "#1d1f26", ink: "#ffffff" }, sage: { bg: "#3f7d5c", ink: "#ffffff" },
   clay: { bg: "#a8552f", ink: "#ffffff" }, plum: { bg: "#6e3b7a", ink: "#ffffff" }, slate: { bg: "#4a5568", ink: "#ffffff" },
 };
+// foliyo → owner emails (billing, lifecycle, admin sign-in links, welcome) go out as the platform:
+// foliyo lockup, foliyo green, company footer — never the shop's own logo, which would be odd
+// on an invoice addressed *to* that shop. `platformSender()` builds the MsgShop-shaped sender.
+export const PLATFORM_LOGO = "/static/brand/png/foliyo-wordmark-ink-800.png";
+export function platformSender(shop: MsgShop, pb: { company_name?: string; company_address?: string; company_email?: string }): MsgShop {
+  return { ...shop, name: pb.company_name || "foliyo", logo_url: PLATFORM_LOGO, accent: "ollo", theme_json: "{}", address: pb.company_address || "", email: pb.company_email || "", phone: "" };
+}
 export function emailHtml(shop: { name: string; address?: string; slug?: string | null }, brand: ShopBrand, origin: string, r: Rendered, footer: { phone?: string; email?: string; unsubscribe?: string }) {
-  const a = ACCENTS[brand.accent] || ACCENTS.ollo;
+  const a = EMAIL_ACCENTS[brand.accent] || EMAIL_ACCENTS.ollo;
   const logo = brand.logo_url ? `<img src="${esc(brand.logo_url.startsWith("http") ? brand.logo_url : origin + brand.logo_url)}" alt="${esc(shop.name)}" height="40" style="height:40px;max-width:180px;object-fit:contain;display:block" />` : `<div style="display:inline-block;width:40px;height:40px;border-radius:10px;background:${a.bg};color:${a.ink};font:700 16px/40px -apple-system,Segoe UI,Inter,Arial,sans-serif;text-align:center">${esc(shop.name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase())}</div>`;
   const lines = r.lines.map((l) => `<p style="margin:0 0 8px;font:15px/1.5 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#3c3f48">${esc(l)}</p>`).join("");
   const cta = r.cta ? `<a href="${esc(r.cta.href)}" style="display:inline-block;margin:18px 0 6px;padding:13px 22px;border-radius:10px;background:${a.bg};color:${a.ink};font:600 15px -apple-system,Segoe UI,Inter,Arial,sans-serif;text-decoration:none">${esc(r.cta.label)}</a><p style="margin:6px 0 0;font:12px/1.5 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#8a8f9c;word-break:break-all">${esc(r.cta.href)}</p>` : "";
@@ -316,6 +392,7 @@ export function emailHtml(shop: { name: string; address?: string; slug?: string 
 <body style="margin:0;padding:0;background:#f5f6fb">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f6fb"><tr><td align="center" style="padding:28px 16px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden">
+<tr><td style="height:6px;background:${a.bg};font-size:0;line-height:0">&nbsp;</td></tr>
 <tr><td style="padding:24px 28px 0">${logo}</td></tr>
 <tr><td style="padding:20px 28px 0"><h1 style="margin:0 0 14px;font:700 24px/1.2 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#14151a;letter-spacing:-0.02em">${esc(r.heading)}</h1>${lines}${cta}${r.footnote ? `<p style="margin:16px 0 0;font:13px/1.5 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#6b6f7a">${esc(r.footnote)}</p>` : ""}</td></tr>
 <tr><td style="padding:24px 28px 26px"><p style="margin:0;font:12px/1.6 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#8a8f9c">${foot}</p></td></tr>
@@ -327,7 +404,7 @@ export function emailHtml(shop: { name: string; address?: string; slug?: string 
 // ---- Enqueue -------------------------------------------------------------------
 // `force`: shop-side messages (verification codes, password resets, owner alerts) ignore the shop's
 // customer-facing SMS/email toggles — those switches are about what customers receive.
-export type Channel = "SMS" | "EMAIL" | "WA";
+export type Channel = "SMS" | "EMAIL" | "WA" | "PUSH";
 export type EnqueueOpts = { related: { type: string; id: string }; channel?: Channel | "AUTO"; origin: string; now?: number; force?: boolean };
 
 // Channel choice. Customer preference first: WA (when the shop sends WhatsApp and the recipient has
@@ -351,7 +428,7 @@ export function channelsFor(shop: MsgShop, to: Recipient, prefer: Channel | "AUT
   if (both && sms && email) return ["SMS", "EMAIL"];
   return sms ? ["SMS"] : email ? ["EMAIL"] : [];
 }
-const WA_CAPABLE = new Set<MessageTemplate>(["booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon", "signin_code", "verify_contact", "waitlist_offer", "pay_link", "staff_invite", "password_reset"]);
+const WA_CAPABLE = new Set<MessageTemplate>(["booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon", "signin_code", "verify_contact", "waitlist_offer", "waitlist_open", "pay_link", "staff_invite", "password_reset"]);
 
 // Returns prepared statements so callers can batch them with their own writes.
 export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageTemplate, vars: MessageVars, opts: EnqueueOpts, both = template === "booking_confirmed") {
@@ -479,6 +556,33 @@ async function sendWa(db: DB, row: Row): Promise<Delivery> {
 
 // ---- Drain ---------------------------------------------------------------------
 const BACKOFF_MIN = [1, 5, 30, 120, 720]; // minutes between attempts; after the last, FAILED.
+// PUSH rows: recipient = customer account id, html = JSON payload. Delivered to every subscription
+// the account holds for this shop; "no subscriptions" is a quiet success, not a failure.
+async function sendPush(db: DB, row: Row): Promise<Delivery> {
+  const payload = JSON.parse(row.html || "{}") as PushPayload;
+  const r = await pushToAccount(db, row.shop_id, row.recipient, payload);
+  return { ok: true, provider: "webpush", id: `${r.sent} device${r.sent === 1 ? "" : "s"}` };
+}
+const PUSH_TEMPLATES = new Set<MessageTemplate>(["booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon", "waitlist_offer", "waitlist_open", "waitlist_booked", "review_request", "pay_link"]);
+// Queue an app notification next to the text/email for a customer who has the shop's app. Async
+// because it needs the account id behind the phone; callers spread the result into their batch.
+export async function pushFor(db: DB, shop: MsgShop, to: Recipient, template: MessageTemplate, vars: MessageVars, opts: EnqueueOpts) {
+  if (!PUSH_TEMPLATES.has(template) || !to.phone) return [];
+  const accountId = await accountForPhone(db, to.phone);
+  if (!accountId) return [];
+  const has = await db.prepare("SELECT 1 AS x FROM customer_push_subscriptions WHERE shop_id=? AND account_id=? LIMIT 1").bind(shop.id, accountId).first();
+  if (!has) return [];
+  const r = copyFor(template, { first: to.name, ...vars }, shop);
+  const url = String(vars.link || `${opts.origin}/${shop.slug || ""}/me`);
+  const payload: PushPayload = { title: r.heading.replace(/\.$/, ""), body: r.lines[0] || r.sms, url, tag: `${template}:${opts.related.id}`, icon: shop.logo_url ? (shop.logo_url.startsWith("http") ? shop.logo_url : opts.origin + shop.logo_url) : undefined };
+  const now = opts.now ?? Date.now();
+  return [
+    db.prepare(
+      "INSERT INTO notifications(id,shop_id,channel,recipient,template,body,subject,html,status,status_note,related_type,related_id,created_at,next_attempt_at) VALUES(?,?,'PUSH',?,?,?,?,?,'QUEUED','',?,?,?,?) ON CONFLICT DO NOTHING",
+    ).bind(uid(), shop.id, accountId, template, payload.body, payload.title, JSON.stringify(payload), opts.related.type, opts.related.id, now, now),
+  ];
+}
+
 // `related` narrows the drain to one record's messages: the in-request drain after a booking must
 // send *that* customer's confirmation now, not the oldest rows of a backlog (which starved fresh
 // confirmations whenever the sweep fell behind). The sweep drains everything oldest-first.
@@ -501,9 +605,9 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
     const attempt = row.attempts + 1;
     let d: Delivery;
     try {
-      d = row.channel === "EMAIL" ? await sendEmail(row) : row.channel === "WA" ? await sendWa(db, row) : await sendSms(row);
+      d = row.channel === "EMAIL" ? await sendEmail(row) : row.channel === "WA" ? await sendWa(db, row) : row.channel === "PUSH" ? await sendPush(db, row) : await sendSms(row);
     } catch (e) {
-      d = { ok: false, provider: row.channel === "EMAIL" ? "resend" : row.channel === "WA" ? "infobip" : "sms", error: e instanceof Error ? e.message : "network error" };
+      d = { ok: false, provider: row.channel === "EMAIL" ? "resend" : row.channel === "WA" ? "infobip" : row.channel === "PUSH" ? "webpush" : "sms", error: e instanceof Error ? e.message : "network error" };
     }
     // A WhatsApp message that can't be delivered (not on WhatsApp, opted out, template not approved)
     // falls back to SMS once, so the customer still hears from the shop.
@@ -562,7 +666,7 @@ export async function sweepReminders(db: DB, origin: string, now = Date.now()) {
       for (const b of rows.results) {
         // The manage link needs the raw token, which we don't store. Reminders link to /<slug>/me
         // (one-time code sign-in) — always valid, and the customer sees every visit there.
-        const link = `${origin}/${shop.slug}/me`;
+        const link = shopUrl(shop.slug!, "/me", origin);
         const stmts = enqueue(db, shop, { name: b.attendee_name || b.customer_name, phone: b.phone, email: b.email }, w.template, {
           service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], date: fmtDate(b.date), time: fmtTime(b.start_min), ref: b.id.slice(0, 6).toUpperCase(),
           address: shop.address, link, map_link: shop.map_url || (shop.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.address)}` : link),
@@ -589,10 +693,13 @@ export async function maybeSweep(db: DB, origin: string, intervalMs = 5 * 60000,
   await expireRequests(db, now).catch(() => 0);
   const summaries = await sweepDailySummaries(db, origin, now).catch(() => 0);
   const platform = await sweepPlatform(db, origin, now).catch(() => null);
+  // Waiting list: freed slots parked for the shop's delay are released here for every shop, so the
+  // "tell the next customer after N minutes" promise holds even when nobody opens the queue.
+  const waitlist = await sweepWaitlistPlatform(db, origin, now).catch(() => 0);
   // Retention: delivered/skipped/failed rows older than 180 days go; the outbox shows 30 days and the
   // audit trail keeps the fact a message was sent. Anything still QUEUED is never touched.
   await db.prepare("DELETE FROM notifications WHERE status IN ('SENT','SKIPPED','FAILED') AND created_at < ?").bind(now - 180 * 86400000).run().catch(() => null);
-  return { reminders, drained, holds_released: holds.length, pay_runs: runs, summaries, platform };
+  return { reminders, drained, holds_released: holds.length, pay_runs: runs, summaries, platform, waitlist };
 }
 
 export const fmtDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });

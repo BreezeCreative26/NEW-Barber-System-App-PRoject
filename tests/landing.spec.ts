@@ -69,6 +69,7 @@ test("sign up from the landing page → guided setup opens; leaving it shows the
   await page.getByLabel("Your name").fill("Lee Landing");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill("a-long-passphrase-123");
+  await page.getByTestId("accept-legal").locator("input").check();
   await page.getByRole("button", { name: "Create shop", exact: true }).click();
   await page.waitForURL(/\/workspace\/setup/);
   const wiz = page.getByTestId("setup-wizard");

@@ -31,7 +31,7 @@ Every shop gets a public page that *is* their website. Owner edits it in **Setti
 7. **Reviews** — shown once the review flow (§4) exists; hidden until then.
 8. **Find us** — address, map link, phone, Instagram, parking/transport note.
 9. **Policies** — cancellation window, deposit policy, late/no-show rules (pulled from shop settings, with owner-editable wording).
-10. **Footer** — "Powered by OLLO", customer sign-in link.
+10. **Footer** — "Powered by foliyo", customer sign-in link.
 
 **Data:** `shop_pages` (shop_id, strapline, about, cover_url, gallery_json, phone, instagram, map_url, transport_note, policy_text, sections_json[order+enabled], theme{accent, tone}, published, version).
 **SEO:** server-rendered title/description/OpenGraph per shop, `sitemap.xml`, schema.org `HairSalon` JSON-LD with hours and services.

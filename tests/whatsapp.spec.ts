@@ -1,4 +1,4 @@
-// WhatsApp as a third channel (Infobip, one OLLO sender). Without INFOBIP keys the sandbox is in
+// WhatsApp as a third channel (Infobip, one foliyo sender). Without INFOBIP keys the sandbox is in
 // preview mode: WA rows queue to the mailbox like SMS/email, so these tests assert the routing
 // contract — who gets WhatsApp, when it falls back to text, what the shop toggle does, and that
 // inbound STOP/START and delivery-report webhooks land on the right rows.
