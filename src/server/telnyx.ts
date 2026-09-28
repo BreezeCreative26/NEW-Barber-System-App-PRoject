@@ -123,3 +123,76 @@ export async function applyTelnyxEvent(db: DB, body: unknown, now = Date.now()):
   }
   return "ignored";
 }
+
+// ---- One-off account setup (run from the deployed app, where Telnyx's edge accepts us) -------------
+// Mirrors scripts/telnyx-setup.mjs: create/refresh the "foliyo" messaging profile with the webhook,
+// attach messaging-capable numbers, optionally order one UK mobile number, and read the account
+// public key. Returns the env values to set. Gated by the caller (see /api/telnyx/setup).
+export type TelnyxSetupResult = {
+  balance?: string;
+  profile_id: string;
+  webhook: string;
+  numbers: string[];
+  ordered?: string;
+  public_key?: string;
+  notes: string[];
+};
+export async function telnyxSetup(origin: string, opts: { buyUkNumber?: boolean; e?: Env } = {}): Promise<TelnyxSetupResult> {
+  const e = opts.e ?? env();
+  if (!e.TELNYX_API_KEY) throw new Error("TELNYX_API_KEY not set");
+  const api = async <T = Record<string, unknown>>(path: string, body?: unknown, method?: string): Promise<T> => {
+    const init: RequestInit = { method: method || (body ? "POST" : "GET"), headers: { Authorization: `Bearer ${e.TELNYX_API_KEY}`, Accept: "application/json" } };
+    if (body) { (init.headers as Record<string, string>)["Content-Type"] = "application/json"; init.body = JSON.stringify(body); }
+    const res = await fetch(`https://api.telnyx.com/v2${path}`, init);
+    const text = await res.text();
+    let json: { errors?: { code?: string; title?: string; detail?: string }[] } = {};
+    try { json = JSON.parse(text); } catch { /* html */ }
+    if (!res.ok) {
+      const err = json.errors?.[0];
+      throw new Error(`${path}: ${res.status} ${err ? `${err.code} ${err.title}${err.detail ? ` — ${err.detail}` : ""}` : text.slice(0, 120)}`);
+    }
+    return json as T;
+  };
+  const notes: string[] = [];
+  const webhook = `${origin.replace(/\/$/, "")}/api/telnyx/webhook`;
+  const bal = await api<{ data?: { balance?: string; currency?: string } }>("/balance").catch(() => null);
+  const balance = bal?.data ? `${bal.data.balance} ${bal.data.currency}` : undefined;
+
+  type Profile = { id: string; name: string; webhook_url?: string; enabled?: boolean };
+  const profiles = await api<{ data?: Profile[] }>("/messaging_profiles?page[size]=50");
+  let profile = (profiles.data || []).find((p) => p.name === "foliyo");
+  if (!profile) {
+    profile = (await api<{ data: Profile }>("/messaging_profiles", { name: "foliyo", enabled: true, webhook_url: webhook, webhook_api_version: "2" })).data;
+    notes.push(`Created messaging profile ${profile.id}`);
+  } else if (profile.webhook_url !== webhook || !profile.enabled) {
+    profile = (await api<{ data: Profile }>(`/messaging_profiles/${profile.id}`, { webhook_url: webhook, webhook_api_version: "2", enabled: true }, "PATCH")).data;
+    notes.push(`Updated messaging profile ${profile.id} webhook`);
+  } else notes.push(`Messaging profile ${profile.id} already configured`);
+
+  type Num = { id: string; phone_number: string };
+  const nums = await api<{ data?: Num[] }>("/phone_numbers?page[size]=100");
+  const numbers: string[] = [];
+  for (const n of nums.data || []) {
+    const m = await api<{ data?: { messaging_profile_id?: string; features?: { sms?: unknown } } }>(`/phone_numbers/${n.id}/messaging`).catch(() => null);
+    if (!m?.data?.features?.sms) { notes.push(`${n.phone_number}: not messaging-capable`); continue; }
+    if (m.data.messaging_profile_id !== profile.id) {
+      await api(`/phone_numbers/${n.id}/messaging`, { messaging_profile_id: profile.id }, "PATCH");
+      notes.push(`${n.phone_number}: attached to foliyo`);
+    }
+    numbers.push(n.phone_number);
+  }
+  let ordered: string | undefined;
+  if (opts.buyUkNumber && numbers.length === 0) {
+    const search = await api<{ data?: { phone_number: string }[] }>("/available_phone_numbers?filter[country_code]=GB&filter[phone_number_type]=mobile&filter[features][]=sms&filter[limit]=5");
+    const pick = search.data?.[0]?.phone_number;
+    if (!pick) notes.push("No UK mobile SMS numbers available to order right now");
+    else {
+      const order = await api<{ data: { id: string; status: string } }>("/number_orders", { phone_numbers: [{ phone_number: pick }], messaging_profile_id: profile.id });
+      ordered = pick;
+      numbers.push(pick);
+      notes.push(`Ordered ${pick} (order ${order.data.id}, ${order.data.status})`);
+    }
+  }
+  const pk = await api<{ data?: { public_key?: string } }>("/public_key").catch(() => null);
+  return { balance, profile_id: profile.id, webhook, numbers, ordered, public_key: pk?.data?.public_key, notes };
+}
