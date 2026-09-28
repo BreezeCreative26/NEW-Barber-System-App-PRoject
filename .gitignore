@@ -48,3 +48,10 @@ coverage/
 public/static/app.js
 public/static/app.css
 .vercel
+# Vite client build outputs (hashed; the server reads manifest.json)
+public/static/manifest.json
+public/static/app-*.js
+public/static/shop-*.js
+public/static/chunk-*.js
+public/static/style-*.css
+public/static/*.woff2

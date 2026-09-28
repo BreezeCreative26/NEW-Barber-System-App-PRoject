@@ -1,0 +1,95 @@
+/* foliyo shop app service worker.
+ * Served by the app at /sw.js with this build's id and asset list stamped in (__BUILD__ /
+ * __ASSETS__), so every deploy produces a byte-different worker: the browser installs it on the
+ * next open, it takes over immediately and drops the previous build's cache. The page reloads
+ * itself once when it notices the build changed (see src/client/shop.tsx).
+ *
+ * Rules:
+ *   HTML            → network first, fall back to the last good copy when offline.
+ *   /static, /media → cache first (hashed / versioned by build), fill from network.
+ *   /api            → never cached: visits and availability are always live.
+ */
+const BUILD = "__BUILD__";
+const ASSETS = __ASSETS__;
+const CACHE = `foliyo-${BUILD}`;
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches
+      .open(CACHE)
+      .then((c) => Promise.all(ASSETS.map((a) => c.add(a).catch(() => null))))
+      .then(() => self.skipWaiting()),
+  );
+});
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
+  );
+});
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  if (req.method !== "GET") return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith("/api/")) return;
+  if (req.mode === "navigate" || (req.headers.get("accept") || "").includes("text/html")) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone()));
+          return res;
+        })
+        .catch(() => caches.match(req).then((hit) => hit || caches.match(new Request(url.origin + "/")))),
+    );
+    return;
+  }
+  if (url.pathname.startsWith("/static/") || url.pathname.startsWith("/media/")) {
+    event.respondWith(
+      caches.match(req).then(
+        (hit) =>
+          hit ||
+          fetch(req).then((res) => {
+            if (res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone()));
+            return res;
+          }),
+      ),
+    );
+  }
+});
+
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { title: "Update", body: event.data ? event.data.text() : "" };
+  }
+  const title = data.title || "Your visit";
+  const options = {
+    body: data.body || "",
+    icon: data.icon || undefined,
+    badge: data.badge || undefined,
+    tag: data.tag || undefined,
+    renotify: !!data.tag,
+    data: { url: data.url || "/" },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if ("focus" in client) {
+          client.navigate(url);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    }),
+  );
+});

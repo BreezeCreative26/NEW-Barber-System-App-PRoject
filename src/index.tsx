@@ -9,6 +9,7 @@ import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { shopManifest } from "./server/customerAuth";
 import { SHOP_HOST_HEADER, shopOrigin } from "./server/hosts";
 import { shopIcon } from "./server/images";
+import { currentBuild, entryTags, shopAssetList } from "./server/assets";
 import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
 import { sweepWaitlistPlatform } from "./server/waitlist";
 import { report, telemetryStatus } from "./server/telemetry";
@@ -87,6 +88,12 @@ app.post("/api/stripe/webhook", async (c) => {
     await handleConnectEvent(c.env.DB, evt as ConnectEvent);
   }
   return c.json({ ok: true });
+});
+// Which client build is live. Installed apps compare this with the build that rendered them and
+// reload when it moves, so a phone is never a deploy behind the dashboard.
+app.get("/api/public/build", (c) => {
+  c.header("Cache-Control", "no-store");
+  return c.json({ build: currentBuild() });
 });
 app.route("/api/app", sandbox);
 // Legacy path kept for one release so old tabs keep working.
@@ -193,14 +200,49 @@ function workspaceShell(c: Context<{ Bindings: AppBindings }>) {
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
   return c.html(
-    `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>foliyo</title>${meta}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/><link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/><link rel="stylesheet" href="/static/style.css"/><link rel="stylesheet" href="/static/design.css"/><link rel="stylesheet" href="/static/app.css"/><link rel="stylesheet" href="/static/theme-fonts.css"/><link rel="stylesheet" href="/static/shop-theme.css"/></head><body><div id="root"><p class="boot-message">Opening workspace…</p></div><noscript>JavaScript is required.</noscript><script type="module" src="/static/app.js"></script></body></html>`,
+    `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>foliyo</title>${meta}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/><link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>${STYLES}</head><body><div id="root"><p class="boot-message">Opening workspace…</p></div><noscript>JavaScript is required.</noscript>${entryTags("app")}</body></html>`,
   );
 }
+// Hand-written stylesheets, versioned by build so a deploy invalidates them everywhere at once.
+const STYLES = ["style", "design", "theme-fonts", "shop-theme"].map((n) => `<link rel="stylesheet" href="/static/${n}.css?v=${currentBuild()}"/>`).join("");
+// Customer-facing boot screen: the shop's own colours and logo (or initials) paint before any
+// JavaScript arrives, so an installed app opens straight into the shop rather than a grey
+// "loading" line. Dark/light and the accent come from the shop page theme.
+type BootBrand = { name: string; logo_url?: string; dark?: boolean; accent?: string };
+const BOOT_ACCENT: Record<string, string> = { ollo: "#1f6f5f", ink: "#111318", sage: "#5b7a68", clay: "#a0522d", plum: "#5a3e6b", slate: "#4a5568" };
+function bootScreen(b?: BootBrand) {
+  if (!b) return `<p class="boot-message">Opening online booking…</p>`;
+  const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
+  const initials = b.name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  const accent = BOOT_ACCENT[b.accent || "ollo"] || BOOT_ACCENT.ollo;
+  const mark = b.logo_url
+    ? `<img src="${esc(b.logo_url)}" alt="" class="boot-logo${b.dark ? " flip" : ""}"/>`
+    : `<span class="boot-initials" style="background:${accent}">${esc(initials)}</span>`;
+  return `<div class="boot-shop${b.dark ? " dark" : ""}" aria-busy="true" aria-label="Opening ${esc(b.name)}">${mark}<span class="boot-bar"><i></i></span></div>`;
+}
+const bootThemeColor = (b?: BootBrand) => (b?.dark ? "#17181e" : "#ffffff");
 // Head is either the generic private one (noindex) or a server-rendered SEO head for shop pages.
-const shell = (head: string, boot = "Opening online booking…") =>
-  `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="#0b1a17"/>${head}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/>${head.includes("data-shop") ? "" : `<link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>`}<link rel="stylesheet" href="/static/style.css"/><link rel="stylesheet" href="/static/design.css"/><link rel="stylesheet" href="/static/app.css"/><link rel="stylesheet" href="/static/theme-fonts.css"/><link rel="stylesheet" href="/static/shop-theme.css"/></head><body><div id="root"><p class="boot-message">${boot}</p></div><noscript>Online booking needs JavaScript.</noscript><script type="module" src="/static/app.js"></script></body></html>`;
+const shell = (head: string, brand?: BootBrand) =>
+  `<!doctype html><html lang="en"${brand?.dark ? ' class="boot-dark"' : ""}><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="${bootThemeColor(brand)}"/>${head}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/>${head.includes("data-shop") ? "" : `<link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>`}${STYLES}</head><body><div id="root">${bootScreen(brand)}</div><noscript>Online booking needs JavaScript.</noscript>${entryTags("shop")}</body></html>`;
+// Brand for the boot screen of /book and /me: one small read, cached per process for a minute.
+const bootCache = new Map<string, { at: number; brand: BootBrand | undefined }>();
+async function bootBrand(db: Database, slug: string): Promise<BootBrand | undefined> {
+  const hit = bootCache.get(slug);
+  if (hit && Date.now() - hit.at < 60000) return hit.brand;
+  let brand: BootBrand | undefined;
+  try {
+    const row = await db.prepare("SELECT s.name,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ name: string; logo_url: string; accent: string; theme_json: string }>();
+    if (row) {
+      let dark = false;
+      try { dark = (JSON.parse(row.theme_json) as { mode?: string }).mode === "dark"; } catch { /* default light */ }
+      brand = { name: row.name, logo_url: row.logo_url || undefined, dark, accent: row.accent };
+    }
+  } catch { brand = undefined; }
+  bootCache.set(slug, { at: Date.now(), brand });
+  return brand;
+}
 const onShopHost = (c: { req: { header: (k: string) => string | undefined } }, slug: string) => (c.req.header(SHOP_HOST_HEADER) || "") === slug;
-const publicPage = (title: string, description: string, slug?: string, onHost = false) => shell(`<meta name="robots" content="noindex,nofollow"/><meta name="description" content="${description}"/><title>${title}</title>${slug ? shopAppHead(slug, onHost) : ""}`);
+const publicPage = (title: string, description: string, slug?: string, onHost = false, brand?: BootBrand) => shell(`<meta name="robots" content="noindex,nofollow"/><meta name="description" content="${description}"/><title>${brand ? `${title} · ${brand.name}` : title}</title>${slug ? shopAppHead(slug, onHost) : ""}`, brand);
 // Installable shop app: per-shop manifest (name/icon/colours from the shop page) and the shared
 // service worker registered at the shop's scope. Overrides the platform manifest in shell().
 const shopAppHead = (slug: string, onHost = false) => `${onHost ? `<meta name="foliyo-shop" content="${slug}"/>` : ""}<link rel="manifest" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/manifest.webmanifest" data-shop/><link rel="apple-touch-icon" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/icon-192.png"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="default"/>`;
@@ -258,10 +300,23 @@ app.get("/docs/customer-plan", (c) => {
   }
   return c.html(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>foliyo · Customer plan</title><link rel="stylesheet" href="/static/design.css"><style>body{font-family:var(--font);max-width:80ch;margin:0 auto;padding:32px 20px;color:var(--ink);line-height:1.55}pre{white-space:pre-wrap;font:inherit;font-size:14px}h1{font-size:24px}a{color:var(--accent-dark)}</style></head><body><a href="/workspace">← Back to foliyo</a><h1>Customer side — plan</h1><pre>${customerPlan.replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[ch] as string)}</pre></body></html>`);
 });
-app.get("/book/:slug", (c) => {
+app.get("/book/:slug", async (c) => {
   secure(c);
   const slug = c.req.param("slug").toLowerCase();
-  return c.html(publicPage("Book a visit", "Book your next visit online.", slug, onShopHost(c, slug)));
+  return c.html(publicPage("Book a visit", "Book your next visit online.", slug, onShopHost(c, slug), await bootBrand(c.env.DB, slug)));
+});
+// Service worker: the static file with this build's asset list and id stamped in. Served with
+// max-age 0 so browsers re-check it on every open (they cap it at 24h anyway).
+let swSource = "";
+app.get("/sw.js", (c) => {
+  if (!swSource) {
+    try { swSource = readFileSync(join(process.cwd(), "src", "server", "sw.template.txt"), "utf8"); } catch { swSource = ""; }
+  }
+  const body = swSource.replaceAll("__BUILD__", currentBuild()).replaceAll("__ASSETS__", JSON.stringify([...shopAssetList(), ...["style", "design", "theme-fonts", "shop-theme"].map((n) => `/static/${n}.css?v=${currentBuild()}`)]));
+  c.header("Content-Type", "application/javascript; charset=utf-8");
+  c.header("Cache-Control", "no-cache, max-age=0, must-revalidate");
+  c.header("Service-Worker-Allowed", "/");
+  return c.body(body);
 });
 // Installable shop app: manifest + icons + service worker, per shop.
 app.get("/:slug/manifest.webmanifest", async (c, next) => {
@@ -310,7 +365,9 @@ app.get("/:slug", async (c, next) => {
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
   const head = shopPageHead({ origin: publicOrigin(c), shop, ...data });
-  return c.html(shell(head.html + shopAppHead(slug, onShopHost(c, slug)), `Opening ${shop.name}…`));
+  let dark = false;
+  try { dark = (JSON.parse(data.page.theme_json || "{}") as { mode?: string }).mode === "dark"; } catch { /* light */ }
+  return c.html(shell(head.html + shopAppHead(slug, onShopHost(c, slug)), { name: shop.name, logo_url: data.page.logo_url || undefined, dark, accent: data.page.accent }));
 });
 // Apple Pay on the pay-link / deposit checkout: Stripe verifies the domain by fetching this file
 // (public/.well-known/…). Served explicitly so no hosting rewrite can swallow the dot-directory.
@@ -369,7 +426,7 @@ app.get("/:slug/me", async (c, next) => {
   if (!shop) return next();
   secure(c);
   const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
-  return c.html(publicPage(`Your visits · ${esc(shop.name)}`, esc(`Sign in to see, move or rebook your visits at ${shop.name}.`), slug, onShopHost(c, slug)));
+  return c.html(publicPage("Your visits", esc(`Sign in to see, move or rebook your visits at ${shop.name}.`), slug, onShopHost(c, slug), await bootBrand(c.env.DB, slug)));
 });
 app.get("/offer/:token", (c) => {
   secure(c);

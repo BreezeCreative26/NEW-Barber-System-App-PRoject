@@ -1,6 +1,7 @@
 // Customer account area at /<slug>/me: passwordless sign-in (one-time code), upcoming visits with
 // move/cancel, "your usual" one-tap rebook, history, profile and privacy controls. Talks only to
 // /api/public/shops/:slug/account/*; the shop never sees another shop's history.
+import { Boot, useLive } from "./boot";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ShopTabBar } from "./ShopTabBar";
 import { Avatar, Button, Icon, Notice, StatusPill } from "./ui";
@@ -86,6 +87,8 @@ export function CustomerArea({ slug }: { slug: string }) {
   useEffect(() => {
     load();
   }, [slug]);
+  // Background re-read (no flicker: state is swapped in place) — only once signed in.
+  useLive(() => (me ? load() : undefined), [slug, !!me]);
   async function signOut() {
     await api(`${A}/logout`, "POST", {});
     setMe(null);
@@ -103,9 +106,7 @@ export function CustomerArea({ slug }: { slug: string }) {
   if (signedOut) return <SignIn slug={slug} A={A} onDone={load} />;
   if (!me)
     return (
-      <p className="boot-message" role="status">
-        Opening your visits…
-      </p>
+      <Boot label="Opening your visits…" />
     );
   const first = me.profile.name.split(" ")[0] || "there";
   return (
