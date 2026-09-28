@@ -3168,3 +3168,18 @@ body.editor-open { overflow: hidden; }
 .web-launch-hover { position: absolute; inset: 0; display: grid; place-items: center; gap: 6px; background: rgba(20,21,26,.45); color: #fff; font-weight: 700; opacity: 0; transition: opacity .15s; }
 .web-launch-shot:hover .web-launch-hover, .web-launch-shot:focus-visible .web-launch-hover { opacity: 1; }
 @media (max-width: 1023px) { .web-launch-grid { grid-template-columns: 1fr; } }
+
+/* ---------- Fixed 24h board (00:00 → 00:00) ----------
+   The timetable always spans the whole day and scrolls *inside* the calendar card, never the page.
+   Staff header stays pinned to the top, the time rail to the left. Hours the shop is shut are
+   greyed flat (not hatched) and remain clickable for the team; customers never see them. */
+.workspace .connected-calendar > .connected-scroll { position: relative; overflow: auto; overscroll-behavior: contain; scroll-padding-top: var(--header-h, 48px); }
+.workspace .connected-calendar .calendar-staff-header { position: sticky; top: 0; z-index: 6; background: var(--surface, #fff); box-shadow: 0 1px 0 var(--line); }
+.workspace .connected-calendar .calendar-staff-header .timezone-label { position: sticky; left: 0; z-index: 7; background: var(--surface, #fff); }
+.workspace .connected-calendar .time-gutter { position: sticky; left: 0; z-index: 4; background: var(--surface, #fff); box-shadow: 1px 0 0 var(--line); }
+.workspace .connected-calendar .time-gutter > span { background: var(--surface, #fff); }
+.workspace .timetable-slot.blocked.outside { background: var(--canvas, #f4f3ee); color: var(--muted); }
+.workspace .timetable-slot.blocked.outside span { opacity: 0; }
+.workspace .timetable-slot.blocked.outside:hover { background: var(--line-2, #eceee8); }
+.workspace .timetable-slot.blocked.outside:hover span { opacity: 1; }
+.workspace .legend-outside { background: var(--canvas, #f4f3ee); border: 1px solid var(--line); }

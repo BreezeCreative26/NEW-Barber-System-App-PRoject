@@ -2680,9 +2680,10 @@ sandbox.get("/availability", async (c) => {
         p.addon_ids,
       );
   const duration = quote.duration_min;
-  const dayHours = shopDay(data.shop, weekday(p.date));
+  // Staff see the whole 24h day: out-of-hours starts come back flagged "Outside working hours",
+  // a soft reason the shop may knowingly override. Public booking (public.ts) only ever offers
+  // opening hours via dayStarts, so customers never reach these.
   const slots = Array.from({ length: 96 }, (_, i) => i * 15)
-    .filter((n) => n >= dayHours.starts && n < dayHours.ends)
     .map((start_min) => ({
       start_min,
       reason:
