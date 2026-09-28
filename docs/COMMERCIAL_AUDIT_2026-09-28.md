@@ -49,3 +49,14 @@ Legend: **P0** must ship for a paying shop · **P1** week-one friction · **P2**
 3. **PR C — Website builder**: tokens + section variants + responsive preview + screenshot matrix.
 4. **PR D — Onboarding**: full-screen flow, go-live moment.
 5. **PR E — Barber app**: phone-first agenda + week; owner calendar polish.
+
+## Status (end of session 2026-09-28)
+
+| PR | Scope | State |
+| --- | --- | --- |
+| A (#12) | Staff sign-in on shop host (`/staff`); code sign-in gated on shop SMS + profile completion (`/account/complete`); messages link account holders to `/me?visit=<id>` | **Merged, live** |
+| B part 1 (#13) | Six-group Settings IA; full Business details (type, contact + verification, website, legal name, company no., VAT — migration 0032); Team/Account/Activity inside Settings | **Merged, live** |
+| B part 2 | Per-tab dirty-state guard; phone-first settings layout; collapse the two top banners into one "Getting started" card; move Accounts/Audit out of the main nav once tests are updated | Not started |
+| C | Website builder: primary/secondary colour tokens, per-section `variant` (hero 5 · services 4 · team 4 · reviews 4 · hours 2 · gallery 3 · find 2 · CTA 2 = 26 + 6 accents ≫ 32 combinations), responsive auto-layout, real-component live preview with phone/tablet/desktop toggle, Playwright screenshot matrix | Not started — schema: `shop_pages.variants_json`, `primary_hex`, `secondary_hex`; render via `data-variant` on each `sp-section` in `ShopPage.tsx`; CSS in `shop-theme.css` |
+| D | Full-screen onboarding: Brand → Hours → Services → Team → Messages (SMS toggle unlocks code sign-in) → Booking rules & terms → Payments → Go live (share sheet). Resumable via `setup_json` | Not started — `Setup.tsx` has the 7 steps as a card; promote to a route-level screen |
+| E | Barber phone app: Today agenda, Week (own column), Customers (own), My pay, Account — bottom tab bar; owner calendar polish | Not started — `phoneNav` in `Workspace.tsx` is the hook point |
