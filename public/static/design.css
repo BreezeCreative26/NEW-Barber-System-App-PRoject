@@ -2262,12 +2262,24 @@ html.ws-dark .shop-page { color-scheme: light; }
   html, body { background-color: var(--shell-bg, var(--surface)); }
   /* Opaque on phones: the translucent/blurred bar would show the island area as a different tint. */
   html .shop-page .booking-topbar, html .shop-page .sp-nav { background: var(--sp-surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .booking-topbar, .sp-nav {
-    padding-top: calc(10px + env(safe-area-inset-top, 0px));
-    padding-left: calc(16px + env(safe-area-inset-left, 0px));
-    padding-right: calc(16px + env(safe-area-inset-right, 0px));
+  /* The header scrolls away with the page (the tab bar is the persistent chrome); it is a plain
+     row — brand on the left, one action on the right — that pads down from the island. */
+  .booking-topbar, .sp-nav, .customer-area .sp-nav {
+    position: static;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: calc(8px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px)) 8px calc(16px + env(safe-area-inset-left, 0px));
     min-height: calc(60px + env(safe-area-inset-top, 0px));
   }
+  .booking-topbar { grid-template-columns: none; }
+  .sp-nav nav, .customer-area .sp-nav nav { display: none; }
+  .sp-nav .sp-brand { margin-right: auto; min-width: 0; }
+  /* Sign out: right-aligned icon button (label for screen readers only). */
+  .customer-area .sp-nav .ca-signout { margin-left: auto; width: 48px; min-width: 48px; height: 48px; min-height: 48px; padding: 0; justify-content: center; border-radius: 14px; }
+  .customer-area .sp-nav .ca-signout span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .customer-area .sp-nav .ca-signout svg { width: 22px; height: 22px; }
   .shop-tabbar { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
   .shop-tabbar a { min-height: 56px; font-size: var(--fs-12); gap: 4px; padding-top: 8px; }
   .shop-tabbar a svg { width: 24px; height: 24px; }
@@ -2278,8 +2290,14 @@ html.ws-dark .shop-page { color-scheme: light; }
   .booking-back svg { width: 22px; height: 22px; }
   .booking-me { min-height: 48px; min-width: 48px; justify-content: center; margin-right: -12px; }
   .booking-me svg { width: 22px; height: 22px; }
+  /* Brand: the uploaded logo is a stacked wordmark, so it is the brand on its own — no name beside
+     it. Shops without a logo keep the initials tile + name. */
   .sp-brand strong { font-size: 17px; }
-  .sp-brand .shop-emblem, .sp-brand img.shop-logo { height: 40px; }
+  .sp-brand .shop-emblem { width: 40px; height: 40px; font-size: 14px; }
+  .shop-page .sp-brand img.shop-emblem.shop-logo { width: auto; height: 44px; max-width: 160px; }
+  .sp-brand:has(img.shop-logo) strong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .sp-brand:has(img.shop-logo) { gap: 0; }
+  .booking-topbar .booking-brand { display: none; }
 
   /* --- Progress: a compact "Step 3 of 5 · Date & time" line + bar, not five tiny labels. --- */
   .booking-app.standalone .booking-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 14px 0 16px; margin-bottom: 18px; border-bottom: 0; position: relative; }
@@ -2383,8 +2401,30 @@ html.ws-dark .shop-page { color-scheme: light; }
   .booking-app.standalone .booking-auth .link { font-size: 15px; min-height: 44px; display: inline-flex; align-items: center; }
   .booking-app.standalone .booking-privacy { font-size: 14px; }
 
-  /* --- Step 5: review. --- */
-  .booking-app.standalone .review-appointment { padding: 20px 16px; border-radius: 16px; }
+  /* --- Step 5: review. One rhythm: 16px between blocks, cards with 16px padding, no double rules. --- */
+  .booking-app.standalone .step-heading { margin-bottom: 4px; }
+  .booking-app.standalone .step-heading h2 { margin-top: 0; }
+  .booking-app.standalone .booking-flow > * + * { margin-top: 0; }
+  .booking-app.standalone .review-appointment { padding: 24px 16px 20px; border-radius: 16px; margin: 0 0 16px; }
+  .booking-app.standalone .review-appointment .eyebrow { margin-bottom: 4px; }
+  .booking-app.standalone .review-customer { padding: 16px 0; margin: 0; border-bottom: 1px solid var(--sp-line, var(--line)); }
+  .booking-app.standalone .review-customer > div { margin-bottom: 6px; gap: 12px; }
+  .booking-app.standalone .review-customer > div h3 { margin: 0; }
+  .booking-app.standalone .review-customer .link.small { font-size: 14px; white-space: nowrap; }
+  .booking-app.standalone .review-customer > strong { display: block; margin: 0 0 2px; }
+  .booking-app.standalone .review-customer p { margin: 0; line-height: 1.45; }
+  .booking-app.standalone .review-options { padding: 16px 0 0; margin: 0; border-bottom: 0; gap: 14px; }
+  .booking-app.standalone .attendee-block { padding: 14px 16px; border-radius: 14px; }
+  /* Confirmation: same rhythm, tiles as a 2-up grid of 56px targets. */
+  .booking-app.standalone .booking-body > .public-confirmation { padding-top: 8px; gap: 0; }
+  .booking-app.standalone .public-confirmation .review-customer:last-of-type { border-bottom: 0; }
+  .booking-app.standalone .public-confirmation .review-customer .button.ghost { min-height: 40px; padding: 0 12px; font-size: 14px; }
+  .booking-app.standalone .public-confirmation .review-customer .button.secondary { min-height: 52px; width: 100%; justify-content: center; font-size: 16px; margin-top: 10px; }
+  .booking-app.standalone .public-confirmation .public-reference { font-size: 24px; margin: 2px 0 8px; }
+  .booking-app.standalone .confirmation-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0 0; }
+  .booking-app.standalone .action-tile { min-height: 56px; font-size: 15px; border-radius: 14px; }
+  .booking-app.standalone .public-confirmation .booking-actions { position: static; display: grid; grid-template-columns: 1fr; margin-top: 16px; padding: 0; border: 0; background: transparent; box-shadow: none; }
+  .booking-app.standalone .public-confirmation .booking-actions .button { width: 100%; justify-content: center; }
   .booking-app.standalone .review-appointment h3 { font-size: 24px; }
   .booking-app.standalone .review-appointment p { font-size: 15px; }
   .booking-app.standalone .review-customer h3 { font-size: 17px; }
@@ -2478,8 +2518,43 @@ html.ws-dark .shop-page { color-scheme: light; }
   .sp-address { font-size: 16px; }
   .sp-policies ul { font-size: 15px; }
 
-  /* --- Account area. --- */
-  .customer-area .ca-tabs button { min-height: 48px; font-size: 16px; }
+  /* --- Account area: tight header, tabs as a full-width segmented control, cards 16px inside. --- */
+  .customer-area .ca-main { padding: 12px 16px 24px; gap: 16px; }
+  .customer-area .ca-main.ca-signin { align-content: start; min-height: 0; padding-top: 16px; }
+  .customer-area .ca-signin .ca-card h1 { font-size: 28px; }
+  .customer-area .ca-signin .ca-form .button { min-height: 54px; font-size: 17px; }
+  .customer-area .ca-hero { gap: 14px; }
+  .customer-area .ca-hero .eyebrow { display: none; }
+  .customer-area .ca-hero h1 { font-size: 26px; margin: 0 0 2px; }
+  .customer-area .ca-hero p { font-size: 15px; }
+  .customer-area .ca-tabs { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .customer-area .ca-tabs button { min-height: 48px; font-size: 16px; justify-content: center; }
+  .customer-area .ca-card { padding: 16px; gap: 12px; }
+  .customer-area .ca-card h2 { margin: 0; }
+  .customer-area .ca-card > p { margin: 0; font-size: 15px; line-height: 1.45; }
+  .customer-area .ca-app { margin: 0; gap: 10px; }
+  .shop-page.customer-area .ca-app-row { background: var(--sp-surface); border-color: var(--sp-line); border-radius: 14px; }
+  .customer-area .ca-app-row { padding: 14px 16px; gap: 12px; }
+  .customer-area .ca-app-row strong { font-size: 16px; }
+  .customer-area .ca-app-row p { font-size: 14px; }
+  .customer-area .ca-app-row .button { min-height: 44px; }
+  /* Move / cancel dialogs become bottom sheets with the same day strip + 3-up slots as the flow. */
+  .customer-area .ca-dialog-scrim { align-items: flex-end; padding: 0; }
+  .customer-area .ca-dialog, .customer-area .ca-dialog.wide { width: 100%; max-height: 88vh; border-radius: 20px 20px 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px)); gap: 14px; }
+  .customer-area .ca-dialog h2 { font-size: 22px; }
+  .customer-area .ca-dialog p { font-size: 15px; }
+  .customer-area .ca-days { gap: 8px; margin: 0 -16px; padding: 2px 16px 6px; scrollbar-width: none; }
+  .customer-area .ca-days::-webkit-scrollbar { display: none; }
+  .customer-area .ca-days button { min-width: 60px; min-height: 64px; border-radius: 14px; gap: 4px; padding: 10px 6px; }
+  .customer-area .ca-days button small { font-size: 12px; }
+  .customer-area .ca-days button b { font-size: 20px; }
+  .customer-area .ca-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .customer-area .ca-slots button { min-height: 52px; font-size: 16px; border-radius: 14px; padding: 8px; }
+  .customer-area .ca-slots .ca-muted { grid-column: 1 / -1; }
+  .customer-area .ca-dialog .ca-form-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .customer-area .ca-dialog .ca-form-actions .button { width: 100%; min-height: 52px; font-size: 16px; justify-content: center; }
+  .customer-area .sp-footer { font-size: 13px; }
+  .customer-area .sp-footer .sp-powered::before { content: " · "; }
   .customer-area .ca-visit-when, .customer-area .ca-card h2 { font-size: 17px; }
   .customer-area .ca-visit .button, .customer-area .ca-card .button { min-height: 46px; font-size: 15px; }
   .customer-area input, .customer-area textarea { font-size: 17px; min-height: 52px; }

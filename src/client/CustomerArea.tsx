@@ -118,8 +118,8 @@ export function CustomerArea({ slug }: { slug: string }) {
         <nav aria-label="Account">
           <a href={shopPath(me.shop.slug, "/book")}>Book</a>
         </nav>
-        <button type="button" className="button secondary" onClick={signOut} data-testid="sign-out">
-          <Icon name="logout" size={15} /> Sign out
+        <button type="button" className="button secondary ca-signout" onClick={signOut} data-testid="sign-out" aria-label="Sign out">
+          <Icon name="logout" size={15} /> <span>Sign out</span>
         </button>
       </header>
       <main id="main-content" className="ca-main">
@@ -422,22 +422,19 @@ function AppCard({ slug, A, shopName, hasPassword, onSetPassword }: { slug: stri
       const reg = (await navigator.serviceWorker.getRegistration(`/${slug}/`)) || (await registerShopWorker(slug));
       if (!reg) return;
       await navigator.serviceWorker.ready;
-      if (push.subscribed) {
-        const sub = await reg.pushManager.getSubscription();
-        if (sub) { await api(`${A}/push`, "DELETE", { endpoint: sub.endpoint }); await sub.unsubscribe(); }
-        setPush({ ...push, subscribed: false });
-      } else {
-        const perm = await Notification.requestPermission();
-        if (perm !== "granted") { setPush({ ...push, permission: perm }); return; }
-        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(push.public_key) });
-        const j = sub.toJSON();
-        await api(`${A}/push`, "POST", { endpoint: sub.endpoint, keys: { p256dh: j.keys!.p256dh, auth: j.keys!.auth } });
-        setPush({ ...push, subscribed: true, permission: "granted" });
-      }
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") { setPush({ ...push, permission: perm }); return; }
+      const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(push.public_key) }));
+      const j = sub.toJSON();
+      await api(`${A}/push`, "POST", { endpoint: sub.endpoint, keys: { p256dh: j.keys!.p256dh, auth: j.keys!.auth } });
+      setPush({ ...push, subscribed: true, permission: "granted" });
     } catch { /* leave state */ } finally { setBusy(false); }
   }
   const showInstall = !installed && !dismissed && (installEvt || isIOS());
-  if (!showInstall && !(push?.enabled && push.permission !== "unsupported") && hasPassword) return null;
+  // Once notifications are on for this device the row has done its job — it goes away (turning
+  // them off again lives in the phone's settings). Blocked stays visible so the customer knows why.
+  const showPush = !!push?.enabled && push.permission !== "unsupported" && !push.subscribed;
+  if (!showInstall && !showPush && hasPassword) return null;
   return (
     <section className="ca-app" data-testid="app-card" aria-label="Shop app">
       {!hasPassword && (
@@ -461,15 +458,15 @@ function AppCard({ slug, A, shopName, hasPassword, onSetPassword }: { slug: stri
           <button type="button" className="link small" onClick={() => { localStorage.setItem(`foliyo:${slug}:install-dismissed`, "1"); setDismissed(true); }} aria-label="Dismiss">Not now</button>
         </div>
       )}
-      {push?.enabled && push.permission !== "unsupported" && (
+      {showPush && push && (
         <div className="ca-app-row">
           <Icon name="bell" size={18} />
           <div>
             <strong>Notifications</strong>
-            <p>{push.permission === "denied" ? "Blocked in your browser settings for this site." : push.subscribed ? "On for this device: confirmations, changes and reminders." : "Get confirmations, changes and reminders on this device."}</p>
+            <p>{push.permission === "denied" ? "Blocked in your browser settings for this site." : "Get confirmations, changes and reminders on this device."}</p>
           </div>
           {push.permission !== "denied" && (
-            <Button variant={push.subscribed ? "secondary" : "primary"} onClick={togglePush} disabled={busy} data-testid="push-toggle">{push.subscribed ? "Turn off" : "Turn on"}</Button>
+            <Button onClick={togglePush} disabled={busy} aria-busy={busy} data-testid="push-toggle">{busy ? "Turning on…" : "Turn on"}</Button>
           )}
         </div>
       )}
