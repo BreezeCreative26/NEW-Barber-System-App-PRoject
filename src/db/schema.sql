@@ -35,6 +35,7 @@ CREATE TABLE shops (
   msg_sms INTEGER NOT NULL DEFAULT 1, msg_email INTEGER NOT NULL DEFAULT 1, msg_reminders INTEGER NOT NULL DEFAULT 1,
   msg_reminder_hours INTEGER NOT NULL DEFAULT 24, msg_reply_to TEXT NOT NULL DEFAULT '', msg_sms_sender TEXT NOT NULL DEFAULT '',
   terms_text TEXT NOT NULL DEFAULT '', terms_version INTEGER NOT NULL DEFAULT 0, terms_updated_at BIGINT NOT NULL DEFAULT 0,
+  legal_name TEXT NOT NULL DEFAULT '', vat_number TEXT NOT NULL DEFAULT '', company_number TEXT NOT NULL DEFAULT '', website TEXT NOT NULL DEFAULT '',
   CONSTRAINT shops_msg_flags_check CHECK (msg_sms IN (0,1) AND msg_email IN (0,1) AND msg_reminders IN (0,1) AND msg_reminder_hours BETWEEN 1 AND 72),
   -- Online deposits through the shop's own Stripe account (Model A). deposit_hold_min: how long a slot
   -- stays held while the customer pays.

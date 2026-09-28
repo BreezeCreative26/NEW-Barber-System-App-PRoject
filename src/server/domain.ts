@@ -34,6 +34,10 @@ export type Shop = {
   terms_text?: string;
   terms_version?: number;
   terms_updated_at?: number;
+  legal_name?: string;
+  vat_number?: string;
+  company_number?: string;
+  website?: string;
   till_access: "OWNER" | "ALL";
   buffer_min: number;
   card_colour: "BARBER" | "SERVICE";

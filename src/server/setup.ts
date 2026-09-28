@@ -167,6 +167,11 @@ const contactSchema = z.object({
   address: z.string().trim().max(300),
   timezone: z.string().trim().min(1).max(64),
   currency: z.enum(["GBP", "EUR", "USD"]),
+  // Optional business identity (Settings → Business details).
+  legal_name: z.string().trim().max(160).default(""),
+  vat_number: z.string().trim().max(32).default(""),
+  company_number: z.string().trim().max(32).default(""),
+  website: z.union([z.literal(""), z.string().trim().url().max(300)]).default(""),
 }).strict();
 setup.put("/contact", async (c) => {
   requireManager(c);
@@ -178,8 +183,8 @@ setup.put("/contact", async (c) => {
   const phoneChanged = (phone || "") !== (shop.phone || ""), emailChanged = b.email !== (shop.email || "");
   await c.env.DB.batch([
     c.env.DB.prepare(
-      `UPDATE shops SET name=?, kind=?, phone=?, email=?, address=?, timezone=?, currency=?, version=version+1${phoneChanged ? ", phone_verified_at=NULL" : ""}${emailChanged ? ", email_verified_at=NULL" : ""} WHERE id=?`,
-    ).bind(b.name, b.kind, phone || "", b.email, b.address, b.timezone, b.currency, shop.id),
+      `UPDATE shops SET name=?, kind=?, phone=?, email=?, address=?, timezone=?, currency=?, legal_name=?, vat_number=?, company_number=?, website=?, version=version+1${phoneChanged ? ", phone_verified_at=NULL" : ""}${emailChanged ? ", email_verified_at=NULL" : ""} WHERE id=?`,
+    ).bind(b.name, b.kind, phone || "", b.email, b.address, b.timezone, b.currency, b.legal_name, b.vat_number, b.company_number, b.website, shop.id),
     audit(c, "shop", shop.id, "SHOP_CONTACT_UPDATED", `${b.kind.toLowerCase()} · ${phone ? "mobile set" : "no mobile"} · ${b.email ? "email set" : "no email"}.`),
   ]);
   return c.json({ shop: await readShop(c) });

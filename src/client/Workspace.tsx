@@ -648,9 +648,11 @@ function RoleOptions() {
 function AccountSettings({
   w,
   onDone,
+  slice = "all",
 }: {
   w: WorkspaceData;
   onDone: () => Promise<void>;
+  slice?: "all" | "team" | "me";
 }) {
   const [access, setAccess] = useState<{
     members: AccessMember[];
@@ -1285,23 +1287,28 @@ type Editor =
   | { kind: "holiday" }
   | { kind: "removeHoliday"; item: Holiday };
 
-type SettingsTabKey = "general" | "hours" | "calendar" | "booking" | "page" | "reviews" | "messages" | "waitlist" | "alerts" | "ai" | "payments" | "billing";
-type SettingsGroup = "Business" | "Customers" | "Communication" | "Money";
+type SettingsTabKey = "general" | "hours" | "calendar" | "booking" | "page" | "reviews" | "messages" | "waitlist" | "alerts" | "ai" | "payments" | "billing" | "team" | "security" | "audit";
+type SettingsGroup = "Business" | "Bookings" | "Website" | "Customers" | "Team" | "Account";
+// Settings information architecture. Six groups, each a short list of focused tabs; every shop
+// field in the schema is reachable from exactly one place here.
 const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: string; group: SettingsGroup; owner?: boolean }[] = [
-  { key: "general", label: "Business details", hint: "Name, address, currency", icon: "settings", group: "Business" },
+  { key: "general", label: "Business details", hint: "Name, contact, legal, currency", icon: "settings", group: "Business" },
   { key: "hours", label: "Hours & closures", hint: "Opening times, holidays", icon: "clock", group: "Business" },
-  { key: "calendar", label: "Calendar & workspace", hint: "Policies, density, colours", icon: "calendar", group: "Business" },
-  { key: "booking", label: "Online booking", hint: "Link, notice, customer pages", icon: "globe", group: "Customers" },
-  { key: "page", label: "Shop page", hint: "Photos, theme, live preview", icon: "image", group: "Customers" },
-  { key: "reviews", label: "Reviews & Google", hint: "Ratings, replies, Google link", icon: "star", group: "Customers" },
-  { key: "waitlist", label: "Waiting list", hint: "Freed slots, who gets told", icon: "bell", group: "Customers" },
-  { key: "messages", label: "Messages", hint: "Texts, email, push, outbox", icon: "message", group: "Communication" },
-  { key: "alerts", label: "Owner alerts", hint: "What you hear about, and how", icon: "bell", group: "Communication" },
-  { key: "ai", label: "AI receptionist", hint: "Phone answering", icon: "phone", group: "Communication" },
-  { key: "payments", label: "Payments", hint: "Cards, deposits, payouts", icon: "card", group: "Money" },
-  { key: "billing", label: "Your foliyo plan", hint: "Plan, usage, invoices", icon: "file", group: "Money", owner: true },
+  { key: "calendar", label: "Diary & policies", hint: "Deposits, notice, density", icon: "calendar", group: "Business" },
+  { key: "booking", label: "Online booking", hint: "Link, window, terms", icon: "globe", group: "Bookings" },
+  { key: "waitlist", label: "Waiting list", hint: "Freed slots, who gets told", icon: "bell", group: "Bookings" },
+  { key: "payments", label: "Payments & deposits", hint: "Cards, payouts, pay runs", icon: "card", group: "Bookings" },
+  { key: "page", label: "Design & content", hint: "Logo, colours, sections", icon: "image", group: "Website" },
+  { key: "reviews", label: "Reviews & Google", hint: "Ratings, replies, Google link", icon: "star", group: "Website" },
+  { key: "messages", label: "Messages & reminders", hint: "Texts, email, push, outbox", icon: "message", group: "Customers" },
+  { key: "alerts", label: "Owner alerts", hint: "What you hear about, and how", icon: "bell", group: "Customers" },
+  { key: "ai", label: "AI receptionist", hint: "Phone answering", icon: "phone", group: "Customers" },
+  { key: "team", label: "Members & access", hint: "Roles, invitations, sign-in", icon: "users", group: "Team" },
+  { key: "security", label: "Your account", hint: "Password, sessions", icon: "shield", group: "Account" },
+  { key: "billing", label: "Your foliyo plan", hint: "Plan, usage, invoices", icon: "file", group: "Account", owner: true },
+  { key: "audit", label: "Activity log", hint: "Who changed what, when", icon: "list", group: "Account" },
 ];
-const SETTINGS_GROUPS: SettingsGroup[] = ["Business", "Customers", "Communication", "Money"];
+const SETTINGS_GROUPS: SettingsGroup[] = ["Business", "Bookings", "Website", "Customers", "Team", "Account"];
 
 
 // Shown when foliyo support opened this workspace from the admin panel (cookie set by /api/admin/…/impersonate).
@@ -2774,34 +2781,8 @@ export function Workspace() {
                   <div className="settings-body" id={`settings-${settingsTab}`} role="tabpanel">
                     {settingsTab === "general" && (
                       <>
-                        <header className="settings-head"><h2>Business details</h2><p>Who you are and where you are. Customers see the name and address on every page and message.</p></header>
-                        <section className="workspace-panel">
-                          <h2>Shop settings</h2>
-                          <ShopSaveForm w={w} saved={saved} label="Save changes">
-                            <Field label="Shop name">
-                              <input name="name" required minLength={2} maxLength={100} defaultValue={w.shop.name} />
-                            </Field>
-                            <Field label="Address">
-                              <textarea name="address" maxLength={200} defaultValue={w.shop.address} />
-                            </Field>
-                            <div className="workspace-form-grid">
-                              <Field label="Timezone">
-                                <select name="timezone" defaultValue={w.shop.timezone}>
-                                  {timezoneOptions(w.shop.timezone).map((tz) => (
-                                    <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
-                                  ))}
-                                </select>
-                              </Field>
-                              <Field label="Currency · how prices are shown">
-                                <select name="currency" defaultValue={w.shop.currency || "GBP"} data-testid="shop-currency">
-                                  {CURRENCIES.map((c) => (
-                                    <option key={c.code} value={c.code}>{c.code} · {c.label}</option>
-                                  ))}
-                                </select>
-                              </Field>
-                            </div>
-                          </ShopSaveForm>
-                        </section>
+                        <header className="settings-head"><h2>Business details</h2><p>Who you are and how to reach you. Customers see the name, address and contact on every page and message; the legal details appear on receipts and your terms.</p></header>
+                        <BusinessDetailsPanel w={w} refresh={async () => { await refresh(); }} />
                       </>
                     )}
                     {settingsTab === "hours" && (
@@ -2936,6 +2917,35 @@ export function Workspace() {
                       <>
                         <header className="settings-head"><h2>Payments</h2><p>Card payments, deposits, payouts and pay runs.</p></header>
                         <PaymentsPanel api={api} canEdit={manager} isOwner={!w.account || w.account.role === "OWNER"} />
+                      </>
+                    )}
+                    {settingsTab === "team" && (
+                      <>
+                        <header className="settings-head"><h2>Members &amp; access</h2><p>Who can sign in, what they can do, and pending invitations. Team members sign in at <code>{location.host}/staff</code>.</p></header>
+                        <AccountSettings w={w} onDone={accountChanged} slice="team" />
+                      </>
+                    )}
+                    {settingsTab === "security" && (
+                      <>
+                        <header className="settings-head"><h2>Your account</h2><p>Your sign-in details and sessions.</p></header>
+                        <AccountSettings w={w} onDone={accountChanged} slice="me" />
+                      </>
+                    )}
+                    {settingsTab === "audit" && (
+                      <>
+                        <header className="settings-head"><h2>Activity log</h2><p>The latest 200 changes in this shop, newest first. Append-only.</p></header>
+                        <section className="workspace-panel">
+                          <ol className="workspace-audit">
+                            {w.audit.map((a) => (
+                              <li key={a.id}>
+                                <strong>{a.action.replaceAll("_", " ")}</strong>
+                                <time>{new Date(a.created_at).toLocaleString("en-GB")}</time>
+                                <p>{a.reason || a.entity_type}</p>
+                                <small>{a.actor}</small>
+                              </li>
+                            ))}
+                          </ol>
+                        </section>
                       </>
                     )}
                     {settingsTab === "billing" && (
@@ -3388,6 +3398,62 @@ const PAGE_SECTIONS: { key: string; label: string }[] = [
 // Shop settings are one strict record on the server (`PUT /shop`). Each Settings section shows
 // only its own fields; this wrapper fills the rest from the current shop so a short form still
 // sends a complete, valid payload. Fields present in the form win.
+// Business details: everything about the shop as a business, in one place. Saves through
+// /setup/contact (name, kind, phone, email, address, timezone, currency + legal identity).
+function BusinessDetailsPanel({ w, refresh }: { w: WorkspaceData; refresh: () => Promise<void> }) {
+  const shop = w.shop as WorkspaceData["shop"] & { kind?: string; phone?: string; email?: string; legal_name?: string; vat_number?: string; company_number?: string; website?: string; phone_verified_at?: number | null; email_verified_at?: number | null };
+  return (
+    <>
+      <section className="workspace-panel">
+        <h2>Shop</h2>
+        <SaveForm
+          key={w.shop.version}
+          label="Save business details"
+          onSave={async (f) => {
+            await api("/setup/contact", "PUT", {
+              name: text(f, "name"), kind: text(f, "kind") || "BARBER", phone: text(f, "phone"), email: text(f, "email"), address: text(f, "address"),
+              timezone: text(f, "timezone"), currency: text(f, "currency") || "GBP",
+              legal_name: text(f, "legal_name"), vat_number: text(f, "vat_number"), company_number: text(f, "company_number"), website: text(f, "website"),
+            });
+            await refresh();
+          }}
+        >
+          <div className="workspace-form-grid">
+            <Field label="Shop name"><input name="name" required minLength={2} maxLength={100} defaultValue={shop.name} data-testid="biz-name" /></Field>
+            <Field label="Type of business">
+              <select name="kind" defaultValue={shop.kind || "BARBER"} data-testid="biz-kind">
+                <option value="BARBER">Barbershop</option><option value="HAIR">Hairdresser</option><option value="SALON">Salon / studio</option>
+              </select>
+            </Field>
+          </div>
+          <Field label="Address"><textarea name="address" maxLength={300} defaultValue={shop.address} rows={2} /></Field>
+          <div className="workspace-form-grid">
+            <Field label="Shop mobile" hint={shop.phone_verified_at ? "Verified" : shop.phone ? "Not verified yet" : "Used for owner alerts and the AI receptionist."}>
+              <input name="phone" type="tel" inputMode="tel" maxLength={20} defaultValue={shop.phone || ""} placeholder="07700 900123" data-testid="biz-phone" />
+            </Field>
+            <Field label="Shop email" hint={shop.email_verified_at ? "Verified" : "Replies to customer messages come here."}>
+              <input name="email" type="email" maxLength={254} defaultValue={shop.email || ""} data-testid="biz-email" />
+            </Field>
+            <Field label="Website (optional)"><input name="website" type="url" inputMode="url" maxLength={300} defaultValue={shop.website || ""} placeholder="https://" /></Field>
+            <Field label="Timezone">
+              <select name="timezone" defaultValue={shop.timezone}>{timezoneOptions(shop.timezone).map((tz) => <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>)}</select>
+            </Field>
+            <Field label="Currency · how prices are shown">
+              <select name="currency" defaultValue={shop.currency || "GBP"} data-testid="shop-currency">{CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code} · {c.label}</option>)}</select>
+            </Field>
+          </div>
+          <h3 className="settings-subhead">Legal &amp; tax</h3>
+          <p className="helper">Shown on receipts, invoices and your booking terms. Leave blank if it doesn't apply.</p>
+          <div className="workspace-form-grid">
+            <Field label="Legal / trading name"><input name="legal_name" maxLength={160} defaultValue={shop.legal_name || ""} placeholder="Northline Barbers Ltd" data-testid="biz-legal" /></Field>
+            <Field label="Company number"><input name="company_number" maxLength={32} defaultValue={shop.company_number || ""} /></Field>
+            <Field label="VAT number"><input name="vat_number" maxLength={32} defaultValue={shop.vat_number || ""} placeholder="GB123456789" /></Field>
+          </div>
+        </SaveForm>
+      </section>
+    </>
+  );
+}
 function ShopSaveForm({ w, saved, label, children }: { w: WorkspaceData; saved: EditorProps["saved"]; label: string; children: ReactNode }) {
   const week0 = shopWeekOf(w.shop);
   return (

@@ -2803,3 +2803,5 @@ html.boot-dark, html.boot-dark body { background: #17181e; }
 .auth-invite-card img.tone-dark { background: #fff; }
 .auth-shop .auth-invite-card img { object-fit: contain; padding: 4px; border-radius: 10px; }
 .auth-switch a { color: inherit; }
+.settings-subhead { margin: 18px 0 4px; font-size: var(--fs-15); font-weight: 700; }
+.settings-head code { font-size: 0.9em; background: var(--soft); padding: 1px 6px; border-radius: 6px; }
