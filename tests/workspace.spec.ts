@@ -737,7 +737,7 @@ test("customers tab: filters, add customer with tags, profile stats, picker in b
   await expect(dialog.getByLabel("Customer name", { exact: true })).toHaveValue("Fresh Face");
   await expect(dialog.getByLabel("Mobile number", { exact: true })).toHaveValue("07700900321");
   await expect(dialog.getByTestId("customer-picked")).toBeVisible();
-  await dialog.getByRole("button", { name: "Book as someone else" }).click();
+  await dialog.getByTestId("customer-swap").click();
   await dialog.getByLabel("Customer name", { exact: true }).fill("Someone New");
   await dialog.getByLabel("Mobile number", { exact: true }).fill("07700900321");
   await expect(dialog.locator(".customer-duplicate")).toContainText("Fresh Face already has this number");

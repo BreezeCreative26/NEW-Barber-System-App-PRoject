@@ -54,6 +54,8 @@ export type Shop = {
   payrun_auto?: "OFF" | "DAILY" | "WEEKLY";
   payrun_reserve_bps?: number;
   pay_show_owner_share?: number;
+  // Waiting list is optional (0037). Off hides the queue in the workspace and the join card online.
+  waitlist_enabled?: number;
   stripe_location_id?: string;
   // Setup (0014): shop contact + verification, kind drives starter menus, wizard state, owner alerts.
   phone?: string;

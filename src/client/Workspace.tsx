@@ -1311,7 +1311,7 @@ const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: s
   { key: "hours", label: "Hours & closures", hint: "Opening times, holidays", icon: "clock", group: "Business" },
   { key: "calendar", label: "Diary & policies", hint: "Deposits, notice, density", icon: "calendar", group: "Business" },
   { key: "booking", label: "Online booking", hint: "Link, window, terms", icon: "globe", group: "Bookings" },
-  { key: "waitlist", label: "Waiting list", hint: "Freed slots, who gets told", icon: "bell", group: "Bookings" },
+  { key: "waitlist", label: "Waiting list", hint: "Optional · freed slots, who gets told", icon: "bell", group: "Bookings" },
   { key: "payments", label: "Payments & deposits", hint: "Cards, payouts, pay runs", icon: "card", group: "Bookings" },
   { key: "page", label: "Design & content", hint: "Logo, colours, sections", icon: "image", group: "Website" },
   { key: "reviews", label: "Reviews & Google", hint: "Ratings, replies, Google link", icon: "star", group: "Website" },
@@ -2124,7 +2124,7 @@ export function Workspace() {
             : null
         }
         onWallet={() => setWalletOpen((v) => !v)}
-        queue={w ? { count: waitlist.length, offered: waitlist.filter((e) => e.status === "OFFERED").length, open: queueOpen } : null}
+        queue={w && w.shop.waitlist_enabled !== 0 ? { count: waitlist.length, offered: waitlist.filter((e) => e.status === "OFFERED").length, open: queueOpen } : null}
         onQueue={() => setQueueOpen((v) => !v)}
         bell={w ? { count: w.issues.length, open: notificationsOpen } : null}
         onBell={() => setNotificationsOpen((v) => !v)}
@@ -2267,8 +2267,8 @@ export function Workspace() {
           }}
         />
         <main id="workspace-main" className="workspace-main">
-          {tab === "Appointments" ? (
-            <h1 className="visually-hidden">Appointments</h1>
+          {tab === "Appointments" || tab === "Customers" ? (
+            <h1 className="visually-hidden">{tab}</h1>
           ) : (
             <header className="workspace-heading">
               <div>
@@ -3322,7 +3322,7 @@ function InsightsPanel({ w }: { w: WorkspaceData }) {
         { label: "No-show rate", value: kept ? `${Math.round((noShows / kept) * 100)}%` : "—", foot: `${noShows} no-shows of ${kept}`, icon: "user" },
         { label: "Booked online", value: kept ? `${Math.round((online / kept) * 100)}%` : "—", foot: `${online} of ${kept} came through your booking page`, icon: "trend" },
         { label: "Customers seen", value: String(data.customers.customers), foot: `${data.customers.new_customers ?? 0} new in this period`, icon: "users" },
-        { label: "Upcoming", value: String(data.upcoming.n), foot: `${money(data.upcoming.value || 0)} booked ahead · ${data.waitlist_open} on waitlist`, icon: "calendar" },
+        { label: "Upcoming", value: String(data.upcoming.n), foot: `${money(data.upcoming.value || 0)} booked ahead${w.shop.waitlist_enabled !== 0 ? ` · ${data.waitlist_open} on waitlist` : ""}`, icon: "calendar" },
       ]
     : [];
   const peakHour = data?.hours.length ? data.hours.reduce((a, b) => (b.n > a.n ? b : a)) : null;
@@ -4458,13 +4458,13 @@ type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms:
 type Messaging = { msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
 const CHANNEL_LABEL: Record<string, string> = { SMS: "Text", EMAIL: "Email", WA: "WhatsApp (retired)", PUSH: "Push" };
 type OutboxData = {
-  shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; sms_billing?: { unit_pence: number; included_units: number; acknowledged_at: number | null; live: boolean }; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_mode?: "ORDER" | "EVERYONE"; waitlist_delay_min?: number } };
+  shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; sms_billing?: { unit_pence: number; included_units: number; acknowledged_at: number | null; live: boolean }; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_enabled?: number; waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_mode?: "ORDER" | "EVERYONE"; waitlist_delay_min?: number } };
 // One data load (providers, channels, templates, outbox) feeds four Settings sections. `show`
 // picks which slice renders so each section stays short; test ids are unchanged.
 type MessagesSlice = "messages" | "waitlist" | "alerts" | "ai";
 function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; show?: MessagesSlice }) {
   const [data, setData] = useState<OutboxData | null>(null);
-  const [form, setForm] = useState<{ auto: number; hold: number; mode: "ORDER" | "EVERYONE"; delay: number; templates: Record<string, string> } | null>(null);
+  const [form, setForm] = useState<{ enabled: number; auto: number; hold: number; mode: "ORDER" | "EVERYONE"; delay: number; templates: Record<string, string> } | null>(null);
   const [msg, setMsg] = useState<Messaging | null>(null);
   const [state, setState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
   const [msgState, setMsgState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
@@ -4476,7 +4476,7 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
     api<OutboxData>(`/notifications?limit=60${filter ? `&status=${filter}` : ""}`)
       .then((d) => {
         setData(d);
-        setForm((f) => f ?? { auto: d.settings.waitlist_auto_offer, hold: d.settings.waitlist_offer_hold_min, mode: d.settings.waitlist_mode ?? "ORDER", delay: d.settings.waitlist_delay_min ?? 5, templates: { ...d.templates } });
+        setForm((f) => f ?? { enabled: d.settings.waitlist_enabled ?? 1, auto: d.settings.waitlist_auto_offer, hold: d.settings.waitlist_offer_hold_min, mode: d.settings.waitlist_mode ?? "ORDER", delay: d.settings.waitlist_delay_min ?? 5, templates: { ...d.templates } });
         setMsg((m) => m ?? d.messaging);
       })
       .catch((e) => setState({ kind: "error", text: e instanceof Error ? e.message : "Could not load." }));
@@ -4488,7 +4488,7 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
     if (!form) return;
     setState({ kind: "saving", text: "" });
     try {
-      const r = await api<{ shop: { version: number } }>("/shop/waitlist", "PUT", { waitlist_auto_offer: form.auto, waitlist_offer_hold_min: form.hold, waitlist_mode: form.mode, waitlist_delay_min: form.delay, templates: form.templates, version: data?.shop_version ?? w.shop.version });
+      const r = await api<{ shop: { version: number } }>("/shop/waitlist", "PUT", { waitlist_enabled: form.enabled, waitlist_auto_offer: form.auto, waitlist_offer_hold_min: form.hold, waitlist_mode: form.mode, waitlist_delay_min: form.delay, templates: form.templates, version: data?.shop_version ?? w.shop.version });
       setData((d) => (d ? { ...d, shop_version: r.shop.version } : d));
       setState({ kind: "saved", text: "Saved. New offers use this wording; existing messages are unchanged." });
     } catch (err) {
@@ -4660,6 +4660,17 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
       )}
       {show === "waitlist" && form && data && (
         <form className="workspace-form" onSubmit={save} data-testid="waitlist-settings-form">
+          <div className="workspace-switch-row waitlist-master">
+            <span>
+              <strong>Run a waiting list</strong>
+              <small>Optional. When a day is full, customers can ask to be told if a time frees up. Off hides the queue from your team and the join button from your booking page.</small>
+            </span>
+            <label className="switch">
+              <input type="checkbox" checked={!!form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked ? 1 : 0 })} aria-label="Run a waiting list" data-testid="waitlist-enabled" />
+              <span />
+            </label>
+          </div>
+          {!!form.enabled && (<>
           <h3>When a time frees up</h3>
           <div className="workspace-form-grid">
             <div className="workspace-switch-row">
@@ -4719,6 +4730,7 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
               ));
             })()}
           </fieldset>
+          </>)}
           {state.text && (
             <p className={state.kind === "error" ? "workspace-error" : "workspace-success"} role={state.kind === "error" ? "alert" : "status"}>
               {state.text}
@@ -6977,29 +6989,40 @@ function CustomerPicker({
     setPhone(c.phone);
     setQuery("");
   }
+  // One flow, three states: searching (one box), picked (a card), or adding (name + mobile).
+  const mode: "search" | "picked" | "new" = pickedId ? "picked" : name.trim() || phone.trim() ? "new" : "search";
+  const startNew = (seed: string) => {
+    const digits = seed.replace(/[\s()-]/g, "");
+    if (/^(?:\+44|0)7\d{9}$/.test(digits)) setPhone(seed.trim());
+    else setName(seed.trim());
+    setQuery("");
+  };
   return (
-    <div className="customer-picker" data-testid="customer-picker">
-      <label className="customers-search">
-        <Icon name="search" size={16} />
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Find an existing customer by name, mobile or email"
-          aria-label="Find customer"
-          aria-describedby="customer-picker-hint"
-          autoComplete="off"
-          onKeyDown={(e) => {
-            if (!results?.length) return;
-            if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => Math.min(results.length - 1, a + 1)); }
-            if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(0, a - 1)); }
-            if (e.key === "Enter") { e.preventDefault(); choose(results[active]); }
-            if (e.key === "Escape") setQuery("");
-          }}
-        />
-      </label>
+    <div className={`customer-picker mode-${mode}`} data-testid="customer-picker">
+      {mode !== "picked" && (
+        <label className="customers-search">
+          <Icon name="search" size={16} />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={mode === "new" ? "Or find an existing customer…" : "Name, mobile or email — or type a new customer's name"}
+            aria-label="Find customer"
+            aria-describedby="customer-picker-hint"
+            autoComplete="off"
+            data-testid="customer-find"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setQuery("");
+              if (!results) return;
+              if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => Math.min(results.length, a + 1)); }
+              if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(0, a - 1)); }
+              if (e.key === "Enter") { e.preventDefault(); if (results[active]) choose(results[active]); else startNew(query); }
+            }}
+          />
+        </label>
+      )}
       <p id="customer-picker-hint" className="visually-hidden">
-        Use the arrow keys and Enter to choose a match, or type a new customer below.
+        Use the arrow keys and Enter to choose a match, or add the typed name as a new customer.
       </p>
       {open && (
         <ul className="customer-picker-results" aria-label="Matching customers">
@@ -7020,50 +7043,71 @@ function CustomerPicker({
               </button>
             </li>
           ))}
-          {results && results.length === 0 && <li className="workspace-footnote">No matching customers — fill in the details below to add them.</li>}
+          {results && (
+            <li className="customer-picker-new">
+              <button type="button" className={active === results.length ? "active" : ""} aria-current={active === results.length ? "true" : undefined} onMouseEnter={() => setActive(results.length)} onClick={() => startNew(query)} data-testid="customer-add-new">
+                <span className="customer-picker-plus"><Icon name="plus" size={16} /></span>
+                <span className="customer-picker-main">
+                  <strong>Add “{query.trim()}” as a new customer</strong>
+                  <small>{results.length === 0 ? "No one matches — they'll be saved with this booking." : "Not one of these? Save them as a new record."}</small>
+                </span>
+              </button>
+            </li>
+          )}
         </ul>
       )}
-      {pickedId && (
-        <p className="customer-picked-note" data-testid="customer-picked" role="status">
-          <Icon name="check" size={14} /> Existing customer{pickedFav && staffName(pickedFav) ? ` · usually ${staffName(pickedFav)}` : ""}.{" "}
-          <button type="button" className="panel-inline" onClick={() => { setPickedId(null); setPickedFav(null); }}>
-            Book as someone else
+      {mode === "picked" && (
+        <div className="customer-card" data-testid="customer-picked" role="status">
+          <Avatar initials={initialsOf(name)} colour="sage" />
+          <span className="customer-picker-main">
+            <strong>{name}</strong>
+            <small>{phone}{pickedFav && staffName(pickedFav) ? ` · usually ${staffName(pickedFav)}` : ""} · existing customer</small>
+          </span>
+          <button type="button" className="panel-inline" onClick={() => { setPickedId(null); setPickedFav(null); setName(""); setPhone(""); }} data-testid="customer-swap">
+            Change
           </button>
-        </p>
+        </div>
       )}
-      <div className="workspace-form-grid">
-        <Field label="Customer name" hint="Leave blank for a walk-in">
-          <input
-            name="customer_name"
-            value={name}
-            onChange={(e) => { setName(e.target.value); if (pickedId) setPickedId(null); }}
-            minLength={2}
-            maxLength={100}
-            placeholder="Walk-in"
-            autoComplete="off"
-          />
-        </Field>
-        <Field label="Mobile number" hint={name.trim() ? "For confirmations and reminders" : "Optional for walk-ins"}>
-          <input
-            name="phone"
-            value={phone}
-            onChange={(e) => { setPhone(e.target.value); if (pickedId) setPickedId(null); }}
-            type="tel"
-            required={!!name.trim()}
-            placeholder="07700 900123"
-            autoComplete="off"
-          />
-        </Field>
+      {/* The name/mobile pair stays mounted (labels drive the form and prefill on rebook); it reads as
+          "New customer" when nothing is picked, and sits hidden behind the card once someone is. */}
+      <div className={`customer-new ${mode === "picked" || (open && mode === "search") ? "visually-hidden" : ""}`} data-testid="customer-new">
+        <p className="customer-new-title"><Icon name="user" size={14} /> {mode === "new" ? "New customer" : "Or add a new customer"}</p>
+        <div className="workspace-form-grid">
+          <Field label="Customer name" hint={mode === "new" ? undefined : "Leave blank for a walk-in"}>
+            <input
+              name="customer_name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              minLength={2}
+              maxLength={100}
+              placeholder="Full name"
+              autoComplete="off"
+            />
+          </Field>
+          <Field label="Mobile number" hint={name.trim() ? "For confirmations and reminders" : "Optional for walk-ins"}>
+            <input
+              name="phone"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              type="tel"
+              required={!!name.trim()}
+              placeholder="07700 900123"
+              autoComplete="off"
+            />
+          </Field>
+        </div>
+        {duplicate && (
+          <p className="customer-duplicate" role="status">
+            <Icon name="help" size={14} /> {duplicate.name} already has this number ·{" "}
+            <button type="button" className="panel-inline" onClick={() => choose(duplicate)}>
+              use existing record
+            </button>
+          </p>
+        )}
+        {mode === "new" && (
+          <p className="workspace-footnote">Saved as a customer record with the booking. <button type="button" className="panel-inline" onClick={() => { setName(""); setPhone(""); }}>Clear</button></p>
+        )}
       </div>
-      {duplicate && (
-        <p className="customer-duplicate" role="status">
-          <Icon name="help" size={14} /> {duplicate.name} already has this number ·{" "}
-          <button type="button" className="panel-inline" onClick={() => choose(duplicate)}>
-            use existing record
-          </button>
-        </p>
-      )}
-      {!pickedId && <p className="workspace-footnote">New names are saved as a customer record with the booking.</p>}
     </div>
   );
 }

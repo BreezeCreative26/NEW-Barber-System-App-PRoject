@@ -24,6 +24,7 @@ export type PublicShop = {
     closes: number;
     closed_days: number[];
     deposit_pence: number;
+    waitlist_enabled?: boolean;
     deposit_online?: boolean;
     payment_mode?: "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT";
     deposit_hold_min?: number;
@@ -1169,7 +1170,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                   {availability && openCount > 0 && groups.length === 0 && (
                     <Notice icon="clock">No {daypart.toLowerCase()} times left on this day. Try another part of the day.</Notice>
                   )}
-                  {dayFull && waitlist !== "done" && (
+                  {dayFull && shop.shop.waitlist_enabled !== false && waitlist !== "done" && (
                     <section className="waitlist-card" aria-labelledby="waitlist-heading">
                       <div>
                         <h4 id="waitlist-heading">This day is fully booked</h4>
