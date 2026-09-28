@@ -52,7 +52,7 @@ test("signup → welcome email in outbox (as foliyo) → nudge → confirm on /v
 
   // Nudge gone; account reports verified; audit has EMAIL_VERIFIED.
   await page.reload();
-  await expect(page.getByTestId("setup-banner").or(page.getByTestId("calendar"))).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId("getting-started").or(page.getByTestId("calendar"))).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId("verify-nudge")).toHaveCount(0);
   const me = await (await api.get("/api/app/auth/me")).json();
   expect(me.account.email_verified_at).toBeTruthy();

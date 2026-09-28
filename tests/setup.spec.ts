@@ -69,7 +69,7 @@ test("shop setup: signup → 7-step wizard → done; invite accepted by SMS+emai
   await expect(page.getByTestId("setup-done")).toBeVisible();
   
   await page.getByTestId("setup-open-calendar").click();
-  await expect(page.getByTestId("setup-banner")).toHaveCount(0);
+  await expect(page.getByTestId("setup-continue")).toHaveCount(0);
   // Invite accept in new context
   const ctx2 = await page.context().browser()!.newContext();
   const p2 = await ctx2.newPage();

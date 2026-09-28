@@ -335,7 +335,12 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
     const t = setTimeout(() => {
       fetch(`/api/app/auth/slug-check?slug=${encodeURIComponent(slug)}`, { credentials: "same-origin" })
         .then((r) => r.json())
-        .then((j) => setSlugState(j))
+        .then((j: { ok: boolean; reason: string; host: string }) => {
+          // The suggested address is taken and the owner hasn't typed their own: offer a free
+          // variant (name + short tag) rather than a red error they have to fix by hand.
+          if (!j.ok && !slugTouched && /taken/i.test(j.reason || "")) { setSlug(`${slug.replace(/-[a-z0-9]{3}$/, "").slice(0, 36)}-${Math.random().toString(36).slice(2, 5)}`); return; }
+          setSlugState(j);
+        })
         .catch(() => setSlugState(null));
     }, 250);
     return () => clearTimeout(t);
@@ -521,7 +526,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
               </Field>
               <Field label="Your web address" hint={slugState === null ? "Where customers book and where you and your team sign in." : slugState.ok ? `Available — ${slug}.${slugState.host ? slugState.host.split(".").slice(1).join(".") : rootHost}` : slugState.reason}>
                 <div className="slug-input" data-testid="signup-slug">
-                  <input name="slug" value={slug} required minLength={2} maxLength={40} pattern="[a-z0-9](?:[a-z0-9-]*[a-z0-9])?" autoCapitalize="off" autoCorrect="off" spellCheck={false} placeholder="fade-society" aria-invalid={slugState ? !slugState.ok : undefined} onChange={(e) => { setSlugTouched(true); setSlug(slugify(e.target.value)); }} />
+                  <input name="slug" value={slug} required minLength={2} maxLength={40} pattern="[a-z0-9](?:[\-a-z0-9]*[a-z0-9])?" autoCapitalize="off" autoCorrect="off" spellCheck={false} placeholder="fade-society" aria-invalid={slugState ? !slugState.ok : undefined} onChange={(e) => { setSlugTouched(true); setSlug(slugify(e.target.value)); }} />
                   <span className="slug-suffix">.{rootHost}</span>
                 </div>
               </Field>
@@ -1314,11 +1319,11 @@ const SETTINGS_GROUPS: SettingsGroup[] = ["Business", "Bookings", "Website", "Cu
 // Shown when foliyo support opened this workspace from the admin panel (cookie set by /api/admin/…/impersonate).
 // One-line nudge until the login email is confirmed. Soft: nothing is gated on it, but password
 // resets go to this address so it's worth a click. Re-send is rate-limited server-side (1/min).
-function VerifyEmailNudge({ email, onVerified }: { email: string; onVerified: () => void }) {
+function VerifyEmailNudge({ email, onVerified, compact = false }: { email: string; onVerified: () => void; compact?: boolean }) {
   const [state, setState] = useState<{ sent?: boolean; sandbox?: string; error?: string; busy?: boolean; hidden?: boolean }>(() => ({ hidden: sessionStorage.getItem("foliyo:verify-nudge") === "hidden" }));
-  if (state.hidden) return null;
+  if (state.hidden && !compact) return null;
   return (
-    <section className="setup-banner verify-nudge" data-testid="verify-nudge">
+    <section className={compact ? "verify-nudge-compact" : "setup-banner verify-nudge"} data-testid="verify-nudge">
       <div>
         <strong>Confirm your email.</strong>
         <span>
@@ -1472,6 +1477,8 @@ export function Workspace() {
   }, [undo]);
   const [tab, setTab] = useState("Appointments");
   // Settings is split into clear sections; the URL hash remembers the open one (#settings/payments).
+  // Phone: settings groups collapse; the group holding the open tab is always expanded.
+  const [openGroup, setOpenGroup] = useState<string>("");
   const [settingsTab, setSettingsTab] = useState<SettingsTabKey>(() => {
     const m = /^#settings\/(\w+)$/.exec(location.hash);
     return (m && SETTINGS_TABS.some((t) => t.key === m[1]) ? (m[1] as SettingsTabKey) : "general");
@@ -2222,28 +2229,44 @@ export function Workspace() {
           {!w && !needsSession && !error && (
             <p role="status">Loading local workspace…</p>
           )}
-          {w && !inviteToken && !setupOpen && w.account && !w.account.email_verified_at && (
+          {w && !inviteToken && !setupOpen && w.account && !w.account.email_verified_at && (tab !== "Appointments" || !manager) && (
             <VerifyEmailNudge email={w.account.email} onVerified={() => refresh({ background: true })} />
           )}
           {w && !inviteToken && manager && setupOpen && (
             <SetupWizard w={w} api={api} refresh={async () => { await refresh(); }} goTo={goTo} onExit={() => { openSetup(false); refresh().catch(() => {}); }} />
           )}
           {w && !inviteToken && manager && !setupOpen && tab === "Appointments" && (() => {
-            // Until setup is finished (or dismissed) a one-line banner offers the way back in.
+            // One card, not a stack of banners: setup progress and email confirmation together.
+            // Disappears once setup is finished (or dismissed) and the email is confirmed.
             let st: { completed_at?: number | null; dismissed?: boolean; done?: string[] } = {};
             try { st = JSON.parse((w.shop as { setup_json?: string }).setup_json || "{}"); } catch { /* none */ }
-            if (st.completed_at || st.dismissed) return null;
+            const setupDone = !!(st.completed_at || st.dismissed);
+            const emailDone = !w.account || !!w.account.email_verified_at;
+            if (setupDone && emailDone) return null;
             const done = (st.done || []).length;
             return (
-              <section className="setup-banner" data-testid="setup-banner">
-                <div>
-                  <strong>{done ? `Setup: ${done} of 7 steps done.` : `Get ${w.shop.name} live in a few minutes.`}</strong>
-                  <span>{done ? "Pick up where you left off." : "Services, team, texts, your booking link — one screen at a time."}</span>
+              <section className="getting-started" data-testid="getting-started">
+                <div className="getting-started-head">
+                  <strong>Getting started</strong>
+                  <span>{setupDone ? "Nearly there." : done ? `${done} of 7 steps done.` : `Get ${w.shop.name} live in a few minutes.`}</span>
                 </div>
-                <div className="setup-banner-actions">
-                  <Button onClick={() => openSetup(true)} data-testid="setup-continue">{done ? "Continue setup" : "Start setup"}</Button>
-                  <button type="button" className="linklike" onClick={() => { api("/setup/state", "PUT", { dismissed: true }).then(() => refresh()).catch(() => {}); setNotice("Setup hidden. Run it again any time from Settings."); }}>Hide</button>
-                </div>
+                <ul className="getting-started-list">
+                  {!setupDone && (
+                    <li>
+                      <span className="gs-dot" aria-hidden="true" />
+                      <div><b>Finish setting up your shop</b><small>Services, team, texts, your booking link — one screen at a time.</small></div>
+                      <Button onClick={() => openSetup(true)} data-testid="setup-continue">{done ? "Continue" : "Start"}</Button>
+                    </li>
+                  )}
+                  {!emailDone && w.account && (
+                    <li>
+                      <span className="gs-dot" aria-hidden="true" />
+                      <div><b>Confirm your email</b><small>We sent a link to {w.account.email}. Tap it so password resets reach you.</small></div>
+                      <VerifyEmailNudge email={w.account.email} onVerified={() => refresh({ background: true })} compact />
+                    </li>
+                  )}
+                </ul>
+                {!setupDone && <button type="button" className="linklike gs-dismiss" onClick={() => { api("/setup/state", "PUT", { dismissed: true }).then(() => refresh()).catch(() => {}); setNotice("Setup hidden. Run it again any time from Settings."); }}>Hide setup</button>}
               </section>
             );
           })()}
@@ -2767,10 +2790,10 @@ export function Workspace() {
                 <div className="settings-shell" data-testid="settings">
                   <nav className="settings-nav" role="tablist" aria-label="Settings sections">
                     {SETTINGS_GROUPS.map((g) => (
-                      <div key={g} className="settings-nav-group" role="presentation">
-                        <span className="settings-nav-label" aria-hidden="true">{g}</span>
+                      <div key={g} className="settings-nav-group" role="presentation" data-open={openGroup === g ? "true" : undefined}>
+                        <button type="button" className="settings-nav-label" onClick={() => setOpenGroup((v) => (v === g ? "" : g))} aria-expanded={openGroup === g}>{g}</button>
                         {SETTINGS_TABS.filter((t) => t.group === g && (!t.owner || !w.account || w.account.role === "OWNER")).map((t) => (
-                          <button key={t.key} type="button" role="tab" aria-selected={settingsTab === t.key} aria-controls={`settings-${t.key}`} onClick={() => setSettingsTab(t.key)} data-testid={`settings-tab-${t.key}`}>
+                          <button key={t.key} type="button" role="tab" aria-selected={settingsTab === t.key} aria-controls={`settings-${t.key}`} onClick={() => { if (settingsTab !== t.key && canNavigate()) setSettingsTab(t.key); }} data-testid={`settings-tab-${t.key}`}>
                             <Icon name={t.icon} size={18} />
                             <span><b>{t.label}</b><small>{t.hint}</small></span>
                           </button>
