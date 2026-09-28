@@ -169,6 +169,8 @@ const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   closed_days: JSON.parse(s.closed_days) as number[],
   week: shopWeek(s),
   deposit_pence: s.deposit_pence,
+  // Optional feature: when off the booking page never shows "Join the waitlist".
+  waitlist_enabled: (s.waitlist_enabled ?? 1) === 1,
   // True when the deposit is taken by card at booking time (shop toggle + Stripe configured).
   deposit_online: depositsOnline(s),
   payment_mode: s.payment_mode ?? "DEPOSIT",
@@ -557,6 +559,7 @@ pub.get("/shops/:slug/availability", async (c) => {
 // Waitlist: recorded for the owner when a date is full. No hold, no message.
 pub.post("/shops/:slug/waitlist", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug"));
+  if ((shop.waitlist_enabled ?? 1) !== 1) fail(404, "This shop does not run a waiting list");
   const b = await readInput(
     c,
     z

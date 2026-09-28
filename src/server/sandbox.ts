@@ -1270,6 +1270,7 @@ sandbox.post("/waitlist/:id/status", async (c) => {
 // Queue settings: auto-offer, hold time, message wording.
 export const waitlistSettingsSchema = z
   .object({
+    waitlist_enabled: z.union([z.literal(0), z.literal(1)]).default(1),
     waitlist_auto_offer: z.union([z.literal(0), z.literal(1)]),
     waitlist_offer_hold_min: z.number().int().min(15).max(1440),
     // ORDER = next in line gets a held offer; EVERYONE = all who fit are told, first to book wins.
@@ -1284,8 +1285,8 @@ sandbox.put("/shop/waitlist", async (c) => {
   const b = await input(c, waitlistSettingsSchema);
   await checkVersionUpdate(
     c,
-    c.env.DB.prepare("UPDATE shops SET waitlist_auto_offer=?,waitlist_offer_hold_min=?,waitlist_mode=?,waitlist_delay_min=?,waitlist_templates_json=?,version=version+1 WHERE id=? AND version=?").bind(b.waitlist_auto_offer, b.waitlist_offer_hold_min, b.waitlist_mode, b.waitlist_delay_min, JSON.stringify(b.templates), c.get("shopId"), b.version),
-    audit(c, "shop", c.get("shopId"), "WAITLIST_SETTINGS_UPDATED", `Auto-notify ${b.waitlist_auto_offer ? "on" : "off"}; ${b.waitlist_mode === "EVERYONE" ? "tell everyone" : "next in line"}; wait ${b.waitlist_delay_min} min; hold ${b.waitlist_offer_hold_min} min.`, true),
+    c.env.DB.prepare("UPDATE shops SET waitlist_enabled=?,waitlist_auto_offer=?,waitlist_offer_hold_min=?,waitlist_mode=?,waitlist_delay_min=?,waitlist_templates_json=?,version=version+1 WHERE id=? AND version=?").bind(b.waitlist_enabled, b.waitlist_auto_offer, b.waitlist_offer_hold_min, b.waitlist_mode, b.waitlist_delay_min, JSON.stringify(b.templates), c.get("shopId"), b.version),
+    audit(c, "shop", c.get("shopId"), "WAITLIST_SETTINGS_UPDATED", `Waiting list ${b.waitlist_enabled ? "on" : "off"}; auto-notify ${b.waitlist_auto_offer ? "on" : "off"}; ${b.waitlist_mode === "EVERYONE" ? "tell everyone" : "next in line"}; wait ${b.waitlist_delay_min} min; hold ${b.waitlist_offer_hold_min} min.`, true),
   );
   const shop = await shopWithQueue(c, c.get("shopId"));
   return c.json({ shop: await readShop(c), templates: templatesOf(shop), defaults: DEFAULT_TEMPLATES });
@@ -1310,7 +1311,7 @@ sandbox.get("/notifications", async (c) => {
     sms_billing: await smsBilling(c),
     templates: templatesOf(shop),
     defaults: DEFAULT_TEMPLATES,
-    settings: { waitlist_auto_offer: shop.waitlist_auto_offer, waitlist_offer_hold_min: shop.waitlist_offer_hold_min, waitlist_mode: shop.waitlist_mode, waitlist_delay_min: shop.waitlist_delay_min },
+    settings: { waitlist_enabled: shop.waitlist_enabled ?? 1, waitlist_auto_offer: shop.waitlist_auto_offer, waitlist_offer_hold_min: shop.waitlist_offer_hold_min, waitlist_mode: shop.waitlist_mode, waitlist_delay_min: shop.waitlist_delay_min },
     // Current shop version: sibling forms on the same tab (messaging, alerts, voice) bump it without a
     // workspace re-read, so the waitlist save must not rely on the stale workspace copy.
     shop_version: shop.version,

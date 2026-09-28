@@ -3419,3 +3419,35 @@ body.editor-open { overflow: hidden; }
   .workspace .topbar .wallet-chip, .workspace .topbar .topbar-queue { min-width: 0; }
   .workspace .topbar .topbar-actions { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 }
+
+/* ---------- Search fields: one box, not two ----------
+   .customers-search draws the border itself; the global input rule above was drawing a second one
+   inside it (Customers page, New booking › find customer, Team/Services lists, Admin). */
+.workspace .customers-search { min-height: var(--ctl-h); border-radius: var(--ctl-r); background: var(--surface); padding: 0 12px; }
+.workspace .customers-search input:not([type="checkbox"]) { min-height: 0; height: auto; border: 0; border-radius: 0; padding: 0; background: transparent; box-shadow: none; font-size: var(--fs-14); }
+.workspace .customers-search input:focus-visible { border: 0; box-shadow: none; }
+.workspace .customers-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(58, 117, 99, .16); }
+
+/* ---------- New booking › customer: one flow (find → picked card / new-customer form) ---------- */
+.workspace .customer-picker-new button { border-top: 1px dashed var(--line); border-radius: 0 0 10px 10px; margin-top: 2px; padding-top: 10px; }
+.workspace .customer-picker-plus { width: 32px; height: 32px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--ollo-soft); color: var(--accent-dark); }
+.workspace .customer-card {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  border: 1px solid var(--line); border-radius: var(--r-lg); padding: 10px 12px; background: var(--surface);
+  border-left: 3px solid var(--accent);
+}
+.workspace .customer-card .panel-inline { font-size: var(--fs-13); }
+.workspace .customer-new { border: 1px solid var(--line); border-radius: var(--r-lg); padding: 12px; background: var(--canvas); display: grid; gap: 10px; }
+.workspace .customer-new-title { margin: 0; display: flex; align-items: center; gap: 6px; font-size: var(--fs-12); font-weight: 600; color: var(--accent-dark); text-transform: uppercase; letter-spacing: .04em; }
+.workspace .customer-new .workspace-form-grid { margin: 0; }
+.workspace .customer-new .workspace-footnote { margin: 0; }
+
+/* Tablet (768–980): an old `.sidebar` drawer rule in style.css hid the new admin sidebar. On tablet
+   it stays put as the narrow rail; the drawer behaviour only applies below 768px. */
+@media (min-width: 768px) and (max-width: 980px) {
+  .workspace .sidebar.rail { transform: none; visibility: visible; top: auto; width: var(--sidebar-w-min); box-shadow: none; }
+  .workspace .sidebar.rail .sidebar-label { width: 0; opacity: 0; }
+  .workspace .sidebar.rail .sidebar-item { padding: 0; justify-content: center; gap: 0; }
+  .workspace .sidebar.rail .sidebar-item .rail-tip { display: block; }
+  .workspace .sidebar.rail .sidebar-toggle { display: none; }
+}
