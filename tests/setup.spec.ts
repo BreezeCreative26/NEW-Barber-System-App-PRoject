@@ -1,7 +1,7 @@
 import { test, expect, request } from "@playwright/test";
 import { registerCustomer } from "./shop";
 const origin = "http://localhost:3000";
-test("shop setup: signup → 7-step wizard → done; invite accepted by SMS+email link; forgot/reset password", async ({ page }) => {
+test("shop setup: signup → 9-step onboarding → go live; invite accepted by SMS+email link; forgot/reset password", async ({ page }) => {
   page.on("pageerror", (e) => console.log("PAGEERROR", e.message));
   page.on("console", (m) => { if (m.type() === "error") console.log("CONSOLE", m.text().slice(0, 200)); });
   await page.goto(origin + "/signup");
@@ -27,7 +27,19 @@ test("shop setup: signup → 7-step wizard → done; invite accepted by SMS+emai
   await expect(page.getByTestId("verified-PHONE")).toBeVisible();
   
   await page.getByTestId("setup-next").click();
-  // Step 2 hours
+  // Step 2 brand — full-screen flow hides the rail; live phone preview renders the real shop page
+  await expect(page.getByTestId("setup-brand")).toBeVisible();
+  await expect(page.locator(".workspace-layout.onboarding")).toBeVisible();
+  await expect(page.getByTestId("rail")).toBeHidden();
+  await page.getByTestId("setup-stock-industrial").click();
+  await page.getByTestId("setup-accent-clay").click();
+  await page.getByTestId("setup-strapline").fill("Sharp cuts, no fuss.");
+  const brandPreview = page.getByTestId("setup-brand-preview");
+  await expect(brandPreview.locator(".shop-page.accent-clay")).toBeAttached();
+  await expect(brandPreview.locator(".sp-hero-img").first()).toHaveAttribute("src", /industrial/);
+  await expect(brandPreview.getByText("Sharp cuts, no fuss.")).toBeAttached();
+  await page.getByTestId("setup-next").click();
+  // Step 3 hours
   await expect(page.getByRole("heading", { name: "Opening hours" })).toBeVisible();
   
   await page.getByTestId("setup-next").click();
@@ -57,7 +69,13 @@ test("shop setup: signup → 7-step wizard → done; invite accepted by SMS+emai
   await expect(page.getByTestId("setup-test-result")).toBeVisible();
   
   await page.getByTestId("setup-next").click();
-  // Step 6 online
+  // Step 7 booking rules & terms
+  await expect(page.getByTestId("setup-terms")).toBeVisible();
+  await page.getByTestId("setup-cancel").selectOption("48");
+  await page.getByTestId("setup-terms-starter").click();
+  await expect(page.getByTestId("setup-terms-text")).toHaveValue(/48 hours/);
+  await page.getByTestId("setup-next").click();
+  // Step 8 online / go live
   await expect(page.getByTestId("setup-slug")).toBeVisible();
   await page.waitForTimeout(600);
   
@@ -67,6 +85,12 @@ test("shop setup: signup → 7-step wizard → done; invite accepted by SMS+emai
   
   await page.getByTestId("setup-next").click();
   await expect(page.getByTestId("setup-done")).toBeVisible();
+  // Go-live share sheet: live shops get QR + copy/share actions; the terms saved in step 7 are on the shop.
+  await expect(page.getByTestId("setup-golive")).toBeVisible();
+  await expect(page.getByTestId("golive-copy")).toBeVisible();
+  const ws = await (await page.request.get(origin + "/api/app/workspace")).json();
+  expect(ws.shop.cancel_hours).toBe(48);
+  expect(ws.shop.terms_text).toContain("48 hours");
   
   await page.getByTestId("setup-open-calendar").click();
   await expect(page.getByTestId("setup-continue")).toHaveCount(0);

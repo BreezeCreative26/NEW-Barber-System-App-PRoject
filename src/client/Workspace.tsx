@@ -2140,7 +2140,7 @@ export function Workspace() {
           onClose={() => setQueueOpen(false)}
         />
       )}
-      <div className="workspace-layout">
+      <div className={`workspace-layout${setupOpen && manager && w && !inviteToken ? " onboarding" : ""}`}>
         <Rail
           items={navItems.filter((n) => n.key !== "Audit" && n.key !== "Accounts")}
           bottom={navItems.filter((n) => n.key === "Audit" || n.key === "Accounts")}

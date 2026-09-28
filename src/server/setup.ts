@@ -18,7 +18,7 @@ const setup = new Hono<Env>();
 const uid = () => crypto.randomUUID();
 
 // ---- Wizard state ---------------------------------------------------------------------------------
-export const SETUP_STEPS = ["shop", "hours", "services", "team", "messages", "online", "payments"] as const;
+export const SETUP_STEPS = ["shop", "brand", "hours", "services", "team", "messages", "terms", "online", "payments"] as const;
 export type SetupStep = (typeof SETUP_STEPS)[number];
 export type SetupState = { step: SetupStep; done: SetupStep[]; skipped: SetupStep[]; completed_at: number | null; started_at: number | null; dismissed: boolean };
 export function setupState(shop: Pick<Shop, "setup_json">): SetupState {
@@ -35,13 +35,16 @@ export function setupState(shop: Pick<Shop, "setup_json">): SetupState {
 }
 // What the data says is actually done — the wizard shows this, not just what was clicked through.
 export async function setupProgress(db: DB, shop: Shop & { phone?: string; email?: string; phone_verified_at?: number | null; email_verified_at?: number | null }) {
-  const [svc, staff, invites, members] = await Promise.all([
+  const [svc, staff, invites, members, pageRow] = await Promise.all([
     db.prepare("SELECT COUNT(*)::int AS n FROM services WHERE shop_id=? AND active=1").bind(shop.id).first<{ n: number }>(),
     db.prepare("SELECT COUNT(*)::int AS n FROM staff WHERE shop_id=? AND active=1").bind(shop.id).first<{ n: number }>(),
     db.prepare("SELECT COUNT(*)::int AS n FROM staff_invitations WHERE shop_id=? AND revoked=0").bind(shop.id).first<{ n: number }>(),
     db.prepare("SELECT COUNT(*)::int AS n FROM app_memberships WHERE shop_id=? AND role<>'OWNER' AND active=1").bind(shop.id).first<{ n: number }>(),
+    db.prepare("SELECT logo_url, cover_url, accent, primary_hex FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ logo_url: string; cover_url: string; accent: string; primary_hex: string }>(),
   ]);
   return {
+    brand: { logo: !!pageRow?.logo_url, cover: !!pageRow?.cover_url, accent: pageRow?.primary_hex || pageRow?.accent || "ollo" },
+    terms: { text: !!(shop as { terms_text?: string }).terms_text, cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, booking_window_days: shop.booking_window_days },
     shop: { saved: !!(shop.address || shop.phone || shop.email), phone: shop.phone || "", email: shop.email || "", phone_verified: !!shop.phone_verified_at, email_verified: !!shop.email_verified_at },
     hours: { saved: true },
     services: { count: svc?.n ?? 0 },

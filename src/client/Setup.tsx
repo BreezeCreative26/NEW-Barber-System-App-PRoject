@@ -6,7 +6,7 @@ import type { Shop, WorkspaceData } from "../server/domain";
 import { Badge, Button, Icon } from "./ui";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
-export type SetupStep = "shop" | "hours" | "services" | "team" | "messages" | "online" | "payments";
+export type SetupStep = "shop" | "brand" | "hours" | "services" | "team" | "messages" | "terms" | "online" | "payments";
 type SetupState = { step: SetupStep; done: SetupStep[]; skipped: SetupStep[]; completed_at: number | null; started_at: number | null; dismissed: boolean };
 type Progress = {
   shop: { saved: boolean; phone: string; email: string; phone_verified: boolean; email_verified: boolean };
@@ -15,17 +15,21 @@ type Progress = {
   messages: { sms_sender: string; providers: { email: { provider: string; from: string }; sms: { provider: string; from: string }; wa?: { provider: string; sender: string; test_sender: boolean; keyword: string } } };
   online: { slug: string; live: boolean };
   payments: { deposits_online: boolean; mode: string; connected: boolean };
+  brand?: { logo: boolean; cover: boolean; accent: string };
+  terms?: { text: boolean; cancel_hours: number; lead_time_min: number; booking_window_days: number };
 };
 type SetupData = { state: SetupState; progress: Progress; kind: "BARBER" | "HAIR" | "SALON"; bank_holidays: Record<string, string> };
 
-const STEPS: { key: SetupStep; label: string; short: string }[] = [
-  { key: "shop", label: "Your shop", short: "Shop" },
-  { key: "hours", label: "Opening hours", short: "Hours" },
-  { key: "services", label: "Services & prices", short: "Services" },
-  { key: "team", label: "Your team", short: "Team" },
-  { key: "messages", label: "Customer messages", short: "Messages" },
-  { key: "online", label: "Online booking", short: "Online" },
-  { key: "payments", label: "Deposits & payments", short: "Payments" },
+const STEPS: { key: SetupStep; label: string; short: string; blurb: string }[] = [
+  { key: "shop", label: "Your shop", short: "Shop", blurb: "Name, address and how customers reach you." },
+  { key: "brand", label: "Your brand", short: "Brand", blurb: "Logo, photo and colour on a live preview." },
+  { key: "hours", label: "Opening hours", short: "Hours", blurb: "When the doors are open." },
+  { key: "services", label: "Services & prices", short: "Services", blurb: "Start from a typical menu and edit." },
+  { key: "team", label: "Your team", short: "Team", blurb: "Add barbers and invite them to sign in." },
+  { key: "messages", label: "Customer messages", short: "Messages", blurb: "Texts and emails in your shop's name." },
+  { key: "terms", label: "Booking rules & terms", short: "Terms", blurb: "Notice, cancellations and house rules." },
+  { key: "online", label: "Go live", short: "Go live", blurb: "Your web address, QR code and share link." },
+  { key: "payments", label: "Deposits & payments", short: "Payments", blurb: "How customers pay." },
 ];
 const KIND_LABEL = { BARBER: "Barbershop", HAIR: "Hairdresser", SALON: "Salon" } as const;
 const clock = (n: number) => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
@@ -68,34 +72,46 @@ export function SetupWizard({ w, api, refresh, onExit, goTo }: { w: WorkspaceDat
   const complete = !!data.state.completed_at;
   const common = { w, api, refresh, data, reload: load, setNotice, setError, goTo };
   return (
-    <section className="setup-wiz" aria-labelledby="setup-wiz-heading" data-testid="setup-wizard">
-      <header className="setup-wiz-head">
-        <div>
-          <p className="setup-wiz-kicker">{complete ? "Setup" : `Step ${idx + 1} of ${STEPS.length}`}</p>
-          <h2 id="setup-wiz-heading">{complete ? `${w.shop.name} is set up` : STEPS[idx].label}</h2>
+    <section className="setup-wiz setup-flow" aria-labelledby="setup-wiz-heading" data-testid="setup-wizard">
+      <header className="setup-flow-top">
+        <span className="setup-flow-brand"><Icon name="scissors" size={16} /> {w.shop.name}</span>
+        <div className="setup-flow-progress" role="progressbar" aria-valuemin={0} aria-valuemax={STEPS.length} aria-valuenow={doneSet.size} aria-label="Setup progress">
+          <i style={{ width: `${Math.round((doneSet.size / STEPS.length) * 100)}%` }} />
         </div>
         <button type="button" className="linklike" onClick={onExit} data-testid="setup-exit">{complete ? "Back to the calendar" : "Finish later"}</button>
       </header>
-      <ol className="setup-wiz-steps" aria-label="Setup steps">
-        {STEPS.map((s, i) => (
-          <li key={s.key} data-current={s.key === step} data-done={doneSet.has(s.key)} data-skipped={data.state.skipped.includes(s.key) && !doneSet.has(s.key)}>
-            <button type="button" onClick={() => jump(s.key)} aria-current={s.key === step ? "step" : undefined}>
-              <span className="setup-wiz-num" aria-hidden="true">{doneSet.has(s.key) ? <Icon name="check" size={12} /> : i + 1}</span>
-              <span>{s.short}</span>
-            </button>
-          </li>
-        ))}
-      </ol>
+      <div className="setup-flow-body">
+        <ol className="setup-wiz-steps setup-flow-rail" aria-label="Setup steps">
+          {STEPS.map((s, i) => (
+            <li key={s.key} data-current={s.key === step} data-done={doneSet.has(s.key)} data-skipped={data.state.skipped.includes(s.key) && !doneSet.has(s.key)}>
+              <button type="button" onClick={() => jump(s.key)} aria-current={s.key === step ? "step" : undefined}>
+                <span className="setup-wiz-num" aria-hidden="true">{doneSet.has(s.key) ? <Icon name="check" size={12} /> : i + 1}</span>
+                <span className="setup-flow-step-text"><span>{s.short}</span><small>{s.blurb}</small></span>
+              </button>
+            </li>
+          ))}
+        </ol>
+        <div className="setup-flow-main">
+          <header className="setup-wiz-head">
+            <div>
+              <p className="setup-wiz-kicker">{complete ? "Setup" : `Step ${idx + 1} of ${STEPS.length}`}</p>
+              <h2 id="setup-wiz-heading">{complete ? `${w.shop.name} is set up` : STEPS[idx].label}</h2>
+            </div>
+          </header>
       {notice && <p className="workspace-success" role="status">{notice}</p>}
       {error && <p className="workspace-error" role="alert">{error}</p>}
       <div className="setup-wiz-body">
         {step === "shop" && <StepShop {...common} onNext={() => mark("done", "shop")} />}
+        {step === "brand" && <StepBrand {...common} onNext={() => mark("done", "brand")} onSkip={() => mark("skipped", "brand")} />}
+        {step === "terms" && <StepTerms {...common} onNext={() => mark("done", "terms")} onSkip={() => mark("skipped", "terms")} />}
         {step === "hours" && <StepHours {...common} onNext={() => mark("done", "hours")} onSkip={() => mark("skipped", "hours")} />}
         {step === "services" && <StepServices {...common} onNext={() => mark("done", "services")} onSkip={() => mark("skipped", "services")} />}
         {step === "team" && <StepTeam {...common} onNext={() => mark("done", "team")} onSkip={() => mark("skipped", "team")} />}
         {step === "messages" && <StepMessages {...common} onNext={() => mark("done", "messages")} onSkip={() => mark("skipped", "messages")} />}
         {step === "online" && <StepOnline {...common} onNext={() => mark("done", "online")} onSkip={() => mark("skipped", "online")} />}
         {step === "payments" && <StepPayments {...common} onNext={() => mark("done", "payments")} onSkip={() => mark("skipped", "payments")} complete={complete} onExit={onExit} />}
+      </div>
+        </div>
       </div>
     </section>
   );
@@ -304,5 +320,6 @@ function StepServices({ w, api, refresh, data, setNotice, setError, goTo, onNext
 
 // Steps 4–7 live in Setup2.tsx (same props); the shared bits below are what it imports.
 import { StepTeam, StepMessages, StepOnline, StepPayments } from "./Setup2";
+import { StepBrand, StepTerms } from "./Setup3";
 export type { StepProps, Api, SetupData, Starter };
 export { F, StepActions, useBusy, KIND_LABEL, VerifyRow };

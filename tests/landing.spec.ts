@@ -74,7 +74,7 @@ test("sign up from the landing page → guided setup opens; leaving it shows the
   await page.waitForURL(/\/workspace\/setup/);
   const wiz = page.getByTestId("setup-wizard");
   await expect(wiz).toBeVisible();
-  await expect(wiz).toContainText("Step 1 of 7");
+  await expect(wiz).toContainText("Step 1 of 9");
   // Finish later → calendar with the banner offering the way back.
   await page.getByTestId("setup-exit").click();
   await page.waitForURL(/\/workspace$/);
