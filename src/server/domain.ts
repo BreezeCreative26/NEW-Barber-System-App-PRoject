@@ -601,6 +601,9 @@ export type ShopPage = {
   sections_json: string;
   accent: "ollo" | "ink" | "sage" | "clay" | "plum" | "slate";
   theme_json: string;
+  primary_hex?: string;
+  secondary_hex?: string;
+  variants_json?: string;
   google_review_url: string;
   published: number;
   version: number;
@@ -639,14 +642,72 @@ export function parseTheme(json: string | null | undefined): ShopTheme {
 // logo is inverted to white on dark backgrounds; colour logos are left alone. Blank falls back to
 // the theme's manual "auto"/"original" switch.
 export type LogoTone = "light" | "dark" | "colour" | "";
-export type ShopBrand = { logo_url: string; accent: ShopPage["accent"]; theme: ShopTheme; logo_tone: LogoTone };
-export const brandOf = (p: { logo_url?: string | null; accent?: string | null; theme_json?: string | null; logo_tone?: string | null } | null | undefined): ShopBrand => ({
+// primary_hex / secondary_hex: optional custom brand colours from the website builder. When set they
+// override the named accent on every surface (shop page, booking, account, emails).
+export type ShopBrand = { logo_url: string; accent: ShopPage["accent"]; theme: ShopTheme; logo_tone: LogoTone; primary_hex?: string; secondary_hex?: string };
+const HEX = /^#[0-9a-fA-F]{6}$/;
+export const brandOf = (p: { logo_url?: string | null; accent?: string | null; theme_json?: string | null; logo_tone?: string | null; primary_hex?: string | null; secondary_hex?: string | null } | null | undefined): ShopBrand => ({
   logo_url: p?.logo_url || "",
   accent: (p?.accent as ShopPage["accent"]) || "ollo",
   theme: parseTheme(p?.theme_json),
   logo_tone: (["light", "dark", "colour"].includes(p?.logo_tone || "") ? p!.logo_tone : "") as LogoTone,
+  primary_hex: HEX.test(p?.primary_hex || "") ? p!.primary_hex!.toLowerCase() : "",
+  secondary_hex: HEX.test(p?.secondary_hex || "") ? p!.secondary_hex!.toLowerCase() : "",
 });
+// Text colour that reads on a given hex background (WCAG relative luminance).
+export function inkOn(hex: string): "#ffffff" | "#14151a" {
+  const m = HEX.exec(hex);
+  if (!m) return "#ffffff";
+  const ch = (i: number) => {
+    const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  const L = 0.2126 * ch(1) + 0.7152 * ch(3) + 0.0722 * ch(5);
+  return L > 0.45 ? "#14151a" : "#ffffff";
+}
 export const pageSections = ["hero", "next", "services", "team", "hours", "gallery", "reviews", "find", "policies"] as const;
+// Website builder: each section offers a small set of curated layouts ("variants"). Every variant is
+// responsive on its own — the shop page picks the right treatment per breakpoint, so the owner
+// never chooses per device. Blank = the section's default.
+export const SECTION_VARIANTS = {
+  hero: ["editorial", "centred", "split", "cover", "minimal"],
+  next: ["strip", "card"],
+  services: ["menu", "cards", "grid", "tabs"],
+  team: ["cards", "list", "portraits", "compact"],
+  hours: ["table", "chips"],
+  gallery: ["grid", "masonry", "strip"],
+  reviews: ["cards", "wall", "carousel", "quote"],
+  find: ["map", "card"],
+  policies: ["plain", "panel"],
+  cta: ["band", "card"],
+  footer: ["simple", "columns"],
+} as const;
+export type VariantSection = keyof typeof SECTION_VARIANTS;
+export type SectionVariants = Partial<{ [K in VariantSection]: (typeof SECTION_VARIANTS)[K][number] }>;
+export const variantsSchema = z
+  .object({
+    hero: z.enum(SECTION_VARIANTS.hero).optional(),
+    next: z.enum(SECTION_VARIANTS.next).optional(),
+    services: z.enum(SECTION_VARIANTS.services).optional(),
+    team: z.enum(SECTION_VARIANTS.team).optional(),
+    hours: z.enum(SECTION_VARIANTS.hours).optional(),
+    gallery: z.enum(SECTION_VARIANTS.gallery).optional(),
+    reviews: z.enum(SECTION_VARIANTS.reviews).optional(),
+    find: z.enum(SECTION_VARIANTS.find).optional(),
+    policies: z.enum(SECTION_VARIANTS.policies).optional(),
+    cta: z.enum(SECTION_VARIANTS.cta).optional(),
+    footer: z.enum(SECTION_VARIANTS.footer).optional(),
+  })
+  .strict();
+export function parseVariants(json: string | null | undefined): SectionVariants {
+  try {
+    const r = variantsSchema.safeParse(JSON.parse(json || "{}"));
+    return r.success ? (r.data as SectionVariants) : {};
+  } catch {
+    return {};
+  }
+}
+export const hexColour = z.union([z.literal(""), z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, "Use a hex colour like #1a2b3c")]);
 const httpsUrl = z.union([z.literal(""), z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "Use an https:// address")]);
 export const shopPageSchema = z
   .object({
@@ -666,6 +727,10 @@ export const shopPageSchema = z
     sections: z.array(z.enum(pageSections)).max(pageSections.length).default([...pageSections]),
     accent: z.enum(["ollo", "ink", "sage", "clay", "plum", "slate"]).default("ollo"),
     theme: themeSchema.default(defaultTheme),
+    // Custom brand colours override the named accent when set (primary = buttons/links, secondary = highlights).
+    primary_hex: hexColour.default(""),
+    secondary_hex: hexColour.default(""),
+    variants: variantsSchema.default({}),
     published: active.default(1),
     version,
   })
@@ -686,6 +751,9 @@ export const defaultShopPage = (shopId: string, now = Date.now()): ShopPage => (
   sections_json: JSON.stringify(pageSections),
   accent: "ollo",
   theme_json: "{}",
+  primary_hex: "",
+  secondary_hex: "",
+  variants_json: "{}",
   google_review_url: "",
   published: 1,
   version: 0,

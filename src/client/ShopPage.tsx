@@ -1,17 +1,20 @@
 // Public shop home page at /<slug>: the customer's front door. Booking lives on its own page
 // (/book on the shop's host); every card here deep-links into that flow with the choice made.
 import { Boot, useLive } from "./boot";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { type BookingPreset } from "./PublicBooking";
 import { Avatar, Icon } from "./ui";
 import { ShopTabBar } from "./ShopTabBar";
 import { money, time, dateLabel, setCurrency } from "./fixtures";
 import { PublicReviews, Stars, type PublicReview } from "./Reviews";
-import { applyThemeColor, serverBrand, themeClass, type ShopTheme, shopPath } from "./theme";
+import { applyThemeColor, brandStyle, serverBrand, themeClass, type ShopBrand, type ShopTheme, shopPath } from "./theme";
 
-type PageData = {
+// Website builder: per-section layout choices. Mirrors SECTION_VARIANTS in src/server/domain.ts.
+export type SectionVariants = Partial<{ hero: string; next: string; services: string; team: string; hours: string; gallery: string; reviews: string; find: string; policies: string; cta: string; footer: string }>;
+export type PageDesign = { accent: string; theme?: ShopTheme; primary_hex?: string; secondary_hex?: string; variants?: SectionVariants; logo_tone?: string };
+export type PageData = {
   shop: { id: string; name: string; address: string; slug: string; timezone: string; currency?: string; opens: number; closes: number; deposit_pence: number; cancel_hours: number; lead_time_min: number; booking_window_days: number };
-  page: { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme?: ShopTheme; google_review_url?: string; published: number };
+  page: { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme?: ShopTheme; logo_tone?: "light" | "dark" | "colour" | ""; primary_hex?: string; secondary_hex?: string; variants?: SectionVariants; google_review_url?: string; published: number };
   staff: { id: string; name: string; role: string; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[];
   services: { id: string; name: string; category: string; duration_min: number; price_pence: number; description?: string; colour?: string; popular?: number }[];
   week: ({ weekday: number; open: false } | { weekday: number; open: true; starts: number; ends: number })[];
@@ -22,7 +25,7 @@ type PageData = {
   reviews: PublicReview[];
   rating: { count: number; average: number | null };
 };
-type MemberHome = {
+export type MemberHome = {
   profile: { name: string; phone: string; email: string; notes: string };
   upcoming: { id: string; date: string; start_min: number; service_name: string; staff_name: string | null; reference: string }[];
   usual: null | { service_id: string; service_name: string; staff_id: string; staff_name: string | null; price_pence: number };
@@ -88,7 +91,6 @@ export function ShopPage({ slug }: { slug: string }) {
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load this shop."));
   }, [slug]);
-  const book = (p: BookingPreset = {}) => bookHref(slug, p);
   if (error)
     return (
       <main className="state-card">
@@ -102,8 +104,19 @@ export function ShopPage({ slug }: { slug: string }) {
         <Boot label="Opening the shop…" />
       </div>
     );
+  return <ShopPageView data={data} me={me} mine={mine} />;
+}
+
+// The page itself, free of data loading, so the website builder can render the real thing as its
+// live preview (in a device frame) with the owner's unsaved choices.
+export function ShopPageView({ data, me, mine, preview = false }: { data: PageData; me: { name: string } | null; mine: MemberHome | null; preview?: boolean }) {
+  const slug = data.shop.slug;
+  const book = (p: BookingPreset = {}) => (preview ? "#" : bookHref(slug, p));
+  const href = (path: "" | "/" | "/book" | "/me") => (preview ? "#" : shopPath(slug, path));
   const { shop, page } = data;
   const has = (k: string) => page.sections.includes(k);
+  const v = page.variants || {};
+  const variant = (k: keyof SectionVariants, fallback: string) => v[k] || fallback;
   const todayHours = data.week[new Date(data.today + "T12:00:00Z").getUTCDay()];
   const nextOpen = (() => {
     for (let i = 1; i <= 7; i++) {
@@ -114,16 +127,23 @@ export function ShopPage({ slug }: { slug: string }) {
     return "";
   })();
   const categories = [...new Set(data.services.map((s) => s.category))];
-  const theme: ShopTheme = { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto", ...(page.theme || {}) };
+  // Services "tabs" layout: one category shown at a time.
+  const [activeCat, setActiveCat] = useState("");
+  const shownCat = categories.includes(activeCat) ? activeCat : categories[0] || "";
+  // The hero layout choice lives with the other section variants; the older theme.hero value is
+  // the fallback for pages saved before the builder existed.
+  const heroVariant = variant("hero", page.theme?.hero || "editorial");
+  const theme: ShopTheme = { font: "modern", mode: "light", corners: "soft", logo: "auto", ...(page.theme || {}), hero: heroVariant };
+  const brand: Partial<ShopBrand> = { accent: page.accent, theme, logo_url: page.logo_url, logo_tone: page.logo_tone || "", primary_hex: page.primary_hex, secondary_hex: page.secondary_hex };
   const hasContact = !!(shop.address || page.phone || page.email || page.instagram || page.transport_note);
   const mapHref = page.map_url || (shop.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.address)}` : "");
   return (
-    <div className={themeClass({ accent: page.accent, theme }, me ? "" : "no-tabbar")} data-testid="shop-page">
+    <div className={themeClass(brand, `${me && !preview ? "" : "no-tabbar"}${preview ? " sp-preview" : ""} v-footer-${variant("footer", "simple")}`)} style={brandStyle(brand) as CSSProperties | undefined} data-testid="shop-page">
       <a className="skip-link" href={book()}>
         Skip to booking
       </a>
       <header className="sp-nav">
-        <a className="sp-brand" href={shopPath(shop.slug, "/")}>
+        <a className="sp-brand" href={href("/")}>
           {page.logo_url ? <img className="shop-emblem shop-logo" src={page.logo_url} alt="" /> : <span className="shop-emblem">{initials(shop.name)}</span>}
           <strong>{shop.name}</strong>
         </a>
@@ -133,7 +153,7 @@ export function ShopPage({ slug }: { slug: string }) {
           {has("hours") && <a href="#hours">Hours</a>}
           {has("find") && hasContact && <a href="#find">Find us</a>}
           {has("reviews") && data.reviews.length > 0 && <a href="#reviews">Reviews</a>}
-          <a href={shopPath(shop.slug, "/me")} className="sp-me" data-testid="nav-me">
+          <a href={href("/me")} className="sp-me" data-testid="nav-me">
             <Icon name="userRound" size={15} /> {me ? me.name.split(" ")[0] || "Your visits" : "Sign in"}
           </a>
         </nav>
@@ -144,7 +164,7 @@ export function ShopPage({ slug }: { slug: string }) {
 
       <main id="main-content">
         {has("hero") && (
-          <section className={`sp-hero ${page.cover_url ? "has-cover" : "no-cover"}`}>
+          <section className={`sp-hero ${page.cover_url ? "has-cover" : "no-cover"} v-${heroVariant}`} data-variant={heroVariant}>
             {page.cover_url && <img className="sp-hero-img" src={page.cover_url} alt="" fetchPriority="high" decoding="async" />}
             <div className="sp-hero-inner">
               <div className="sp-hero-copy">
@@ -183,7 +203,7 @@ export function ShopPage({ slug }: { slug: string }) {
                   )}
                 </div>
               </div>
-              {theme.hero === "split" && page.cover_url && (
+              {heroVariant === "split" && page.cover_url && (
                 <div className="sp-hero-side">
                   <img src={page.cover_url} alt="" fetchPriority="high" decoding="async" />
                 </div>
@@ -200,7 +220,7 @@ export function ShopPage({ slug }: { slug: string }) {
             </div>
             <div className="sp-member-cards">
               {mine.upcoming[0] ? (
-                <a className="sp-member-card" href={shopPath(shop.slug, "/me")} data-testid="member-upcoming">
+                <a className="sp-member-card" href={href("/me")} data-testid="member-upcoming">
                   <span className="sp-member-label"><Icon name="calendar" size={14} /> Next visit</span>
                   <b>{mine.upcoming[0].date === data.today ? "Today" : dateLabel(mine.upcoming[0].date, { weekday: "short", day: "numeric", month: "short" })} · {time(mine.upcoming[0].start_min)}</b>
                   <small>{mine.upcoming[0].service_name}{mine.upcoming[0].staff_name ? ` with ${mine.upcoming[0].staff_name.split(" ")[0]}` : ""}</small>
@@ -227,7 +247,7 @@ export function ShopPage({ slug }: { slug: string }) {
         )}
 
         {has("next") && data.soonest.length > 0 && (
-          <section className="sp-section sp-next" aria-labelledby="sp-next-heading">
+          <section className={`sp-section sp-next v-${variant("next", "strip")}`} aria-labelledby="sp-next-heading" data-variant={variant("next", "strip")}>
             <div className="sp-section-head">
               <h2 id="sp-next-heading">Next available</h2>
               <p>Soonest free time with each barber for a {data.services[0]?.name.toLowerCase()}. Tap to book it.</p>
@@ -259,13 +279,24 @@ export function ShopPage({ slug }: { slug: string }) {
         )}
 
         {has("services") && (
-          <section className="sp-section" id="services" aria-labelledby="sp-services-heading">
+          <section className={`sp-section sp-services-section v-${variant("services", "menu")}`} id="services" aria-labelledby="sp-services-heading" data-variant={variant("services", "menu")}>
             <div className="sp-section-head">
               <h2 id="sp-services-heading">Services</h2>
               <p>Tap a service to start booking it.</p>
             </div>
+            {variant("services", "menu") === "tabs" && categories.length > 1 && (
+              <ul className="sp-cat-tabs" role="tablist" aria-label="Service categories">
+                {categories.map((cat) => (
+                  <li key={cat} role="presentation">
+                    <button type="button" role="tab" aria-selected={cat === shownCat} onClick={() => setActiveCat(cat)} data-testid="service-tab">
+                      {cat}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             {categories.map((cat) => (
-              <div className="sp-cat" key={cat}>
+              <div className={`sp-cat ${cat === shownCat ? "is-active" : ""}`} key={cat}>
                 <h3>{cat}</h3>
                 <ul className="sp-services">
                   {data.services
@@ -297,7 +328,7 @@ export function ShopPage({ slug }: { slug: string }) {
         )}
 
         {has("team") && (
-          <section className="sp-section" id="team" aria-labelledby="sp-team-heading">
+          <section className={`sp-section sp-team-section v-${variant("team", "cards")}`} id="team" aria-labelledby="sp-team-heading" data-variant={variant("team", "cards")}>
             <div className="sp-section-head">
               <h2 id="sp-team-heading">The team</h2>
               <p>Pick who you want; the booking remembers.</p>
@@ -342,7 +373,7 @@ export function ShopPage({ slug }: { slug: string }) {
           </section>
         )}
 
-        <section className="sp-section sp-booking-cta" id="book" aria-labelledby="sp-book-heading">
+        <section className={`sp-section sp-booking-cta v-${variant("cta", "band")}`} id="book" aria-labelledby="sp-book-heading" data-variant={variant("cta", "band")}>
           <div className="sp-cta-card">
             <div className="sp-cta-copy">
               <h2 id="sp-book-heading">Book a visit</h2>
@@ -357,7 +388,7 @@ export function ShopPage({ slug }: { slug: string }) {
         {(has("hours") || (has("find") && hasContact)) && (
           <div className={`sp-two ${has("hours") && has("find") && hasContact ? "" : "single"}`}>
             {has("hours") && (
-              <section className="sp-section" id="hours" aria-labelledby="sp-hours-heading">
+              <section className={`sp-section sp-hours-section v-${variant("hours", "table")}`} id="hours" aria-labelledby="sp-hours-heading" data-variant={variant("hours", "table")}>
                 <h2 id="sp-hours-heading">Opening hours</h2>
                 <dl className="sp-hours">
                   {[1, 2, 3, 4, 5, 6, 0].map((wd) => {
@@ -380,8 +411,12 @@ export function ShopPage({ slug }: { slug: string }) {
               </section>
             )}
             {has("find") && hasContact && (
-              <section className="sp-section" id="find" aria-labelledby="sp-find-heading">
+              <section className={`sp-section sp-find-section v-${variant("find", "card")}`} id="find" aria-labelledby="sp-find-heading" data-variant={variant("find", "card")}>
                 <h2 id="sp-find-heading">Find us</h2>
+                {variant("find", "card") === "map" && shop.address && !preview && (
+                  <iframe className="sp-map" title="Map" loading="lazy" referrerPolicy="no-referrer-when-downgrade" src={`https://www.google.com/maps?q=${encodeURIComponent(shop.address)}&output=embed`} />
+                )}
+                {variant("find", "card") === "map" && shop.address && preview && <div className="sp-map sp-map-placeholder"><Icon name="pin" size={22} /> Map</div>}
                 <address className="sp-address">
                   {shop.address && (
                     <p>
@@ -419,7 +454,7 @@ export function ShopPage({ slug }: { slug: string }) {
         )}
 
         {has("gallery") && page.gallery.length > 0 && (
-          <section className="sp-section" aria-label="Gallery">
+          <section className={`sp-section sp-gallery-section v-${variant("gallery", "grid")}`} aria-label="Gallery" data-variant={variant("gallery", "grid")}>
             <ul className="sp-gallery">
               {page.gallery.map((u, i) => (
                 <li key={i}>
@@ -430,10 +465,10 @@ export function ShopPage({ slug }: { slug: string }) {
           </section>
         )}
 
-        {has("reviews") && <PublicReviews reviews={data.reviews} rating={data.rating} />}
+        {has("reviews") && <PublicReviews reviews={data.reviews} rating={data.rating} variant={variant("reviews", "cards")} />}
 
         {has("policies") && (
-          <section className="sp-section sp-policies" aria-labelledby="sp-policies-heading">
+          <section className={`sp-section sp-policies v-${variant("policies", "plain")}`} aria-labelledby="sp-policies-heading" data-variant={variant("policies", "plain")}>
             <h2 id="sp-policies-heading">Good to know</h2>
             <ul>
               <li>
@@ -474,12 +509,12 @@ export function ShopPage({ slug }: { slug: string }) {
                 Review us on Google
               </a>
             )}
-            <a href={shopPath(shop.slug, "/me")}>Your visits</a>
+            <a href={href("/me")}>Your visits</a>
           </div>
           <span className="powered-by">Powered by foliyo · <a href="/legal/privacy">Privacy</a> · <a href="/legal/terms">Terms</a></span>
         </div>
       </footer>
-      <ShopTabBar slug={shop.slug} active="home" signedIn={!!me} />
+      {!preview && <ShopTabBar slug={shop.slug} active="home" signedIn={!!me} />}
     </div>
   );
 }

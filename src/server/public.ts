@@ -31,6 +31,7 @@ import {
   type ShopPage,
   defaultShopPage,
   parseTheme,
+  parseVariants,
   brandOf,
   type ShopBrand,
  shopDay, shopWeek, dayStarts,
@@ -135,7 +136,7 @@ pub.route("/shops/:slug/account", customerAccounts);
 
 export async function shopBySlug(c: Ctx, slug: string) {
   const shop = await c.env.DB.prepare(
-    "SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1 AND s.suspended_at IS NULL",
+    "SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1 AND s.suspended_at IS NULL",
   )
     .bind(slug.toLowerCase())
     .first<BrandedShop>();
@@ -391,6 +392,10 @@ pub.get("/shops/:slug/page", async (c) => {
       sections: JSON.parse(content.sections_json) as string[],
       accent: content.accent,
       theme: parseTheme(content.theme_json),
+      logo_tone: content.logo_tone || "",
+      primary_hex: content.primary_hex || "",
+      secondary_hex: content.secondary_hex || "",
+      variants: parseVariants(content.variants_json),
       google_review_url: content.google_review_url || "",
       published: content.published,
     },
@@ -1096,7 +1101,7 @@ async function bookingByToken(c: Ctx) {
     .first<{ booking_id: string; shop_id: string }>();
   if (!row) return fail(404, "Booking link not found");
   c.set("shopId", row.shop_id);
-  const shop = await c.env.DB.prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?")
+  const shop = await c.env.DB.prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?")
     .bind(row.shop_id)
     .first<BrandedShop>();
   const booking = await readBooking(c, row.booking_id);

@@ -1,9 +1,9 @@
 // /offer/<token>: the waiting-list customer's reply page. One held time, two buttons. No sign-in.
 import { Boot } from "./boot";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { Avatar, Button, Icon, Notice } from "./ui";
 import { dateLabel, money, time, setCurrency } from "./fixtures";
-import { applyThemeColor, themeClass, type ShopBrand, shopPath } from "./theme";
+import { applyThemeColor, brandStyle, themeClass, type ShopBrand, shopPath } from "./theme";
 
 type Offer = {
   id: string; status: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "SUPERSEDED" | "LOST"; date: string; start_min: number; expires_at: number;
@@ -87,7 +87,7 @@ export function OfferPage({ token }: { token: string }) {
   const expired = offer.status === "EXPIRED" || (offer.status === "PENDING" && offer.expires_at <= Date.now());
   const minutesLeft = Math.max(0, Math.round((offer.expires_at - Date.now()) / 60000));
   return (
-    <div className={themeClass(offer.shop.brand, "customer-area")} data-testid="offer-page">
+    <div className={themeClass(offer.shop.brand, "customer-area")} style={brandStyle(offer.shop.brand) as CSSProperties} data-testid="offer-page">
       <header className="sp-nav">
         <a className="sp-brand" href={offer.shop.slug ? shopPath(offer.shop.slug, "/") : "#"}>
           {offer.shop.logo_url ? <img className="shop-emblem shop-logo" src={offer.shop.logo_url} alt="" /> : <span className="shop-emblem">{initials(offer.shop.name)}</span>}

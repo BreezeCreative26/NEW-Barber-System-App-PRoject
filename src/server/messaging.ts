@@ -18,7 +18,7 @@ import type { Context } from "hono";
 import type { Database } from "../db/client";
 import type { AppEnv } from "./accounts";
 import type { Shop, ShopBrand } from "./domain";
-import { brandOf } from "./domain";
+import { brandOf, inkOn } from "./domain";
 import { expireHolds } from "./stripe";
 import { scheduledPayRuns } from "./payouts";
 import { expireRequests } from "./chair";
@@ -393,7 +393,8 @@ export function platformSender(shop: MsgShop, pb: { company_name?: string; compa
   return { ...shop, name: pb.company_name || "foliyo", logo_url: PLATFORM_LOGO, accent: "ollo", theme_json: "{}", address: pb.company_address || "", email: pb.company_email || "", phone: "" };
 }
 export function emailHtml(shop: { name: string; address?: string; slug?: string | null }, brand: ShopBrand, origin: string, r: Rendered, footer: { phone?: string; email?: string; unsubscribe?: string }) {
-  const a = EMAIL_ACCENTS[brand.accent] || EMAIL_ACCENTS.ollo;
+  // A custom primary colour from the website builder wins over the named accent.
+  const a = brand.primary_hex ? { bg: brand.primary_hex, ink: inkOn(brand.primary_hex) } : EMAIL_ACCENTS[brand.accent] || EMAIL_ACCENTS.ollo;
   const F = "-apple-system,Segoe UI,Inter,Arial,sans-serif";
   const initials = shop.name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
   // Header band. The shop's logo sits on a plate chosen from its measured tone so it always reads:
@@ -684,7 +685,7 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
 // shop's msg_reminder_hours), and "soon" reminders 2h before. Unique index makes this idempotent.
 export async function sweepReminders(db: DB, origin: string, now = Date.now()) {
   const shops = await db
-    .prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.phone,'') AS phone, COALESCE(p.email,'') AS email, COALESCE(p.map_url,'') AS map_url FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.msg_reminders=1 AND s.slug IS NOT NULL")
+    .prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex, COALESCE(p.phone,'') AS phone, COALESCE(p.email,'') AS email, COALESCE(p.map_url,'') AS map_url FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.msg_reminders=1 AND s.slug IS NOT NULL")
     .all<MsgShop & { map_url: string }>();
   let queued = 0;
   for (const shop of shops.results) {
@@ -747,7 +748,7 @@ export const fmtTime = (m: number) => `${String(Math.floor(m / 60)).padStart(2, 
 // Load a shop with everything messaging needs (brand + contact details from the page).
 export async function msgShop(c: Ctx | { env: { DB: DB } }, shopId: string): Promise<MsgShop> {
   const row = await c.env.DB.prepare(
-    "SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.phone,'') AS phone, COALESCE(p.email,'') AS email FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?",
+    "SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex, COALESCE(p.phone,'') AS phone, COALESCE(p.email,'') AS email FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?",
   ).bind(shopId).first<MsgShop>();
   return row!;
 }

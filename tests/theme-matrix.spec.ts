@@ -128,11 +128,11 @@ test("browser: the Shop page editor previews photos and theme choices live, befo
   const preview = panel.getByTestId("shop-preview");
   await expect(preview).toBeVisible();
   const frame = preview.getByTestId("shop-preview-frame");
-  const themed = frame.locator(".shop-preview-page");
+  const themed = frame.locator(".shop-preview-page .shop-page");
   // Pick a stock cover → it appears in the preview hero at once.
   await panel.getByTestId("stock-industrial").click();
   await expect(themed.locator(".sp-hero")).toHaveClass(/has-cover/);
-  await expect(themed.locator(".sp-hero-img")).toHaveAttribute("src", /industrial/);
+  await expect(themed.locator(".sp-hero-img").first()).toHaveAttribute("src", /industrial/);
   // Accent, typeface, look, corners, hero → class changes immediately.
   await panel.getByRole("button", { name: "clay", exact: true }).click();
   await expect(themed).toHaveClass(/accent-clay/);

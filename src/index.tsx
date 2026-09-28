@@ -242,7 +242,7 @@ async function bootBrand(db: Database, slug: string): Promise<BootBrand | undefi
   if (hit && Date.now() - hit.at < 60000) return hit.brand;
   let brand: BootBrand | undefined;
   try {
-    const row = await db.prepare("SELECT s.name,s.msg_sms,s.msg_email,s.terms_text,s.terms_version,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ name: string; msg_sms: number; msg_email: number; terms_text: string; terms_version: number; logo_url: string; accent: string; theme_json: string; logo_tone: string }>();
+    const row = await db.prepare("SELECT s.name,s.msg_sms,s.msg_email,s.terms_text,s.terms_version,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ name: string; msg_sms: number; msg_email: number; terms_text: string; terms_version: number; logo_url: string; accent: string; theme_json: string; logo_tone: string }>();
     if (row) {
       let dark = false;
       try { dark = (JSON.parse(row.theme_json) as { mode?: string }).mode === "dark"; } catch { /* default light */ }
@@ -339,7 +339,7 @@ app.get("/:slug/manifest.webmanifest", async (c, next) => {
 app.get("/:slug/:icon{icon-(192|512)\\.png}", async (c, next) => {
   const slug = c.req.param("slug").toLowerCase();
   const size = (c.req.param("icon").includes("512") ? 512 : 192) as 192 | 512;
-  const shop = await c.env.DB.prepare("SELECT s.id,s.name,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ id: string; name: string; logo_url: string; accent: string; theme_json: string }>();
+  const shop = await c.env.DB.prepare("SELECT s.id,s.name,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ id: string; name: string; logo_url: string; accent: string; theme_json: string }>();
   if (!shop) return next();
   let logo: Uint8Array | null = null;
   const m = /^\/media\/([a-f0-9-]{36})$/.exec(shop.logo_url);

@@ -321,7 +321,7 @@ export async function sweepWaitlistPlatform(db: Ctx["env"]["DB"], origin: string
 }
 
 export async function shopWithQueue(c: Ctx, shopId: string) {
-  return (await c.env.DB.prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.phone,'') AS page_phone, COALESCE(p.email,'') AS page_email FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?").bind(shopId).first<Shop & ShopQueueSettings & { logo_url: string; accent: string; theme_json: string; page_phone: string; page_email: string }>())!;
+  return (await c.env.DB.prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex, COALESCE(p.phone,'') AS page_phone, COALESCE(p.email,'') AS page_email FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?").bind(shopId).first<Shop & ShopQueueSettings & { logo_url: string; accent: string; theme_json: string; page_phone: string; page_email: string }>())!;
 }
 
 export const helpers = { fmtDate, fmtTime, fmtStamp, daypartLabel, ref, localInstant, fmtWindow, fmtRange, daypartFor, rangeDates, DAYPART_WINDOW };
