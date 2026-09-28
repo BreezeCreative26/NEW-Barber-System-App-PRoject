@@ -595,7 +595,8 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     await expect(
       staffPage.getByRole("button", { name: "New booking", exact: true }),
     ).toBeVisible();
-    // Barbers see Appointments, their own Insights and Customers, and Accounts only.
+    // Barbers: on a phone the barber app tabs (Today, Week, Customers, My pay, Account); on
+    // desktop Appointments, their own Insights and Customers, My pay and Accounts.
     const staffNav = staffPage.getByRole("navigation", { name: "Workspace sections" });
     const staffLabels = width < 768
       ? await (async () => {
@@ -610,7 +611,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
         })()
       : await staffNav.getByRole("button").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") || e.textContent || ""));
     expect(staffLabels.map((t) => t.trim()).filter(Boolean)).toEqual(
-      width < 768 ? ["Today", "Insights", "Customers", "My pay", "Accounts"] : ["Appointments", "Insights", "Customers", "My pay", "Accounts"],
+      width < 768 ? ["Today", "Week", "Customers", "My pay", "Account"] : ["Appointments", "Insights", "Customers", "My pay", "Accounts"],
     );
     const assigned = await (
       await staffPage.request.get(base + "/workspace")
