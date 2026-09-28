@@ -194,6 +194,15 @@ export async function telnyxSetup(origin: string, opts: { buyUkNumber?: boolean;
       notes.push(`Ordered ${pick} (order ${order.data.id}, ${order.data.status})`);
     }
   }
+  // Account public key for webhook verification. Telnyx exposes it under /public_key on some
+  // accounts; if absent, copy it from Mission Control → Account → Keys & Credentials → Public Key.
   const pk = await api<{ data?: { public_key?: string } }>("/public_key").catch(() => null);
+  if (!pk?.data?.public_key) notes.push("Public key not readable via API — copy it from Mission Control → Keys & Credentials → Public Key into TELNYX_PUBLIC_KEY");
+  // Number orders complete asynchronously; report where each one is.
+  for (const n of ordered ? [ordered] : []) {
+    const st = await api<{ data?: { id: string; status: string; phone_number: string }[] }>(`/phone_numbers?filter[phone_number]=${encodeURIComponent(n)}`).catch(() => null);
+    const row = st?.data?.[0];
+    notes.push(row ? `${n}: ${row.status}` : `${n}: order still pending`);
+  }
   return { balance, profile_id: profile.id, webhook, numbers, ordered, public_key: pk?.data?.public_key, notes };
 }
