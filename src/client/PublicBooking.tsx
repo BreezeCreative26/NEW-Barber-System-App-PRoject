@@ -286,6 +286,11 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const [slot, setSlot] = useState<number | null>(null);
   const [assigned, setAssigned] = useState<{ id: string; name: string } | null>(null);
   const [daypart, setDaypart] = useState("All times");
+  // A busy day has 30+ near-identical times. Each part of the day shows its first six; the rest sit
+  // behind "+N more" so the choice reads as a handful, not a wall. Reset when the day changes.
+  const SLOT_PREVIEW = 6;
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  useEffect(() => { setExpandedGroups({}); }, [date, barber]);
   const [details, setDetails] = useState({ name: "", phone: "", email: "", notes: "" });
   // How the customer wants their confirmation and reminders: text (default), WhatsApp or email.
   const [contactPref, setContactPref] = useState<"AUTO" | "WA" | "EMAIL">("AUTO");
@@ -687,6 +692,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const depositOnline = !!shop.shop.deposit_online && deposit > 0;
   const upfrontLabel = payMode === "PREPAY" ? "Pay now" : "Deposit";
   const priceLabel = price === priceTo ? money(price) : `${money(price)}–${money(priceTo)}`;
+  const extraNames = serviceAddons.filter((a) => extraIds.includes(a.id)).map((a) => a.name);
   const openSlots = (availability?.slots || []).filter((s) => s.available);
   const inDaypart = (m: number, part: string) =>
     part === "All times" ||
@@ -746,37 +752,27 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                   {
                     [
                       "What are we doing today?",
-                      "Find your kind of barber.",
-                      "A time that works for you.",
+                      "Who’s cutting?",
+                      "When suits you?",
                       "Sign in to book.",
                       "Check and confirm.",
                     ][step]
                   }
                 </h2>
-                <p>
+                <p className={step === 3 ? "" : "step-sub"}>
                   {
                     [
-                      "Pick your service and any extras.",
-                      "Choose a barber, or let us find the first free chair.",
-                      `Times are shown in ${shop.shop.timezone}. Online bookings need at least ${shop.shop.lead_time_min} minutes’ notice.`,
+                      "Pick a service. Add extras if you like.",
+                      "Pick a barber, or take the first free chair.",
+                      `Times in ${shop.shop.timezone}. Book at least ${shop.shop.lead_time_min >= 60 ? `${Math.round(shop.shop.lead_time_min / 60)} hour${shop.shop.lead_time_min >= 120 ? "s" : ""}` : `${shop.shop.lead_time_min} minutes`} ahead.`,
                       `Your ${shop.shop.name} account keeps every visit in one place — move, cancel or rebook in a tap.`,
-                      "Review your visit. Confirming saves it to the shop’s diary.",
+                      "Everything look right?",
                     ][step]
                   }
                 </p>
               </header>
               {step === 0 && (
                 <>
-                  {shop.staff.length > 1 && (
-                    <button type="button" className="group-entry" disabled={!sessionKnown} onClick={() => (customer ? setGroup(true) : (setPendingGroup(true), go(3)))} data-testid="start-group">
-                      <Icon name="users" size={18} />
-                      <span>
-                        <strong>Booking for two or more?</strong>
-                        <small>Father and son, mates before a night out — seat everyone together or back to back.</small>
-                      </span>
-                      <Icon name="right" size={16} />
-                    </button>
-                  )}
                   <label className="service-search">
                     <Icon name="search" />
                     <input
@@ -845,6 +841,16 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       </div>
                     )}
                   </div>
+                  {shop.staff.length > 1 && (
+                    <button type="button" className="group-entry" disabled={!sessionKnown} onClick={() => (customer ? setGroup(true) : (setPendingGroup(true), go(3)))} data-testid="start-group">
+                      <Icon name="users" size={18} />
+                      <span>
+                        <strong>Booking for two or more?</strong>
+                        <small>Seat everyone together or back to back.</small>
+                      </span>
+                      <Icon name="right" size={16} />
+                    </button>
+                  )}
                   {serviceAddons.length > 0 && (
                     <>
                       <div className="addon-heading">
@@ -1080,20 +1086,36 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                           {g.label} <small>{g.slots.length}</small>
                         </h4>
                         <div className="time-slots">
-                          {g.slots.map((s) => (
-                            <button
-                              key={s.start_min}
-                              title={`${s.duration_min ?? duration}-minute appointment${anyBarber && s.staff_name ? ` with ${s.staff_name}` : ""}`}
-                              aria-label={`${time(s.start_min)}, available${anyBarber && s.staff_name ? ` with ${s.staff_name}` : ""}`}
-                              aria-pressed={slot === s.start_min}
-                              onClick={() => pickSlot(s)}
-                              className={slot === s.start_min ? "chosen" : ""}
-                            >
-                              {time(s.start_min)}
-                              {anyBarber && s.staff_name && <small>{s.staff_name.split(" ")[0]}</small>}
-                              {slot === s.start_min && <Icon name="check" size={14} />}
-                            </button>
-                          ))}
+                          {(() => {
+                            // Only one group open and few slots: show all. Otherwise preview + "+N more".
+                            const expanded = expandedGroups[g.label] || groups.length === 1 && g.slots.length <= SLOT_PREVIEW * 2;
+                            const chosenIdx = g.slots.findIndex((s) => s.start_min === slot);
+                            const shown = expanded || g.slots.length <= SLOT_PREVIEW + 1 ? g.slots : g.slots.slice(0, Math.max(SLOT_PREVIEW, chosenIdx + 1));
+                            const hidden = g.slots.length - shown.length;
+                            return (
+                              <>
+                                {shown.map((s) => (
+                                  <button
+                                    key={s.start_min}
+                                    title={`${s.duration_min ?? duration}-minute appointment${anyBarber && s.staff_name ? ` with ${s.staff_name}` : ""}`}
+                                    aria-label={`${time(s.start_min)}, available${anyBarber && s.staff_name ? ` with ${s.staff_name}` : ""}`}
+                                    aria-pressed={slot === s.start_min}
+                                    onClick={() => pickSlot(s)}
+                                    className={slot === s.start_min ? "chosen" : ""}
+                                  >
+                                    {time(s.start_min)}
+                                    {anyBarber && s.staff_name && <small>{s.staff_name.split(" ")[0]}</small>}
+                                    {slot === s.start_min && <Icon name="check" size={14} />}
+                                  </button>
+                                ))}
+                                {hidden > 0 && (
+                                  <button type="button" className="time-more" onClick={() => setExpandedGroups((e) => ({ ...e, [g.label]: true }))} data-testid={`more-times-${g.label.toLowerCase()}`} aria-label={`Show ${hidden} more ${g.label.toLowerCase()} times`}>
+                                    +{hidden} more
+                                  </button>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                     ))}
@@ -1322,6 +1344,13 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       </span>
                     </div>
                   </div>
+                  {/* Phone-first summary: what, who, when, price — one card, scannable in a glance. */}
+                  <dl className="review-facts" data-testid="review-facts">
+                    <div><dt><Icon name="scissors" size={16} /></dt><dd><strong>{chosenService?.name}</strong>{extraNames.length > 0 && <span> + {extraNames.join(", ")}</span>}<small>{duration} min</small></dd></div>
+                    <div><dt><Icon name="userRound" size={16} /></dt><dd><strong>{bookingStaffName || "First available barber"}</strong><small>{bookingStaffName ? (anyBarber ? "First available" : chosenBarber?.title || chosenBarber?.role || "Barber") : "Whoever is free"}</small></dd></div>
+                    <div><dt><Icon name="calendar" size={16} /></dt><dd><strong>{dateLabel(date, { weekday: "long", day: "numeric", month: "long" })}</strong><small>{slot !== null ? time(slot) : "No time selected"}</small></dd></div>
+                    <div><dt><Icon name="wallet" size={16} /></dt><dd><strong>{priceLabel}</strong><small>{payMode === "PAY_AT_VISIT" ? "Pay in the shop" : depositOnline ? `${money(deposit)} by card next` : `Deposit ${money(deposit)}, payable in the shop`}</small></dd></div>
+                  </dl>
                   <section className="review-customer">
                     <div>
                       <h3>Booked by</h3>
@@ -1333,6 +1362,8 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       {details.email && ` · ${details.email}`}
                     </p>
                   </section>
+                  <details className="review-more" open={forOther || !!details.notes || contactPref !== "AUTO"} data-testid="review-more">
+                    <summary><Icon name="settings" size={16} /> More options <small>someone else · how we message you · a note</small><Icon name="down" size={16} /></summary>
                   <section className="review-options">
                     <div className="attendee-block">
                       <label className="attendee-toggle">
@@ -1415,6 +1446,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       <span className="field-help">{details.notes.length}/500 characters</span>
                     </label>
                   </section>
+                  </details>
                   <Notice icon="shield">
                     <strong>Plans change.</strong> Cancel or move online at least{" "}
                     {availability?.cancel_hours ?? shop.shop.cancel_hours} hours ahead. You’ll get a
