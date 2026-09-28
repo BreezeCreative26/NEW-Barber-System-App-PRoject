@@ -2,12 +2,12 @@
 // move/cancel, "your usual" one-tap rebook, history, profile and privacy controls. Talks only to
 // /api/public/shops/:slug/account/*; the shop never sees another shop's history.
 import { Boot, useLive } from "./boot";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { ShopTabBar } from "./ShopTabBar";
 import { Avatar, Button, Icon, Notice, StatusPill } from "./ui";
 import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { ReviewCard, type OwnReview } from "./Reviews";
-import { applyThemeColor, serverBrand, themeClass, type ShopBrand, shopPath } from "./theme";
+import { applyThemeColor, brandStyle, serverBrand, themeClass, type ShopBrand, shopPath } from "./theme";
 
 type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; contact_pref?: "AUTO" | "EMAIL" | "NONE"; complete?: boolean; notes: string; version: number; member_since: number; has_password?: boolean; account_email?: string; email_verified?: boolean };
 type Visit = {
@@ -108,13 +108,13 @@ export function CustomerArea({ slug }: { slug: string }) {
   if (me && me.profile.complete === false) return <SignIn slug={slug} A={A} onDone={load} startMode="complete" seedProfile={{ name: me.profile.name, email: me.profile.email }} />;
   if (!me)
     return (
-      <div className={themeClass(serverBrand()?.brand, "customer-area")}>
+      <div className={themeClass(serverBrand()?.brand, "customer-area")} style={brandStyle(serverBrand()?.brand) as CSSProperties}>
         <Boot label="Opening your visits…" />
       </div>
     );
   const first = me.profile.name.split(" ")[0] || "there";
   return (
-    <div className={themeClass(me.shop.brand, "customer-area")} data-testid="customer-area">
+    <div className={themeClass(me.shop.brand, "customer-area")} style={brandStyle(me.shop.brand) as CSSProperties} data-testid="customer-area">
       <header className="sp-nav">
         <a className="sp-brand" href={shopPath(me.shop.slug, "/")}>
           {me.shop.logo_url ? <img className="shop-emblem shop-logo" src={me.shop.logo_url} alt="" /> : <span className="shop-emblem">{initials(me.shop.name)}</span>}
@@ -293,7 +293,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
     </>
   );
   return (
-    <div className={themeClass(shopBrand, "customer-area no-tabbar")} data-testid="customer-signin">
+    <div className={themeClass(shopBrand, "customer-area no-tabbar")} style={brandStyle(shopBrand) as CSSProperties} data-testid="customer-signin">
       <header className="sp-nav">
         <a className="sp-brand" href={shopPath(slug, "/")}>
           {shopBrand?.logo_url ? <img className="shop-emblem shop-logo" src={shopBrand.logo_url} alt="" /> : <span className="shop-emblem">{shopName ? initials(shopName) : "··"}</span>}

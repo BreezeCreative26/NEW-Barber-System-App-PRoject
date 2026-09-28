@@ -776,13 +776,16 @@ sandbox.put("/shop/page", async (c) => {
   // external URL (best effort, 4s), blank when there is no logo. Stored alongside so every
   // read (shop page, boot screen, emails, dashboard) knows how to place the mark.
   const tone = await resolveLogoTone(c, b.logo_url);
+  const primary = b.primary_hex.toLowerCase();
+  const secondary = b.secondary_hex.toLowerCase();
+  const variants = JSON.stringify(Object.fromEntries(Object.entries(b.variants).filter(([, v]) => !!v)));
   const stmt = existing
     ? c.env.DB.prepare(
-        "UPDATE shop_pages SET logo_tone=?,strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
-      ).bind(tone, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version)
+        "UPDATE shop_pages SET logo_tone=?,primary_hex=?,secondary_hex=?,variants_json=?,strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
+      ).bind(tone, primary, secondary, variants, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version)
     : c.env.DB.prepare(
-        "INSERT INTO shop_pages(logo_tone,shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
-      ).bind(tone, sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now);
+        "INSERT INTO shop_pages(logo_tone,primary_hex,secondary_hex,variants_json,shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+      ).bind(tone, primary, secondary, variants, sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now);
   await checkVersionUpdate(c, stmt, audit(c, "shop", sid, "SHOP_PAGE_UPDATED", `${b.published ? "Published" : "Unpublished"}; ${b.sections.length} sections.`, true));
   const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>();
   return c.json({ page: row });

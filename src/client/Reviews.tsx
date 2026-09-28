@@ -114,10 +114,13 @@ export function ReviewCard({ review, canReview, post, compact = false, googleUrl
   );
 }
 
-export function PublicReviews({ reviews, rating }: { reviews: PublicReview[]; rating: { count: number; average: number | null } }) {
+// variant: cards (grid) | wall (masonry columns) | carousel (horizontal snap strip) | quote (one
+// large pull-quote at a time, rest listed small). Layouts live in shop-theme.css under .v-*.
+export function PublicReviews({ reviews, rating, variant = "cards" }: { reviews: PublicReview[]; rating: { count: number; average: number | null }; variant?: string }) {
   if (!reviews.length) return null;
+  const [lead, ...rest] = variant === "quote" ? [...reviews].sort((a, b) => b.body.length - a.body.length) : [reviews[0]];
   return (
-    <section className="sp-section sp-reviews" id="reviews" aria-labelledby="sp-reviews-heading" data-testid="reviews-section">
+    <section className={`sp-section sp-reviews v-${variant}`} id="reviews" aria-labelledby="sp-reviews-heading" data-testid="reviews-section" data-variant={variant}>
       <div className="sp-section-head">
         <h2 id="sp-reviews-heading">Reviews</h2>
         {rating.average !== null && (
@@ -126,8 +129,18 @@ export function PublicReviews({ reviews, rating }: { reviews: PublicReview[]; ra
           </p>
         )}
       </div>
+      {variant === "quote" && lead && (
+        <blockquote className="sp-review-quote" data-testid="review-quote">
+          <Stars value={lead.rating} size={18} />
+          <p>{lead.body || "Brilliant."}</p>
+          <footer>
+            <strong>{lead.display_name}</strong> · {lead.service_name}
+            {lead.staff_name ? ` with ${lead.staff_name.split(" ")[0]}` : ""}
+          </footer>
+        </blockquote>
+      )}
       <ul className="sp-review-list">
-        {reviews.map((r) => (
+        {(variant === "quote" ? rest : reviews).map((r) => (
           <li key={r.id} className="sp-review" data-testid="public-review">
             <header>
               <Stars value={r.rating} size={14} />

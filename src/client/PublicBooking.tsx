@@ -1,11 +1,11 @@
 import { Boot } from "./boot";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import type { BookingItem } from "../server/domain";
 import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { Avatar, Button, Icon, Notice } from "./ui";
 import { GroupBooking } from "./GroupBooking";
 import { ReviewCard, type OwnReview } from "./Reviews";
-import { applyThemeColor, serverBrand, themeClass, type ShopBrand, shopPath } from "./theme";
+import { applyThemeColor, brandStyle, serverBrand, themeClass, type ShopBrand, shopPath } from "./theme";
 import { ShopTabBar } from "./ShopTabBar";
 
 // Connected customer booking for /book/:slug and /manage/:token.
@@ -702,7 +702,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     );
   if (!shop)
     return (
-      <div className={themeClass(serverBrand()?.brand, "booking-app standalone")}>
+      <div className={themeClass(serverBrand()?.brand, "booking-app standalone")} style={brandStyle(serverBrand()?.brand) as CSSProperties}>
         <TestBanner />
         <Boot label="Opening online booking…" />
       </div>
@@ -710,7 +710,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const wrap = themeClass(shop.shop.brand, `booking-app standalone${customer ? "" : " no-tabbar"}`);
   if (confirmed)
     return (
-      <div className={wrap}>
+      <div className={wrap} style={brandStyle(shop.shop.brand) as CSSProperties}>
         <TestBanner />
         <BookingTopBar slug={slug} name={shop.shop.name} logo={shop.shop.logo_url} customer={customer} />
         <main id="main-content" className="booking-body">
@@ -1981,7 +1981,7 @@ export function ManageBooking({ token }: { token: string }) {
     (d) => !meta.today || d >= meta.today,
   );
   return (
-    <div className={themeClass(booking.shop.brand, "booking-app standalone")}>
+    <div className={themeClass(booking.shop.brand, "booking-app standalone")} style={brandStyle(booking.shop.brand) as CSSProperties}>
       <TestBanner />
       <ShopHeader name={booking.shop.name} address={booking.shop.address} logo={booking.shop.logo_url} />
       <main id="main-content" className="booking-body">

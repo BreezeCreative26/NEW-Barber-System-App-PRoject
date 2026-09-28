@@ -38,6 +38,7 @@ import { SetupWizard } from "./Setup";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
 import { themeClass, type ShopBrand } from "./theme";
+import { ShopPageView, type PageData as ShopPageData, type SectionVariants } from "./ShopPage";
 import { WS_ACCENTS, DEFAULT_WS_THEME, applyWsTheme, parseWsTheme, readLocalWsTheme, writeLocalWsTheme, type WorkspaceTheme } from "./workspaceTheme";
 import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
 
@@ -3390,7 +3391,7 @@ const wlWindow = (e: { daypart: string; from_min?: number; to_min?: number }) =>
 };
 const wlDates = (e: { date: string; date_to?: string | null }, fmt: (d: string) => string) => (e.date_to && e.date_to !== e.date ? `${fmt(e.date)} – ${fmt(e.date_to)}` : fmt(e.date));
 // Settings → Shop page: content of the public home page at /<slug>. Presentation only.
-type PageForm = { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme: ThemeForm; published: number; version: number };
+type PageForm = { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme: ThemeForm; primary_hex: string; secondary_hex: string; variants: SectionVariants; google_review_url: string; published: number; version: number };
 type ThemeForm = { font: string; mode: string; corners: string; hero: string; logo: string };
 const THEME_FONTS: { id: string; name: string; sample: string; note: string }[] = [
   { id: "modern", name: "Modern", sample: "Inter", note: "Clean and neutral" },
@@ -3418,6 +3419,21 @@ const PAGE_SECTIONS: { key: string; label: string }[] = [
   { key: "find", label: "Find us" },
   { key: "policies", label: "Good to know" },
 ];
+// Website builder: per-section layouts. Mirrors SECTION_VARIANTS in src/server/domain.ts.
+const SECTION_LAYOUTS: { key: keyof SectionVariants; label: string; options: [string, string][] }[] = [
+  { key: "hero", label: "Hero", options: [["editorial", "Editorial"], ["centred", "Centred"], ["split", "Split"], ["cover", "Full cover"], ["minimal", "Minimal"]] },
+  { key: "next", label: "Next available", options: [["strip", "Tiles"], ["card", "List card"]] },
+  { key: "services", label: "Services", options: [["menu", "Menu"], ["cards", "Cards"], ["grid", "Grid"], ["tabs", "Tabs"]] },
+  { key: "team", label: "Team", options: [["cards", "Cards"], ["list", "List"], ["portraits", "Portraits"], ["compact", "Compact"]] },
+  { key: "cta", label: "Book a visit", options: [["band", "Colour band"], ["card", "Quiet card"]] },
+  { key: "hours", label: "Opening hours", options: [["table", "Table"], ["chips", "Chips"]] },
+  { key: "find", label: "Find us", options: [["card", "Address card"], ["map", "Map"]] },
+  { key: "gallery", label: "Gallery", options: [["grid", "Grid"], ["masonry", "Masonry"], ["strip", "Strip"]] },
+  { key: "reviews", label: "Reviews", options: [["cards", "Cards"], ["wall", "Wall"], ["carousel", "Carousel"], ["quote", "Pull quote"]] },
+  { key: "policies", label: "Good to know", options: [["plain", "Plain"], ["panel", "Panel"]] },
+  { key: "footer", label: "Footer", options: [["simple", "Simple"], ["columns", "Columns"]] },
+];
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 // Shop settings are one strict record on the server (`PUT /shop`). Each Settings section shows
 // only its own fields; this wrapper fills the rest from the current shop so a short form still
 // sends a complete, valid payload. Fields present in the form win.
@@ -3574,6 +3590,7 @@ function GoogleReviewsPanel({ w }: { w: WorkspaceData }) {
         gallery: JSON.parse(String(cur.gallery_json || "[]")), phone: String(cur.phone || ""), email: String(cur.email || ""), instagram: String(cur.instagram || ""),
         map_url: String(cur.map_url || ""), transport_note: String(cur.transport_note || ""), policy_text: String(cur.policy_text || ""), sections: JSON.parse(String(cur.sections_json || "[]")),
         accent: String(cur.accent || "ollo"), theme: (() => { try { return { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto", ...(JSON.parse(String(cur.theme_json || "{}")) as object) }; } catch { return { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto" }; } })(),
+        primary_hex: String(cur.primary_hex || ""), secondary_hex: String(cur.secondary_hex || ""), variants: (() => { try { return JSON.parse(String(cur.variants_json || "{}")); } catch { return {}; } })(),
         google_review_url: url.trim(), published: Number(cur.published ?? 1), version: Number(cur.version ?? 0),
       };
       const r = await api<{ page: Record<string, unknown> }>("/shop/page", "PUT", body);
@@ -3631,72 +3648,45 @@ function GoogleReviewsPanel({ w }: { w: WorkspaceData }) {
   );
 }
 
-// Live preview of the public shop page. Same class stack and markup family as ShopPage.tsx, so
-// whatever the owner picks (photos, logo, accent, typeface, look, corners, hero) shows here first —
-// before saving. Phone/desktop toggle; nothing here is interactive.
+// Live preview of the public shop page: the real ShopPageView with the owner's unsaved choices,
+// inside a phone / tablet / desktop frame. Nothing here navigates.
 function ShopPreview({ w, form }: { w: WorkspaceData; form: PageForm }) {
-  const [device, setDevice] = useState<"phone" | "desktop">("phone");
-  const ini = (w.shop.name || "Your shop").split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
-  const cls = themeClass({ accent: form.accent, theme: form.theme }, `shop-preview-page hero-${form.theme.hero}`);
-  const services = w.services.filter((x) => x.active !== 0).slice(0, 3);
-  const has = (k: string) => form.sections.includes(k);
+  const [device, setDevice] = useState<"phone" | "tablet" | "desktop">("phone");
+  const today = new Date().toISOString().slice(0, 10);
+  const week = shopWeekOf(w.shop);
+  const staff = (w.staff as { id: string; name: string; role: string; active?: number; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[]).filter((x) => x.active !== 0);
+  const services = (w.services as { id: string; name: string; category?: string; duration_min: number; price_pence: number; description?: string; colour?: string; popular?: number; active?: number }[]).filter((x) => x.active !== 0);
+  const data: ShopPageData = {
+    shop: { id: w.shop.id, name: w.shop.name || "Your shop", address: w.shop.address, slug: w.shop.slug || "preview", timezone: w.shop.timezone, currency: w.shop.currency, opens: 540, closes: 1080, deposit_pence: w.shop.deposit_pence, cancel_hours: w.shop.cancel_hours, lead_time_min: w.shop.lead_time_min ?? 60, booking_window_days: w.shop.booking_window_days ?? 30 },
+    page: { ...form, gallery: form.gallery.filter(Boolean), logo_tone: (w.shop as { logo_tone?: "light" | "dark" | "colour" | "" }).logo_tone || "" },
+    staff,
+    services: services.map((x) => ({ ...x, category: x.category || "Services" })),
+    week: week.map((d, i) => (d.enabled ? { weekday: i, open: true as const, starts: d.starts, ends: d.ends } : { weekday: i, open: false as const })),
+    open_now: true,
+    today,
+    closures: [],
+    soonest: staff.slice(0, 4).map((st, i) => ({ staff_id: st.id, staff_name: st.name, date: today, start_min: 600 + i * 30, service_id: services[0]?.id || "", price_pence: services[0]?.price_pence || 0 })),
+    reviews: [
+      { id: "p1", rating: 5, body: "Best fade I've had in years. Booked online in a minute, in and out on time.", display_name: "Jordan", reply: "", reply_at: null, created_at: Date.now() - 864e5 * 9, service_name: services[0]?.name || "Cut", staff_name: staff[0]?.name || null },
+      { id: "p2", rating: 5, body: "Proper attention to detail. Will be back.", display_name: "Sam", reply: "Thanks Sam, see you next month.", reply_at: Date.now(), created_at: Date.now() - 864e5 * 30, service_name: services[1]?.name || services[0]?.name || "Cut", staff_name: staff[1]?.name || staff[0]?.name || null },
+      { id: "p3", rating: 4, body: "Great cut, easy to book.", display_name: "Alex", reply: "", reply_at: null, created_at: Date.now() - 864e5 * 60, service_name: services[0]?.name || "Cut", staff_name: null },
+    ],
+    rating: { count: 3, average: 4.7 },
+  };
   return (
     <section className="shop-preview" aria-label="Preview of your shop page" data-testid="shop-preview">
       <div className="shop-preview-bar">
         <strong>Preview</strong>
-        <small>Updates as you edit. Save to publish.</small>
+        <small>Updates as you edit. Save to publish. Sample reviews and times are shown until you have your own.</small>
         <div className="segmented" role="group" aria-label="Preview size">
-          {(["phone", "desktop"] as const).map((d) => (
-            <button key={d} type="button" aria-pressed={device === d} onClick={() => setDevice(d)} data-testid={`preview-${d}`}>{d === "phone" ? "Phone" : "Desktop"}</button>
+          {(["phone", "tablet", "desktop"] as const).map((d) => (
+            <button key={d} type="button" aria-pressed={device === d} onClick={() => setDevice(d)} data-testid={`preview-${d}`}>{d === "phone" ? "Phone" : d === "tablet" ? "Tablet" : "Desktop"}</button>
           ))}
         </div>
       </div>
       <div className={`shop-preview-frame ${device}`} data-testid="shop-preview-frame" tabIndex={0} role="region" aria-label="Shop page preview (scrollable)">
-        <div className={cls} aria-hidden="true">
-          <header className="sp-nav">
-            <span className="sp-brand">
-              {form.logo_url ? <img className="shop-emblem shop-logo" src={form.logo_url} alt="" /> : <span className="shop-emblem">{ini}</span>}
-              <strong>{w.shop.name || "Your shop"}</strong>
-            </span>
-            <nav>{has("services") && <a>Services</a>}{has("team") && <a>Team</a>}{has("hours") && <a>Hours</a>}</nav>
-            <span className="button primary sp-book-btn">Book now</span>
-          </header>
-          {has("hero") && (
-            <section className={`sp-hero ${form.cover_url ? "has-cover" : "no-cover"}`}>
-              {form.cover_url && <img className="sp-hero-img" src={form.cover_url} alt="" />}
-              <div className="sp-hero-inner">
-                <div className="sp-hero-copy">
-                  {form.logo_url ? <img className="sp-hero-logo" src={form.logo_url} alt="" /> : <span className="sp-hero-logo sp-hero-initials">{ini}</span>}
-                  <span className="sp-open open"><i aria-hidden="true" />Open now · until 18:00</span>
-                  <h1>{w.shop.name || "Your shop"}</h1>
-                  <p className="sp-strap">{form.strapline || "Book your next visit online in under a minute."}</p>
-                  {w.shop.address && <div className="sp-hero-meta"><span className="sp-hero-address"><Icon name="pin" size={14} /> {w.shop.address}</span></div>}
-                  <div className="sp-hero-actions">
-                    <span className="button primary"><Icon name="calendar" size={16} /> Book now</span>
-                    {form.phone && <span className="button secondary"><Icon name="call" size={16} /> Call</span>}
-                  </div>
-                </div>
-                {form.theme.hero === "split" && form.cover_url && <div className="sp-hero-side"><img src={form.cover_url} alt="" /></div>}
-              </div>
-            </section>
-          )}
-          {has("services") && services.length > 0 && (
-            <section className="sp-section">
-              <div className="sp-section-head"><h2>Services</h2></div>
-              <ul className="sp-services sp-preview-services">
-                {services.map((x) => (
-                  <li key={x.id}><span className="sp-service"><b>{x.name}</b><small>{x.duration_min} min</small><span className="sp-service-go">→</span></span></li>
-                ))}
-              </ul>
-            </section>
-          )}
-          {has("gallery") && form.gallery.filter(Boolean).length > 0 && (
-            <section className="sp-section">
-              <div className="sp-section-head"><h2>Gallery</h2></div>
-              <div className="sp-preview-gallery">{form.gallery.filter(Boolean).slice(0, 6).map((u, i) => <img key={i} src={u} alt="" loading="lazy" />)}</div>
-            </section>
-          )}
-          {form.about && <section className="sp-section sp-about"><p>{form.about}</p></section>}
+        <div className="shop-preview-page" aria-hidden="true" onClickCapture={(e) => e.preventDefault()}>
+          <ShopPageView data={data} me={null} mine={null} preview />
         </div>
       </div>
     </section>
@@ -3732,6 +3722,10 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
             return { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto" };
           }
         })(),
+        primary_hex: String(p.primary_hex || ""),
+        secondary_hex: String(p.secondary_hex || ""),
+        variants: (() => { try { return JSON.parse(String(p.variants_json || "{}")) as SectionVariants; } catch { return {}; } })(),
+        google_review_url: String(p.google_review_url || ""),
         published: Number(p.published ?? 1),
         version: Number(p.version ?? 0),
       };
@@ -3780,7 +3774,7 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
           setBusy(true);
           setState(null);
           try {
-            await api("/shop/page", "PUT", { ...form, gallery: form.gallery.filter(Boolean) });
+            await api("/shop/page", "PUT", { ...form, gallery: form.gallery.filter(Boolean), primary_hex: HEX_RE.test(form.primary_hex) ? form.primary_hex.toLowerCase() : "", secondary_hex: HEX_RE.test(form.primary_hex) && HEX_RE.test(form.secondary_hex) ? form.secondary_hex.toLowerCase() : "" });
             await load();
             setState({ kind: "ok", text: "Shop page saved." });
           } catch (err) {
@@ -3869,8 +3863,42 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
               <span className="workspace-field"><span>Accent colour</span></span>
               <div className="accent-picker" role="group" aria-label="Accent colour">
                 {["ollo", "ink", "sage", "clay", "plum", "slate"].map((a) => (
-                  <button key={a} type="button" className={`accent-swatch ${a}`} aria-label={a} aria-pressed={form.accent === a} onClick={() => set("accent", a)} />
+                  <button key={a} type="button" className={`accent-swatch ${a}`} aria-label={a} aria-pressed={form.accent === a && !form.primary_hex} onClick={() => setForm({ ...form, accent: a, primary_hex: "", secondary_hex: "" })} />
                 ))}
+              </div>
+              <div className="brand-colours" data-testid="brand-colours">
+                <Field label="Primary colour" hint="Buttons, links and the booking band. Overrides the swatch above.">
+                  <span className="colour-field">
+                    <input type="color" value={HEX_RE.test(form.primary_hex) ? form.primary_hex : "#3a7563"} onChange={(e) => set("primary_hex", e.target.value)} aria-label="Primary colour picker" data-testid="primary-colour" />
+                    <input type="text" value={form.primary_hex} maxLength={7} placeholder="#3a7563" pattern="#[0-9a-fA-F]{6}" onChange={(e) => set("primary_hex", e.target.value.trim())} aria-label="Primary colour hex" data-testid="primary-hex" />
+                    {form.primary_hex && <Button variant="ghost" aria-label="Clear primary colour" onClick={() => setForm({ ...form, primary_hex: "", secondary_hex: "" })}><Icon name="close" size={14} /></Button>}
+                  </span>
+                </Field>
+                <Field label="Secondary colour" hint="Highlights: popular tags, today's hours, stars. Optional.">
+                  <span className="colour-field">
+                    <input type="color" value={HEX_RE.test(form.secondary_hex) ? form.secondary_hex : "#a8552f"} disabled={!HEX_RE.test(form.primary_hex)} onChange={(e) => set("secondary_hex", e.target.value)} aria-label="Secondary colour picker" data-testid="secondary-colour" />
+                    <input type="text" value={form.secondary_hex} maxLength={7} placeholder="#a8552f" pattern="#[0-9a-fA-F]{6}" disabled={!HEX_RE.test(form.primary_hex)} onChange={(e) => set("secondary_hex", e.target.value.trim())} aria-label="Secondary colour hex" data-testid="secondary-hex" />
+                    {form.secondary_hex && <Button variant="ghost" aria-label="Clear secondary colour" onClick={() => set("secondary_hex", "")}><Icon name="close" size={14} /></Button>}
+                  </span>
+                </Field>
+              </div>
+            </div>
+            <div className="section-layouts" data-testid="section-layouts">
+              <span className="workspace-field"><span>Section layouts</span></span>
+              <p className="helper">Pick a look for each part of the page. Every layout adapts to phone, tablet and desktop on its own — check it in the preview above.</p>
+              <div className="section-layout-grid">
+                {SECTION_LAYOUTS.filter((sec) => sec.key === "cta" || sec.key === "footer" || form.sections.includes(sec.key)).map((sec) => {
+                  const current = form.variants[sec.key] || (sec.key === "hero" ? form.theme.hero : sec.options[0][0]);
+                  return (
+                    <Field key={sec.key} label={sec.label}>
+                      <div className="segmented wrap" role="group" aria-label={`${sec.label} layout`}>
+                        {sec.options.map(([v, l]) => (
+                          <button key={v} type="button" aria-pressed={current === v} onClick={() => setForm({ ...form, variants: { ...form.variants, [sec.key]: v }, theme: sec.key === "hero" && ["editorial", "centred", "split"].includes(v) ? { ...form.theme, hero: v } : form.theme })} data-testid={`layout-${sec.key}-${v}`}>{l}</button>
+                        ))}
+                      </div>
+                    </Field>
+                  );
+                })}
               </div>
             </div>
             <div className="theme-editor" data-testid="theme-editor">
@@ -3900,13 +3928,6 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
                   <div className="segmented" role="group" aria-label="Corners">
                     {[["soft", "Soft"], ["sharp", "Sharp"]].map(([v, l]) => (
                       <button key={v} type="button" aria-pressed={form.theme.corners === v} onClick={() => set("theme", { ...form.theme, corners: v })}>{l}</button>
-                    ))}
-                  </div>
-                </Field>
-                <Field label="Hero layout">
-                  <div className="segmented" role="group" aria-label="Hero layout">
-                    {[["editorial", "Editorial"], ["centred", "Centred"], ["split", "Split"]].map(([v, l]) => (
-                      <button key={v} type="button" aria-pressed={form.theme.hero === v} onClick={() => set("theme", { ...form.theme, hero: v })}>{l}</button>
                     ))}
                   </div>
                 </Field>
