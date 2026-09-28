@@ -116,7 +116,7 @@ test("book for someone else: attendee saved and shown to owner, customer and man
   await page.getByRole("button", { name: new RegExp(w.services[0].name) }).click();
   // Any-barber shortcut jumps straight to the time step with every chair.
   await page.getByTestId("any-barber-skip").click();
-  await expect(page.getByRole("heading", { name: "A time that works for you." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "When suits you?" })).toBeVisible();
   await expect(page.getByRole("button", { name: "First available" })).toHaveCount(0); // not on barber step
   const label = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Europe/London" }).format(new Date(`${weekdayAhead()}T12:00:00Z`));
   for (let i = 0; i < 3; i++) {
@@ -137,7 +137,8 @@ test("book for someone else: attendee saved and shown to owner, customer and man
   await page.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
   await page.getByTestId("auth-submit").click();
   await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
-  // "For someone else" lives on the review step; the attendee name is required once ticked.
+  // "For someone else" lives under "More options" on the review step; the attendee name is required once ticked.
+  await page.getByTestId("review-more").locator("summary").click();
   await page.getByTestId("for-someone-else").check();
   await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByText("Who is the visit for?")).toBeVisible();

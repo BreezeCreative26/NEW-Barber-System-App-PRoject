@@ -41,7 +41,7 @@ test("shop page renders the seeded sections and every shortcut deep-links into t
   await page.getByTestId("service-book").nth(1).click();
   await expect(page).toHaveURL(new RegExp(`/book(/${slug})?\\?.*service=.*step=1`));
   const flow = page.locator(".booking-app.standalone");
-  await expect(flow.getByRole("heading", { name: "Find your kind of barber." })).toBeVisible();
+  await expect(flow.getByRole("heading", { name: "Who’s cutting?" })).toBeVisible();
   await expect(flow.locator(".booking-summary")).toContainText("Skin fade");
   await expect(flow.getByTestId("booking-back")).toHaveAttribute("href", new RegExp(`^/(${slug})?$`));
 
@@ -57,16 +57,16 @@ test("shop page renders the seeded sections and every shortcut deep-links into t
   const soonest = page.getByTestId("soonest").first();
   const chipTime = (await soonest.textContent())!.match(/\d{2}:\d{2}/)![0];
   await soonest.click();
-  await expect(flow.getByRole("heading", { name: "A time that works for you." })).toBeVisible();
+  await expect(flow.getByRole("heading", { name: "When suits you?" })).toBeVisible();
   await expect(flow.getByRole("group", { name: "Choose an appointment time" }).getByRole("button", { name: new RegExp(`^${chipTime},`) })).toHaveAttribute("aria-pressed", "true");
 
   // Old-style deep links (/<slug>?service=…#book) are forwarded to the flow.
   await page.goto(`/${slug}?step=1#book`);
   await expect(page).toHaveURL(new RegExp(`/book(/${slug})?\\?step=1`));
-  await expect(flow.getByRole("heading", { name: "Find your kind of barber." })).toBeVisible();
+  await expect(flow.getByRole("heading", { name: "Who’s cutting?" })).toBeVisible();
   await page.goto(`/${slug}`);
   await soonest.click();
-  await expect(flow.getByRole("heading", { name: "A time that works for you." })).toBeVisible();
+  await expect(flow.getByRole("heading", { name: "When suits you?" })).toBeVisible();
 
   // Complete the booking.
   await flow.getByRole("button", { name: "Sign in to book", exact: true }).click();

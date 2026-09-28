@@ -328,7 +328,7 @@ test.describe("public booking pages", () => {
     await page.getByRole("button", { name: "Choose your barber", exact: true }).click();
     await page.getByRole("button", { name: new RegExp(w.staff[0].name) }).click();
     await page.getByRole("button", { name: "Find a time", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "A time that works for you." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "When suits you?" })).toBeVisible();
     // Move the date strip to the target week and pick an open time.
     const target = new Date(`${date}T12:00:00Z`);
     const label = new Intl.DateTimeFormat("en-GB", {

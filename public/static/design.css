@@ -2592,3 +2592,126 @@ html.boot-dark, html.boot-dark body { background: #17181e; }
 @keyframes boot-in { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: none; } }
 @keyframes boot-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
 @media (prefers-reduced-motion: reduce) { .boot-logo, .boot-initials, .boot-bar i { animation: none; } }
+
+/* ============================================================================================
+   BOOKING FLOW · PHONE, CLEAN PASS. One question per screen, one list, one action. Loaded last.
+   ============================================================================================ */
+/* Facts card + "More options" exist at every width; only the phone rules below change layout. */
+.review-facts { display: grid; gap: 0; margin: 0 0 16px; padding: 4px 16px; border: 1px solid var(--sp-line, var(--line)); border-radius: 16px; background: var(--sp-surface, var(--surface)); }
+.review-facts > div { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 12px; align-items: start; padding: 14px 0; border-top: 1px solid var(--sp-line, var(--line)); }
+.review-facts > div:first-child { border-top: 0; }
+.review-facts dt { margin: 0; display: grid; place-items: center; height: 22px; color: var(--sp-muted, var(--muted)); }
+.review-facts dd { margin: 0; min-width: 0; display: grid; gap: 2px; }
+.review-facts dd strong { font-size: 16px; font-weight: 700; color: var(--sp-ink, var(--ink)); overflow-wrap: anywhere; }
+.review-facts dd span { font-size: 14px; color: var(--sp-ink-2, var(--ink-2)); }
+.review-facts dd small { font-size: 14px; color: var(--sp-muted, var(--muted)); }
+.review-more { border: 1px solid var(--sp-line, var(--line)); border-radius: 16px; background: var(--sp-surface, var(--surface)); margin: 0 0 16px; }
+.review-more > summary { list-style: none; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 14px 16px; min-height: 52px; cursor: pointer; font-weight: 700; font-size: 15px; color: var(--sp-ink, var(--ink)); }
+.review-more > summary::-webkit-details-marker { display: none; }
+.review-more > summary small { grid-column: 2; grid-row: 2; font-weight: 400; font-size: 13px; color: var(--sp-muted, var(--muted)); }
+.review-more > summary > svg:first-child { grid-row: 1 / span 2; color: var(--sp-muted, var(--muted)); }
+.review-more > summary > svg:last-child { grid-row: 1 / span 2; transition: transform 0.2s; color: var(--sp-muted, var(--muted)); }
+.review-more[open] > summary > svg:last-child { transform: rotate(180deg); }
+.review-more > .review-options { padding: 0 16px 16px; margin: 0; border: 0; }
+
+@media (max-width: 740px) {
+  /* --- Rhythm: 16px gutter, 12px between rows, 20px between blocks. Nothing else. --- */
+  .booking-app.standalone .booking-body { padding-top: 0; }
+  .booking-app.standalone .booking-progress { padding: 12px 0 14px; margin-bottom: 14px; }
+  .booking-app.standalone .step-heading { margin: 0 0 16px; }
+  .booking-app.standalone .step-heading h2 { font-size: 24px; margin: 0 0 4px; }
+  .booking-app.standalone .step-heading p { font-size: 15px; margin: 0; color: var(--sp-muted, var(--muted)); }
+  .booking-app.standalone .step-heading p.step-sub { font-size: 14px; }
+  .booking-app.standalone .booking-flow > * + * { margin-top: 0; }
+  /* The side summary duplicates the action bar's total and the review step; not on phones. */
+  .booking-app.standalone .booking-layout > .booking-summary { display: none; }
+  .booking-app.standalone .booking-layout { display: block; }
+
+  /* --- Step 1: service rows. Name · duration · price. Description one line. --- */
+  .booking-app.standalone .service-search { margin-bottom: 10px; }
+  .booking-app.standalone .filter-chips { margin-bottom: 12px; }
+  .booking-app.standalone .service-cards { gap: 8px; }
+  .booking-app.standalone .service-choice { padding: 14px 14px 14px 16px; min-height: 72px; border-radius: 14px; gap: 12px; }
+  .booking-app.standalone .service-thumb { display: none; }
+  .booking-app.standalone .service-copy { gap: 2px; }
+  .booking-app.standalone .service-copy > strong { font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .booking-app.standalone .service-copy > span { font-size: 13px; -webkit-line-clamp: 1; color: var(--sp-muted, var(--muted)); }
+  .booking-app.standalone .service-copy small { font-size: 13px; }
+  .booking-app.standalone .choice-end { flex-direction: row; align-items: center; gap: 10px; }
+  .booking-app.standalone .choice-end > strong { font-size: 17px; }
+  .booking-app.standalone .choice-radio { width: 24px; height: 24px; }
+  .booking-app.standalone .group-entry { margin: 16px 0 4px; padding: 12px 14px; min-height: 56px; border-radius: 14px; border-style: solid; }
+  .booking-app.standalone .group-entry strong { font-size: 15px; }
+  .booking-app.standalone .group-entry small { font-size: 13px; }
+  .booking-app.standalone .addon-heading { margin: 20px 0 10px; }
+  .booking-app.standalone .addon-heading h3 { font-size: 16px; }
+  .booking-app.standalone .addon-heading > span { font-size: 13px; }
+  .booking-app.standalone .addons { gap: 8px; }
+  .booking-app.standalone .addon-choice { min-height: 56px; }
+
+  /* --- Step 2: barber rows. Photo · name · role · price. One line each. --- */
+  .booking-app.standalone .barber-choices { gap: 8px; }
+  .booking-app.standalone .barber-choice { grid-template-columns: 56px minmax(0, 1fr) auto; grid-template-areas: "photo name rate" "photo role rate"; column-gap: 12px; row-gap: 2px; align-items: center; padding: 12px 14px 12px 12px; min-height: 76px; border-radius: 14px; }
+  .booking-app.standalone .barber-portrait { width: 56px; height: 56px; border-radius: 12px; }
+  .booking-app.standalone .barber-portrait svg { width: 22px; height: 22px; }
+  .booking-app.standalone .portrait-selected { display: none; }
+  .booking-app.standalone .barber-choice-name strong { font-size: 16px; }
+  .booking-app.standalone .barber-role { font-size: 13px; color: var(--sp-muted, var(--muted)); }
+  .booking-app.standalone .barber-bio, .booking-app.standalone .barber-description, .booking-app.standalone .barber-skills { display: none; }
+  .booking-app.standalone .barber-rate { grid-area: rate; margin: 0; padding: 0; border: 0; width: auto; font-size: 16px; font-weight: 700; display: grid; justify-items: end; gap: 0; }
+  .booking-app.standalone .barber-rate > span { display: none; }
+  .booking-app.standalone .barber-choice.any-barber .barber-role { font-size: 13px; }
+  .booking-app.standalone .barber-choice.any-barber .any-mark svg { width: 24px; height: 24px; }
+  .booking-app.standalone .barber-choice.chosen { border-color: var(--sp-accent, var(--accent)); box-shadow: 0 0 0 1px var(--sp-accent, var(--accent)) inset; }
+
+  /* --- Step 3: the day strip, then the times. (The "Soonest" shortcuts duplicate the day strip
+         on a phone and read as a second calendar, so they stay off here; the shop home still has
+         a Next available section.) --- */
+  .booking-app.standalone .next-available { display: none; }
+  .booking-app.standalone .booking-date-toolbar { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
+  .booking-app.standalone .booking-date-toolbar h3 { font-size: 15px; font-weight: 700; margin: 0; letter-spacing: 0; text-transform: none; font-family: inherit; white-space: nowrap; flex: 1 1 auto; text-align: left; }
+  .booking-app.standalone .small-toggles { display: flex; gap: 6px; flex: 0 0 auto; }
+  .booking-app.standalone .small-toggles button { min-height: 40px; min-width: 40px; padding: 0 10px; font-size: 14px; border-radius: 10px; }
+  .booking-app.standalone .small-toggles button svg { width: 16px; height: 16px; }
+  .booking-app.standalone .booking-dates { margin-bottom: 4px; }
+  .booking-app.standalone .booking-dates button { flex: 0 0 60px; min-height: 76px; padding: 8px 4px; gap: 1px; }
+  .booking-app.standalone .booking-dates button > span { font-size: 12px; }
+  .booking-app.standalone .booking-dates button > strong { font-size: 20px; }
+  .booking-app.standalone .booking-dates button > small { font-size: 11px; }
+  .booking-app.standalone .slot-heading { margin: 16px 0 8px; display: flex; align-items: baseline; justify-content: space-between; }
+  .booking-app.standalone .slot-heading h3 { font-size: 15px; font-weight: 700; margin: 0; letter-spacing: 0; text-transform: none; font-family: inherit; }
+  .booking-app.standalone .slot-heading > span { font-size: 13px; color: var(--sp-muted, var(--muted)); }
+  .booking-app.standalone .filter-chips.dayparts { margin-bottom: 10px; }
+  .booking-app.standalone .filter-chips.dayparts button { min-height: 36px; font-size: 13px; padding: 0 12px; }
+  /* Morning/Afternoon/Evening groups: quiet label, keep the barber name under a time when "any barber". */
+  .booking-app.standalone .time-groups { display: grid; gap: 14px; }
+  .booking-app.standalone .time-group > h4 { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sp-muted, var(--muted)); margin: 0 0 8px; display: flex; align-items: center; gap: 6px; }
+  .booking-app.standalone .time-group > h4 small { font-size: 12px; font-weight: 600; background: var(--sp-surface-2, var(--canvas)); color: var(--sp-muted, var(--muted)); padding: 1px 7px; border-radius: 999px; }
+  .booking-app.standalone .booking-flow > .review-appointment { display: none; } /* review step: the facts card replaces the hero (the confirmation keeps its own) */
+  .booking-app.standalone .time-slots { gap: 8px; }
+  .booking-app.standalone .time-slots button { min-height: 52px; font-size: 16px; }
+  .booking-app.standalone .time-slots button > small { font-size: 11px; }
+  .booking-app.standalone .slot-note { display: none; }
+  .booking-app.standalone .booking-flow > .field-help { font-size: 14px; margin: 10px 0 0; }
+
+  /* --- Step 4 (review): facts card, who booked, more options, policy line. --- */
+  .booking-app.standalone .review-facts { margin-bottom: 12px; }
+  .booking-app.standalone .review-customer { padding: 12px 16px; margin: 0 0 12px; border: 1px solid var(--sp-line, var(--line)); border-radius: 16px; background: var(--sp-surface, var(--surface)); }
+  .booking-app.standalone .review-customer > div { margin-bottom: 4px; }
+  .booking-app.standalone .review-customer h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--sp-muted, var(--muted)); }
+  .booking-app.standalone .review-customer > strong { font-size: 16px; }
+  .booking-app.standalone .review-customer p { font-size: 14px; color: var(--sp-muted, var(--muted)); }
+  .booking-app.standalone .review-more { margin-bottom: 12px; }
+  .booking-app.standalone .review-more > .review-options { padding-top: 4px; gap: 14px; }
+  .booking-app.standalone .attendee-block { border: 0; padding: 0; background: transparent; }
+  .booking-app.standalone .review-options .contact-pref { margin: 0; }
+  .booking-app.standalone .review-options .contact-pref .contact-pref-hint { font-size: 13px; }
+  .booking-app.standalone .review-notes { font-size: 14px; }
+  .booking-app.standalone .review-options textarea { min-height: 72px; }
+  .booking-app.standalone .booking-flow > .notice { margin: 0; font-size: 14px; }
+  .booking-app.standalone .booking-flow > .notice p { font-size: 14px; }
+}
+
+/* Step 3: "+N more" tile at the end of a part of the day — same size as a time, quieter. */
+.time-slots .time-more { border: 1px dashed var(--sp-line-2, var(--line)); background: transparent; color: var(--sp-muted, var(--muted)); font-weight: 600; font-size: 14px; }
+.time-slots .time-more:hover { color: var(--sp-ink, var(--ink)); border-color: var(--sp-ink, var(--ink)); }

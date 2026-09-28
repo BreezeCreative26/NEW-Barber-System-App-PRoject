@@ -33,7 +33,7 @@ test("customer screen tour", async ({ page }) => {
   await shot(page, "03-book-barber");
   await page.getByRole("button", { name: new RegExp(w.staff[0].name) }).click();
   await page.getByRole("button", { name: "Find a time", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "A time that works for you." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "When suits you?" })).toBeVisible();
   // Pick the first open day next week (Northline is closed Sundays and Mondays).
   await page.getByRole("button", { name: "Next week" }).click();
   const dateStrip = page.getByRole("group", { name: "Choose a date" }).or(page.locator(".booking-dates")).first();

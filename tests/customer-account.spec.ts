@@ -230,7 +230,7 @@ test("browser: sign in on /<slug>/me, see usual and visits, rebook the usual wit
   await expect(page).toHaveURL(new RegExp(`/book(/${slug})?\\?.*service=`));
   const flow = page.locator(".booking-app.standalone");
   await expect(flow.getByTestId("nav-me")).toContainText("Ada");
-  await expect(flow.getByRole("heading", { name: "A time that works for you." })).toBeVisible();
+  await expect(flow.getByRole("heading", { name: "When suits you?" })).toBeVisible();
   await expect(flow.locator(".booking-summary")).toContainText("Signature cut");
   await expect(flow.locator(".booking-summary")).toContainText("Jay");
   await expect(flow.getByRole("group", { name: "Choose an appointment time" }).locator("button[aria-pressed='true']")).toHaveCount(1);
