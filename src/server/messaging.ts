@@ -37,7 +37,7 @@ export type MsgShop = Shop & {
   msg_sms?: number; msg_email?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reply_to?: string; msg_sms_sender?: string;
   notify_json?: string;
   msg_wa?: number;
-  logo_url?: string; accent?: string; theme_json?: string;
+  logo_url?: string; accent?: string; theme_json?: string; logo_tone?: string;
   email?: string; phone?: string; // from shop_pages when joined
 };
 export type Recipient = { name?: string; phone?: string; email?: string; pref?: "AUTO" | "SMS" | "WA" | "EMAIL" | "NONE" };
@@ -387,25 +387,51 @@ export const EMAIL_ACCENTS: Record<string, { bg: string; ink: string }> = {
 // foliyo lockup, foliyo green, company footer — never the shop's own logo, which would be odd
 // on an invoice addressed *to* that shop. `platformSender()` builds the MsgShop-shaped sender.
 export const PLATFORM_LOGO = "/static/brand/png/foliyo-wordmark-ink-800.png";
+const PLATFORM_WORDMARK_INK = "/static/brand/png/foliyo-wordmark-ink-800.png";
+const PLATFORM_WORDMARK_WHITE = "/static/brand/png/foliyo-wordmark-white-800.png";
 export function platformSender(shop: MsgShop, pb: { company_name?: string; company_address?: string; company_email?: string }): MsgShop {
   return { ...shop, name: pb.company_name || "foliyo", logo_url: PLATFORM_LOGO, accent: "ollo", theme_json: "{}", address: pb.company_address || "", email: pb.company_email || "", phone: "" };
 }
 export function emailHtml(shop: { name: string; address?: string; slug?: string | null }, brand: ShopBrand, origin: string, r: Rendered, footer: { phone?: string; email?: string; unsubscribe?: string }) {
   const a = EMAIL_ACCENTS[brand.accent] || EMAIL_ACCENTS.ollo;
-  const logo = brand.logo_url ? `<img src="${esc(brand.logo_url.startsWith("http") ? brand.logo_url : origin + brand.logo_url)}" alt="${esc(shop.name)}" height="40" style="height:40px;max-width:180px;object-fit:contain;display:block" />` : `<div style="display:inline-block;width:40px;height:40px;border-radius:10px;background:${a.bg};color:${a.ink};font:700 16px/40px -apple-system,Segoe UI,Inter,Arial,sans-serif;text-align:center">${esc(shop.name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase())}</div>`;
-  const lines = r.lines.map((l) => `<p style="margin:0 0 8px;font:15px/1.5 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#3c3f48">${esc(l)}</p>`).join("");
-  const cta = r.cta ? `<a href="${esc(r.cta.href)}" style="display:inline-block;margin:18px 0 6px;padding:13px 22px;border-radius:10px;background:${a.bg};color:${a.ink};font:600 15px -apple-system,Segoe UI,Inter,Arial,sans-serif;text-decoration:none">${esc(r.cta.label)}</a><p style="margin:6px 0 0;font:12px/1.5 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#8a8f9c;word-break:break-all">${esc(r.cta.href)}</p>` : "";
-  const foot = [shop.name, shop.address, footer.phone, footer.email].filter(Boolean).map(esc).join(" · ");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${esc(r.subject)}</title></head>
-<body style="margin:0;padding:0;background:#f5f6fb">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f6fb"><tr><td align="center" style="padding:28px 16px">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden">
-<tr><td style="height:6px;background:${a.bg};font-size:0;line-height:0">&nbsp;</td></tr>
-<tr><td style="padding:24px 28px 0">${logo}</td></tr>
-<tr><td style="padding:20px 28px 0"><h1 style="margin:0 0 14px;font:700 24px/1.2 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#14151a;letter-spacing:-0.02em">${esc(r.heading)}</h1>${lines}${cta}${r.footnote ? `<p style="margin:16px 0 0;font:13px/1.5 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#6b6f7a">${esc(r.footnote)}</p>` : ""}</td></tr>
-<tr><td style="padding:24px 28px 26px"><p style="margin:0;font:12px/1.6 -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#8a8f9c">${foot}</p></td></tr>
+  const F = "-apple-system,Segoe UI,Inter,Arial,sans-serif";
+  const initials = shop.name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  // Header band. The shop's logo sits on a plate chosen from its measured tone so it always reads:
+  // a light/white mark on a dark band, a dark mark on a white band, a colour mark on white. Dark
+  // themes get the dark band regardless (their customers already know the shop that way). Without a
+  // logo the band carries the shop's initials on its accent.
+  const dark = brand.theme?.mode === "dark";
+  const tone = brand.logo_tone || "";
+  // Platform emails (billing, owner lifecycle) carry the foliyo lockup as their mark and no shop
+  // logo on the other side; shop emails put foliyo on the left and the shop's own mark on the right.
+  const platform = brand.logo_url === PLATFORM_LOGO;
+  const bandDark = brand.logo_url ? (tone === "light" ? true : tone === "dark" || tone === "colour" ? false : dark) : false;
+  const band = bandDark ? { bg: "#17181e", ink: "#f3f2ee", sub: "#a7a9b3" } : { bg: "#ffffff", ink: "#14151a", sub: "#6b6f7a" };
+  const logoSrc = brand.logo_url ? (brand.logo_url.startsWith("http") ? brand.logo_url : origin + brand.logo_url) : "";
+  const mark = logoSrc
+    ? `<img src="${esc(logoSrc)}" alt="${esc(shop.name)}" height="52" style="height:52px;max-width:220px;object-fit:contain;display:block" />`
+    : `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="width:44px;height:44px;border-radius:12px;background:${a.bg};color:${a.ink};font:700 17px/44px ${F};text-align:center">${esc(initials)}</td></tr></table>`;
+  const lines = r.lines.map((l) => `<p style="margin:0 0 10px;font:15px/1.55 ${F};color:#3c3f48">${esc(l)}</p>`).join("");
+  const cta = r.cta
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0 8px"><tr><td style="border-radius:12px;background:${a.bg}"><a href="${esc(r.cta.href)}" style="display:inline-block;padding:14px 24px;border-radius:12px;background:${a.bg};color:${a.ink};font:600 15px ${F};text-decoration:none">${esc(r.cta.label)}</a></td></tr></table><p style="margin:4px 0 0;font:12px/1.5 ${F};color:#8a8f9c;word-break:break-all">${esc(r.cta.href)}</p>`
+    : "";
+  const foot = [shop.address, footer.phone, footer.email].filter(Boolean).map(esc).join(" · ");
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light"><title>${esc(r.subject)}</title></head>
+<body style="margin:0;padding:0;background:#f2f3f7">
+<span style="display:none;max-height:0;overflow:hidden;color:transparent">${esc(r.lines[0] || r.heading)}</span>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f3f7"><tr><td align="center" style="padding:28px 14px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 1px 2px rgba(20,21,26,.06)">
+<tr><td style="padding:22px 28px;background:${band.bg};border-bottom:1px solid ${bandDark ? "#262833" : "#eceef3"}">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+    <td style="vertical-align:middle">${platform ? mark : `<img src="${origin}${bandDark ? PLATFORM_WORDMARK_WHITE : PLATFORM_WORDMARK_INK}" alt="foliyo" height="22" style="height:22px;width:auto;display:block" />`}</td>
+    <td align="right" style="vertical-align:middle">${platform ? `<span style="font:600 14px ${F};color:${band.ink}">${esc(shop.name)}</span>` : `<table role="presentation" cellpadding="0" cellspacing="0" align="right"><tr><td style="vertical-align:middle">${mark}</td></tr></table>`}</td>
+  </tr></table>
+</td></tr>
+<tr><td style="height:4px;background:${a.bg};font-size:0;line-height:0">&nbsp;</td></tr>
+<tr><td style="padding:26px 28px 6px"><h1 style="margin:0 0 14px;font:700 24px/1.2 ${F};color:#14151a;letter-spacing:-0.02em">${esc(r.heading)}</h1>${lines}${cta}${r.footnote ? `<p style="margin:16px 0 0;font:13px/1.5 ${F};color:#6b6f7a">${esc(r.footnote)}</p>` : ""}</td></tr>
+<tr><td style="padding:22px 28px 26px"><p style="margin:0;font:12px/1.6 ${F};color:#8a8f9c"><strong style="color:#5d616d">${esc(shop.name)}</strong>${foot ? ` · ${foot}` : ""}</p></td></tr>
 </table>
-<p style="margin:14px 0 0;font:11px -apple-system,Segoe UI,Inter,Arial,sans-serif;color:#a4a6ae">Sent by ${esc(shop.name)}${footer.unsubscribe ? ` · <a href="${esc(footer.unsubscribe)}" style="color:#a4a6ae">Stop these emails</a>` : ""}</p>
+<p style="margin:14px 0 0;font:11px ${F};color:#a4a6ae">Sent by ${esc(shop.name)}${footer.unsubscribe ? ` · <a href="${esc(footer.unsubscribe)}" style="color:#a4a6ae">Stop these emails</a>` : ""}</p>
 </td></tr></table></body></html>`;
 }
 
@@ -658,7 +684,7 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
 // shop's msg_reminder_hours), and "soon" reminders 2h before. Unique index makes this idempotent.
 export async function sweepReminders(db: DB, origin: string, now = Date.now()) {
   const shops = await db
-    .prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.phone,'') AS phone, COALESCE(p.email,'') AS email, COALESCE(p.map_url,'') AS map_url FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.msg_reminders=1 AND s.slug IS NOT NULL")
+    .prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.phone,'') AS phone, COALESCE(p.email,'') AS email, COALESCE(p.map_url,'') AS map_url FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.msg_reminders=1 AND s.slug IS NOT NULL")
     .all<MsgShop & { map_url: string }>();
   let queued = 0;
   for (const shop of shops.results) {
@@ -721,7 +747,7 @@ export const fmtTime = (m: number) => `${String(Math.floor(m / 60)).padStart(2, 
 // Load a shop with everything messaging needs (brand + contact details from the page).
 export async function msgShop(c: Ctx | { env: { DB: DB } }, shopId: string): Promise<MsgShop> {
   const row = await c.env.DB.prepare(
-    "SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.phone,'') AS phone, COALESCE(p.email,'') AS email FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?",
+    "SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.phone,'') AS phone, COALESCE(p.email,'') AS email FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?",
   ).bind(shopId).first<MsgShop>();
   return row!;
 }

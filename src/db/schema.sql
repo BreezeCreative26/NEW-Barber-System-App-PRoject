@@ -34,6 +34,7 @@ CREATE TABLE shops (
   waitlist_templates_json TEXT NOT NULL DEFAULT '{}',
   msg_sms INTEGER NOT NULL DEFAULT 1, msg_email INTEGER NOT NULL DEFAULT 1, msg_reminders INTEGER NOT NULL DEFAULT 1,
   msg_reminder_hours INTEGER NOT NULL DEFAULT 24, msg_reply_to TEXT NOT NULL DEFAULT '', msg_sms_sender TEXT NOT NULL DEFAULT '',
+  terms_text TEXT NOT NULL DEFAULT '', terms_version INTEGER NOT NULL DEFAULT 0, terms_updated_at BIGINT NOT NULL DEFAULT 0,
   CONSTRAINT shops_msg_flags_check CHECK (msg_sms IN (0,1) AND msg_email IN (0,1) AND msg_reminders IN (0,1) AND msg_reminder_hours BETWEEN 1 AND 72),
   -- Online deposits through the shop's own Stripe account (Model A). deposit_hold_min: how long a slot
   -- stays held while the customer pays.
@@ -295,6 +296,8 @@ CREATE TABLE customer_account_links (
   shop_id TEXT NOT NULL,
   customer_id TEXT NOT NULL,
   linked_at BIGINT NOT NULL,
+  terms_version INTEGER NOT NULL DEFAULT 0,
+  terms_accepted_at BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (account_id, shop_id),
   FOREIGN KEY (shop_id, customer_id) REFERENCES customers(shop_id, id)
 );
@@ -570,6 +573,7 @@ CREATE TABLE shop_pages (
   cover_url TEXT NOT NULL DEFAULT '', logo_url TEXT NOT NULL DEFAULT '', gallery_json TEXT NOT NULL DEFAULT '[]',
   phone TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '', instagram TEXT NOT NULL DEFAULT '',
   map_url TEXT NOT NULL DEFAULT '', transport_note TEXT NOT NULL DEFAULT '', policy_text TEXT NOT NULL DEFAULT '',
+  logo_tone TEXT NOT NULL DEFAULT '',
   sections_json TEXT NOT NULL DEFAULT '["hero","next","services","team","hours","gallery","reviews","find","policies"]',
   accent TEXT NOT NULL DEFAULT 'ollo' CHECK(accent IN ('ollo','ink','sage','clay','plum','slate')),
   theme_json TEXT NOT NULL DEFAULT '{}',
@@ -597,7 +601,8 @@ CREATE TABLE shop_media (
   kind TEXT NOT NULL CHECK(kind IN ('cover','gallery','staff','logo')),
   object_key TEXT NOT NULL UNIQUE,
   content_type TEXT NOT NULL, bytes INTEGER NOT NULL, width INTEGER, height INTEGER,
-  alt TEXT NOT NULL DEFAULT '', uploaded_by TEXT NOT NULL, created_at BIGINT NOT NULL
+  alt TEXT NOT NULL DEFAULT '', uploaded_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+  tone TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX shop_media_shop ON shop_media(shop_id,created_at);
 

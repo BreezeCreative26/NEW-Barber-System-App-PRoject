@@ -209,7 +209,8 @@ acct.get("/session", async (c) => {
   const a = await currentAccount(c, shop);
   if (!a) return c.json({ profile: null });
   const cust = await linkedCustomer(c, shop, a);
-  return c.json({ profile: profileOf(a, cust) });
+  const link = await c.env.DB.prepare("SELECT terms_version FROM customer_account_links WHERE account_id=? AND shop_id=?").bind(a.id, shop.id).first<{ terms_version: number }>();
+  return c.json({ profile: profileOf(a, cust), terms_accepted: link?.terms_version || 0 });
 });
 
 // The customer area: upcoming, history, "your usual", profile — only this shop's rows.

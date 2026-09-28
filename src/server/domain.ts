@@ -30,6 +30,10 @@ export type Shop = {
   online_booking: number;
   lead_time_min: number;
   booking_window_days: number;
+  // Shop booking terms. Customers accept a version; a newer version asks again on the next booking.
+  terms_text?: string;
+  terms_version?: number;
+  terms_updated_at?: number;
   till_access: "OWNER" | "ALL";
   buffer_min: number;
   card_colour: "BARBER" | "SERVICE";
@@ -350,6 +354,7 @@ export type WorkspaceData = {
   account?: import("./accounts").Account | null;
   shop: Shop;
   logo_url?: string;
+  logo_tone?: string;
   staff: Staff[];
   services: Service[];
   addons: Addon[];
@@ -588,6 +593,7 @@ export type ShopPage = {
   map_url: string;
   transport_note: string;
   policy_text: string;
+  logo_tone?: string;
   sections_json: string;
   accent: "ollo" | "ink" | "sage" | "clay" | "plum" | "slate";
   theme_json: string;
@@ -624,11 +630,17 @@ export function parseTheme(json: string | null | undefined): ShopTheme {
 }
 // The shop's public brand travels with every customer-facing payload (shop page, booking, manage,
 // account, waiting-list offer) so each surface renders in the owner's chosen style.
-export type ShopBrand = { logo_url: string; accent: ShopPage["accent"]; theme: ShopTheme };
-export const brandOf = (p: { logo_url?: string | null; accent?: string | null; theme_json?: string | null } | null | undefined): ShopBrand => ({
+// logo_tone: measured at upload ("light" | "dark" | "colour" | "" unknown). Surfaces use it to place
+// the mark — a light logo gets a dark plate on light backgrounds and is never inverted; a dark
+// logo is inverted to white on dark backgrounds; colour logos are left alone. Blank falls back to
+// the theme's manual "auto"/"original" switch.
+export type LogoTone = "light" | "dark" | "colour" | "";
+export type ShopBrand = { logo_url: string; accent: ShopPage["accent"]; theme: ShopTheme; logo_tone: LogoTone };
+export const brandOf = (p: { logo_url?: string | null; accent?: string | null; theme_json?: string | null; logo_tone?: string | null } | null | undefined): ShopBrand => ({
   logo_url: p?.logo_url || "",
   accent: (p?.accent as ShopPage["accent"]) || "ollo",
   theme: parseTheme(p?.theme_json),
+  logo_tone: (["light", "dark", "colour"].includes(p?.logo_tone || "") ? p!.logo_tone : "") as LogoTone,
 });
 export const pageSections = ["hero", "next", "services", "team", "hours", "gallery", "reviews", "find", "policies"] as const;
 const httpsUrl = z.union([z.literal(""), z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "Use an https:// address")]);
@@ -681,6 +693,8 @@ export const onlineBookingSchema = z
     online_booking: active,
     lead_time_min: z.number().int().min(0).max(10080),
     booking_window_days: z.number().int().min(1).max(365),
+    // Optional: the shop's own booking terms / house rules customers must accept.
+    terms_text: z.string().trim().max(6000).optional(),
     version,
   })
   .strict();
@@ -805,6 +819,8 @@ export const publicBookingSchema = z
     // How the customer wants to hear from the shop about this booking. AUTO = text, falling back
     // to email; WA = WhatsApp (falls back to text if the shop has WhatsApp off).
     contact_pref: z.enum(["AUTO", "SMS", "WA", "EMAIL"]).default("AUTO"),
+    // Version of the shop's terms the customer ticked on this booking (0 = none shown).
+    accept_terms_version: z.number().int().min(0).optional(),
     notes: z.string().trim().max(500).default(""),
     date: dateSchema,
     start_min: z

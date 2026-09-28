@@ -208,18 +208,24 @@ const STYLES = ["style", "design", "theme-fonts", "shop-theme"].map((n) => `<lin
 // Customer-facing boot screen: the shop's own colours and logo (or initials) paint before any
 // JavaScript arrives, so an installed app opens straight into the shop rather than a grey
 // "loading" line. Dark/light and the accent come from the shop page theme.
-type BootBrand = { name: string; slug?: string; logo_url?: string; dark?: boolean; accent?: string; theme_json?: string; sms?: boolean; email?: boolean };
+type BootBrand = { name: string; slug?: string; logo_url?: string; dark?: boolean; accent?: string; theme_json?: string; logo_tone?: string; sms?: boolean; email?: boolean; terms?: { text: string; version: number } | null };
 // Embedded for the client: the full brand, so the very first React render is already in the shop's
 // theme (no unthemed frame between the boot screen and the screen).
-const brandScript = (b?: BootBrand) => (b ? `<script type="application/json" id="foliyo-brand">${JSON.stringify({ name: b.name, slug: b.slug || "", brand: brandOf({ logo_url: b.logo_url || "", accent: b.accent, theme_json: b.theme_json }), channels: { sms: b.sms !== false, email: b.email !== false } }).replace(/</g, "\\u003c")}</script>` : "");
+const brandScript = (b?: BootBrand) => (b ? `<script type="application/json" id="foliyo-brand">${JSON.stringify({ name: b.name, slug: b.slug || "", brand: brandOf({ logo_url: b.logo_url || "", accent: b.accent, theme_json: b.theme_json, logo_tone: b.logo_tone }), channels: { sms: b.sms !== false, email: b.email !== false }, terms: b.terms || null }).replace(/</g, "\\u003c")}</script>` : "");
 const BOOT_ACCENT: Record<string, string> = { ollo: "#1f6f5f", ink: "#111318", sage: "#5b7a68", clay: "#a0522d", plum: "#5a3e6b", slate: "#4a5568" };
+const logoAuto = (themeJson?: string) => { try { return (JSON.parse(themeJson || "{}") as { logo?: string }).logo !== "original"; } catch { return true; } };
 function bootScreen(b?: BootBrand) {
   if (!b) return `<p class="boot-message">Opening online booking…</p>`;
   const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
   const initials = b.name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
   const accent = BOOT_ACCENT[b.accent || "ollo"] || BOOT_ACCENT.ollo;
+  // Placing the mark: measured tone wins (light logo → never invert, sits on a dark plate when the
+  // surface is light; dark logo → invert to white on a dark surface; colour → untouched). Without a
+  // measurement, fall back to the theme's manual switch as before.
+  const flip = b.logo_tone ? b.logo_tone === "dark" && b.dark : b.dark && logoAuto(b.theme_json);
+  const plate = b.logo_tone === "light" && !b.dark;
   const mark = b.logo_url
-    ? `<img src="${esc(b.logo_url)}" alt="" class="boot-logo${b.dark ? " flip" : ""}"/>`
+    ? `<img src="${esc(b.logo_url)}" alt="" class="boot-logo${flip ? " flip" : ""}${plate ? " plate" : ""}"/>`
     : `<span class="boot-initials" style="background:${accent}">${esc(initials)}</span>`;
   return `<div class="boot-shop${b.dark ? " dark" : ""}" aria-busy="true" aria-label="Opening ${esc(b.name)}">${mark}<span class="boot-bar"><i></i></span></div>`;
 }
@@ -234,11 +240,11 @@ async function bootBrand(db: Database, slug: string): Promise<BootBrand | undefi
   if (hit && Date.now() - hit.at < 60000) return hit.brand;
   let brand: BootBrand | undefined;
   try {
-    const row = await db.prepare("SELECT s.name,s.msg_sms,s.msg_email,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ name: string; msg_sms: number; msg_email: number; logo_url: string; accent: string; theme_json: string }>();
+    const row = await db.prepare("SELECT s.name,s.msg_sms,s.msg_email,s.terms_text,s.terms_version,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ name: string; msg_sms: number; msg_email: number; terms_text: string; terms_version: number; logo_url: string; accent: string; theme_json: string; logo_tone: string }>();
     if (row) {
       let dark = false;
       try { dark = (JSON.parse(row.theme_json) as { mode?: string }).mode === "dark"; } catch { /* default light */ }
-      brand = { name: row.name, slug, logo_url: row.logo_url || undefined, dark, accent: row.accent, theme_json: row.theme_json, sms: row.msg_sms !== 0, email: row.msg_email !== 0 };
+      brand = { name: row.name, slug, logo_url: row.logo_url || undefined, dark, accent: row.accent, theme_json: row.theme_json, logo_tone: row.logo_tone || "", sms: row.msg_sms !== 0, email: row.msg_email !== 0, terms: row.terms_text ? { text: row.terms_text, version: row.terms_version || 0 } : null };
     }
   } catch { brand = undefined; }
   bootCache.set(slug, { at: Date.now(), brand });
@@ -331,7 +337,7 @@ app.get("/:slug/manifest.webmanifest", async (c, next) => {
 app.get("/:slug/:icon{icon-(192|512)\\.png}", async (c, next) => {
   const slug = c.req.param("slug").toLowerCase();
   const size = (c.req.param("icon").includes("512") ? 512 : 192) as 192 | 512;
-  const shop = await c.env.DB.prepare("SELECT s.id,s.name,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ id: string; name: string; logo_url: string; accent: string; theme_json: string }>();
+  const shop = await c.env.DB.prepare("SELECT s.id,s.name,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ id: string; name: string; logo_url: string; accent: string; theme_json: string }>();
   if (!shop) return next();
   let logo: Uint8Array | null = null;
   const m = /^\/media\/([a-f0-9-]{36})$/.exec(shop.logo_url);
@@ -347,7 +353,10 @@ app.get("/:slug/:icon{icon-(192|512)\\.png}", async (c, next) => {
   }
   const dark = (() => { try { return (JSON.parse(shop.theme_json) as { mode?: string }).mode === "dark"; } catch { return false; } })();
   const ACCENT: Record<string, string> = { ollo: "#1f6f5f", ink: "#111318", sage: "#5b7a68", clay: "#a0522d", plum: "#5a3e6b", slate: "#4a5568" };
-  const bg = logo ? (dark ? "#0b0b0c" : "#ffffff") : ACCENT[shop.accent] || ACCENT.ollo;
+  const tone = (shop as { logo_tone?: string }).logo_tone || "";
+  // Icon plate: a light logo needs a dark plate whatever the theme; a dark logo needs a light one;
+  // colour/unknown follow the theme.
+  const bg = logo ? (tone === "light" ? "#0b0b0c" : tone === "dark" ? "#ffffff" : dark ? "#0b0b0c" : "#ffffff") : ACCENT[shop.accent] || ACCENT.ollo;
   const png = await shopIcon(size, logo, shop.name, bg, "#ffffff");
   c.header("Content-Type", "image/png");
   c.header("Cache-Control", "public, max-age=3600");
@@ -371,7 +380,7 @@ app.get("/:slug", async (c, next) => {
   const head = shopPageHead({ origin: publicOrigin(c), shop, ...data });
   let dark = false;
   try { dark = (JSON.parse(data.page.theme_json || "{}") as { mode?: string }).mode === "dark"; } catch { /* light */ }
-  return c.html(shell(head.html + shopAppHead(slug, onShopHost(c, slug), dark), { name: shop.name, slug, logo_url: data.page.logo_url || undefined, dark, accent: data.page.accent, theme_json: data.page.theme_json }));
+  return c.html(shell(head.html + shopAppHead(slug, onShopHost(c, slug), dark), { name: shop.name, slug, logo_url: data.page.logo_url || undefined, dark, accent: data.page.accent, theme_json: data.page.theme_json, logo_tone: data.page.logo_tone || "", sms: (shop as { msg_sms?: number }).msg_sms !== 0, email: (shop as { msg_email?: number }).msg_email !== 0, terms: shop.terms_text ? { text: shop.terms_text, version: shop.terms_version || 0 } : null }));
 });
 // Apple Pay on the pay-link / deposit checkout: Stripe verifies the domain by fetching this file
 // (public/.well-known/…). Served explicitly so no hosting rewrite can swallow the dot-directory.

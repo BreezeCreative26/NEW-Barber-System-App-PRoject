@@ -2733,3 +2733,50 @@ html.boot-dark, html.boot-dark body { background: #17181e; }
 .ca-consent .ca-hint { color: var(--sp-muted, var(--muted)); font-size: 0.8rem; line-height: 1.4; }
 .ca-consent .ca-hint a { color: inherit; text-decoration: underline; }
 .booking-consent { margin-top: 6px; }
+
+/* ---- Logo tone (measured at upload) ----
+   A light/white mark is never inverted and sits on a dark plate wherever the surface is light;
+   a dark mark is inverted to white only on dark surfaces (.logo-flip, shop-theme.css); a colour
+   mark is left exactly as uploaded. */
+.brand-shop-logo.tone-light, .avatar-logo.tone-light { background: #14151a; padding: 4px; border-radius: 8px; }
+.brand-shop-logo.tone-dark, .brand-shop-logo.tone-colour, .avatar-logo.tone-dark, .avatar-logo.tone-colour { background: #fff; }
+.brand-shop-logo.tone-light, .brand-shop-logo.tone-dark, .brand-shop-logo.tone-colour { object-fit: contain; }
+.shop-page.mode-light.logo-light img.shop-emblem.shop-logo,
+.shop-page.mode-light.logo-light img.shop-logo,
+.shop-page.mode-light.logo-light img.sp-hero-logo { background: #14151a; padding: 6px; border-radius: var(--sp-r-sm, 8px); }
+.shop-page.logo-light img.shop-logo, .shop-page.logo-colour img.shop-logo, .shop-page.logo-light img.sp-hero-logo, .shop-page.logo-colour img.sp-hero-logo { filter: none !important; }
+.boot-logo.plate { background: #14151a; padding: 12px 16px; border-radius: 16px; }
+.boot-shop.dark .boot-logo:not(.flip) { filter: none; }
+
+/* ---- Booking flow, phones: slimmer action bar. One 48px row, tighter padding, the tab bar hides
+   while the customer is mid-flow so the bottom of the screen is one bar, not two. ---- */
+@media (max-width: 720px) {
+  .booking-app.standalone .booking-actions { padding: 8px 14px 10px; gap: 8px; bottom: 0 !important; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important; }
+  .booking-app.standalone .booking-actions .button { min-height: 48px; font-size: 16px; border-radius: 12px; }
+  .booking-app.standalone .booking-actions .booking-back-btn { width: 48px; min-width: 48px; }
+  .booking-app.standalone .booking-actions .booking-back-btn svg { width: 20px; height: 20px; }
+  .booking-app.standalone .booking-actions .booking-next-group { gap: 6px; }
+  .booking-app.standalone .booking-actions:has(.mobile-checkout-total) .booking-next-group::before { font-size: 19px; }
+  .booking-app.standalone .booking-actions:has(.mobile-checkout-total) .booking-next-group .button.secondary { min-height: 32px; font-size: 13px; }
+  .booking-app.standalone .booking-body { padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px)) !important; }
+  /* Mid-flow the tab bar steps aside; it returns on the confirmation screen. */
+  .booking-app.standalone.in-flow .shop-tabbar { display: none; }
+}
+
+/* ---- Shop booking terms: acceptance tick (booking review, register) and the read-out. ---- */
+.booking-terms, .ca-terms-text { margin-top: 10px; }
+.booking-terms .booking-check { display: flex; align-items: flex-start; gap: 10px; font-size: 0.95rem; line-height: 1.4; }
+.booking-terms .booking-check input { margin-top: 3px; width: 18px; height: 18px; flex: none; accent-color: var(--sp-accent, var(--accent)); }
+.booking-terms.has-error .booking-check { color: var(--danger, #b42318); }
+.booking-terms .link, .ca-check .link { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
+.booking-terms-text, .ca-terms-text { max-height: 220px; overflow: auto; padding: 12px 14px; margin-top: 8px; border: 1px solid var(--sp-line, var(--line)); border-radius: var(--sp-r-sm, 10px); background: var(--sp-surface-2, transparent); font-size: 0.9rem; line-height: 1.5; white-space: pre-line; }
+.booking-terms-text p, .ca-terms-text p { margin: 0 0 8px; }
+.booking-terms-text p:last-child, .ca-terms-text p:last-child { margin-bottom: 0; }
+.booking-terms .field-error { display: block; margin-top: 6px; }
+/* Consent rows inside the booking register form: the generic .customer-fields label is a column
+   grid; these are checkbox rows. */
+.customer-fields .booking-consent label.booking-check, .customer-fields .booking-terms label.booking-check,
+.booking-app .booking-consent label.booking-check, .booking-app .booking-terms label.booking-check { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin: 0; font-weight: 400; }
+.customer-fields .booking-consent label.booking-check > span, .customer-fields .booking-terms label.booking-check > span { font-size: 0.95rem; font-weight: 400; }
+.customer-fields .booking-consent label.booking-check input, .customer-fields .booking-terms label.booking-check input { width: 18px; height: 18px; min-height: 0; margin: 3px 0 0; padding: 0; flex: none; }
+.customer-fields .booking-terms { margin-top: 12px; }

@@ -192,6 +192,10 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
   const smsOffered = seed?.channels ? seed.channels.sms : true;
   const [textReminders, setTextReminders] = useState(true);
   const [marketing, setMarketing] = useState(false);
+  // The shop's own booking terms (from the shell). Sign-up requires accepting the current version.
+  const terms = seed?.terms || null;
+  const [termsTick, setTermsTick] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
   const [shopName, setShopName] = useState(seed?.name || "");
   const [shopBrand, setShopBrand] = useState<(ShopBrand & { logo_url: string }) | null>(seed ? { ...seed.brand, logo_url: seed.brand.logo_url } : null);
   const codeRef = useRef<HTMLInputElement>(null);
@@ -224,7 +228,8 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
   const register = (e: FormEvent) => {
     e.preventDefault();
     if (password !== password2) { setError("The two passwords don't match."); return; }
-    run(async () => { await api(`${A}/register`, "POST", { name, phone, email, password, marketing_opt_in: marketing ? 1 : 0, contact_pref: smsOffered && textReminders ? "AUTO" : "EMAIL" }); finish(); }, "Could not create your account.");
+    if (terms && !termsTick) { setError(`Please accept ${shopName || "the shop"}’s booking terms.`); return; }
+    run(async () => { await api(`${A}/register`, "POST", { name, phone, email, password, marketing_opt_in: marketing ? 1 : 0, contact_pref: smsOffered && textReminders ? "AUTO" : "EMAIL", accept_terms_version: terms?.version || 0 }); finish(); }, "Could not create your account.");
   };
   const forgot = (e: FormEvent) => { e.preventDefault(); run(async () => { const r = await api<{ sandbox_token?: string }>(`${A}/forgot`, "POST", { email }); setSandboxToken(r.sandbox_token || ""); go("sent"); }, "Could not send the link."); };
   const reset = (e: FormEvent) => {
@@ -317,6 +322,13 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
                   <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} data-testid="register-marketing" />
                   <span>Send me offers and news from {shopName || "the shop"}</span>
                 </label>
+                {terms && (
+                  <label className="ca-check" data-testid="register-terms">
+                    <input type="checkbox" checked={termsTick} onChange={(e) => setTermsTick(e.target.checked)} required data-testid="register-terms-tick" />
+                    <span>I accept {shopName || "the shop"}’s booking terms. <button type="button" className="link" onClick={() => setTermsOpen((v) => !v)} aria-expanded={termsOpen}>{termsOpen ? "Hide" : "Read them"}</button></span>
+                  </label>
+                )}
+                {terms && termsOpen && <div className="ca-terms-text">{terms.text.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}</div>}
                 <small className="ca-hint">By creating an account you agree to the <a href="/legal/terms" target="_blank" rel="noopener">terms</a> and <a href="/legal/privacy" target="_blank" rel="noopener">privacy notice</a>. Booking messages always come by email{smsOffered ? "; texts are your choice" : ""}.</small>
               </div>
               <Err />

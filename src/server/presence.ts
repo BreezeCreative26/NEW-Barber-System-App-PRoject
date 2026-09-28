@@ -99,7 +99,7 @@ export async function publicReviews(db: D1Database, shopId: string, limit = 12) 
 }
 
 // ---- Media (R2) -----------------------------------------------------------------------
-export type MediaRow = { id: string; shop_id: string; kind: "cover" | "gallery" | "staff" | "logo"; object_key: string; content_type: string; bytes: number; width: number | null; height: number | null; alt: string; uploaded_by: string; created_at: number };
+export type MediaRow = { id: string; shop_id: string; kind: "cover" | "gallery" | "staff" | "logo"; object_key: string; content_type: string; bytes: number; width: number | null; height: number | null; alt: string; uploaded_by: string; created_at: number; tone?: string };
 export const MEDIA_MAX_BYTES = 5 * 1024 * 1024;
 export const mediaKinds = ["cover", "gallery", "staff", "logo"] as const;
 

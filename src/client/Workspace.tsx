@@ -1986,6 +1986,7 @@ export function Workspace() {
             ? {
                 initials: initialsOf(w.account?.name || w.shop.name),
                 logo: w.logo_url || undefined,
+                logoTone: w.logo_tone || "",
                 name: w.account?.name || w.shop.name,
                 caption: w.account ? `${w.shop.name} · ${w.account.role.toLowerCase()}` : "Browser test access",
               }
@@ -1993,7 +1994,7 @@ export function Workspace() {
         }
         onAccount={() => setAccountOpen((v) => !v)}
         accountOpen={accountOpen}
-        shop={w ? { name: w.shop.name, logo: w.logo_url || null } : null}
+        shop={w ? { name: w.shop.name, logo: w.logo_url || null, tone: w.logo_tone || "" } : null}
       >
       </TopBar>
       {w && accountOpen && (
@@ -5025,6 +5026,7 @@ function OnlineBookingPanel({
               online_booking: f.get("online_booking") ? 1 : 0,
               lead_time_min: number(f, "lead_time_min"),
               booking_window_days: number(f, "booking_window_days"),
+              terms_text: text(f, "terms_text"),
               version: w.shop.version,
             })
           }
@@ -5073,6 +5075,20 @@ function OnlineBookingPanel({
               />
             </Field>
           </div>
+          <Field label="Booking terms customers must accept (optional)">
+            <textarea
+              name="terms_text"
+              rows={6}
+              maxLength={6000}
+              defaultValue={w.shop.terms_text || ""}
+              placeholder={"e.g. Please arrive 5 minutes early. Cancellations under 24 hours may be charged. Deposits are non-refundable for no-shows…"}
+              data-testid="terms-text"
+            />
+            <span className="helper">
+              Shown when a customer creates an account and on the review step of their first booking. Every time you change the wording, customers are asked to accept the new version before their next booking.
+              {(w.shop.terms_version || 0) > 0 ? ` Current version: v${w.shop.terms_version}${w.shop.terms_updated_at ? `, updated ${new Date(w.shop.terms_updated_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : ""}.` : ""}
+            </span>
+          </Field>
           <p className="workspace-footnote">
             Customers can move or cancel online while the visit is further away
             than the minimum notice. Changes inside your {w.shop.cancel_hours}

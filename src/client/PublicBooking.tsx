@@ -32,6 +32,8 @@ export type PublicShop = {
     booking_window_days: number;
     version: number;
     channels?: { sms: boolean; email: boolean; wa: boolean };
+    // The shop's own booking terms, when set. Customers accept a version; a newer one asks again.
+    terms?: { text: string; version: number; updated_at: number } | null;
   };
   staff: { id: string; name: string; role: string; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[];
   services: {
@@ -128,6 +130,7 @@ const friendly: Record<string, string> = {
   service_unavailable: "This service is no longer available online.",
   addon_unavailable: "An extra is no longer available. Remove it and review again.",
   record_changed: "This booking changed elsewhere. Reload to see the latest details.",
+  terms_required: "Please accept the shop's booking terms to continue.",
   invalid_transition: "This booking can no longer be changed online.",
   idempotency_payload_changed: "This request was already used for a different booking. Refresh and try again.",
 };
@@ -262,10 +265,15 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const [session, setSession] = useState<BookingCustomer | null>(null);
   const [sessionKnown, setSessionKnown] = useState(false);
   const customer = session;
+  // Shop terms: which version this customer has already accepted (0 = never), and whether they have
+  // ticked the box on this booking. Asked only when the shop has terms newer than what they accepted.
+  const [termsAccepted, setTermsAccepted] = useState(0);
+  const [termsTick, setTermsTick] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
   useEffect(() => {
     fetch(`/api/public/shops/${encodeURIComponent(slug)}/account/session`, { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : { profile: null }))
-      .then((d) => d.profile && setSession({ name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes }))
+      .then((d) => { if (d.profile) { setSession({ name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes }); setTermsAccepted(d.terms_accepted || 0); } })
       .catch(() => {})
       .finally(() => setSessionKnown(true));
   }, [slug]);
@@ -538,8 +546,11 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     if (!d.profile) throw new Error("Signed in, but we couldn't load your details. Try again.");
     const me = { name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes };
     setSession(me);
+    setTermsAccepted(d.terms_accepted || 0);
     onSignedIn?.(me);
   }
+  const termsVersion = shop?.shop.terms?.version || 0;
+  const termsDue = termsVersion > 0 && termsAccepted < termsVersion;
   const submitAuth = async (e: FormEvent) => {
     e.preventDefault();
     const next: Record<string, string> = {};
@@ -548,6 +559,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       if (!phoneOk(reg.phone)) next.phone = "Enter a valid UK mobile number";
       if (!emailOk(reg.email)) next.email = "Enter a valid email address";
       if (reg.password.length < 8) next.password = "Use at least 8 characters";
+      if (termsVersion > 0 && !termsTick) next.terms = "Please accept the booking terms";
     } else {
       if (!emailOk(login.email)) next.email = "Enter your email address";
       if (!login.password) next.password = "Enter your password";
@@ -560,7 +572,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     }
     setAuthBusy(true);
     try {
-      if (authMode === "register") await api(`/shops/${encodeURIComponent(slug)}/account/register`, "POST", { name: reg.name.trim(), phone: reg.phone, email: reg.email.trim(), password: reg.password, marketing_opt_in: regMarketing ? 1 : 0, contact_pref: smsOffered && regTexts ? "AUTO" : "EMAIL" });
+      if (authMode === "register") await api(`/shops/${encodeURIComponent(slug)}/account/register`, "POST", { name: reg.name.trim(), phone: reg.phone, email: reg.email.trim(), password: reg.password, marketing_opt_in: regMarketing ? 1 : 0, contact_pref: smsOffered && regTexts ? "AUTO" : "EMAIL", accept_terms_version: termsVersion });
       else await api(`/shops/${encodeURIComponent(slug)}/account/login`, "POST", { email: login.email.trim(), password: login.password });
       if (authMode === "register" && !(smsOffered && regTexts)) setContactPref("EMAIL");
       await loadSession();
@@ -574,6 +586,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const submitReview = () => {
     const next: Record<string, string> = {};
     if (forOther && attendee.trim().length < 2) next.attendee = "Who is the visit for?";
+    if (termsDue && !termsTick) next.terms = "Please accept the booking terms to continue";
     setErrors(next);
     if (Object.keys(next).length) {
       requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
@@ -599,6 +612,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       addon_ids: [...extraIds].sort(),
       quote: availability.quote,
       ...(contactPref !== "AUTO" ? { contact_pref: contactPref } : {}),
+      ...(termsDue ? { accept_terms_version: termsVersion } : {}),
     };
     const serialised = JSON.stringify(payload);
     // A changed payload gets a fresh request key; an unchanged retry replays safely.
@@ -740,7 +754,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const dayFull = !!availability && openCount === 0 && !!dayInfo(date) && !dayInfo(date)!.closed;
   const nextElsewhere = next?.filter((n) => n.date !== date) || [];
   return (
-    <div className={wrap}>
+    <div className={`${wrap} in-flow`}>
       <TestBanner />
       <BookingTopBar slug={slug} name={shop.shop.name} logo={shop.shop.logo_url} customer={customer} />
       <main id="main-content">
@@ -1339,6 +1353,16 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                           <span>Send me offers and news from {shop.shop.name}</span>
                         </label>
                       </div>
+                      {termsDue && (
+                        <div className={`booking-terms${errors.terms ? " has-error" : ""}`} data-testid="booking-terms">
+                          <label className="booking-check">
+                            <input type="checkbox" checked={termsTick} onChange={(e) => { setTermsTick(e.target.checked); setErrors((c) => ({ ...c, terms: "" })); }} aria-invalid={!!errors.terms} data-testid="booking-terms-tick" />
+                            <span>{termsAccepted > 0 ? `${shop.shop.name} has updated its booking terms. I accept the new terms.` : `I accept ${shop.shop.name}’s booking terms.`} <button type="button" className="link" onClick={() => setTermsOpen((v) => !v)} aria-expanded={termsOpen}>{termsOpen ? "Hide" : "Read them"}</button></span>
+                          </label>
+                          {termsOpen && <div className="booking-terms-text" data-testid="booking-terms-text">{shop.shop.terms!.text.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}</div>}
+                          {errors.terms && <span className="field-error">{errors.terms}</span>}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="customer-fields">
@@ -1477,6 +1501,17 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                           {contactPref === "EMAIL" ? "We’ll email your confirmation and a reminder before your visit." : "We’ll text your confirmation and a reminder before your visit."}
                         </small>
                       </fieldset>
+                    )}
+
+                    {termsDue && (
+                      <div className={`booking-terms${errors.terms ? " has-error" : ""}`} data-testid="booking-terms">
+                        <label className="booking-check">
+                          <input type="checkbox" checked={termsTick} onChange={(e) => { setTermsTick(e.target.checked); setErrors((c) => ({ ...c, terms: "" })); }} aria-invalid={!!errors.terms} data-testid="booking-terms-tick" />
+                          <span>{termsAccepted > 0 ? `${shop.shop.name} has updated its booking terms. I accept the new terms.` : `I accept ${shop.shop.name}’s booking terms.`} <button type="button" className="link" onClick={() => setTermsOpen((v) => !v)} aria-expanded={termsOpen}>{termsOpen ? "Hide" : "Read them"}</button></span>
+                        </label>
+                        {termsOpen && <div className="booking-terms-text" data-testid="booking-terms-text">{shop.shop.terms!.text.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}</div>}
+                        {errors.terms && <span className="field-error">{errors.terms}</span>}
+                      </div>
                     )}
                     <label className="review-notes">
                       Anything you’d like us to know? (optional)

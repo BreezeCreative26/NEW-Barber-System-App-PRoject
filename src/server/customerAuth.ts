@@ -53,6 +53,8 @@ const registerSchema = z.object({
   password: customerPassword,
   marketing_opt_in: z.union([z.literal(0), z.literal(1)]).default(0),
   contact_pref: z.enum(["AUTO", "EMAIL"]).default("AUTO"),
+  // The shop's terms version shown and ticked on the sign-up form (0 when the shop has none).
+  accept_terms_version: z.number().int().min(0).default(0),
 }).strict();
 const loginSchema = z.object({ email: requiredEmail, password: z.string().min(1).max(128) }).strict();
 const forgotSchema = z.object({ email: requiredEmail }).strict();
@@ -188,6 +190,8 @@ customerAuth.post("/register", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug")!);
   const b = await readInput(c, registerSchema);
   await throttle(c, "cust-register", `${shop.id}:${clientKey(c)}`, 20);
+  const termsNeeded = !!shop.terms_text && (shop.terms_version || 0) > 0;
+  if (termsNeeded && b.accept_terms_version !== shop.terms_version) fail(400, "Please accept the booking terms to create an account");
   const existing = await byPhone(c, b.phone);
   if (existing?.password_hash) fail(409, "There's already an account for this mobile. Sign in, or reset your password.");
   const { account, conflict } = await ensureAccount(c, shop, { name: b.name, phone: b.phone, email: b.email }, b.password);
@@ -197,8 +201,9 @@ customerAuth.post("/register", async (c) => {
   // allowed. Text is only a real choice when the shop sends texts; otherwise the record says email.
   const pref = b.contact_pref === "EMAIL" || (shop as { msg_sms?: number }).msg_sms === 0 ? "EMAIL" : "AUTO";
   await recordConsent(c, shop, account, { name: b.name, email: b.email, marketing_opt_in: b.marketing_opt_in, contact_pref: pref });
+  if (termsNeeded) await c.env.DB.prepare("UPDATE customer_account_links SET terms_version=?, terms_accepted_at=? WHERE account_id=? AND shop_id=?").bind(shop.terms_version, Date.now(), account.id, shop.id).run();
   await c.env.DB.batch([
-    audit(c, "customer_account", account.id, "CUSTOMER_REGISTERED", `Customer created an account (email + password). Reminders by ${pref === "EMAIL" ? "email" : "text and email"}; marketing ${b.marketing_opt_in ? "on" : "off"}.`),
+    audit(c, "customer_account", account.id, "CUSTOMER_REGISTERED", `Customer created an account (email + password). Reminders by ${pref === "EMAIL" ? "email" : "text and email"}; marketing ${b.marketing_opt_in ? "on" : "off"}${termsNeeded ? `; accepted booking terms v${shop.terms_version}` : ""}.`),
   ]);
   await openSession(c, shop, { ...account, name: b.name, email: b.email }, "new account");
   // Welcome email: confirms the account exists, where reminders will go, and how to install the app.
@@ -319,7 +324,7 @@ export async function shopManifest(c: Ctx, slug: string) {
   const onHost = (c.req.header("x-foliyo-shop-host") || "") === slug;
   const P = (p: "/" | "/book" | "/me") => (onHost ? p : p === "/" ? `/${slug}` : p === "/book" ? `/book/${slug}` : `/${slug}/me`);
   const scope = onHost ? "/" : `/${slug}/`;
-  const page = await c.env.DB.prepare("SELECT logo_url, accent, theme_json FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ logo_url: string; accent: string; theme_json: string }>();
+  const page = await c.env.DB.prepare("SELECT logo_url, accent, theme_json, logo_tone FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ logo_url: string; accent: string; theme_json: string }>();
   const brand = brandOf({ ...shop, ...(page || {}) } as Shop & { logo_url?: string; accent?: string; theme_json?: string });
   const theme = (() => { try { return JSON.parse(page?.theme_json || "{}") as { mode?: string }; } catch { return {}; } })();
   const dark = theme.mode === "dark";

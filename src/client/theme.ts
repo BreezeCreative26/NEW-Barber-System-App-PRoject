@@ -2,15 +2,20 @@
 // customer account, waiting-list offer) wraps itself in `.shop-page <themeClass>` so it renders in
 // the owner's chosen style; shop-theme.css does the rest through --sp-* tokens.
 export type ShopTheme = { font: string; mode: string; corners: string; hero: string; logo?: string };
-export type ShopBrand = { logo_url: string; accent: string; theme: ShopTheme };
+export type ShopBrand = { logo_url: string; accent: string; theme: ShopTheme; logo_tone?: "light" | "dark" | "colour" | "" };
 
 export const DEFAULT_THEME: ShopTheme = { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto" };
 export const DEFAULT_BRAND: ShopBrand = { logo_url: "", accent: "ollo", theme: DEFAULT_THEME };
 
 export function themeClass(brand: Partial<ShopBrand> | null | undefined, extra = ""): string {
   const t = { ...DEFAULT_THEME, ...(brand?.theme || {}) };
-  const flip = t.logo !== "original" ? " logo-flip" : "";
-  return `shop-page accent-${brand?.accent || "ollo"} font-${t.font} mode-${t.mode} corners-${t.corners} hero-${t.hero}${flip}${extra ? ` ${extra}` : ""}`.trim();
+  // Measured logo tone (set at upload) decides how the mark is placed: a light logo is never
+  // inverted and gets a dark plate on light surfaces; a dark logo inverts to white on dark surfaces;
+  // a colour logo is left alone. Without a measurement the theme's manual switch applies.
+  const tone = brand?.logo_tone || "";
+  const flip = tone ? (tone === "dark" ? " logo-flip" : "") : t.logo !== "original" ? " logo-flip" : "";
+  const toneClass = tone ? ` logo-${tone}` : "";
+  return `shop-page accent-${brand?.accent || "ollo"} font-${t.font} mode-${t.mode} corners-${t.corners} hero-${t.hero}${flip}${toneClass}${extra ? ` ${extra}` : ""}`.trim();
 }
 
 // Browser chrome follows the theme too: the status bar / Dynamic Island area, the address bar tint
@@ -54,7 +59,7 @@ export function shopPath(slug: string, path: "" | "/" | "/book" | "/me", suffix 
 
 // The brand the server embedded in the shell (see brandScript in src/index.tsx). Read once; lets
 // every customer screen render themed on its very first frame instead of after a fetch.
-export type ServerBrand = { name: string; slug: string; brand: ShopBrand; channels?: { sms: boolean; email: boolean } };
+export type ServerBrand = { name: string; slug: string; brand: ShopBrand; channels?: { sms: boolean; email: boolean }; terms?: { text: string; version: number } | null };
 let embedded: ServerBrand | null | undefined;
 export function serverBrand(): ServerBrand | null {
   if (embedded !== undefined) return embedded;
