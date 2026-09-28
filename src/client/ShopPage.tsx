@@ -1,5 +1,6 @@
 // Public shop home page at /<slug>: the customer's front door. Booking lives on its own page
 // (/book on the shop's host); every card here deep-links into that flow with the choice made.
+import { Boot, useLive } from "./boot";
 import { useEffect, useState } from "react";
 import { type BookingPreset } from "./PublicBooking";
 import { Avatar, Icon } from "./ui";
@@ -52,19 +53,22 @@ export function ShopPage({ slug }: { slug: string }) {
   const [me, setMe] = useState<{ name: string; phone: string; email: string; notes: string } | null>(null);
   // Members see their shop: next visit and "your usual" up top.
   const [mine, setMine] = useState<MemberHome | null>(null);
-  useEffect(() => {
+  const loadMember = () => {
     const A = `/api/public/shops/${encodeURIComponent(slug)}/account`;
     // /session answers 200 whether or not there is a session; /me is only asked for once we know there is.
-    fetch(`${A}/session`, { credentials: "same-origin" })
+    return fetch(`${A}/session`, { credentials: "same-origin" })
       .then((r) => (r.ok ? r.json() : { profile: null }))
       .then(async (d) => {
-        if (!d.profile) return;
+        if (!d.profile) { setMe(null); setMine(null); return; }
         setMe({ name: d.profile.name, phone: d.profile.phone, email: d.profile.email, notes: d.profile.notes });
         const r = await fetch(`${A}/me`, { credentials: "same-origin" });
         if (r.ok) setMine((await r.json()) as MemberHome);
       })
       .catch(() => {});
-  }, [slug]);
+  };
+  useEffect(() => { loadMember(); }, [slug]);
+  // Next visit / your usual stay current while the app is open or when it comes back to the front.
+  useLive(() => (me ? loadMember() : undefined), [slug, !!me]);
   // Older links (and the schema.org ReserveAction) point at /<slug>?service=…#book; send them on to the flow.
   useEffect(() => {
     const q = new URLSearchParams(location.search);
@@ -94,9 +98,7 @@ export function ShopPage({ slug }: { slug: string }) {
     );
   if (!data)
     return (
-      <p className="boot-message" role="status">
-        Loading shop…
-      </p>
+      <Boot label="Opening the shop…" />
     );
   const { shop, page } = data;
   const has = (k: string) => page.sections.includes(k);

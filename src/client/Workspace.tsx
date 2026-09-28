@@ -1373,7 +1373,7 @@ export function Workspace() {
     };
     window.addEventListener("focus", tick);
     document.addEventListener("visibilitychange", onVisible);
-    // Live view: a 4-second heartbeat asks /changes for the shop's change cursor (one indexed read).
+    // Live view: a 2-second heartbeat asks /changes for the shop's change cursor (one indexed read).
     // Only when the cursor moves — a booking from the website, a colleague's edit, a payment — does
     // the client re-read the workspace, in the background, swapping data in place. A full re-read
     // still happens every 60s as a safety net.
@@ -1388,7 +1388,7 @@ export function Workspace() {
         cursor = r.cursor;
       } catch { /* offline or signed out; the next beat retries */ } finally { inFlight = false; }
     };
-    const heartbeat = window.setInterval(beat, 4000);
+    const heartbeat = window.setInterval(beat, 2000);
     const timer = window.setInterval(() => {
       if (Date.now() - lastTick.current >= 60000 - 500) {
         lastTick.current = Date.now();

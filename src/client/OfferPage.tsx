@@ -1,4 +1,5 @@
 // /offer/<token>: the waiting-list customer's reply page. One held time, two buttons. No sign-in.
+import { Boot } from "./boot";
 import { useEffect, useState } from "react";
 import { Avatar, Button, Icon, Notice } from "./ui";
 import { dateLabel, money, time, setCurrency } from "./fixtures";
@@ -81,9 +82,7 @@ export function OfferPage({ token }: { token: string }) {
     );
   if (!offer)
     return (
-      <p className="boot-message" role="status">
-        Opening your offer…
-      </p>
+      <Boot label="Opening your offer…" />
     );
   const expired = offer.status === "EXPIRED" || (offer.status === "PENDING" && offer.expires_at <= Date.now());
   const minutesLeft = Math.max(0, Math.round((offer.expires_at - Date.now()) / 60000));

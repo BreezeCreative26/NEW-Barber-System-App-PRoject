@@ -1,3 +1,4 @@
+import { Boot } from "./boot";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { BookingItem } from "../server/domain";
 import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
@@ -653,9 +654,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     return (
       <div className="booking-app">
         <TestBanner />
-        <p className="boot-message" role="status">
-          Loading shop…
-        </p>
+        <Boot label="Opening online booking…" />
       </div>
     );
   const wrap = themeClass(shop.shop.brand, "booking-app standalone");
@@ -1857,9 +1856,7 @@ export function ManageBooking({ token }: { token: string }) {
     return (
       <div className="booking-app">
         <TestBanner />
-        <p className="boot-message" role="status">
-          Opening your booking…
-        </p>
+        <Boot label="Opening your booking…" />
       </div>
     );
   const statusLabel: Record<string, string> = {

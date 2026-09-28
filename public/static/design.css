@@ -2569,3 +2569,16 @@ html.ws-dark .shop-page { color-scheme: light; }
   .booking-app.standalone .booking-actions .button { font-size: 16px; padding: 0 14px; }
   .booking-app.standalone .booking-actions .button.secondary { padding: 0 12px; }
 }
+
+/* ---- Boot screen: the shop's mark on its own surface before any JavaScript arrives ---- */
+html.boot-dark, html.boot-dark body { background: #17181e; }
+.boot-shop { position: fixed; inset: 0; display: grid; place-items: center; align-content: center; gap: 22px; background: #ffffff; color: #181b2a; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+.boot-shop.dark { background: #17181e; color: #f3f2ee; }
+.boot-logo { height: 72px; width: auto; max-width: 60vw; object-fit: contain; animation: boot-in 0.35s ease-out both; }
+.boot-shop.dark .boot-logo.flip { filter: invert(1) brightness(1.6) grayscale(1); }
+.boot-initials { width: 72px; height: 72px; border-radius: 20px; display: grid; place-items: center; font: 700 26px/1 var(--font, system-ui); color: #fff; animation: boot-in 0.35s ease-out both; }
+.boot-bar { width: 72px; height: 3px; border-radius: 3px; background: rgba(127, 127, 127, 0.22); overflow: hidden; }
+.boot-bar i { display: block; height: 100%; width: 40%; border-radius: 3px; background: currentColor; opacity: 0.55; animation: boot-slide 1.1s ease-in-out infinite; }
+@keyframes boot-in { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: none; } }
+@keyframes boot-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) { .boot-logo, .boot-initials, .boot-bar i { animation: none; } }
