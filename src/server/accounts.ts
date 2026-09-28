@@ -7,7 +7,7 @@ import { HTTPException } from "hono/http-exception";
 import type { Database } from "../db/client";
 import { z } from "zod";
 import { demoRoute } from "./demo";
-import { slugSchema } from "./domain";
+import { slugSchema, smsSenderFor } from "./domain";
 import { RESERVED_SUBDOMAINS, SHOP_HOST_HEADER, rootHost, sessionCookieDomain, shopOrigin } from "./hosts";
 
 export type Account = {
@@ -411,7 +411,8 @@ accounts.post("/signup", async (c) => {
   const encoded = await passwordHash(b.password, salt);
   const session = await newSession(c, membership);
   const writes = [
-    c.env.DB.prepare("INSERT INTO shops(id,name,timezone,kind,email,setup_json,created_at,slug) VALUES(?,?,?,?,?,?,?,?)").bind(shop, b.shop_name, b.timezone, b.kind, b.email, JSON.stringify({ step: "shop", done: [], skipped: [], started_at: now }), now, b.slug ?? null),
+    // Every shop texts under its own name from day one (alphanumeric sender, editable in Settings → Messages).
+    c.env.DB.prepare("INSERT INTO shops(id,name,timezone,kind,email,setup_json,created_at,slug,msg_sms_sender) VALUES(?,?,?,?,?,?,?,?,?)").bind(shop, b.shop_name, b.timezone, b.kind, b.email, JSON.stringify({ step: "shop", done: [], skipped: [], started_at: now }), now, b.slug ?? null, smsSenderFor(b.shop_name)),
     c.env.DB.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)").bind(user, b.email, b.name, encoded, salt, now),
     c.env.DB.prepare("INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?)").bind(shop, user),
     c.env.DB.prepare("INSERT INTO staff(id,shop_id,name,role,title,start_date) VALUES(?,?,?,?,?,?)").bind(staffId, shop, b.name, "Owner", "Owner & barber", new Date(now).toISOString().slice(0, 10)),

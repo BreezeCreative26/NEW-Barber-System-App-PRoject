@@ -302,3 +302,19 @@ describe("duration and buffer availability", () => {
     expect(reason(600, 30, [{ ...b, status: "CANCELLED" }])).toBe("");
   });
 });
+
+import { smsSenderFor } from "../src/server/domain";
+describe("smsSenderFor", () => {
+  it("derives a whole-word alphanumeric sender of at most 11 chars", () => {
+    expect(smsSenderFor("Northline Barbers")).toBe("Northline");
+    expect(smsSenderFor("J&K Cuts")).toBe("JK Cuts");
+    expect(smsSenderFor("The Gentlemen's Quarter")).toBe("Gentlemens");
+    expect(smsSenderFor("The Barbers")).toBe("Barbers");
+    expect(smsSenderFor("Fade Lab")).toBe("Fade Lab");
+    expect(smsSenderFor("Supercalifragilistic")).toBe("Supercalifr");
+  });
+  it("falls back to foliyo when nothing usable is left", () => {
+    expect(smsSenderFor("99")).toBe("foliyo");
+    expect(smsSenderFor("!!!")).toBe("foliyo");
+  });
+});

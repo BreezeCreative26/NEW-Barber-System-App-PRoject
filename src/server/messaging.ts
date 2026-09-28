@@ -19,7 +19,7 @@ import type { Context } from "hono";
 import type { Database } from "../db/client";
 import type { AppEnv } from "./accounts";
 import type { Shop, ShopBrand } from "./domain";
-import { brandOf, inkOn } from "./domain";
+import { brandOf, inkOn, smsSenderFor } from "./domain";
 import { expireHolds } from "./stripe";
 import { scheduledPayRuns } from "./payouts";
 import { expireRequests } from "./chair";
@@ -555,7 +555,8 @@ async function sendSms(row: Row, db?: DB): Promise<Delivery> {
       const opted = await db.prepare("SELECT 1 AS x FROM wa_optouts WHERE phone=?").bind(to.replace(/\D/g, "")).first();
       if (opted) return { ok: false, provider: "telnyx", error: "Customer opted out of texts (replied STOP)", permanent: true };
     }
-    return telnyxSend(to, row.body, { alphaSender: row.msg_sms_sender, e });
+    // Shops that never set a sender still text under their own name, not a bare number.
+    return telnyxSend(to, row.body, { alphaSender: row.msg_sms_sender || smsSenderFor(row.shop_name), e });
   }
   if (clicksendOn(e)) return sendClickSend(row, e as Record<string, string>);
   if (!(e.TWILIO_ACCOUNT_SID && e.TWILIO_AUTH_TOKEN && (e.TWILIO_FROM || e.TWILIO_MESSAGING_SERVICE_SID))) return { ok: true, provider: "mailbox", id: `mbx_${uid().slice(0, 8)}` };
