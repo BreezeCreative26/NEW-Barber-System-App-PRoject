@@ -22,7 +22,7 @@ import { afterDepositPaid } from "./server/public";
 import { handleConnectEvent, type ConnectEvent } from "./server/payouts";
 import { settleByMetadata, type PaymentRequest } from "./server/chair";
 import { applyDeliveryReports, applyInbound, waWebhookOk } from "./server/whatsapp";
-import { applyTelnyxEvent, telnyxWebhookOk } from "./server/telnyx";
+import { applyTelnyxEvent, telnyxSetup, telnyxWebhookOk } from "./server/telnyx";
 import voice from "./server/voice";
 import admin, { adminPublic } from "./server/admin";
 import type { Database } from "./db/client";
@@ -152,6 +152,20 @@ app.post("/api/telnyx/webhook", async (c) => {
   try { body = JSON.parse(raw); } catch { /* not json */ }
   const result = body ? await applyTelnyxEvent(c.env.DB, body).catch(() => "ignored" as const) : "ignored";
   return c.json({ ok: true, result });
+});
+// One-off Telnyx account setup run from the deployed app (Telnyx's edge blocks some dev networks).
+// Inert unless TELNYX_SETUP_TOKEN is set; the caller must present it. Remove the env var afterwards.
+app.post("/api/telnyx/setup", async (c) => {
+  const want = process.env.TELNYX_SETUP_TOKEN;
+  const got = (c.req.header("authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!want || want.length < 24 || got !== want) return c.json({ ok: false }, 404);
+  const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
+  try {
+    const r = await telnyxSetup(origin, { buyUkNumber: c.req.query("buy") === "uk" });
+    return c.json({ ok: true, ...r });
+  } catch (e) {
+    return c.json({ ok: false, error: e instanceof Error ? e.message : "setup failed" }, 502);
+  }
 });
 const clientErrorHits = new Map<string, { n: number; until: number }>();
 app.post("/api/telemetry/error", async (c) => {
