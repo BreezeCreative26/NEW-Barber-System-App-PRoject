@@ -654,19 +654,7 @@ export function Sidebar({
         data-collapsed={collapsed ? "true" : "false"}
       >
         <div className="sidebar-head">
-          {shop && (
-            <div className="sidebar-shop">
-              {shop.logo ? (
-                <img className={`sidebar-logo${shop.tone ? ` tone-${shop.tone}` : ""}`} src={shop.logo} alt="" />
-              ) : (
-                <span className="sidebar-logo sidebar-logo-text" aria-hidden="true">{shop.name.trim().charAt(0).toUpperCase() || "S"}</span>
-              )}
-              <span className="sidebar-shop-text">
-                <b>{shop.name}</b>
-                {shop.caption && <small>{shop.caption}</small>}
-              </span>
-            </div>
-          )}
+          <span className="sidebar-head-spacer" />
           <button
             type="button"
             className="sidebar-toggle"

@@ -1115,6 +1115,14 @@ export function deductionsOf(json: string | null | undefined): Deduction[] {
     return [];
   }
 }
+// Barbers set up before itemised deductions kept their rent in staff.rent_pence. Until the owner
+// re-saves their pay terms (which writes deductions_json), treat that rent as a fixed deduction on
+// their pay cadence so it is never silently skipped on a run.
+export function withLegacyRent(deductions: Deduction[], rent_pence: number, period: PayPeriod): Deduction[] {
+  if (!rent_pence || rent_pence <= 0) return deductions;
+  if (deductions.some((d) => d.kind === "FIXED" && d.active)) return deductions;
+  return [...deductions, { id: "legacy-rent", label: "Chair rent", kind: "FIXED", amount_pence: rent_pence, pct_x100: 0, cadence: period, proration: "FULL", waive_on_leave: 0, active: 1 }];
+}
 export function payTermsOf(s: Staff): PayTerms {
   let tiers: { from_pence: number; pct: number }[] = [];
   try {
@@ -1125,7 +1133,7 @@ export function payTermsOf(s: Staff): PayTerms {
   return {
     pay_model: s.pay_model,
     pay_period: s.pay_period,
-    deductions: deductionsOf(s.deductions_json),
+    deductions: withLegacyRent(deductionsOf(s.deductions_json), s.rent_pence, s.pay_period),
     commission_pct: s.commission_pct,
     base_pence: s.base_pence,
     hourly_pence: s.hourly_pence,
@@ -1198,12 +1206,22 @@ export function deductionLines(terms: PayTerms, input: PayRunInput, staffShare: 
   }
   return out;
 }
+// How many of the barber's pay periods a run covers. Whole periods when the run lines up with the
+// cadence (a calendar month, one or two weeks); otherwise a fraction of one so base pay is prorated
+// instead of paying a monthly salary for a single week.
+export const PERIOD_DAYS: Record<PayPeriod, number> = { WEEKLY: 7, FORTNIGHTLY: 14, MONTHLY: 365 / 12 };
+export function periodsCovered(period: PayPeriod, days: number) {
+  if (days <= 0) return 1;
+  const raw = days / PERIOD_DAYS[period];
+  const whole = Math.round(raw);
+  return whole >= 1 && Math.abs(raw - whole) < 0.12 ? whole : Math.round(raw * 10000) / 10000;
+}
 export function calculatePayRun(
   terms: PayTerms,
   input: PayRunInput,
   adjustments: { label: string; pence: number }[] = [],
 ) {
-  const periods = Math.max(1, input.periods);
+  const periods = input.periods > 0 ? input.periods : 1;
   const tip_pence = Math.round((input.tips_pence * terms.tip_share_pct) / 100);
   let commission_pence = 0, base_pence = 0, hourly_pence = 0;
   let staff_share_pence: number;
@@ -1221,11 +1239,11 @@ export function calculatePayRun(
       staff_share_pence = hourly_pence;
       break;
     case "SALARY":
-      base_pence = terms.base_pence * periods;
+      base_pence = Math.round(terms.base_pence * periods);
       staff_share_pence = base_pence;
       break;
     case "HYBRID":
-      base_pence = terms.base_pence * periods;
+      base_pence = Math.round(terms.base_pence * periods);
       commission_pence = commissionFor(terms, input.service_pence);
       staff_share_pence = base_pence + commission_pence;
       break;

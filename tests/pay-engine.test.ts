@@ -1,7 +1,7 @@
 // Pay run engine v2: splits, chair/room rent with proration and leave waiver, % deductions, and the
 // two totals every statement must reconcile to.
 import { describe, expect, it } from "vitest";
-import { calculatePayRun, type PayTerms, type Deduction } from "../src/server/domain";
+import { calculatePayRun, periodsCovered, withLegacyRent, type PayTerms, type Deduction } from "../src/server/domain";
 
 const base: PayTerms = {
   pay_model: "COMMISSION", pay_period: "WEEKLY", commission_pct: 60, base_pence: 0, hourly_pence: 0, rent_pence: 0,
@@ -87,5 +87,34 @@ describe("pay engine v2", () => {
     const r = calculatePayRun({ ...base, deductions: [ded({ amount_pence: 100000 })] }, { ...week, service_pence: 20000, tips_pence: 0 });
     expect(r.net_pence).toBeLessThan(0);
     expect(r.owed_to_business_pence).toBe(8000 + 100000);
+  });
+});
+
+describe("pay engine: period proration and legacy rent", () => {
+  it("a monthly-paid barber on a one-week run gets a quarter of their base, not a whole month", () => {
+    const terms: PayTerms = { ...base, pay_model: "HYBRID", pay_period: "MONTHLY", base_pence: 120000, commission_threshold_pence: 200000, commission_pct: 55 };
+    const periods = periodsCovered("MONTHLY", 7);
+    expect(periods).toBeCloseTo(7 / (365 / 12), 3);
+    const r = calculatePayRun(terms, { service_pence: 2800, tips_pence: 500, visits: 1, hours_x100: 0, periods, days: 7 });
+    expect(r.base_pence).toBe(Math.round(120000 * periods)); // ≈ £276, not £1,200
+    expect(r.base_pence).toBeLessThan(30000);
+  });
+  it("whole periods stay whole: a calendar month is one monthly period, a fortnight is two weekly ones", () => {
+    expect(periodsCovered("MONTHLY", 30)).toBe(1);
+    expect(periodsCovered("MONTHLY", 31)).toBe(1);
+    expect(periodsCovered("MONTHLY", 28)).toBe(1);
+    expect(periodsCovered("WEEKLY", 14)).toBe(2);
+    expect(periodsCovered("FORTNIGHTLY", 14)).toBe(1);
+    expect(periodsCovered("WEEKLY", 7)).toBe(1);
+  });
+  it("legacy rent_pence on a chair-rent barber becomes a fixed weekly deduction until terms are re-saved", () => {
+    const terms: PayTerms = { ...base, pay_model: "CHAIR_RENT", deductions: withLegacyRent([], 18000, "WEEKLY") };
+    const r = calculatePayRun(terms, week);
+    expect(r.deductions.map((d) => [d.label, d.pence])).toEqual([["Chair rent", 18000]]);
+    expect(r.owed_to_business_pence).toBe(18000);
+    expect(r.net_pence).toBe(124000 + 8600 - 18000);
+    // An explicit fixed deduction wins; the legacy field is ignored so rent is never charged twice.
+    expect(withLegacyRent([ded({ amount_pence: 20000 })], 18000, "WEEKLY")).toHaveLength(1);
+    expect(withLegacyRent([], 0, "WEEKLY")).toEqual([]);
   });
 });
