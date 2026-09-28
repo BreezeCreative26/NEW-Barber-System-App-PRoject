@@ -1,3 +1,5 @@
+// RETIRED: WhatsApp is no longer offered to customers (WHATSAPP_RETIRED in messaging.ts); the two
+// routing tests below are skipped and kept only as a record of the old contract.
 // WhatsApp as a third channel (Infobip, one foliyo sender). Without INFOBIP keys the sandbox is in
 // preview mode: WA rows queue to the mailbox like SMS/email, so these tests assert the routing
 // contract — who gets WhatsApp, when it falls back to text, what the shop toggle does, and that
@@ -45,7 +47,7 @@ async function bookOnline(c: APIRequestContext, slug: string, w: WorkspaceData, 
 
 test.skip(() => new Date().getUTCDay() === 0, "Fixture shop is closed Sundays");
 
-test("public shop advertises channels; WhatsApp preference routes the confirmation to WA (+ email) and sticks on the customer record", async () => {
+test.skip("public shop advertises channels; WhatsApp preference routes the confirmation to WA (+ email) and sticks on the customer record", async () => {
   const { r, w, slug } = await onlineShop();
   const c = await customer();
   const info = await (await c.get(`${pub}/shops/${slug}`)).json();
@@ -115,7 +117,7 @@ test("shop switches WhatsApp off → WA preference falls back to text; toggle ro
   expect(res2.status(), await res2.text()).toBe(200);
 });
 
-test("inbound webhook: STOP opts a number out (WA message fails fast, text still goes); START opts back in; replies are stored against the shop", async () => {
+test.skip("inbound webhook: STOP opts a number out (WA message fails fast, text still goes); START opts back in; replies are stored against the shop", async () => {
   const { r, w, slug, shop_id } = await onlineShop("Inbound Shop");
   const c = await customer();
   const phone = "07700 900" + String(500 + Math.floor(Math.random() * 400)).padStart(3, "0");

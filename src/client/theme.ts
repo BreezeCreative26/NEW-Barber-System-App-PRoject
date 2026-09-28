@@ -51,3 +51,18 @@ export function shopPath(slug: string, path: "" | "/" | "/book" | "/me", suffix 
   if (path === "/book") return `/book/${slug}${suffix}`;
   return `/${slug}${path}${suffix}`;
 }
+
+// The brand the server embedded in the shell (see brandScript in src/index.tsx). Read once; lets
+// every customer screen render themed on its very first frame instead of after a fetch.
+export type ServerBrand = { name: string; slug: string; brand: ShopBrand; channels?: { sms: boolean; email: boolean } };
+let embedded: ServerBrand | null | undefined;
+export function serverBrand(): ServerBrand | null {
+  if (embedded !== undefined) return embedded;
+  try {
+    const el = typeof document !== "undefined" ? document.getElementById("foliyo-brand") : null;
+    embedded = el?.textContent ? (JSON.parse(el.textContent) as ServerBrand) : null;
+  } catch {
+    embedded = null;
+  }
+  return embedded;
+}

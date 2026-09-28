@@ -415,10 +415,14 @@ export function emailHtml(shop: { name: string; address?: string; slug?: string 
 export type Channel = "SMS" | "EMAIL" | "WA" | "PUSH";
 export type EnqueueOpts = { related: { type: string; id: string }; channel?: Channel | "AUTO"; origin: string; now?: number; force?: boolean };
 
-// Channel choice. Customer preference first: WA (when the shop sends WhatsApp and the recipient has
-// a mobile), then SMS, then email. AUTO = SMS if there's a mobile, else email; both for confirmations.
-// WA needs a template for the message — templates without one fall back to SMS.
-export const waAvailable = () => waLive() || providerStatus().sms.provider === "mailbox";
+// Channel choice. Customer preference first, then SMS, then email. AUTO = SMS if there's a mobile,
+// else email; both for confirmations. Customers reach the shop by text, email and push.
+//
+// WhatsApp is retired as a customer channel: nothing is offered or routed to it, and a WA
+// preference stored on older customer records behaves like a text preference. The Infobip
+// plumbing (sendWhatsApp, inbound webhooks) stays dormant so historic rows still render.
+export const WHATSAPP_RETIRED = true;
+export const waAvailable = () => !WHATSAPP_RETIRED && (waLive() || providerStatus().sms.provider === "mailbox");
 export function channelsFor(shop: MsgShop, to: Recipient, prefer: Channel | "AUTO" = "AUTO", both = false, force = false, template?: MessageTemplate): Channel[] {
   if (to.pref === "NONE" && !force) return [];
   const sms = !!to.phone && (force || (shop.msg_sms ?? 1) === 1);

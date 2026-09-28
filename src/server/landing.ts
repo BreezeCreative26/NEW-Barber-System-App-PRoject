@@ -64,34 +64,34 @@ export type Vertical = {
 };
 
 const BARBER_QUOTES: Quote[] = [
-  { img: "dan", name: "Dan", role: "Barber Shop Owner", where: "London", quote: "foliyo has completely changed the way we run our shop. It’s simple, reliable and our clients love the WhatsApp confirmations." },
+  { img: "dan", name: "Dan", role: "Barber Shop Owner", where: "London", quote: "foliyo has completely changed the way we run our shop. It’s simple, reliable and our clients love the text confirmations." },
   { img: "jess", name: "Jess", role: "Hairdresser", where: "Manchester", quote: "We tried a few booking systems and foliyo is by far the best. It’s so easy to use and knowing exactly what we pay each month is a game-changer." },
   { img: "sam", name: "Sam", role: "Salon Owner", where: "Birmingham", quote: "The support team are unreal. They helped us move everything across from our old system and made it stress free." },
   { img: "ria", name: "Ria", role: "Barber", where: "Leeds", quote: "Finally a booking system that actually understands the industry. Made by people who get it." },
 ];
 
 const BARBER_FAQS: Faq[] = [
-  { q: "Do my customers need an app?", a: "No. They book from your link in any browser, get a text, WhatsApp or email with a private link, and can move or cancel from there." },
+  { q: "Do my customers need an app?", a: "No. They book from your link in any browser, get a text or email with a private link, and can move or cancel from there." },
   { q: "Can I bring my existing customers over?", a: "Yes — import a CSV from your old system in Settings → Customers and their history comes with them." },
   { q: "Do barbers get their own login?", a: "Yes. Invite each barber; they see their own day, take payments at the chair, block their own time and watch their wallet." },
   { q: "What about deposits and no‑shows?", a: "Set a deposit, ask for full prepayment, or let people pay at the chair — shop‑wide or per service. No‑shows can be charged; refunds are automatic when you cancel on them." },
-  { q: "What does it really cost?", a: "£24.99 a month, which includes your first barber. Each extra chair is £7.99 — so a three-chair shop pays £40.97. Texts are 6p, WhatsApp 3p, email is free. Card payments are optional at 2.2% + 20p all in; leave them off and pay nothing. The AI Concierge is an optional £49 a month. Nothing per booking, no commission, and you can see exactly what you’ve used in your settings." },
+  { q: "What does it really cost?", a: "£24.99 a month, which includes your first barber. Each extra chair is £7.99 — so a three-chair shop pays £40.97. Texts are 6p, email is free. Card payments are optional at 2.2% + 20p all in; leave them off and pay nothing. The AI Concierge is an optional £49 a month. Nothing per booking, no commission, and you can see exactly what you’ve used in your settings." },
   { q: "Is my data safe?", a: "Hosted in the EU, encrypted in transit, backed up daily. You can export everything at any time." },
 ];
 
 const UNIVERSAL_QUOTES: Quote[] = [
-  { img: "dan", name: "Dan", role: "Barbershop Owner", where: "London", quote: "foliyo has completely changed the way we run our shop. It’s simple, reliable and our clients love the WhatsApp confirmations." },
+  { img: "dan", name: "Dan", role: "Barbershop Owner", where: "London", quote: "foliyo has completely changed the way we run our shop. It’s simple, reliable and our clients love the text confirmations." },
   { img: "jess", name: "Jess", role: "Beauty Studio Owner", where: "Manchester", quote: "We tried a few booking systems and foliyo is by far the best. It’s so easy to use and knowing exactly what we pay each month is a game-changer." },
   { img: "sam", name: "Sam", role: "Tattoo Artist", where: "Birmingham", quote: "Deposits sorted my no-show problem in a week. The support team helped us move everything across and made it stress free." },
   { img: "ria", name: "Ria", role: "Personal Trainer", where: "Leeds", quote: "My clients book their sessions themselves now and I stopped losing evenings to admin. Made by people who get it." },
 ];
 const UNIVERSAL_FAQS: Faq[] = [
   { q: "Is foliyo right for my kind of business?", a: "If people book a time with you or your team, yes — barbers, salons, beauty and nails, tattoo studios, clinics, personal trainers, therapists, dog groomers, tutors and more. Services, durations, deposits and reminders are all yours to set." },
-  { q: "Do my customers need an app?", a: "No. They book from your link in any browser, get a text, WhatsApp or email with a private link, and can move or cancel from there." },
+  { q: "Do my customers need an app?", a: "No. They book from your link in any browser, get a text or email with a private link, and can move or cancel from there." },
   { q: "Can I bring my existing customers over?", a: "Yes — import a CSV from your old system in Settings → Customers and their history comes with them." },
   { q: "Does each team member get their own login?", a: "Yes. Invite each person; they see their own day, take payments, block their own time and watch their earnings." },
   { q: "What about deposits and no‑shows?", a: "Set a deposit, ask for full prepayment, or let people pay on the day — business‑wide or per service. No‑shows can be charged; refunds are automatic when you cancel on them." },
-  { q: "What does it really cost?", a: "£24.99 a month, which includes your first team member. Each extra seat is £7.99 — so a team of three pays £40.97. Texts are 6p, WhatsApp 3p, email is free. Card payments are optional at 2.2% + 20p all in; leave them off and pay nothing. The AI Concierge is an optional £49 a month. Nothing per booking, no commission." },
+  { q: "What does it really cost?", a: "£24.99 a month, which includes your first team member. Each extra seat is £7.99 — so a team of three pays £40.97. Texts are 6p, email is free. Card payments are optional at 2.2% + 20p all in; leave them off and pay nothing. The AI Concierge is an optional £49 a month. Nothing per booking, no commission." },
   { q: "Is my data safe?", a: "Hosted in the EU, encrypted in transit, backed up daily. You can export everything at any time." },
 ];
 
@@ -100,11 +100,11 @@ export const VERTICALS: Record<"universal" | "barbers", Vertical> = {
     slug: "",
     path: "/",
     title: "foliyo — Booking software for appointment businesses. One fair price, no commission.",
-    description: "Online booking, a drag-and-drop calendar, deposits, card payments, team pay and reminders by text, WhatsApp and email — for barbers, salons, beauty, tattoo, clinics, trainers and any business that runs on appointments. Set up in two minutes. Free to start.",
+    description: "Online booking, a drag-and-drop calendar, deposits, card payments, team pay and reminders by text, email and push — for barbers, salons, beauty, tattoo, clinics, trainers and any business that runs on appointments. Set up in two minutes. Free to start.",
     audience: "Small appointment-based businesses",
     heroEyebrow: "Booking software for any appointment business",
     heroH1: "Built for people<br/>who run on appointments.",
-    heroLede: "foliyo is the all-in-one booking system for barbers, salons, beauty studios, tattoo artists, clinics, trainers and anyone whose day is a diary. One clear monthly price, WhatsApp confirmations and everything you need to run the business — without the commission and hidden fees.",
+    heroLede: "foliyo is the all-in-one booking system for barbers, salons, beauty studios, tattoo artists, clinics, trainers and anyone whose day is a diary. One clear monthly price, text and email confirmations and everything you need to run the business — without the commission and hidden fees.",
     heroImg: { src: "/static/landing/hero-universal.webp", small: "/static/landing/hero-universal-sm.webp", alt: "A studio owner at her reception desk checking bookings on her phone" },
     everythingLede: "From the first click to the final invoice, foliyo keeps your business running smoothly. Manage bookings, clients, staff, payments and more — all in one easy-to-use platform.",
     whyH2: "We listened to the people doing the work.<br/>Then we built what they wanted.",
@@ -136,11 +136,11 @@ export const VERTICALS: Record<"universal" | "barbers", Vertical> = {
     slug: "barbers",
     path: "/barbers",
     title: "foliyo for Barbers — Built by barbers. For the industry. Barbershop booking software",
-    description: "Barbershop booking software: online booking, a drag-and-drop calendar, deposits and pay-at-the-chair, barber pay runs, reminders by text, WhatsApp and email. Set up your shop in two minutes. Free to start.",
+    description: "Barbershop booking software: online booking, a drag-and-drop calendar, deposits and pay-at-the-chair, barber pay runs, reminders by text, email and push. Set up your shop in two minutes. Free to start.",
     audience: "Barbershops and independent barbers",
     heroEyebrow: "Booking software for barbers, hairdressers &amp; salons",
     heroH1: "Built by barbers.<br/>For the industry.",
-    heroLede: "foliyo is the all-in-one booking system designed specifically for barbers, hairdressers and salons. With one clear monthly price, WhatsApp confirmations and everything you need to run your shop — we’ve taken the best bits from other platforms and removed all the things you don’t want.",
+    heroLede: "foliyo is the all-in-one booking system designed specifically for barbers, hairdressers and salons. With one clear monthly price, text confirmations and everything you need to run your shop — we’ve taken the best bits from other platforms and removed all the things you don’t want.",
     heroImg: { src: "/static/landing/hero-barber.webp", small: "/static/landing/hero-barber-sm.webp", alt: "A barber cutting a client’s hair" },
     everythingLede: "From the first click to the final cut, foliyo keeps your shop running smoothly. Manage bookings, clients, barbers, payments and more — all in one easy-to-use platform.",
     whyH2: "We listened to the industry.<br/>Then we built what we wanted.",
@@ -185,7 +185,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
 <meta property="og:url" content="${esc(origin)}${v.path === "/" ? "/" : v.path}"/><meta property="og:image" content="${esc(origin)}${v.heroImg.src}"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="theme-color" content="#0b1a17"/>
-<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/><link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/><link rel="apple-touch-icon" href="/foliyo-apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>
 <link rel="stylesheet" href="/static/design.css"/>
 <link rel="stylesheet" href="/static/landing.css"/>
 <script type="application/ld+json">${JSON.stringify(ld)}</script>
@@ -222,7 +222,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
         </div>
         <ul class="l-trust">
           <li><i class="l-ico">${ICO.check}</i>No Commission</li>
-          <li><i class="l-ico">${ICO.chat}</i>WhatsApp Integration</li>
+          <li><i class="l-ico">${ICO.chat}</i>Text &amp; Email Reminders</li>
           <li><i class="l-ico">${ICO.slash}</i>No Hidden Costs</li>
         </ul>
         ${v.industries ? `<a class="l-hero-vertical" href="/barbers">${ICO.scissors} Run a barbershop? <b>See foliyo for barbers →</b></a>` : `<a class="l-hero-vertical" href="/">${ICO.check} Not a barber? <b>foliyo works for every appointment business →</b></a>`}
@@ -232,7 +232,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
           <source media="(max-width: 720px)" srcset="${v.heroImg.small}"/>
           <img class="l-hero-photo" src="${v.heroImg.src}" alt="${esc(v.heroImg.alt)}" width="768" height="1024" fetchpriority="high"/>
         </picture>
-        <div class="l-phone l-phone-hero" role="img" aria-label="A WhatsApp confirmation from foliyo: appointment confirmed for Friday 15th May at 11:30am with Sam.">
+        <div class="l-phone l-phone-hero" role="img" aria-label="A text confirmation from the shop: appointment confirmed for Friday 15th May at 11:30am with Sam.">
           <div class="l-phone-top"><img src="/static/brand/foliyo-wordmark-ink.svg" alt="" width="45" height="17"/></div>
           <div class="l-phone-card">
             <b>Appointment Confirmed!</b>
@@ -297,7 +297,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
       <ul class="l-grid6">
         <li><i class="l-ico">${ICO.pound}</i><b>Fair Monthly Price</b><p>From £24.99 a month. Never a fee per booking, never a cut of your clients.</p></li>
         <li><i class="l-ico">${ICO.people}</i><b>Client Management</b><p>Keep track of appointments, notes, preferences and more.</p></li>
-        <li><i class="l-ico">${ICO.chat}</i><b>WhatsApp Integration</b><p>Confirmations, reminders and client communication — all via WhatsApp.</p></li>
+        <li><i class="l-ico">${ICO.chat}</i><b>Text, Email &amp; Push</b><p>Confirmations and reminders by text, email and app notifications — in your shop’s name.</p></li>
         <li><i class="l-ico">${ICO.team}</i><b>Staff &amp; Multi-Location</b><p>Manage your team, multiple ${v.chairWord}s or multiple locations from one dashboard.</p></li>
         <li><i class="l-ico">${ICO.bolt}</i><b>Easy To Use</b><p>Get set up in minutes. No complicated training.</p></li>
         <li><i class="l-ico">${ICO.chart}</i><b>Payments &amp; Reports</b><p>Take payments, track your income and get the insights you need to grow.</p></li>
@@ -309,7 +309,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
   <section id="about" class="l-light l-action" aria-labelledby="action-heading">
     <div class="l-wrap l-two">
       <div class="l-action-visual">
-        <div class="l-phone l-phone-wa" role="img" aria-label="A WhatsApp message from foliyo confirming an appointment.">
+        <div class="l-phone l-phone-wa" role="img" aria-label="A text message from the shop confirming an appointment.">
           <div class="l-phone-top l-phone-top-wa"><img src="/static/brand/foliyo-wordmark-ink.svg" alt="foliyo" width="58" height="22"/><small>online</small></div>
           <div class="l-wa-bubble">
             <p>Hi Jake,<br/>Your appointment is confirmed for <strong>Friday 15th May at 11:30am</strong> with <strong>Sam</strong>.</p>
@@ -412,7 +412,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
             <i class="l-ico">${ICO.chat}</i>
             <div class="l-extra-body">
               <div class="l-extra-top"><b>Messages</b><span class="l-extra-price">6p <small>a text</small></span></div>
-              <p>Text confirmations and reminders 6p each. WhatsApp 3p each. Email always free. Your clients choose how they hear from you.</p>
+              <p>Text confirmations and reminders 6p each. Email and app notifications always free. Your clients choose how they hear from you.</p>
             </div>
           </article>
           <article class="l-extra l-extra-hi">

@@ -5,7 +5,7 @@ import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { Avatar, Button, Icon, Notice } from "./ui";
 import { GroupBooking } from "./GroupBooking";
 import { ReviewCard, type OwnReview } from "./Reviews";
-import { applyThemeColor, themeClass, type ShopBrand, shopPath } from "./theme";
+import { applyThemeColor, serverBrand, themeClass, type ShopBrand, shopPath } from "./theme";
 import { ShopTabBar } from "./ShopTabBar";
 
 // Connected customer booking for /book/:slug and /manage/:token.
@@ -292,10 +292,12 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   useEffect(() => { setExpandedGroups({}); }, [date, barber]);
   const [details, setDetails] = useState({ name: "", phone: "", email: "", notes: "" });
-  // How the customer wants their confirmation and reminders: text (default), WhatsApp or email.
-  const [contactPref, setContactPref] = useState<"AUTO" | "WA" | "EMAIL">("AUTO");
-  const waOffered = !!shop?.shop.channels?.wa;
+  // How the customer wants their confirmation and reminders: text or email. Text is only offered
+  // when the shop sends texts; otherwise email is the only (and default) choice.
+  const smsOffered = shop?.shop.channels?.sms !== false;
   const emailOffered = shop?.shop.channels?.email !== false;
+  const [contactPref, setContactPref] = useState<"AUTO" | "EMAIL">("AUTO");
+  useEffect(() => { if (shop && !smsOffered) setContactPref("EMAIL"); }, [shop, smsOffered]);
   // Book for someone else: the person in the chair, when it is not the booker.
   const [forOther, setForOther] = useState(false);
   const [attendee, setAttendee] = useState("");
@@ -524,6 +526,9 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   // Booking needs an account: step 3 signs the visitor in or registers them for this shop.
   const [authMode, setAuthMode] = useState<"register" | "login">("register");
   const [reg, setReg] = useState({ name: "", phone: "", email: "", password: "" });
+  // Consent at sign-up (see CustomerArea): texts only when the shop sends them; marketing off by default.
+  const [regTexts, setRegTexts] = useState(true);
+  const [regMarketing, setRegMarketing] = useState(false);
   const [login, setLogin] = useState({ email: "", password: "" });
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
@@ -555,8 +560,9 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     }
     setAuthBusy(true);
     try {
-      if (authMode === "register") await api(`/shops/${encodeURIComponent(slug)}/account/register`, "POST", { name: reg.name.trim(), phone: reg.phone, email: reg.email.trim(), password: reg.password });
+      if (authMode === "register") await api(`/shops/${encodeURIComponent(slug)}/account/register`, "POST", { name: reg.name.trim(), phone: reg.phone, email: reg.email.trim(), password: reg.password, marketing_opt_in: regMarketing ? 1 : 0, contact_pref: smsOffered && regTexts ? "AUTO" : "EMAIL" });
       else await api(`/shops/${encodeURIComponent(slug)}/account/login`, "POST", { email: login.email.trim(), password: login.password });
+      if (authMode === "register" && !(smsOffered && regTexts)) setContactPref("EMAIL");
       await loadSession();
       go(4);
     } catch (err) {
@@ -682,7 +688,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     );
   if (!shop)
     return (
-      <div className="booking-app">
+      <div className={themeClass(serverBrand()?.brand, "booking-app standalone")}>
         <TestBanner />
         <Boot label="Opening online booking…" />
       </div>
@@ -1321,6 +1327,18 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                           ) : null}
                         </label>
                       ))}
+                      <div className="booking-consent" data-testid="booking-consent">
+                        {smsOffered && (
+                          <label className="booking-check">
+                            <input type="checkbox" checked={regTexts} onChange={(e) => setRegTexts(e.target.checked)} data-testid="booking-texts" />
+                            <span>Text me confirmations and reminders</span>
+                          </label>
+                        )}
+                        <label className="booking-check">
+                          <input type="checkbox" checked={regMarketing} onChange={(e) => setRegMarketing(e.target.checked)} data-testid="booking-marketing" />
+                          <span>Send me offers and news from {shop.shop.name}</span>
+                        </label>
+                      </div>
                     </div>
                   ) : (
                     <div className="customer-fields">
@@ -1433,13 +1451,12 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                         </label>
                       )}
                     </div>
-                    {(waOffered || emailOffered) && (
+                    {smsOffered && emailOffered && (
                       <fieldset className="contact-pref" data-testid="contact-pref">
                         <legend>How should we message you?</legend>
                         <div className="filter-chips" role="radiogroup" aria-label="How should we message you?">
                           {([
-                            { v: "AUTO" as const, label: "Text", hint: "SMS to your mobile", show: true },
-                            { v: "WA" as const, label: "WhatsApp", hint: "From foliyo on WhatsApp", show: waOffered },
+                            { v: "AUTO" as const, label: "Text", hint: "SMS to your mobile", show: smsOffered },
                             { v: "EMAIL" as const, label: "Email", hint: "To your account email", show: emailOffered },
                           ]).filter((o) => o.show).map((o) => (
                             <button
@@ -1457,7 +1474,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                           ))}
                         </div>
                         <small className="contact-pref-hint">
-                          {contactPref === "WA" ? "Your confirmation and reminder arrive on WhatsApp. Reply STOP any time." : contactPref === "EMAIL" ? "We’ll email you instead of texting." : "We’ll text your confirmation and a reminder before your visit."}
+                          {contactPref === "EMAIL" ? "We’ll email your confirmation and a reminder before your visit." : "We’ll text your confirmation and a reminder before your visit."}
                         </small>
                       </fieldset>
                     )}
@@ -1501,7 +1518,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
               )}
               {step === 3 && !customer && (
                 <p className="booking-privacy" data-testid="booking-privacy">
-                  {shop.shop.name} uses your details to run your appointments and send you confirmations and reminders. It won't send marketing unless you say so. <a href="/legal/privacy" target="_blank" rel="noopener">How your data is handled</a>.
+                  {shop.shop.name} uses your details to run your appointments and send you confirmations and reminders by email{smsOffered ? " and, if you choose, by text" : ""}. It won't send marketing unless you say so. <a href="/legal/privacy" target="_blank" rel="noopener">How your data is handled</a> · <a href="/legal/terms" target="_blank" rel="noopener">Terms</a>.
                 </p>
               )}
               <footer className="booking-actions">
@@ -1688,7 +1705,7 @@ function ConfirmationCard({
   account?: { created: boolean; has_password: boolean; email: string } | null;
 }) {
   const link = token ? `${location.origin}/manage/${token}` : "";
-  const sentWhere = [sentTo.includes("WA") && booking.phone && `on WhatsApp to ${booking.phone}`, sentTo.includes("SMS") && booking.phone && `by text to ${booking.phone}`, sentTo.includes("EMAIL") && booking.email && `by email to ${booking.email}`].filter(Boolean).join(" and ");
+  const sentWhere = [sentTo.includes("SMS") && booking.phone && `by text to ${booking.phone}`, sentTo.includes("EMAIL") && booking.email && `by email to ${booking.email}`].filter(Boolean).join(" and ");
   const [copied, setCopied] = useState("");
   async function copy(value: string, label: string) {
     try {

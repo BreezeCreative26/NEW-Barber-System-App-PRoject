@@ -320,7 +320,7 @@ function ShopDetail({ id, onBack, me }: { id: string; onBack: () => void; me: { 
 
       {tab === "messaging" && (
         <div className="admin-cards">
-          {["SMS", "WA", "EMAIL"].map((ch) => { const t = msgTotals(ch); return <div key={ch} className="admin-card"><small>{ch === "WA" ? "WhatsApp" : ch === "SMS" ? "Texts" : "Email"} · 30d</small><strong>{t.SENT ?? 0} sent</strong><span>{t.FAILED ?? 0} failed · {t.QUEUED ?? 0} queued</span></div>; })}
+          {["SMS", "EMAIL", "PUSH"].map((ch) => { const t = msgTotals(ch); return <div key={ch} className="admin-card"><small>{ch === "PUSH" ? "Push" : ch === "SMS" ? "Texts" : "Email"} · 30d</small><strong>{t.SENT ?? 0} sent</strong><span>{t.FAILED ?? 0} failed · {t.QUEUED ?? 0} queued</span></div>; })}
           <div className="admin-card"><small>AI Concierge · 30d</small><strong>{d.calls_30d?.n ?? 0} calls</strong><span>{Math.round((d.calls_30d?.secs ?? 0) / 60)} minutes</span></div>
         </div>
       )}

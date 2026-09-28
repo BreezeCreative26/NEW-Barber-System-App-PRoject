@@ -175,8 +175,8 @@ const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   lead_time_min: s.lead_time_min,
   booking_window_days: s.booking_window_days,
   version: s.version,
-  // Which ways this shop can message the customer, so the booking form only offers real choices.
-  // WhatsApp needs the foliyo sender configured and the shop's toggle on.
+  // Which ways this shop can message the customer, so the booking form and account screens only
+  // offer real choices. Text needs the shop's SMS toggle on; WhatsApp is retired (always false).
   channels: {
     sms: (s as { msg_sms?: number }).msg_sms !== 0,
     email: (s as { msg_email?: number }).msg_email !== 0,

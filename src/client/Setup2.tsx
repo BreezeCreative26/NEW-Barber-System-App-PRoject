@@ -95,7 +95,7 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
                         <option value="EMAIL">Email{canEmail ? "" : " (not connected — link only)"}</option>
                         <option value="SMS">Text message{canSms ? "" : " (not connected — link only)"}</option>
                         <option value="BOTH">Email and text</option>
-                        <option value="LINK">Just give me a link (WhatsApp, in person)</option>
+                        <option value="LINK">Just give me a link (text it, share it in person)</option>
                       </select>
                     </F>
                   </div>
@@ -136,7 +136,7 @@ export function StepMessages({ w, api, refresh, data, setNotice, setError, onNex
   const [test, setTest] = useState<{ channel: string; ok: boolean; note: string } | null>(null);
   const { busy, run } = useBusy();
   const ps = data.progress.messages.providers;
-  const smsLive = ps.sms.provider !== "mailbox", emailLive = ps.email.provider !== "mailbox", waLive = ps.wa?.provider === "infobip";
+  const smsLive = ps.sms.provider !== "mailbox", emailLive = ps.email.provider !== "mailbox";
   const sender = m.msg_sms_sender || "foliyo";
   const barber = w.staff[0]?.name.split(" ")[0] || "Sam";
   const svc = w.services[0]?.name || "Haircut";
@@ -174,7 +174,6 @@ export function StepMessages({ w, api, refresh, data, setNotice, setError, onNex
           </F>
           <div className="setup-toggles">
             <label className="setup-check"><input type="checkbox" checked={!!m.msg_sms} onChange={(e) => setM({ ...m, msg_sms: e.target.checked ? 1 : 0 })} /><span>Send texts {smsLive ? "" : <small className="helper">(texting isn't connected on this deployment yet — they'll show in the dev mailbox)</small>}</span></label>
-            <label className="setup-check"><input type="checkbox" checked={!!m.msg_wa} onChange={(e) => setM({ ...m, msg_wa: e.target.checked ? 1 : 0 })} data-testid="setup-msg-wa" /><span>Offer WhatsApp <small className="helper">{waLive ? (ps.wa?.test_sender ? `(from foliyo's WhatsApp number — while we're on the test sender, a customer must first message “${ps.wa.keyword}” to +${ps.wa.sender})` : `(customers who choose it get messages from foliyo on WhatsApp, +${ps.wa?.sender}, with your shop name)`) : "(WhatsApp isn't connected on this deployment yet)"}</small></span></label>
             <label className="setup-check"><input type="checkbox" checked={!!m.msg_email} onChange={(e) => setM({ ...m, msg_email: e.target.checked ? 1 : 0 })} /><span>Send emails {emailLive ? "" : <small className="helper">(email isn't connected on this deployment yet)</small>}</span></label>
           </div>
           <div className="setup-test">
