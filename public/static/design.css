@@ -3344,3 +3344,52 @@ body.editor-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .sidebar.rail, .sidebar-label { transition: none; }
 }
+
+/* ---------- Settings → Messages: channel cards (symmetric) ---------- */
+.chan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; align-items: start; }
+.chan-card { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: var(--surface); display: grid; gap: 10px; min-height: 100%; }
+.chan-card.on { border-color: #2f6152; box-shadow: 0 0 0 3px rgba(47, 97, 82, .08); }
+.chan-head { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.chan-ic { width: 36px; height: 36px; border-radius: 10px; background: var(--canvas); display: grid; place-items: center; color: var(--ink); }
+.chan-card.on .chan-ic { background: #eef5f1; color: #2f6152; }
+.chan-text { display: grid; gap: 2px; min-width: 0; }
+.chan-text strong { font-size: var(--fs-14); }
+.chan-text small { color: var(--muted); font-size: var(--fs-12); }
+.chan-text small b { color: var(--ink); font-weight: 600; }
+.chan-body { margin: 0; color: var(--muted); font-size: var(--fs-13); line-height: 1.45; }
+.chan-card .field, .chan-card .workspace-field { margin: 0; }
+@media (max-width: 1100px) { .chan-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 767px) { .chan-grid { grid-template-columns: 1fr; } }
+
+/* ---------- Template editor with live phone preview ---------- */
+.tpl-set { display: grid; gap: 14px; }
+.tpl { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 18px; align-items: start; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.tpl-form { display: grid; gap: 8px; min-width: 0; }
+.tpl-label { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: var(--fs-13); font-weight: 600; }
+.tpl-label small { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tpl-form textarea { border: 1px solid var(--line); border-radius: var(--ctl-r, 10px); padding: 10px 12px; font: inherit; font-size: var(--fs-14); line-height: 1.45; resize: vertical; min-height: 78px; }
+.tpl-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tpl-chips .sender-chip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; font-weight: 600; }
+.tpl-reset { margin-left: auto; font-size: var(--fs-12); }
+.tpl-phone { font-size: 12.5px; }
+@media (max-width: 767px) { .tpl { grid-template-columns: 1fr; } .tpl-phone { max-width: 300px; } }
+
+/* ---------- Welcome window: shop setup as its own screen ---------- */
+.welcome-window { min-height: 100dvh; background: var(--canvas); display: flex; flex-direction: column; }
+.welcome-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px clamp(16px, 3vw, 32px); background: var(--surface); border-bottom: 1px solid var(--line); }
+.welcome-shop { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.welcome-logo { width: 44px; height: 44px; border-radius: 12px; object-fit: contain; background: var(--canvas); display: grid; place-items: center; flex: 0 0 auto; }
+.welcome-logo.tone-light { background: #14151a; padding: 4px; }
+.welcome-logo.tone-dark, .welcome-logo.tone-colour { background: #fff; padding: 4px; border: 1px solid var(--line); }
+.welcome-logo-text { font-weight: 800; font-size: 18px; color: var(--ink); }
+.welcome-shop-text { display: grid; line-height: 1.2; min-width: 0; }
+.welcome-shop-text b { font-size: var(--fs-16); letter-spacing: -0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.welcome-shop-text small { color: var(--muted); font-size: var(--fs-12); }
+.welcome-powered { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-12); white-space: nowrap; }
+.welcome-powered .brand { transform: scale(.85); transform-origin: left center; }
+.welcome-window .workspace-main { padding: 0; max-width: none; flex: 1; }
+.welcome-window .setup-flow { min-height: 0; }
+.welcome-window .setup-flow-top { top: 0; }
+.welcome-window .setup-flow-top .setup-flow-brand { display: none; }
+.welcome-window .setup-flow-rail { top: 55px; max-height: calc(100vh - 55px); }
+@media (max-width: 767px) { .welcome-powered { display: none; } }

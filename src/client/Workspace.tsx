@@ -43,6 +43,7 @@ import { PhotoUpload, PhotoPreview } from "./Media";
 import { themeClass, type ShopBrand } from "./theme";
 import { ShopPageView, type PageData as ShopPageData, type SectionVariants } from "./ShopPage";
 import { SmsBillingAck, SmsSenderField } from "./SmsSender";
+import { TemplateEditor } from "./TemplateEditor";
 import { WS_ACCENTS, DEFAULT_WS_THEME, applyWsTheme, parseWsTheme, readLocalWsTheme, writeLocalWsTheme, type WorkspaceTheme } from "./workspaceTheme";
 import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
 
@@ -2075,6 +2076,23 @@ export function Workspace() {
     );
   // First sign-in for invited staff: a short shop-branded onboarding before the workspace.
   const staffOnboarding = !!w && !inviteToken && !!w.account && w.account.role !== "OWNER" && !(w.account as { onboarded_at?: number | null }).onboarded_at && !staffOnbDone;
+  // Shop setup is its own window: no top bar, no sidebar — the shop's logo and the steps, nothing else.
+  if (w && !inviteToken && manager && setupOpen)
+    return (
+      <div className="workspace workspace-onboarding welcome-window" data-testid="welcome-window">
+        <ImpersonationBar />
+        <header className="welcome-top">
+          <span className="welcome-shop">
+            {w.logo_url ? <img className={`welcome-logo${w.logo_tone ? ` tone-${w.logo_tone}` : ""}`} src={w.logo_url} alt="" /> : <span className="welcome-logo welcome-logo-text" aria-hidden="true">{w.shop.name.trim().charAt(0).toUpperCase()}</span>}
+            <span className="welcome-shop-text"><b>{w.shop.name}</b><small>Setting up · {w.account?.name || "Owner"}</small></span>
+          </span>
+          <span className="welcome-powered">Powered by <Brand /></span>
+        </header>
+        <main id="workspace-main" className="workspace-main">
+          <SetupWizard w={w} api={api} refresh={async () => { await refresh(); }} goTo={(t) => { openSetup(false); goTo(t); }} onExit={() => { openSetup(false); refresh().catch(() => {}); }} />
+        </main>
+      </div>
+    );
   if (staffOnboarding && w)
     return (
       <div className="workspace workspace-onboarding">
@@ -2313,9 +2331,6 @@ export function Workspace() {
           )}
           {w && !inviteToken && !setupOpen && w.account && !w.account.email_verified_at && (tab !== "Appointments" || !manager) && (
             <VerifyEmailNudge email={w.account.email} onVerified={() => refresh({ background: true })} />
-          )}
-          {w && !inviteToken && manager && setupOpen && (
-            <SetupWizard w={w} api={api} refresh={async () => { await refresh(); }} goTo={goTo} onExit={() => { openSetup(false); refresh().catch(() => {}); }} />
           )}
           {w && !inviteToken && manager && !setupOpen && tab === "Appointments" && (() => {
             // One card, not a stack of banners: setup progress and email confirmation together.
@@ -4548,48 +4563,56 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
       )}
       {show === "messages" && msg && data && (
         <form className="workspace-form" onSubmit={saveMessaging} data-testid="messaging-form">
-          <div className="workspace-form-grid">
-            <div className="workspace-switch-row">
-              <span>
-                <strong>Text messages</strong>
-                <small>Confirmations, reminders and sign-in codes by SMS when we have a mobile number. <strong>{data.sms_billing?.unit_pence ?? 8}p per text</strong>, itemised on your invoice.{smsLive ? ` Sent as "${msg.msg_sms_sender || "your shop name"}".` : ""}</small>
-              </span>
-              <label className="switch">
-                <input type="checkbox" checked={!!msg.msg_sms} onChange={(e) => setMsg({ ...msg, msg_sms: e.target.checked ? 1 : 0 })} aria-label="Text messages" data-testid="msg-sms" />
-                <span />
-              </label>
-            </div>
-            {msg.msg_sms === 1 && data.sms_billing && (
-              <div className="workspace-form-wide">
-                <SmsBillingAck unitPence={data.sms_billing.unit_pence} acknowledgedAt={data.sms_billing.acknowledged_at} checked={smsAck} onChange={setSmsAck} testId="msg-sms-billing-ack" />
+          <div className="chan-grid">
+            <div className={`chan-card${msg.msg_sms ? " on" : ""}`} data-testid="chan-sms">
+              <div className="chan-head">
+                <span className="chan-ic"><Icon name="phone" size={18} /></span>
+                <span className="chan-text">
+                  <strong>Text messages</strong>
+                  <small><b>{data.sms_billing?.unit_pence ?? 8}p per text</b> · itemised on your invoice</small>
+                </span>
+                <label className="switch">
+                  <input type="checkbox" checked={!!msg.msg_sms} onChange={(e) => setMsg({ ...msg, msg_sms: e.target.checked ? 1 : 0 })} aria-label="Text messages" data-testid="msg-sms" />
+                  <span />
+                </label>
               </div>
-            )}
-            <div className="workspace-switch-row">
-              <span>
-                <strong>Emails</strong>
-                <small>Sent as “{w.shop.name}”{data.providers.email.from ? ` from ${data.providers.email.from}` : ""}. Replies go to your shop email{msg.msg_reply_to ? ` (${msg.msg_reply_to})` : ""}.</small>
-              </span>
-              <label className="switch">
-                <input type="checkbox" checked={!!msg.msg_email} onChange={(e) => setMsg({ ...msg, msg_email: e.target.checked ? 1 : 0 })} aria-label="Emails" data-testid="msg-email" />
-                <span />
-              </label>
+              <p className="chan-body">Confirmations, reminders and sign-in codes when we have a mobile number.{smsLive ? ` Sent as "${msg.msg_sms_sender || "your shop name"}".` : ""}</p>
+              {msg.msg_sms === 1 && data.sms_billing && <SmsBillingAck unitPence={data.sms_billing.unit_pence} acknowledgedAt={data.sms_billing.acknowledged_at} checked={smsAck} onChange={setSmsAck} testId="msg-sms-billing-ack" />}
             </div>
-            <div className="workspace-switch-row">
-              <span>
-                <strong>Reminders</strong>
-                <small>A reminder the day before, and a short one two hours before the visit.</small>
-              </span>
-              <label className="switch">
-                <input type="checkbox" checked={!!msg.msg_reminders} onChange={(e) => setMsg({ ...msg, msg_reminders: e.target.checked ? 1 : 0 })} aria-label="Reminders" data-testid="msg-reminders" />
-                <span />
-              </label>
+            <div className={`chan-card${msg.msg_email ? " on" : ""}`} data-testid="chan-email">
+              <div className="chan-head">
+                <span className="chan-ic"><Icon name="message" size={18} /></span>
+                <span className="chan-text">
+                  <strong>Emails</strong>
+                  <small><b>Free</b> · branded with your logo</small>
+                </span>
+                <label className="switch">
+                  <input type="checkbox" checked={!!msg.msg_email} onChange={(e) => setMsg({ ...msg, msg_email: e.target.checked ? 1 : 0 })} aria-label="Emails" data-testid="msg-email" />
+                  <span />
+                </label>
+              </div>
+              <p className="chan-body">Sent as “{w.shop.name}”{data.providers.email.from ? ` from ${data.providers.email.from}` : ""}. Replies go to {msg.msg_reply_to || "your shop email"}.</p>
+              <Field label="Reply-to email (optional)">
+                <input type="email" value={msg.msg_reply_to} maxLength={120} placeholder="hello@yourshop.com" onChange={(e) => setMsg({ ...msg, msg_reply_to: e.target.value })} />
+              </Field>
             </div>
-            <Field label="Day-before reminder, hours ahead">
-              <input type="number" min={1} max={72} value={msg.msg_reminder_hours} disabled={!msg.msg_reminders} onChange={(e) => setMsg({ ...msg, msg_reminder_hours: Number(e.target.value) })} data-testid="msg-reminder-hours" />
-            </Field>
-            <Field label="Reply-to email (optional)">
-              <input type="email" value={msg.msg_reply_to} maxLength={120} placeholder="hello@yourshop.com" onChange={(e) => setMsg({ ...msg, msg_reply_to: e.target.value })} />
-            </Field>
+            <div className={`chan-card${msg.msg_reminders ? " on" : ""}`} data-testid="chan-reminders">
+              <div className="chan-head">
+                <span className="chan-ic"><Icon name="bell" size={18} /></span>
+                <span className="chan-text">
+                  <strong>Reminders</strong>
+                  <small>The day before, and a short one two hours before</small>
+                </span>
+                <label className="switch">
+                  <input type="checkbox" checked={!!msg.msg_reminders} onChange={(e) => setMsg({ ...msg, msg_reminders: e.target.checked ? 1 : 0 })} aria-label="Reminders" data-testid="msg-reminders" />
+                  <span />
+                </label>
+              </div>
+              <p className="chan-body">Fewer no-shows. Reminders go by text when texts are on, otherwise by email.</p>
+              <Field label="Day-before reminder, hours ahead">
+                <input type="number" min={1} max={72} value={msg.msg_reminder_hours} disabled={!msg.msg_reminders} onChange={(e) => setMsg({ ...msg, msg_reminder_hours: Number(e.target.value) })} data-testid="msg-reminder-hours" />
+              </Field>
+            </div>
           </div>
           <SmsSenderField value={msg.msg_sms_sender} onChange={(v) => setMsg({ ...msg, msg_sms_sender: v })} shopName={w.shop.name} sampleBody={`${w.shop.name}: you're booked — ${w.services[0]?.name || "Haircut"} with ${w.staff[0]?.name.split(" ")[0] || "Sam"}, Fri 12 Sep at 10:30. Ref BRB-0412. Move or cancel: ${location.origin}/m/a1b2c3`} testId="msg-sms-sender" />
           {msgState.text && (
@@ -4666,24 +4689,30 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
               </Field>
             </div>
           )}
-          <fieldset className="template-fields">
-            <legend>Waiting-list wording</legend>
-            {Object.keys(TEMPLATE_LABELS).map((k) => (
-              <Field key={k} label={TEMPLATE_LABELS[k].label}>
-                <textarea value={form.templates[k] ?? ""} rows={2} maxLength={400} onChange={(e) => setForm({ ...form, templates: { ...form.templates, [k]: e.target.value } })} data-testid={`template-${k}`} />
-                <span className="field-help">
-                  Placeholders: <code>{TEMPLATE_LABELS[k].hint}</code>
-                  {form.templates[k] !== data.defaults[k] && (
-                    <>
-                      {" · "}
-                      <button type="button" className="linkish" onClick={() => setForm({ ...form, templates: { ...form.templates, [k]: data.defaults[k] } })}>
-                        Reset to default
-                      </button>
-                    </>
-                  )}
-                </span>
-              </Field>
-            ))}
+          <fieldset className="template-fields tpl-set">
+            <legend>Wording</legend>
+            <p className="workspace-footnote">Edit the words, see the text as the customer will get it. Placeholders in braces are filled in for each customer.</p>
+            {(() => {
+              const first = "Sam";
+              const barber = w.staff[0]?.name.split(" ")[0] || "Jay";
+              const service = w.services[0]?.name || "Haircut";
+              const sample = { first, shop: w.shop.name, service, barber, date: "Fri 12 Sep", time: "10:30", daypart: "afternoon", expires: "11:15", link: `${location.origin}/o/x7k2`, ref: "BRB-0412", manage: `${location.origin}/m/a1b2` };
+              const sender = msg?.msg_sms_sender || w.shop.name.replace(/[^A-Za-z0-9 ]/g, "").split(" ")[0] || "Shop";
+              return Object.keys(TEMPLATE_LABELS).map((k) => (
+                <TemplateEditor
+                  key={k}
+                  label={TEMPLATE_LABELS[k].label}
+                  value={form.templates[k] ?? ""}
+                  onChange={(v) => setForm({ ...form, templates: { ...form.templates, [k]: v } })}
+                  placeholders={TEMPLATE_LABELS[k].hint.split(/\s+/).map((x) => x.replace(/[{}]/g, "")).filter(Boolean)}
+                  sample={sample}
+                  sender={sender}
+                  defaultValue={data.defaults[k]}
+                  testId={`template-${k}`}
+                  unitPence={data.sms_billing?.unit_pence}
+                />
+              ));
+            })()}
           </fieldset>
           {state.text && (
             <p className={state.kind === "error" ? "workspace-error" : "workspace-success"} role={state.kind === "error" ? "alert" : "status"}>

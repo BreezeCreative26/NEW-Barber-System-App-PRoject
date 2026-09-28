@@ -612,7 +612,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
           }
           return shown.filter(Boolean);
         })()
-      : await staffNav.getByRole("button").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") || e.textContent || ""));
+      : await staffNav.locator(".sidebar-item").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") || e.textContent || ""));
     expect(staffLabels.map((t) => t.trim()).filter(Boolean)).toEqual(
       width < 768 ? ["Today", "Week", "Customers", "My pay", "Account"] : ["Appointments", "Insights", "Customers", "My pay", "Accounts"],
     );

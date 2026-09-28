@@ -683,8 +683,9 @@ accounts.post("/accept", async (c) => {
     .first<{ id: string; shop_id: string; staff_id: string; role: string; invited_by: string; email: string }>();
   if (!invite)
     return reject(400, "Invitation is unavailable or details do not match");
+  // One email = one shop = one account, by design. A barber at two shops holds two separate accounts.
   if (await c.env.DB.prepare("SELECT 1 AS x FROM app_users WHERE email=?").bind(b.email).first())
-    return reject(409, "An account with this email already exists. Sign in instead.");
+    return reject(409, "That email already has an account at another shop. Accounts are one per shop — use a different email for this one.");
   const user = uid(),
     membership = uid(),
     salt = uid() + uid(),
