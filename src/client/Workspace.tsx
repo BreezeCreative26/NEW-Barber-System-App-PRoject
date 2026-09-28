@@ -695,11 +695,15 @@ function AccountSettings({
     return result;
   }
   if (!account) return <AuthScreen onDone={onDone} />;
+  // slice: "me" = the signed-in person's own account (password, sign out); "team" = who can
+  // sign in and invitations (owner only); "all" = both, on the standalone Accounts page.
+  const showMe = slice !== "team";
+  const showTeam = slice !== "me";
   return (
-    <section className="account-settings" ref={root}>
-      <header className="workspace-panel">
+    <section className="account-settings" ref={root} data-slice={slice}>
+      {showMe && <header className="workspace-panel">
         <Badge>{account.role}</Badge>
-        <h2>Accounts & permissions</h2>
+        <h2>{slice === "me" ? "Your account" : "Accounts & permissions"}</h2>
         <p>
           Signed in as <strong>{account.name}</strong> · {account.email}
         </p>
@@ -723,7 +727,7 @@ function AccountSettings({
             await onDone();
           }}
         />
-      </header>
+      </header>}
       {notice && (
         <p className="workspace-success" role="status">
           {notice}
@@ -731,7 +735,7 @@ function AccountSettings({
       )}
       <ErrorMessage error={error} />
       <div className="account-grid">
-        <section className="workspace-panel">
+        {showMe && <section className="workspace-panel">
           <h3>Change password</h3>
           <p>Changing your password signs out your other sessions.</p>
           <SaveForm
@@ -768,8 +772,8 @@ function AccountSettings({
               />
             </Field>
           </SaveForm>
-        </section>
-        {account.role === "OWNER" && (
+        </section>}
+        {showTeam && account.role === "OWNER" && (
           <section className="workspace-panel">
             <h3>Invite staff</h3>
             <p>
@@ -835,7 +839,7 @@ function AccountSettings({
           </section>
         )}
       </div>
-      {account.role === "OWNER" && (
+      {showTeam && account.role === "OWNER" && (
         <section className="workspace-panel">
           <h3>Team access</h3>
           <Button

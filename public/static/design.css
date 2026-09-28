@@ -2915,10 +2915,11 @@ html.boot-dark, html.boot-dark body { background: #17181e; }
 .barber-home-stats b { color: var(--ink); font-size: 15px; margin-right: 3px; }
 .barber-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .barber-week-day { display: grid; justify-items: center; gap: 2px; padding: 8px 2px 6px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); font: inherit; color: var(--ink); cursor: pointer; min-height: 64px; }
-.barber-week-day small { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.barber-week-day small { font-size: 11px; color: var(--ink-2); text-transform: uppercase; letter-spacing: .03em; }
 .barber-week-day b { font-size: 16px; }
 .barber-week-day.is-today b { color: var(--accent-dark); }
-.barber-week-day.is-off { opacity: .55; }
+.barber-week-day.is-off { border-style: dashed; background: var(--canvas); }
+.barber-week-day.is-off small, .barber-week-day.is-off b { color: var(--ink-2); }
 .barber-week-day[aria-selected="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
 .barber-week-day[aria-selected="true"] small, .barber-week-day[aria-selected="true"] b { color: #fff; }
 .barber-week-count { font-size: 11px; font-weight: 700; min-height: 14px; color: var(--accent-dark); }
@@ -2940,11 +2941,11 @@ html.boot-dark, html.boot-dark body { background: #17181e; }
 .barber-agenda { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .barber-row { display: grid; grid-template-columns: 62px 1fr auto; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 10px 10px 10px 12px; }
 .barber-row.is-focus { border-color: var(--accent); }
-.barber-row.is-past { opacity: .6; }
+.barber-row.is-past { background: var(--canvas); }
 .barber-row.status-completed { background: var(--canvas); }
 .barber-row-time { display: grid; gap: 1px; font-variant-numeric: tabular-nums; }
 .barber-row-time b { font-size: 16px; }
-.barber-row-time small { font-size: 11px; color: var(--muted); }
+.barber-row-time small { font-size: 11px; color: var(--ink-2); }
 .barber-row-main { display: grid; gap: 2px; min-width: 0; text-align: left; background: transparent; border: 0; padding: 0; font: inherit; color: var(--ink); cursor: pointer; }
 .barber-row-main b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .barber-row-main small { font-size: 12.5px; color: var(--muted); }
