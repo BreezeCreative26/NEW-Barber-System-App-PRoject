@@ -1415,3 +1415,23 @@ export function slotReason(
     return "Slot taken";
   return "";
 }
+
+// SMS sender name (alphanumeric sender ID) for a shop: letters/digits/spaces, 3–11 chars, must
+// contain a letter. Derived from the shop name at signup; owners can change it under Settings →
+// Messages. "Northline Barbers" → "Northline", "J&K Cuts" → "JK Cuts".
+export function smsSenderFor(shopName: string): string {
+  const all = shopName.replace(/[^A-Za-z0-9 ]/g, "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  // Drop leading filler ("The Gentlemen's Quarter" → "Gentlemens Q…" not "The") unless it's all there is.
+  const FILLER = new Set(["the", "a", "an"]);
+  const words = all.length > 1 && FILLER.has(all[0].toLowerCase()) ? all.slice(1) : all;
+  let out = "";
+  for (const w of words) {
+    const next = out ? `${out} ${w}` : w;
+    if (next.length > 11) break;
+    out = next;
+  }
+  // First word alone is too long: take its first 11 characters.
+  if (!out) out = words[0]?.slice(0, 11) ?? "";
+  if (out.length < 3 || !/[A-Za-z]/.test(out)) return "foliyo";
+  return out;
+}
