@@ -42,6 +42,7 @@ import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
 import { themeClass, type ShopBrand } from "./theme";
 import { ShopPageView, type PageData as ShopPageData, type SectionVariants } from "./ShopPage";
+import { SmsBillingAck, SmsSenderField } from "./SmsSender";
 import { WS_ACCENTS, DEFAULT_WS_THEME, applyWsTheme, parseWsTheme, readLocalWsTheme, writeLocalWsTheme, type WorkspaceTheme } from "./workspaceTheme";
 import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
 
@@ -4415,7 +4416,7 @@ type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms:
 type Messaging = { msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
 const CHANNEL_LABEL: Record<string, string> = { SMS: "Text", EMAIL: "Email", WA: "WhatsApp (retired)", PUSH: "Push" };
 type OutboxData = {
-  shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_mode?: "ORDER" | "EVERYONE"; waitlist_delay_min?: number } };
+  shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; sms_billing?: { unit_pence: number; included_units: number; acknowledged_at: number | null; live: boolean }; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_mode?: "ORDER" | "EVERYONE"; waitlist_delay_min?: number } };
 // One data load (providers, channels, templates, outbox) feeds four Settings sections. `show`
 // picks which slice renders so each section stays short; test ids are unchanged.
 type MessagesSlice = "messages" | "waitlist" | "alerts" | "ai";
@@ -4452,13 +4453,15 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
       setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
     }
   }
+  const [smsAck, setSmsAck] = useState(false);
   async function saveMessaging(e: FormEvent) {
     e.preventDefault();
     if (!msg) return;
     setMsgState({ kind: "saving", text: "" });
     try {
-      const r = await api<{ shop_version?: number }>("/shop/messaging", "PUT", msg);
-      setData((d) => (d && typeof r.shop_version === "number" ? { ...d, shop_version: r.shop_version } : d));
+      const needsAck = msg.msg_sms === 1 && !!data?.sms_billing && !data.sms_billing.acknowledged_at;
+      const r = await api<{ shop_version?: number }>("/shop/messaging", "PUT", { ...msg, ...(needsAck ? { sms_billing_ack: smsAck } : {}) });
+      setData((d) => (d ? { ...d, ...(typeof r.shop_version === "number" ? { shop_version: r.shop_version } : {}), ...(needsAck && smsAck && d.sms_billing ? { sms_billing: { ...d.sms_billing, acknowledged_at: Date.now() } } : {}) } : d));
       setMsgState({ kind: "saved", text: "Saved." });
     } catch (err) {
       setMsgState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
@@ -4527,13 +4530,18 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
             <div className="workspace-switch-row">
               <span>
                 <strong>Text messages</strong>
-                <small>Confirmations, reminders and sign-in codes by SMS when we have a mobile number.{smsLive ? ` Sending from ${msg.msg_sms_sender || data.providers.sms.from || "a shared number"}.` : ""}</small>
+                <small>Confirmations, reminders and sign-in codes by SMS when we have a mobile number. <strong>{data.sms_billing?.unit_pence ?? 8}p per text</strong>, itemised on your invoice.{smsLive ? ` Sent as "${msg.msg_sms_sender || "your shop name"}".` : ""}</small>
               </span>
               <label className="switch">
                 <input type="checkbox" checked={!!msg.msg_sms} onChange={(e) => setMsg({ ...msg, msg_sms: e.target.checked ? 1 : 0 })} aria-label="Text messages" data-testid="msg-sms" />
                 <span />
               </label>
             </div>
+            {msg.msg_sms === 1 && data.sms_billing && (
+              <div className="workspace-form-wide">
+                <SmsBillingAck unitPence={data.sms_billing.unit_pence} acknowledgedAt={data.sms_billing.acknowledged_at} checked={smsAck} onChange={setSmsAck} testId="msg-sms-billing-ack" />
+              </div>
+            )}
             <div className="workspace-switch-row">
               <span>
                 <strong>Emails</strong>
@@ -4560,10 +4568,8 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
             <Field label="Reply-to email (optional)">
               <input type="email" value={msg.msg_reply_to} maxLength={120} placeholder="hello@yourshop.com" onChange={(e) => setMsg({ ...msg, msg_reply_to: e.target.value })} />
             </Field>
-            <Field label="SMS sender name (optional, up to 11 letters)">
-              <input type="text" value={msg.msg_sms_sender} maxLength={11} placeholder={w.shop.name.replace(/[^A-Za-z0-9 ]/g, "").slice(0, 11)} onChange={(e) => setMsg({ ...msg, msg_sms_sender: e.target.value })} />
-            </Field>
           </div>
+          <SmsSenderField value={msg.msg_sms_sender} onChange={(v) => setMsg({ ...msg, msg_sms_sender: v })} shopName={w.shop.name} sampleBody={`${w.shop.name}: you're booked — ${w.services[0]?.name || "Haircut"} with ${w.staff[0]?.name.split(" ")[0] || "Sam"}, Fri 12 Sep at 10:30. Ref BRB-0412. Move or cancel: ${location.origin}/m/a1b2c3`} testId="msg-sms-sender" />
           {msgState.text && (
             <p className={msgState.kind === "error" ? "workspace-error" : "workspace-success"} role={msgState.kind === "error" ? "alert" : "status"}>
               {msgState.text}

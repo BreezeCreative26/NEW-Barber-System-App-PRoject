@@ -8,6 +8,7 @@
 import type { Database as DB } from "../db/client";
 import { estimate, logBilling, platformBilling, subscriptionFor, type PlatformBilling } from "./billing";
 import { enqueue, drain, msgShop, platformSender } from "./messaging";
+import { pushInvoice } from "./stripeBilling";
 
 const uid = () => crypto.randomUUID();
 const DAY = 86400000;
@@ -115,8 +116,14 @@ export async function runPeriodClose(db: DB, periodKey: string, actor: string) {
     } catch (e) { out.errors.push({ shop: s.name, error: (e as Error).message }); }
   }
   await db.prepare("UPDATE platform_billing SET last_period_close=?, updated_at=? WHERE id=1").bind(periodKey, Date.now()).run();
-  // Send the new invoices to billing contacts.
-  for (const i of out.issued) { const row = await db.prepare("SELECT * FROM invoices WHERE number=?").bind(i.number).first<InvoiceRow>(); if (row && row.status === "OPEN") await sendInvoice(db, row, "", actor).catch(() => {}); }
+  // Hand each new invoice to Stripe for collection (saved card charged on the due date), then email it.
+  for (const i of out.issued) {
+    let row = await db.prepare("SELECT * FROM invoices WHERE number=?").bind(i.number).first<InvoiceRow>();
+    if (!row || row.status !== "OPEN") continue;
+    await pushInvoice(db, row).catch(async (e) => { await logBilling(db, row!.shop_id, "STRIPE_ERROR", `Could not hand ${row!.number} to Stripe: ${(e as Error).message}`, actor); });
+    row = (await db.prepare("SELECT * FROM invoices WHERE id=?").bind(row.id).first<InvoiceRow>()) || row;
+    await sendInvoice(db, row, "", actor).catch(() => {});
+  }
   return out;
 }
 
@@ -240,8 +247,16 @@ export async function applyDunning(db: DB, now = Date.now()) {
 }
 
 // Printable invoice / credit note (HTML with print CSS — Save as PDF from the browser).
+// The shop's own look on its invoice: logo and colour from the shop page (falls back to foliyo ink).
+async function invoiceBrand(db: DB, shopId: string) {
+  const ACCENT_HEX: Record<string, string> = { ollo: "#1f6f5f", ink: "#111318", sage: "#5b7a68", clay: "#a0522d", plum: "#5a3e6b", slate: "#4a5568" };
+  const p = await db.prepare("SELECT logo_url, accent, primary_hex, logo_tone FROM shop_pages WHERE shop_id=?").bind(shopId).first<{ logo_url: string | null; accent: string | null; primary_hex: string | null; logo_tone: string | null }>().catch(() => null);
+  const hex = p?.primary_hex && /^#[0-9a-fA-F]{6}$/.test(p.primary_hex) ? p.primary_hex : ACCENT_HEX[p?.accent || ""] || "#0b1a17";
+  return { logo: p?.logo_url || "", accent: hex, dark: p?.logo_tone === "light" };
+}
 export async function invoiceHtml(db: DB, inv: InvoiceRow) {
   const pb = await platformBilling(db);
+  const brand = await invoiceBrand(db, inv.shop_id);
   const bt = JSON.parse(inv.bill_to_json || "{}") as { name?: string; email?: string; address?: string; shop?: string };
   const lines = JSON.parse(inv.lines_json || "[]") as InvoiceLine[];
   const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -254,16 +269,18 @@ export async function invoiceHtml(db: DB, inv: InvoiceRow) {
   const refunds = (await db.prepare("SELECT * FROM invoice_adjustments WHERE invoice_id=? AND kind='REFUND'").bind(inv.id).all<{ amount_pence: number; refund_via: string; refund_ref: string; created_at: number }>()).results;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} ${esc(inv.number)} · ${esc(pb.company_name)}</title>
 <style>
-:root{--ink:#0b1a17;--muted:#6b6f6d;--line:#e3e1d8;--bg:#f4f3ee}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,Inter,Segoe UI,Roboto,sans-serif}
-.sheet{max-width:800px;margin:32px auto;background:#fff;border:1px solid var(--line);border-radius:16px;padding:40px;position:relative}
+:root{--ink:#0b1a17;--muted:#6b6f6d;--line:#e3e1d8;--bg:#f4f3ee;--accent:${brand.accent}}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,Inter,Segoe UI,Roboto,sans-serif}
+.sheet{max-width:800px;margin:32px auto;background:#fff;border:1px solid var(--line);border-radius:16px;padding:40px;position:relative;overflow:hidden}.sheet:before{content:"";position:absolute;left:0;top:0;right:0;height:6px;background:var(--accent)}
+.shoplogo{display:flex;align-items:center;gap:12px}.shoplogo img{width:44px;height:44px;border-radius:10px;object-fit:contain;background:${brand.dark ? "#14151a" : "#fff"};border:1px solid var(--line);padding:3px}.shoplogo .shopname{font-weight:700;font-size:16px;letter-spacing:-.01em}.shoplogo small{display:block;color:var(--muted);font-weight:500}
+.brand{color:var(--accent)}
 header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:32px;padding-right:0}h1+.muted{margin-bottom:28px}h1{margin:0;font-size:28px;letter-spacing:-.02em}.brand{font-weight:700;font-size:22px;letter-spacing:-.02em}.muted{color:var(--muted)}small{font-size:12px}
 .meta{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:28px}.meta h3{margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-tfoot td{border:0;padding:6px 8px}tfoot tr.total td{font-weight:700;font-size:16px;border-top:2px solid var(--ink);padding-top:12px}
+tfoot td{border:0;padding:6px 8px}tfoot tr.total td{font-weight:700;font-size:16px;border-top:2px solid var(--accent);padding-top:12px}th{color:var(--accent)}
 .stamp{position:absolute;top:110px;right:40px;border:3px solid;border-radius:8px;padding:4px 14px;font-weight:800;letter-spacing:.12em;font-size:14px;transform:rotate(-6deg);opacity:.85}.stamp.PAID,.stamp.CREDIT{color:#2f6152}.stamp.OVERDUE{color:#a33}.stamp.VOID{color:#777}
 .pay{margin-top:28px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}.pay h3{margin:0 0 6px;font-size:13px}pre{margin:0;font:inherit;white-space:pre-wrap}
 footer{margin-top:32px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
-.actions{max-width:800px;margin:0 auto 24px;display:flex;justify-content:flex-end;gap:8px}.actions button{height:40px;border-radius:10px;border:1px solid var(--ink);background:var(--ink);color:#fff;padding:0 16px;font:inherit;cursor:pointer}
+.actions{max-width:800px;margin:0 auto 24px;display:flex;justify-content:flex-end;gap:8px}.actions button{height:40px;border-radius:10px;border:1px solid var(--accent);background:var(--accent);color:#fff;padding:0 16px;font:inherit;cursor:pointer}
 @media print{body{background:#fff}.sheet{margin:0;border:0;border-radius:0;padding:24px}.actions{display:none}}
 </style></head><body>
 <div class="actions"><button type="button" onclick="window.print()">Print / Save as PDF</button></div>
@@ -271,7 +288,8 @@ footer{margin-top:32px;padding-top:16px;border-top:1px solid var(--line);color:v
 ${stamp ? `<div class="stamp ${stamp}">${stamp}</div>` : ""}
 <header><div><div class="brand">${esc(pb.company_name)}</div><small class="muted">${esc(pb.company_address).replace(/\n/g, "<br>")}${pb.company_number ? `<br>Company no. ${esc(pb.company_number)}` : ""}${pb.vat_number ? `<br>VAT ${esc(pb.vat_number)}` : ""}${pb.company_email ? `<br>${esc(pb.company_email)}` : ""}</small></div>
 <div style="text-align:right"><h1>${title}</h1><div class="muted">${esc(inv.number)}</div></div></header>
-<section class="meta">
+<div class="shoplogo">${brand.logo ? `<img src="${esc(brand.logo)}" alt="">` : ""}<div><span class="shopname">${esc(bt.shop || bt.name || "")}</span><small>Your foliyo account</small></div></div>
+<section class="meta" style="margin-top:20px">
 <div><h3>Billed to</h3><strong>${esc(bt.name || bt.shop)}</strong>${bt.shop && bt.shop !== bt.name ? `<br>${esc(bt.shop)}` : ""}${bt.address ? `<br><span class="muted">${esc(bt.address)}</span>` : ""}${bt.email ? `<br><span class="muted">${esc(bt.email)}</span>` : ""}</div>
 <div><h3>Details</h3><div>Issued <strong>${d(inv.issued_at ?? inv.created_at)}</strong></div>${isCN ? `<div>Against invoice <strong>${esc(against?.number ?? "")}</strong></div>` : `<div>Due <strong>${d(inv.due_at)}</strong></div>`}${inv.period_key ? `<div>Period <strong>${d(inv.period_start)} – ${d(inv.period_end)}</strong></div>` : ""}${inv.paid_at && inv.status === "PAID" && !isCN ? `<div>Paid <strong>${d(inv.paid_at)}</strong>${inv.paid_via ? ` via ${esc(inv.paid_via.replace(/_/g, " "))}` : ""}</div>` : ""}</div>
 </section>
@@ -318,12 +336,13 @@ export async function payRunStatementHtml(db: DB, runId: string, token: string) 
   const deductions: { label: string; pence: number; detail: string }[] = JSON.parse(run.deductions_json || "[]");
   const adjustments: { label: string; pence: number }[] = JSON.parse(run.adjustments_json || "[]");
   const first = String(run.staff_name).split(" ")[0];
+  const brand = await invoiceBrand(db, String(run.shop_id));
   const staffShare = run.staff_share_pence ?? 0, ownerShare = run.owner_share_pence ?? 0;
   const shareLabel = terms.pay_model === "COMMISSION" ? (terms.commission_tiers?.length ? "tiered commission" : `${terms.commission_pct}% of sales`) : terms.pay_model === "CHAIR_RENT" ? "keeps 100% of sales" : terms.pay_model === "HOURLY" ? `${(run.hours_x100 / 100).toFixed(1)} h × ${money(terms.hourly_pence)}` : terms.pay_model === "SALARY" ? "salary" : `base + ${terms.commission_pct}% above ${money(terms.commission_threshold_pence)}`;
   const status = run.status === "PAID" ? "SETTLED" : run.status === "VOID" ? "VOID" : run.status === "DRAFT" ? "DRAFT" : "";
   const row = (l: string, v: string, sub = "", cls = "") => `<tr class="${cls}"><td>${esc(l)}${sub ? `<br><small class="muted">${esc(sub)}</small>` : ""}</td><td class="num">${v}</td></tr>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pay statement · ${esc(run.staff_name)} · ${d(run.period_from)} – ${d(run.period_to)}</title>
-<style>:root{--ink:#0b1a17;--muted:#6b6f6d;--line:#e3e1d8;--bg:#f4f3ee}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,Inter,Segoe UI,Roboto,sans-serif}.sheet{max-width:760px;margin:32px auto;background:#fff;border:1px solid var(--line);border-radius:16px;padding:40px;position:relative}header{display:flex;justify-content:space-between;gap:24px;margin-bottom:28px}h1{margin:0;font-size:24px;letter-spacing:-.02em}.muted{color:var(--muted)}small{font-size:12px}table{width:100%;border-collapse:collapse}td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}tr.sub td{font-weight:700;border-bottom:2px solid var(--ink)}tr.total td{font-weight:800;font-size:17px;border:0;padding-top:14px}tr.head td{border:0;padding:18px 8px 4px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.stamp{position:absolute;top:100px;right:40px;border:3px solid;border-radius:8px;padding:4px 14px;font-weight:800;letter-spacing:.12em;transform:rotate(-6deg);opacity:.8}.stamp.SETTLED{color:#2f6152}.stamp.VOID,.stamp.DRAFT{color:#777}footer{margin-top:28px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}.actions{max-width:760px;margin:0 auto 20px;display:flex;justify-content:flex-end}.actions button{height:40px;border-radius:10px;border:0;background:var(--ink);color:#fff;padding:0 16px;font:inherit;cursor:pointer}@media print{body{background:#fff}.sheet{margin:0;border:0;padding:20px}.actions{display:none}}</style></head><body>
+<style>:root{--ink:#0b1a17;--muted:#6b6f6d;--line:#e3e1d8;--bg:#f4f3ee;--accent:${brand.accent}}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,Inter,Segoe UI,Roboto,sans-serif}.sheet{max-width:760px;margin:32px auto;background:#fff;border:1px solid var(--line);border-radius:16px;padding:40px;position:relative}header{display:flex;justify-content:space-between;gap:24px;margin-bottom:28px}h1{margin:0;font-size:24px;letter-spacing:-.02em}.muted{color:var(--muted)}small{font-size:12px}table{width:100%;border-collapse:collapse}td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}tr.sub td{font-weight:700;border-bottom:2px solid var(--ink)}tr.total td{font-weight:800;font-size:17px;border:0;padding-top:14px}tr.head td{border:0;padding:18px 8px 4px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.stamp{position:absolute;top:100px;right:40px;border:3px solid;border-radius:8px;padding:4px 14px;font-weight:800;letter-spacing:.12em;transform:rotate(-6deg);opacity:.8}.stamp.SETTLED{color:#2f6152}.stamp.VOID,.stamp.DRAFT{color:#777}footer{margin-top:28px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}.actions{max-width:760px;margin:0 auto 20px;display:flex;justify-content:flex-end}.actions button{height:40px;border-radius:10px;border:0;background:var(--ink);color:#fff;padding:0 16px;font:inherit;cursor:pointer}@media print{body{background:#fff}.sheet{margin:0;border:0;padding:20px}.actions{display:none}}</style></head><body>
 <div class="actions"><button type="button" onclick="window.print()">Print / Save as PDF</button></div>
 <article class="sheet">${status ? `<div class="stamp ${status}">${status}</div>` : ""}
 <header><div><h1>Pay statement</h1><div class="muted">${esc(run.shop_name)}${run.shop_address ? ` · ${esc(run.shop_address)}` : ""}</div></div><div style="text-align:right"><strong>${esc(run.staff_name)}</strong><br><span class="muted">${d(run.period_from)} – ${d(run.period_to)}</span></div></header>

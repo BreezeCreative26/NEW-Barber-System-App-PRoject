@@ -74,6 +74,8 @@ import {
 import { slotFreed, makeOffer, matchesFor, rangeDates, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { logoTone, optimiseImage } from "./images";
 import { billingSummary, entitlements, setFeature, syncSeats, hasFeature, features as billingFeatures } from "./billing";
+import { runningStatement, statementCsv } from "./statement";
+import { billingLive, cardSetupSession, paymentMethodSummary, portalSession } from "./stripeBilling";
 import { applyDecisions, changeSchema, decisionSchema, describeChange, previewChange, type ScheduleChange } from "./schedule";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
 import { agentPrompt, newSecret, voiceEndpoints, voiceOf, voiceSettingsSchema } from "./voice";
@@ -1303,6 +1305,8 @@ sandbox.get("/notifications", async (c) => {
     counts_30d: Object.fromEntries(counts.results.map((r) => [r.status, r.n])),
     providers: providerStatus(),
     messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "" },
+    // What a text costs the shop and whether the owner has acknowledged texts are billed.
+    sms_billing: await smsBilling(c),
     templates: templatesOf(shop),
     defaults: DEFAULT_TEMPLATES,
     settings: { waitlist_auto_offer: shop.waitlist_auto_offer, waitlist_offer_hold_min: shop.waitlist_offer_hold_min, waitlist_mode: shop.waitlist_mode, waitlist_delay_min: shop.waitlist_delay_min },
@@ -1338,15 +1342,27 @@ const messagingSchema = z
     msg_reminder_hours: z.number().int().min(1).max(72),
     msg_reply_to: z.union([z.literal(""), z.string().trim().email().max(120)]),
     msg_sms_sender: z.string().trim().max(11).regex(/^[A-Za-z0-9 ]*$/, "Letters and numbers only"),
+    // Owner confirms texts are billed per message (shown with the rate). Required the first time SMS is switched on.
+    sms_billing_ack: z.boolean().optional(),
   })
   .strict();
+// Per-text price and whether this shop's owner has accepted it.
+async function smsBilling(c: Ctx) {
+  const f = (await billingFeatures(c.env.DB)).find((x) => x.key === "sms");
+  const row = await c.env.DB.prepare("SELECT msg_sms_billing_ack_at FROM shops WHERE id=?").bind(c.get("shopId")).first<{ msg_sms_billing_ack_at: number | null }>();
+  return { unit_pence: f?.unit_pence ?? 8, included_units: f?.included_units ?? 0, acknowledged_at: row?.msg_sms_billing_ack_at ?? null, live: providerStatus().sms.provider !== "mailbox" };
+}
 sandbox.put("/shop/messaging", async (c) => {
   requireRole(c, ["OWNER", "MANAGER"]);
   const b = await input(c, messagingSchema);
   const sid = c.get("shopId");
+  const bill = await smsBilling(c);
+  // Switching texts on is a commitment to pay per text: the owner must tick the acknowledgement once.
+  if (b.msg_sms === 1 && !bill.acknowledged_at && !b.sms_billing_ack) fail(409, `Please confirm you understand texts are billed at ${bill.unit_pence}p each.`);
+  const ackNow = b.msg_sms === 1 && !bill.acknowledged_at && b.sms_billing_ack ? Date.now() : null;
   await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE shops SET msg_sms=?,msg_email=?,msg_wa=?,msg_reminders=?,msg_reminder_hours=?,msg_reply_to=?,msg_sms_sender=?,version=version+1 WHERE id=?").bind(b.msg_sms, b.msg_email, b.msg_wa, b.msg_reminders, b.msg_reminder_hours, b.msg_reply_to, b.msg_sms_sender, sid),
-    audit(c, "shop", sid, "MESSAGING_UPDATED", `SMS ${b.msg_sms ? "on" : "off"}, WhatsApp ${b.msg_wa ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
+    c.env.DB.prepare(`UPDATE shops SET msg_sms=?,msg_email=?,msg_wa=?,msg_reminders=?,msg_reminder_hours=?,msg_reply_to=?,msg_sms_sender=?,version=version+1${ackNow ? ", msg_sms_billing_ack_at=?" : ""} WHERE id=?`).bind(...[b.msg_sms, b.msg_email, b.msg_wa, b.msg_reminders, b.msg_reminder_hours, b.msg_reply_to, b.msg_sms_sender, ...(ackNow ? [ackNow] : []), sid]),
+    audit(c, "shop", sid, "MESSAGING_UPDATED", `SMS ${b.msg_sms ? "on" : "off"}${ackNow ? ` (billing at ${bill.unit_pence}p/text accepted)` : ""}, WhatsApp ${b.msg_wa ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
   ]);
   const shop_version = (await c.env.DB.prepare("SELECT version FROM shops WHERE id=?").bind(sid).first<{ version: number }>())?.version;
   return c.json({ ok: true, messaging: b, shop_version });
@@ -2466,7 +2482,37 @@ sandbox.delete("/staff/:id/overrides/:overrideId", async (c) => {
 // and self-serve add-ons. Stripe Billing mirrors in once connected; local truth drives entitlements.
 sandbox.get("/billing", async (c) => {
   requireRole(c, ["OWNER", "MANAGER"]);
-  return c.json(await billingSummary(c.env.DB, c.get("shopId")));
+  const summary = await billingSummary(c.env.DB, c.get("shopId"));
+  const payment_method = await paymentMethodSummary(c.env.DB, c.get("shopId")).catch(() => null);
+  return c.json({ ...summary, payment_method, stripe_live: billingLive() });
+});
+// Save a card for automatic invoice payment (Stripe Checkout, setup mode) / manage it in Stripe's portal.
+sandbox.post("/billing/card", async (c) => {
+  requireRole(c, ["OWNER"]);
+  await input(c, z.object({}).strict());
+  if (!billingLive()) fail(409, "Card payments are not switched on for this deployment yet");
+  const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
+  const s = await cardSetupSession(c.env.DB, c.get("shopId"), origin);
+  await audit(c, "shop", c.get("shopId"), "BILLING_CARD_STARTED", "Owner started saving a payment card.").run();
+  return c.json({ url: s.url });
+});
+sandbox.post("/billing/portal", async (c) => {
+  requireRole(c, ["OWNER"]);
+  await input(c, z.object({}).strict());
+  if (!billingLive()) fail(409, "Not available on this deployment");
+  const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
+  return c.json({ url: (await portalSession(c.env.DB, c.get("shopId"), origin)).url });
+});
+// The running bill: this month's invoice as it builds (every text itemised) + next month's forecast.
+sandbox.get("/billing/statement", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  return c.json(await runningStatement(c.env.DB, c.get("shopId")));
+});
+sandbox.get("/billing/statement.csv", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const period = /^\d{4}-\d{2}$/.test(c.req.query("period") || "") ? c.req.query("period")! : undefined;
+  const csv = await statementCsv(c.env.DB, c.get("shopId"), period);
+  return new Response(csv, { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="usage-${period ?? "this-month"}.csv"` } });
 });
 sandbox.post("/billing/features/:key", async (c) => {
   requireRole(c, ["OWNER"]);

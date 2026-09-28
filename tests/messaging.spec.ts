@@ -224,6 +224,9 @@ test("browser: Settings → Messages shows provider status, saves channel settin
   // Toggle reminders hours and save.
   const form = page.getByTestId("messaging-form");
   await form.getByTestId("msg-reminder-hours").fill("48");
+  // First save with texts on: accept the per-text price.
+  const ack = form.getByTestId("msg-sms-billing-ack");
+  if (await ack.count()) await ack.locator("input").check();
   await form.getByTestId("save-messaging").click();
   await expect(form.getByTestId("msg-reminder-hours")).toHaveValue("48");
   const saved = await (await page.request.get(base + "/notifications")).json();
