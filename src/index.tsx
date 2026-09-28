@@ -180,6 +180,8 @@ app.get("/admin", workspaceShell);
 app.get("/admin/*", workspaceShell);
 app.get("/workspace/setup", workspaceShell);
 app.get("/signin", workspaceShell);
+// Staff sign-in on the shop's own address (<slug>.foliyo.co.uk/staff): same shell, shop-branded.
+app.get("/staff", workspaceShell);
 app.get("/signup", workspaceShell);
 app.get("/forgot", workspaceShell);
 app.get("/reset", workspaceShell);

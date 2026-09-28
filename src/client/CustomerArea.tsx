@@ -9,7 +9,7 @@ import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { ReviewCard, type OwnReview } from "./Reviews";
 import { applyThemeColor, serverBrand, themeClass, type ShopBrand, shopPath } from "./theme";
 
-type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; contact_pref?: "AUTO" | "EMAIL" | "NONE"; notes: string; version: number; member_since: number; has_password?: boolean; account_email?: string; email_verified?: boolean };
+type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; contact_pref?: "AUTO" | "EMAIL" | "NONE"; complete?: boolean; notes: string; version: number; member_since: number; has_password?: boolean; account_email?: string; email_verified?: boolean };
 type Visit = {
   review?: OwnReview;
   can_review?: boolean;
@@ -104,6 +104,8 @@ export function CustomerArea({ slug }: { slug: string }) {
       </main>
     );
   if (signedOut) return <SignIn slug={slug} A={A} onDone={load} />;
+  // A code-only account (no email/password yet) finishes its profile before using the area.
+  if (me && me.profile.complete === false) return <SignIn slug={slug} A={A} onDone={load} startMode="complete" seedProfile={{ name: me.profile.name, email: me.profile.email }} />;
   if (!me)
     return (
       <div className={themeClass(serverBrand()?.brand, "customer-area")}>
@@ -169,16 +171,16 @@ export function CustomerArea({ slug }: { slug: string }) {
   );
 }
 
-type SignInMode = "login" | "register" | "forgot" | "code" | "code-verify" | "reset" | "sent";
-function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => void }) {
+type SignInMode = "login" | "register" | "forgot" | "code" | "code-verify" | "complete" | "reset" | "sent";
+function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: string; onDone: () => void; startMode?: SignInMode; seedProfile?: { name: string; email: string } }) {
   const params = new URLSearchParams(location.search);
   const resetToken = params.get("reset") || params.get("welcome") || "";
   const isWelcome = params.has("welcome");
-  const [mode, setMode] = useState<SignInMode>(resetToken ? "reset" : params.get("forgot") ? "forgot" : "login");
-  const [email, setEmail] = useState("");
+  const [mode, setMode] = useState<SignInMode>(startMode || (resetToken ? "reset" : params.get("forgot") ? "forgot" : "login"));
+  const [email, setEmail] = useState(seedProfile?.email || "");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
-  const [name, setName] = useState("");
+  const [name, setName] = useState(seedProfile?.name || "");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [shownCode, setShownCode] = useState("");
@@ -238,7 +240,21 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
     run(async () => { await api(`${A}/reset`, "POST", { token: resetToken || sandboxToken, password }); finish(); }, "Could not set your password.");
   };
   const startCode = (e: FormEvent) => { e.preventDefault(); run(async () => { const r = await api<{ sandbox_code?: string; delivery: "sms" | "on_screen" }>(`${A}/start`, "POST", { phone }); setShownCode(r.delivery === "sms" ? "" : r.sandbox_code || ""); go("code-verify"); setTimeout(() => codeRef.current?.focus(), 30); }, "Could not send a code."); };
-  const verifyCode = (e: FormEvent) => { e.preventDefault(); run(async () => { await api(`${A}/verify`, "POST", { phone, code }); finish(); }, "Could not verify the code."); };
+  const verifyCode = (e: FormEvent) => {
+    e.preventDefault();
+    run(async () => {
+      const r = await api<{ needs_profile?: boolean; profile?: { name?: string; email?: string } }>(`${A}/verify`, "POST", { phone, code });
+      if (r.needs_profile) { setName(r.profile?.name || ""); setEmail(r.profile?.email || ""); go("complete"); return; }
+      finish();
+    }, "Could not verify the code.");
+  };
+  // Code-only accounts finish here: name, email, password, consents — then they are a full account.
+  const complete = (e: FormEvent) => {
+    e.preventDefault();
+    if (password !== password2) { setError("The two passwords don't match."); return; }
+    if (terms && !termsTick) { setError(`Please accept ${shopName || "the shop"}’s booking terms.`); return; }
+    run(async () => { await api(`${A}/complete`, "POST", { name, email, password, marketing_opt_in: marketing ? 1 : 0, contact_pref: smsOffered && textReminders ? "AUTO" : "EMAIL", accept_terms_version: terms?.version || 0 }); finish(); }, "Could not finish your account.");
+  };
 
   const title: Record<SignInMode, string> = {
     login: "Sign in.",
@@ -248,6 +264,7 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
     reset: isWelcome ? "Choose a password." : "Choose a new password.",
     code: "Sign in with a text code.",
     "code-verify": "Enter your code.",
+    complete: "Finish your account.",
   };
   const lead: Record<string, string> = {
     login: `See upcoming visits, move or cancel them, and rebook your usual in one tap${shopName ? ` at ${shopName}` : ""}.`,
@@ -257,6 +274,7 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
     reset: isWelcome ? "Your account was created when you booked. Set a password to finish — you'll use your email and this password to sign in." : "Your other devices will be signed out.",
     code: "No password? We text a 6-digit code to the mobile you booked with. You can set a password once you're in.",
     "code-verify": `Code for ${phone}. It lasts ten minutes.`,
+    complete: "You're in. Add your name, email and a password so your confirmations reach you and you can sign in anywhere.",
   };
   const Err = () => (error ? <p className="form-error" role="alert">{error}</p> : null);
   const PasswordFields = ({ confirm }: { confirm: boolean }) => (
@@ -299,10 +317,13 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
               <Button type="submit" disabled={busy} data-testid="signin-submit">{busy ? "Signing in…" : "Sign in"} <Icon name="arrowRight" size={16} /></Button>
               <div className="ca-links">
                 <button type="button" className="link" onClick={() => go("forgot")} data-testid="signin-forgot">Forgot password?</button>
-                <button type="button" className="link" onClick={() => go("code")} data-testid="signin-use-code">Text me a code instead</button>
+                {smsOffered && <button type="button" className="link" onClick={() => go("code")} data-testid="signin-use-code">Text me a code instead</button>}
               </div>
               <p className="ca-switch">New here? <button type="button" className="link" onClick={() => go("register")} data-testid="signin-register">Create an account</button></p>
             </form>
+          )}
+          {mode === "login" && (
+            <p className="auth-staff-link">Work at {shopName || "this shop"}? <a href={document.querySelector('meta[name="foliyo-shop"]') ? "/staff" : "/signin"} data-testid="staff-signin-link">Staff sign in</a></p>
           )}
 
           {mode === "register" && (
@@ -394,6 +415,35 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
                 <Button variant="ghost" onClick={() => { go("code"); setCode(""); }}>Different number</Button>
                 <Button type="submit" disabled={busy || code.length !== 6} data-testid="signin-verify">{busy ? "Checking…" : "Sign in"}</Button>
               </div>
+            </form>
+          )}
+          {mode === "complete" && (
+            <form onSubmit={complete} className="ca-form" data-testid="complete-form">
+              <label><span>Your name</span><input type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required minLength={2} data-testid="complete-name" /></label>
+              <label><span>Email</span><input type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="complete-email" /><small className="ca-hint">You'll sign in with this. Confirmations and reminders come here too.</small></label>
+              <PasswordFields confirm />
+              <div className="ca-consent" data-testid="complete-consent">
+                {smsOffered && (
+                  <label className="ca-check">
+                    <input type="checkbox" checked={textReminders} onChange={(e) => setTextReminders(e.target.checked)} />
+                    <span>Text me confirmations and reminders</span>
+                  </label>
+                )}
+                <label className="ca-check">
+                  <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} />
+                  <span>Send me offers and news from {shopName || "the shop"}</span>
+                </label>
+                {terms && (
+                  <label className="ca-check">
+                    <input type="checkbox" checked={termsTick} onChange={(e) => setTermsTick(e.target.checked)} required data-testid="complete-terms-tick" />
+                    <span>I accept {shopName || "the shop"}’s booking terms. <button type="button" className="link" onClick={() => setTermsOpen((v) => !v)} aria-expanded={termsOpen}>{termsOpen ? "Hide" : "Read them"}</button></span>
+                  </label>
+                )}
+                {terms && termsOpen && <div className="ca-terms-text">{terms.text.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}</div>}
+                <small className="ca-hint">By continuing you agree to the <a href="/legal/terms" target="_blank" rel="noopener">terms</a> and <a href="/legal/privacy" target="_blank" rel="noopener">privacy notice</a>.</small>
+              </div>
+              <Err />
+              <Button type="submit" disabled={busy} data-testid="complete-submit">{busy ? "Saving…" : "Finish and continue"} <Icon name="arrowRight" size={16} /></Button>
             </form>
           )}
           <p className="ca-fine">Your account is for this shop's bookings. Delete it any time from your profile.</p>
@@ -541,6 +591,13 @@ function PasswordPanel({ me, A, onSaved }: { me: Me; A: string; onSaved: (msg: s
 }
 
 function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: string) => void }) {
+  // Emails link to /me?visit=<id>: bring that visit into view and highlight it once.
+  const focusVisit = new URLSearchParams(location.search).get("visit") || "";
+  useEffect(() => {
+    if (!focusVisit) return;
+    const el = document.getElementById(`visit-${focusVisit}`);
+    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focusVisit]);
   const [moving, setMoving] = useState<Visit | null>(null);
   const [cancelling, setCancelling] = useState<Visit | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -627,7 +684,7 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
         {me.upcoming.length ? (
           <ul className="ca-visits" data-testid="upcoming-list">
             {me.upcoming.map((v) => (
-              <li key={v.id} className="ca-visit">
+              <li key={v.id} id={`visit-${v.id}`} className={`ca-visit${focusVisit === v.id ? " ca-visit-focus" : ""}`}>
                 <div className="ca-visit-when">
                   <b>{v.date === me.shop.today ? "Today" : dateLabel(v.date)}</b>
                   <span>{time(v.start_min)} · {v.duration_min} min</span>
@@ -688,7 +745,7 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
         {history.length ? (
           <ul className="ca-visits history" data-testid="history-list">
             {history.map((v) => (
-              <li key={v.id} className={`ca-visit ${v.review || v.can_review ? "with-review" : ""}`}>
+              <li key={v.id} id={`visit-${v.id}`} className={`ca-visit ${v.review || v.can_review ? "with-review" : ""}`}>
                 {(v.review || v.can_review) && (
                   <ReviewCard
                     compact

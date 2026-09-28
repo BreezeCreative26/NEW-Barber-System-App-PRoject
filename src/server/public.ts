@@ -629,7 +629,10 @@ async function issueManageToken(c: Ctx, booking: StoredBooking) {
 export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooking, staffName: string | null, template: MessageTemplate, manageToken?: string | null): Promise<Channel[]> {
   const shop = await msgShop(c, shopId);
   const origin = new URL(c.req.url).origin;
-  const link = manageToken ? shopUrl(shop.slug!, `/manage/${manageToken}`, origin) : shopUrl(shop.slug!, "/me", origin);
+  // Where the message points. Anyone with an account lands in their account (the visit opened);
+  // the one-time manage link is only for guests without one (phone bookings, imported records).
+  const hasAccount = !!(await c.env.DB.prepare("SELECT 1 FROM customer_accounts WHERE phone=? AND password_hash<>''").bind(booking.phone).first());
+  const link = hasAccount || !manageToken ? shopUrl(shop.slug!, `/me?visit=${encodeURIComponent(booking.id)}`, origin) : shopUrl(shop.slug!, `/manage/${manageToken}`, origin);
   // The booking's own choice wins (picked at checkout); otherwise the customer record's standing preference.
   let pref: Recipient["pref"] = booking.contact_pref && booking.contact_pref !== "AUTO" ? booking.contact_pref : undefined;
   if (!pref && booking.customer_id) {
