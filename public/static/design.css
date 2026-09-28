@@ -2805,3 +2805,41 @@ html.boot-dark, html.boot-dark body { background: #17181e; }
 .auth-switch a { color: inherit; }
 .settings-subhead { margin: 18px 0 4px; font-size: var(--fs-15); font-weight: 700; }
 .settings-head code { font-size: 0.9em; background: var(--soft); padding: 1px 6px; border-radius: 6px; }
+
+/* ---- Getting started card (replaces the stacked setup + verify banners) ---- */
+.getting-started { display: grid; gap: 12px; padding: 16px 18px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px; box-shadow: var(--shadow-1, 0 1px 2px rgba(20,21,26,.05)); }
+.getting-started-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.getting-started-head strong { font-size: var(--fs-15); }
+.getting-started-head span { color: var(--muted); font-size: var(--fs-13); }
+.getting-started-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.getting-started-list li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 12px; }
+.getting-started-list li > div { display: grid; gap: 2px; min-width: 0; }
+.getting-started-list b { font-size: var(--fs-14); font-weight: 600; }
+.getting-started-list small { color: var(--muted); font-size: var(--fs-12); }
+.gs-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+.gs-dismiss { justify-self: end; font-size: var(--fs-12); color: var(--muted); }
+.verify-nudge-compact > div:first-child { display: none; }
+.verify-nudge-compact .setup-banner-actions { display: flex; gap: 8px; align-items: center; }
+.verify-nudge-compact [data-testid="verify-nudge-hide"] { display: none; }
+@media (max-width: 720px) {
+  .getting-started-list li { grid-template-columns: 10px minmax(0, 1fr); }
+  .getting-started-list li > .button, .getting-started-list li > .verify-nudge-compact { grid-column: 2; justify-self: start; }
+}
+
+/* ---- Settings on a phone: groups as a horizontal chip rail, tabs beneath, single-column forms ---- */
+@media (max-width: 720px) {
+  .settings-shell { gap: 12px; }
+  .settings-nav { display: grid; grid-auto-flow: row; gap: 10px; padding: 10px; overflow: visible; }
+  .settings-nav-group { display: grid; gap: 6px; }
+  .settings-nav-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 0 4px; }
+  .settings-nav-group > button { display: none; }
+  .settings-nav-group[data-open="true"] > button, .settings-nav-group:has(button[aria-selected="true"]) > button { display: grid; }
+  .settings-nav-group:not(:has(button[aria-selected="true"])) .settings-nav-label { cursor: pointer; }
+  .settings-nav button { grid-template-columns: 20px 1fr; min-height: 44px; padding: 0 10px; white-space: normal; }
+  .settings-nav button small { display: none; }
+  .settings-body .workspace-form-grid { grid-template-columns: 1fr; }
+  .settings-head h2 { font-size: 20px; }
+}
+.settings-nav-label { background: none; border: 0; text-align: left; font: inherit; }
+.settings-nav .settings-nav-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 6px 12px 2px; font-weight: 700; }
+@media (max-width: 720px) { .settings-nav .settings-nav-label { min-height: 40px; display: flex; align-items: center; border-radius: 10px; } .settings-nav-group[data-open="true"] .settings-nav-label, .settings-nav-group:has(button[aria-selected="true"]) .settings-nav-label { color: var(--accent-dark); background: var(--ollo-soft); } }

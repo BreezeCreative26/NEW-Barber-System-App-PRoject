@@ -78,16 +78,16 @@ test("sign up from the landing page → guided setup opens; leaving it shows the
   // Finish later → calendar with the banner offering the way back.
   await page.getByTestId("setup-exit").click();
   await page.waitForURL(/\/workspace$/);
-  const banner = page.getByTestId("setup-banner");
+  const banner = page.getByTestId("getting-started");
   await expect(banner).toBeVisible();
   await expect(banner).toContainText("Get Landing Test Barbers live");
   await banner.getByTestId("setup-continue").click();
   await expect(page.getByTestId("setup-wizard")).toBeVisible();
   await page.getByTestId("setup-exit").click();
   // Hide persists server-side (survives a reload).
-  await banner.getByRole("button", { name: "Hide" }).click();
-  await expect(page.getByTestId("setup-banner")).toHaveCount(0);
+  await banner.getByRole("button", { name: "Hide setup" }).click();
+  await expect(page.getByTestId("setup-continue")).toHaveCount(0);
   await page.reload();
   await expect(page.locator("#workspace-main")).toBeVisible();
-  await expect(page.getByTestId("setup-banner")).toHaveCount(0);
+  await expect(page.getByTestId("setup-continue")).toHaveCount(0);
 });
