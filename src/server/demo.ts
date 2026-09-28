@@ -119,7 +119,7 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
     db.prepare(
       // A seeded shop is already set up: mark the wizard complete so the demo opens on the calendar.
       "INSERT INTO shops(id,name,address,created_at,slug,online_booking,lead_time_min,booking_window_days,phone,email,setup_json) VALUES(?,?,?,?,?,1,60,42,?,?,?)",
-    ).bind(shopId, shopName, "14 Northline Road, London E8 4QJ", now, slug, "+447700900100", ownerEmail, JSON.stringify({ step: "payments", done: ["shop", "hours", "services", "team", "messages", "online"], skipped: ["payments"], started_at: now, completed_at: now })),
+    ).bind(shopId, shopName, "14 Northline Road, London E8 4QJ", now, slug, "+447700900100", ownerEmail, JSON.stringify({ step: "payments", done: ["shop", "brand", "hours", "services", "team", "messages", "terms", "online"], skipped: ["payments"], started_at: now, completed_at: now })),
     // Demo/fixture accounts are pre-verified so the confirm-email nudge stays out of screenshots and tests.
     db.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at,email_verified_at) VALUES(?,?,?,?,?,?,?)")
       .bind(ownerUser, ownerEmail, "Sam Okafor", encoded, salt, now, now),

@@ -277,18 +277,39 @@ export function StepPayments({ w, api, refresh, data, setNotice, setError, goTo,
     location.href = r.url;
   }
   const p = data.progress;
+  const [share, setShare] = useState<{ url: string; page: string; qr: string; embed: string } | null>(null);
+  useEffect(() => { if (complete && p.online.slug) api<typeof share>("/setup/share").then(setShare).catch(() => {}); }, [complete, p.online.slug]);
   if (complete) {
     const items = [
       { ok: p.shop.saved, label: "Shop details", go: "shop" },
+      { ok: !!p.brand?.logo || !!p.brand?.cover, label: p.brand?.logo ? "Logo and colours set" : p.brand?.cover ? "Cover photo set" : "No logo or photo yet", go: "brand" },
       { ok: p.services.count > 0, label: `${p.services.count} service${p.services.count === 1 ? "" : "s"}`, go: "services" },
       { ok: p.team.staff > 0, label: `${p.team.staff} on the team${p.team.joined ? `, ${p.team.joined} signed in` : p.team.invited ? `, ${p.team.invited} invited` : ""}`, go: "team" },
       { ok: !!p.messages.sms_sender, label: p.messages.sms_sender ? `Texts from "${p.messages.sms_sender}"` : "Text sender name not set", go: "messages" },
+      { ok: !!p.terms?.text, label: p.terms?.text ? "Booking terms written" : "No booking terms (defaults apply)", go: "terms" },
       { ok: p.online.live, label: p.online.live ? `Live at /book/${p.online.slug}` : "Online booking is off", go: "online" },
       { ok: p.payments.connected, label: p.payments.connected ? "Card payments connected" : "Card payments not connected (customers pay in the shop)", go: "payments" },
     ];
     return (
       <div className="setup-wiz-card setup-done" data-testid="setup-done">
-        <div className="setup-done-hero"><Icon name="sparkles" size={28} /><h3>That's the shop set up.</h3><p>Everything below can be changed any time from the sidebar.</p></div>
+        <div className="setup-done-hero"><Icon name="sparkles" size={28} /><h3>{p.online.live ? `${w.shop.name} is live.` : "That's the shop set up."}</h3><p>{p.online.live ? "Share the link and start taking bookings." : "Everything below can be changed any time from Settings."}</p></div>
+        {p.online.live && share?.qr && (
+          <div className="setup-share setup-golive" data-testid="setup-golive">
+            <img src={share.qr} alt={`QR code for ${share.url}`} width={140} height={140} />
+            <div>
+              <p><a href={share.url} target="_blank" rel="noreferrer" data-testid="golive-url">{share.url.replace(/^https?:\/\//, "")}</a></p>
+              <div className="setup-share-actions">
+                <Button variant="secondary" onClick={async () => setNotice((await copy(share.url)) ? "Booking link copied." : "Select and copy the link.")} data-testid="golive-copy"><Icon name="copy" size={14} /> Copy link</Button>
+                {typeof navigator !== "undefined" && "share" in navigator && <Button variant="secondary" onClick={() => navigator.share({ title: w.shop.name, text: `Book at ${w.shop.name}`, url: share.url }).catch(() => {})}><Icon name="external" size={14} /> Share…</Button>}
+                <a className="button secondary" href={`sms:?&body=${encodeURIComponent(`Book your next visit at ${w.shop.name}: ${share.url}`)}`}><Icon name="phone" size={14} /> Text it</a>
+                <a className="button secondary" href={`https://wa.me/?text=${encodeURIComponent(`Book your next visit at ${w.shop.name}: ${share.url}`)}`} target="_blank" rel="noreferrer"><Icon name="message" size={14} /> WhatsApp</a>
+                <a className="button ghost" href={share.qr} download={`${p.online.slug}-qr.png`}><Icon name="download" size={14} /> QR for the window</a>
+                <Button variant="ghost" onClick={async () => setNotice((await copy(share.embed)) ? "Button code copied — paste it into your website." : "Could not copy.")}><Icon name="globe" size={14} /> Website button</Button>
+              </div>
+              <small className="helper">Put it in your Instagram bio and on your Google Business Profile as the booking link. Your shop page is at <a href={share.page} target="_blank" rel="noreferrer">{share.page.replace(/^https?:\/\//, "")}</a>.</small>
+            </div>
+          </div>
+        )}
         <ul className="setup-done-list">
           {items.map((i) => <li key={i.label} data-ok={i.ok}><Icon name={i.ok ? "check" : "right"} size={14} /> <span>{i.label}</span></li>)}
         </ul>
