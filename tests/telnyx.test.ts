@@ -108,3 +108,25 @@ describe("applyTelnyxEvent", () => {
     expect(await applyTelnyxEvent(db, null)).toBe("ignored");
   });
 });
+
+describe("telnyxSend alpha sender fallback", () => {
+  it("retries from the platform number when Telnyx refuses the alphanumeric sender", async () => {
+    const froms: string[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      froms.push(body.from);
+      if (body.from === "Northline") return new Response(JSON.stringify({ errors: [{ code: "40303", title: "Alphanumeric sender not permitted" }] }), { status: 400 });
+      return new Response(JSON.stringify({ data: { id: "msg_num" } }), { status: 200 });
+    });
+    const r = await telnyxSend("+447911123456", "hi", { alphaSender: "Northline", e: env });
+    expect(r).toEqual({ ok: true, provider: "telnyx", id: "msg_num" });
+    expect(froms).toEqual(["Northline", "+447700900000"]);
+  });
+  it("does not retry for destination problems (bad number stays permanent)", async () => {
+    let n = 0;
+    vi.stubGlobal("fetch", async () => { n++; return new Response(JSON.stringify({ errors: [{ code: "40300", title: "Invalid destination" }] }), { status: 400 }); });
+    const r = await telnyxSend("+441", "hi", { alphaSender: "Northline", e: env });
+    expect(n).toBe(1);
+    expect(r.ok).toBe(false);
+  });
+});

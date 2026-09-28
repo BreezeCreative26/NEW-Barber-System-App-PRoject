@@ -29,28 +29,41 @@ export type TelnyxDelivery = { ok: true; provider: "telnyx"; id: string } | { ok
 // 40300 invalid destination, 40310 blocked/opted out, 40006 invalid to, 40008 unsupported destination.
 const PERMANENT = new Set(["40006", "40008", "40300", "40310", "40311", "40312", "40313"]);
 
-/** Send one text. `from` is the shop's alphanumeric sender when set (UK delivers these fine). */
+/**
+ * Send one text. Each shop sets its own alphanumeric sender under Settings → Messages
+ * (msg_sms_sender, ≤11 chars, e.g. "Northline"); UK handsets show that instead of a number. If Telnyx
+ * won't accept the alpha sender for this destination (profile not enabled for it, non-UK country,
+ * customer needs to be able to reply), we retry once from the platform number so the message still
+ * lands. Replies (STOP etc.) always come to TELNYX_FROM because alpha senders can't receive.
+ */
 export async function telnyxSend(to: string, body: string, opts: { alphaSender?: string; e?: Env } = {}): Promise<TelnyxDelivery> {
   const e = opts.e ?? env();
   const alpha = (opts.alphaSender || "").replace(/[^A-Za-z0-9 ]/g, "").slice(0, 11).trim();
-  const payload: Record<string, unknown> = { to, text: body.slice(0, 1530), type: "SMS", auto_detect: false };
-  if (e.TELNYX_MESSAGING_PROFILE_ID) payload.messaging_profile_id = e.TELNYX_MESSAGING_PROFILE_ID;
-  // Alphanumeric sender only works with a messaging profile behind it; otherwise the number.
-  if (alpha && /[A-Za-z]/.test(alpha) && e.TELNYX_MESSAGING_PROFILE_ID) payload.from = alpha;
-  else if (e.TELNYX_FROM) payload.from = e.TELNYX_FROM;
-  else if (!e.TELNYX_MESSAGING_PROFILE_ID) return { ok: false, provider: "telnyx", error: "TELNYX_FROM or TELNYX_MESSAGING_PROFILE_ID required", permanent: true };
-  const res = await fetch("https://api.telnyx.com/v2/messages", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${e.TELNYX_API_KEY}`, "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify(payload),
-  });
-  type ApiErr = { code?: string; title?: string; detail?: string };
-  const j = (await res.json().catch(() => ({}))) as { data?: { id?: string; errors?: ApiErr[] }; errors?: ApiErr[] };
-  if (res.ok && j.data?.id) return { ok: true, provider: "telnyx", id: j.data.id };
-  const err = j.errors?.[0] ?? j.data?.errors?.[0];
-  const code = String(err?.code ?? res.status);
-  return { ok: false, provider: "telnyx", error: `${code} ${err?.detail || err?.title || "send failed"}`.slice(0, 400), permanent: PERMANENT.has(code) || res.status === 422 };
+  const useAlpha = !!alpha && /[A-Za-z]/.test(alpha) && !!e.TELNYX_MESSAGING_PROFILE_ID;
+  if (!useAlpha && !e.TELNYX_FROM && !e.TELNYX_MESSAGING_PROFILE_ID) return { ok: false, provider: "telnyx", error: "TELNYX_FROM or TELNYX_MESSAGING_PROFILE_ID required", permanent: true };
+  const attempt = async (from: string | undefined) => {
+    const payload: Record<string, unknown> = { to, text: body.slice(0, 1530), type: "SMS", auto_detect: false };
+    if (e.TELNYX_MESSAGING_PROFILE_ID) payload.messaging_profile_id = e.TELNYX_MESSAGING_PROFILE_ID;
+    if (from) payload.from = from;
+    const res = await fetch("https://api.telnyx.com/v2/messages", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${e.TELNYX_API_KEY}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+    });
+    type ApiErr = { code?: string; title?: string; detail?: string };
+    const j = (await res.json().catch(() => ({}))) as { data?: { id?: string; errors?: ApiErr[] }; errors?: ApiErr[] };
+    if (res.ok && j.data?.id) return { ok: true as const, id: j.data.id };
+    const err = j.errors?.[0] ?? j.data?.errors?.[0];
+    return { ok: false as const, status: res.status, code: String(err?.code ?? res.status), text: `${err?.detail || err?.title || "send failed"}` };
+  };
+  let r = await attempt(useAlpha ? alpha : e.TELNYX_FROM || undefined);
+  // Alpha sender refused (invalid/unsupported "from" for this route) → once more from the number.
+  if (!r.ok && useAlpha && e.TELNYX_FROM && (ALPHA_REFUSED.has(r.code) || /from|sender/i.test(r.text))) r = await attempt(e.TELNYX_FROM);
+  if (r.ok) return { ok: true, provider: "telnyx", id: r.id };
+  return { ok: false, provider: "telnyx", error: `${r.code} ${r.text}`.slice(0, 400), permanent: PERMANENT.has(r.code) || r.status === 422 };
 }
+// 40301/40302 invalid or unsupported "from"; 40303 alphanumeric not permitted for this destination.
+const ALPHA_REFUSED = new Set(["40301", "40302", "40303", "40305"]);
 
 // ---- Webhooks -----------------------------------------------------------------------------------
 // Telnyx signs `${timestamp}|${rawBody}` with Ed25519; headers telnyx-signature-ed25519 (base64) and
