@@ -592,6 +592,9 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     await staffPage
       .getByRole("button", { name: "Join the team", exact: true })
       .click();
+    // First sign-in shows the shop's staff onboarding; skipping it stamps onboarded_at.
+    await expect(staffPage.getByTestId("staff-onboarding")).toBeVisible();
+    await staffPage.getByTestId("staff-onb-skip").click();
     await expect(
       staffPage.getByRole("button", { name: "New booking", exact: true }),
     ).toBeVisible();

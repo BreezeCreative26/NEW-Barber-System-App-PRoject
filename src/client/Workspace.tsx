@@ -36,6 +36,7 @@ import { WalletDrawer } from "./Wallet";
 import { PaymentsPanel } from "./Payouts";
 import { SetupWizard } from "./Setup";
 import { BarberHome } from "./BarberHome";
+import { StaffOnboarding } from "./StaffOnboarding";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
 import { themeClass, type ShopBrand } from "./theme";
@@ -1519,6 +1520,7 @@ export function Workspace() {
   const [loadedDate, setLoadedDate] = useState("");
   // Day timetable everywhere: on phones the board scrolls sideways inside its own region.
   const [calendarView, setCalendarView] = useState("day");
+  const [staffOnbDone, setStaffOnbDone] = useState(false);
   // Barber app: false = Today agenda, true = the week calendar (own column).
   const [barberWeek, setBarberWeek] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -2036,6 +2038,17 @@ export function Workspace() {
         <main id="workspace-main" className="workspace-main">
           <ErrorMessage error={error} />
           <AuthScreen token={inviteToken} onDone={accountChanged} />
+        </main>
+      </div>
+    );
+  // First sign-in for invited staff: a short shop-branded onboarding before the workspace.
+  const staffOnboarding = !!w && !inviteToken && !!w.account && w.account.role !== "OWNER" && !(w.account as { onboarded_at?: number | null }).onboarded_at && !staffOnbDone;
+  if (staffOnboarding && w)
+    return (
+      <div className="workspace workspace-onboarding">
+        <ImpersonationBar />
+        <main id="workspace-main" className="workspace-main">
+          <StaffOnboarding w={w} api={api} refresh={async () => { await refresh(); }} onDone={() => setStaffOnbDone(true)} logoUrl={w.logo_url || undefined} />
         </main>
       </div>
     );

@@ -201,6 +201,8 @@ CREATE TABLE app_memberships (
   version INTEGER NOT NULL DEFAULT 0,
   UNIQUE(shop_id,id),
   UNIQUE(shop_id,staff_id),
+  prefs_json TEXT NOT NULL DEFAULT '{}',
+  onboarded_at BIGINT,
   FOREIGN KEY(shop_id,staff_id) REFERENCES staff(shop_id,id),
   CHECK((role='OWNER' AND staff_id IS NULL) OR (role<>'OWNER' AND staff_id IS NOT NULL))
 );
