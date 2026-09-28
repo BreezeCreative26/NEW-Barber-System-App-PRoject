@@ -259,7 +259,7 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
     </>
   );
   return (
-    <div className={themeClass(shopBrand, "customer-area")} data-testid="customer-signin">
+    <div className={themeClass(shopBrand, "customer-area no-tabbar")} data-testid="customer-signin">
       <header className="sp-nav">
         <a className="sp-brand" href={shopPath(slug, "/")}>
           {shopBrand?.logo_url ? <img className="shop-emblem shop-logo" src={shopBrand.logo_url} alt="" /> : <span className="shop-emblem">{shopName ? initials(shopName) : "··"}</span>}

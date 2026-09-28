@@ -2207,7 +2207,16 @@ html.ws-dark .shop-page { color-scheme: light; }
   .shop-page > footer.sp-footer, .customer-area > footer.sp-footer { padding-bottom: 84px; }
   .booking-app.standalone .booking-body { padding-bottom: 176px; }
   .booking-app.standalone .booking-actions { bottom: calc(60px + env(safe-area-inset-bottom)); }
-  .sp-nav .sp-book-btn, .sp-nav .sp-me { display: none; }
+  .sp-nav .sp-book-btn { display: none; }
+  /* Visitors (no tab bar) keep a Sign in link in the header; members use the bar's Account tab. */
+  .sp-nav .sp-me { display: none; }
+  .no-tabbar .sp-nav nav { display: flex; margin-left: auto; }
+  .no-tabbar .sp-nav nav > a:not(.sp-me) { display: none; }
+  .no-tabbar .sp-nav .sp-me { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px; border-radius: 12px; font-size: 15px; font-weight: 600; color: var(--sp-ink, var(--ink)); text-decoration: none; }
+  /* Without the bar, nothing needs to sit above it. */
+  .no-tabbar > footer.sp-footer, .customer-area.no-tabbar > footer.sp-footer { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .booking-app.standalone.no-tabbar .booking-actions { bottom: 0; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .booking-app.standalone.no-tabbar .booking-body { padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* ---- Member home on the shop page ---- */
@@ -2275,6 +2284,7 @@ html.ws-dark .shop-page { color-scheme: light; }
   }
   .booking-topbar { grid-template-columns: none; }
   .sp-nav nav, .customer-area .sp-nav nav { display: none; }
+  .no-tabbar .sp-nav nav { display: flex; }
   .sp-nav .sp-brand { margin-right: auto; min-width: 0; }
   /* Sign out: right-aligned icon button (label for screen readers only). */
   .customer-area .sp-nav .ca-signout { margin-left: auto; width: 48px; min-width: 48px; height: 48px; min-height: 48px; padding: 0; justify-content: center; border-radius: 14px; }

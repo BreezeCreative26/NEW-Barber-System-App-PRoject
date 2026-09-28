@@ -116,7 +116,7 @@ export function ShopPage({ slug }: { slug: string }) {
   const hasContact = !!(shop.address || page.phone || page.email || page.instagram || page.transport_note);
   const mapHref = page.map_url || (shop.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.address)}` : "");
   return (
-    <div className={themeClass({ accent: page.accent, theme })} data-testid="shop-page">
+    <div className={themeClass({ accent: page.accent, theme }, me ? "" : "no-tabbar")} data-testid="shop-page">
       <a className="skip-link" href={book()}>
         Skip to booking
       </a>

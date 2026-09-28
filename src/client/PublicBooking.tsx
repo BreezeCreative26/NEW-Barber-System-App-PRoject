@@ -657,7 +657,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
         <Boot label="Opening online booking…" />
       </div>
     );
-  const wrap = themeClass(shop.shop.brand, "booking-app standalone");
+  const wrap = themeClass(shop.shop.brand, `booking-app standalone${customer ? "" : " no-tabbar"}`);
   if (confirmed)
     return (
       <div className={wrap}>
