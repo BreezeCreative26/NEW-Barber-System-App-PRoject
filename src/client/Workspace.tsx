@@ -22,7 +22,7 @@ import type {
   StaffDayOff,
   StaffBlock,
 } from "../server/domain";
-import { Brand, Button, Icon, IconButton, Modal, Notice, Badge, Avatar, TopBar, Rail, TabBar, StatusPill, type NavItem } from "./ui";
+import { Brand, Button, Icon, IconButton, Modal, Notice, Badge, Avatar, TopBar, Sidebar, readSidebarCollapsed, TabBar, StatusPill, type NavItem } from "./ui";
 import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio } from "./Studio";
 import { Calendar, WeekStrip, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
@@ -1907,6 +1907,21 @@ export function Workspace() {
       if (t) { applyWsTheme(t); writeLocalWsTheme(t); }
     } catch { /* ignore */ }
   }, [w?.account?.prefs_json]);
+  // Admin sidebar: wide or narrow on desktop (remembered per browser); a slide-in drawer on the phone.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => readSidebarCollapsed());
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  function toggleSidebar() {
+    setSidebarCollapsed((c) => {
+      try { localStorage.setItem("foliyo.sidebar", c ? "expanded" : "collapsed"); } catch { /* private mode */ }
+      return !c;
+    });
+  }
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSidebarOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sidebarOpen]);
   const density: Density = densityChoice ?? resolveDensity(userPref, w?.shop.calendar_density, phoneDevice);
   function chooseDensity(d: Density) {
     setDensityChoice(d);
@@ -2076,6 +2091,8 @@ export function Workspace() {
         Skip to content
       </a>
       <TopBar
+        onMenu={w && !barberApp ? () => setSidebarOpen((v) => !v) : undefined}
+        menuOpen={sidebarOpen}
         onSearch={() => w && setSearchOpen(true)}
         wallet={
           w
@@ -2199,12 +2216,17 @@ export function Workspace() {
           onClose={() => setQueueOpen(false)}
         />
       )}
-      <div className={`workspace-layout${setupOpen && manager && w && !inviteToken ? " onboarding" : ""}`}>
-        <Rail
+      <div className={`workspace-layout${setupOpen && manager && w && !inviteToken ? " onboarding" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+        <Sidebar
           items={navItems.filter((n) => n.key !== "Audit" && n.key !== "Accounts")}
           bottom={navItems.filter((n) => n.key === "Audit" || n.key === "Accounts")}
           current={tab}
           onSelect={goTo}
+          collapsed={sidebarCollapsed}
+          onToggle={toggleSidebar}
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          shop={w ? { name: w.shop.name, logo: w.logo_url || null, tone: w.logo_tone || "", caption: w.account ? w.account.role.charAt(0) + w.account.role.slice(1).toLowerCase() : undefined } : null}
         />
         <TabBar
           items={phoneNav}

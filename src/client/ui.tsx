@@ -31,6 +31,8 @@ import {
   LoaderCircle,
   MapPin,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   MessageSquare,
   Minus,
   MoreHorizontal,
@@ -130,6 +132,8 @@ const icons: Record<string, LucideIcon> = {
   loader: LoaderCircle,
   pin: MapPin,
   menu: Menu,
+  panelClose: PanelLeftClose,
+  panelOpen: PanelLeftOpen,
   message: MessageSquare,
   minus: Minus,
   more: MoreHorizontal,
@@ -484,10 +488,14 @@ export function TopBar({
   onQueue,
   onBell,
   onAccount,
+  onMenu,
+  menuOpen = false,
   accountOpen = false,
   shop = null,
   children,
 }: {
+  onMenu?: () => void;
+  menuOpen?: boolean;
   accountOpen?: boolean;
   search?: string;
   wallet?: { amount: string; caption: string; open?: boolean } | null;
@@ -504,6 +512,11 @@ export function TopBar({
 }) {
   return (
     <header className="topbar" data-testid="topbar">
+      {onMenu && (
+        <button type="button" className="topbar-iconbtn topbar-menu" onClick={onMenu} aria-label="Menu" aria-expanded={menuOpen ? "true" : "false"} data-testid="topbar-menu">
+          <Icon name="menu" />
+        </button>
+      )}
       <Brand shop={shop} />
       {onSearch && (
         <button type="button" className="topbar-search" onClick={onSearch} aria-label="Search">
@@ -555,6 +568,7 @@ export function TopBar({
   );
 }
 
+/** Icon-only rail, still used by the foliyo super-admin shell. Shops use <Sidebar>. */
 export function Rail({ items, current, onSelect, bottom }: { items: NavItem[]; current: string; onSelect: (key: string) => void; bottom?: NavItem[] }) {
   const render = (n: NavItem) => (
     <button key={n.key} type="button" aria-current={current === n.key ? "page" : undefined} aria-label={n.label} onClick={() => onSelect(n.key)}>
@@ -572,6 +586,113 @@ export function Rail({ items, current, onSelect, bottom }: { items: NavItem[]; c
         </>
       )}
     </nav>
+  );
+}
+
+const SIDEBAR_KEY = "foliyo.sidebar";
+export function readSidebarCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === "collapsed";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Admin sidebar. Desktop: pinned beside the content, labelled, and it slides between a wide
+ * (icon + label) and a narrow (icon only, label on hover) state — the choice is remembered.
+ * Phone: the same panel slides in from the left as a drawer, opened from the top bar menu.
+ */
+export function Sidebar({
+  items,
+  bottom,
+  current,
+  onSelect,
+  collapsed,
+  onToggle,
+  open = false,
+  onClose,
+  shop,
+  footer,
+}: {
+  items: NavItem[];
+  bottom?: NavItem[];
+  current: string;
+  onSelect: (key: string) => void;
+  collapsed: boolean;
+  onToggle: () => void;
+  open?: boolean;
+  onClose?: () => void;
+  shop?: { name: string; logo?: string | null; tone?: string; caption?: string } | null;
+  footer?: ReactNode;
+}) {
+  const render = (n: NavItem) => (
+    <button
+      key={n.key}
+      type="button"
+      className="sidebar-item"
+      aria-current={current === n.key ? "page" : undefined}
+      aria-label={n.label}
+      title={collapsed ? n.label : undefined}
+      onClick={() => {
+        onSelect(n.key);
+        onClose?.();
+      }}
+    >
+      <Icon name={n.icon} />
+      <span className="sidebar-label">{n.label}</span>
+      <span className="rail-tip" aria-hidden="true">{n.label}</span>
+    </button>
+  );
+  return (
+    <>
+      {open && <div className="sidebar-backdrop" onClick={onClose} aria-hidden="true" />}
+      <nav
+        className={`sidebar rail${collapsed ? " collapsed" : ""}${open ? " open" : ""}`}
+        aria-label="Workspace sections"
+        data-testid="rail"
+        data-collapsed={collapsed ? "true" : "false"}
+      >
+        <div className="sidebar-head">
+          {shop && (
+            <div className="sidebar-shop">
+              {shop.logo ? (
+                <img className={`sidebar-logo${shop.tone ? ` tone-${shop.tone}` : ""}`} src={shop.logo} alt="" />
+              ) : (
+                <span className="sidebar-logo sidebar-logo-text" aria-hidden="true">{shop.name.trim().charAt(0).toUpperCase() || "S"}</span>
+              )}
+              <span className="sidebar-shop-text">
+                <b>{shop.name}</b>
+                {shop.caption && <small>{shop.caption}</small>}
+              </span>
+            </div>
+          )}
+          <button
+            type="button"
+            className="sidebar-toggle"
+            onClick={onToggle}
+            aria-label={collapsed ? "Expand menu" : "Collapse menu"}
+            aria-pressed={collapsed ? "true" : "false"}
+            data-testid="sidebar-toggle"
+          >
+            <Icon name={collapsed ? "panelOpen" : "panelClose"} size={18} />
+          </button>
+          {onClose && (
+            <button type="button" className="sidebar-close" onClick={onClose} aria-label="Close menu" data-testid="sidebar-close">
+              <Icon name="close" size={18} />
+            </button>
+          )}
+        </div>
+        <div className="sidebar-items">{items.map(render)}</div>
+        {bottom && bottom.length > 0 && (
+          <>
+            <span className="rail-spacer" />
+            <div className="sidebar-items sidebar-bottom">{bottom.map(render)}</div>
+          </>
+        )}
+        {footer && <div className="sidebar-foot">{footer}</div>}
+      </nav>
+    </>
   );
 }
 
