@@ -89,25 +89,4 @@ test("every section variant renders at phone, tablet and desktop widths without 
   expect(errors).toEqual([]);
 });
 
-test("editor shows colour pickers, section layouts and a real live preview with device toggle", async ({ page }) => {
-  await openFixtureShop(page);
-  await section(page, "Settings/page");
-  const panel = page.getByTestId("shop-page-panel");
-  await expect(panel).toBeVisible({ timeout: 15000 });
-  await expect(page.getByTestId("brand-colours")).toBeVisible();
-  await expect(page.getByTestId("section-layouts")).toBeVisible();
-  const frame = page.getByTestId("shop-preview-frame");
-  await expect(frame.locator('[data-testid="shop-page"]')).toBeAttached();
-  await page.getByTestId("primary-hex").fill("#1f6feb");
-  await expect(frame.locator(".shop-page.custom-accent")).toBeAttached();
-  await page.getByTestId("layout-services-cards").click();
-  await expect(frame.locator('.sp-services-section[data-variant="cards"]')).toBeAttached();
-  await page.getByTestId("layout-hero-minimal").click();
-  await expect(frame.locator(".sp-hero.v-minimal")).toBeAttached();
-  for (const d of ["tablet", "desktop", "phone"]) {
-    await page.getByTestId(`preview-${d}`).click();
-    await expect(frame).toHaveClass(new RegExp(d));
-  }
-  await page.getByTestId("save-shop-page").click();
-  await expect(panel.getByText("Shop page saved.")).toBeVisible();
-});
+// The in-settings editor was replaced by the full-screen website editor: see tests/website-editor.spec.ts.

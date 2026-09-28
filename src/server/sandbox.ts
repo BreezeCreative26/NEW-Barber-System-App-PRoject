@@ -270,6 +270,7 @@ sandbox.use("*", async (c, next) => {
     const setup =
       // The setup wizard (owner/manager): its own routes enforce the role again.
       path.startsWith("/setup") ||
+      (["PUT", "DELETE"].includes(method) && path === "/shop/page/draft") ||
       (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/reviews", "/shop/waitlist", "/shop/messaging", "/shop/payments", "/shop/alerts", "/shop/voice"].includes(path)) ||
       (method === "GET" && (path === "/shop/alerts" || path.startsWith("/shop/voice"))) ||
       (method === "POST" && path === "/shop/voice/rotate") ||
@@ -782,16 +783,36 @@ sandbox.put("/shop/page", async (c) => {
   const primary = b.primary_hex.toLowerCase();
   const secondary = b.secondary_hex.toLowerCase();
   const variants = JSON.stringify(Object.fromEntries(Object.entries(b.variants).filter(([, v]) => !!v)));
+  const elementStyles = JSON.stringify(Object.fromEntries(Object.entries(b.element_styles).filter(([, v]) => v && (v.bg || v.fg))));
   const stmt = existing
     ? c.env.DB.prepare(
-        "UPDATE shop_pages SET logo_tone=?,primary_hex=?,secondary_hex=?,variants_json=?,strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
-      ).bind(tone, primary, secondary, variants, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version)
+        "UPDATE shop_pages SET element_styles_json=?,draft_json=NULL,draft_updated_at=NULL,logo_tone=?,primary_hex=?,secondary_hex=?,variants_json=?,strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
+      ).bind(elementStyles, tone, primary, secondary, variants, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version)
     : c.env.DB.prepare(
-        "INSERT INTO shop_pages(logo_tone,primary_hex,secondary_hex,variants_json,shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
-      ).bind(tone, primary, secondary, variants, sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now);
+        "INSERT INTO shop_pages(element_styles_json,logo_tone,primary_hex,secondary_hex,variants_json,shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+      ).bind(elementStyles, tone, primary, secondary, variants, sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now);
   await checkVersionUpdate(c, stmt, audit(c, "shop", sid, "SHOP_PAGE_UPDATED", `${b.published ? "Published" : "Unpublished"}; ${b.sections.length} sections.`, true));
   const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>();
   return c.json({ page: row });
+});
+// Website editor draft: autosaved as the owner works, never shown to customers. Publishing goes
+// through PUT /shop/page (which clears the draft).
+sandbox.put("/shop/page/draft", async (c) => {
+  const b = await input(c, shopPageSchema);
+  const sid = c.get("shopId");
+  const now = Date.now();
+  const exists = await c.env.DB.prepare("SELECT 1 AS x FROM shop_pages WHERE shop_id=?").bind(sid).first();
+  if (!exists) {
+    const d = defaultShopPage(sid, now);
+    await c.env.DB.prepare("INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)")
+      .bind(sid, d.strapline, d.about, d.cover_url, d.logo_url, d.gallery_json, d.phone, d.email, d.instagram, d.map_url, d.transport_note, d.policy_text, d.sections_json, d.accent, d.theme_json, d.google_review_url, d.published, now).run();
+  }
+  await c.env.DB.prepare("UPDATE shop_pages SET draft_json=?, draft_updated_at=? WHERE shop_id=?").bind(JSON.stringify(b), now, sid).run();
+  return c.json({ ok: true, draft_updated_at: now });
+});
+sandbox.delete("/shop/page/draft", async (c) => {
+  await c.env.DB.prepare("UPDATE shop_pages SET draft_json=NULL, draft_updated_at=NULL WHERE shop_id=?").bind(c.get("shopId")).run();
+  return c.json({ ok: true });
 });
 // Reviews: ask happy customers (4–5★ in-app) to repeat it on Google. Needs the Google link on the page.
 sandbox.put("/shop/reviews", async (c) => {

@@ -604,6 +604,9 @@ export type ShopPage = {
   primary_hex?: string;
   secondary_hex?: string;
   variants_json?: string;
+  element_styles_json?: string;
+  draft_json?: string | null;
+  draft_updated_at?: number | null;
   google_review_url: string;
   published: number;
   version: number;
@@ -708,6 +711,35 @@ export function parseVariants(json: string | null | undefined): SectionVariants 
   }
 }
 export const hexColour = z.union([z.literal(""), z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, "Use a hex colour like #1a2b3c")]);
+// Website editor: elements an owner can click on the canvas and recolour. Keys are stable ids
+// used as data-el on the page; each holds an optional background and text colour.
+export const EDITABLE_ELEMENTS = [
+  "page.bg", "page.surface", "page.text",
+  "nav", "nav.button",
+  "hero", "hero.title", "hero.strap", "hero.button", "hero.button2", "hero.open",
+  "next.card", "next.time",
+  "services.card", "services.price", "services.tag",
+  "team.card", "team.button", "team.pill",
+  "cta", "cta.button",
+  "hours.card", "hours.today",
+  "find.card",
+  "gallery",
+  "reviews.card", "reviews.stars",
+  "policies",
+  "footer", "footer.link",
+] as const;
+export type EditableElement = (typeof EDITABLE_ELEMENTS)[number];
+export const elementStyleSchema = z.object({ bg: hexColour.optional(), fg: hexColour.optional() }).strict();
+export const elementStylesSchema = z.partialRecord(z.enum(EDITABLE_ELEMENTS), elementStyleSchema);
+export type ElementStyles = Partial<Record<EditableElement, { bg?: string; fg?: string }>>;
+export function parseElementStyles(json: string | null | undefined): ElementStyles {
+  try {
+    const r = elementStylesSchema.safeParse(JSON.parse(json || "{}"));
+    return r.success ? (r.data as ElementStyles) : {};
+  } catch {
+    return {};
+  }
+}
 const httpsUrl = z.union([z.literal(""), z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "Use an https:// address")]);
 export const shopPageSchema = z
   .object({
@@ -731,6 +763,7 @@ export const shopPageSchema = z
     primary_hex: hexColour.default(""),
     secondary_hex: hexColour.default(""),
     variants: variantsSchema.default({}),
+    element_styles: elementStylesSchema.default({}),
     published: active.default(1),
     version,
   })
@@ -754,6 +787,9 @@ export const defaultShopPage = (shopId: string, now = Date.now()): ShopPage => (
   primary_hex: "",
   secondary_hex: "",
   variants_json: "{}",
+  element_styles_json: "{}",
+  draft_json: null,
+  draft_updated_at: null,
   google_review_url: "",
   published: 1,
   version: 0,

@@ -120,7 +120,7 @@ export function PublicReviews({ reviews, rating, variant = "cards" }: { reviews:
   if (!reviews.length) return null;
   const [lead, ...rest] = variant === "quote" ? [...reviews].sort((a, b) => b.body.length - a.body.length) : [reviews[0]];
   return (
-    <section className={`sp-section sp-reviews v-${variant}`} id="reviews" aria-labelledby="sp-reviews-heading" data-testid="reviews-section" data-variant={variant}>
+    <section className={`sp-section sp-reviews v-${variant}`} id="reviews" aria-labelledby="sp-reviews-heading" data-testid="reviews-section" data-variant={variant} data-sec="reviews">
       <div className="sp-section-head">
         <h2 id="sp-reviews-heading">Reviews</h2>
         {rating.average !== null && (
@@ -130,7 +130,7 @@ export function PublicReviews({ reviews, rating, variant = "cards" }: { reviews:
         )}
       </div>
       {variant === "quote" && lead && (
-        <blockquote className="sp-review-quote" data-testid="review-quote">
+        <blockquote className="sp-review-quote" data-testid="review-quote" data-el="reviews.card">
           <Stars value={lead.rating} size={18} />
           <p>{lead.body || "Brilliant."}</p>
           <footer>
@@ -141,9 +141,9 @@ export function PublicReviews({ reviews, rating, variant = "cards" }: { reviews:
       )}
       <ul className="sp-review-list">
         {(variant === "quote" ? rest : reviews).map((r) => (
-          <li key={r.id} className="sp-review" data-testid="public-review">
+          <li key={r.id} className="sp-review" data-testid="public-review" data-el="reviews.card">
             <header>
-              <Stars value={r.rating} size={14} />
+              <span data-el="reviews.stars"><Stars value={r.rating} size={14} /></span>
               <strong>{r.display_name}</strong>
               <span>
                 {r.service_name}

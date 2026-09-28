@@ -120,44 +120,4 @@ test("brand-new shop: themed page and booking flow straight away with no shop_pa
   await r.dispose();
 });
 
-test("browser: the Shop page editor previews photos and theme choices live, before saving", async ({ page }) => {
-  await openFixtureShop(page);
-  await section(page, "Settings/page");
-  const panel = page.getByTestId("shop-page-panel");
-  await expect(panel).toBeVisible();
-  const preview = panel.getByTestId("shop-preview");
-  await expect(preview).toBeVisible();
-  const frame = preview.getByTestId("shop-preview-frame");
-  const themed = frame.locator(".shop-preview-page .shop-page");
-  // Pick a stock cover → it appears in the preview hero at once.
-  await panel.getByTestId("stock-industrial").click();
-  await expect(themed.locator(".sp-hero")).toHaveClass(/has-cover/);
-  await expect(themed.locator(".sp-hero-img").first()).toHaveAttribute("src", /industrial/);
-  // Accent, typeface, look, corners, hero → class changes immediately.
-  await panel.getByRole("button", { name: "clay", exact: true }).click();
-  await expect(themed).toHaveClass(/accent-clay/);
-  await panel.getByTestId("font-condensed").click();
-  await expect(themed).toHaveClass(/font-condensed/);
-  await panel.getByRole("group", { name: "Look" }).getByRole("button", { name: "Dark" }).click();
-  await expect(themed).toHaveClass(/mode-dark/);
-  await panel.getByRole("group", { name: "Corners" }).getByRole("button", { name: "Sharp" }).click();
-  await expect(themed).toHaveClass(/corners-sharp/);
-  await panel.getByRole("group", { name: "Hero layout" }).getByRole("button", { name: "Split" }).click();
-  await expect(themed).toHaveClass(/hero-split/);
-  await expect(themed.locator(".sp-hero-side img")).toBeVisible();
-  // Strapline typed → shown. Desktop toggle works. Nothing saved yet (Save enabled = dirty).
-  await panel.getByPlaceholder("Sharp cuts, straight talk, no fuss.").fill("Preview me");
-  await expect(themed.locator(".sp-strap")).toContainText("Preview me");
-  await preview.getByTestId("preview-desktop").click();
-  await expect(frame).toHaveClass(/desktop/);
-  await expect(panel.getByTestId("save-shop-page")).toBeEnabled();
-  const a11y = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
-  expect(a11y.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
-  // Save → public page matches the preview.
-  await panel.getByTestId("save-shop-page").click();
-  await expect(panel.getByRole("status")).toContainText("saved");
-  const slug = (await (await page.request.get(base + "/workspace")).json()).shop.slug as string;
-  await page.goto(`/${slug}`);
-  await expect(page.getByTestId("shop-page")).toHaveClass(/accent-clay font-condensed mode-dark corners-sharp hero-split/);
-  await expect(page.locator(".sp-strap")).toContainText("Preview me");
-});
+// Live preview before saving is covered by the full-screen editor: tests/website-editor.spec.ts.
