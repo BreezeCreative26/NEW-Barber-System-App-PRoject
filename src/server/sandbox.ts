@@ -69,7 +69,7 @@ import {
   type StoredBooking,
   type Holiday,
   type AuditEvent,
- shopBuffer } from "./domain";
+ shopBuffer, colourSchema, imageRef } from "./domain";
 
 import { slotFreed, makeOffer, matchesFor, rangeDates, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { logoTone, optimiseImage } from "./images";
@@ -236,6 +236,9 @@ sandbox.use("*", async (c, next) => {
       (method === "GET" && path === "/pay-runs/export.csv") ||
       (method === "POST" && path === "/pay-runs/bulk") ||
       (method === "PUT" && path === "/me/prefs") ||
+      (method === "PUT" && path === "/me/profile") ||
+      (method === "POST" && path === "/me/onboarded") ||
+      (method === "POST" && path === "/media") ||
       (method === "POST" && /^\/bookings\/[^/]+\/checkout$/.test(path)) ||
       (method === "POST" && /^\/bookings\/[^/]+\/(deposit\/refund|pay-link|terminal)$/.test(path)) ||
       (method === "GET" && /^\/payment-requests\/[^/]+$/.test(path)) ||
@@ -3131,6 +3134,43 @@ sandbox.put("/me/prefs", async (c) => {
   const next = { ...current, ...patch };
   await c.env.DB.prepare("UPDATE app_memberships SET prefs_json=? WHERE id=?").bind(JSON.stringify(next), account!.id).run();
   return c.json({ ok: true, prefs: next });
+});
+
+// Staff onboarding — first sign-in flow for non-owners. The profile edit is scoped to the
+// member's own staff row and to the public-facing fields (never pay or access).
+const myProfileSchema = z
+  .object({
+    name: z.string().trim().min(2).max(100),
+    title: z.string().trim().max(60).default(""),
+    bio: z.string().trim().max(600).default(""),
+    photo_url: imageRef.default(""),
+    instagram: z.string().trim().max(40).regex(/^@?[A-Za-z0-9._]*$/, "Instagram handle only").default(""),
+    skills: z.array(z.string().trim().min(1).max(30)).max(12).default([]),
+    colour: colourSchema.optional(),
+  })
+  .strict();
+sandbox.put("/me/profile", async (c) => {
+  const a = c.get("account");
+  if (!a) fail(401, "Sign in to continue");
+  if (!a!.staff_id) fail(409, "Owners edit their profile under Team");
+  const b = await input(c, myProfileSchema);
+  const sid = c.get("shopId");
+  const cur = await c.env.DB.prepare("SELECT colour FROM staff WHERE shop_id=? AND id=?").bind(sid, a!.staff_id).first<{ colour: string }>();
+  if (!cur) fail(404, "Your staff profile was not found");
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE staff SET name=?,title=?,bio=?,photo_url=?,instagram=?,skills=?,colour=?,version=version+1 WHERE shop_id=? AND id=?").bind(b.name, b.title, b.bio, b.photo_url, b.instagram.replace(/^@/, ""), JSON.stringify(b.skills), b.colour || cur!.colour, sid, a!.staff_id),
+    c.env.DB.prepare("UPDATE app_users SET name=? WHERE id=?").bind(b.name, a!.user_id),
+    audit(c, "staff", a!.staff_id!, "STAFF_PROFILE_SELF_UPDATED", "Updated own profile during onboarding / from Account."),
+  ]);
+  return c.json({ ok: true });
+});
+sandbox.post("/me/onboarded", async (c) => {
+  const a = c.get("account");
+  if (!a) fail(401, "Sign in to continue");
+  await input(c, z.object({}).strict());
+  const now = Date.now();
+  await c.env.DB.prepare("UPDATE app_memberships SET onboarded_at=COALESCE(onboarded_at,?) WHERE id=?").bind(now, a!.id).run();
+  return c.json({ ok: true, onboarded_at: now });
 });
 
 sandbox.get("/wallet", async (c) => {

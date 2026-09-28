@@ -13,6 +13,7 @@ import { money, time, currencySymbol } from "./fixtures";
 import { PayTermsForm, PayRuns, payFormOf, summariseTerms, type PayForm } from "./Pay";
 import { BarberPayoutCard } from "./Payouts";
 import { PhotoUpload } from "./Media";
+import { StaffLoginPanel } from "./StaffLogin";
 import type { PayRun } from "../server/domain";
 
 export const COLOURS: { key: string; label: string }[] = [
@@ -880,7 +881,7 @@ function BarberEditor({
   onOverrides: (s: Staff) => void;
   onOpenBooking: (b: StoredBooking) => void;
 }) {
-  const [tab, setTabRaw] = useState<"profile" | "schedule" | "services" | "pay" | "performance" | "upcoming">("profile");
+  const [tab, setTabRaw] = useState<"profile" | "schedule" | "services" | "pay" | "performance" | "upcoming" | "login">("profile");
   const [payRuns, setPayRuns] = useState<PayRun[]>([]);
   const loadPayRuns = () => api<{ pay_runs: PayRun[] }>("/pay-runs").then((r) => setPayRuns(r.pay_runs)).catch(() => {});
   useEffect(() => {
@@ -946,8 +947,10 @@ function BarberEditor({
           <button type="button" aria-pressed={tab === "pay"} onClick={() => setTab("pay")}>Pay</button>
           <button type="button" aria-pressed={tab === "performance"} onClick={() => setTab("performance")}>Performance</button>
           <button type="button" aria-pressed={tab === "upcoming"} onClick={() => setTab("upcoming")}>Upcoming</button>
+          {canEdit && <button type="button" aria-pressed={tab === "login"} onClick={() => setTab("login")} data-testid="barber-tab-login">Login</button>}
         </div>
       )}
+      {tab === "login" && staff && canEdit && <StaffLoginPanel w={w} api={api} staff={staff} onChanged={() => onSaved(staff.id)} />}
       {tab === "profile" && (
         <form
           className="studio-form"

@@ -115,11 +115,11 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "staff_invite":
       return {
-        sms: `${s}: ${v.inviter} has invited you to join the team on the booking system. Accept: ${v.link}`,
-        subject: `Join ${s} on its booking system`,
-        heading: `${v.inviter} has invited you to ${s}.`,
-        lines: [`Role: ${v.role}`, "Accept the invitation to see your calendar, customers and pay."],
-        cta: { label: "Accept invitation", href: String(v.link) },
+        sms: `${s}: ${v.inviter} has set up your login for the booking system. Choose a password here: ${v.link}`,
+        subject: `Your ${s} login`,
+        heading: `${v.inviter} has set you up at ${s}.`,
+        lines: [`You're joining as ${String(v.role).toLowerCase()}. Tap the button to choose a password — it takes a minute — and we'll show you round: your profile, your week and how to put the app on your phone.`, "This link works once and lasts 7 days."],
+        cta: { label: "Set up my login", href: String(v.link) },
       };
     case "waitlist_joined":
       return {

@@ -160,7 +160,7 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
     db.prepare(
       "INSERT INTO staff_invitations(id,shop_id,staff_id,email,role,token_hash,expires_at,created_at) VALUES(?,?,?,?,'BARBER',?,?,?)",
     ).bind(inviteId, shopId, staff[0].id, barberEmail, await digest(uid()), now + 86400000, now),
-    db.prepare("INSERT INTO app_memberships(id,shop_id,user_id,role,staff_id) VALUES(?,?,?,'BARBER',?)").bind(barberMembership, shopId, barberUser, staff[0].id),
+    db.prepare("INSERT INTO app_memberships(id,shop_id,user_id,role,staff_id,onboarded_at) VALUES(?,?,?,'BARBER',?,?)").bind(barberMembership, shopId, barberUser, staff[0].id, now),
     db.prepare("UPDATE staff_invitations SET accepted_at=? WHERE id=?").bind(now, inviteId),
   );
   await db.batch(s);

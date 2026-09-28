@@ -23,6 +23,8 @@ export type Account = {
   prefs_json?: string;
   // When the login email was confirmed via the welcome / confirm-email link; null until then.
   email_verified_at?: number | null;
+  // Staff onboarding (non-owners): when they finished the first-sign-in flow; null until then.
+  onboarded_at?: number | null;
 };
 export type AppEnv = {
   Bindings: { DB: Database; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string; FOLIYO_ADMIN_EMAILS?: string; OLLO_ADMIN_EMAILS?: string };
@@ -217,7 +219,7 @@ export async function resolveAccount(
   // served on the root host and are unaffected.
   const hostSlug = c.req.header(SHOP_HOST_HEADER) || "";
   return c.env.DB.prepare(
-    `SELECT m.id,m.user_id,m.shop_id,m.role,m.staff_id,m.version,m.prefs_json,u.name,u.email,u.email_verified_at FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id JOIN shops sh ON sh.id=m.shop_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1 AND (m.role='OWNER' OR b.active=1)${hostSlug ? " AND sh.slug=?" : ""}`,
+    `SELECT m.id,m.user_id,m.shop_id,m.role,m.staff_id,m.version,m.prefs_json,m.onboarded_at,u.name,u.email,u.email_verified_at FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id JOIN shops sh ON sh.id=m.shop_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1 AND (m.role='OWNER' OR b.active=1)${hostSlug ? " AND sh.slug=?" : ""}`,
   )
     .bind(...(hostSlug ? [await digest(token), Date.now(), hostSlug] : [await digest(token), Date.now()]))
     .first<Account>();
@@ -519,7 +521,7 @@ accounts.get("/access", async (c) => {
   const a = managerOrOwner(c);
   const [members, invitations] = await c.env.DB.batch([
     c.env.DB.prepare(
-      "SELECT m.id,m.role,m.staff_id,m.active,m.version,u.name,u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? ORDER BY u.name",
+      "SELECT m.id,m.role,m.staff_id,m.active,m.version,m.onboarded_at,u.name,u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? ORDER BY u.name",
     ).bind(a.shop_id),
     c.env.DB.prepare(
       "SELECT id,staff_id,email,phone,role,channel,sent_count,last_sent_at,expires_at,accepted_at,revoked,created_at FROM staff_invitations WHERE shop_id=? ORDER BY created_at DESC LIMIT 100",
@@ -535,6 +537,11 @@ const ukMobile = (raw: string) => {
   if (/^447\d{9}$/.test(d)) return `+${d}`;
   return null;
 };
+// Link returned to the owner's UI for copying. Built on the request origin (the owner is already
+// on their shop's host in production, so it matches the emailed link there).
+async function inviteLink(c: Ctx, _shopId: string, token: string) {
+  return `${new URL(c.req.url).origin}/workspace?invite=${token}`;
+}
 // Deliver (or re-deliver) an invitation on the requested channel. Returns what actually went out.
 async function sendInvite(c: Ctx, shopId: string, inviterUserId: string, inv: { id: string; email: string; phone: string; role: string; channel: string }, token: string) {
   const ms = await msgShop(c, shopId);
@@ -605,7 +612,7 @@ accounts.post("/invites", async (c) => {
     event(c, a.shop_id, `user:${a.user_id}`, id, "STAFF_INVITED"),
   ]);
   const delivery = await sendInvite(c, a.shop_id, a.user_id, { id, email: b.email, phone: phone || "", role: b.role, channel: b.channel }, token);
-  return c.json({ id, token, link: `${new URL(c.req.url).origin}/workspace?invite=${token}`, expires_in_hours: 7 * 24, delivery: delivery.sent.length ? delivery.sent.join("+") : "manual", sent: delivery.sent }, 201);
+  return c.json({ id, token, link: await inviteLink(c, a.shop_id, token), expires_in_hours: 7 * 24, delivery: delivery.sent.length ? delivery.sent.join("+") : "manual", sent: delivery.sent }, 201);
 });
 // Send it again (same channel by default, or a different one). Issues a fresh token — the old link
 // stops working — so a lost email doesn't leave a live link lying around.
@@ -624,7 +631,7 @@ accounts.post("/invites/:id/resend", async (c) => {
   ]);
   const email = inv.email.endsWith("@sms.invite") ? "" : inv.email;
   const delivery = await sendInvite(c, a.shop_id, a.user_id, { id: inv.id, email, phone: inv.phone, role: inv.role, channel }, token);
-  return c.json({ id: inv.id, token, link: `${new URL(c.req.url).origin}/workspace?invite=${token}`, expires_in_hours: 7 * 24, delivery: delivery.sent.length ? delivery.sent.join("+") : "manual", sent: delivery.sent }, 201);
+  return c.json({ id: inv.id, token, link: await inviteLink(c, a.shop_id, token), expires_in_hours: 7 * 24, delivery: delivery.sent.length ? delivery.sent.join("+") : "manual", sent: delivery.sent }, 201);
 });
 accounts.post("/invites/:id/revoke", async (c) => {
   const a = managerOrOwner(c);
