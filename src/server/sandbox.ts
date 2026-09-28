@@ -53,6 +53,7 @@ import {
   payTermsOf,
   type PayTerms,
   calculatePayRun,
+  periodsCovered,
   shopPageSchema,
   defaultShopPage,
   type ShopPage,
@@ -3334,8 +3335,7 @@ export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: strin
   }
   const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
   const terms = payTermsOf(staff);
-  const periodDays = terms.pay_period === "WEEKLY" ? 7 : terms.pay_period === "FORTNIGHTLY" ? 14 : 30;
-  const periods = Math.max(1, Math.round(days / periodDays));
+  const periods = periodsCovered(terms.pay_period, days);
   // Approved leave in the period (whole days; half days count 0.5 once the leave model is in).
   const leave_days = offRows.results.reduce((n, r) => n + ((r as { half?: string }).half ? 0.5 : 1), 0);
   // Deposit refunds caused by re-pricing a visit below the deposit: recovered from the barber here.
@@ -3421,7 +3421,9 @@ sandbox.get("/pay-runs/period", async (c) => {
     const existing = runs.find((r) => r.staff_id === st.id) ?? null;
     const { terms, input: figures, auto_adjustments } = await payRunFiguresDb(c.env.DB, shop, st.id, q.data!.from, q.data!.to);
     const r = calculatePayRun(terms, figures, withAuto([], auto_adjustments));
-    rows.push({ staff_id: st.id, name: st.name, pay_model: terms.pay_model, existing, sales_pence: figures.service_pence, tips_pence: figures.tips_pence, visits: figures.visits, owed_to_staff_pence: existing ? existing.net_pence : r.net_pence, owed_to_business_pence: existing ? (existing.owed_to_business_pence ?? 0) : r.owed_to_business_pence, deductions_pence: existing ? (existing.deductions_pence ?? 0) : r.deductions_pence, has_activity: figures.service_pence > 0 || figures.tips_pence > 0 || r.deductions_pence > 0 });
+    // A run freezes its figures; once payments are settled into it they leave the live ledger, so the
+    // row must read from the run rather than recompute (which would show £0 for a paid barber).
+    rows.push({ staff_id: st.id, name: st.name, pay_model: terms.pay_model, existing, sales_pence: existing ? existing.service_pence : figures.service_pence, tips_pence: existing ? existing.tips_pence : figures.tips_pence, visits: existing ? existing.visits : figures.visits, owed_to_staff_pence: existing ? existing.net_pence : r.net_pence, owed_to_business_pence: existing ? (existing.owed_to_business_pence ?? 0) : r.owed_to_business_pence, deductions_pence: existing ? (existing.deductions_pence ?? 0) : r.deductions_pence, has_activity: !!existing || figures.service_pence > 0 || figures.tips_pence > 0 || r.deductions_pence > 0 });
   }
   return c.json({ from: q.data!.from, to: q.data!.to, rows });
 });
@@ -3524,6 +3526,19 @@ sandbox.put("/pay-runs/:id", async (c) => {
     ).bind(next, b.paid_method ?? run.paid_method, b.paid_reference || run.paid_reference, JSON.stringify(adjustments), adjustments_pence, net, owedBiz, b.note ?? run.note, Date.now(), c.get("shopId"), run.id, b.version),
     audit(c, "pay_run", run.id, `PAY_RUN_${next}`, b.reason || (next === "PAID" ? `Paid by ${b.paid_method ?? run.paid_method}${b.paid_reference ? ` · ${b.paid_reference}` : ""}` : ""), true),
   );
+  // Settling by hand claims the period's payments into this run (the Stripe path does the same in
+  // executeRun) so they can never be paid twice and later periods stay clean.
+  if (next === "PAID") {
+    await c.env.DB.prepare("UPDATE payments SET pay_run_id=? WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND pay_run_id IS NULL")
+      .bind(run.id, c.get("shopId"), run.staff_id, run.period_from, run.period_to).run();
+  }
+  // Voiding hands everything back so a fresh run picks it up: deposit-refund adjustments always, and
+  // the payments unless Stripe already moved the money for them.
+  if (next === "VOID") {
+    const release = [c.env.DB.prepare("UPDATE booking_adjustments SET pay_run_id=NULL WHERE shop_id=? AND pay_run_id=?").bind(c.get("shopId"), run.id)];
+    if (!run.transferred_at) release.push(c.env.DB.prepare("UPDATE payments SET pay_run_id=NULL WHERE shop_id=? AND pay_run_id=?").bind(c.get("shopId"), run.id));
+    await c.env.DB.batch(release);
+  }
   let fresh = await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), run.id).first<PayRun>();
   // Approving moves the card money straight away when Stripe is live (STANDARD waits for settlement).
   let transfer: Awaited<ReturnType<typeof executeRun>> | null = null;

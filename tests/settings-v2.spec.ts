@@ -10,7 +10,7 @@ test("every settings section opens, is grouped, and passes axe", async ({ page }
   await openFixtureShop(page);
   await section(page, "Settings");
   const nav = page.getByRole("tablist", { name: "Settings sections" });
-  for (const g of ["Business", "Customers", "Communication", "Money"]) await expect(nav.getByText(g, { exact: true })).toBeVisible();
+  for (const g of ["Business", "Bookings", "Website", "Customers", "Team", "Account"]) await expect(nav.getByText(g, { exact: true })).toBeVisible();
   for (const key of SECTIONS) {
     await page.getByTestId(`settings-tab-${key}`).click();
     await expect(page.getByTestId(`settings-tab-${key}`)).toHaveAttribute("aria-selected", "true");

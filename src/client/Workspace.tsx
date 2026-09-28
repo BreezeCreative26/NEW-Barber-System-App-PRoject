@@ -24,7 +24,7 @@ import type {
 } from "../server/domain";
 import { Brand, Button, Icon, IconButton, Modal, Notice, Badge, Avatar, TopBar, Sidebar, readSidebarCollapsed, TabBar, StatusPill, type NavItem } from "./ui";
 import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
-import { ServiceStudio, BarberStudio } from "./Studio";
+import { ServiceStudio, BarberStudio, type BarberTab } from "./Studio";
 import { Calendar, WeekStrip, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { BlockDialog } from "./BlockDialog";
 import { PayRunsPage, MyPay } from "./PayRunsPage";
@@ -1540,6 +1540,8 @@ export function Workspace() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [focusService, setFocusService] = useState<string | null>(null);
   const [focusBarber, setFocusBarber] = useState<string | null>(null);
+  // Editor tab to land on when a barber is opened from Pay runs (Pay) vs search (Profile).
+  const [focusBarberTab, setFocusBarberTab] = useState<BarberTab | null>(null);
   // "/" opens search anywhere outside an input, like the top-bar hint says.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2186,6 +2188,7 @@ export function Workspace() {
           onBarber={(id) => {
             if (!canNavigate()) return;
             setFocusBarber(id);
+            setFocusBarberTab(null);
             setTab("Team");
           }}
         />
@@ -2527,44 +2530,7 @@ export function Workspace() {
                         </span>
                       )}
                     </Button>
-                    <div className="calendar-summary toolbar-grow" role="status">
-                    <span>
-                      {!dayReady
-                        ? "Loading appointments…"
-                        : `${filteredBookings.length} matching appointment${filteredBookings.length === 1 ? "" : "s"}`}
-                      {activeFilterCount > 0 && dayReady ? " · filtered" : ""}
-                    </span>
-                    {dayReady && (
-                      <span className="calendar-summary-stats" aria-label="Selected day statistics">
-                        <span>
-                          <b>{money(dayStats.value)}</b> booked
-                        </span>
-                        <span>
-                          <b>{dayStats.completed}</b>/{dayStats.visits} completed
-                        </span>
-                        <span>
-                          <b>{dayStats.online}</b> online
-                        </span>
-                        {dayStats.utilisation !== null && (
-                          <span>
-                            <b>{dayStats.utilisation}%</b> of chair time
-                          </span>
-                        )}
-                      </span>
-                    )}
-                    {activeFilterCount > 0 && !filtersOpen && (
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          setBarber("");
-                          setStatusFilter("");
-                          setSearch("");
-                        }}
-                      >
-                        Clear filters
-                      </Button>
-                    )}
-                  </div>
+                    <span className="toolbar-grow" aria-hidden="true" />
                     <div className="segmented" aria-label="Calendar view">
                       <button
                         type="button"
@@ -2640,6 +2606,44 @@ export function Workspace() {
                       <Icon name="plus" />
                       New booking
                     </Button>
+                  </div>
+                    <div className="calendar-summary" role="status" data-testid="calendar-summary">
+                    <span>
+                      {!dayReady
+                        ? "Loading appointments…"
+                        : `${filteredBookings.length} matching appointment${filteredBookings.length === 1 ? "" : "s"}`}
+                      {activeFilterCount > 0 && dayReady ? " · filtered" : ""}
+                    </span>
+                    {dayReady && (
+                      <span className="calendar-summary-stats" aria-label="Selected day statistics">
+                        <span>
+                          <b>{money(dayStats.value)}</b> booked
+                        </span>
+                        <span>
+                          <b>{dayStats.completed}</b>/{dayStats.visits} completed
+                        </span>
+                        <span>
+                          <b>{dayStats.online}</b> online
+                        </span>
+                        {dayStats.utilisation !== null && (
+                          <span>
+                            <b>{dayStats.utilisation}%</b> of chair time
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    {activeFilterCount > 0 && !filtersOpen && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setBarber("");
+                          setStatusFilter("");
+                          setSearch("");
+                        }}
+                      >
+                        Clear filters
+                      </Button>
+                    )}
                   </div>
                   {filtersOpen && (
                     <div className="calendar-filters-panel" id="timetable-filters">
@@ -2870,7 +2874,7 @@ export function Workspace() {
                   onOpenBooking={openBooking}
                 />
               )}
-              {tab === "Pay" && <PayRunsPage w={w} api={api} onOpenBarber={(sid) => { setFocusBarber(sid); setTab("Team"); }} />}
+              {tab === "Pay" && <PayRunsPage w={w} api={api} onOpenBarber={(sid) => { setFocusBarber(sid); setFocusBarberTab("pay"); setTab("Team"); }} />}
               {tab === "MyPay" && <MyPay w={w} api={api} />}
               {tab === "Team" && (
                 <BarberStudio
@@ -2878,6 +2882,7 @@ export function Workspace() {
                   api={api}
                   refresh={refresh}
                   initialSelected={focusBarber}
+                  initialTab={focusBarberTab}
                   canEdit={!w.account || ["OWNER", "MANAGER"].includes(w.account.role)}
                   onHours={(item) => setEditor({ kind: "hours", item })}
                   onDaysOff={(item) => setEditor({ kind: "daysOff", item })}

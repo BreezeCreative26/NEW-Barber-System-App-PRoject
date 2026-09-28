@@ -3393,3 +3393,29 @@ body.editor-open { overflow: hidden; }
 .welcome-window .setup-flow-top .setup-flow-brand { display: none; }
 .welcome-window .setup-flow-rail { top: 55px; max-height: calc(100vh - 55px); }
 @media (max-width: 767px) { .welcome-powered { display: none; } }
+
+/* Sidebar head: the top bar already shows the shop logo; the sidebar keeps only the collapse toggle. */
+.sidebar-head-spacer { flex: 1; }
+.sidebar-head { min-height: 36px; margin-bottom: 6px; }
+.sidebar.rail.collapsed .sidebar-head { justify-content: center; }
+
+/* ---------- Calendar audit: nothing hides ----------
+   The day summary (£ booked · completed · online · chair time) used to sit inside the toolbar's
+   spare space and was clipped at every width. It is now its own row under the toolbar. */
+.workspace .connected-calendar .calendar-summary { width: 100%; border-bottom: 1px solid var(--line-2); padding: 6px var(--s-4); flex-wrap: wrap; }
+.workspace .connected-calendar .calendar-summary-stats { overflow: visible; }
+/* Barber column headings: let the hours chip drop under the name instead of squeezing the name to "Da…". */
+.workspace .connected-calendar .staff-column-heading { flex-wrap: wrap; row-gap: 4px; }
+.workspace .connected-calendar .staff-column-heading > div { flex: 1 1 90px; }
+.workspace .connected-calendar .staff-column-heading .staff-hours-chip { flex: 0 0 auto; }
+@media (max-width: 1280px) {
+  .workspace .connected-calendar .staff-column-heading .staff-hours-chip { order: 3; flex-basis: 100%; justify-content: flex-start; margin-left: 38px; }
+  .workspace .connected-calendar .staff-column-heading .staff-menu { margin-left: auto; }
+}
+/* Barber phone app: the week board is fixed to the screen and scrolls inside itself. */
+@media (max-width: 767px) {
+  .workspace .barber-week-shell .connected-calendar { display: flex; flex-direction: column; height: calc(100dvh - var(--topbar-h) - var(--tabbar-h) - 20px); overflow: hidden; }
+  .workspace .barber-week-shell .connected-scroll { flex: 1 1 auto; min-height: 0; max-height: none; overflow: auto; }
+  .workspace .topbar .wallet-chip, .workspace .topbar .topbar-queue { min-width: 0; }
+  .workspace .topbar .topbar-actions { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+}

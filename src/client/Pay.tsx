@@ -1,7 +1,7 @@
 // Pay terms + pay runs for one barber. Terms are saved on the staff record (PUT /staff/:id);
 // pay runs are calculated server-side from the payments ledger and the terms in force.
 import { useEffect, useState } from "react";
-import type { Deduction, PayModel, PayPeriod, PayRun, Staff, WorkspaceData } from "../server/domain";
+import { withLegacyRent, type Deduction, type PayModel, type PayPeriod, type PayRun, type Staff, type WorkspaceData } from "../server/domain";
 import { Button, Icon, Notice, StatusPill } from "./ui";
 import { money, datePlus, currencySymbol } from "./fixtures";
 
@@ -57,7 +57,9 @@ export function payFormOf(s: Staff | null): PayForm {
     product_commission_pct: s?.product_commission_pct ?? 0,
     employment: s?.employment ?? "SELF_EMPLOYED",
     pay_notes: s?.pay_notes ?? "",
-    deductions: (() => { try { const d = JSON.parse(s?.deductions_json || "[]"); return Array.isArray(d) ? d : []; } catch { return []; } })(),
+    // Mirrors the server: a barber set up with the old rent_pence field shows (and is charged) that rent
+    // as a fixed deduction until the owner saves new terms.
+    deductions: withLegacyRent((() => { try { const d = JSON.parse(s?.deductions_json || "[]"); return Array.isArray(d) ? d : []; } catch { return []; } })(), s?.rent_pence ?? 0, s?.pay_period ?? "WEEKLY"),
   };
 }
 export const DEDUCTION_PRESETS: { key: string; label: string; make: (period: PayPeriod) => Omit<Deduction, "id"> }[] = [
@@ -370,8 +372,8 @@ export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: Worksp
       {preview && (
         <PayStatement
           barber={staff.name.split(" ")[0]}
-          terms={preview.terms}
-          input={preview.input}
+          terms={existing ? { ...preview.terms, ...(JSON.parse(existing.terms_json || "{}") as Partial<PayForm>) } : preview.terms}
+          input={existing ? { service_pence: existing.service_pence, tips_pence: existing.tips_pence, visits: existing.visits, hours_x100: existing.hours_x100, periods: preview.input.periods, days: preview.input.days, leave_days: existing.leave_days ?? preview.input.leave_days } : preview.input}
           result={existing ? resultOfRun(existing) : { ...preview.result, adjustments_pence: preview.result.adjustments_pence + adjTotal, net_pence: preview.result.net_pence + adjTotal, owed_to_business_pence: preview.result.owed_to_business_pence - adjTotal }}
           adjustments={existing ? (JSON.parse(existing.adjustments_json) as { label: string; pence: number }[]) : adjust}
           split={existing ? { card: (existing.card_service_pence ?? 0), cash: (existing.cash_service_pence ?? 0) } : { card: preview.split?.card_service_pence ?? 0, cash: preview.split?.cash_service_pence ?? 0 }}

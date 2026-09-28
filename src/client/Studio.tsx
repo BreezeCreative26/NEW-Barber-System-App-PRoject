@@ -704,6 +704,7 @@ export function BarberStudio({
   onOpenBooking,
   canEdit,
   initialSelected = null,
+  initialTab,
 }: {
   w: WorkspaceData;
   api: Api;
@@ -714,6 +715,8 @@ export function BarberStudio({
   onOpenBooking: (b: StoredBooking) => void;
   canEdit: boolean;
   initialSelected?: string | null;
+  /** Which editor tab to land on when a barber is opened from elsewhere (e.g. Pay runs → Pay). */
+  initialTab?: BarberTab | null;
 }) {
   const [selected, setSelected] = useState<string | "new" | null>(initialSelected);
   useEffect(() => {
@@ -819,6 +822,7 @@ export function BarberStudio({
           api={api}
           staff={selectedStaff}
           canEdit={canEdit}
+          initialTab={selected === initialSelected ? initialTab || undefined : undefined}
           onClose={() => setSelected(null)}
           onSaved={async (id) => {
             // A failed re-read is surfaced by the workspace shell (Retry workspace); the write itself
@@ -858,6 +862,7 @@ const staffForm = (staff: Staff | null) => ({
   ...payFormOf(staff),
 });
 type Perf = { barbers: { staff_id: string; n: number; minutes: number; completed_value: number; no_shows: number }[]; from: string; to: string };
+export type BarberTab = "profile" | "schedule" | "services" | "pay" | "performance" | "upcoming" | "login";
 function BarberEditor({
   w,
   api,
@@ -869,6 +874,7 @@ function BarberEditor({
   onDaysOff,
   onOverrides,
   onOpenBooking,
+  initialTab,
 }: {
   w: WorkspaceData;
   api: Api;
@@ -880,8 +886,12 @@ function BarberEditor({
   onDaysOff: (s: Staff) => void;
   onOverrides: (s: Staff) => void;
   onOpenBooking: (b: StoredBooking) => void;
+  initialTab?: BarberTab;
 }) {
-  const [tab, setTabRaw] = useState<"profile" | "schedule" | "services" | "pay" | "performance" | "upcoming" | "login">("profile");
+  const [tab, setTabRaw] = useState<BarberTab>(initialTab || "profile");
+  useEffect(() => {
+    if (initialTab) setTabRaw(initialTab);
+  }, [initialTab]);
   const [payRuns, setPayRuns] = useState<PayRun[]>([]);
   const loadPayRuns = () => api<{ pay_runs: PayRun[] }>("/pay-runs").then((r) => setPayRuns(r.pay_runs)).catch(() => {});
   useEffect(() => {
