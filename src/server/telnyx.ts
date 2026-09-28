@@ -162,7 +162,8 @@ export async function telnyxSetup(origin: string, opts: { buyUkNumber?: boolean;
   const profiles = await api<{ data?: Profile[] }>("/messaging_profiles?page[size]=50");
   let profile = (profiles.data || []).find((p) => p.name === "foliyo");
   if (!profile) {
-    profile = (await api<{ data: Profile }>("/messaging_profiles", { name: "foliyo", enabled: true, webhook_url: webhook, webhook_api_version: "2" })).data;
+    // Telnyx requires an explicit destination allow-list; foliyo texts UK (and Irish) mobiles.
+    profile = (await api<{ data: Profile }>("/messaging_profiles", { name: "foliyo", enabled: true, webhook_url: webhook, webhook_api_version: "2", whitelisted_destinations: ["GB", "IE"] })).data;
     notes.push(`Created messaging profile ${profile.id}`);
   } else if (profile.webhook_url !== webhook || !profile.enabled) {
     profile = (await api<{ data: Profile }>(`/messaging_profiles/${profile.id}`, { webhook_url: webhook, webhook_api_version: "2", enabled: true }, "PATCH")).data;
