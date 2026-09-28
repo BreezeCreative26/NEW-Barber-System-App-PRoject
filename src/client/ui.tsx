@@ -264,12 +264,14 @@ export function Badge({
 // initial, their name) and foliyo steps back to a "Powered by" line — it should feel like their
 // software. Without a shop (sign-in, invites, marketing) it is the foliyo wordmark.
 const W = "/static/brand/foliyo-wordmark";
-export function Brand({ light = false, shop }: { light?: boolean; shop?: { name: string; logo?: string | null } | null }) {
+// `tone` is measured when the logo is uploaded: a light (white) mark sits on a dark plate so it
+// reads on the light dashboard; a dark or colour mark sits on white. No owner setting needed.
+export function Brand({ light = false, shop }: { light?: boolean; shop?: { name: string; logo?: string | null; tone?: string } | null }) {
   if (shop) {
     const initial = shop.name.trim().slice(0, 1).toUpperCase() || "·";
     return (
       <span className={`brand brand-shop ${light ? "light" : ""}`} data-testid="brand-shop">
-        {shop.logo ? <img className="brand-mark brand-shop-logo" src={shop.logo} alt="" width={33} height={33} /> : <span className="brand-mark brand-shop-initial" aria-hidden="true">{initial}</span>}
+        {shop.logo ? <img className={`brand-mark brand-shop-logo${shop.tone ? ` tone-${shop.tone}` : ""}`} src={shop.logo} alt="" width={33} height={33} /> : <span className="brand-mark brand-shop-initial" aria-hidden="true">{initial}</span>}
         <span className="brand-shop-text">
           <span className="brand-word brand-shop-name">{shop.name}</span>
           <span className="brand-powered">Powered by <img src={`${W}-${light ? "white" : "ink"}.svg`} alt="foliyo" width={40} height={15} /></span>
@@ -475,8 +477,8 @@ export function TopBar({
   wallet?: { amount: string; caption: string; open?: boolean } | null;
   queue?: { count: number; offered: number; open?: boolean } | null;
   bell?: { count: number; open?: boolean } | null;
-  account?: { initials: string; name: string; caption: string; online?: boolean; logo?: string } | null;
-  shop?: { name: string; logo?: string | null } | null;
+  account?: { initials: string; name: string; caption: string; online?: boolean; logo?: string; logoTone?: string } | null;
+  shop?: { name: string; logo?: string | null; tone?: string } | null;
   onSearch?: () => void;
   onWallet?: () => void;
   onQueue?: () => void;
@@ -525,7 +527,7 @@ export function TopBar({
       )}
       {account && (
         <button type="button" className="account-pill" onClick={onAccount} aria-haspopup="menu" aria-expanded={accountOpen ? "true" : "false"} aria-label={`Account: ${account.name}, ${account.caption}`} data-testid="account-pill">
-          {account.logo ? <img className="avatar-ink avatar-logo" src={account.logo} alt="" /> : <span className="avatar-ink">{account.initials}</span>}
+          {account.logo ? <img className={`avatar-ink avatar-logo${account.logoTone ? ` tone-${account.logoTone}` : ""}`} src={account.logo} alt="" /> : <span className="avatar-ink">{account.initials}</span>}
           <span className="account-pill-text">
             <b>{account.name}</b>
             <small>{account.online !== false && <span className="presence-dot" aria-hidden="true" />}{account.caption}</small>

@@ -135,7 +135,7 @@ pub.route("/shops/:slug/account", customerAccounts);
 
 export async function shopBySlug(c: Ctx, slug: string) {
   const shop = await c.env.DB.prepare(
-    "SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1 AND s.suspended_at IS NULL",
+    "SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1 AND s.suspended_at IS NULL",
   )
     .bind(slug.toLowerCase())
     .first<BrandedShop>();
@@ -152,7 +152,7 @@ export function limits(shop: Shop, now = Date.now()) {
     maxDate: datePlus(today, shop.booking_window_days),
   };
 }
-export type BrandedShop = Shop & { logo_url: string; accent: string; theme_json: string };
+export type BrandedShop = Shop & { logo_url: string; accent: string; theme_json: string; logo_tone?: string };
 const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   id: s.id,
   name: s.name,
@@ -177,6 +177,9 @@ const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   version: s.version,
   // Which ways this shop can message the customer, so the booking form and account screens only
   // offer real choices. Text needs the shop's SMS toggle on; WhatsApp is retired (always false).
+  // The shop's own booking terms (if any) and their version. The customer's accepted version comes
+  // back on /account/session so the flow knows whether to ask again.
+  terms: s.terms_text ? { text: s.terms_text, version: s.terms_version || 0, updated_at: s.terms_updated_at || 0 } : null,
   channels: {
     sms: (s as { msg_sms?: number }).msg_sms !== 0,
     email: (s as { msg_email?: number }).msg_email !== 0,
@@ -662,6 +665,18 @@ pub.post("/shops/:slug/bookings", async (c) => {
   b.phone = signedIn.phone;
   b.email = signedIn.email || b.email;
   if (!b.email) fail(400, "Add an email address to your account");
+  // Shop terms: when the shop has terms, the customer must have accepted the current version —
+  // either earlier (stored on their link to this shop) or by ticking the box on this booking.
+  const { accept_terms_version, ...bk } = b;
+  if (shop.terms_text && (shop.terms_version || 0) > 0) {
+    const link = await c.env.DB.prepare("SELECT terms_version FROM customer_account_links WHERE account_id=? AND shop_id=?").bind(signedIn.id, shop.id).first<{ terms_version: number }>();
+    const accepted = Math.max(link?.terms_version || 0, accept_terms_version === shop.terms_version ? shop.terms_version! : 0);
+    if (accepted < shop.terms_version!) fail(409, "terms_required");
+    if ((link?.terms_version || 0) < shop.terms_version!) {
+      await c.env.DB.prepare("UPDATE customer_account_links SET terms_version=?, terms_accepted_at=? WHERE account_id=? AND shop_id=?").bind(shop.terms_version, Date.now(), signedIn.id, shop.id).run();
+      await c.env.DB.batch([audit(c, "customer_account", signedIn.id, "TERMS_ACCEPTED", `Accepted ${shop.name} booking terms v${shop.terms_version} while booking.`)]);
+    }
+  }
   // Scoped per shop so one busy shop cannot lock customers out of another.
   await throttle(c, "book", `${shop.id}:${clientKey(c)}`, 120);
   await throttle(c, "book-phone", `${shop.id}:${b.phone}`, 12);
@@ -671,7 +686,7 @@ pub.post("/shops/:slug/bookings", async (c) => {
   const holdMin = depositsOnline(shop) ? (shop.deposit_hold_min || 15) : 0;
   const result = await createBooking(
     c,
-    { ...b, source: "TEST_BOOKING" },
+    { ...bk, source: "TEST_BOOKING" },
     "ONLINE",
     { minStart, maxDate, depositHoldMin: holdMin || undefined },
   );
@@ -1078,7 +1093,7 @@ async function bookingByToken(c: Ctx) {
     .first<{ booking_id: string; shop_id: string }>();
   if (!row) return fail(404, "Booking link not found");
   c.set("shopId", row.shop_id);
-  const shop = await c.env.DB.prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?")
+  const shop = await c.env.DB.prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?")
     .bind(row.shop_id)
     .first<BrandedShop>();
   const booking = await readBooking(c, row.booking_id);

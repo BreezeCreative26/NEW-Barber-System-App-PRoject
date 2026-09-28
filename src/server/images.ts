@@ -33,6 +33,49 @@ export async function optimiseImage(input: Uint8Array, kind: UploadKind, sniffed
   return { bytes: new Uint8Array(out.data), type, width: out.info.width, height: out.info.height };
 }
 
+// Which way a logo leans. Looks only at pixels that are actually painted (alpha > 40%), so a white
+// mark on a transparent PNG reads as "light" rather than being averaged with its background.
+//   light  → mostly pale/white: never invert; needs a dark plate on light surfaces.
+//   dark   → mostly ink/near-black, low saturation: invert to white on dark surfaces.
+//   colour → anything else (full-colour marks, mid-tones): leave exactly as uploaded.
+// Returns "" when the image cannot be read (sharp missing, corrupt file) so callers fall back to
+// the old behaviour instead of guessing.
+export type LogoTone = "light" | "dark" | "colour" | "";
+export async function logoTone(input: Uint8Array): Promise<LogoTone> {
+  let sharp: (typeof import("sharp"))["default"];
+  try {
+    const mod = await import("sharp");
+    sharp = (mod.default ?? (mod as unknown)) as typeof sharp;
+  } catch {
+    return "";
+  }
+  try {
+    const { data, info } = await sharp(Buffer.from(input), { failOn: "none" }).resize({ width: 96, height: 96, fit: "inside" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    let n = 0, lum = 0, sat = 0, light = 0, dark = 0;
+    for (let i = 0; i < data.length; i += info.channels) {
+      const a = data[i + 3];
+      if (a < 102) continue; // < 40% opaque: background / anti-aliasing
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const l = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      n++; lum += l; sat += mx ? (mx - mn) / mx : 0;
+      if (l > 0.72) light++; else if (l < 0.35) dark++;
+    }
+    if (n < 16) return "";
+    const meanSat = sat / n;
+    // A flat JPEG/PNG with an opaque white background: the mark itself is what is *not* light.
+    const lightShare = light / n, darkShare = dark / n;
+    if (meanSat > 0.28) return "colour";
+    if (lightShare > 0.6 && darkShare < 0.15) return "light";
+    if (darkShare > 0.6 && lightShare < 0.15) return "dark";
+    // Opaque background + ink mark: the white is the plate, the ink is the logo → treat as dark.
+    if (lightShare > 0.5 && darkShare > 0.15 && meanSat < 0.12) return "dark";
+    return "colour";
+  } catch {
+    return "";
+  }
+}
+
 // Home-screen icon for a shop's installed app: the logo centred on a solid background with safe
 // padding (maskable icons get cropped to a circle/squircle by the launcher), or a two-letter
 // monogram when the shop has no logo yet. Always PNG, always square.

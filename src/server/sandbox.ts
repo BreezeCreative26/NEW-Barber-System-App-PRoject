@@ -72,7 +72,7 @@ import {
  shopBuffer } from "./domain";
 
 import { slotFreed, makeOffer, matchesFor, rangeDates, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
-import { optimiseImage } from "./images";
+import { logoTone, optimiseImage } from "./images";
 import { billingSummary, entitlements, setFeature, syncSeats, hasFeature, features as billingFeatures } from "./billing";
 import { applyDecisions, changeSchema, decisionSchema, describeChange, previewChange, type ScheduleChange } from "./schedule";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
@@ -616,7 +616,7 @@ sandbox.get("/workspace", async (c) => {
     scoped(
       "SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND (? IS NULL OR staff_id=?) ORDER BY date",
     ),
-    c.env.DB.prepare("SELECT logo_url FROM shop_pages WHERE shop_id=?").bind(sid),
+    c.env.DB.prepare("SELECT logo_url, logo_tone FROM shop_pages WHERE shop_id=?").bind(sid),
     scoped("SELECT * FROM staff_blocks WHERE shop_id=? AND (? IS NULL OR staff_id=?) AND date>=? ORDER BY date,start_min", [shopToday(shop.timezone)]),
   ]);
   const staff = result[0].results as Staff[];
@@ -680,6 +680,7 @@ sandbox.get("/workspace", async (c) => {
   return c.json({
     shop,
     logo_url: (result[11].results[0] as { logo_url?: string } | undefined)?.logo_url || "",
+    logo_tone: (result[11].results[0] as { logo_tone?: string } | undefined)?.logo_tone || "",
     account,
     staff,
     services,
@@ -743,6 +744,22 @@ sandbox.put("/shop", async (c) => {
 // Online booking settings: public address, on/off switch, lead time and window.
 
 // ---- Shop home page content (Settings → Online presence) ----
+async function resolveLogoTone(c: { env: { DB: D1Database } }, logoUrl: string): Promise<string> {
+  if (!logoUrl) return "";
+  const m = /^\/media\/([a-f0-9-]{36})$/.exec(logoUrl);
+  if (m) {
+    const row = await c.env.DB.prepare("SELECT tone FROM shop_media WHERE id=?").bind(m[1]).first<{ tone: string }>();
+    return row?.tone || "";
+  }
+  try {
+    const abs = logoUrl.startsWith("/") ? (process.env.APP_ORIGIN || "http://localhost:3000") + logoUrl : logoUrl;
+    const r = await fetch(abs, { signal: AbortSignal.timeout(4000) });
+    if (!r.ok) return "";
+    return await logoTone(new Uint8Array(await r.arrayBuffer()));
+  } catch {
+    return "";
+  }
+}
 sandbox.get("/shop/page", async (c) => {
   const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(c.get("shopId")).first<ShopPage>();
   return c.json({ page: row ?? defaultShopPage(c.get("shopId")) });
@@ -755,13 +772,17 @@ sandbox.put("/shop/page", async (c) => {
   if (existing && existing.version !== b.version) fail(409, "record_changed");
   if (!existing && b.version !== 0) fail(409, "record_changed");
   const sections = JSON.stringify([...new Set(b.sections)]);
+  // Tone of the logo being saved: measured at upload for our own media, measured now for an
+  // external URL (best effort, 4s), blank when there is no logo. Stored alongside so every
+  // read (shop page, boot screen, emails, dashboard) knows how to place the mark.
+  const tone = await resolveLogoTone(c, b.logo_url);
   const stmt = existing
     ? c.env.DB.prepare(
-        "UPDATE shop_pages SET strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
-      ).bind(b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version)
+        "UPDATE shop_pages SET logo_tone=?,strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
+      ).bind(tone, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version)
     : c.env.DB.prepare(
-        "INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
-      ).bind(sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now);
+        "INSERT INTO shop_pages(logo_tone,shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+      ).bind(tone, sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now);
   await checkVersionUpdate(c, stmt, audit(c, "shop", sid, "SHOP_PAGE_UPDATED", `${b.published ? "Published" : "Unpublished"}; ${b.sections.length} sections.`, true));
   const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>();
   return c.json({ page: row });
@@ -785,16 +806,26 @@ sandbox.put("/shop/reviews", async (c) => {
 sandbox.put("/shop/online", async (c) => {
   const b = await input(c, onlineBookingSchema);
   if (RESERVED_SUBDOMAINS.has(b.slug)) fail(409, "That address is reserved. Try another.");
+  // Terms: any change to the wording is a new version. Customers who accepted an older version are
+  // asked to accept again the next time they book; clearing the text stops asking altogether.
+  const cur = await c.env.DB.prepare("SELECT terms_text, terms_version FROM shops WHERE id=?").bind(c.get("shopId")).first<{ terms_text: string; terms_version: number }>();
+  const termsText = b.terms_text ?? cur?.terms_text ?? "";
+  const termsChanged = termsText !== (cur?.terms_text ?? "");
+  const termsVersion = termsChanged ? (termsText ? (cur?.terms_version ?? 0) + 1 : 0) : (cur?.terms_version ?? 0);
   try {
     await checkVersionUpdate(
       c,
       c.env.DB.prepare(
-        "UPDATE shops SET slug=?,online_booking=?,lead_time_min=?,booking_window_days=?,version=version+1 WHERE id=? AND version=?",
+        "UPDATE shops SET slug=?,online_booking=?,lead_time_min=?,booking_window_days=?,terms_text=?,terms_version=?,terms_updated_at=CASE WHEN ?=1 THEN ? ELSE terms_updated_at END,version=version+1 WHERE id=? AND version=?",
       ).bind(
         b.slug,
         b.online_booking,
         b.lead_time_min,
         b.booking_window_days,
+        termsText,
+        termsVersion,
+        termsChanged ? 1 : 0,
+        Date.now(),
         c.get("shopId"),
         b.version,
       ),
@@ -803,7 +834,7 @@ sandbox.put("/shop/online", async (c) => {
         "shop",
         c.get("shopId"),
         b.online_booking ? "ONLINE_BOOKING_ENABLED" : "ONLINE_BOOKING_DISABLED",
-        `Public address /book/${b.slug}; lead time ${b.lead_time_min} min; window ${b.booking_window_days} days.`,
+        `Public address /book/${b.slug}; lead time ${b.lead_time_min} min; window ${b.booking_window_days} days${termsChanged ? `; booking terms ${termsText ? `updated to v${termsVersion} — customers re-accept on their next booking` : "removed"}` : ""}.`,
         true,
       ),
     );
@@ -1783,14 +1814,17 @@ sandbox.post("/media", async (c) => {
   const bytes = opt.bytes;
   const type = opt.type;
   const size = opt.width && opt.height ? { width: opt.width, height: opt.height } : imageSize(raw, sniffed!);
+  // Logos: work out whether the mark is light, dark or full-colour so every surface (dashboard,
+  // shop page, boot screen, emails, app icon) can place it correctly without the owner choosing.
+  const tone = kind === "logo" ? await logoTone(raw) : "";
   const mid = id();
   const key = `${c.get("shopId")}/${kind}/${mid}`;
   await putObject(bucket, key, bytes, type);
   await c.env.DB.batch([
-    c.env.DB.prepare("INSERT INTO shop_media(id,shop_id,kind,object_key,content_type,bytes,width,height,alt,uploaded_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)").bind(mid, c.get("shopId"), kind, key, type, bytes.byteLength, size?.width ?? null, size?.height ?? null, alt, c.get("actor"), Date.now()),
-    audit(c, "media", mid, "MEDIA_UPLOADED", `${kind} photo, ${Math.round(bytes.byteLength / 1024)} KB${size ? `, ${size.width}×${size.height}` : ""}.`),
+    c.env.DB.prepare("INSERT INTO shop_media(id,shop_id,kind,object_key,content_type,bytes,width,height,alt,uploaded_by,created_at,tone) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)").bind(mid, c.get("shopId"), kind, key, type, bytes.byteLength, size?.width ?? null, size?.height ?? null, alt, c.get("actor"), Date.now(), tone),
+    audit(c, "media", mid, "MEDIA_UPLOADED", `${kind} photo, ${Math.round(bytes.byteLength / 1024)} KB${size ? `, ${size.width}×${size.height}` : ""}${tone ? `, ${tone} logo` : ""}.`),
   ]);
-  return c.json({ media: { id: mid, kind, url: mediaUrl(mid), content_type: type, bytes: bytes.byteLength, width: size?.width ?? null, height: size?.height ?? null, alt } }, 201);
+  return c.json({ media: { id: mid, kind, url: mediaUrl(mid), content_type: type, bytes: bytes.byteLength, width: size?.width ?? null, height: size?.height ?? null, alt, tone } }, 201);
 });
 sandbox.delete("/media/:id", async (c) => {
   const bucket = mediaBucket(c);
