@@ -714,6 +714,16 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
           ) : (
           <>
           <nav className="booking-progress" aria-label="Booking steps">
+            <i
+              className="booking-progress-bar"
+              aria-hidden
+              style={{
+                width: `${Math.round(((customer && step === 4 ? 4 : step + 1) / (customer ? 4 : 5)) * 100)}%`,
+              }}
+            />
+            <span className="booking-progress-count" aria-hidden>
+              Step {customer && step === 4 ? 4 : step + 1} of {customer ? 4 : 5}
+            </span>
             {steps.map((label, i) => (
               <button
                 key={label}
@@ -1445,9 +1455,9 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                   </span>
                 )}
                 {step > 0 ? (
-                  <Button variant="secondary" onClick={() => go(step === 4 && customer ? 2 : step - 1)} disabled={busy}>
+                  <Button variant="secondary" className="booking-back-btn" aria-label="Back" onClick={() => go(step === 4 && customer ? 2 : step - 1)} disabled={busy}>
                     <Icon name="arrowLeft" />
-                    Back
+                    <span>Back</span>
                   </Button>
                 ) : (
                   <span className="secure-note">
@@ -1465,7 +1475,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                     <Icon name="check" />
                   </Button>
                 ) : (
-                  <span className="booking-next-group">
+                  <span className="booking-next-group" data-total={step === 0 ? priceLabel : undefined}>
                     {step === 0 && barbers.length > 1 && (
                       <Button
                         variant="secondary"
