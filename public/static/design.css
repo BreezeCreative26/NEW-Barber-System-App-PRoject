@@ -2715,3 +2715,12 @@ html.boot-dark, html.boot-dark body { background: #17181e; }
 /* Step 3: "+N more" tile at the end of a part of the day — same size as a time, quieter. */
 .time-slots .time-more { border: 1px dashed var(--sp-line-2, var(--line)); background: transparent; color: var(--sp-muted, var(--muted)); font-weight: 600; font-size: 14px; }
 .time-slots .time-more:hover { color: var(--sp-ink, var(--ink)); border-color: var(--sp-ink, var(--ink)); }
+
+/* ---- Loading states in the shop's own colours (no white boxes on a dark shop) ---- */
+.shop-page .skeleton-slots > span { height: 52px; border-radius: 14px; background: linear-gradient(90deg, var(--sp-surface) 25%, var(--sp-surface-2) 50%, var(--sp-surface) 75%); background-size: 200% 100%; border: 1px solid var(--sp-line); }
+.shop-page .skeleton-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+/* Switching day: the previous grid stays put, just softened, until the new one swaps in. */
+.time-groups[data-loading="true"] { opacity: 0.55; transition: opacity 0.15s ease; pointer-events: none; }
+.time-groups { transition: opacity 0.15s ease; }
+/* Day strip tiles fill in quietly (no jump) once counts arrive. */
+.booking-dates button > small { min-height: 1.2em; }

@@ -413,10 +413,11 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   };
   const addonQuery = extraIds.length ? `&addon_ids=${[...extraIds].sort().join(",")}` : "";
   const quoteKey = `${barber}|${service}|${[...extraIds].sort().join(",")}`;
+  // Days + times are fetched as soon as a barber is chosen (step 2), so step 3 opens with them
+  // already on screen. Previous data stays visible while a new request is in flight.
   useEffect(() => {
-    if (!shop || !barber || !service || step !== 2) return;
+    if (!shop || !barber || !service || step < 1) return;
     let cancelled = false;
-    setDays(null);
     api<{ days: DaySummary[] }>(
       `/shops/${encodeURIComponent(slug)}/days?staff_id=${barber}&service_id=${service}&from=${from}${addonQuery}`,
     )
@@ -451,18 +452,29 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       cancelled = true;
     };
   }, [quoteKey, step, shop]);
+  const availCache = useRef(new Map<string, Availability>());
+  const [slotsLoading, setSlotsLoading] = useState(false);
   useEffect(() => {
-    if (!shop || !barber || !service || !date || step !== 2) return;
+    if (!shop || !barber || !service || !date || step < 1) return;
     let cancelled = false;
-    setAvailability(null);
+    const key = `${quoteKey}|${date}`;
+    const cached = availCache.current.get(key);
     setSlotError("");
     setWaitlist("idle");
+    if (cached) {
+      setAvailability(cached);
+      setSlotsLoading(false);
+    } else {
+      setSlotsLoading(true);
+    }
     api<Availability>(
       `/shops/${encodeURIComponent(slug)}/availability?date=${date}&staff_id=${barber}&service_id=${service}${addonQuery}`,
     )
       .then((r) => {
         if (cancelled) return;
+        availCache.current.set(key, r);
         setAvailability(r);
+        setSlotsLoading(false);
         setSlot((s) => {
           const keep = s !== null ? r.slots.find((x) => x.start_min === s && x.available) : null;
           setAssigned(keep?.staff_id ? { id: keep.staff_id, name: keep.staff_name! } : null);
@@ -472,12 +484,25 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       .catch((e) => {
         if (cancelled) return;
         setAvailability(null);
+        setSlotsLoading(false);
         setSlotError(e instanceof Error ? e.message : "Could not load times.");
       });
     return () => {
       cancelled = true;
     };
   }, [quoteKey, date, step, shop]);
+  // Warm the next two open days too, so tapping along the strip is instant.
+  useEffect(() => {
+    if (!shop || !barber || !service || !days || step < 1) return;
+    const upcoming = days.filter((d) => !d.closed && !d.beyond && d.available > 0 && d.date > date).slice(0, 2);
+    for (const d of upcoming) {
+      const key = `${quoteKey}|${d.date}`;
+      if (availCache.current.has(key)) continue;
+      api<Availability>(`/shops/${encodeURIComponent(slug)}/availability?date=${d.date}&staff_id=${barber}&service_id=${service}${addonQuery}`)
+        .then((r) => availCache.current.set(key, r))
+        .catch(() => null);
+    }
+  }, [quoteKey, date, days, step, shop]);
   const go = (next: number) => {
     setStep(next);
     setSaveError("");
@@ -1077,9 +1102,10 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                     className="time-groups"
                     role="group"
                     aria-label="Choose an appointment time"
-                    aria-busy={!availability && !slotError}
+                    aria-busy={slotsLoading}
+                    data-loading={slotsLoading && !!availability ? "true" : undefined}
                   >
-                    {!availability && !slotError && <div className="time-slots skeleton-slots" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <span key={i} />)}</div>}
+                    {!availability && !slotError && <div className="time-slots skeleton-slots" aria-hidden="true">{Array.from({ length: 6 }, (_, i) => <span key={i} />)}</div>}
                     {groups.map((g) => (
                       <div className="time-group" key={g.label}>
                         <h4>
