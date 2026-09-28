@@ -22,6 +22,7 @@ import { afterDepositPaid } from "./server/public";
 import { handleConnectEvent, type ConnectEvent } from "./server/payouts";
 import { settleByMetadata, type PaymentRequest } from "./server/chair";
 import { applyDeliveryReports, applyInbound, waWebhookOk } from "./server/whatsapp";
+import { applyTelnyxEvent, telnyxWebhookOk } from "./server/telnyx";
 import voice from "./server/voice";
 import admin, { adminPublic } from "./server/admin";
 import type { Database } from "./db/client";
@@ -141,6 +142,16 @@ app.post("/api/whatsapp/inbound", async (c) => {
   const body = await c.req.json().catch(() => null);
   const n = body ? await applyInbound(c.env.DB, body).catch(() => 0) : 0;
   return c.json({ ok: true, stored: n });
+});
+// Telnyx messaging webhook (delivery reports + inbound replies, incl. STOP). Ed25519-signed when
+// TELNYX_PUBLIC_KEY is set. Always 200 once verified so Telnyx does not retry.
+app.post("/api/telnyx/webhook", async (c) => {
+  const raw = await c.req.text();
+  if (!telnyxWebhookOk(raw, c.req.header("telnyx-signature-ed25519"), c.req.header("telnyx-timestamp"))) return c.json({ ok: false }, 403);
+  let body: unknown = null;
+  try { body = JSON.parse(raw); } catch { /* not json */ }
+  const result = body ? await applyTelnyxEvent(c.env.DB, body).catch(() => "ignored" as const) : "ignored";
+  return c.json({ ok: true, result });
 });
 const clientErrorHits = new Map<string, { n: number; until: number }>();
 app.post("/api/telemetry/error", async (c) => {

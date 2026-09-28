@@ -6,7 +6,8 @@ import { recordUsage } from "./billing";
 //              concurrently (rows are claimed with an UPDATE … WHERE status='QUEUED').
 // sweepReminders() — queue 24h (configurable) and 2h reminders for upcoming confirmed visits.
 //
-// Providers are platform-level and come from env: RESEND_API_KEY (+ MAIL_FROM); SMS via ClickSend
+// Providers are platform-level and come from env: RESEND_API_KEY (+ MAIL_FROM); SMS via Telnyx
+// (TELNYX_API_KEY + TELNYX_MESSAGING_PROFILE_ID/TELNYX_FROM, preferred — see telnyx.ts), ClickSend
 // (CLICKSEND_USERNAME + CLICKSEND_API_KEY, optional CLICKSEND_FROM) or Twilio (TWILIO_ACCOUNT_SID,
 // TWILIO_AUTH_TOKEN, TWILIO_FROM or TWILIO_MESSAGING_SERVICE_SID). With no provider configured the
 // row is delivered to the "dev mailbox" (status SENT, provider 'mailbox') so the whole flow can be
@@ -23,6 +24,7 @@ import { expireHolds } from "./stripe";
 import { scheduledPayRuns } from "./payouts";
 import { expireRequests } from "./chair";
 import { sweepDailySummaries } from "./alerts";
+import { telnyxFrom, telnyxOn, telnyxSend } from "./telnyx";
 import { sweepPlatform } from "./lifecycle";
 import { sweepWaitlistPlatform } from "./waitlist";
 import { pushToAccount, accountForPhone, type PushPayload } from "./push";
@@ -499,13 +501,15 @@ export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageT
 // ---- Providers -----------------------------------------------------------------
 type Env = Record<string, string | undefined>;
 const env = (): Env => (typeof process !== "undefined" ? (process.env as Env) : {});
-export type ProviderStatus = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "twilio" | "clicksend" | "mailbox"; from: string }; wa: ReturnType<typeof waStatus> };
+export type ProviderStatus = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "telnyx" | "twilio" | "clicksend" | "mailbox"; from: string }; wa: ReturnType<typeof waStatus> };
 const clicksendOn = (e: Record<string, string | undefined>) => !!(e.CLICKSEND_USERNAME && e.CLICKSEND_API_KEY);
 export function providerStatus(): ProviderStatus {
   const e = env();
   return {
     email: e.RESEND_API_KEY ? { provider: "resend", from: e.MAIL_FROM || "" } : { provider: "mailbox", from: "" },
-    sms: clicksendOn(e)
+    sms: telnyxOn(e)
+      ? { provider: "telnyx", from: telnyxFrom(e) }
+      : clicksendOn(e)
       ? { provider: "clicksend", from: e.CLICKSEND_FROM || "" }
       : e.TWILIO_ACCOUNT_SID && e.TWILIO_AUTH_TOKEN && (e.TWILIO_FROM || e.TWILIO_MESSAGING_SERVICE_SID) ? { provider: "twilio", from: e.TWILIO_FROM || e.TWILIO_MESSAGING_SERVICE_SID || "" } : { provider: "mailbox", from: "" },
     wa: waStatus(),
@@ -541,8 +545,18 @@ export function toE164(phone: string, defaultCountry = "GB"): string | null {
   if (/^44\d{10}$/.test(digits)) return `+${digits}`;
   return null;
 }
-async function sendSms(row: Row): Promise<Delivery> {
+async function sendSms(row: Row, db?: DB): Promise<Delivery> {
   const e = env();
+  if (telnyxOn(e)) {
+    const to = toE164(row.recipient);
+    if (!to) return { ok: false, provider: "telnyx", error: "Not a valid mobile number", permanent: true };
+    // A STOP reply (SMS or WhatsApp) is honoured platform-wide before we spend a message.
+    if (db) {
+      const opted = await db.prepare("SELECT 1 AS x FROM wa_optouts WHERE phone=?").bind(to.replace(/\D/g, "")).first();
+      if (opted) return { ok: false, provider: "telnyx", error: "Customer opted out of texts (replied STOP)", permanent: true };
+    }
+    return telnyxSend(to, row.body, { alphaSender: row.msg_sms_sender, e });
+  }
   if (clicksendOn(e)) return sendClickSend(row, e as Record<string, string>);
   if (!(e.TWILIO_ACCOUNT_SID && e.TWILIO_AUTH_TOKEN && (e.TWILIO_FROM || e.TWILIO_MESSAGING_SERVICE_SID))) return { ok: true, provider: "mailbox", id: `mbx_${uid().slice(0, 8)}` };
   const to = toE164(row.recipient);
@@ -645,7 +659,7 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
     const attempt = row.attempts + 1;
     let d: Delivery;
     try {
-      d = row.channel === "EMAIL" ? await sendEmail(row) : row.channel === "WA" ? await sendWa(db, row) : row.channel === "PUSH" ? await sendPush(db, row) : await sendSms(row);
+      d = row.channel === "EMAIL" ? await sendEmail(row) : row.channel === "WA" ? await sendWa(db, row) : row.channel === "PUSH" ? await sendPush(db, row) : await sendSms(row, db);
     } catch (e) {
       d = { ok: false, provider: row.channel === "EMAIL" ? "resend" : row.channel === "WA" ? "infobip" : row.channel === "PUSH" ? "webpush" : "sms", error: e instanceof Error ? e.message : "network error" };
     }
@@ -657,7 +671,7 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
       if (ins?.meta.changes) {
         // Send the text now rather than waiting for the next sweep; a failure here just retries on the usual backoff.
         let f: Delivery;
-        try { f = await sendSms({ ...row, id: fid, channel: "SMS", html: "", subject: "" }); } catch (e) { f = { ok: false, provider: "sms", error: e instanceof Error ? e.message : "network error" }; }
+        try { f = await sendSms({ ...row, id: fid, channel: "SMS", html: "", subject: "" }, db); } catch (e) { f = { ok: false, provider: "sms", error: e instanceof Error ? e.message : "network error" }; }
         if (f.ok) await db.prepare("UPDATE notifications SET status='SENT', sent_at=?, provider=?, provider_id=?, status_note=? WHERE id=?").bind(now, f.provider, f.id, f.provider === "mailbox" ? "Fallback from WhatsApp · dev mailbox" : "Fallback: WhatsApp failed", fid).run();
         else if (f.permanent) await db.prepare("UPDATE notifications SET status='FAILED', provider=?, error=? WHERE id=?").bind(f.provider, f.error.slice(0, 400), fid).run();
         else await db.prepare("UPDATE notifications SET status='QUEUED', next_attempt_at=?, provider=?, error=? WHERE id=?").bind(now + BACKOFF_MIN[0] * 60000, f.provider, f.error.slice(0, 400), fid).run();
