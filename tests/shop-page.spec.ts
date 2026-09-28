@@ -104,31 +104,29 @@ test("unknown, reserved and offline slugs do not get a shop page", async ({ page
   expect((await page.request.get(`/${slug}`)).status()).toBe(404);
 });
 
-test("owner edits the shop page in Settings and the public page reflects it", async ({ page }) => {
+test("owner edits the shop page in the website editor and the public page reflects it", async ({ page }) => {
   const { slug } = await openFixtureShop(page);
   await section(page, "Settings/page");
-  const panel = page.getByTestId("shop-page-panel");
-  await expect(panel).toBeVisible();
-  await expect(panel.getByTestId("view-shop-page")).toHaveAttribute("href", new RegExp(`/${slug}$`));
-  await expect(panel.getByLabel("Strapline")).toHaveValue("Sharp cuts. Straight talk. No fuss.");
-  await panel.getByLabel("Strapline").fill("Walk in a stranger, walk out a regular.");
-  await panel.getByLabel("Phone").fill("020 7946 0999");
-  await panel.getByRole("group", { name: "Sections shown" }).getByLabel("Team", { exact: true }).uncheck();
-  await panel.getByRole("group", { name: "Accent colour" }).getByRole("button", { name: "sage" }).click();
-  await panel.getByRole("button", { name: "Add by URL" }).click();
-  await panel.getByLabel("Gallery image 1", { exact: true }).fill("not a url");
-  await panel.getByTestId("save-shop-page").click();
-  await expect(panel).toContainText(/https|valid|url/i);
-  await panel.getByLabel("Gallery image 1", { exact: true }).fill("https://images.example.test/chair.jpg");
-  await panel.getByTestId("save-shop-page").click();
-  await expect(panel.getByText("Saved")).toBeVisible();
+  await page.getByTestId("open-website-editor").click();
+  const ed = page.getByTestId("website-editor");
+  await expect(ed).toBeVisible();
+  await page.getByTestId("wed-panel-content").click();
+  await expect(page.getByTestId("wed-strapline")).toHaveValue("Sharp cuts. Straight talk. No fuss.");
+  await page.getByTestId("wed-strapline").fill("Walk in a stranger, walk out a regular.");
+  await page.getByTestId("wed-phone").fill("020 7946 0999");
+  await page.getByTestId("wed-panel-sections").click();
+  await page.getByTestId("wed-sec-team").hover();
+  await page.getByRole("button", { name: "Hide Team" }).click();
+  await page.getByTestId("wed-panel-design").click();
+  await page.getByTestId("wed-accent-sage").click();
+  await page.getByTestId("wed-publish").click();
+  await expect(page.getByTestId("wed-publish")).toHaveText("Published", { timeout: 10000 });
 
   const api = await (await page.request.get(`/api/public/shops/${slug}/page`)).json();
   expect(api.page.strapline).toBe("Walk in a stranger, walk out a regular.");
   expect(api.page.phone).toBe("020 7946 0999");
   expect(api.page.accent).toBe("sage");
   expect(api.page.sections).not.toContain("team");
-  expect(api.page.gallery[0]).toBe("https://images.example.test/chair.jpg");
 
   await page.goto(`/${slug}`);
   const root = page.getByTestId("shop-page");

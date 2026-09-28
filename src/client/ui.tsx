@@ -86,6 +86,12 @@ import {
   Palette,
   type LucideIcon,
   House,
+  Undo2,
+  Redo2,
+  Tablet,
+  Monitor,
+  MousePointerClick,
+  ChevronUp,
 } from "lucide-react";
 
 const icons: Record<string, LucideIcon> = {
@@ -102,6 +108,12 @@ const icons: Record<string, LucideIcon> = {
   check: Check,
   checks: CheckCheck,
   down: ChevronDown,
+  up: ChevronUp,
+  undo: Undo2,
+  redo: Redo2,
+  tablet: Tablet,
+  monitor: Monitor,
+  pointer: MousePointerClick,
   left: ChevronLeft,
   right: ChevronRight,
   help: CircleHelp,

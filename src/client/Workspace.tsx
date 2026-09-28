@@ -37,6 +37,7 @@ import { PaymentsPanel } from "./Payouts";
 import { SetupWizard } from "./Setup";
 import { BarberHome } from "./BarberHome";
 import { StaffOnboarding } from "./StaffOnboarding";
+import { WebsiteEditor } from "./WebsiteEditor";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
 import { themeClass, type ShopBrand } from "./theme";
@@ -1497,6 +1498,12 @@ export function Workspace() {
   // /workspace/setup opens the guided setup over the Appointments tab; the URL is the state so a
   // refresh or a link from the landing page lands back in it.
   const [setupOpen, setSetupOpen] = useState(() => location.pathname === "/workspace/setup");
+  // Website editor: its own full-screen surface at /workspace/website.
+  const [editorOpen, setEditorOpen] = useState(() => location.pathname === "/workspace/website");
+  function openEditor(on: boolean) {
+    setEditorOpen(on);
+    history.replaceState(null, "", on ? "/workspace/website" : "/workspace");
+  }
   function openSetup(on: boolean) {
     setSetupOpen(on);
     history.replaceState(null, "", on ? "/workspace/setup" : "/workspace");
@@ -1920,6 +1927,7 @@ export function Workspace() {
           { key: "Shifts", label: "Shifts", icon: "clock" },
           { key: "Pay", label: "Pay runs", icon: "payrun" },
           { key: "Services", label: "Services", icon: "scissors" },
+          { key: "Website", label: "Website", icon: "globe" },
           { key: "Settings", label: "Settings", icon: "settings" },
           { key: "Audit", label: "Audit", icon: "shield" },
         ]
@@ -1956,6 +1964,7 @@ export function Workspace() {
       return;
     }
     if (name === "Appointments" && barberApp) { setBarberWeek(false); setCalendarView("day"); }
+    if (name === "Website") { if (!canNavigate()) return; openEditor(true); return; }
     if (name === tab || !canNavigate()) return;
     setTab(name);
     setNotice("");
@@ -2039,6 +2048,13 @@ export function Workspace() {
           <ErrorMessage error={error} />
           <AuthScreen token={inviteToken} onDone={accountChanged} />
         </main>
+      </div>
+    );
+  if (editorOpen && w && manager && !inviteToken)
+    return (
+      <div className="workspace workspace-editor">
+        <ImpersonationBar />
+        <WebsiteEditor w={w} api={api} onClose={() => { openEditor(false); refresh().catch(() => {}); }} onPublished={() => { setNotice("Website published."); refresh().catch(() => {}); }} />
       </div>
     );
   // First sign-in for invited staff: a short shop-branded onboarding before the workspace.
@@ -2957,7 +2973,7 @@ export function Workspace() {
                     {settingsTab === "page" && (
                       <>
                         <header className="settings-head"><h2>Shop page</h2><p>How your business looks to the public: photos, theme and content, with a live preview.</p></header>
-                        <ShopPagePanel w={w} />
+                        <WebsiteLauncher w={w} onOpen={() => openEditor(true)} />
                       </>
                     )}
                     {settingsTab === "reviews" && (
@@ -3742,6 +3758,36 @@ function ShopPreview({ w, form }: { w: WorkspaceData; form: PageForm }) {
         <div className="shop-preview-page" aria-hidden="true" onClickCapture={(e) => e.preventDefault()}>
           <ShopPageView data={data} me={null} mine={null} preview />
         </div>
+      </div>
+    </section>
+  );
+}
+// Settings → Website: a doorway to the full-screen editor, with the live page and its state.
+function WebsiteLauncher({ w, onOpen }: { w: WorkspaceData; onOpen: () => void }) {
+  const [page, setPage] = useState<Record<string, unknown> | null>(null);
+  useEffect(() => { api<{ page: Record<string, unknown> }>("/shop/page").then((r) => setPage(r.page)).catch(() => setPage({})); }, [w.shop.version]);
+  const live = !!w.shop.slug && w.shop.online_booking === 1;
+  const url = w.shop.slug ? `${location.origin}/${w.shop.slug}` : "";
+  const draft = !!page?.draft_json;
+  return (
+    <section className="workspace-panel web-launch" aria-labelledby="web-launch-heading" data-testid="website-launcher">
+      <div className="web-launch-grid">
+        <div className="web-launch-copy">
+          <h2 id="web-launch-heading">Your website</h2>
+          <p className="workspace-footnote">Edit the real page: click any element to recolour it, choose a layout for each section, swap photos and copy. Changes stay as a draft until you publish.</p>
+          <p className="page-live-link">
+            {live ? <><StatusPill tone={page?.published === 0 ? "note" : "good"}>{page?.published === 0 ? "Hidden" : "Live"}</StatusPill> <a href={url} target="_blank" rel="noreferrer">{url.replace(/^https?:\/\//, "")}</a></> : <><StatusPill tone="warn">Not live</StatusPill> Turn on online booking to publish.</>}
+            {draft && <StatusPill tone="note">Unpublished draft</StatusPill>}
+          </p>
+          <div className="panel-actions-row">
+            <Button onClick={onOpen} data-testid="open-website-editor"><Icon name="globe" size={16} /> {draft ? "Continue editing" : "Open the editor"}</Button>
+            {live && <a className="button secondary" href={url} target="_blank" rel="noreferrer" data-testid="view-shop-page"><Icon name="external" size={15} /> View page</a>}
+          </div>
+        </div>
+        <button type="button" className="web-launch-shot" onClick={onOpen} aria-label="Open the website editor">
+          {page && <iframe title="Your website" src={w.shop.slug ? `/${w.shop.slug}` : "about:blank"} tabIndex={-1} loading="lazy" />}
+          <span className="web-launch-hover"><Icon name="pointer" size={18} /> Open editor</span>
+        </button>
       </div>
     </section>
   );
