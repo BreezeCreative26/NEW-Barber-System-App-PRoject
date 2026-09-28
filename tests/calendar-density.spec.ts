@@ -17,9 +17,20 @@ const sunday = new Date().getUTCDay() === 0;
 test.describe("laptop 1366×768", () => {
   test.skip(sunday, "fixture shop is closed on Sundays — no timeline to measure");
   test.use({ viewport: { width: 1366, height: 768 } });
-  test("Compact shows the whole day with no vertical scroll; Standard shows ≥ 4h; toolbar is one row; choice persists across reload and via the API", async ({ page }) => {
+  test("Compact fits opening→closing on screen inside a fixed 24h board; Standard shows ≥ 4h; toolbar is one row; choice persists across reload and via the API", async ({ page }) => {
     await openFixtureShop(page, "owner");
     const board = page.locator(".connected-scroll");
+    // The board is always 00:00 → 24:00 (96 quarter-hours) and scrolls inside the card: the time
+    // rail starts at midnight and the last hour label is 23:00. The page itself never grows.
+    const labels = await page.locator(".time-gutter > span:not(.half)").allTextContents();
+    expect(labels[0]).toBe("00:00");
+    expect(labels[labels.length - 1]).toBe("23:00");
+    expect(labels.length).toBe(24);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight + 1)).toBe(true);
+    // Out-of-hours cells are greyed but still enabled for staff (customers never see them).
+    const outside = page.locator('.timetable-slot.outside[data-column="0"]');
+    expect(await outside.count()).toBeGreaterThan(0);
+    await expect(outside.filter({ has: page.locator(":scope:enabled") }).first()).toBeEnabled();
     const toolbar = page.locator(".calendar-toolbar-row");
     // One toolbar row: the New booking button sits on the same line as Today.
     const today = await page.getByRole("button", { name: "Today", exact: true }).boundingBox();
@@ -29,8 +40,17 @@ test.describe("laptop 1366×768", () => {
 
     const pick = async (d: string) => { await page.getByTestId("density-button").click(); await page.getByTestId(`density-${d}`).click(); await page.waitForTimeout(250); };
     await pick("compact");
-    const compact = await board.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight }));
-    expect(compact.sh).toBeLessThanOrEqual(compact.ch + 1);
+    // Compact: the *working* day (opening→closing) fits the board without scrolling; the rest of
+    // the 24h grid is reachable by scrolling inside the card.
+    const compact = await board.evaluate((el) => {
+      const step = parseFloat(getComputedStyle(el.querySelector(".calendar-board") as HTMLElement).getPropertyValue("--step"));
+      const headerH = (el.querySelector(".calendar-staff-header") as HTMLElement).offsetHeight;
+      return { sh: el.scrollHeight, ch: el.clientHeight, step, headerH };
+    });
+    const shop = (await (await page.request.get(base + "/workspace")).json()).shop as { opens: number; closes: number };
+    const openMinutes = shop.closes - shop.opens;
+    expect((openMinutes / 15) * compact.step + compact.headerH).toBeLessThanOrEqual(compact.ch + 1);
+    expect(compact.sh).toBeGreaterThan(compact.ch); // the 24h grid is taller than the card
     expect(compact.ch).toBeGreaterThan(450);
     // Every appointment card is still readable: name + service visible on the one line.
     const first = page.locator(".calendar-event").first();

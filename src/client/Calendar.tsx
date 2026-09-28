@@ -73,6 +73,11 @@ function tick() {
 // Slot reasons the shop may knowingly book over from the calendar. Mirrors OVERRIDABLE_REASONS server-side.
 const SOFT_REASONS = new Set(["Outside hours", "Off duty", "Break", "Occupied", "Blocked"]);
 const HARD_REASONS = new Set(["Past time", "Shop closed", "Day off", "Inactive barber"]);
+// Out-of-hours cells: greyed flat (not hatched) — the shop is simply shut, but staff may still book.
+const OUTSIDE_REASONS = new Set(["Outside hours", "Off duty"]);
+// Fixed 24-hour board: midnight to midnight, every day.
+const DAY_BEGIN = 0;
+const DAY_END = 1440;
 export const BLOCK_LABELS: Record<StaffBlock["kind"], string> = { LUNCH: "Lunch", TRAINING: "Training", PERSONAL: "Personal", SICK: "Off sick", OTHER: "Blocked" };
 export function blockLabel(b: Pick<StaffBlock, "kind" | "reason">) {
   return b.reason || BLOCK_LABELS[b.kind];
@@ -253,23 +258,14 @@ export function Calendar({
     (b) => b.date === date && !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
   const dayHours = shopDayOf(w.shop, date);
-  const begin =
-    Math.floor(
-      Math.min(dayHours.starts, ...dayBookings.map((b) => b.start_min), ...dayBlocks.map((k) => k.start_min)) / 60,
-    ) * 60;
-  const end = Math.min(
-    1440,
-    Math.ceil(
-      Math.max(
-        dayHours.ends,
-        ...dayBookings.map((b) => b.start_min + b.duration_min + b.buffer_min),
-        ...dayBlocks.map((k) => k.end_min),
-      ) / 60,
-    ) * 60,
-  );
+  // The board is always the full day, 12:00am → 12:00am (a fixed 24h grid that scrolls inside the
+  // calendar). Hours the shop is closed are greyed but the team can still book there manually;
+  // customers only ever see opening hours (public booking uses dayStarts).
+  const begin = DAY_BEGIN;
+  const end = DAY_END;
   const preset = DENSITY_PRESETS[density];
-  // Compact promises the whole day on one screen: if the board is a little too short for the
-  // 20px cell, shrink the cell (never below 16px) until the day fits. Other presets are fixed.
+  // Compact promises the whole *working* day on one screen: if the board is a little too short for
+  // the 20px cell, shrink the cell (never below 14px) until opening→closing fits. Other presets are fixed.
   const [boardH, setBoardH] = useState(0);
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -280,10 +276,11 @@ export function Calendar({
     return () => ro.disconnect();
   }, []);
   const slots = (end - begin) / 15;
+  const openSlots = Math.max(16, (dayHours.ends - dayHours.starts) / 15 || 36); // opening→closing, at least 4h
   // Auto-fit only on wide screens: on a phone the board is short and fitting would squash cards
   // into each other, so the presets are fixed there (Compact 24 / Standard 32 / Large 44).
   const phoneStep = { COMPACT: 24, STANDARD: 32, LARGE: 44 }[density];
-  const fitStep = !compact && density === "COMPACT" && boardH > 0 ? Math.floor((boardH - preset.headerH - 2) / slots) : preset.step;
+  const fitStep = !compact && density === "COMPACT" && boardH > 0 ? Math.floor((boardH - preset.headerH - 2) / openSlots) : preset.step;
   const step = compact ? phoneStep : density === "COMPACT" ? Math.max(14, Math.min(preset.step, fitStep)) : preset.step; // px per 15-minute cell
   const eventMin = Math.min(preset.eventMin, step - 2);
   const height = slots * step;
@@ -305,17 +302,19 @@ export function Calendar({
   }).format(now);
   // Open on what matters: today lands a little above the current time, other days on the first
   // appointment (or opening time). Runs once per mounted day; a user's own scrolling is not overridden.
-  const firstStart = dayBookings.length ? Math.min(...dayBookings.map((b) => b.start_min)) : dayHours.starts;
+  const firstStart = Math.min(dayHours.enabled ? dayHours.starts : 9 * 60, ...dayBookings.map((b) => b.start_min));
   const positioned = useRef<string>("");
   useLayoutEffect(() => {
     const el = scroller.current;
-    const key = `${date}:${barber}`;
+    const key = `${date}:${barber}:${density}`;
     if (!el || positioned.current === key) return;
-    const anchor = date === today && currentMinute >= begin && currentMinute < end ? currentMinute - 30 : firstStart - 15;
+    // Today during opening hours → a little above now; otherwise → just above opening (or the first booking).
+    const inHours = currentMinute >= dayHours.starts - 60 && currentMinute < dayHours.ends;
+    const anchor = date === today && inHours ? currentMinute - 30 : firstStart - 15;
     el.scrollTop = Math.max(0, ((anchor - begin) / 15) * step);
     positioned.current = key;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, barber, begin, staff.length]);
+  }, [date, barber, density, staff.length, step]);
   if (!staff.length)
     return (
       <p className="calendar-empty">
@@ -699,11 +698,12 @@ export function Calendar({
                   {slots.map(({ start, reason, busy }, n) => {
                     // Greyed but clickable (Fresha): only truly impossible times are disabled.
                     const hard = HARD_REASONS.has(reason);
+                    const outside = OUTSIDE_REASONS.has(reason);
                     return (
                       <button
                         key={start}
                         type="button"
-                        className={`timetable-slot ${reason ? "blocked" : busy ? "occupied" : ""} ${reason && !hard ? "soft" : ""}`}
+                        className={`timetable-slot ${reason ? "blocked" : busy ? "occupied" : ""} ${reason && !hard ? "soft" : ""} ${outside ? "outside" : ""}`}
                         data-column={i}
                         data-minute={start}
                         tabIndex={start === activeMinute ? 0 : -1}
@@ -949,6 +949,9 @@ export function Calendar({
           <div className="calendar-legend" aria-label="Timetable legend">
             <span>
               <i className="legend-free" aria-hidden="true" /> Free
+            </span>
+            <span>
+              <i className="legend-outside" aria-hidden="true" /> Outside opening hours (staff can still book)
             </span>
             <span>
               <i className="legend-unavailable" aria-hidden="true" /> Break / leave / closed

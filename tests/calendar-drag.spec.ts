@@ -98,8 +98,12 @@ test("browser: overlapping appointments share the column; pointer drag snaps to 
 
   // Hover time label follows the pointer in the column.
   const column = page.locator(".barber-column").nth(w.staff.filter((s) => s.active).findIndex((s) => s.id === jay.id));
+  // The board is a fixed 00:00→24:00 grid that scrolls inside the card, so the column's top may be
+  // clipped; hover inside the part of the column that is actually on screen.
   const cb = (await column.boundingBox())!;
-  await page.mouse.move(cb.x + cb.width / 2, cb.y + 30 * 3 + 10);
+  const sb = (await page.locator(".connected-scroll").boundingBox())!;
+  const visibleTop = Math.max(cb.y, sb.y + 80);
+  await page.mouse.move(cb.x + cb.width / 2, visibleTop + 30 * 3 + 10);
   await expect(page.getByTestId("slot-hover")).toBeVisible();
   await expect(page.getByTestId("slot-hover")).toContainText(/\d\d:\d\d/);
 
