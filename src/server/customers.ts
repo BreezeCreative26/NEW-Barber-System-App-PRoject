@@ -46,6 +46,8 @@ const profileSchema = z
     birthday: z.union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]).default(""),
     preferred_staff_id: z.union([z.literal(""), z.string().uuid()]).default(""),
     marketing_opt_in: z.union([z.literal(0), z.literal(1)]).default(0),
+    // How reminders reach them: AUTO = text (with email for confirmations), EMAIL = email only.
+    contact_pref: z.enum(["AUTO", "EMAIL"]).optional(),
     notes: z.string().trim().max(500).default(""),
     version: z.number().int().min(0),
   })
@@ -117,6 +119,8 @@ const profileOf = (a: AccountRow, cust: Customer) => ({
   birthday: cust.birthday || "",
   preferred_staff_id: cust.preferred_staff_id || "",
   marketing_opt_in: cust.marketing_opt_in,
+  // Older records may say WA (WhatsApp, retired) or SMS: both mean "text" to the customer.
+  contact_pref: cust.contact_pref === "EMAIL" ? "EMAIL" : cust.contact_pref === "NONE" ? "NONE" : "AUTO",
   notes: cust.notes,
   version: cust.version,
   member_since: a.created_at,
@@ -282,7 +286,7 @@ acct.get("/me", async (c) => {
   const gp = await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ google_review_url: string }>();
   return c.json({
     waiting: waiting.results,
-    shop: { name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now), logo_url: shop.logo_url || "", brand: brandOf(shop), google_review_url: gp?.google_review_url || "" },
+    shop: { channels: { sms: (shop as { msg_sms?: number }).msg_sms !== 0, email: (shop as { msg_email?: number }).msg_email !== 0 }, name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now), logo_url: shop.logo_url || "", brand: brandOf(shop), google_review_url: gp?.google_review_url || "" },
     profile: profileOf(a, cust),
     upcoming,
     history,
@@ -307,8 +311,8 @@ acct.put("/profile", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE customers SET name=?,email=?,birthday=?,preferred_staff_id=?,marketing_opt_in=?,notes=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
-    ).bind(b.name, b.email, b.birthday || null, b.preferred_staff_id || null, b.marketing_opt_in, b.notes, now, shop.id, cust.id, b.version),
+      "UPDATE customers SET name=?,email=?,birthday=?,preferred_staff_id=?,marketing_opt_in=?,contact_pref=?,notes=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
+    ).bind(b.name, b.email, b.birthday || null, b.preferred_staff_id || null, b.marketing_opt_in, b.contact_pref ?? (cust.contact_pref === "EMAIL" ? "EMAIL" : cust.contact_pref === "NONE" ? "NONE" : "AUTO"), b.notes, now, shop.id, cust.id, b.version),
     audit(c, "customer", cust.id, "CUSTOMER_PROFILE_SELF_UPDATED", "Customer updated their own profile online.", true),
   );
   await c.env.DB.prepare("UPDATE customer_accounts SET name=?,email=?,version=version+1 WHERE id=?").bind(b.name, b.email, a.id).run();

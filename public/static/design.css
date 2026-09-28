@@ -2724,3 +2724,12 @@ html.boot-dark, html.boot-dark body { background: #17181e; }
 .time-groups { transition: opacity 0.15s ease; }
 /* Day strip tiles fill in quietly (no jump) once counts arrive. */
 .booking-dates button > small { min-height: 1.2em; }
+
+/* ---- Account consent (sign-up + profile): reminders by text/email, marketing opt-in ---- */
+.ca-consent, .booking-consent { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--sp-line, var(--line)); border-radius: var(--sp-r-sm, 10px); background: var(--sp-surface-2, transparent); margin: 0; }
+.ca-consent legend { font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--sp-muted, var(--muted)); padding: 0 4px; }
+.ca-consent .ca-check, .booking-consent .booking-check { display: flex; align-items: flex-start; gap: 10px; font-size: 0.95rem; line-height: 1.35; }
+.ca-consent .ca-check input, .booking-consent .booking-check input { margin-top: 3px; width: 18px; height: 18px; flex: none; accent-color: var(--sp-accent, var(--accent)); }
+.ca-consent .ca-hint { color: var(--sp-muted, var(--muted)); font-size: 0.8rem; line-height: 1.4; }
+.ca-consent .ca-hint a { color: inherit; text-decoration: underline; }
+.booking-consent { margin-top: 6px; }

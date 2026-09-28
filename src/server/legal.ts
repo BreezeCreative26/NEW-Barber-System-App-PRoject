@@ -36,7 +36,6 @@ export const SUB_PROCESSORS = [
   { name: "Stripe Payments UK Ltd", purpose: "Card payments, deposits, payouts to shops and staff (Stripe Connect)", location: "UK / EU / USA (Stripe DPA + SCCs)", data: "Payment card data (never stored by foliyo), payer name, email, amounts" },
   { name: "Resend Inc.", purpose: "Transactional email delivery", location: "USA (DPA + SCCs)", data: "Recipient email address, message content" },
   { name: "ClickSend Pty Ltd", purpose: "SMS delivery", location: "Australia / UK routes (DPA + SCCs)", data: "Recipient mobile number, message content" },
-  { name: "Infobip Ltd", purpose: "WhatsApp Business messaging (where a shop enables it)", location: "EU / UK", data: "Recipient mobile number, message content" },
   { name: "ElevenLabs Inc.", purpose: "AI phone receptionist (where a shop enables it)", location: "USA (DPA + SCCs)", data: "Call audio, transcripts, caller number" },
   { name: "Sentry (Functional Software Inc.)", purpose: "Error monitoring (where enabled)", location: "EU region", data: "Error messages, stack traces, route — no request bodies or cookies" },
 ] as const;
@@ -55,7 +54,7 @@ export function legalDocument(doc: LegalDoc): Document {
         sections: [
           { h: "1. Who we are", p: [`${S.name} is operated by ${S.legal} (\"we\", \"us\"). Contact: ${S.email}.`] },
           { h: "2. The service", p: [
-            `${S.name} is booking and business software for appointment-based businesses: online booking, a calendar, customer records, messaging (SMS, email, WhatsApp), payments via Stripe, staff pay and reporting.`,
+            `${S.name} is booking and business software for appointment-based businesses: online booking, a calendar, customer records, messaging (SMS, email, push notifications), payments via Stripe, staff pay and reporting.`,
             "We may change, add or withdraw features. Where a change materially reduces what your plan includes we will give at least 30 days' notice by email.",
           ] },
           { h: "3. Your account", p: [
@@ -73,7 +72,7 @@ export function legalDocument(doc: LegalDoc): Document {
           ] },
           { h: "6. Messages sent on your behalf", p: [
             "Confirmations, reminders and other messages are sent in your shop's name to your customers. You must have a lawful basis to contact them (a booking is one). Marketing messages need the customer's consent; the customer record has a marketing opt-in flag and it defaults to off.",
-            "SMS, WhatsApp and AI receptionist minutes are metered and billed as shown on your plan.",
+            "SMS and AI receptionist minutes are metered and billed as shown on your plan.",
           ] },
           { h: "7. Your data and your customers' data", p: [
             "You own your shop's data. You are the data controller for your customers; we process it on your instructions under the Data Processing Agreement, which forms part of these terms.",
@@ -111,7 +110,7 @@ export function legalDocument(doc: LegalDoc): Document {
             "Your rights are exercised against the shop, but you can act directly too: from your account page on the shop's site you can export everything the shop holds about you and delete your account. A shop can erase your personal data from its records on request; the booking history survives without your name or contact details so their accounts still add up.",
           ] },
           { h: "4. Who we share data with", p: [
-            "Our sub-processors, listed in the Data Processing Agreement and kept current there: hosting and database (Supabase, Vercel), payments (Stripe), email (Resend), SMS (ClickSend), WhatsApp (Infobip), AI receptionist (ElevenLabs), error monitoring (Sentry). Each is bound by a contract that meets UK GDPR Article 28.",
+            "Our sub-processors, listed in the Data Processing Agreement and kept current there: hosting and database (Supabase, Vercel), payments (Stripe), email (Resend), SMS (ClickSend), AI receptionist (ElevenLabs), error monitoring (Sentry). Each is bound by a contract that meets UK GDPR Article 28.",
             "Where a provider is outside the UK we rely on the UK International Data Transfer Addendum or an adequacy decision. Card details go to Stripe directly and never touch our servers.",
             "We share data with authorities only where the law requires it.",
           ] },

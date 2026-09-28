@@ -7,9 +7,9 @@ import { ShopTabBar } from "./ShopTabBar";
 import { Avatar, Button, Icon, Notice, StatusPill } from "./ui";
 import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { ReviewCard, type OwnReview } from "./Reviews";
-import { applyThemeColor, themeClass, type ShopBrand, shopPath } from "./theme";
+import { applyThemeColor, serverBrand, themeClass, type ShopBrand, shopPath } from "./theme";
 
-type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; notes: string; version: number; member_since: number; has_password?: boolean; account_email?: string; email_verified?: boolean };
+type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; contact_pref?: "AUTO" | "EMAIL" | "NONE"; notes: string; version: number; member_since: number; has_password?: boolean; account_email?: string; email_verified?: boolean };
 type Visit = {
   review?: OwnReview;
   can_review?: boolean;
@@ -17,7 +17,7 @@ type Visit = {
   price_pence: number; cancel_hours: number; version: number; can_manage: boolean; late_change: boolean; series_id: string | null; attendee_name?: string; group_id?: string | null; items: { id: string; name: string; price_pence: number }[];
 };
 type Me = {
-  shop: { name: string; slug: string; address: string; timezone: string; currency?: string; cancel_hours: number; lead_time_min: number; today: string; logo_url?: string; brand?: ShopBrand; google_review_url?: string };
+  shop: { name: string; slug: string; address: string; timezone: string; currency?: string; cancel_hours: number; lead_time_min: number; today: string; logo_url?: string; brand?: ShopBrand; google_review_url?: string; channels?: { sms: boolean; email: boolean } };
   profile: Profile;
   upcoming: Visit[];
   history: Visit[];
@@ -106,7 +106,9 @@ export function CustomerArea({ slug }: { slug: string }) {
   if (signedOut) return <SignIn slug={slug} A={A} onDone={load} />;
   if (!me)
     return (
-      <Boot label="Opening your visits…" />
+      <div className={themeClass(serverBrand()?.brand, "customer-area")}>
+        <Boot label="Opening your visits…" />
+      </div>
     );
   const first = me.profile.name.split(" ")[0] || "there";
   return (
@@ -183,10 +185,19 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
   const [sandboxToken, setSandboxToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [shopName, setShopName] = useState("");
-  const [shopBrand, setShopBrand] = useState<(ShopBrand & { logo_url: string }) | null>(null);
+  // Themed from the first frame: the shell carries the brand. The fetch below only fills gaps.
+  const seed = serverBrand();
+  // Consent at sign-up. Email reminders come with the account; text reminders are offered only when
+  // the shop sends texts (on by default then). Marketing is a separate opt-in, off by default.
+  const smsOffered = seed?.channels ? seed.channels.sms : true;
+  const [textReminders, setTextReminders] = useState(true);
+  const [marketing, setMarketing] = useState(false);
+  const [shopName, setShopName] = useState(seed?.name || "");
+  const [shopBrand, setShopBrand] = useState<(ShopBrand & { logo_url: string }) | null>(seed ? { ...seed.brand, logo_url: seed.brand.logo_url } : null);
   const codeRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
+    if (seed) applyThemeColor(seed.brand);
+    if (seed) return;
     fetch(`/api/public/shops/${encodeURIComponent(slug)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -213,7 +224,7 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
   const register = (e: FormEvent) => {
     e.preventDefault();
     if (password !== password2) { setError("The two passwords don't match."); return; }
-    run(async () => { await api(`${A}/register`, "POST", { name, phone, email, password }); finish(); }, "Could not create your account.");
+    run(async () => { await api(`${A}/register`, "POST", { name, phone, email, password, marketing_opt_in: marketing ? 1 : 0, contact_pref: smsOffered && textReminders ? "AUTO" : "EMAIL" }); finish(); }, "Could not create your account.");
   };
   const forgot = (e: FormEvent) => { e.preventDefault(); run(async () => { const r = await api<{ sandbox_token?: string }>(`${A}/forgot`, "POST", { email }); setSandboxToken(r.sandbox_token || ""); go("sent"); }, "Could not send the link."); };
   const reset = (e: FormEvent) => {
@@ -235,7 +246,7 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
   };
   const lead: Record<string, string> = {
     login: `See upcoming visits, move or cancel them, and rebook your usual in one tap${shopName ? ` at ${shopName}` : ""}.`,
-    register: "Your account keeps every visit in one place and lets you add this shop to your home screen for reminders.",
+    register: "Every visit in one place: move or cancel, rebook your usual, and get reminders before you're due.",
     forgot: "Enter the email on your account and we'll send a link to choose a new password. It lasts 30 minutes.",
     sent: `If there's an account for ${email}, a reset link is on its way. It lasts 30 minutes.`,
     reset: isWelcome ? "Your account was created when you booked. Set a password to finish — you'll use your email and this password to sign in." : "Your other devices will be signed out.",
@@ -292,9 +303,22 @@ function SignIn({ slug, A, onDone }: { slug: string; A: string; onDone: () => vo
           {mode === "register" && (
             <form onSubmit={register} className="ca-form" data-testid="register-form">
               <label><span>Your name</span><input type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required minLength={2} data-testid="register-name" /></label>
-              <label><span>Mobile number</span><input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07700 900123" required data-testid="register-phone" /><small className="ca-hint">Reminders go here by text.</small></label>
-              <label><span>Email</span><input type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="register-email" /><small className="ca-hint">You'll sign in with this.</small></label>
+              <label><span>Mobile number</span><input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07700 900123" required data-testid="register-phone" /><small className="ca-hint">{smsOffered ? "For your booking and text reminders." : "So the shop can reach you about your booking."}</small></label>
+              <label><span>Email</span><input type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="register-email" /><small className="ca-hint">You'll sign in with this. Confirmations and reminders come here too.</small></label>
               <PasswordFields confirm />
+              <div className="ca-consent" data-testid="register-consent">
+                {smsOffered && (
+                  <label className="ca-check">
+                    <input type="checkbox" checked={textReminders} onChange={(e) => setTextReminders(e.target.checked)} data-testid="register-texts" />
+                    <span>Text me confirmations and reminders</span>
+                  </label>
+                )}
+                <label className="ca-check">
+                  <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} data-testid="register-marketing" />
+                  <span>Send me offers and news from {shopName || "the shop"}</span>
+                </label>
+                <small className="ca-hint">By creating an account you agree to the <a href="/legal/terms" target="_blank" rel="noopener">terms</a> and <a href="/legal/privacy" target="_blank" rel="noopener">privacy notice</a>. Booking messages always come by email{smsOffered ? "; texts are your choice" : ""}.</small>
+              </div>
               <Err />
               <Button type="submit" disabled={busy} data-testid="register-submit">{busy ? "Creating…" : "Create account"} <Icon name="arrowRight" size={16} /></Button>
               <p className="ca-switch">Already have one? <button type="button" className="link" onClick={() => go("login")}>Sign in</button></p>
@@ -815,7 +839,8 @@ function MoveDialog({ visit, me, A, onClose, onDone }: { visit: Visit; me: Me; A
 
 function ProfileForm({ me, A, onSaved, onDeleted }: { me: Me; A: string; onSaved: (msg: string) => void; onDeleted: () => void }) {
   const p = me.profile;
-  const [form, setForm] = useState({ name: p.name, email: p.email, birthday: p.birthday, preferred_staff_id: p.preferred_staff_id, marketing_opt_in: p.marketing_opt_in, notes: p.notes });
+  const smsOffered = me.shop.channels ? me.shop.channels.sms : true;
+  const [form, setForm] = useState({ name: p.name, email: p.email, birthday: p.birthday, preferred_staff_id: p.preferred_staff_id, marketing_opt_in: p.marketing_opt_in, contact_pref: (p.contact_pref === "EMAIL" ? "EMAIL" : "AUTO") as "AUTO" | "EMAIL", notes: p.notes });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState("");
@@ -847,7 +872,7 @@ function ProfileForm({ me, A, onSaved, onDeleted }: { me: Me; A: string; onSaved
     <section className="ca-section" aria-labelledby="profile-heading">
       <div className="sp-section-head">
         <h2 id="profile-heading">Your profile</h2>
-        <p>Shared with {me.shop.name} only. You sign in with {p.account_email || "your email"}; reminders go to {p.phone}.</p>
+        <p>Shared with {me.shop.name} only. You sign in with {p.account_email || "your email"}.</p>
       </div>
       <form className="ca-form ca-profile" onSubmit={save} data-testid="profile-form">
         <label>
@@ -877,10 +902,20 @@ function ProfileForm({ me, A, onSaved, onDeleted }: { me: Me; A: string; onSaved
           <span>Notes for your barber</span>
           <textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} maxLength={500} rows={3} placeholder="Number 2 on the sides, scissors on top…" data-testid="profile-notes" />
         </label>
-        <label className="ca-check ca-span">
-          <input type="checkbox" checked={!!form.marketing_opt_in} onChange={(e) => set("marketing_opt_in", e.target.checked ? 1 : 0)} />
-          <span>Send me offers and news from {me.shop.name}</span>
-        </label>
+        <fieldset className="ca-consent ca-span">
+          <legend>Reminders &amp; messages</legend>
+          {smsOffered && (
+            <label className="ca-check">
+              <input type="checkbox" checked={form.contact_pref === "AUTO"} onChange={(e) => set("contact_pref", e.target.checked ? "AUTO" : "EMAIL")} data-testid="profile-texts" />
+              <span>Text confirmations and reminders to {p.phone}</span>
+            </label>
+          )}
+          <label className="ca-check">
+            <input type="checkbox" checked={!!form.marketing_opt_in} onChange={(e) => set("marketing_opt_in", e.target.checked ? 1 : 0)} data-testid="profile-marketing" />
+            <span>Send me offers and news from {me.shop.name}</span>
+          </label>
+          <small className="ca-hint">Booking confirmations and reminders always come by email to {form.email || p.email || "your email"}. Notifications on this device are under Your app.</small>
+        </fieldset>
         {error && (
           <p className="form-error ca-span" role="alert">
             {error}

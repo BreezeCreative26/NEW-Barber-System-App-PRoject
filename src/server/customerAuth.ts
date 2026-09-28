@@ -43,7 +43,17 @@ export const customerPassword = z
   .max(128)
   .refine((p) => !COMMON.has(p.toLowerCase()), "That password is too easy to guess");
 const requiredEmail = emailSchema.refine((s) => s !== "", "Enter your email address");
-const registerSchema = z.object({ name: z.string().trim().min(2).max(100), phone: phoneSchema, email: requiredEmail, password: customerPassword, marketing_opt_in: z.union([z.literal(0), z.literal(1)]).default(0) }).strict();
+// Registration carries the customer's consent choices for this shop. Reminders by email are part of
+// having an account; text reminders are offered only when the shop sends texts, and the customer can
+// pick email-only (contact_pref EMAIL). Marketing is a separate, off-by-default opt-in (UK GDPR/PECR).
+const registerSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  phone: phoneSchema,
+  email: requiredEmail,
+  password: customerPassword,
+  marketing_opt_in: z.union([z.literal(0), z.literal(1)]).default(0),
+  contact_pref: z.enum(["AUTO", "EMAIL"]).default("AUTO"),
+}).strict();
 const loginSchema = z.object({ email: requiredEmail, password: z.string().min(1).max(128) }).strict();
 const forgotSchema = z.object({ email: requiredEmail }).strict();
 const resetSchema = z.object({ token: z.string().min(40).max(200), password: customerPassword }).strict();
@@ -151,6 +161,27 @@ export async function sendWelcome(c: Ctx, shop: Shop, account: AccountRow, origi
   return enqueue(c.env.DB, ms, { name: account.name, phone: account.phone, email: account.email }, "account_welcome", vars, { related: { type: "customer_account", id: account.id }, origin, channel: account.email ? "EMAIL" : "AUTO", now });
 }
 
+// Write the customer's messaging consent onto this shop's customer record (creating it when this is
+// their first contact with the shop) and link it to the account, so reminders and marketing follow
+// the choice they made at sign-up rather than the shop's defaults.
+export async function recordConsent(c: Ctx, shop: Shop, account: AccountRow, v: { name: string; email: string; marketing_opt_in: 0 | 1; contact_pref: "AUTO" | "EMAIL" }) {
+  const now = Date.now();
+  let cust = await c.env.DB.prepare("SELECT id, merged_into FROM customers WHERE shop_id=? AND phone=?").bind(shop.id, account.phone).first<{ id: string; merged_into: string | null }>();
+  if (cust?.merged_into) cust = { id: cust.merged_into, merged_into: null };
+  if (!cust) {
+    const id = uid();
+    await c.env.DB.prepare(
+      "INSERT INTO customers(id,shop_id,name,phone,email,notes,tags,birthday,preferred_staff_id,marketing_opt_in,contact_pref,created_at,updated_at) VALUES(?,?,?,?,?,'','[]',NULL,NULL,?,?,?,?)",
+    ).bind(id, shop.id, v.name, account.phone, v.email, v.marketing_opt_in, v.contact_pref, now, now).run();
+    cust = { id, merged_into: null };
+  } else {
+    await c.env.DB.prepare("UPDATE customers SET email=CASE WHEN email='' THEN ? ELSE email END, marketing_opt_in=?, contact_pref=?, version=version+1, updated_at=? WHERE shop_id=? AND id=?")
+      .bind(v.email, v.marketing_opt_in, v.contact_pref, now, shop.id, cust.id).run();
+  }
+  await c.env.DB.prepare("INSERT INTO customer_account_links(account_id,shop_id,customer_id,linked_at) VALUES(?,?,?,?) ON CONFLICT (account_id,shop_id) DO UPDATE SET customer_id=EXCLUDED.customer_id, linked_at=EXCLUDED.linked_at")
+    .bind(account.id, shop.id, cust.id, now).run();
+}
+
 export const customerAuth = new Hono<AppEnv>();
 
 customerAuth.post("/register", async (c) => {
@@ -162,8 +193,20 @@ customerAuth.post("/register", async (c) => {
   const { account, conflict } = await ensureAccount(c, shop, { name: b.name, phone: b.phone, email: b.email }, b.password);
   if (conflict === "email") fail(409, "That email is already used by another account. Sign in with it, or use a different email.");
   await c.env.DB.prepare("UPDATE customer_accounts SET name=?, email=? WHERE id=? AND password_set_at>=?").bind(b.name, b.email, account.id, Date.now() - 5000).run();
-  await c.env.DB.batch([audit(c, "customer_account", account.id, "CUSTOMER_REGISTERED", `Customer created an account (email + password).`)]);
+  // The shop's customer record carries the consent: how to message them, and whether marketing is
+  // allowed. Text is only a real choice when the shop sends texts; otherwise the record says email.
+  const pref = b.contact_pref === "EMAIL" || (shop as { msg_sms?: number }).msg_sms === 0 ? "EMAIL" : "AUTO";
+  await recordConsent(c, shop, account, { name: b.name, email: b.email, marketing_opt_in: b.marketing_opt_in, contact_pref: pref });
+  await c.env.DB.batch([
+    audit(c, "customer_account", account.id, "CUSTOMER_REGISTERED", `Customer created an account (email + password). Reminders by ${pref === "EMAIL" ? "email" : "text and email"}; marketing ${b.marketing_opt_in ? "on" : "off"}.`),
+  ]);
   await openSession(c, shop, { ...account, name: b.name, email: b.email }, "new account");
+  // Welcome email: confirms the account exists, where reminders will go, and how to install the app.
+  try {
+    const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
+    const welcome = await sendWelcome(c, shop, { ...account, name: b.name, email: b.email }, origin, Date.now(), true);
+    if (welcome.length) { await c.env.DB.batch(welcome); await drain(c.env.DB, welcome.length, Date.now(), { type: "customer_account", id: account.id }).catch(() => {}); }
+  } catch { /* the account stands even if the welcome cannot be queued */ }
   return c.json({ ok: true, new_account: true }, 201);
 });
 

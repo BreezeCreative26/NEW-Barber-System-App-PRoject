@@ -4,7 +4,7 @@ import sandbox from "./server/sandbox";
 import pub from "./server/public";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Shop } from "./server/domain";
+import { brandOf, type Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { shopManifest } from "./server/customerAuth";
 import { SHOP_HOST_HEADER, shopOrigin } from "./server/hosts";
@@ -200,7 +200,7 @@ function workspaceShell(c: Context<{ Bindings: AppBindings }>) {
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
   return c.html(
-    `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>foliyo</title>${meta}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/><link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>${STYLES}</head><body><div id="root"><p class="boot-message">Opening workspace…</p></div><noscript>JavaScript is required.</noscript>${entryTags("app")}</body></html>`,
+    `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>foliyo</title>${meta}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/><link rel="apple-touch-icon" href="/foliyo-apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>${STYLES}</head><body><div id="root"><p class="boot-message">Opening workspace…</p></div><noscript>JavaScript is required.</noscript>${entryTags("app")}</body></html>`,
   );
 }
 // Hand-written stylesheets, versioned by build so a deploy invalidates them everywhere at once.
@@ -208,7 +208,10 @@ const STYLES = ["style", "design", "theme-fonts", "shop-theme"].map((n) => `<lin
 // Customer-facing boot screen: the shop's own colours and logo (or initials) paint before any
 // JavaScript arrives, so an installed app opens straight into the shop rather than a grey
 // "loading" line. Dark/light and the accent come from the shop page theme.
-type BootBrand = { name: string; logo_url?: string; dark?: boolean; accent?: string };
+type BootBrand = { name: string; slug?: string; logo_url?: string; dark?: boolean; accent?: string; theme_json?: string; sms?: boolean; email?: boolean };
+// Embedded for the client: the full brand, so the very first React render is already in the shop's
+// theme (no unthemed frame between the boot screen and the screen).
+const brandScript = (b?: BootBrand) => (b ? `<script type="application/json" id="foliyo-brand">${JSON.stringify({ name: b.name, slug: b.slug || "", brand: brandOf({ logo_url: b.logo_url || "", accent: b.accent, theme_json: b.theme_json }), channels: { sms: b.sms !== false, email: b.email !== false } }).replace(/</g, "\\u003c")}</script>` : "");
 const BOOT_ACCENT: Record<string, string> = { ollo: "#1f6f5f", ink: "#111318", sage: "#5b7a68", clay: "#a0522d", plum: "#5a3e6b", slate: "#4a5568" };
 function bootScreen(b?: BootBrand) {
   if (!b) return `<p class="boot-message">Opening online booking…</p>`;
@@ -223,7 +226,7 @@ function bootScreen(b?: BootBrand) {
 const bootThemeColor = (b?: BootBrand) => (b?.dark ? "#17181e" : "#ffffff");
 // Head is either the generic private one (noindex) or a server-rendered SEO head for shop pages.
 const shell = (head: string, brand?: BootBrand) =>
-  `<!doctype html><html lang="en"${brand?.dark ? ' class="boot-dark"' : ""}><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="${bootThemeColor(brand)}"/>${head}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/>${head.includes("data-shop") ? "" : `<link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>`}${STYLES}</head><body><div id="root">${bootScreen(brand)}</div><noscript>Online booking needs JavaScript.</noscript>${entryTags("shop")}</body></html>`;
+  `<!doctype html><html lang="en"${brand?.dark ? ' class="boot-dark"' : ""}><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="${bootThemeColor(brand)}"/>${head}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/>${head.includes("data-shop") ? "" : `<link rel="apple-touch-icon" href="/foliyo-apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>`}${STYLES}</head><body><div id="root">${bootScreen(brand)}</div><noscript>Online booking needs JavaScript.</noscript>${brandScript(brand)}${entryTags("shop")}</body></html>`;
 // Brand for the boot screen of /book and /me: one small read, cached per process for a minute.
 const bootCache = new Map<string, { at: number; brand: BootBrand | undefined }>();
 async function bootBrand(db: Database, slug: string): Promise<BootBrand | undefined> {
@@ -231,21 +234,21 @@ async function bootBrand(db: Database, slug: string): Promise<BootBrand | undefi
   if (hit && Date.now() - hit.at < 60000) return hit.brand;
   let brand: BootBrand | undefined;
   try {
-    const row = await db.prepare("SELECT s.name,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ name: string; logo_url: string; accent: string; theme_json: string }>();
+    const row = await db.prepare("SELECT s.name,s.msg_sms,s.msg_email,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ name: string; msg_sms: number; msg_email: number; logo_url: string; accent: string; theme_json: string }>();
     if (row) {
       let dark = false;
       try { dark = (JSON.parse(row.theme_json) as { mode?: string }).mode === "dark"; } catch { /* default light */ }
-      brand = { name: row.name, logo_url: row.logo_url || undefined, dark, accent: row.accent };
+      brand = { name: row.name, slug, logo_url: row.logo_url || undefined, dark, accent: row.accent, theme_json: row.theme_json, sms: row.msg_sms !== 0, email: row.msg_email !== 0 };
     }
   } catch { brand = undefined; }
   bootCache.set(slug, { at: Date.now(), brand });
   return brand;
 }
 const onShopHost = (c: { req: { header: (k: string) => string | undefined } }, slug: string) => (c.req.header(SHOP_HOST_HEADER) || "") === slug;
-const publicPage = (title: string, description: string, slug?: string, onHost = false, brand?: BootBrand) => shell(`<meta name="robots" content="noindex,nofollow"/><meta name="description" content="${description}"/><title>${brand ? `${title} · ${brand.name}` : title}</title>${slug ? shopAppHead(slug, onHost) : ""}`, brand);
+const publicPage = (title: string, description: string, slug?: string, onHost = false, brand?: BootBrand) => shell(`<meta name="robots" content="noindex,nofollow"/><meta name="description" content="${description}"/><title>${brand ? `${title} · ${brand.name}` : title}</title>${slug ? shopAppHead(slug, onHost, !!brand?.dark) : ""}`, brand);
 // Installable shop app: per-shop manifest (name/icon/colours from the shop page) and the shared
 // service worker registered at the shop's scope. Overrides the platform manifest in shell().
-const shopAppHead = (slug: string, onHost = false) => `${onHost ? `<meta name="foliyo-shop" content="${slug}"/>` : ""}<link rel="manifest" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/manifest.webmanifest" data-shop/><link rel="apple-touch-icon" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/icon-192.png"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="default"/>`;
+const shopAppHead = (slug: string, onHost = false, dark = false) => `${onHost ? `<meta name="foliyo-shop" content="${slug}"/>` : ""}<link rel="manifest" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/manifest.webmanifest" data-shop/><link rel="apple-touch-icon" sizes="192x192" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/icon-192.png"/><link rel="apple-touch-icon" sizes="512x512" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/icon-512.png"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-title" content="${slug}"/><meta name="apple-mobile-web-app-status-bar-style" content="${dark ? "black-translucent" : "default"}"/>`;
 // Public origin as the visitor sees it (dev proxies rewrite Host).
 const publicOrigin = (c: { req: { url: string; header: (k: string) => string | undefined } }) => {
   const u = new URL(c.req.url);
@@ -303,7 +306,8 @@ app.get("/docs/customer-plan", (c) => {
 app.get("/book/:slug", async (c) => {
   secure(c);
   const slug = c.req.param("slug").toLowerCase();
-  return c.html(publicPage("Book a visit", "Book your next visit online.", slug, onShopHost(c, slug), await bootBrand(c.env.DB, slug)));
+  const brand = await bootBrand(c.env.DB, slug);
+  return c.html(publicPage("Book a visit", "Book your next visit online.", slug, onShopHost(c, slug), brand));
 });
 // Service worker: the static file with this build's asset list and id stamped in. Served with
 // max-age 0 so browsers re-check it on every open (they cap it at 24h anyway).
@@ -367,7 +371,7 @@ app.get("/:slug", async (c, next) => {
   const head = shopPageHead({ origin: publicOrigin(c), shop, ...data });
   let dark = false;
   try { dark = (JSON.parse(data.page.theme_json || "{}") as { mode?: string }).mode === "dark"; } catch { /* light */ }
-  return c.html(shell(head.html + shopAppHead(slug, onShopHost(c, slug)), { name: shop.name, logo_url: data.page.logo_url || undefined, dark, accent: data.page.accent }));
+  return c.html(shell(head.html + shopAppHead(slug, onShopHost(c, slug), dark), { name: shop.name, slug, logo_url: data.page.logo_url || undefined, dark, accent: data.page.accent, theme_json: data.page.theme_json }));
 });
 // Apple Pay on the pay-link / deposit checkout: Stripe verifies the domain by fetching this file
 // (public/.well-known/…). Served explicitly so no hosting rewrite can swallow the dot-directory.

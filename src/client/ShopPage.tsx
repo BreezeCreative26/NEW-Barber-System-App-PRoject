@@ -7,7 +7,7 @@ import { Avatar, Icon } from "./ui";
 import { ShopTabBar } from "./ShopTabBar";
 import { money, time, dateLabel, setCurrency } from "./fixtures";
 import { PublicReviews, Stars, type PublicReview } from "./Reviews";
-import { applyThemeColor, themeClass, type ShopTheme, shopPath } from "./theme";
+import { applyThemeColor, serverBrand, themeClass, type ShopTheme, shopPath } from "./theme";
 
 type PageData = {
   shop: { id: string; name: string; address: string; slug: string; timezone: string; currency?: string; opens: number; closes: number; deposit_pence: number; cancel_hours: number; lead_time_min: number; booking_window_days: number };
@@ -98,7 +98,9 @@ export function ShopPage({ slug }: { slug: string }) {
     );
   if (!data)
     return (
-      <Boot label="Opening the shop…" />
+      <div className={themeClass(serverBrand()?.brand)}>
+        <Boot label="Opening the shop…" />
+      </div>
     );
   const { shop, page } = data;
   const has = (k: string) => page.sections.includes(k);
