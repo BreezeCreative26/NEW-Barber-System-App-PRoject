@@ -35,6 +35,7 @@ import { ConflictResolver, ConflictOutcome, type Preview as ConflictPreview, typ
 import { WalletDrawer } from "./Wallet";
 import { PaymentsPanel } from "./Payouts";
 import { SetupWizard } from "./Setup";
+import { BarberHome } from "./BarberHome";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
 import { themeClass, type ShopBrand } from "./theme";
@@ -1514,6 +1515,8 @@ export function Workspace() {
   const [loadedDate, setLoadedDate] = useState("");
   // Day timetable everywhere: on phones the board scrolls sideways inside its own region.
   const [calendarView, setCalendarView] = useState("day");
+  // Barber app: false = Today agenda, true = the week calendar (own column).
+  const [barberWeek, setBarberWeek] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
@@ -1917,14 +1920,36 @@ export function Workspace() {
       : [{ key: "MyPay", label: "My pay", icon: "payrun" }]),
     { key: "Accounts", label: "Accounts", icon: "userRound" },
   ];
-  const phoneNav: NavItem[] = [
-    { key: "Appointments", label: "Today", icon: "sun" },
-    { key: "Insights", label: "Insights", icon: "trend" },
-    { key: "Customers", label: "Customers", icon: "contact" },
-  ];
-  const phoneMore = navItems.filter((n) => !phoneNav.some((p) => p.key === n.key));
+  // Barbers on a phone get their own app: Today (own agenda), Week (own calendar column),
+  // Customers (own), My pay, Account. Owners/managers keep the wider set.
+  const barberApp = !!w?.account && w.account.role === "BARBER" && !!w.account.staff_id;
+  const phoneNav: NavItem[] = barberApp
+    ? [
+        { key: "Appointments", label: "Today", icon: "sun" },
+        { key: "Week", label: "Week", icon: "dashboard" },
+        { key: "Customers", label: "Customers", icon: "contact" },
+        { key: "MyPay", label: "My pay", icon: "payrun" },
+        { key: "Accounts", label: "Account", icon: "userRound" },
+      ]
+    : [
+        { key: "Appointments", label: "Today", icon: "sun" },
+        { key: "Insights", label: "Insights", icon: "trend" },
+        { key: "Customers", label: "Customers", icon: "contact" },
+      ];
+  const phoneMore = barberApp ? [] : navItems.filter((n) => !phoneNav.some((p) => p.key === n.key));
   function goTo(name: string) {
     if (setupOpen) { setSetupOpen(false); history.replaceState(null, "", "/workspace"); }
+    if (name === "Week") {
+      // Barber app: the full week calendar, own column only.
+      if (!canNavigate()) return;
+      setCalendarView("week");
+      if (w?.account?.staff_id) setBarber(w.account.staff_id);
+      setTab("Appointments");
+      setBarberWeek(true);
+      setNotice("");
+      return;
+    }
+    if (name === "Appointments" && barberApp) { setBarberWeek(false); setCalendarView("day"); }
     if (name === tab || !canNavigate()) return;
     setTab(name);
     setNotice("");
@@ -2297,7 +2322,19 @@ export function Workspace() {
                   ))}
                 </Notice>
               )}
-              {tab === "Appointments" && (
+              {tab === "Appointments" && barberApp && phoneDevice && !barberWeek && (
+                <BarberHome
+                  w={w}
+                  api={api}
+                  date={date || w.today}
+                  onDate={(d) => setDate(d)}
+                  onOpen={(item) => setEditor({ kind: "detail", item })}
+                  onRefresh={async () => { await refresh(); }}
+                  onNew={() => setEditor({ kind: "booking" })}
+                  onError={(m) => setError(m)}
+                />
+              )}
+              {tab === "Appointments" && !(barberApp && phoneDevice && !barberWeek) && (
                 <section
                   className="calendar-card connected-calendar"
                   aria-label="Appointment calendar"

@@ -561,7 +561,8 @@ export function Rail({ items, current, onSelect, bottom }: { items: NavItem[]; c
 
 export function TabBar({ items, more = [], current, onSelect, fab }: { items: NavItem[]; more?: NavItem[]; current: string; onSelect: (key: string) => void; fab?: { label: string; onClick: () => void; disabled?: boolean } }) {
   const [open, setOpen] = useState(false);
-  const left = items.slice(0, 2), right = items.slice(2, 3);
+  // Two tabs left of the +, the rest right of it; "More" only when there is something for it.
+  const left = items.slice(0, 2), right = items.slice(2);
   const moreActive = more.some((n) => n.key === current);
   const render = (n: NavItem) => (
     <button key={n.key} type="button" aria-current={current === n.key ? "page" : undefined} onClick={() => { setOpen(false); onSelect(n.key); }}>
@@ -570,7 +571,7 @@ export function TabBar({ items, more = [], current, onSelect, fab }: { items: Na
     </button>
   );
   return (
-    <nav className="tabbar" aria-label="Workspace sections" data-testid="tabbar">
+    <nav className={`tabbar tabs-${items.length + (more.length ? 1 : 0)}`} aria-label="Workspace sections" data-testid="tabbar">
       {left.map(render)}
       {fab ? (
         <button type="button" className="tab-fab" onClick={fab.onClick} disabled={fab.disabled} aria-label={fab.label}>

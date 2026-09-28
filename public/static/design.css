@@ -2905,3 +2905,59 @@ html.boot-dark, html.boot-dark body { background: #17181e; }
 .setup-flow-progress i { background: var(--ollo, var(--accent)); }
 .setup-brand-preview .shop-page .sp-hero h1 { font-size: clamp(26px, 9cqw, 40px); overflow-wrap: anywhere; }
 .setup-brand-preview .shop-page .sp-brand strong { max-width: 38cqw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Barber phone app: Today agenda ------------------------------------------------------------ */
+.barber-home { display: grid; gap: 14px; padding-bottom: 12px; }
+.barber-home-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.barber-home-kicker { margin: 0 0 2px; font-size: 12.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.barber-home-head h1 { margin: 0; font-size: clamp(24px, 6vw, 30px); letter-spacing: -0.5px; }
+.barber-home-stats { margin: 0; display: flex; gap: 14px; font-size: 13px; color: var(--muted); }
+.barber-home-stats b { color: var(--ink); font-size: 15px; margin-right: 3px; }
+.barber-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.barber-week-day { display: grid; justify-items: center; gap: 2px; padding: 8px 2px 6px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); font: inherit; color: var(--ink); cursor: pointer; min-height: 64px; }
+.barber-week-day small { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.barber-week-day b { font-size: 16px; }
+.barber-week-day.is-today b { color: var(--accent-dark); }
+.barber-week-day.is-off { opacity: .55; }
+.barber-week-day[aria-selected="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+.barber-week-day[aria-selected="true"] small, .barber-week-day[aria-selected="true"] b { color: #fff; }
+.barber-week-count { font-size: 11px; font-weight: 700; min-height: 14px; color: var(--accent-dark); }
+.barber-week-day[aria-selected="true"] .barber-week-count { color: #fff; }
+.barber-week-nav { display: flex; justify-content: center; gap: 8px; margin-top: -6px; }
+.barber-focus { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-xl); padding: 14px; display: grid; gap: 12px; box-shadow: var(--shadow-1); border-left: 4px solid var(--accent); }
+.barber-focus.in-chair { border-left-color: var(--good); }
+.barber-focus header { display: flex; justify-content: space-between; align-items: center; }
+.barber-focus-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--accent-dark); }
+.barber-focus.in-chair .barber-focus-label { color: var(--good); }
+.barber-focus-time { font-size: 18px; font-variant-numeric: tabular-nums; }
+.barber-focus-body { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; background: transparent; border: 0; padding: 0; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
+.barber-focus-body > span { display: grid; gap: 2px; min-width: 0; }
+.barber-focus-body b { font-size: 18px; }
+.barber-focus-body small { color: var(--muted); font-size: 13px; }
+.barber-note { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2) !important; }
+.barber-focus-actions { display: flex; gap: 8px; }
+.barber-focus-actions .button, .barber-focus-actions a.button { flex: 1 1 auto; justify-content: center; min-height: 46px; font-size: 15px; }
+.barber-agenda { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.barber-row { display: grid; grid-template-columns: 62px 1fr auto; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 10px 10px 10px 12px; }
+.barber-row.is-focus { border-color: var(--accent); }
+.barber-row.is-past { opacity: .6; }
+.barber-row.status-completed { background: var(--canvas); }
+.barber-row-time { display: grid; gap: 1px; font-variant-numeric: tabular-nums; }
+.barber-row-time b { font-size: 16px; }
+.barber-row-time small { font-size: 11px; color: var(--muted); }
+.barber-row-main { display: grid; gap: 2px; min-width: 0; text-align: left; background: transparent; border: 0; padding: 0; font: inherit; color: var(--ink); cursor: pointer; }
+.barber-row-main b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barber-row-main small { font-size: 12.5px; color: var(--muted); }
+.barber-status { font-style: normal; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; width: fit-content; padding: 2px 7px; border-radius: 999px; background: var(--ollo-soft); color: var(--accent-dark); }
+.barber-status.s-in_service { background: var(--good-bg); color: var(--good); }
+.barber-status.s-completed { background: var(--canvas); color: var(--muted); }
+.barber-row-step { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--surface); color: var(--accent-dark); display: grid; place-items: center; cursor: pointer; }
+.barber-row-step.is-done { background: var(--good); border-color: var(--good); color: #fff; }
+.barber-row-step:disabled { opacity: .5; }
+.barber-empty { padding: 28px 12px; }
+.barber-new { display: flex; justify-content: center; padding-top: 6px; }
+.barber-new .button { min-height: 46px; padding: 0 22px; }
+/* Bottom bar sizes to its tabs (+ the centre button). Barber app: 5 tabs + FAB = 6 columns. */
+.tabbar.tabs-5 { grid-template-columns: repeat(6, 1fr); }
+.tabbar.tabs-5 > button { font-size: 10.5px; }
+.tabbar.tabs-5 > button svg { width: 20px; height: 20px; }
