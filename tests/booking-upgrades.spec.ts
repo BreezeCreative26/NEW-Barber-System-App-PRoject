@@ -192,7 +192,7 @@ test("browser: group booking together then confirm; owner calendar marks the gro
   await expect(flow.getByRole("heading", { name: "Pick a day and time." })).toBeVisible();
   // Move to a weekday with everyone in.
   const target = weekdayAhead();
-  const dayBtn = flow.getByRole("group", { name: "Choose a day" }).getByRole("button", { name: new RegExp(`^\\w{3}\\s*${Number(target.slice(8))}$`) });
+  const dayBtn = flow.getByRole("group", { name: "Choose a day" }).getByRole("button", { name: new RegExp(`^\\w{3}\\s*0?${Number(target.slice(8))}$`) });
   if (!(await dayBtn.count())) await flow.getByRole("button", { name: "Next week" }).click();
   await dayBtn.first().click();
   await expect(flow.getByTestId("group-slot").first()).toBeVisible();

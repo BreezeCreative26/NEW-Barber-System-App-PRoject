@@ -13,18 +13,26 @@ export function themeClass(brand: Partial<ShopBrand> | null | undefined, extra =
   return `shop-page accent-${brand?.accent || "ollo"} font-${t.font} mode-${t.mode} corners-${t.corners} hero-${t.hero}${flip}${extra ? ` ${extra}` : ""}`.trim();
 }
 
-// Browser chrome (address bar tint on phones) follows the theme too.
+// Browser chrome follows the theme too: the status bar / Dynamic Island area, the address bar tint
+// and the overscroll canvas all take the shop's surface colour so the top bar looks like it runs
+// edge to edge on a phone. The two values mirror --sp-surface in shop-theme.css.
+export const SHOP_SURFACE = { light: "#ffffff", dark: "#17181e" } as const;
 export function applyThemeColor(brand: Partial<ShopBrand> | null | undefined) {
   if (typeof document === "undefined") return;
   const dark = (brand?.theme?.mode || "light") === "dark";
+  const surface = dark ? SHOP_SURFACE.dark : SHOP_SURFACE.light;
   let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
   if (!meta) {
     meta = document.createElement("meta");
     meta.name = "theme-color";
     document.head.appendChild(meta);
   }
-  meta.content = dark ? "#0f1014" : "#ffffff";
-  document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  meta.content = surface;
+  const root = document.documentElement;
+  root.style.colorScheme = dark ? "dark" : "light";
+  root.style.setProperty("--shell-bg", surface);
+  root.style.backgroundColor = surface;
+  document.body.style.backgroundColor = surface;
   document.body.classList.toggle("theme-dark", dark);
 }
 

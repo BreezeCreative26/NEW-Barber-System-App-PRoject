@@ -489,7 +489,8 @@ async function sendEmail(row: Row): Promise<Delivery> {
   if (!e.RESEND_API_KEY) return { ok: true, provider: "mailbox", id: `mbx_${uid().slice(0, 8)}` };
   // Until a sending domain is verified in Resend, its shared test sender is the only address that
   // delivers (and only to the account owner's inbox). Set MAIL_FROM once DNS is in place.
-  const fromAddr = e.MAIL_FROM || "onboarding@resend.dev";
+  // MAIL_FROM may be a bare address or "Name <address>"; the shop's name always becomes the display name.
+  const fromAddr = (e.MAIL_FROM || "onboarding@resend.dev").match(/<([^>]+)>/)?.[1]?.trim() || (e.MAIL_FROM || "onboarding@resend.dev").trim();
   const from = `${row.shop_name.replace(/["<>]/g, "")} <${fromAddr}>`;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
