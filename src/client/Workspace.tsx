@@ -37,7 +37,7 @@ import { PaymentsPanel } from "./Payouts";
 import { SetupWizard } from "./Setup";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
-import { themeClass } from "./theme";
+import { themeClass, type ShopBrand } from "./theme";
 import { WS_ACCENTS, DEFAULT_WS_THEME, applyWsTheme, parseWsTheme, readLocalWsTheme, writeLocalWsTheme, type WorkspaceTheme } from "./workspaceTheme";
 import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
 
@@ -311,11 +311,15 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
   const resetToken = new URLSearchParams(location.search).get("token") || "";
   const onRoot = hostKind() === "root";
   const shopSlug = hostShopSlug();
-  const [shopHead, setShopHead] = useState<{ name: string; logo_url: string } | null>(null);
+  const [shopHead, setShopHead] = useState<{ name: string; logo_url: string; brand?: ShopBrand; slug?: string } | null>(null);
   useEffect(() => {
     if (!shopSlug) return;
-    fetch(`/api/public/shops/${encodeURIComponent(shopSlug)}`).then((r) => (r.ok ? r.json() : null)).then((d) => d && setShopHead({ name: d.shop.name, logo_url: d.shop.logo_url || "" })).catch(() => {});
+    fetch(`/api/public/shops/${encodeURIComponent(shopSlug)}`).then((r) => (r.ok ? r.json() : null)).then((d) => d && setShopHead({ name: d.shop.name, logo_url: d.shop.logo_url || "", brand: d.shop.brand, slug: d.shop.slug })).catch(() => {});
   }, [shopSlug]);
+  // On a shop's own address the sign-in wears the shop: logo, name and accent in the side panel,
+  // foliyo as the quiet "Powered by" line. A barber arriving at northline.foliyo.co.uk/staff sees
+  // their shop, not ours.
+  const staffEntry = location.pathname === "/staff";
   // On the platform host there is nothing to sign in to: owners sign in at their shop's address.
   const initial: AuthMode = token ? "invite" : location.pathname === "/signup" ? "signup" : location.pathname === "/forgot" ? "forgot" : location.pathname === "/reset" && resetToken ? "reset" : onRoot ? "find" : "signin";
   const [mode, setMode] = useState<AuthMode>(initial);
@@ -360,7 +364,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
   }, []);
   useEffect(() => {
     if (mode !== "invite" && mode !== "reset") {
-      const path = mode === "signup" ? "/signup" : mode === "forgot" ? "/forgot" : "/signin";
+      const path = mode === "signup" ? "/signup" : mode === "forgot" ? "/forgot" : staffEntry ? "/staff" : "/signin";
       if (location.pathname !== path && location.pathname !== "/workspace") history.replaceState(null, "", path);
     }
   }, [mode]);
@@ -384,31 +388,53 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
     }
   }
   return (
-    <div className="auth-screen">
+    <div className={shopHead ? `auth-screen auth-shop accent-${shopHead.brand?.accent || "ollo"}` : "auth-screen"}>
       <aside className="auth-brand" aria-hidden="true">
-        <img className="auth-brand-logo" src="/static/brand/foliyo-wordmark-white.svg" alt="foliyo" width={128} height={48} />
-        <div className="auth-brand-copy">
-          <p className="auth-brand-eyebrow">Booking software for any appointment business</p>
-          <h1>Built for people<br />who run on appointments.</h1>
-          <p className="auth-brand-tag">Book · Manage · Show up</p>
-        </div>
-        <ul className="auth-brand-points">
-          <li>One fair monthly price, no commission</li>
-          <li>Text, email &amp; push confirmations</li>
-          <li>Your logo on everything your customers see</li>
-        </ul>
+        {shopHead ? (
+          <>
+            <div className="auth-shop-mark">
+              {shopHead.logo_url ? <img className={`auth-shop-logo${shopHead.brand?.logo_tone ? ` tone-${shopHead.brand.logo_tone}` : ""}`} src={shopHead.logo_url} alt="" /> : <span className="auth-shop-initial">{shopHead.name.slice(0, 1)}</span>}
+            </div>
+            <div className="auth-brand-copy">
+              <p className="auth-brand-eyebrow">Team workspace</p>
+              <h1>{shopHead.name}</h1>
+              <p className="auth-brand-tag">{location.host}</p>
+            </div>
+            <ul className="auth-brand-points">
+              <li>Your day, your column, your customers</li>
+              <li>Check in, move and complete visits</li>
+              <li>Your pay, always up to date</li>
+            </ul>
+            <p className="auth-powered">Powered by <img src="/static/brand/foliyo-wordmark-white.svg" alt="foliyo" width={56} height={21} /></p>
+          </>
+        ) : (
+          <>
+            <img className="auth-brand-logo" src="/static/brand/foliyo-wordmark-white.svg" alt="foliyo" width={128} height={48} />
+            <div className="auth-brand-copy">
+              <p className="auth-brand-eyebrow">Booking software for any appointment business</p>
+              <h1>Built for people<br />who run on appointments.</h1>
+              <p className="auth-brand-tag">Book · Manage · Show up</p>
+            </div>
+            <ul className="auth-brand-points">
+              <li>One fair monthly price, no commission</li>
+              <li>Text, email &amp; push confirmations</li>
+              <li>Your logo on everything your customers see</li>
+            </ul>
+          </>
+        )}
       </aside>
       <div className="auth-main">
       <section className="workspace-panel account-entry auth-card" aria-labelledby="auth-heading">
-        <Brand />
-        {shopHead && (
+        {shopHead ? (
           <div className="auth-invite-card" data-testid="auth-shop">
-            {shopHead.logo_url ? <img src={shopHead.logo_url} alt="" width={44} height={44} /> : <span className="auth-invite-mark" aria-hidden="true">{shopHead.name.slice(0, 1)}</span>}
+            {shopHead.logo_url ? <img className={shopHead.brand?.logo_tone ? `tone-${shopHead.brand.logo_tone}` : ""} src={shopHead.logo_url} alt="" width={44} height={44} /> : <span className="auth-invite-mark" aria-hidden="true">{shopHead.name.slice(0, 1)}</span>}
             <div>
               <strong>{shopHead.name}</strong>
-              <span>Team sign-in · {location.host}</span>
+              <span>Staff sign-in · {location.host}</span>
             </div>
           </div>
+        ) : (
+          <Brand />
         )}
         {mode !== "invite" && !shopSlug && (
           <div className="auth-tabs" role="tablist" aria-label="Sign in or create a shop">
@@ -443,7 +469,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
                   ? resetState && "error" in resetState ? resetState.error : resetState ? `For ${resetState.email_hint}. At least 12 characters.` : "Checking your link…"
                   : mode === "find"
                     ? "Every shop has its own address. Type yours, or tell us your email and we'll send you the link."
-                    : shopHead ? `Sign in to ${shopHead.name}'s workspace.` : "Sign in to your shop's workspace."}
+                    : shopHead ? `Sign in with your team email and password to open ${shopHead.name}'s workspace.` : "Sign in to your shop's workspace."}
         </p>
         {mode === "find" ? (
           <FindShop state={findState} setState={setFindState} root={platformRoot()} />
@@ -547,9 +573,19 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
         )}
         {mode === "signin" && (
           <p className="helper auth-switch">
-            New here? <button type="button" className="linklike" onClick={() => setMode("signup")}>Create your shop</button>
-            {" · "}
-            <button type="button" className="linklike" onClick={() => setMode("forgot")} data-testid="forgot-link">Forgot password?</button>
+            {shopHead ? (
+              <>
+                <button type="button" className="linklike" onClick={() => setMode("forgot")} data-testid="forgot-link">Forgot password?</button>
+                {" · "}
+                <a href="/me" data-testid="customer-signin-link">Customer? Sign in here</a>
+              </>
+            ) : (
+              <>
+                New here? <button type="button" className="linklike" onClick={() => setMode("signup")}>Create your shop</button>
+                {" · "}
+                <button type="button" className="linklike" onClick={() => setMode("forgot")} data-testid="forgot-link">Forgot password?</button>
+              </>
+            )}
           </p>
         )}
         {mode === "forgot" && !forgotSent && (
@@ -561,7 +597,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
           </p>
         )}
       </section>
-      {demo && mode !== "invite" && (
+      {demo && mode !== "invite" && !shopHead && (
         <aside className="workspace-panel auth-demo" aria-labelledby="demo-heading">
           <Badge>Demo</Badge>
           <h3 id="demo-heading">Just looking?</h3>

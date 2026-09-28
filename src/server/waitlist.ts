@@ -344,7 +344,8 @@ export async function queueReviewRequest(c: Ctx, shopId: string, bookingId: stri
   }
   // When a link already exists we cannot recover the raw token; the message points at the shop's
   // account area instead, where the customer can review from their history.
-  const link = raw ? shopUrl(shop.slug!, `/manage/${raw}`, new URL(c.req.url).origin) : shopUrl(shop.slug!, "/me", new URL(c.req.url).origin);
+  const hasAccount = !!(await c.env.DB.prepare("SELECT 1 FROM customer_accounts WHERE phone=? AND password_hash<>''").bind(b.phone).first());
+  const link = hasAccount || !raw ? shopUrl(shop.slug!, `/me?visit=${encodeURIComponent(bookingId)}`, new URL(c.req.url).origin) : shopUrl(shop.slug!, `/manage/${raw}`, new URL(c.req.url).origin);
   const body = render(templatesOf(shop).review_request, { first: (b.attendee_name || b.customer_name).split(" ")[0], shop: shop.name, service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], link });
   await queueMessage(c, shop, b, "review_request", body, { type: "booking", id: bookingId }).run();
   await drainSoon(c, 2, { type: "booking", id: bookingId });

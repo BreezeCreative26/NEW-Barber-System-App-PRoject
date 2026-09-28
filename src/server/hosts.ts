@@ -90,7 +90,7 @@ function rewritePath(slug: string, pathname: string): string | null {
   if (pathname === "/me" || pathname === "/me/") return `/${slug}/me`;
   if (pathname === "/manifest.webmanifest") return `/${slug}/manifest.webmanifest`;
   if (/^\/icon-(192|512)\.png$/.test(pathname)) return `/${slug}${pathname}`;
-  return null; // everything else (api, workspace, manage, offer, pay, static) is host-agnostic
+  return null; // everything else (api, workspace, staff, manage, offer, pay, static) is host-agnostic
 }
 
 // Paths on the ROOT host that belong to a shop and should live on its sub-domain.

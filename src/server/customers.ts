@@ -6,11 +6,11 @@ import { sessionCookieDomain } from "./hosts";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
 import { brandOf, dayStarts, phoneSchema, ref, shopToday, type Customer, type Shop, type StoredBooking } from "./domain";
-import { digest, readInput, type AppEnv } from "./accounts";
+import { digest, passwordHash, readInput, type AppEnv } from "./accounts";
 import { audit, checkVersionUpdate, fail, readBooking } from "./sandbox";
 import { leaveReview, ownReviewView, reviewEligibility, reviewSchema, type ReviewRow } from "./presence";
 import { drain, enqueue, msgShop, providerStatus } from "./messaging";
-import { customerAuth } from "./customerAuth";
+import { customerAuth, customerPassword, recordConsent } from "./customerAuth";
 import {
   calendarResponse,
   cancelBody,
@@ -125,6 +125,8 @@ const profileOf = (a: AccountRow, cust: Customer) => ({
   version: cust.version,
   member_since: a.created_at,
   has_password: !!a.password_hash,
+  // False for a code-only account that still needs name/email/password.
+  complete: !!a.password_hash && !!a.email && !!(cust.name || a.name || "").trim(),
   account_email: a.email,
   email_verified: !!a.email_verified,
 });
@@ -137,6 +139,9 @@ acct.route("/", customerAuth);
 // Step 1: request a code. Sandbox: returned in the response; production would send it.
 acct.post("/start", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug")!);
+  // A text code is only a real option when the shop sends texts. Otherwise email + password is
+  // the way in (the client never shows the button; this guards the API as well).
+  if ((shop as { msg_sms?: number }).msg_sms === 0) fail(409, "sms_off");
   const b = await readInput(c, startSchema);
   await throttle(c, "otp-start", `${shop.id}:${clientKey(c)}`, 30);
   await throttle(c, "otp-phone", `${shop.id}:${b.phone}`, 8);
@@ -191,7 +196,44 @@ acct.post("/verify", async (c) => {
   c.set("actor", `customer:${account.id}`);
   const cust = await linkedCustomer(c, shop, account);
   cookie(c, raw);
-  return c.json({ ok: true, profile: profileOf(account, cust), new_account: account.created_at === now }, 201);
+  // An account that only ever signed in by code has no email or password: it cannot receive
+  // confirmations by email or reset itself. The client finishes the profile before going on.
+  const needsProfile = !account.email || !account.password_hash || !(account.name || "").trim();
+  return c.json({ ok: true, profile: profileOf(account, cust), new_account: account.created_at === now, needs_profile: needsProfile }, 201);
+});
+
+// Finish a code-only account: name, email, password and consents, in one step. Used straight after
+// /verify when needs_profile is true; also lets an older code-only account complete itself later.
+const completeSchema = z
+  .object({
+    name: z.string().trim().min(2).max(100),
+    email: z.string().trim().toLowerCase().email().max(254),
+    password: customerPassword,
+    marketing_opt_in: z.union([z.literal(0), z.literal(1)]).default(0),
+    contact_pref: z.enum(["AUTO", "EMAIL"]).default("AUTO"),
+    accept_terms_version: z.number().int().min(0).default(0),
+  })
+  .strict();
+acct.post("/complete", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug")!);
+  const a = await requireAccount(c, shop);
+  const b = await readInput(c, completeSchema);
+  const termsNeeded = !!shop.terms_text && (shop.terms_version || 0) > 0;
+  if (termsNeeded && b.accept_terms_version !== shop.terms_version) fail(400, "Please accept the booking terms to continue");
+  const other = await c.env.DB.prepare("SELECT id FROM customer_accounts WHERE lower(email)=lower(?) AND email<>'' AND id<>?").bind(b.email, a.id).first<{ id: string }>();
+  if (other) fail(409, "That email is already used by another account. Sign in with it instead.");
+  const now = Date.now();
+  const salt = uid() + uid();
+  const hash = await passwordHash(b.password, salt);
+  await c.env.DB.prepare("UPDATE customer_accounts SET name=?, email=?, password_hash=CASE WHEN password_hash='' THEN ? ELSE password_hash END, password_salt=CASE WHEN password_hash='' THEN ? ELSE password_salt END, password_set_at=COALESCE(password_set_at, ?), version=version+1 WHERE id=?")
+    .bind(b.name, b.email, hash, salt, now, a.id).run();
+  const fresh = (await c.env.DB.prepare("SELECT * FROM customer_accounts WHERE id=?").bind(a.id).first<AccountRow>())!;
+  const pref = b.contact_pref === "EMAIL" || (shop as { msg_sms?: number }).msg_sms === 0 ? "EMAIL" : "AUTO";
+  await recordConsent(c, shop, fresh as never, { name: b.name, email: b.email, marketing_opt_in: b.marketing_opt_in, contact_pref: pref });
+  if (termsNeeded) await c.env.DB.prepare("UPDATE customer_account_links SET terms_version=?, terms_accepted_at=? WHERE account_id=? AND shop_id=?").bind(shop.terms_version, now, a.id, shop.id).run();
+  await c.env.DB.batch([audit(c, "customer_account", a.id, "CUSTOMER_PROFILE_COMPLETED", `Code sign-in account completed with email and password. Reminders by ${pref === "EMAIL" ? "email" : "text and email"}; marketing ${b.marketing_opt_in ? "on" : "off"}.`)]);
+  const cust = await linkedCustomer(c, shop, fresh);
+  return c.json({ ok: true, profile: profileOf(fresh, cust) });
 });
 
 acct.post("/logout", async (c) => {
