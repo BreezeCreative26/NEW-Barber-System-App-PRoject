@@ -4,6 +4,7 @@ import type { Staff } from "../server/domain";
 import { Badge, Button, Icon } from "./ui";
 import { money } from "./fixtures";
 import { F, StepActions, useBusy, type StepProps } from "./Setup";
+import { SmsBillingAck, SmsSenderField, suggestSenders } from "./SmsSender";
 
 type Invite = { id: string; staff_id: string; email: string; phone: string; role: string; channel: string; sent_count: number; last_sent_at: number | null; expires_at: number; accepted_at: number | null; revoked: number };
 type Member = { id: string; name: string; email: string; staff_id: string | null; role: string; active: number };
@@ -129,21 +130,28 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
 
 // ---- 5. Messages ---------------------------------------------------------------------------------
 type Msg = { msg_sms: number; msg_email: number; msg_wa: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
+type SmsBilling = { unit_pence: number; included_units: number; acknowledged_at: number | null; live: boolean };
 export function StepMessages({ w, api, refresh, data, setNotice, setError, onNext, onSkip }: StepProps) {
   const shop = w.shop as typeof w.shop & { phone?: string; email?: string; msg_sms?: number; msg_email?: number; msg_wa?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reply_to?: string; msg_sms_sender?: string };
-  const suggested = shop.name.replace(/[^A-Za-z0-9 ]/g, "").replace(/\s+/g, " ").trim().slice(0, 11).trim();
+  const suggested = suggestSenders(shop.name)[0] || "";
   const [m, setM] = useState<Msg>({ msg_sms: shop.msg_sms ?? 1, msg_email: shop.msg_email ?? 1, msg_wa: shop.msg_wa ?? 1, msg_reminders: shop.msg_reminders ?? 1, msg_reminder_hours: shop.msg_reminder_hours ?? 24, msg_reply_to: shop.msg_reply_to || shop.email || "", msg_sms_sender: shop.msg_sms_sender || suggested });
+  const [bill, setBill] = useState<SmsBilling | null>(null);
+  const [ack, setAck] = useState(false);
   const [test, setTest] = useState<{ channel: string; ok: boolean; note: string } | null>(null);
   const { busy, run } = useBusy();
+  useEffect(() => {
+    api<{ sms_billing?: SmsBilling }>("/notifications").then((r) => setBill(r.sms_billing ?? null)).catch(() => setBill(null));
+  }, []);
   const ps = data.progress.messages.providers;
-  const smsLive = ps.sms.provider !== "mailbox", emailLive = ps.email.provider !== "mailbox";
-  const sender = m.msg_sms_sender || "foliyo";
+  const emailLive = ps.email.provider !== "mailbox";
   const barber = w.staff[0]?.name.split(" ")[0] || "Sam";
   const svc = w.services[0]?.name || "Haircut";
   const preview = `${shop.name}: you're booked — ${svc} with ${barber}, Fri 12 Sep at 10:30. Ref BRB-0412. Move or cancel: ${location.origin}/m/a1b2c3`;
+  const needsAck = m.msg_sms === 1 && !!bill && !bill.acknowledged_at;
   async function save() {
-    await api("/shop/messaging", "PUT", m);
+    await api("/shop/messaging", "PUT", { ...m, ...(needsAck ? { sms_billing_ack: ack } : {}) });
     await refresh();
+    if (needsAck && ack) setBill((b) => (b ? { ...b, acknowledged_at: Date.now() } : b));
   }
   async function sendTest(channel: "SMS" | "EMAIL") {
     await save();
@@ -153,38 +161,48 @@ export function StepMessages({ w, api, refresh, data, setNotice, setError, onNex
     const n = r.notification;
     setTest({ channel, ok: n?.status === "SENT", note: n?.status === "SENT" ? (n.provider === "mailbox" ? "Landed in the dev mailbox (no provider connected)." : `Sent via ${n.provider} to ${to}.`) : n?.error || "Not sent yet." });
   }
+  const unit = bill?.unit_pence ?? 8;
   return (
     <div className="setup-wiz-card">
-      <p className="setup-wiz-lead">Confirmations, reminders and "you're next" texts go out in your shop's name — never ours. Here's exactly what a customer will get.</p>
-      <div className="setup-msg">
-        <div className="setup-phone" aria-hidden="true">
-          <div className="setup-phone-top"><span>{sender}</span></div>
-          <div className="setup-phone-bubble">{preview}</div>
-          <div className="setup-phone-bubble">{shop.name}: reminder — {svc} with {barber} tomorrow at 10:30. Reply STOP to opt out.</div>
+      <p className="setup-wiz-lead">Confirmations, reminders and "you're next" texts go out in your shop's name — never ours. Pick the name customers will see, and choose your channels.</p>
+      <SmsSenderField value={m.msg_sms_sender} onChange={(v) => setM({ ...m, msg_sms_sender: v })} shopName={shop.name} sampleBody={preview} testId="setup-sms-sender" />
+      <div className="setup-channels">
+        <div className={`setup-channel${m.msg_sms ? " on" : ""}`} data-testid="setup-channel-sms">
+          <label className="setup-check">
+            <input type="checkbox" checked={!!m.msg_sms} onChange={(e) => setM({ ...m, msg_sms: e.target.checked ? 1 : 0 })} data-testid="setup-msg-sms" />
+            <span>
+              <strong>Send texts</strong>
+              <small>{unit}p per text · itemised on your invoice{bill && !bill.live ? " · not connected on this deployment yet (texts show in the dev mailbox)" : ""}</small>
+            </span>
+          </label>
+          {m.msg_sms === 1 && bill && <SmsBillingAck unitPence={unit} acknowledgedAt={bill.acknowledged_at} checked={ack} onChange={setAck} testId="setup-sms-billing-ack" />}
         </div>
-        <div className="setup-msg-form">
-          <F label="Text sender name" hint="Up to 11 letters/numbers, no spaces at the ends. This is the name at the top of the text. Customers can't reply to it.">
-            <input value={m.msg_sms_sender} onChange={(e) => setM({ ...m, msg_sms_sender: e.target.value.replace(/[^A-Za-z0-9 ]/g, "").slice(0, 11) })} maxLength={11} placeholder={suggested} data-testid="setup-sms-sender" />
-          </F>
-          <F label="Email replies go to"><input type="email" value={m.msg_reply_to} onChange={(e) => setM({ ...m, msg_reply_to: e.target.value })} maxLength={120} /></F>
-          <F label="Reminder">
-            <select value={m.msg_reminders ? m.msg_reminder_hours : 0} onChange={(e) => { const v = Number(e.target.value); setM({ ...m, msg_reminders: v ? 1 : 0, msg_reminder_hours: v || 24 }); }}>
-              <option value={0}>No reminder</option><option value={24}>24 hours before</option><option value={48}>48 hours before</option><option value={4}>4 hours before</option>
-            </select>
-          </F>
-          <div className="setup-toggles">
-            <label className="setup-check"><input type="checkbox" checked={!!m.msg_sms} onChange={(e) => setM({ ...m, msg_sms: e.target.checked ? 1 : 0 })} /><span>Send texts {smsLive ? "" : <small className="helper">(texting isn't connected on this deployment yet — they'll show in the dev mailbox)</small>}</span></label>
-            <label className="setup-check"><input type="checkbox" checked={!!m.msg_email} onChange={(e) => setM({ ...m, msg_email: e.target.checked ? 1 : 0 })} /><span>Send emails {emailLive ? "" : <small className="helper">(email isn't connected on this deployment yet)</small>}</span></label>
-          </div>
-          <div className="setup-test">
-            <Button variant="secondary" disabled={busy || !shop.phone} onClick={() => run(() => sendTest("SMS"), setError)} data-testid="setup-test-sms"><Icon name="phone" size={14} /> Text me a test</Button>
-            <Button variant="secondary" disabled={busy} onClick={() => run(() => sendTest("EMAIL"), setError)} data-testid="setup-test-email"><Icon name="message" size={14} /> Email me a test</Button>
-            {test && <p className={test.ok ? "workspace-success" : "workspace-error"} role="status" data-testid="setup-test-result">{test.note}</p>}
-            {!shop.phone && <small className="helper">Add the shop mobile in step 1 to test texts.</small>}
-          </div>
+        <div className={`setup-channel${m.msg_email ? " on" : ""}`}>
+          <label className="setup-check">
+            <input type="checkbox" checked={!!m.msg_email} onChange={(e) => setM({ ...m, msg_email: e.target.checked ? 1 : 0 })} />
+            <span>
+              <strong>Send emails</strong>
+              <small>Free · branded with your logo{emailLive ? "" : " · not connected on this deployment yet"}</small>
+            </span>
+          </label>
         </div>
       </div>
-      <StepActions busy={busy} onNext={() => run(async () => { await save(); setNotice("Message settings saved."); await onNext(); }, setError)} onSkip={onSkip} />
+      <div className="setup-msg-form setup-msg-grid">
+        <F label="Email replies go to"><input type="email" value={m.msg_reply_to} onChange={(e) => setM({ ...m, msg_reply_to: e.target.value })} maxLength={120} /></F>
+        <F label="Reminder">
+          <select value={m.msg_reminders ? m.msg_reminder_hours : 0} onChange={(e) => { const v = Number(e.target.value); setM({ ...m, msg_reminders: v ? 1 : 0, msg_reminder_hours: v || 24 }); }}>
+            <option value={0}>No reminder</option><option value={24}>24 hours before</option><option value={48}>48 hours before</option><option value={4}>4 hours before</option>
+          </select>
+        </F>
+      </div>
+      <div className="setup-test">
+        <Button variant="secondary" disabled={busy || !shop.phone || (needsAck && !ack)} onClick={() => run(() => sendTest("SMS"), setError)} data-testid="setup-test-sms"><Icon name="phone" size={14} /> Text me a test</Button>
+        <Button variant="secondary" disabled={busy} onClick={() => run(() => sendTest("EMAIL"), setError)} data-testid="setup-test-email"><Icon name="message" size={14} /> Email me a test</Button>
+        {test && <p className={test.ok ? "workspace-success" : "workspace-error"} role="status" data-testid="setup-test-result">{test.note}</p>}
+        {!shop.phone && <small className="helper">Add the shop mobile in step 1 to test texts.</small>}
+      </div>
+      {needsAck && !ack && <p className="helper" data-testid="setup-sms-ack-hint">Tick the box above to switch texts on, or untick "Send texts" to continue without them.</p>}
+      <StepActions busy={busy} onNext={() => run(async () => { if (needsAck && !ack) throw new Error("Please confirm the per-text price, or switch texts off."); await save(); setNotice("Message settings saved."); await onNext(); }, setError)} onSkip={onSkip} />
     </div>
   );
 }

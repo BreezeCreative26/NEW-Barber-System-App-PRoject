@@ -13,6 +13,10 @@
     {
       "path": "/api/cron/messages",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/billing",
+      "schedule": "15 2 * * *"
     }
   ],
   "buildCommand": "npm run db:migrate && npm run build"

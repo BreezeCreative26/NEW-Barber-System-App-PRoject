@@ -65,6 +65,8 @@ test("shop setup: signup → 9-step onboarding → go live; invite accepted by S
   await page.getByTestId("setup-next").click();
   // Step 5 messages
   await expect(page.getByTestId("setup-sms-sender")).toBeVisible();
+  // Texts are billable: the owner accepts the per-text price once before texts can go on.
+  await page.getByTestId("setup-sms-billing-ack").locator("input").check();
   await page.getByTestId("setup-test-sms").click();
   await expect(page.getByTestId("setup-test-result")).toBeVisible();
   

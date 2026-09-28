@@ -23,6 +23,9 @@ import { handleConnectEvent, type ConnectEvent } from "./server/payouts";
 import { settleByMetadata, type PaymentRequest } from "./server/chair";
 import { applyDeliveryReports, applyInbound, waWebhookOk } from "./server/whatsapp";
 import { applyTelnyxEvent, telnyxSetup, telnyxWebhookOk } from "./server/telnyx";
+import { applyInvoiceEvent, cardSaved } from "./server/stripeBilling";
+import { prevPeriodKey, runPeriodClose, applyDunning } from "./server/invoicing";
+import { platformBilling } from "./server/billing";
 import voice from "./server/voice";
 import admin, { adminPublic } from "./server/admin";
 import type { Database } from "./db/client";
@@ -55,6 +58,17 @@ app.get("/api/cron/messages", async (c) => {
   const waitlist = await sweepWaitlistPlatform(c.env.DB, origin).catch(() => 0);
   return c.json({ ok: true, reminders, drained, holds_released: holds.length, waitlist, providers: providerStatus() });
 });
+// Daily billing sweep: on the 1st (or the first run after it) close last month's period for every
+// paying shop — invoices issued, handed to Stripe, emailed — then apply dunning (overdue → past due).
+app.get("/api/cron/billing", async (c) => {
+  const secret = process.env.CRON_SECRET;
+  if (secret && c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
+  const pb = await platformBilling(c.env.DB);
+  const period = prevPeriodKey();
+  const closed = pb.last_period_close >= period ? { period, skipped: "already closed" } : await runPeriodClose(c.env.DB, period, "cron");
+  const dunning = await applyDunning(c.env.DB);
+  return c.json({ ok: true, closed, dunning });
+});
 // Stripe webhook: the guaranteed path for "deposit paid" (the customer's return trip is the fast
 // path). Signature-verified, idempotent on event id. Always 2xx once verified so Stripe stops retrying.
 app.post("/api/stripe/webhook", async (c) => {
@@ -67,6 +81,16 @@ app.post("/api/stripe/webhook", async (c) => {
   const o = evt.data.object;
   const shopId = o.metadata?.shop_id, bookingId = o.metadata?.booking_id || o.client_reference_id || "";
   const requestId = o.metadata?.payment_request_id || "";
+  // foliyo ↔ shop billing (subscription invoices, saved cards).
+  if (evt.type === "invoice.paid" || evt.type === "invoice.payment_failed") {
+    const r = await applyInvoiceEvent(c.env.DB, evt.type, o as never);
+    return c.json({ ok: true, billing: r });
+  }
+  if (evt.type === "checkout.session.completed" && o.metadata?.purpose === "billing_card" && shopId) {
+    const si = (o as { setup_intent?: string | null }).setup_intent;
+    if (typeof si === "string") await cardSaved(c.env.DB, shopId, si).catch(() => null);
+    return c.json({ ok: true, billing: "card" });
+  }
   if (requestId && (evt.type === "checkout.session.completed" || evt.type === "checkout.session.async_payment_succeeded" || evt.type === "payment_intent.succeeded")) {
     // Card at the chair (pay link / reader) — writes the ledger row.
     const pi = evt.type === "payment_intent.succeeded" ? o.id : typeof o.payment_intent === "string" ? o.payment_intent : "";
