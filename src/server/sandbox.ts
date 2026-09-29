@@ -87,6 +87,7 @@ import { ALERT_KINDS, DEFAULT_PREFS, alertOwners, prefsOf, type AlertPrefs } fro
 import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
 import { accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, type ConnectedAccount } from "./payouts";
+import { walletsCsv, walletsSummary } from "./wallets";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
 import { RESERVED_SUBDOMAINS, shopUrl } from "./hosts";
 import accounts, {
@@ -276,6 +277,7 @@ sandbox.use("*", async (c, next) => {
       (["PUT", "DELETE"].includes(method) && path === "/shop/page/draft") ||
       (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/reviews", "/shop/waitlist", "/shop/messaging", "/shop/payments", "/shop/alerts", "/shop/voice"].includes(path)) ||
       (method === "GET" && (path === "/shop/alerts" || path.startsWith("/shop/voice"))) ||
+      (method === "GET" && ["/wallets", "/wallets.csv"].includes(path)) ||
       (method === "POST" && path === "/shop/voice/rotate") ||
       (method === "POST" && ["/notifications/test", "/notifications/sweep", "/shop/payments/connect"].includes(path)) ||
       (method === "POST" && /^\/notifications\/[^/]+\/resend$/.test(path)) ||
@@ -3466,6 +3468,28 @@ sandbox.get("/pay-runs/export.csv", async (c) => {
   c.header("Content-Type", "text/csv; charset=utf-8");
   c.header("Content-Disposition", `attachment; filename="pay-runs-${q.data!.from}-to-${q.data!.to}.csv"`);
   return c.body(lines.join("\n"));
+});
+// Wallets overview (owner/manager): where every barber's money is for a period. Ledger first, live
+// Stripe balances layered on top. The range is capped so a mistyped year can't scan the whole table.
+const walletsQuery = z.object({ from: dateSchema, to: dateSchema, fresh: z.enum(["1"]).optional() }).strict();
+async function walletsFor(c: Ctx) {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const shop = await readShop(c);
+  const raw = c.req.query();
+  const today = new Date().toISOString().slice(0, 10);
+  const q = walletsQuery.safeParse({ ...raw, from: raw.from ?? datePlusServer(today, -30), to: raw.to ?? today });
+  if (!q.success) fail(400, "Supply from and to as YYYY-MM-DD (optional fresh=1)");
+  const { from, to, fresh } = q.data!;
+  if (from > to) fail(400, "from must be on or before to");
+  if ((Date.parse(to) - Date.parse(from)) / 86400000 > 366) fail(400, "Choose a range of a year or less");
+  return walletsSummary(c.env.DB, { id: shop.id, name: shop.name }, from, to, { fresh: fresh === "1" });
+}
+sandbox.get("/wallets", async (c) => c.json(await walletsFor(c)));
+sandbox.get("/wallets.csv", async (c) => {
+  const s = await walletsFor(c);
+  c.header("Content-Type", "text/csv; charset=utf-8");
+  c.header("Content-Disposition", `attachment; filename="wallets-${s.from}-to-${s.to}.csv"`);
+  return c.body(walletsCsv(s));
 });
 sandbox.get("/pay-runs", async (c) => {
   const a = c.get("account");

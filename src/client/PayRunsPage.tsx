@@ -6,6 +6,7 @@ import { Button, Icon, Notice, StatusPill } from "./ui";
 import { money, datePlus } from "./fixtures";
 import { PAY_MODELS, PayStatement, payFormOf, resultOfRun, summariseTerms, describeDeduction } from "./Pay";
 import { BarberPayoutCard } from "./Payouts";
+import { WalletsPanel } from "./Wallets";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 const fmt = (d: string) => new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(d + "T12:00:00Z"));
@@ -71,6 +72,7 @@ export function PayRunsPage({ w, api, onOpenBarber }: { w: WorkspaceData; api: A
         </table></div>
       )}
       <p className="workspace-footnote">Figures for barbers without a run are live estimates from the ledger and their current terms. Once a draft exists the numbers are frozen. Open a barber to add one-off adjustments, approve, or mark paid.</p>
+      <WalletsPanel api={api} from={b.from} to={b.to} onOpenBarber={onOpenBarber} />
     </section>
   );
 }

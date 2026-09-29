@@ -75,7 +75,11 @@ test("checkout records service + tip by method, completes the visit, updates the
   const row = wallet.payments.find((p: any) => p.booking_id === booking.id);
   expect(row).toMatchObject({ method: "CASH", service_pence: 2800, tip_pence: 300, commission_pct: staff.commission_pct });
   const mine = wallet.by_staff.find((s: any) => s.staff_id === staff.id);
-  expect(mine.earnings).toBe(Math.round((mine.service * staff.commission_pct) / 100) + mine.tips);
+  // Earnings are net — the barber's share (per their terms: %, threshold, tiers) + tips less their
+  // deductions (chair rent etc.) — the same figure their pay run will show.
+  expect(mine.commission).toBeGreaterThan(0);
+  expect(mine.commission).toBeLessThanOrEqual(mine.service);
+  expect(mine.earnings).toBe(mine.commission + mine.tips - mine.deductions);
   // Wallet chip moved by exactly the recorded amount (only when the visit was today).
   if (booking.date === wallet.today) {
     const pence = (t: string) => Math.round(Number(t.replace(/[£,]/g, "")) * 100);
