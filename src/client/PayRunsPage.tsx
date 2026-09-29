@@ -51,7 +51,7 @@ export function PayRunsPage({ w, api, onOpenBarber }: { w: WorkspaceData; api: A
       </div>
       {msg && <p className="workspace-footnote" role="status" data-testid="pay-runs-msg">{msg}</p>}
       {!d ? <p className="workspace-footnote">Calculating…</p> : rows.length === 0 ? <Notice>No active barbers.</Notice> : (
-        <table className="pay-runs-table" data-testid="pay-runs-table">
+        <div className="pay-runs-table-wrap"><table className="pay-runs-table" data-testid="pay-runs-table">
           <thead><tr><th>Barber</th><th>Deal</th><th className="num">Sales</th><th className="num">Deductions</th><th className="num">Owed to barber</th><th className="num">Owed to business</th><th>Status</th><th /></tr></thead>
           <tbody>
             {rows.map((r) => (
@@ -68,7 +68,7 @@ export function PayRunsPage({ w, api, onOpenBarber }: { w: WorkspaceData; api: A
             ))}
           </tbody>
           <tfoot><tr><td colSpan={2}><strong>Totals</strong></td><td className="num">{money(totals.sales)}</td><td /><td className="num" data-testid="pay-runs-total-staff">{money(totals.staff)}</td><td className="num" data-testid="pay-runs-total-biz">{money(totals.biz)}</td><td colSpan={2} /></tr></tfoot>
-        </table>
+        </table></div>
       )}
       <p className="workspace-footnote">Figures for barbers without a run are live estimates from the ledger and their current terms. Once a draft exists the numbers are frozen. Open a barber to add one-off adjustments, approve, or mark paid.</p>
     </section>

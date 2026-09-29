@@ -398,7 +398,7 @@ test("saved setup and appointment workflow survives reload, move and completion"
   await page
     .getByLabel("Shop name", { exact: true })
     .fill("Saved matte test shop");
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.getByRole("button", { name: "Save business details", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Saved");
   await page.reload();
   await section(page, "Settings");
@@ -461,9 +461,11 @@ test("saved setup and appointment workflow survives reload, move and completion"
   await markDone(page);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  // Short appointments draw two lines at the default density, so the status is carried by the
+  // event's data-status / aria-label rather than visible text.
   await expect(
     page.getByRole("button").filter({ hasText: "Morgan Fictional" }),
-  ).toContainText("Completed");
+  ).toHaveAttribute("data-status", "COMPLETED");
   await section(page, "Audit");
   await expect(page.getByText("RESCHEDULED", { exact: true })).toBeVisible();
   await expect(page.getByText("COMPLETED", { exact: true })).toBeVisible();
