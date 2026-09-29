@@ -787,13 +787,14 @@ sandbox.put("/shop/page", async (c) => {
   const secondary = b.secondary_hex.toLowerCase();
   const variants = JSON.stringify(Object.fromEntries(Object.entries(b.variants).filter(([, v]) => !!v)));
   const elementStyles = JSON.stringify(Object.fromEntries(Object.entries(b.element_styles).filter(([, v]) => v && (v.bg || v.fg))));
+  const copy = JSON.stringify(Object.fromEntries(Object.entries(b.copy).filter(([, v]) => !!v && v.trim())));
   const stmt = existing
     ? c.env.DB.prepare(
-        "UPDATE shop_pages SET element_styles_json=?,draft_json=NULL,draft_updated_at=NULL,logo_tone=?,primary_hex=?,secondary_hex=?,variants_json=?,strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
-      ).bind(elementStyles, tone, primary, secondary, variants, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version)
+        "UPDATE shop_pages SET copy_json=?,element_styles_json=?,draft_json=NULL,draft_updated_at=NULL,logo_tone=?,primary_hex=?,secondary_hex=?,variants_json=?,strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
+      ).bind(copy, elementStyles, tone, primary, secondary, variants, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version)
     : c.env.DB.prepare(
-        "INSERT INTO shop_pages(element_styles_json,logo_tone,primary_hex,secondary_hex,variants_json,shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
-      ).bind(elementStyles, tone, primary, secondary, variants, sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now);
+        "INSERT INTO shop_pages(copy_json,element_styles_json,logo_tone,primary_hex,secondary_hex,variants_json,shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+      ).bind(copy, elementStyles, tone, primary, secondary, variants, sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now);
   await checkVersionUpdate(c, stmt, audit(c, "shop", sid, "SHOP_PAGE_UPDATED", `${b.published ? "Published" : "Unpublished"}; ${b.sections.length} sections.`, true));
   const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>();
   return c.json({ page: row });

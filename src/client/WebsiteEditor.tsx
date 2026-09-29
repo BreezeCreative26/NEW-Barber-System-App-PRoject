@@ -3,7 +3,7 @@
 // layout choices; the left rail lists sections (show/hide, reorder) and the design system
 // (brand colours, type, look). Edits autosave as a draft; Publish makes them live.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { WorkspaceData } from "../server/domain";
+import { PAGE_COPY_DEFAULTS, type PageCopy, type PageCopyKey, type WorkspaceData } from "../server/domain";
 import { Button, Icon } from "./ui";
 import { PhotoUpload } from "./Media";
 import { ShopPageView, type PageData, type SectionVariants, type ElementStyles } from "./ShopPage";
@@ -13,7 +13,7 @@ type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 type ThemeForm = { font: string; mode: string; corners: string; hero: string; logo: string };
 export type PageForm = {
   strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string;
-  sections: string[]; accent: string; theme: ThemeForm; primary_hex: string; secondary_hex: string; variants: SectionVariants; element_styles: ElementStyles; google_review_url: string; published: number; version: number;
+  sections: string[]; accent: string; theme: ThemeForm; primary_hex: string; secondary_hex: string; variants: SectionVariants; element_styles: ElementStyles; copy: PageCopy; google_review_url: string; published: number; version: number;
 };
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const FONTS: { id: string; name: string; note: string }[] = [
@@ -49,10 +49,30 @@ const EL_LABEL: Record<string, string> = {
   cta: "Booking band", "cta.button": "Start booking button",
   "hours.card": "Hours card", "hours.today": "Today row",
   "find.card": "Find us card", gallery: "Gallery", "reviews.card": "Review card", "reviews.stars": "Stars", policies: "Good to know", footer: "Footer", "footer.link": "Footer text & links",
+  "next.title": "Heading", "next.sub": "Sub-line", "services.title": "Heading", "services.sub": "Sub-line", "team.title": "Heading", "team.sub": "Sub-line",
+  "cta.title": "Heading", "cta.sub": "Sub-line", "hours.title": "Heading", "find.title": "Heading", "reviews.title": "Heading", "policies.title": "Heading",
+};
+// Text-only elements: the inspector shows the wording field first and only a text colour.
+const EL_TEXT: Record<string, PageCopyKey> = {
+  "nav.button": "nav.button", "hero.button": "hero.button", "cta.button": "cta.button",
+  "next.title": "next.title", "next.sub": "next.sub", "services.title": "services.title", "services.sub": "services.sub", "team.title": "team.title", "team.sub": "team.sub",
+  "cta.title": "cta.title", "cta.sub": "cta.sub", "hours.title": "hours.title", "find.title": "find.title", "reviews.title": "reviews.title", "policies.title": "policies.title",
+};
+// Wording each section owns, shown in the inspector whenever anything in that section is selected.
+const SEC_COPY: Record<string, PageCopyKey[]> = {
+  nav: ["nav.button"], hero: ["hero.button", "hero.call", "hero.directions"], next: ["next.title", "next.sub"], services: ["services.title", "services.sub"],
+  team: ["team.title", "team.sub"], cta: ["cta.title", "cta.sub", "cta.button"], hours: ["hours.title"], find: ["find.title"], gallery: [], reviews: ["reviews.title"], policies: ["policies.title"],
+};
+const COPY_LABEL: Record<PageCopyKey, string> = {
+  "nav.button": "Top bar button", "hero.button": "Book button", "hero.call": "Call button", "hero.directions": "Directions button",
+  "next.title": "Heading", "next.sub": "Sub-line", "services.title": "Heading", "services.sub": "Sub-line", "team.title": "Heading", "team.sub": "Sub-line",
+  "cta.title": "Heading", "cta.sub": "Sub-line", "cta.button": "Button", "hours.title": "Heading", "find.title": "Heading", "gallery.title": "Heading", "reviews.title": "Heading", "policies.title": "Heading",
 };
 const EL_HAS: Record<string, ("bg" | "fg")[]> = {
   "page.bg": ["bg"], "page.surface": ["bg"], "page.text": ["fg"],
   "hero.title": ["fg"], "hero.strap": ["fg"], "next.time": ["fg"], "services.price": ["fg"], "reviews.stars": ["fg"], "footer.link": ["fg"],
+  "next.title": ["fg"], "next.sub": ["fg"], "services.title": ["fg"], "services.sub": ["fg"], "team.title": ["fg"], "team.sub": ["fg"],
+  "cta.title": ["fg"], "cta.sub": ["fg"], "hours.title": ["fg"], "find.title": ["fg"], "reviews.title": ["fg"], "policies.title": ["fg"],
 };
 export function pageFormOf(p: Record<string, unknown>): PageForm {
   const j = <T,>(v: unknown, d: T): T => { try { return JSON.parse(String(v || "")) as T; } catch { return d; } };
@@ -62,7 +82,7 @@ export function pageFormOf(p: Record<string, unknown>): PageForm {
     phone: String(p.phone || ""), email: String(p.email || ""), instagram: String(p.instagram || ""), map_url: String(p.map_url || ""), transport_note: String(p.transport_note || ""), policy_text: String(p.policy_text || ""),
     sections: j<string[]>(p.sections_json, ["hero", "next", "services", "team", "hours", "gallery", "reviews", "find", "policies"]), accent: String(p.accent || "ollo"),
     theme: { font: t.font || "modern", mode: t.mode || "light", corners: t.corners || "soft", hero: t.hero || "editorial", logo: t.logo || "auto" },
-    primary_hex: String(p.primary_hex || ""), secondary_hex: String(p.secondary_hex || ""), variants: j<SectionVariants>(p.variants_json, {}), element_styles: j<ElementStyles>(p.element_styles_json, {}),
+    primary_hex: String(p.primary_hex || ""), secondary_hex: String(p.secondary_hex || ""), variants: j<SectionVariants>(p.variants_json, {}), element_styles: j<ElementStyles>(p.element_styles_json, {}), copy: j<PageCopy>(p.copy_json, {}),
     google_review_url: String(p.google_review_url || ""), published: Number(p.published ?? 1), version: Number(p.version ?? 0),
   };
 }
@@ -124,7 +144,7 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
       api("/shop/page/draft", "PUT", clean(f)).then(() => setSaveState("saved")).catch(() => setSaveState("error"));
     }, 700);
   }
-  const clean = (f: PageForm) => ({ ...f, gallery: f.gallery.filter(Boolean), primary_hex: HEX.test(f.primary_hex) ? f.primary_hex.toLowerCase() : "", secondary_hex: HEX.test(f.primary_hex) && HEX.test(f.secondary_hex) ? f.secondary_hex.toLowerCase() : "", element_styles: Object.fromEntries(Object.entries(f.element_styles).filter(([, v]) => v && (v.bg || v.fg))) });
+  const clean = (f: PageForm) => ({ ...f, gallery: f.gallery.filter(Boolean), primary_hex: HEX.test(f.primary_hex) ? f.primary_hex.toLowerCase() : "", secondary_hex: HEX.test(f.primary_hex) && HEX.test(f.secondary_hex) ? f.secondary_hex.toLowerCase() : "", element_styles: Object.fromEntries(Object.entries(f.element_styles).filter(([, v]) => v && (v.bg || v.fg))), copy: Object.fromEntries(Object.entries(f.copy || {}).filter(([, v]) => !!v && String(v).trim())) });
   async function publish() {
     if (!form) return;
     setPublishing(true); setError("");
@@ -352,6 +372,29 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
                   ))}
                 </div>
               </div>
+              {(() => {
+                const focus = EL_TEXT[selected.el];
+                const keys = [...(focus ? [focus] : []), ...(SEC_COPY[selected.sec] || []).filter((k) => k !== focus)];
+                if (!keys.length) return null;
+                return (
+                  <div className="wed-copy" data-testid="wed-copy">
+                    <p className="wed-label">Wording</p>
+                    {keys.map((k) => {
+                      const val = form.copy?.[k] ?? "";
+                      const long = k.endsWith(".sub");
+                      const set = (v: string) => update((f) => ({ copy: { ...(f.copy || {}), [k]: v } }));
+                      return (
+                        <label key={k} className={`wed-field ${k === focus ? "wed-focus" : ""}`}>
+                          <span>{COPY_LABEL[k]}{val && <button type="button" className="wed-copy-reset" onClick={() => set("")} aria-label={`Reset ${COPY_LABEL[k]} to default`}>Reset</button>}</span>
+                          {long
+                            ? <textarea rows={2} maxLength={200} value={val} placeholder={PAGE_COPY_DEFAULTS[k]} onChange={(e) => set(e.target.value)} autoFocus={k === focus} data-testid={`wed-copy-${k}`} />
+                            : <input value={val} maxLength={k.endsWith(".button") || k.startsWith("hero.") ? 30 : 60} placeholder={PAGE_COPY_DEFAULTS[k]} onChange={(e) => set(e.target.value)} autoFocus={k === focus} data-testid={`wed-copy-${k}`} />}
+                        </label>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
               {sec?.layouts && (
                 <div className="wed-layouts">
                   <p className="wed-label">{sec.label} layout</p>

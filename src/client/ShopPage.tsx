@@ -8,6 +8,7 @@ import { ShopTabBar } from "./ShopTabBar";
 import { money, time, dateLabel, setCurrency } from "./fixtures";
 import { PublicReviews, Stars, type PublicReview } from "./Reviews";
 import { applyThemeColor, brandStyle, serverBrand, themeClass, type ShopBrand, type ShopTheme, shopPath } from "./theme";
+import { copyOf, type PageCopy } from "../server/domain";
 
 // Website builder: per-section layout choices. Mirrors SECTION_VARIANTS in src/server/domain.ts.
 export type SectionVariants = Partial<{ hero: string; next: string; services: string; team: string; hours: string; gallery: string; reviews: string; find: string; policies: string; cta: string; footer: string }>;
@@ -15,7 +16,7 @@ export type ElementStyles = Record<string, { bg?: string; fg?: string }>;
 export type PageDesign = { accent: string; theme?: ShopTheme; primary_hex?: string; secondary_hex?: string; variants?: SectionVariants; element_styles?: ElementStyles; logo_tone?: string };
 export type PageData = {
   shop: { id: string; name: string; address: string; slug: string; timezone: string; currency?: string; opens: number; closes: number; deposit_pence: number; cancel_hours: number; lead_time_min: number; booking_window_days: number };
-  page: { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme?: ShopTheme; logo_tone?: "light" | "dark" | "colour" | ""; primary_hex?: string; secondary_hex?: string; variants?: SectionVariants; element_styles?: ElementStyles; google_review_url?: string; published: number };
+  page: { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme?: ShopTheme; logo_tone?: "light" | "dark" | "colour" | ""; primary_hex?: string; secondary_hex?: string; variants?: SectionVariants; element_styles?: ElementStyles; copy?: PageCopy; google_review_url?: string; published: number };
   staff: { id: string; name: string; role: string; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[];
   services: { id: string; name: string; category: string; duration_min: number; price_pence: number; description?: string; colour?: string; popular?: number }[];
   week: ({ weekday: number; open: false } | { weekday: number; open: true; starts: number; ends: number })[];
@@ -172,6 +173,7 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
   const has = (k: string) => page.sections.includes(k);
   const v = page.variants || {};
   const variant = (k: keyof SectionVariants, fallback: string) => v[k] || fallback;
+  const t = (k: Parameters<typeof copyOf>[1]) => copyOf(page.copy, k);
   const todayHours = data.week[new Date(data.today + "T12:00:00Z").getUTCDay()];
   const nextOpen = (() => {
     for (let i = 1; i <= 7; i++) {
@@ -214,7 +216,7 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
           </a>
         </nav>
         <a className="button primary sp-book-btn" href={book()} data-testid="nav-book" data-el="nav.button">
-          Book now
+          {t("nav.button")}
         </a>
       </header>
 
@@ -245,16 +247,16 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
                 </div>
                 <div className="sp-hero-actions">
                   <a className="button primary" href={book()} data-testid="hero-book" data-el="hero.button">
-                    <Icon name="calendar" size={16} /> Book now
+                    <Icon name="calendar" size={16} /> {t("hero.button")}
                   </a>
                   {page.phone && (
                     <a className="button secondary" href={`tel:${page.phone.replace(/\s/g, "")}`} data-el="hero.button2">
-                      <Icon name="call" size={16} /> Call
+                      <Icon name="call" size={16} /> {t("hero.call")}
                     </a>
                   )}
                   {mapHref && shop.address && (
                     <a className="button secondary" href={mapHref} target="_blank" rel="noreferrer" data-el="hero.button2">
-                      <Icon name="pin" size={16} /> Directions
+                      <Icon name="pin" size={16} /> {t("hero.directions")}
                     </a>
                   )}
                 </div>
@@ -305,8 +307,8 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
         {has("next") && data.soonest.length > 0 && (
           <section className={`sp-section sp-next v-${variant("next", "strip")}`} aria-labelledby="sp-next-heading" data-variant={variant("next", "strip")} data-sec="next">
             <div className="sp-section-head">
-              <h2 id="sp-next-heading">Next available</h2>
-              <p>Soonest free time with each barber for a {data.services[0]?.name.toLowerCase()}. Tap to book it.</p>
+              <h2 id="sp-next-heading" data-el="next.title">{t("next.title")}</h2>
+              <p data-el="next.sub">{page.copy?.["next.sub"]?.trim() ? page.copy["next.sub"] : `Soonest free time with each barber for a ${data.services[0]?.name.toLowerCase() ?? "cut"}. Tap to book it.`}</p>
             </div>
             <ul className="sp-next-list">
               {data.soonest.map((n) => {
@@ -337,8 +339,8 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
         {has("services") && (
           <section className={`sp-section sp-services-section v-${variant("services", "menu")}`} id="services" aria-labelledby="sp-services-heading" data-variant={variant("services", "menu")} data-sec="services">
             <div className="sp-section-head">
-              <h2 id="sp-services-heading">Services</h2>
-              <p>Tap a service to start booking it.</p>
+              <h2 id="sp-services-heading" data-el="services.title">{t("services.title")}</h2>
+              <p data-el="services.sub">{t("services.sub")}</p>
             </div>
             {variant("services", "menu") === "tabs" && categories.length > 1 && (
               <ul className="sp-cat-tabs" role="tablist" aria-label="Service categories">
@@ -386,8 +388,8 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
         {has("team") && (
           <section className={`sp-section sp-team-section v-${variant("team", "cards")}`} id="team" aria-labelledby="sp-team-heading" data-variant={variant("team", "cards")} data-sec="team">
             <div className="sp-section-head">
-              <h2 id="sp-team-heading">The team</h2>
-              <p>Pick who you want; the booking remembers.</p>
+              <h2 id="sp-team-heading" data-el="team.title">{t("team.title")}</h2>
+              <p data-el="team.sub">{t("team.sub")}</p>
             </div>
             <ul className="sp-team">
               {data.staff.map((b) => {
@@ -432,11 +434,11 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
         <section className={`sp-section sp-booking-cta v-${variant("cta", "band")}`} id="book" aria-labelledby="sp-book-heading" data-variant={variant("cta", "band")} data-sec="cta">
           <div className="sp-cta-card" data-el="cta">
             <div className="sp-cta-copy">
-              <h2 id="sp-book-heading">Book a visit</h2>
-              <p>Choose a service, a barber and a time. Takes under a minute, and you'll get a link to move or cancel it.</p>
+              <h2 id="sp-book-heading" data-el="cta.title">{t("cta.title")}</h2>
+              <p data-el="cta.sub">{t("cta.sub")}</p>
             </div>
             <a className="button primary sp-cta-btn" href={book()} data-testid="section-book" data-el="cta.button">
-              <Icon name="calendar" size={18} /> Start booking
+              <Icon name="calendar" size={18} /> {t("cta.button")}
             </a>
           </div>
         </section>
@@ -445,7 +447,7 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
           <div className={`sp-two ${has("hours") && has("find") && hasContact ? "" : "single"}`}>
             {has("hours") && (
               <section className={`sp-section sp-hours-section v-${variant("hours", "table")}`} id="hours" aria-labelledby="sp-hours-heading" data-variant={variant("hours", "table")} data-el="hours.card" data-sec="hours">
-                <h2 id="sp-hours-heading">Opening hours</h2>
+                <h2 id="sp-hours-heading" data-el="hours.title">{t("hours.title")}</h2>
                 <dl className="sp-hours">
                   {[1, 2, 3, 4, 5, 6, 0].map((wd) => {
                     const h = data.week[wd];
@@ -468,7 +470,7 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
             )}
             {has("find") && hasContact && (
               <section className={`sp-section sp-find-section v-${variant("find", "card")}`} id="find" aria-labelledby="sp-find-heading" data-variant={variant("find", "card")} data-el="find.card" data-sec="find">
-                <h2 id="sp-find-heading">Find us</h2>
+                <h2 id="sp-find-heading" data-el="find.title">{t("find.title")}</h2>
                 {variant("find", "card") === "map" && shop.address && !preview && (
                   <iframe className="sp-map" title="Map" loading="lazy" referrerPolicy="no-referrer-when-downgrade" src={`https://www.google.com/maps?q=${encodeURIComponent(shop.address)}&output=embed`} />
                 )}
@@ -521,11 +523,11 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
           </section>
         )}
 
-        {has("reviews") && <PublicReviews reviews={data.reviews} rating={data.rating} variant={variant("reviews", "cards")} />}
+        {has("reviews") && <PublicReviews reviews={data.reviews} rating={data.rating} variant={variant("reviews", "cards")} title={t("reviews.title")} />}
 
         {has("policies") && (
           <section className={`sp-section sp-policies v-${variant("policies", "plain")}`} aria-labelledby="sp-policies-heading" data-variant={variant("policies", "plain")} data-el="policies" data-sec="policies">
-            <h2 id="sp-policies-heading">Good to know</h2>
+            <h2 id="sp-policies-heading" data-el="policies.title">{t("policies.title")}</h2>
             <ul>
               <li>
                 <Icon name="clock" size={15} /> Please cancel or move at least {shop.cancel_hours} hours ahead.
