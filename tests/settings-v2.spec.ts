@@ -9,7 +9,7 @@ const SECTIONS = ["general", "hours", "calendar", "booking", "page", "reviews", 
 test("every settings section opens, is grouped, and passes axe", async ({ page }) => {
   await openFixtureShop(page);
   await section(page, "Settings");
-  const nav = page.getByRole("tablist", { name: "Settings sections" });
+  const nav = page.getByRole("navigation", { name: "Settings sections" });
   for (const g of ["Business", "Bookings", "Website", "Customers", "Team", "Account"]) await expect(nav.getByText(g, { exact: true })).toBeVisible();
   for (const key of SECTIONS) {
     await page.getByTestId(`settings-tab-${key}`).click();

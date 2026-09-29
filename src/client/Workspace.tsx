@@ -2902,16 +2902,20 @@ export function Workspace() {
               )}
               {tab === "Settings" && (
                 <div className="settings-shell" data-testid="settings">
-                  <nav className="settings-nav" role="tablist" aria-label="Settings sections">
+                  {/* Groups are plain headings + a tablist each: a single tablist may only contain tabs, and
+                      the group toggles are not tabs (axe: aria-required-children). */}
+                  <nav className="settings-nav" aria-label="Settings sections">
                     {SETTINGS_GROUPS.map((g) => (
-                      <div key={g} className="settings-nav-group" role="presentation" data-open={openGroup === g ? "true" : undefined}>
-                        <button type="button" className="settings-nav-label" onClick={() => setOpenGroup((v) => (v === g ? "" : g))} aria-expanded={openGroup === g}>{g}</button>
+                      <div key={g} className="settings-nav-group" data-open={openGroup === g ? "true" : undefined}>
+                        <button type="button" className="settings-nav-label" onClick={() => setOpenGroup((v) => (v === g ? "" : g))} aria-expanded={openGroup === g} aria-controls={`settings-group-${g}`}>{g}</button>
+                        <div role="tablist" aria-label={`${g} settings`} id={`settings-group-${g}`} className="settings-nav-tabs">
                         {SETTINGS_TABS.filter((t) => t.group === g && (!t.owner || !w.account || w.account.role === "OWNER")).map((t) => (
                           <button key={t.key} type="button" role="tab" aria-selected={settingsTab === t.key} aria-controls={`settings-${t.key}`} onClick={() => { if (settingsTab !== t.key && canNavigate()) setSettingsTab(t.key); }} data-testid={`settings-tab-${t.key}`}>
                             <Icon name={t.icon} size={18} />
                             <span><b>{t.label}</b><small>{t.hint}</small></span>
                           </button>
                         ))}
+                        </div>
                       </div>
                     ))}
                   </nav>
@@ -3554,10 +3558,19 @@ const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 // /setup/contact (name, kind, phone, email, address, timezone, currency + legal identity).
 function BusinessDetailsPanel({ w, refresh }: { w: WorkspaceData; refresh: () => Promise<void> }) {
   const shop = w.shop as WorkspaceData["shop"] & { kind?: string; phone?: string; email?: string; legal_name?: string; vat_number?: string; company_number?: string; website?: string; phone_verified_at?: number | null; email_verified_at?: number | null };
+  // The form remounts on every shop version (key below) so a message inside it would vanish the
+  // moment the save landed; keep the confirmation out here.
+  const [savedAt, setSavedAt] = useState(0);
+  useEffect(() => {
+    if (!savedAt) return;
+    const t = window.setTimeout(() => setSavedAt(0), 4000);
+    return () => window.clearTimeout(t);
+  }, [savedAt]);
   return (
     <>
       <section className="workspace-panel">
         <h2>Shop</h2>
+        {savedAt > 0 && <p className="workspace-success" role="status" data-testid="biz-saved">Saved. Customers see the new details straight away.</p>}
         <SaveForm
           key={w.shop.version}
           label="Save business details"
@@ -3568,6 +3581,7 @@ function BusinessDetailsPanel({ w, refresh }: { w: WorkspaceData; refresh: () =>
               legal_name: text(f, "legal_name"), vat_number: text(f, "vat_number"), company_number: text(f, "company_number"), website: text(f, "website"),
             });
             await refresh();
+            setSavedAt(Date.now());
           }}
         >
           <div className="workspace-form-grid">
