@@ -51,6 +51,9 @@ const EL_SELECTOR: Record<string, string> = {
   "reviews.card": ".sp-review, .sp-review-quote", "reviews.stars": ".stars .on",
   policies: ".sp-policies, .sp-policies.v-panel ul",
   footer: ".sp-footer", "footer.link": ".sp-footer-links a, .sp-footer-brand, .sp-footer-inner",
+  "next.title": '[data-el="next.title"]', "next.sub": '[data-el="next.sub"]', "services.title": '[data-el="services.title"]', "services.sub": '[data-el="services.sub"]',
+  "team.title": '[data-el="team.title"]', "team.sub": '[data-el="team.sub"]', "cta.title": '[data-el="cta.title"]', "cta.sub": '[data-el="cta.sub"]',
+  "hours.title": '[data-el="hours.title"]', "find.title": '[data-el="find.title"]', "reviews.title": '[data-el="reviews.title"]', "policies.title": '[data-el="policies.title"]',
 };
 export function elementCss(scope: string, styles: ElementStyles | undefined): string {
   if (!styles) return "";
@@ -59,7 +62,10 @@ export function elementCss(scope: string, styles: ElementStyles | undefined): st
     if (!st || (!st.bg && !st.fg)) continue;
     if (id === "page.bg") { out.push(`${scope}{${st.bg ? `--sp-bg:${st.bg};background:${st.bg};` : ""}}`); continue; }
     if (id === "page.text") { out.push(`${scope}{${st.fg ? `--sp-ink:${st.fg};--sp-ink-2:${st.fg};color:${st.fg};` : ""}}`); continue; }
-    if (id === "page.surface") { out.push(`${scope}{${st.bg ? `--sp-surface:${st.bg};` : ""}}`); continue; }
+    if (id === "page.surface") { out.push(`${scope}{${st.bg ? `--sp-surface:${st.bg};--sp-surface-2:${st.bg};` : ""}}`); continue; }
+    // The hero is a palette token too: its colour feeds the hero background/ink variables so the
+    // open-now badge, strapline and title inherit sensibly instead of being painted individually.
+    if (id === "hero") { out.push(`${scope}{${st.bg ? `--sp-hero-bg:${st.bg};` : ""}${st.fg ? `--sp-hero-ink:${st.fg};--sp-hero-muted:${st.fg}cc;` : ""}} ${scope} .sp-hero, ${scope} .sp-hero.no-cover{${st.bg ? `background:${st.bg} !important;` : ""}${st.fg ? `color:${st.fg} !important;--sp-hero-ink:${st.fg};` : ""}}`); continue; }
     const sel = EL_SELECTOR[id];
     if (!sel) continue;
     const rules = `${st.bg ? `background:${st.bg} !important;border-color:${st.bg} !important;` : ""}${st.fg ? `color:${st.fg} !important;` : ""}`;
@@ -161,9 +167,15 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
   // In the editor, clicks select the nearest data-el instead of navigating.
   const pick = onSelect
     ? (e: React.MouseEvent) => {
-        const t = (e.target as HTMLElement).closest<HTMLElement>("[data-el]");
+        let t = (e.target as HTMLElement).closest<HTMLElement>("[data-el]");
         if (!t) return;
         e.preventDefault(); e.stopPropagation();
+        // Clicking something already selected walks up to its container (button → band → page), so
+        // wrappers are reachable without hunting for a bare pixel.
+        if (selected && t.dataset.el === selected) {
+          const up = t.parentElement?.closest<HTMLElement>("[data-el]");
+          if (up) t = up;
+        }
         onSelect(t.dataset.el!, t.closest<HTMLElement>("[data-sec]")?.dataset.sec || t.dataset.el!.split(".")[0]);
       }
     : undefined;
