@@ -209,6 +209,13 @@ export async function platformBalance() {
   const sum = (rows: { amount: number; currency: string }[], cur: string) => rows.filter((r) => r.currency === cur).reduce((n, r) => n + r.amount, 0);
   return { available_pence: sum(b.available, "gbp"), pending_pence: sum(b.pending, "gbp") };
 }
+// Balance held on a connected account (a barber's or the shop's wallet): available = can be paid out
+// now; pending = transferred but not yet settled on their side. Read with the Stripe-Account header.
+export async function accountBalance(accountId: string) {
+  const b = await stripe<{ available: { amount: number; currency: string }[]; pending: { amount: number; currency: string }[] }>("/balance", undefined, { account: accountId });
+  const sum = (rows: { amount: number; currency: string }[], cur: string) => rows.filter((r) => r.currency === cur).reduce((n, r) => n + r.amount, 0);
+  return { available_pence: sum(b.available, "gbp"), pending_pence: sum(b.pending, "gbp") };
+}
 // Top up the platform balance from the platform's bank account (UK: Bacs/Faster Payments).
 export async function topUp(amountPence: number, description: string, idempotency: string) {
   return stripe<{ id: string; status: string; expected_availability_date?: number }>("/topups", { amount: amountPence, currency: "gbp", description }, { idempotency });

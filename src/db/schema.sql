@@ -689,7 +689,12 @@ BEGIN
      OR NEW.discount_pence<>OLD.discount_pence OR NEW.commission_pct<>OLD.commission_pct OR NEW.created_at<>OLD.created_at THEN
     PERFORM ollo_abort('payment_immutable');
   END IF;
-  IF NEW.voided_at IS NULL THEN PERFORM ollo_abort('payment_void_required'); END IF;
+  IF NEW.voided_at IS NULL THEN
+    -- Not a void: the only permitted change on a live payment is the pay-run settlement link.
+    IF (to_jsonb(NEW) - 'pay_run_id') <> (to_jsonb(OLD) - 'pay_run_id') THEN
+      PERFORM ollo_abort('payment_void_required');
+    END IF;
+  END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER payments_immutable BEFORE UPDATE ON payments FOR EACH ROW EXECUTE FUNCTION ollo_payments_immutable();
