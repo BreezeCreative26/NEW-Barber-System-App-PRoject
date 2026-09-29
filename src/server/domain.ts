@@ -607,6 +607,7 @@ export type ShopPage = {
   secondary_hex?: string;
   variants_json?: string;
   element_styles_json?: string;
+  copy_json?: string;
   draft_json?: string | null;
   draft_updated_at?: number | null;
   google_review_url: string;
@@ -742,6 +743,41 @@ export function parseElementStyles(json: string | null | undefined): ElementStyl
     return {};
   }
 }
+// Website editor: wording the owner can change. Every key has a built-in default so a blank value
+// means "use ours". Kept flat so the canvas can bind each string to one element.
+export const PAGE_COPY_DEFAULTS = {
+  "nav.button": "Book now",
+  "hero.button": "Book now",
+  "hero.call": "Call",
+  "hero.directions": "Directions",
+  "next.title": "Next available",
+  "next.sub": "Soonest free time with each barber. Tap to book it.",
+  "services.title": "Services",
+  "services.sub": "Tap a service to start booking it.",
+  "team.title": "The team",
+  "team.sub": "Pick who you want; the booking remembers.",
+  "cta.title": "Book a visit",
+  "cta.sub": "Choose a service, a barber and a time. Takes under a minute, and you'll get a link to move or cancel it.",
+  "cta.button": "Start booking",
+  "hours.title": "Opening hours",
+  "find.title": "Find us",
+  "gallery.title": "Gallery",
+  "reviews.title": "Reviews",
+  "policies.title": "Good to know",
+} as const;
+export type PageCopyKey = keyof typeof PAGE_COPY_DEFAULTS;
+export const PAGE_COPY_KEYS = Object.keys(PAGE_COPY_DEFAULTS) as PageCopyKey[];
+export type PageCopy = Partial<Record<PageCopyKey, string>>;
+export const copySchema = z.partialRecord(z.enum(PAGE_COPY_KEYS as [PageCopyKey, ...PageCopyKey[]]), z.string().trim().max(200));
+export function parseCopy(json: string | null | undefined): PageCopy {
+  try {
+    const r = copySchema.safeParse(JSON.parse(json || "{}"));
+    return r.success ? (r.data as PageCopy) : {};
+  } catch {
+    return {};
+  }
+}
+export const copyOf = (c: PageCopy | undefined, k: PageCopyKey) => (c?.[k] && c[k]!.trim()) || PAGE_COPY_DEFAULTS[k];
 const httpsUrl = z.union([z.literal(""), z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "Use an https:// address")]);
 export const shopPageSchema = z
   .object({
@@ -766,6 +802,7 @@ export const shopPageSchema = z
     secondary_hex: hexColour.default(""),
     variants: variantsSchema.default({}),
     element_styles: elementStylesSchema.default({}),
+    copy: copySchema.default({}),
     published: active.default(1),
     version,
   })
@@ -790,6 +827,7 @@ export const defaultShopPage = (shopId: string, now = Date.now()): ShopPage => (
   secondary_hex: "",
   variants_json: "{}",
   element_styles_json: "{}",
+  copy_json: "{}",
   draft_json: null,
   draft_updated_at: null,
   google_review_url: "",

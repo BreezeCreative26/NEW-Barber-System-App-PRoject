@@ -116,13 +116,13 @@ export function ReviewCard({ review, canReview, post, compact = false, googleUrl
 
 // variant: cards (grid) | wall (masonry columns) | carousel (horizontal snap strip) | quote (one
 // large pull-quote at a time, rest listed small). Layouts live in shop-theme.css under .v-*.
-export function PublicReviews({ reviews, rating, variant = "cards" }: { reviews: PublicReview[]; rating: { count: number; average: number | null }; variant?: string }) {
+export function PublicReviews({ reviews, rating, variant = "cards", title = "Reviews" }: { reviews: PublicReview[]; rating: { count: number; average: number | null }; variant?: string; title?: string }) {
   if (!reviews.length) return null;
   const [lead, ...rest] = variant === "quote" ? [...reviews].sort((a, b) => b.body.length - a.body.length) : [reviews[0]];
   return (
     <section className={`sp-section sp-reviews v-${variant}`} id="reviews" aria-labelledby="sp-reviews-heading" data-testid="reviews-section" data-variant={variant} data-sec="reviews">
       <div className="sp-section-head">
-        <h2 id="sp-reviews-heading">Reviews</h2>
+        <h2 id="sp-reviews-heading" data-el="reviews.title">{title}</h2>
         {rating.average !== null && (
           <p className="sp-rating-line">
             <Stars value={rating.average} label={`${rating.average} out of 5`} /> <strong>{rating.average}</strong> · {rating.count} verified review{rating.count === 1 ? "" : "s"}
