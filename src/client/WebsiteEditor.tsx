@@ -193,7 +193,21 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
   const elStyle = selected ? form.element_styles[selected.el] || {} : {};
   const has = (k: string) => form.sections.includes(k);
   const setEl = (k: "bg" | "fg", v: string) => selected && update((f) => ({ element_styles: { ...f.element_styles, [selected.el]: { ...(f.element_styles[selected.el] || {}), [k]: v } } }));
+  // Live colour of an element on the canvas (what the palette is currently painting it).
+  const liveColour = (el: string, k: "bg" | "fg"): string | undefined => {
+    const n = document.querySelector<HTMLElement>(`#sp-editor-scope [data-el="${el}"]`) || (el === "page.bg" ? document.querySelector<HTMLElement>("#sp-editor-scope") : null);
+    if (!n) return undefined;
+    const v = getComputedStyle(n)[k === "bg" ? "backgroundColor" : "color"];
+    const m = v.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (!m) return undefined;
+    if (/rgba\(.*,\s*0\)$/.test(v)) return undefined;
+    return "#" + [m[1], m[2], m[3]].map((x) => Number(x).toString(16).padStart(2, "0")).join("");
+  };
   const clearEl = () => selected && update((f) => { const n = { ...f.element_styles }; delete n[selected.el]; return { element_styles: n }; });
+  // Palette tokens live in element_styles under page.* / hero so the public page needs no new field.
+  const setTok = (el: string, k: "bg" | "fg", v: string) => update((f) => { const cur = { ...(f.element_styles[el] || {}) }; if (v) cur[k] = v; else delete cur[k]; const n = { ...f.element_styles }; if (cur.bg || cur.fg) n[el] = cur; else delete n[el]; return { element_styles: n }; });
+  const TOKENS = new Set(["page.bg", "page.surface", "page.text", "hero"]);
+  const overrides = Object.entries(form.element_styles).filter(([k, v]) => !TOKENS.has(k) && v && (v.bg || v.fg)) as [string, { bg?: string; fg?: string }][];
   const move = (k: string, dir: -1 | 1) => update((f) => { const arr = [...f.sections]; const i = arr.indexOf(k); const j = i + dir; if (i < 0 || j < 0 || j >= arr.length) return {}; [arr[i], arr[j]] = [arr[j], arr[i]]; return { sections: arr }; });
   const shown = SECTIONS.filter((s) => s.fixed || has(s.key)).sort((a, b) => (a.key === "nav" ? -1 : b.key === "nav" ? 1 : a.key === "footer" ? 1 : b.key === "footer" ? -1 : a.key === "cta" ? 0 : form.sections.indexOf(a.key) - form.sections.indexOf(b.key)));
   const hidden = SECTIONS.filter((s) => !s.fixed && !has(s.key));
@@ -267,18 +281,33 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
         )}
         {panel === "design" && (
           <div className="wed-panel" data-testid="wed-design">
-            <p className="wed-label">Brand colour</p>
-            <div className="wed-swatches" role="radiogroup" aria-label="Brand colour">
-              {ACCENTS.map((a) => (
-                <button key={a.id} type="button" role="radio" aria-checked={form.accent === a.id && !form.primary_hex} title={a.name} aria-label={a.name} style={{ background: a.hex }} onClick={() => update({ accent: a.id, primary_hex: "", secondary_hex: "" })} data-testid={`wed-accent-${a.id}`}>{form.accent === a.id && !form.primary_hex && <Icon name="check" size={14} />}</button>
-              ))}
-              <label className="wed-custom" title="Custom colour">
-                <input type="color" value={HEX.test(form.primary_hex) ? form.primary_hex : primary} onChange={(e) => update({ primary_hex: e.target.value })} aria-label="Custom brand colour" data-testid="wed-primary" />
-                <span style={{ background: HEX.test(form.primary_hex) ? form.primary_hex : "transparent" }}>{form.primary_hex ? "" : <Icon name="plus" size={14} />}</span>
-              </label>
+            <p className="wed-intro">Your palette sets every colour on the page. Click any element on the canvas to override just that one.</p>
+            <p className="wed-label">Palette</p>
+            <div className="wed-palette">
+              <ColourRow label="Brand" hint="Buttons, links, the booking band" value={HEX.test(form.primary_hex) ? form.primary_hex : primary} onChange={(v) => update({ primary_hex: v })} onClear={form.primary_hex ? () => update({ primary_hex: "", secondary_hex: "" }) : undefined} testId="wed-primary-hex" />
+              <ColourRow label="Highlight" hint="Tags, stars, small accents" value={HEX.test(form.secondary_hex) ? form.secondary_hex : ""} current={liveColour("services.tag", "fg") || primary} onChange={(v) => update({ secondary_hex: v, primary_hex: HEX.test(form.primary_hex) ? form.primary_hex : primary })} onClear={form.secondary_hex ? () => update({ secondary_hex: "" }) : undefined} testId="wed-secondary-hex" />
+              <ColourRow label="Page" hint="Behind everything" value={form.element_styles["page.bg"]?.bg || ""} current={liveColour("page.bg", "bg")} onChange={(v) => setTok("page.bg", "bg", v)} onClear={form.element_styles["page.bg"]?.bg ? () => setTok("page.bg", "bg", "") : undefined} testId="wed-tok-page" />
+              <ColourRow label="Cards" hint="Top bar, footer, tiles, rows" value={form.element_styles["page.surface"]?.bg || ""} current={liveColour("nav", "bg")} onChange={(v) => setTok("page.surface", "bg", v)} onClear={form.element_styles["page.surface"]?.bg ? () => setTok("page.surface", "bg", "") : undefined} testId="wed-tok-surface" />
+              <ColourRow label="Text" hint="Headings and body" value={form.element_styles["page.text"]?.fg || ""} current={liveColour("services.title", "fg") || liveColour("page.bg", "fg")} onChange={(v) => setTok("page.text", "fg", v)} onClear={form.element_styles["page.text"]?.fg ? () => setTok("page.text", "fg", "") : undefined} testId="wed-tok-text" />
+              <ColourRow label="Hero" hint="Behind the cover photo / big title" value={form.element_styles.hero?.bg || ""} current={liveColour("hero", "bg")} onChange={(v) => setTok("hero", "bg", v)} onClear={form.element_styles.hero?.bg ? () => setTok("hero", "bg", "") : undefined} testId="wed-tok-hero" />
             </div>
-            <ColourRow label="Primary" value={HEX.test(form.primary_hex) ? form.primary_hex : primary} onChange={(v) => update({ primary_hex: v })} onClear={form.primary_hex ? () => update({ primary_hex: "", secondary_hex: "" }) : undefined} testId="wed-primary-hex" />
-            <ColourRow label="Secondary" hint="Highlights, tags, stars" value={HEX.test(form.secondary_hex) ? form.secondary_hex : ""} onChange={(v) => update({ secondary_hex: v, primary_hex: HEX.test(form.primary_hex) ? form.primary_hex : primary })} onClear={form.secondary_hex ? () => update({ secondary_hex: "" }) : undefined} testId="wed-secondary-hex" />
+            <div className="wed-presets">
+              <span className="wed-presets-label">Quick brand picks</span>
+              <div className="wed-swatches" role="radiogroup" aria-label="Brand colour">
+                {ACCENTS.map((a) => (
+                  <button key={a.id} type="button" role="radio" aria-checked={form.accent === a.id && !form.primary_hex} title={a.name} aria-label={a.name} style={{ background: a.hex }} onClick={() => update({ accent: a.id, primary_hex: "", secondary_hex: "" })} data-testid={`wed-accent-${a.id}`}>{form.accent === a.id && !form.primary_hex && <Icon name="check" size={14} />}</button>
+                ))}
+                <label className="wed-custom" title="Custom colour">
+                  <input type="color" value={HEX.test(form.primary_hex) ? form.primary_hex : primary} onChange={(e) => update({ primary_hex: e.target.value })} aria-label="Custom brand colour" data-testid="wed-primary" />
+                  <span style={{ background: HEX.test(form.primary_hex) ? form.primary_hex : "transparent" }}>{form.primary_hex ? "" : <Icon name="plus" size={14} />}</span>
+                </label>
+              </div>
+            </div>
+            <p className="wed-label">Base</p>
+            <div className="segmented" role="group" aria-label="Look">
+              {[["light", "Light"], ["dark", "Dark"]].map(([v, l]) => <button key={v} type="button" aria-pressed={form.theme.mode === v} onClick={() => update((x) => ({ theme: { ...x.theme, mode: v } }))} data-testid={`wed-mode-${v}`}>{l}</button>)}
+            </div>
+            <p className="wed-hint">Light or dark sets the starting page, card and text colours. Anything you set in the palette above sits on top of it.</p>
             <p className="wed-label">Type</p>
             <div className="wed-fonts">
               {FONTS.map((f) => (
@@ -286,10 +315,6 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
                   <b>Aa</b><span><strong>{f.name}</strong><small>{f.note}</small></span>
                 </button>
               ))}
-            </div>
-            <p className="wed-label">Look</p>
-            <div className="segmented" role="group" aria-label="Look">
-              {[["light", "Light"], ["dark", "Dark"]].map(([v, l]) => <button key={v} type="button" aria-pressed={form.theme.mode === v} onClick={() => update((x) => ({ theme: { ...x.theme, mode: v } }))} data-testid={`wed-mode-${v}`}>{l}</button>)}
             </div>
             <p className="wed-label">Corners</p>
             <div className="segmented" role="group" aria-label="Corners">
@@ -303,8 +328,20 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
                 </div>
               </>
             )}
-            {Object.keys(form.element_styles).length > 0 && (
-              <Button variant="ghost" onClick={() => update({ element_styles: {} })} data-testid="wed-reset-elements"><Icon name="undo" size={14} /> Reset element colours ({Object.keys(form.element_styles).length})</Button>
+            {overrides.length > 0 && (
+              <div className="wed-overrides" data-testid="wed-overrides">
+                <p className="wed-label">Element overrides ({overrides.length})</p>
+                <ul>
+                  {overrides.map(([k, v]) => (
+                    <li key={k}>
+                      <button type="button" className="wed-ovr-name" onClick={() => { setSelected({ el: k, sec: k.split(".")[0] }); document.querySelector(`#sp-editor-scope [data-el="${k}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" }); }}>{EL_LABEL[k] || k}</button>
+                      <span className="wed-ovr-chips">{v.bg && <i style={{ background: v.bg }} title={`Background ${v.bg}`} />}{v.fg && <i style={{ background: v.fg }} title={`Text ${v.fg}`} />}</span>
+                      <button type="button" className="wed-mini" aria-label={`Remove override on ${EL_LABEL[k] || k}`} onClick={() => update((f) => { const n = { ...f.element_styles }; delete n[k]; return { element_styles: n }; })}><Icon name="close" size={12} /></button>
+                    </li>
+                  ))}
+                </ul>
+                <Button variant="ghost" onClick={() => update({ element_styles: {} })} data-testid="wed-reset-elements"><Icon name="undo" size={14} /> Remove all overrides</Button>
+              </div>
             )}
           </div>
         )}
@@ -354,12 +391,25 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
         ) : (
           <>
             <header className="wed-insp-head">
-              <span><small>{sec?.label || selected.sec}</small><b>{EL_LABEL[selected.el] || selected.el}</b></span>
+              <span>
+                <small>{sec?.label || selected.sec}</small>
+                <b>{EL_LABEL[selected.el] || selected.el}</b>
+                {(() => {
+                  const node = document.querySelector<HTMLElement>(`#sp-editor-scope [data-el="${selected.el}"]`);
+                  const up = node?.parentElement?.closest<HTMLElement>("[data-el]")?.dataset.el;
+                  return up && up !== selected.el ? (
+                    <button type="button" className="wed-insp-up" onClick={() => setSelected({ el: up, sec: up === "page.bg" ? "page" : selected.sec })} data-testid="wed-select-parent">
+                      <Icon name="up" size={11} /> {EL_LABEL[up] || up}
+                    </button>
+                  ) : null;
+                })()}
+              </span>
               <button type="button" className="wed-iconbtn" onClick={() => setSelected(null)} aria-label="Deselect"><Icon name="close" size={16} /></button>
             </header>
             <div className="wed-insp-body">
-              {(EL_HAS[selected.el] || ["bg", "fg"]).includes("bg") && <ColourRow label={selected.el === "page.bg" ? "Background" : selected.el === "page.surface" ? "Surface colour" : "Background"} value={elStyle.bg || ""} onChange={(v) => setEl("bg", v)} onClear={elStyle.bg ? () => setEl("bg", "") : undefined} testId="wed-el-bg" />}
-              {(EL_HAS[selected.el] || ["bg", "fg"]).includes("fg") && <ColourRow label="Text" value={elStyle.fg || ""} onChange={(v) => setEl("fg", v)} onClear={elStyle.fg ? () => setEl("fg", "") : undefined} testId="wed-el-fg" />}
+              <p className="wed-hint wed-insp-hint">{elStyle.bg || elStyle.fg ? "This element has its own colours. Clear them to follow the palette again." : "Following your palette. Set a colour here to override just this element."}</p>
+              {(EL_HAS[selected.el] || ["bg", "fg"]).includes("bg") && <ColourRow label={selected.el === "page.bg" ? "Background" : selected.el === "page.surface" ? "Surface colour" : "Background"} value={elStyle.bg || ""} current={liveColour(selected.el, "bg")} onChange={(v) => setEl("bg", v)} onClear={elStyle.bg ? () => setEl("bg", "") : undefined} testId="wed-el-bg" />}
+              {(EL_HAS[selected.el] || ["bg", "fg"]).includes("fg") && <ColourRow label="Text" value={elStyle.fg || ""} current={liveColour(selected.el, "fg")} onChange={(v) => setEl("fg", v)} onClear={elStyle.fg ? () => setEl("fg", "") : undefined} testId="wed-el-fg" />}
               {elStyle.bg && !elStyle.fg && (EL_HAS[selected.el] || ["bg", "fg"]).includes("fg") && (
                 <button type="button" className="wed-suggest" onClick={() => setEl("fg", inkOn(elStyle.bg!))}><Icon name="sparkles" size={13} /> Use readable text ({inkOn(elStyle.bg) === "#ffffff" ? "white" : "dark"})</button>
               )}
@@ -429,15 +479,18 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
   );
 }
 
-function ColourRow({ label, hint, value, onChange, onClear, testId }: { label: string; hint?: string; value: string; onChange: (v: string) => void; onClear?: () => void; testId?: string }) {
+function ColourRow({ label, hint, value, onChange, onClear, testId, current }: { label: string; hint?: string; value: string; onChange: (v: string) => void; onClear?: () => void; testId?: string; current?: string }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
+  // With no override the swatch shows what the palette is currently painting, so the owner sees
+  // the colour they are about to replace rather than a blank grey.
+  const shown = HEX.test(value) ? value : HEX.test(current || "") ? current! : "#888888";
   return (
-    <div className="wed-colour">
+    <div className={`wed-colour ${HEX.test(value) ? "is-set" : "is-inherited"}`}>
       <span className="wed-colour-label">{label}{hint && <small>{hint}</small>}</span>
       <span className="wed-colour-ctl">
-        <input type="color" value={HEX.test(value) ? value : "#888888"} onChange={(e) => onChange(e.target.value)} aria-label={`${label} colour`} data-testid={testId} />
-        <input type="text" value={text} maxLength={7} placeholder="Theme" onChange={(e) => { setText(e.target.value); if (HEX.test(e.target.value)) onChange(e.target.value.toLowerCase()); }} onBlur={() => { if (!HEX.test(text)) setText(value); }} aria-label={`${label} hex`} data-testid={testId ? `${testId}-text` : undefined} />
+        <input type="color" value={shown} onChange={(e) => onChange(e.target.value)} aria-label={`${label} colour`} data-testid={testId} title={HEX.test(value) ? value : current ? `Palette: ${current}` : "Palette"} />
+        <input type="text" value={text} maxLength={7} placeholder="Palette" onChange={(e) => { setText(e.target.value); if (HEX.test(e.target.value)) onChange(e.target.value.toLowerCase()); }} onBlur={() => { if (!HEX.test(text)) setText(value); }} aria-label={`${label} hex`} data-testid={testId ? `${testId}-text` : undefined} />
         {onClear && <button type="button" className="wed-mini" onClick={onClear} aria-label={`Clear ${label}`}><Icon name="close" size={12} /></button>}
       </span>
     </div>

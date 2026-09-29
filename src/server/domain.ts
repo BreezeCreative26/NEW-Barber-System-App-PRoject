@@ -730,6 +730,9 @@ export const EDITABLE_ELEMENTS = [
   "reviews.card", "reviews.stars",
   "policies",
   "footer", "footer.link",
+  // Section headings and sub-lines (text colour only).
+  "next.title", "next.sub", "services.title", "services.sub", "team.title", "team.sub",
+  "cta.title", "cta.sub", "hours.title", "find.title", "reviews.title", "policies.title",
 ] as const;
 export type EditableElement = (typeof EDITABLE_ELEMENTS)[number];
 export const elementStyleSchema = z.object({ bg: hexColour.optional(), fg: hexColour.optional() }).strict();
