@@ -1164,12 +1164,11 @@ export function WeekView({
                     onClick={() => onOpen(b.id)}
                     title={`${time(b.start_min)} ${b.customer_name} · ${b.service_name} · ${money(b.price_pence)}`}
                   >
-                    <strong>{time(b.start_min)}</strong>
-                    <span>{b.customer_name}</span>
+                    <strong>{time(b.start_min)}{b.channel === "ONLINE" && <i className="week-card-dot" aria-label="Booked online" />}</strong>
+                    <span className="week-card-name">{b.customer_name}</span>
                     <small>
                       {b.service_name}
                       {b.series_id ? " ↻" : ""}
-                      {b.channel === "ONLINE" ? " · online" : ""}
                     </small>
                   </button>
                 ))}
