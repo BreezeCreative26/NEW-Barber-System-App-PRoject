@@ -592,4 +592,30 @@ describe("shop signup and setup audit", () => {
     expect(pub.status,await pub.clone().text()).toBe(200);
     expect((await pub.json()).page).toMatchObject({ logo_url: form.logo_url, cover_url: form.cover_url, copy: form.copy });
   });
+  it("discards only the expected page version and blocks delayed drafts afterward", async () => {
+    const { shopPageSchema } = await import("../src/server/domain");
+    const live = (await (await owner("/shop/page")).json()).page;
+    const draft = shopPageSchema.parse({ version: live.version, strapline: "Unpublished draft" });
+    expect((await owner("/shop/page/draft", "PUT", draft)).status).toBe(200);
+    const discarded = await owner("/shop/page/draft", "DELETE", { version: live.version });
+    expect(discarded.status, await discarded.clone().text()).toBe(200);
+    const page = (await discarded.json()).page;
+    expect(page.version).toBe(live.version + 1);
+    expect(page.draft_json).toBeNull(); expect(page.logo_url).toBe(live.logo_url);
+    expect((await owner("/shop/page/draft", "PUT", draft)).status).toBe(409);
+    const next = { ...draft, version: page.version, strapline: "New draft" };
+    expect((await owner("/shop/page/draft", "PUT", next)).status).toBe(200);
+    expect((await owner("/shop/page/draft", "DELETE", { version: live.version })).status).toBe(409);
+    const retained = (await (await owner("/shop/page")).json()).page;
+    expect(JSON.parse(retained.draft_json).strapline).toBe("New draft");
+  });
+  it("fences the first autosave even when discard arrives before a page row exists", async () => {
+    await db.prepare("DELETE FROM shop_pages WHERE shop_id=?").bind(id).run();
+    const discarded = await owner("/shop/page/draft", "DELETE", { version: 0 });
+    expect(discarded.status, await discarded.clone().text()).toBe(200);
+    expect((await discarded.json()).page.version).toBe(1);
+    expect((await owner("/shop/page/draft", "PUT", { version: 0, strapline: "Late first write" })).status).toBe(409);
+    expect((await owner("/shop/page/draft", "DELETE", {})).status).toBe(400);
+  });
+
 });

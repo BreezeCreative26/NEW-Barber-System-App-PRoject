@@ -840,9 +840,10 @@ for (const width of [390, 1440]) {
     await expect(page.getByRole("alert")).toContainText("Brand save unavailable");
     await expect(page.getByTestId("setup-strapline")).toHaveValue("Fresh branding");
     fails = false;
+    const retryRequest = page.waitForRequest(r => new URL(r.url()).pathname === "/api/app/shop/page" && r.method() === "PUT");
     await page.getByTestId("setup-next").click();
+    const body = (await retryRequest).postDataJSON();
     await expect(page.getByRole("heading", { name: "Opening hours", exact: true })).toBeVisible();
-    const body = writes.find(x => x.path === "/shop/page")!.body;
     expect(body).toMatchObject({ logo_url: "/static/stock/tools.webp", strapline: "Fresh branding", copy: { "hero.button": "Pick your cut" }, element_styles: { "hero.title": { fg: "#112233" } }, theme: { font: "editorial" } });
     expect(errors).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -970,5 +971,201 @@ test("setup audit: Continue does not silently discard an unfinished team member"
   await page.getByTestId("setup-add-name").fill("");
   await page.getByTestId("setup-next").click();
   await expect(page.getByRole("heading", { name: "Customer messages", exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+async function mountEditor(page: Page) {
+  const base = await mountWorkspace(page);
+  const state = { failDraft: false, failPublish: false, failDiscard: false, failLoad: false, holdDraft: null as Promise<void> | null, writes: [] as { kind: string; body: any }[] };
+  let record: any = { version: 0, strapline: "Original strapline", logo_url: "", cover_url: "", accent: "ink", published: 1, sections_json: '["hero","services","team","gallery","reviews"]', copy_json: '{}', element_styles_json: '{}', theme_json: '{}', gallery_json: '[]', draft_json: null };
+  await page.route("**/api/app/shop/page**", async route => {
+    const draft = new URL(route.request().url()).pathname.endsWith("/draft");
+    const method = route.request().method();
+    if (method === "GET") return route.fulfill(state.failLoad ? { status: 503, json: { message: "Page loading unavailable" } } : { json: { page: record } });
+    const body = route.request().postDataJSON();
+    const kind = method === "DELETE" ? "discard" : draft ? "draft" : "publish";
+    state.writes.push({ kind, body });
+    if (kind === "draft" && state.holdDraft) await state.holdDraft;
+    if ((kind === "draft" && state.failDraft) || (kind === "publish" && state.failPublish) || (kind === "discard" && state.failDiscard)) return route.fulfill({ status: 503, json: { message: `${kind} unavailable` } });
+    if (body.version !== record.version) return route.fulfill({ status: 409, json: { message: "Page changed elsewhere" } });
+    if (kind === "draft") record.draft_json = JSON.stringify(body);
+    else if (kind === "discard") record = { ...record, draft_json: null, version: record.version + 1 };
+    else record = { ...record, ...body, draft_json: null, version: record.version + 1, theme_json: JSON.stringify(body.theme), gallery_json: JSON.stringify(body.gallery), sections_json: JSON.stringify(body.sections), variants_json: JSON.stringify(body.variants), element_styles_json: JSON.stringify(body.element_styles), copy_json: JSON.stringify(body.copy) };
+    return route.fulfill({ json: { ok: true, page: record } });
+  });
+  await page.goto("https://ui.test/workspace/website");
+  await expect(page.getByTestId("wed-publish")).toBeVisible();
+  await page.getByTestId("wed-panel-content").click();
+  return { ...base, state };
+}
+
+test("website editor: serial drafts finish before publish and never recreate a published draft", async ({ page }) => {
+  const { state, errors } = await mountEditor(page);
+  let release!: () => void;
+  state.holdDraft = new Promise<void>(r => { release = r; });
+  await page.getByTestId("wed-strapline").fill("First draft");
+  await page.clock.runFor(750);
+  await expect.poll(() => state.writes.length).toBe(1);
+  await page.getByTestId("wed-strapline").fill("Latest draft");
+  await page.clock.runFor(750);
+  expect(state.writes).toHaveLength(1);
+  await page.getByTestId("wed-publish").click();
+  await expect(page.getByTestId("wed-close")).toBeDisabled();
+  await expect(page.locator(".wed-left")).toHaveAttribute("inert", "");
+  expect(state.writes).toHaveLength(1);
+  state.holdDraft = null; release();
+  await expect(page.getByTestId("wed-save")).toHaveText("Published");
+  expect(state.writes.map(x => x.kind)).toEqual(["draft", "draft", "publish"]);
+  expect(state.writes.at(-1)!.body.strapline).toBe("Latest draft");
+  await page.clock.runFor(2000);
+  expect(state.writes).toHaveLength(3);
+  await expect(page.getByTestId("wed-undo")).toBeDisabled();
+  expect(errors).toEqual([]);
+});
+
+test("website editor: discard waits, preserves input on failure and fences pending saves", async ({ page }) => {
+  const { state, errors } = await mountEditor(page);
+  let release!: () => void;
+  state.holdDraft = new Promise<void>(r => { release = r; });
+  await page.getByTestId("wed-strapline").fill("Discard me");
+  await page.clock.runFor(750);
+  await expect.poll(() => state.writes.length).toBe(1);
+  state.failDiscard = true;
+  page.on("dialog", d => d.accept());
+  await page.getByTestId("wed-discard").click();
+  expect(state.writes.map(x => x.kind)).toEqual(["draft"]);
+  state.holdDraft = null; release();
+  await expect(page.getByRole("alert")).toContainText("discard unavailable");
+  await expect(page.getByTestId("wed-strapline")).toHaveValue("Discard me");
+  state.failDiscard = false;
+  await page.getByTestId("wed-discard").click();
+  await expect(page.getByTestId("wed-strapline")).toHaveValue("Original strapline");
+  await expect(page.getByTestId("wed-save")).toHaveText("Published");
+  await page.clock.runFor(2000);
+  expect(state.writes.map(x => x.kind)).toEqual(["draft", "discard", "discard"]);
+  await page.getByTestId("wed-strapline").fill("Next draft");
+  await page.clock.runFor(750);
+  await expect(page.getByTestId("wed-save")).toContainText("Draft saved");
+  expect(state.writes.at(-1)!.body.version).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test("website editor: close flushes unsaved text, errors stay visible after reopening a draft", async ({ page }) => {
+  const { state, errors } = await mountEditor(page);
+  await page.getByTestId("wed-strapline").fill("Saved before closing");
+  await page.getByTestId("wed-close").click();
+  await expect(page.getByTestId("website-editor")).toHaveCount(0);
+  expect(state.writes.at(-1)!.body.strapline).toBe("Saved before closing");
+  const writes = state.writes.length;
+  await page.clock.runFor(1500); expect(state.writes).toHaveLength(writes);
+  await page.goto("https://ui.test/workspace/website");
+  await page.getByTestId("wed-panel-content").click();
+  await expect(page.getByTestId("wed-strapline")).toHaveValue("Saved before closing");
+  state.failDraft = true;
+  await page.getByTestId("wed-strapline").fill("Keep this failed edit");
+  await page.clock.runFor(750);
+  await expect(page.getByTestId("wed-save")).toHaveText("Draft not saved");
+  await page.getByTestId("wed-close").click();
+  await expect(page.getByRole("alert")).toContainText("could not be saved");
+  await expect(page.getByTestId("wed-strapline")).toHaveValue("Keep this failed edit");
+  state.failDraft = false;
+  await page.getByRole("button", { name: "Retry saving draft" }).click();
+  await expect(page.getByTestId("wed-save")).toContainText("Draft saved");
+  expect(await page.evaluate(() => { const e = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented; })).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+for (const width of [320, 768, 1440]) {
+  test(`website editor: mobile controls, keyboard history and image upload guard (${width}px)`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 900 });
+    const { errors } = await mountEditor(page);
+    await expect(page.getByTestId("wed-save")).toBeVisible();
+    await expect(page.getByTestId("wed-undo")).toBeVisible();
+    await expect(page.getByTestId("wed-device-phone")).toBeVisible();
+    await page.getByTestId("wed-strapline").fill("History change");
+    const nativeUndo = await page.getByTestId("wed-strapline").evaluate(el => { const e = new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true, cancelable: true }); el.dispatchEvent(e); return e.defaultPrevented; });
+    expect(nativeUndo).toBe(false);
+    await page.getByTestId("wed-undo").click();
+    await expect(page.getByTestId("wed-strapline")).toHaveValue("Original strapline");
+    await page.getByRole("button", { name: "Redo", exact: true }).click();
+    await expect(page.getByTestId("wed-strapline")).toHaveValue("History change");
+    let release!: () => void;
+    await page.route("**/api/app/media", async route => { await new Promise<void>(r => { release = r; }); await route.fulfill({ status: 201, json: { media: { id: "photo", url: "/static/stock/tools.webp" } } }); });
+    await page.getByTestId("wed-logo-upload-input").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: Buffer.from("isolated upload") });
+    await expect(page.getByTestId("wed-publish")).toBeDisabled();
+    await expect(page.getByTestId("wed-close")).toBeDisabled();
+    await expect(page.getByTestId("wed-save")).toHaveText("Uploading image…");
+    await expect.poll(() => !!release).toBe(true); release();
+    await expect(page.getByTestId("wed-logo").locator("img")).toHaveAttribute("src", "/static/stock/tools.webp");
+    await expect(page.getByTestId("wed-publish")).toBeEnabled();
+    await page.getByTestId("wed-panel-content").focus(); await page.keyboard.press("Home");
+    await expect(page.getByTestId("wed-panel-sections")).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByTestId("wed-panel-design")).toBeFocused();
+    const axe = await new AxeBuilder({ page }).include(".wed-top").include(".wed-left").withTags(["wcag2a", "wcag2aa"]).analyze();
+    expect(axe.violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => n.target) }))).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`website-editor-${width}.png`) });
+    expect(errors).toEqual([]);
+  });
+}
+
+test("website editor: failed publish is retryable, hidden page state is accurate and loading can retry", async ({ page }) => {
+  const { state, errors } = await mountEditor(page);
+  state.failPublish = true;
+  await page.getByTestId("wed-strapline").fill("Not lost on publish failure");
+  await page.getByTestId("wed-publish").click();
+  await expect(page.getByRole("alert")).toContainText("publish unavailable");
+  await expect(page.getByTestId("wed-save")).toHaveText("Draft not saved");
+  await page.getByRole("button", { name: "Retry saving draft" }).click();
+  await expect(page.getByTestId("wed-save")).toContainText("Draft saved");
+  state.failPublish = false;
+  await page.getByRole("checkbox", { name: /Page is public/ }).uncheck();
+  await page.getByTestId("wed-publish").click();
+  await expect(page.getByTestId("wed-save")).toHaveText("Page hidden");
+  expect(state.writes.at(-1)!.body.published).toBe(0);
+  await page.getByTestId("wed-close").click();
+  state.failLoad = true;
+  await page.goto("https://ui.test/workspace/website");
+  await expect(page.getByRole("alert")).toContainText("Page loading unavailable");
+  state.failLoad = false;
+  await page.getByRole("button", { name: "Retry loading page" }).click();
+  await expect(page.getByTestId("wed-save")).toHaveText("Page hidden");
+  expect(errors).toEqual([]);
+});
+
+test("website editor: gallery rejects excess files and retains successful partial uploads", async ({ page }) => {
+  const { errors } = await mountEditor(page);
+  let requests = 0;
+  await page.route("**/api/app/media", async route => {
+    requests++;
+    await route.fulfill(requests === 1 ? { status: 201, json: { media: { id: "one", url: "/static/stock/tools.webp" } } } : { status: 503, json: { message: "Second photo could not upload" } });
+  });
+  const photo = { name: "photo.png", mimeType: "image/png", buffer: Buffer.from("isolated file") };
+  await page.getByTestId("wed-gallery-upload-input").setInputFiles(Array.from({ length: 13 }, () => photo));
+  await expect(page.getByRole("alert")).toContainText("Choose up to 12 more photos");
+  expect(requests).toBe(0);
+  await page.getByTestId("wed-gallery-upload-input").setInputFiles([photo, photo]);
+  await expect(page.locator(".wed-gallery figure")).toHaveCount(1);
+  await expect(page.getByRole("alert")).toContainText("Second photo could not upload");
+  await expect(page.getByTestId("wed-close")).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
+test("website editor: inspector focus returns and removing element overrides keeps the palette", async ({ page }) => {
+  const { state, errors } = await mountEditor(page);
+  await page.getByTestId("wed-panel-design").click();
+  await page.getByTestId("wed-tok-page-text").fill("#112233");
+  await page.getByTestId("wed-panel-sections").click();
+  await page.getByTestId("wed-sec-services").click();
+  await expect(page.getByTestId("wed-inspector")).toBeFocused();
+  await page.getByTestId("wed-el-fg-text").fill("#ffffff");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("wed-sec-services")).toBeFocused();
+  await page.getByTestId("wed-panel-design").click();
+  await page.getByTestId("wed-reset-elements").click();
+  await page.clock.runFor(750);
+  await expect(page.getByTestId("wed-save")).toContainText("Draft saved");
+  expect(state.writes.at(-1)!.body.element_styles).toEqual({ "page.bg": { bg: "#112233" } });
   expect(errors).toEqual([]);
 });

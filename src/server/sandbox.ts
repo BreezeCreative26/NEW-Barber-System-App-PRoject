@@ -827,8 +827,20 @@ sandbox.put("/shop/page/draft", async (c) => {
   return c.json({ ok: true, draft_updated_at: now });
 });
 sandbox.delete("/shop/page/draft", async (c) => {
-  await c.env.DB.prepare("UPDATE shop_pages SET draft_json=NULL, draft_updated_at=NULL WHERE shop_id=?").bind(c.get("shopId")).run();
-  return c.json({ ok: true });
+  const b = await input(c, z.object({ version: z.number().int().min(0) }).strict());
+  const sid = c.get("shopId");
+  const page = await c.env.DB.transaction(async db => {
+    // Bumping the live version fences any delayed draft writes from before Discard.
+    const row = await db.prepare("UPDATE shop_pages SET draft_json=NULL, draft_updated_at=NULL, version=version+1 WHERE shop_id=? AND version=? RETURNING *").bind(sid, b.version).first<ShopPage>();
+    if (row) return row;
+    const exists = await db.prepare("SELECT version FROM shop_pages WHERE shop_id=?").bind(sid).first();
+    if (exists || b.version !== 0) return fail(409, "Page changed elsewhere. Reload before discarding your draft.");
+    // Create a version fence even if Discard beat the first autosave.
+    const fresh = await db.prepare("INSERT INTO shop_pages(shop_id,version,updated_at) VALUES(?,1,?) ON CONFLICT(shop_id) DO NOTHING RETURNING *").bind(sid, Date.now()).first<ShopPage>();
+    if (!fresh) return fail(409, "Page changed elsewhere. Reload before discarding your draft.");
+    return fresh;
+  });
+  return c.json({ ok: true, page });
 });
 // Reviews: ask happy customers (4–5★ in-app) to repeat it on Google. Needs the Google link on the page.
 sandbox.put("/shop/reviews", async (c) => {

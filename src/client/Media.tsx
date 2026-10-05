@@ -19,7 +19,7 @@ export async function uploadPhoto(file: File, kind: UploadKind, alt = ""): Promi
   return body.media;
 }
 
-export function PhotoUpload({ kind, onUploaded, onBusyChange, label = "Upload photo", multiple = false, testId, disabled = false }: { kind: UploadKind; onUploaded: (urls: string[]) => void; onBusyChange?: (busy: boolean) => void; label?: string; multiple?: boolean; testId?: string; disabled?: boolean }) {
+export function PhotoUpload({ kind, onUploaded, onBusyChange, label = "Upload photo", multiple = false, testId, disabled = false, maxFiles }: { maxFiles?: number; kind: UploadKind; onUploaded: (urls: string[]) => void; onBusyChange?: (busy: boolean) => void; label?: string; multiple?: boolean; testId?: string; disabled?: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const locked = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -38,6 +38,10 @@ export function PhotoUpload({ kind, onUploaded, onBusyChange, label = "Upload ph
           const files = Array.from(e.target.files || []);
           e.target.value = "";
           if (!files.length || locked.current || disabled) return;
+          if (maxFiles !== undefined && files.length > maxFiles) {
+            setError(`Choose up to ${maxFiles} more photo${maxFiles === 1 ? "" : "s"}.`);
+            return;
+          }
           locked.current = true;
           setBusy(true);
           onBusyChange?.(true);

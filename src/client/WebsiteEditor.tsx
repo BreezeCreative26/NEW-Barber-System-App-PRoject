@@ -97,82 +97,193 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
   const [selected, setSelected] = useState<{ el: string; sec: string } | null>(null);
   const [panel, setPanel] = useState<"sections" | "design" | "content">("sections");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [publishing, setPublishing] = useState(false);
+  const [action, setAction] = useState<"publish" | "discard" | "close" | null>(null);
   const [error, setError] = useState("");
+  const [draftError, setDraftError] = useState("");
   const [hadDraft, setHadDraft] = useState(false);
+  const [uploadCount, setUploadCount] = useState(0);
+  const [reload, setReload] = useState(0);
   const saveTimer = useRef(0);
+  const inspector = useRef<HTMLElement>(null);
+  const inspecting = !!selected;
+  useEffect(() => {
+    if (!inspecting) return;
+    const launch = document.activeElement as HTMLElement | null;
+    if (!inspector.current?.contains(launch)) inspector.current?.focus();
+    return () => { if (launch?.isConnected) launch.focus(); };
+  }, [inspecting]);
+  const mounted = useRef(true);
+  const current = useRef<PageForm | null>(null);
+  const past = useRef<PageForm[]>([]);
+  const ahead = useRef<PageForm[]>([]);
+  const revision = useRef(0);
+  const savedRevision = useRef(0);
+  const writes = useRef<Promise<void>>(Promise.resolve());
+  const actionLock = useRef(false);
+  const uploads = useRef(0);
+  const shortcuts = useRef({ undo: () => {}, redo: () => {}, save: () => {} });
+  const blocked = !!action || uploadCount > 0;
 
   useEffect(() => {
+    let cancelled = false;
+    setError("");
     api<{ page: Record<string, unknown> }>("/shop/page").then((r) => {
+      if (cancelled) return;
       const l = pageFormOf(r.page);
       setLive(l);
       let f = l;
       if (r.page.draft_json) {
-        try { f = { ...l, ...(JSON.parse(String(r.page.draft_json)) as Partial<PageForm>), version: l.version }; setHadDraft(true); } catch { /* ignore */ }
+        try { f = { ...l, ...(JSON.parse(String(r.page.draft_json)) as Partial<PageForm>), version: l.version }; setHadDraft(true); } catch { /* keep live page */ }
       }
+      current.current = f;
       setForm(f);
-    }).catch((e) => setError(e instanceof Error ? e.message : "Could not load the page."));
-  }, []);
-  // Body lock + Escape closes.
+    }).catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : "Could not load the page."); });
+    return () => { cancelled = true; };
+  }, [reload]);
   useEffect(() => {
+    mounted.current = true;
     document.body.classList.add("editor-open");
     const key = (e: KeyboardEvent) => {
+      if (actionLock.current || uploads.current) return;
       if (e.key === "Escape") setSelected(null);
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key.toLowerCase() === "s") { e.preventDefault(); shortcuts.current.save(); }
+      // Native text undo belongs to the input, not the whole-page history.
+      if (e.key.toLowerCase() === "z" && !(e.target instanceof HTMLElement && e.target.closest('input, textarea, [contenteditable="true"]'))) {
+        e.preventDefault(); if (e.shiftKey) shortcuts.current.redo(); else shortcuts.current.undo();
+      }
+    };
+    const unload = (e: BeforeUnloadEvent) => {
+      if (revision.current !== savedRevision.current || uploads.current || actionLock.current) { e.preventDefault(); e.returnValue = ""; }
     };
     window.addEventListener("keydown", key);
-    return () => { document.body.classList.remove("editor-open"); window.removeEventListener("keydown", key); };
-  });
+    window.addEventListener("beforeunload", unload);
+    return () => {
+      mounted.current = false;
+      window.clearTimeout(saveTimer.current);
+      document.body.classList.remove("editor-open");
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("beforeunload", unload);
+    };
+  }, []);
 
   const dirty = !!form && !!live && JSON.stringify({ ...form, version: 0 }) !== JSON.stringify({ ...live, version: 0 });
-  function update(patch: Partial<PageForm> | ((f: PageForm) => Partial<PageForm>)) {
-    setForm((f) => {
-      if (!f) return f;
-      const next = { ...f, ...(typeof patch === "function" ? patch(f) : patch) };
-      setHistory((h) => [...h.slice(-49), f]);
-      setFuture([]);
-      scheduleDraft(next);
-      return next;
-    });
-  }
-  function undo() { setHistory((h) => { if (!h.length) return h; const prev = h[h.length - 1]; setForm((f) => { if (f) setFuture((x) => [f, ...x]); return prev; }); scheduleDraft(prev); return h.slice(0, -1); }); }
-  function redo() { setFuture((x) => { if (!x.length) return x; const nxt = x[0]; setForm((f) => { if (f) setHistory((h) => [...h, f]); return nxt; }); scheduleDraft(nxt); return x.slice(1); }); }
-  function scheduleDraft(f: PageForm) {
-    window.clearTimeout(saveTimer.current);
-    setSaveState("saving");
-    saveTimer.current = window.setTimeout(() => {
-      api("/shop/page/draft", "PUT", clean(f)).then(() => setSaveState("saved")).catch(() => setSaveState("error"));
-    }, 700);
-  }
   const clean = (f: PageForm) => ({ ...f, gallery: f.gallery.filter(Boolean), primary_hex: HEX.test(f.primary_hex) ? f.primary_hex.toLowerCase() : "", secondary_hex: HEX.test(f.primary_hex) && HEX.test(f.secondary_hex) ? f.secondary_hex.toLowerCase() : "", element_styles: Object.fromEntries(Object.entries(f.element_styles).filter(([, v]) => v && (v.bg || v.fg))), copy: Object.fromEntries(Object.entries(f.copy || {}).filter(([, v]) => !!v && String(v).trim())) });
+  function setCurrent(f: PageForm) { current.current = f; setForm(f); }
+  function historyChanged() { setHistory([...past.current]); setFuture([...ahead.current]); }
+  function update(patch: Partial<PageForm> | ((f: PageForm) => Partial<PageForm>)) {
+    const f = current.current;
+    if (!f || actionLock.current) return;
+    const next = { ...f, ...(typeof patch === "function" ? patch(f) : patch) };
+    if (JSON.stringify(next) === JSON.stringify(f)) return;
+    past.current = [...past.current.slice(-49), f]; ahead.current = [];
+    historyChanged(); setCurrent(next); scheduleDraft(next);
+  }
+  function undo() {
+    if (actionLock.current || uploads.current || !current.current || !past.current.length) return;
+    const prev = past.current.pop()!;
+    ahead.current.unshift(current.current); historyChanged(); setCurrent(prev); scheduleDraft(prev);
+  }
+  function redo() {
+    if (actionLock.current || uploads.current || !current.current || !ahead.current.length) return;
+    const next = ahead.current.shift()!;
+    past.current.push(current.current); historyChanged(); setCurrent(next); scheduleDraft(next);
+  }
+  function persist(f: PageForm, rev: number) {
+    const write = writes.current.then(async () => {
+      if (!mounted.current || rev !== revision.current || savedRevision.current === rev) return;
+      try {
+        await api("/shop/page/draft", "PUT", clean(f));
+        savedRevision.current = rev;
+        if (mounted.current && revision.current === rev) { setSaveState("saved"); setDraftError(""); setHadDraft(true); }
+      } catch (e) {
+        if (mounted.current && revision.current === rev) { setSaveState("error"); setDraftError(e instanceof Error ? e.message : "Could not save your draft."); }
+        throw e;
+      }
+    });
+    // One write at a time; a failed request must not poison subsequent retries.
+    writes.current = write.catch(() => {});
+    return write;
+  }
+  function scheduleDraft(f: PageForm) {
+    const rev = ++revision.current;
+    window.clearTimeout(saveTimer.current);
+    setSaveState("saving"); setDraftError("");
+    saveTimer.current = window.setTimeout(() => { void persist(f, rev).catch(() => {}); }, 700);
+  }
+  async function flushDraft() {
+    window.clearTimeout(saveTimer.current);
+    await writes.current;
+    if (current.current && revision.current !== savedRevision.current) {
+      setSaveState("saving");
+      await persist(current.current, revision.current);
+    }
+  }
+  async function retryDraft() {
+    if (actionLock.current || uploads.current) return;
+    setError("");
+    try { await flushDraft(); } catch { /* error and retry stay visible */ }
+  }
+  shortcuts.current = { undo, redo, save: () => { void retryDraft(); } };
+  function uploadBusy(busy: boolean) {
+    uploads.current = Math.max(0, uploads.current + (busy ? 1 : -1));
+    setUploadCount(uploads.current);
+  }
+  function begin(next: "publish" | "discard" | "close") {
+    if (actionLock.current || uploads.current) return false;
+    actionLock.current = true; setAction(next); setError("");
+    window.clearTimeout(saveTimer.current);
+    return true;
+  }
+  function finish() { actionLock.current = false; if (mounted.current) setAction(null); }
+  function resetTo(f: PageForm) {
+    setLive(f); setCurrent(f); past.current = []; ahead.current = []; historyChanged();
+    savedRevision.current = ++revision.current;
+    setHadDraft(false); setSaveState("idle"); setDraftError("");
+  }
   async function publish() {
-    if (!form) return;
-    setPublishing(true); setError("");
+    if (!current.current || !begin("publish")) return;
     try {
-      const r = await api<{ page: Record<string, unknown> }>("/shop/page", "PUT", clean({ ...form, version: live?.version ?? form.version }));
-      const l = pageFormOf(r.page);
-      setLive(l); setForm(l); setHadDraft(false); setSaveState("idle");
-      onPublished();
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not publish."); }
-    finally { setPublishing(false); }
+      await writes.current;
+      const r = await api<{ page: Record<string, unknown> }>("/shop/page", "PUT", clean(current.current));
+      resetTo(pageFormOf(r.page)); onPublished();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not publish. Your changes are kept here.");
+      if (revision.current !== savedRevision.current) setSaveState("error");
+    }
+    finally { finish(); }
   }
   async function discard() {
-    if (!live) return;
-    if (!window.confirm("Throw away your unpublished changes?")) return;
-    await api("/shop/page/draft", "DELETE").catch(() => {});
-    setForm(live); setHistory([]); setFuture([]); setHadDraft(false); setSaveState("idle");
+    if (!live || actionLock.current || uploads.current || !window.confirm("Discard your unpublished changes and restore the saved page?")) return;
+    if (!begin("discard")) return;
+    try {
+      await writes.current;
+      const r = await api<{ page: Record<string, unknown> }>("/shop/page/draft", "DELETE", { version: live.version });
+      resetTo(pageFormOf(r.page));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not discard. Your changes are kept here.");
+      if (revision.current !== savedRevision.current) setSaveState("error");
+    }
+    finally { finish(); }
+  }
+  async function close() {
+    if (!begin("close")) return;
+    try { await flushDraft(); onClose(); }
+    catch { setError("Your latest changes could not be saved. Retry saving, or explicitly discard them before leaving."); }
+    finally { finish(); }
   }
 
   // Preview data: the real page fed with the draft + the shop's real staff/services.
   const data: PageData | null = useMemo(() => {
     if (!form) return null;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = w.today;
     const week = shopWeekOf(w.shop);
-    const staff = (w.staff as { id: string; name: string; role: string; active?: number; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[]).filter((x) => x.active !== 0);
-    const services = (w.services as { id: string; name: string; category?: string; duration_min: number; price_pence: number; description?: string; colour?: string; popular?: number; active?: number }[]).filter((x) => x.active !== 0);
+    const day = week[new Date(`${today}T12:00:00Z`).getUTCDay()];
+    const staff = (w.staff as { id: string; name: string; role: string; active?: number; online_visible?: number; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[]).filter((x) => x.active !== 0 && x.online_visible !== 0);
+    const services = (w.services as { id: string; name: string; category?: string; duration_min: number; price_pence: number; description?: string; colour?: string; popular?: number; active?: number; online_bookable?: number }[]).filter((x) => x.active !== 0 && x.online_bookable !== 0);
     return {
-      shop: { id: w.shop.id, name: w.shop.name, address: w.shop.address, slug: w.shop.slug || "preview", timezone: w.shop.timezone, currency: w.shop.currency, opens: 540, closes: 1080, deposit_pence: w.shop.deposit_pence, cancel_hours: w.shop.cancel_hours, lead_time_min: w.shop.lead_time_min ?? 60, booking_window_days: w.shop.booking_window_days ?? 30 },
-      page: { ...form, gallery: form.gallery.filter(Boolean), logo_tone: (w as { logo_tone?: "light" | "dark" | "colour" | "" }).logo_tone || "" },
+      shop: { id: w.shop.id, name: w.shop.name, address: w.shop.address, slug: w.shop.slug || "preview", timezone: w.shop.timezone, currency: w.shop.currency, opens: day.starts, closes: day.ends, deposit_pence: w.shop.deposit_pence, cancel_hours: w.shop.cancel_hours, lead_time_min: w.shop.lead_time_min ?? 60, booking_window_days: w.shop.booking_window_days ?? 30 },
+      page: { ...form, gallery: form.gallery.filter(Boolean), logo_tone: form.logo_url === w.logo_url ? ((w as { logo_tone?: "light" | "dark" | "colour" | "" }).logo_tone || "") : "" },
       staff, services: services.map((x) => ({ ...x, category: x.category || "Services" })),
       week: week.map((d, i) => (d.enabled ? { weekday: i, open: true as const, starts: d.starts, ends: d.ends } : { weekday: i, open: false as const })),
       open_now: true, today, closures: [],
@@ -186,7 +297,7 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
     };
   }, [form, w]);
 
-  if (error && !form) return <div className="wed wed-error"><p className="workspace-error" role="alert">{error}</p><Button onClick={onClose}>Back</Button></div>;
+  if (error && !form) return <div className="wed wed-error"><p className="workspace-error" role="alert">{error}</p><Button onClick={() => setReload(n => n + 1)}>Retry loading page</Button><Button onClick={onClose}>Back</Button></div>;
   if (!form || !data) return <div className="wed wed-loading" data-testid="website-editor"><p role="status">Opening the editor…</p></div>;
 
   const sec = selected ? SECTIONS.find((s) => s.key === selected.sec) : null;
@@ -214,17 +325,17 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
   const primary = HEX.test(form.primary_hex) ? form.primary_hex : ACCENTS.find((a) => a.id === form.accent)?.hex || "#3a7563";
 
   return (
-    <div className={`wed device-${device}`} data-testid="website-editor" role="application" aria-label="Website editor">
+    <div className={`wed device-${device}`} data-testid="website-editor" role="region" aria-label="Website editor" aria-busy={!!action || uploadCount > 0}>
       <header className="wed-top">
         <div className="wed-top-left">
-          <button type="button" className="wed-iconbtn" onClick={() => { if (!dirty || window.confirm("Leave the editor? Your draft is saved; nothing is published.")) onClose(); }} aria-label="Close editor" data-testid="wed-close"><Icon name="left" size={18} /></button>
+          <button type="button" className="wed-iconbtn" onClick={close} disabled={blocked} aria-label="Close editor" data-testid="wed-close"><Icon name="left" size={18} /></button>
           <span className="wed-title"><b>{w.shop.name}</b><small>Website</small></span>
-          <span className={`wed-save s-${saveState}`} role="status" data-testid="wed-save">{saveState === "saving" ? "Saving…" : saveState === "saved" || hadDraft ? (dirty ? "Draft saved" : "") : saveState === "error" ? "Couldn't save draft" : dirty ? "" : "Published"}</span>
+          <span className={`wed-save s-${saveState}`} role="status" data-testid="wed-save">{uploadCount ? "Uploading image…" : action === "close" ? "Saving before closing…" : action === "discard" ? "Discarding…" : action === "publish" ? "Publishing…" : saveState === "error" ? "Draft not saved" : saveState === "saving" ? "Saving draft…" : dirty || hadDraft ? "Draft saved · not live" : live?.published ? "Published" : "Page hidden"}</span>
         </div>
         <div className="wed-top-mid">
           <div className="wed-history">
-            <button type="button" className="wed-iconbtn" onClick={undo} disabled={!history.length} aria-label="Undo" data-testid="wed-undo"><Icon name="undo" size={16} /></button>
-            <button type="button" className="wed-iconbtn" onClick={redo} disabled={!future.length} aria-label="Redo"><Icon name="redo" size={16} /></button>
+            <button type="button" className="wed-iconbtn" onClick={undo} disabled={blocked || !history.length} aria-label="Undo" data-testid="wed-undo"><Icon name="undo" size={16} /></button>
+            <button type="button" className="wed-iconbtn" onClick={redo} disabled={blocked || !future.length} aria-label="Redo"><Icon name="redo" size={16} /></button>
           </div>
           <div className="wed-devices" role="group" aria-label="Preview size">
             {(["phone", "tablet", "desktop"] as const).map((d) => (
@@ -236,20 +347,25 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
         </div>
         <div className="wed-top-right">
           {w.shop.slug && <a className="button ghost" href={`/${w.shop.slug}`} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> View live</a>}
-          {dirty && <Button variant="ghost" onClick={discard} data-testid="wed-discard">Discard</Button>}
-          <Button onClick={publish} disabled={publishing || !dirty} data-testid="wed-publish">{publishing ? "Publishing…" : dirty ? "Publish" : "Published"}</Button>
+          {(dirty || hadDraft) && <Button disabled={blocked} variant="ghost" onClick={discard} data-testid="wed-discard">Discard</Button>}
+          <Button onClick={publish} disabled={blocked || !dirty} data-testid="wed-publish">{action === "publish" ? "Publishing…" : dirty ? form.published ? "Publish" : "Save hidden page" : live?.published ? "Published" : "Page hidden"}</Button>
         </div>
       </header>
-      {error && <p className="workspace-error wed-toast" role="alert">{error}</p>}
+      {(error || draftError) && <div className="wed-toast" role="alert"><span>{error || draftError}</span>{saveState === "error" && <Button variant="secondary" disabled={blocked} onClick={retryDraft}>Retry saving draft</Button>}</div>}
 
-      <aside className="wed-left" aria-label="Page">
-        <div className="wed-tabs" role="tablist">
+      <aside className="wed-left" aria-label="Page" inert={blocked}>
+        <div className="wed-tabs" role="tablist" aria-label="Editor panels" onKeyDown={e => {
+          const tabs = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+          const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+          const next = e.key === "ArrowRight" ? (index + 1) % tabs.length : e.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : -1;
+          if (next >= 0) { e.preventDefault(); tabs[next].click(); tabs[next].focus(); }
+        }}>
           {([["sections", "Sections"], ["design", "Design"], ["content", "Content"]] as const).map(([k, l]) => (
-            <button key={k} type="button" role="tab" aria-selected={panel === k} onClick={() => setPanel(k)} data-testid={`wed-panel-${k}`}>{l}</button>
+            <button key={k} type="button" role="tab" id={`wed-tab-${k}`} aria-controls={panel === k ? `wed-panel-${k}` : undefined} tabIndex={panel === k ? 0 : -1} aria-selected={panel === k} onClick={() => setPanel(k)} data-testid={`wed-panel-${k}`}>{l}</button>
           ))}
         </div>
         {panel === "sections" && (
-          <div className="wed-panel" data-testid="wed-sections">
+          <div className="wed-panel" data-testid="wed-sections" id="wed-panel-sections" role="tabpanel" aria-labelledby="wed-tab-sections">
             <ol className="wed-seclist">
               {shown.map((s) => {
                 const i = form.sections.indexOf(s.key);
@@ -280,7 +396,7 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
           </div>
         )}
         {panel === "design" && (
-          <div className="wed-panel" data-testid="wed-design">
+          <div className="wed-panel" data-testid="wed-design" id="wed-panel-design" role="tabpanel" aria-labelledby="wed-tab-design">
             <p className="wed-intro">Your palette sets every colour on the page. Click any element on the canvas to override just that one.</p>
             <p className="wed-label">Palette</p>
             <div className="wed-palette">
@@ -340,15 +456,15 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
                     </li>
                   ))}
                 </ul>
-                <Button variant="ghost" onClick={() => update({ element_styles: {} })} data-testid="wed-reset-elements"><Icon name="undo" size={14} /> Remove all overrides</Button>
+                <Button variant="ghost" onClick={() => update(f => ({ element_styles: Object.fromEntries(Object.entries(f.element_styles).filter(([key]) => TOKENS.has(key))) }))} data-testid="wed-reset-elements"><Icon name="undo" size={14} /> Remove all overrides</Button>
               </div>
             )}
           </div>
         )}
         {panel === "content" && (
-          <div className="wed-panel wed-content" data-testid="wed-content">
-            <ImageField label="Logo" value={form.logo_url} kind="logo" onChange={(v) => update({ logo_url: v })} hint="Transparent PNG or SVG" testId="wed-logo" />
-            <ImageField label="Cover photo" value={form.cover_url} kind="cover" onChange={(v) => update({ cover_url: v })} stock testId="wed-cover" />
+          <div className="wed-panel wed-content" data-testid="wed-content" id="wed-panel-content" role="tabpanel" aria-labelledby="wed-tab-content">
+            <ImageField onBusyChange={uploadBusy} label="Logo" value={form.logo_url} kind="logo" onChange={(v) => update({ logo_url: v })} hint="PNG, JPEG or WebP · 5 MB max" testId="wed-logo" />
+            <ImageField onBusyChange={uploadBusy} label="Cover photo" value={form.cover_url} kind="cover" onChange={(v) => update({ cover_url: v })} stock testId="wed-cover" />
             <label className="wed-field"><span>Strapline</span><input value={form.strapline} maxLength={120} placeholder="Sharp cuts, straight talk, no fuss." onChange={(e) => update({ strapline: e.target.value })} data-testid="wed-strapline" /></label>
             <label className="wed-field"><span>About</span><textarea rows={4} maxLength={1200} value={form.about} onChange={(e) => update({ about: e.target.value })} /></label>
             <div className="wed-grid2">
@@ -365,7 +481,7 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
                 {form.gallery.filter(Boolean).map((u, i) => (
                   <figure key={u + i}><img src={u} alt="" loading="lazy" /><button type="button" aria-label="Remove photo" onClick={() => update((f) => ({ gallery: f.gallery.filter((x) => x !== u) }))}><Icon name="close" size={12} /></button></figure>
                 ))}
-                {form.gallery.filter(Boolean).length < 12 && <PhotoUpload kind="gallery" multiple label="Add photos" testId="wed-gallery-upload" onUploaded={(urls) => update((f) => ({ gallery: [...f.gallery.filter(Boolean), ...urls].slice(0, 12) }))} />}
+                {form.gallery.filter(Boolean).length < 12 && <PhotoUpload maxFiles={12 - form.gallery.filter(Boolean).length} onBusyChange={uploadBusy} kind="gallery" multiple label="Add photos" testId="wed-gallery-upload" onUploaded={(urls) => update((f) => ({ gallery: [...f.gallery.filter(Boolean), ...urls].slice(0, 12) }))} />}
               </div>
             </div>
             <label className="wed-field"><span>Google review link</span><input type="url" value={form.google_review_url} maxLength={500} placeholder="https://g.page/r/…/review" onChange={(e) => update({ google_review_url: e.target.value })} /></label>
@@ -374,7 +490,8 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
         )}
       </aside>
 
-      <main className="wed-canvas" aria-label="Preview">
+      <main className="wed-canvas" aria-label="Preview" inert={blocked}>
+        <p className="wed-preview-note">Design preview · availability and reviews are samples, not live data.</p>
         <div className={`wed-frame ${device}`} data-testid="wed-frame">
           <div className="wed-page" style={selected ? ({ "--wed-sel": `[data-el="${selected.el}"]` } as CSSProperties) : undefined}>
             <ShopPageView data={data} me={null} mine={null} preview onSelect={(el, s) => { setSelected({ el, sec: s }); }} selected={selected?.el} />
@@ -382,7 +499,7 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
         </div>
       </main>
 
-      <aside className={`wed-right ${selected ? "open" : ""}`} aria-label="Inspector" data-testid="wed-inspector">
+      <aside ref={inspector} tabIndex={-1} className={`wed-right ${selected ? "open" : ""}`} aria-label="Inspector" data-testid="wed-inspector" inert={blocked || !selected}>
         {!selected ? (
           <div className="wed-empty">
             <Icon name="pointer" size={22} />
@@ -463,12 +580,12 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
               )}
               {selected.sec === "hero" && (
                 <div className="wed-insp-content">
-                  <ImageField label="Cover photo" value={form.cover_url} kind="cover" onChange={(v) => update({ cover_url: v })} stock compact />
+                  <ImageField onBusyChange={uploadBusy} label="Cover photo" value={form.cover_url} kind="cover" onChange={(v) => update({ cover_url: v })} stock compact />
                   <label className="wed-field"><span>Strapline</span><input value={form.strapline} maxLength={120} onChange={(e) => update({ strapline: e.target.value })} /></label>
                 </div>
               )}
-              {selected.sec === "nav" && <div className="wed-insp-content"><ImageField label="Logo" value={form.logo_url} kind="logo" onChange={(v) => update({ logo_url: v })} compact /></div>}
-              {selected.sec === "gallery" && <p className="helper">Add or remove photos under <button type="button" className="linklike" onClick={() => setPanel("content")}>Content</button>.</p>}
+              {selected.sec === "nav" && <div className="wed-insp-content"><ImageField onBusyChange={uploadBusy} label="Logo" value={form.logo_url} kind="logo" onChange={(v) => update({ logo_url: v })} compact /></div>}
+              {selected.sec === "gallery" && <p className="helper">Add or remove photos under <button type="button" className="linklike" onClick={() => { setPanel("content"); setSelected(null); }}>Content</button>.</p>}
               {selected.sec === "policies" && <div className="wed-insp-content"><label className="wed-field"><span>House rules</span><textarea rows={4} maxLength={1200} value={form.policy_text} onChange={(e) => update({ policy_text: e.target.value })} /></label></div>}
               {(selected.sec === "services" || selected.sec === "team") && <p className="helper">{selected.sec === "services" ? "Services and prices" : "Barbers and their photos"} are managed under {selected.sec === "services" ? "Services" : "Team"} — this page always shows the current ones.</p>}
             </div>
@@ -496,14 +613,14 @@ function ColourRow({ label, hint, value, onChange, onClear, testId, current }: {
     </div>
   );
 }
-function ImageField({ label, value, kind, onChange, hint, stock, compact, testId }: { label: string; value: string; kind: "logo" | "cover"; onChange: (v: string) => void; hint?: string; stock?: boolean; compact?: boolean; testId?: string }) {
+function ImageField({ label, value, kind, onChange, onBusyChange, hint, stock, compact, testId }: { onBusyChange: (busy: boolean) => void; label: string; value: string; kind: "logo" | "cover"; onChange: (v: string) => void; hint?: string; stock?: boolean; compact?: boolean; testId?: string }) {
   return (
     <div className={`wed-field wed-image ${compact ? "compact" : ""}`} data-testid={testId}>
       <span>{label}{hint && <small>{hint}</small>}</span>
       <div className={`wed-image-box ${kind}`}>
         {value ? <img src={value} alt="" /> : <span className="wed-image-empty"><Icon name="image" size={20} /></span>}
         <div className="wed-image-actions">
-          <PhotoUpload kind={kind} label={value ? "Replace" : "Upload"} testId={testId ? `${testId}-upload` : undefined} onUploaded={([u]) => onChange(u)} />
+          <PhotoUpload onBusyChange={onBusyChange} kind={kind} label={value ? "Replace" : "Upload"} testId={testId ? `${testId}-upload` : undefined} onUploaded={([u]) => onChange(u)} />
           {value && <button type="button" className="wed-mini" onClick={() => onChange("")} aria-label={`Remove ${label}`}><Icon name="close" size={12} /></button>}
         </div>
       </div>
