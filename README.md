@@ -78,11 +78,15 @@ tiers (STANDARD / FAST float), auto pay runs and the test-mode checklist: **`doc
 CTAs → `/signup` (shop name, kind — barbershop / hairdresser / salon —, name, email, password).
 Visitors with an `ollo_session` cookie are sent straight to `/workspace`.
 
-A new owner lands in the **guided setup** at `/workspace/setup` — seven optional, resumable steps
-(state in `shops.setup_json`): shop contact + SMS/email verification · opening hours + bank
-holidays · starter service menu for the shop kind · team + invites · customer-message preview and
-"text/email me a test" · booking address with live availability check, QR and share card · deposit
-policy and Stripe Connect. "Finish later" drops to the calendar with a *Continue setup* banner until
+A new owner lands in the **guided setup** at `/workspace/setup` — nine resumable steps
+(state in `shops.setup_json`): shop contact + SMS/email verification · logo, cover and branding ·
+opening hours + optional England/Wales bank holidays · starter service menu · team + invites ·
+customer-message preview and tests · booking rules and terms · booking address, QR and share card ·
+deposit policy and Stripe Connect. Signup creates one owner/barber profile with Mon–Sat 09:00–18:00
+hours, not fictional services. Changes to shop opening hours preserve existing barber shifts.
+Step changes warn about unsaved inputs, and saving/uploading blocks navigation. Logo uploads accept
+PNG, JPEG and WebP up to 5 MB; brand saves preserve existing page text/styles and refuse to clear
+an unpublished website draft. Live provider and hosted-storage acceptance remain separate checks. "Finish later" drops to the calendar with a *Continue setup* banner until
 the wizard is completed or hidden. Code: `src/client/Setup.tsx`, `Setup2.tsx`, `src/server/setup.ts`.
 
 **Invites** (Setup → Team or Settings → Accounts): owners and managers invite onto a team profile by

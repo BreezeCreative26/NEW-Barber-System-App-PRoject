@@ -819,10 +819,11 @@ sandbox.put("/shop/page/draft", async (c) => {
   const exists = await c.env.DB.prepare("SELECT 1 AS x FROM shop_pages WHERE shop_id=?").bind(sid).first();
   if (!exists) {
     const d = defaultShopPage(sid, now);
-    await c.env.DB.prepare("INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)")
+    await c.env.DB.prepare("INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?) ON CONFLICT(shop_id) DO NOTHING")
       .bind(sid, d.strapline, d.about, d.cover_url, d.logo_url, d.gallery_json, d.phone, d.email, d.instagram, d.map_url, d.transport_note, d.policy_text, d.sections_json, d.accent, d.theme_json, d.google_review_url, d.published, now).run();
   }
-  await c.env.DB.prepare("UPDATE shop_pages SET draft_json=?, draft_updated_at=? WHERE shop_id=?").bind(JSON.stringify(b), now, sid).run();
+  const saved = await c.env.DB.prepare("UPDATE shop_pages SET draft_json=?, draft_updated_at=? WHERE shop_id=? AND version=?").bind(JSON.stringify(b), now, sid, b.version).run();
+  if (!saved.meta.changes) fail(409, "Page changed elsewhere. Reload before saving this draft.");
   return c.json({ ok: true, draft_updated_at: now });
 });
 sandbox.delete("/shop/page/draft", async (c) => {

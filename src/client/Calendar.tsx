@@ -562,7 +562,7 @@ export function Calendar({
               {tzShort(w.shop.timezone, now)}<span>{w.shop.timezone.split("/").pop()?.replace(/_/g, " ")}</span>
             </div>
             {staff.map((s) => {
-              const mine = occupied.filter((b) => b.staff_id === s.id);
+              const mine = dayBookings.filter((b) => b.staff_id === s.id);
               const taken = mine.reduce((n, b) => n + b.price_pence, 0);
               return (
                 <div className="staff-column-heading" key={s.id}>
@@ -578,7 +578,7 @@ export function Calendar({
                   <div>
                     <strong>{s.name}</strong>
                     <span aria-label={`${money(taken)} booked, ${mine.length} visit${mine.length === 1 ? "" : "s"}`}>
-                      {money(taken)} · {mine.length} visit{mine.length === 1 ? "" : "s"}
+                      {money(taken)} booked · {mine.length} visit{mine.length === 1 ? "" : "s"}
                     </span>
                   </div>
                   {onHours && (() => {

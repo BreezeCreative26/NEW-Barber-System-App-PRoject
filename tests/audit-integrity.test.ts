@@ -487,3 +487,109 @@ describe("waiting-list functionality and customer search", () => {
   });
 
 });
+
+describe("shop signup and setup audit", () => {
+  let cookie = "", id = "", user = "", uploadedLogo = "";
+  const owner = (path: string, method = "GET", body?: unknown) => call(`/api/app${path}`, method, body, cookie);
+  const contact = { name: "Setup Audit", kind: "BARBER", phone: "07700900888", email: "shop@setup.test", address: "12 Test Street", timezone: "Europe/London", currency: "GBP" };
+  it("creates an owner, shop, session, legal acceptances and a real default roster without fake services", async () => {
+    const r = await call("/api/app/auth/signup", "POST", { shop_name: "Setup Audit", name: "Setup Owner", email: "owner@setup.test", password: "Setup-password-123", accept_legal: true });
+    expect(r.status, await r.clone().text()).toBe(201);
+    cookie = cookieOf(r, "ollo_session"); id = (await r.json()).shop_id;
+    expect(cookie).not.toBe("");
+    const w = await (await owner("/workspace")).json();
+    user = w.account.user_id;
+    expect(w.account).toMatchObject({ role: "OWNER", staff_id: null });
+    expect(w.shop).toMatchObject({ name: "Setup Audit", timezone: "Europe/London", email: "owner@setup.test", online_booking: 0, slug: null });
+    expect(w.staff).toHaveLength(1); expect(w.staff[0].name).toBe("Setup Owner");
+    expect(w.services).toEqual([]); expect(w.hours).toHaveLength(7);
+    expect(w.hours.filter((h: any) => h.enabled).map((h: any) => h.weekday).sort()).toEqual([1,2,3,4,5,6]);
+    expect(w.hours.every((h: any) => h.starts === 540 && h.ends === 1080)).toBe(true);
+    expect(await db.prepare("SELECT 1 FROM shop_owners WHERE shop_id=? AND user_id=?").bind(id,user).first()).not.toBeNull();
+    expect(Number((await db.prepare("SELECT count(*) AS n FROM legal_acceptances WHERE user_id=?").bind(user).first<any>())!.n)).toBeGreaterThan(0);
+    const duplicate = await call("/api/app/auth/signup", "POST", { shop_name: "Duplicate", name: "Owner", email: "owner@setup.test", password: "Setup-password-123", accept_legal: true });
+    expect(duplicate.status).toBe(409);
+  });
+  it("rejects invalid details and preserves business identity on contact-only saves", async () => {
+    await db.prepare("UPDATE shops SET legal_name='Legal Ltd', vat_number='VAT123', company_number='CO123', website='https://example.test' WHERE id=?").bind(id).run();
+    expect((await owner("/setup/contact", "PUT", { ...contact, timezone: "Invalid/Zone" })).status).toBe(400);
+    expect((await owner("/setup/contact", "PUT", { ...contact, email: "not-an-email" })).status).toBe(400);
+    const r = await owner("/setup/contact", "PUT", contact);
+    expect(r.status,await r.clone().text()).toBe(200);
+    expect((await r.json()).shop).toMatchObject({ phone: "+447700900888", legal_name: "Legal Ltd", vat_number: "VAT123", company_number: "CO123", website: "https://example.test" });
+  });
+  it("invalidates old contact codes, counts wrong attempts and consumes valid codes once", async () => {
+    const first = await owner("/setup/verify/start", "POST", { kind: "PHONE" });
+    expect(first.status,await first.clone().text()).toBe(201);
+    const oldCode = (await first.json()).sandbox_code;
+    await owner("/setup/contact", "PUT", { ...contact, phone: "07700900889" });
+    expect((await owner("/setup/verify/confirm", "POST", { kind: "PHONE", code: oldCode })).status).toBe(409);
+    const next = await (await owner("/setup/verify/start", "POST", { kind: "PHONE" })).json();
+    const wrong = next.sandbox_code === "000000" ? "111111" : "000000";
+    expect((await owner("/setup/verify/confirm", "POST", { kind: "PHONE", code: wrong })).status).toBe(401);
+    expect((await db.prepare("SELECT attempts FROM contact_codes WHERE shop_id=? AND kind='PHONE'").bind(id).first<any>())!.attempts).toBe(1);
+    const confirm = await owner("/setup/verify/confirm", "POST", { kind: "PHONE", code: next.sandbox_code });
+    expect(confirm.status,await confirm.clone().text()).toBe(200);
+    expect((await confirm.json()).shop.phone_verified_at).toBeTruthy();
+    expect((await owner("/setup/verify/confirm", "POST", { kind: "PHONE", code: next.sandbox_code })).status).toBe(409);
+  });
+  it("resumes progress, handles malformed old state and deduplicates starter services", async () => {
+    await db.prepare("UPDATE shops SET setup_json=? WHERE id=?").bind('{"done":"bad","skipped":null}',id).run();
+    expect((await owner("/setup")).status).toBe(200);
+    await owner("/setup/state", "PUT", { done: "shop", step: "brand" });
+    await owner("/setup/state", "PUT", { done: "brand", step: "hours" });
+    const state = (await (await owner("/setup")).json()).state;
+    expect(state.done).toEqual(["shop","brand"]); expect(state.step).toBe("hours");
+    await owner("/setup/state", "PUT", { skipped: "brand" });
+    expect((await (await owner("/setup")).json()).state.done).toEqual(["shop"]);
+    const row = { name: "Test Cut", category: "", duration_min: 30, price_pence: 2000 };
+    const added = await owner("/setup/starter", "POST", { services: [row,{ ...row, name: "test cut" }] });
+    expect(added.status,await added.clone().text()).toBe(201); expect((await added.json()).added).toBe(1);
+    expect((await (await owner("/setup/starter", "POST", { services: [row] })).json()).added).toBe(0);
+    expect((await owner("/setup/starter", "POST", { services: [{ ...row, duration_min: 1 }] })).status).toBe(400);
+  });
+  it("saves terms before choosing a booking address, preserving zero notice and checking versions", async () => {
+    const w = await (await owner("/workspace")).json();
+    const rules = { deposit_pence: 0, cancel_hours: 0, no_show_grace: 10, payment_mode: "PAY_AT_VISIT", lead_time_min: 0, booking_window_days: 28, terms_text: "Please arrive on time.", version: w.shop.version };
+    const r = await owner("/setup/policy", "PUT", rules);
+    expect(r.status,await r.clone().text()).toBe(200);
+    expect((await r.json()).shop).toMatchObject({ slug: null, cancel_hours: 0, lead_time_min: 0, terms_text: rules.terms_text, terms_version: 1 });
+    expect((await owner("/setup/policy", "PUT", { ...rules, terms_text: "Stale overwrite" })).status).toBe(409);
+  });
+  it("uploads a real transparent logo, scopes media to the shop and rejects unsupported files", async () => {
+    const sharp = (await import("sharp")).default;
+    const png = await sharp({ create: { width: 64, height: 32, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 0.8 } } }).png().toBuffer();
+    const objects = new Map<string, { body: Uint8Array; contentType: string }>();
+    const MEDIA = { put: async (key: string, body: Uint8Array, contentType: string) => { objects.set(key, { body, contentType }); }, get: async (key: string) => objects.get(key) ?? null, delete: async (key: string) => { objects.delete(key); } };
+    const upload = (bytes: Uint8Array, type: string, kind = "logo") => {
+      const form = new FormData(); form.set("kind",kind); form.set("file",new File([bytes as BlobPart], "upload", { type }));
+      return app.request(origin + "/api/app/media", { method: "POST", headers: { origin, cookie }, body: form }, { DB: db, MEDIA });
+    };
+    const invalid = await upload(new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>'), "image/svg+xml");
+    expect(invalid.status).toBe(400); expect(objects.size).toBe(0);
+    expect((await upload(new Uint8Array(5 * 1024 * 1024 + 1), "image/png")).status).toBe(413);
+    const r = await upload(png, "image/png"); expect(r.status,await r.clone().text()).toBe(201);
+    const media = (await r.json()).media; uploadedLogo = media.url;
+    expect(media).toMatchObject({ kind: "logo", width: 64, height: 32, tone: "light", content_type: "image/png" });
+    const object = [...objects.entries()][0]; expect(object[0].startsWith(id + "/logo/")).toBe(true);
+    expect((await sharp(object[1].body).metadata()).hasAlpha).toBe(true);
+    const mine = await (await owner("/media")).json(); expect(mine.media.map((m: any) => m.id)).toContain(media.id);
+    const other = await (await call("/api/app/media", "GET", undefined, ownerCookie)).json(); expect(other.media.map((m: any) => m.id)).not.toContain(media.id);
+  });
+  it("publishes logo, cover and custom content and rejects an old draft after publication", async () => {
+    const { shopPageSchema } = await import("../src/server/domain");
+    const initial = shopPageSchema.parse({ version: 0 });
+    const form = { ...initial, logo_url: uploadedLogo, cover_url: "/static/stock/brick.webp", copy: { "hero.button": "Choose your cut" }, element_styles: { "hero.title": { fg: "#112233" } } };
+    expect((await owner("/shop/page/draft", "PUT", form)).status).toBe(200);
+    const r = await owner("/shop/page", "PUT", form);
+    expect(r.status,await r.clone().text()).toBe(200);
+    const saved = (await r.json()).page;
+    expect(saved.logo_url).toBe(form.logo_url); expect(saved.logo_tone).toBe("light"); expect(saved.draft_json).toBeNull();
+    expect(JSON.parse(saved.copy_json)).toEqual(form.copy); expect(JSON.parse(saved.element_styles_json)).toEqual(form.element_styles);
+    expect((await owner("/shop/page/draft", "PUT", form)).status).toBe(409);
+    await db.prepare("UPDATE shops SET slug='setup-audit', online_booking=1 WHERE id=?").bind(id).run();
+    const pub = await call("/api/public/shops/setup-audit/page");
+    expect(pub.status,await pub.clone().text()).toBe(200);
+    expect((await pub.json()).page).toMatchObject({ logo_url: form.logo_url, cover_url: form.cover_url, copy: form.copy });
+  });
+});

@@ -337,20 +337,23 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
   const [slugState, setSlugState] = useState<{ ok: boolean; reason: string; host: string } | null>(null);
   const slugify = (v: string) => v.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
   useEffect(() => {
-    if (!slug) { setSlugState(null); return; }
+    let cancelled = false;
+    setSlugState(null);
+    if (!slug) return;
     const t = setTimeout(() => {
       fetch(`/api/app/auth/slug-check?slug=${encodeURIComponent(slug)}`, { credentials: "same-origin" })
         .then((r) => r.json())
         .then((j: { ok: boolean; reason: string; host: string }) => {
+          if (cancelled) return;
           // The suggested address is taken and the owner hasn't typed their own: offer a free
           // variant (name + short tag) rather than a red error they have to fix by hand.
           if (!j.ok && !slugTouched && /taken/i.test(j.reason || "")) { setSlug(`${slug.replace(/-[a-z0-9]{3}$/, "").slice(0, 36)}-${Math.random().toString(36).slice(2, 5)}`); return; }
           setSlugState(j);
         })
-        .catch(() => setSlugState(null));
+        .catch(() => { if (!cancelled) setSlugState(null); });
     }, 250);
-    return () => clearTimeout(t);
-  }, [slug]);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [slug, slugTouched]);
   const rootHost = location.hostname.replace(/^www\./, "");
   const [peek, setPeek] = useState<InvitePeek | null>(null);
   const [peekError, setPeekError] = useState("");
@@ -532,7 +535,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
               </Field>
               <Field label="Your web address" hint={slugState === null ? "Where customers book and where you and your team sign in." : slugState.ok ? `Available — ${slug}.${slugState.host ? slugState.host.split(".").slice(1).join(".") : rootHost}` : slugState.reason}>
                 <div className="slug-input" data-testid="signup-slug">
-                  <input name="slug" value={slug} required minLength={2} maxLength={40} pattern="[a-z0-9](?:[\-a-z0-9]*[a-z0-9])?" autoCapitalize="off" autoCorrect="off" spellCheck={false} placeholder="fade-society" aria-invalid={slugState ? !slugState.ok : undefined} onChange={(e) => { setSlugTouched(true); setSlug(slugify(e.target.value)); }} />
+                  <input name="slug" value={slug} required minLength={3} maxLength={40} pattern="[a-z0-9](?:[\-a-z0-9]*[a-z0-9])?" autoCapitalize="off" autoCorrect="off" spellCheck={false} placeholder="fade-society" aria-invalid={slugState ? !slugState.ok : undefined} onChange={(e) => { setSlugTouched(true); setSlug(slugify(e.target.value)); }} />
                   <span className="slug-suffix">.{rootHost}</span>
                 </div>
               </Field>

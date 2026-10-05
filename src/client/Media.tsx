@@ -19,37 +19,44 @@ export async function uploadPhoto(file: File, kind: UploadKind, alt = ""): Promi
   return body.media;
 }
 
-export function PhotoUpload({ kind, onUploaded, label = "Upload photo", multiple = false, testId }: { kind: UploadKind; onUploaded: (urls: string[]) => void; label?: string; multiple?: boolean; testId?: string }) {
+export function PhotoUpload({ kind, onUploaded, onBusyChange, label = "Upload photo", multiple = false, testId, disabled = false }: { kind: UploadKind; onUploaded: (urls: string[]) => void; onBusyChange?: (busy: boolean) => void; label?: string; multiple?: boolean; testId?: string; disabled?: boolean }) {
   const input = useRef<HTMLInputElement>(null);
+  const locked = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   return (
-    <span className="photo-upload">
+    <span className="photo-upload" aria-busy={busy}>
       <input
         ref={input}
         type="file"
         accept="image/jpeg,image/png,image/webp"
         multiple={multiple}
+        disabled={disabled || busy}
         hidden
         data-testid={testId ? `${testId}-input` : undefined}
         onChange={async (e) => {
           const files = Array.from(e.target.files || []);
           e.target.value = "";
-          if (!files.length) return;
+          if (!files.length || locked.current || disabled) return;
+          locked.current = true;
           setBusy(true);
+          onBusyChange?.(true);
           setError("");
+          const urls: string[] = [];
           try {
-            const urls: string[] = [];
             for (const f of files) urls.push((await uploadPhoto(f, kind)).url);
-            onUploaded(urls);
           } catch (err) {
             setError(err instanceof Error ? err.message : "Upload failed.");
           } finally {
+            // Keep successful files even if a later file in the batch failed.
+            if (urls.length) onUploaded(urls);
+            locked.current = false;
             setBusy(false);
+            onBusyChange?.(false);
           }
         }}
       />
-      <Button variant="secondary" disabled={busy} onClick={() => input.current?.click()} data-testid={testId}>
+      <Button variant="secondary" disabled={disabled || busy} onClick={() => input.current?.click()} data-testid={testId}>
         <Icon name="imagePlus" size={15} /> {busy ? "Uploading…" : label}
       </Button>
       {error && (

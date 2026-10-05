@@ -8,7 +8,7 @@ import { testAuthEnabled, oneTimeCode } from "./security";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Database as DB } from "../db/client";
-import { slugSchema, type Shop } from "./domain";
+import { slugSchema, serviceSchema, onlineBookingSchema, type Shop } from "./domain";
 import { audit, fail, readShop } from "./sandbox";
 import { digest, readInput, throttle, type AppEnv } from "./accounts";
 import { drain, enqueue, msgShop, providerStatus } from "./messaging";
@@ -24,11 +24,11 @@ export type SetupStep = (typeof SETUP_STEPS)[number];
 export type SetupState = { step: SetupStep; done: SetupStep[]; skipped: SetupStep[]; completed_at: number | null; started_at: number | null; dismissed: boolean };
 export function setupState(shop: Pick<Shop, "setup_json">): SetupState {
   let j: Partial<SetupState> = {};
-  try { j = JSON.parse(shop.setup_json || "{}"); } catch { /* default */ }
+  try { const parsed = JSON.parse(shop.setup_json || "{}"); if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) j = parsed; } catch { /* default */ }
   return {
     step: SETUP_STEPS.includes(j.step as SetupStep) ? (j.step as SetupStep) : "shop",
-    done: (j.done ?? []).filter((s): s is SetupStep => SETUP_STEPS.includes(s as SetupStep)),
-    skipped: (j.skipped ?? []).filter((s): s is SetupStep => SETUP_STEPS.includes(s as SetupStep)),
+    done: (Array.isArray(j.done) ? [...new Set(j.done)] : []).filter((s): s is SetupStep => SETUP_STEPS.includes(s as SetupStep)),
+    skipped: (Array.isArray(j.skipped) ? [...new Set(j.skipped)] : []).filter((s): s is SetupStep => SETUP_STEPS.includes(s as SetupStep)),
     completed_at: j.completed_at ?? null,
     started_at: j.started_at ?? null,
     dismissed: !!j.dismissed,
@@ -138,20 +138,23 @@ const stateSchema = z.object({
 setup.put("/state", async (c) => {
   requireManager(c);
   const b = await readInput(c, stateSchema);
-  const shop = await readShop(c);
+  const s = await c.env.DB.transaction(async db => {
+  const shop = (await db.prepare("SELECT * FROM shops WHERE id=? FOR UPDATE").bind(c.get("shopId")).first<Shop>())!;
   let s = setupState(shop);
   const now = Date.now();
   if (b.restart) s = { step: "shop", done: [], skipped: [], completed_at: null, started_at: now, dismissed: false };
   if (!s.started_at) s.started_at = now;
   if (b.step) s.step = b.step;
   if (b.done) { s.done = [...new Set([...s.done, b.done])]; s.skipped = s.skipped.filter((x) => x !== b.done); }
-  if (b.skipped) { s.skipped = [...new Set([...s.skipped, b.skipped])]; }
+  if (b.skipped) { s.skipped = [...new Set([...s.skipped, b.skipped])]; s.done = s.done.filter(step => step !== b.skipped); }
   if (b.complete) s.completed_at = s.completed_at ?? now;
   if (b.dismissed !== undefined) s.dismissed = b.dismissed;
-  await c.env.DB.batch([
+  await db.batch([
     c.env.DB.prepare("UPDATE shops SET setup_json=? WHERE id=?").bind(JSON.stringify(s), shop.id),
     ...(b.complete && !setupState(shop).completed_at ? [audit(c, "shop", shop.id, "SETUP_COMPLETED", `${s.done.length} of ${SETUP_STEPS.length} steps done, ${s.skipped.length} skipped.`)] : []),
   ]);
+  return s;
+  });
   return c.json({ state: s });
 });
 
@@ -169,28 +172,32 @@ const contactSchema = z.object({
   phone: z.string().trim().max(20),
   email: z.string().trim().toLowerCase().max(254).refine((s) => s === "" || z.string().email().safeParse(s).success, "Enter a valid email address"),
   address: z.string().trim().max(300),
-  timezone: z.string().trim().min(1).max(64),
+  timezone: z.string().trim().min(1).max(64).refine(value => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }, "Unknown timezone"),
   currency: z.enum(["GBP", "EUR", "USD"]),
   // Optional business identity (Settings → Business details).
-  legal_name: z.string().trim().max(160).default(""),
-  vat_number: z.string().trim().max(32).default(""),
-  company_number: z.string().trim().max(32).default(""),
-  website: z.union([z.literal(""), z.string().trim().url().max(300)]).default(""),
+  legal_name: z.string().trim().max(160).optional(),
+  vat_number: z.string().trim().max(32).optional(),
+  company_number: z.string().trim().max(32).optional(),
+  website: z.union([z.literal(""), z.string().trim().url().max(300)]).optional(),
 }).strict();
 setup.put("/contact", async (c) => {
   requireManager(c);
   const b = await readInput(c, contactSchema);
-  const shop = await readShop(c) as Shop & { phone?: string; email?: string };
   const phone = b.phone ? ukMobile(b.phone) : "";
   if (b.phone && !phone) fail(400, "Enter a UK mobile number (07… or +447…)");
+  await c.env.DB.transaction(async db => {
+  const shop = (await db.prepare("SELECT * FROM shops WHERE id=? FOR UPDATE").bind(c.get("shopId")).first<Shop & { phone?: string; email?: string }>())!;
   // Changing a verified value un-verifies it.
   const phoneChanged = (phone || "") !== (shop.phone || ""), emailChanged = b.email !== (shop.email || "");
-  await c.env.DB.batch([
+  await db.batch([
     c.env.DB.prepare(
-      `UPDATE shops SET name=?, kind=?, phone=?, email=?, address=?, timezone=?, currency=?, legal_name=?, vat_number=?, company_number=?, website=?, version=version+1${phoneChanged ? ", phone_verified_at=NULL" : ""}${emailChanged ? ", email_verified_at=NULL" : ""} WHERE id=?`,
-    ).bind(b.name, b.kind, phone || "", b.email, b.address, b.timezone, b.currency, b.legal_name, b.vat_number, b.company_number, b.website, shop.id),
+      `UPDATE shops SET name=?, kind=?, phone=?, email=?, address=?, timezone=?, currency=?, legal_name=COALESCE(?,legal_name), vat_number=COALESCE(?,vat_number), company_number=COALESCE(?,company_number), website=COALESCE(?,website), version=version+1${phoneChanged ? ", phone_verified_at=NULL" : ""}${emailChanged ? ", email_verified_at=NULL" : ""} WHERE id=?`,
+    ).bind(b.name, b.kind, phone || "", b.email, b.address, b.timezone, b.currency, b.legal_name ?? null, b.vat_number ?? null, b.company_number ?? null, b.website ?? null, shop.id),
+    ...(phoneChanged ? [c.env.DB.prepare("DELETE FROM contact_codes WHERE shop_id=? AND kind='PHONE'").bind(shop.id)] : []),
+    ...(emailChanged ? [c.env.DB.prepare("DELETE FROM contact_codes WHERE shop_id=? AND kind='EMAIL'").bind(shop.id)] : []),
     audit(c, "shop", shop.id, "SHOP_CONTACT_UPDATED", `${b.kind.toLowerCase()} · ${phone ? "mobile set" : "no mobile"} · ${b.email ? "email set" : "no email"}.`),
   ]);
+  });
   return c.json({ shop: await readShop(c) });
 });
 
@@ -212,13 +219,18 @@ setup.post("/verify/start", async (c) => {
   const live = b.kind === "PHONE" ? ps.sms.provider !== "mailbox" : ps.email.provider !== "mailbox";
   if (!live && !testAuthEnabled()) fail(503, "Contact verification is temporarily unavailable");
   const stmts = enqueue(c.env.DB, ms, b.kind === "PHONE" ? { phone: target } : { email: target }, "verify_contact", { code, kind: b.kind }, { related: { type: "shop_verify", id: shop.id }, origin, channel: b.kind === "PHONE" ? "SMS" : "EMAIL", now, force: true });
-  await c.env.DB.batch([
+  await c.env.DB.transaction(async db => {
+    const contact = b.kind === "PHONE" ? "phone" : "email";
+    const current = await db.prepare(`SELECT ${contact} AS target FROM shops WHERE id=? FOR UPDATE`).bind(shop.id).first<{ target: string }>();
+    if (current?.target !== target) return fail(409, "Contact details changed. Send a new code.");
+    await db.batch([
     c.env.DB.prepare(
       "INSERT INTO contact_codes(shop_id,kind,target,code_hash,expires_at,attempts,created_at) VALUES(?,?,?,?,?,0,?) ON CONFLICT(shop_id,kind) DO UPDATE SET target=excluded.target,code_hash=excluded.code_hash,expires_at=excluded.expires_at,attempts=0,created_at=excluded.created_at",
     ).bind(shop.id, b.kind, target, await digest(`${shop.id}:${b.kind}:${target}:${code}`), now + CODE_TTL, now),
     ...stmts,
     audit(c, "shop", shop.id, "CONTACT_CODE_SENT", `${b.kind === "PHONE" ? "SMS" : "Email"} verification code ${live ? "sent" : "shown on screen (no provider)"}.`),
   ]);
+  });
   if (stmts.length) await drain(c.env.DB, stmts.length, now, { type: "shop_verify", id: shop.id }).catch(() => {});
   return c.json({ ok: true, kind: b.kind, target, expires_at: now + CODE_TTL, delivery: live ? (b.kind === "PHONE" ? "sms" : "email") : "on_screen", ...(live ? {} : { sandbox_code: code }) }, 201);
 });
@@ -228,19 +240,26 @@ setup.post("/verify/confirm", async (c) => {
   const shop = await readShop(c);
   await throttle(c, "verify-confirm", shop.id);
   const now = Date.now();
-  const row = await c.env.DB.prepare("SELECT * FROM contact_codes WHERE shop_id=? AND kind=?").bind(shop.id, b.kind).first<{ target: string; code_hash: string; expires_at: number; attempts: number }>();
-  if (!row || row.expires_at <= now) return fail(409, "That code has expired. Send a new one.");
-  if (row.attempts >= 5) fail(429, "Too many wrong codes. Send a new one.");
-  if (row.code_hash !== (await digest(`${shop.id}:${b.kind}:${row.target}:${b.code}`))) {
-    await c.env.DB.prepare("UPDATE contact_codes SET attempts=attempts+1 WHERE shop_id=? AND kind=?").bind(shop.id, b.kind).run();
-    fail(401, "That code is not right. Check it and try again.");
-  }
-  const col = b.kind === "PHONE" ? "phone_verified_at" : "email_verified_at";
-  await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE shops SET ${col}=? WHERE id=?`).bind(now, shop.id),
-    c.env.DB.prepare("DELETE FROM contact_codes WHERE shop_id=? AND kind=?").bind(shop.id, b.kind),
-    audit(c, "shop", shop.id, "CONTACT_VERIFIED", `${b.kind === "PHONE" ? "Mobile" : "Email"} verified.`),
-  ]);
+  const result = await c.env.DB.transaction(async db => {
+    const contact = b.kind === "PHONE" ? "phone" : "email";
+    const current = await db.prepare(`SELECT ${contact} AS target FROM shops WHERE id=? FOR UPDATE`).bind(shop.id).first<{ target: string }>();
+    const row = await db.prepare("SELECT * FROM contact_codes WHERE shop_id=? AND kind=? FOR UPDATE").bind(shop.id, b.kind).first<{ target: string; code_hash: string; expires_at: number; attempts: number }>();
+    if (!row || row.expires_at <= now) return { status: 409 as const, message: "That code has expired. Send a new one." };
+    if (current?.target !== row.target) return { status: 409 as const, message: "Contact details changed. Send a new code." };
+    if (row.attempts >= 5) return { status: 429 as const, message: "Too many wrong codes. Send a new one." };
+    if (row.code_hash !== await digest(`${shop.id}:${b.kind}:${row.target}:${b.code}`)) {
+      await db.prepare("UPDATE contact_codes SET attempts=attempts+1 WHERE shop_id=? AND kind=?").bind(shop.id, b.kind).run();
+      return { status: 401 as const, message: "That code is not right. Check it and try again." };
+    }
+    const col = b.kind === "PHONE" ? "phone_verified_at" : "email_verified_at";
+    await db.batch([
+      db.prepare(`UPDATE shops SET ${col}=? WHERE id=? AND ${contact}=?`).bind(now, shop.id, row.target),
+      db.prepare("DELETE FROM contact_codes WHERE shop_id=? AND kind=?").bind(shop.id, b.kind),
+      audit(c, "shop", shop.id, "CONTACT_VERIFIED", `${b.kind === "PHONE" ? "Mobile" : "Email"} verified.`),
+    ]);
+    return null;
+  });
+  if (result) return fail(result.status, result.message);
   return c.json({ ok: true, shop: await readShop(c) });
 });
 
@@ -251,19 +270,23 @@ setup.get("/starter", async (c) => {
   const kind = (c.req.query("kind") || shop.kind || "BARBER") as keyof typeof STARTER_MENUS;
   return c.json({ kind, menu: STARTER_MENUS[kind] || STARTER_MENUS.BARBER, all: STARTER_MENUS });
 });
-const starterRow = z.object({ name: z.string().trim().min(1).max(80), category: z.string().trim().max(40).default(""), duration_min: z.number().int().min(5).max(480), price_pence: z.number().int().min(0).max(100000), popular: z.boolean().default(false) });
+const starterRow = z.object({ name: serviceSchema.shape.name, category: z.string().trim().max(40).default("Services"), duration_min: serviceSchema.shape.duration_min, price_pence: serviceSchema.shape.price_pence, popular: z.boolean().default(false) });
 setup.post("/starter", async (c) => {
   requireManager(c);
   const b = await readInput(c, z.object({ services: z.array(starterRow).min(1).max(40) }).strict());
   const shop = await readShop(c);
-  const existing = new Set(((await c.env.DB.prepare("SELECT lower(name) AS n FROM services WHERE shop_id=?").bind(shop.id).all<{ n: string }>()).results).map((r) => r.n));
-  const rows = b.services.filter((s) => !existing.has(s.name.toLowerCase()));
+  const result = await c.env.DB.transaction(async db => {
+    await db.prepare("SELECT id FROM shops WHERE id=? FOR UPDATE").bind(shop.id).first();
+  const existing = new Set(((await db.prepare("SELECT lower(name) AS n FROM services WHERE shop_id=?").bind(shop.id).all<{ n: string }>()).results).map((r) => r.n));
+  const rows = b.services.filter(s => { const name = s.name.toLowerCase(); if (existing.has(name)) return false; existing.add(name); return true; });
   const stmts = rows.map((s, i) =>
-    c.env.DB.prepare("INSERT INTO services(id,shop_id,name,category,duration_min,price_pence,active,description,colour,online_bookable,popular,sort_order,payment_mode) VALUES(?,?,?,?,?,?,1,'','sage',1,?,?,NULL)")
-      .bind(uid(), shop.id, s.name, s.category, s.duration_min, s.price_pence, s.popular ? 1 : 0, existing.size + i),
+    db.prepare("INSERT INTO services(id,shop_id,name,category,duration_min,price_pence,active,description,colour,online_bookable,popular,sort_order,payment_mode) VALUES(?,?,?,?,?,?,1,'','sage',1,?,?,NULL)")
+      .bind(uid(), shop.id, s.name, s.category || "Services", s.duration_min, s.price_pence, s.popular ? 1 : 0, existing.size + i),
   );
-  if (stmts.length) await c.env.DB.batch([...stmts, audit(c, "shop", shop.id, "STARTER_MENU_ADDED", `${rows.length} services added from the starter menu.`)]);
-  return c.json({ added: rows.length, skipped: b.services.length - rows.length }, 201);
+  if (stmts.length) await db.batch([...stmts, audit(c, "shop", shop.id, "STARTER_MENU_ADDED", `${rows.length} services added from the starter menu.`)]);
+  return { added: rows.length, skipped: b.services.length - rows.length };
+  });
+  return c.json(result, 201);
 });
 
 // Step 6 — slug availability, live as the owner types.
@@ -300,12 +323,22 @@ setup.put("/policy", async (c) => {
     cancel_hours: z.number().int().min(0).max(168),
     no_show_grace: z.number().int().min(0).max(120),
     payment_mode: z.enum(["PREPAY", "DEPOSIT", "PAY_AT_VISIT"]),
-  }).strict());
-  const shop = await readShop(c);
-  await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE shops SET deposit_pence=?, cancel_hours=?, no_show_grace=?, payment_mode=?, version=version+1 WHERE id=?").bind(b.deposit_pence, b.cancel_hours, b.no_show_grace, b.payment_mode, shop.id),
-    audit(c, "shop", shop.id, "POLICY_UPDATED", `${b.payment_mode.toLowerCase().replace(/_/g, " ")}; deposit ${b.deposit_pence}p; cancel ${b.cancel_hours}h; no-show grace ${b.no_show_grace} min.`),
-  ]);
+    lead_time_min: onlineBookingSchema.shape.lead_time_min.optional(),
+    booking_window_days: onlineBookingSchema.shape.booking_window_days.optional(),
+    terms_text: onlineBookingSchema.shape.terms_text.optional(),
+    version: z.number().int().min(0).optional(),
+  }).strict().refine(b => (b.terms_text === undefined && b.lead_time_min === undefined && b.booking_window_days === undefined) || b.version !== undefined, "Reload before saving booking rules"));
+  await c.env.DB.transaction(async db => {
+    const shop = (await db.prepare("SELECT * FROM shops WHERE id=? FOR UPDATE").bind(c.get("shopId")).first<Shop>())!;
+    if (b.version !== undefined && b.version !== shop.version) return fail(409, "Shop changed elsewhere. Reload before saving.");
+    const terms = b.terms_text ?? shop.terms_text;
+    const changed = terms !== shop.terms_text;
+    await db.batch([
+      db.prepare("UPDATE shops SET deposit_pence=?, cancel_hours=?, no_show_grace=?, payment_mode=?, lead_time_min=?, booking_window_days=?, terms_text=?, terms_version=terms_version+?, terms_updated_at=CASE WHEN ?=1 THEN ? ELSE terms_updated_at END, version=version+1 WHERE id=?")
+        .bind(b.deposit_pence, b.cancel_hours, b.no_show_grace, b.payment_mode, b.lead_time_min ?? shop.lead_time_min, b.booking_window_days ?? shop.booking_window_days, terms, changed ? 1 : 0, changed ? 1 : 0, Date.now(), shop.id),
+      audit(c, "shop", shop.id, "POLICY_UPDATED", `${b.payment_mode.toLowerCase().replace(/_/g, " ")}; deposit ${b.deposit_pence}p; cancel ${b.cancel_hours}h; no-show grace ${b.no_show_grace} min.`),
+    ]);
+  });
   return c.json({ shop: await readShop(c) });
 });
 

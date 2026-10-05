@@ -6,6 +6,8 @@ import { Button, Icon } from "./ui";
 import { PhotoUpload, PhotoPreview } from "./Media";
 import { ShopPageView, type PageData } from "./ShopPage";
 import { shopWeekOf } from "./fixtures";
+import { useBusy, useSetupDirty, useSetupUpload } from "./Setup";
+import { pageFormOf } from "./WebsiteEditor";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 type Common = { w: WorkspaceData; api: Api; refresh: () => Promise<void>; setNotice: (s: string) => void; setError: (s: string) => void; onNext: () => Promise<void>; onSkip?: () => Promise<void> };
@@ -17,14 +19,6 @@ const ACCENTS: { id: string; name: string; hex: string }[] = [
 ];
 const STOCK = ["brick", "minimal", "heritage", "industrial", "terracotta", "tools"];
 
-function useBusy() {
-  const [busy, setBusy] = useState(false);
-  const run = async (fn: () => Promise<void>, setError: (s: string) => void) => {
-    setBusy(true); setError("");
-    try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong."); } finally { setBusy(false); }
-  };
-  return { busy, run };
-}
 export function Actions({ onNext, onSkip, nextLabel = "Save and continue", busy, skipLabel = "Skip for now" }: { onNext: () => void; onSkip?: () => void; nextLabel?: string; busy?: boolean; skipLabel?: string }) {
   return (
     <div className="setup-wiz-actions">
@@ -38,6 +32,9 @@ export function Actions({ onNext, onSkip, nextLabel = "Save and continue", busy,
 type PageRec = Record<string, unknown>;
 export function StepBrand({ w, api, refresh, setNotice, setError, onNext, onSkip }: Common) {
   const [page, setPage] = useState<PageRec | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const { uploading, onBusyChange } = useSetupUpload();
   const [logo, setLogo] = useState("");
   const [cover, setCover] = useState("");
   const [accent, setAccent] = useState("ollo");
@@ -45,39 +42,45 @@ export function StepBrand({ w, api, refresh, setNotice, setError, onNext, onSkip
   const [mode, setMode] = useState("light");
   const [strap, setStrap] = useState("");
   const { busy, run } = useBusy();
+  useSetupDirty(!!page && (logo !== String(page.logo_url || "") || cover !== String(page.cover_url || "") || accent !== String(page.accent || "ollo") || primary !== String(page.primary_hex || "") || strap !== String(page.strapline || "") || mode !== pageFormOf(page).theme.mode));
   useEffect(() => {
+    let cancelled = false;
+    setLoadError("");
     api<{ page: PageRec }>("/shop/page").then((r) => {
+      if (cancelled) return;
       setPage(r.page);
       setLogo(String(r.page.logo_url || "")); setCover(String(r.page.cover_url || "")); setAccent(String(r.page.accent || "ollo")); setPrimary(String(r.page.primary_hex || "")); setStrap(String(r.page.strapline || ""));
       try { setMode((JSON.parse(String(r.page.theme_json || "{}")) as { mode?: string }).mode || "light"); } catch { /* default */ }
-    }).catch(() => setPage({}));
-  }, []);
+    }).catch(e => { if (!cancelled) setLoadError(e.message || "Could not load your branding."); });
+    return () => { cancelled = true; };
+  }, [retry]);
   async function save() {
     const cur = (await api<{ page: PageRec }>("/shop/page")).page;
-    let theme: Record<string, string> = { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto" };
-    try { theme = { ...theme, ...(JSON.parse(String(cur.theme_json || "{}")) as object) }; } catch { /* default */ }
-    await api("/shop/page", "PUT", {
-      strapline: strap.trim(), about: String(cur.about || ""), cover_url: cover, logo_url: logo,
-      gallery: JSON.parse(String(cur.gallery_json || "[]")), phone: String(cur.phone || ""), email: String(cur.email || ""), instagram: String(cur.instagram || ""),
-      map_url: String(cur.map_url || ""), transport_note: String(cur.transport_note || ""), policy_text: String(cur.policy_text || ""),
-      sections: JSON.parse(String(cur.sections_json || '["hero","next","services","team","hours","gallery","reviews","find","policies"]')),
-      accent, theme: { ...theme, mode }, primary_hex: HEX.test(primary) ? primary.toLowerCase() : "", secondary_hex: String(cur.secondary_hex || ""),
-      variants: (() => { try { return JSON.parse(String(cur.variants_json || "{}")); } catch { return {}; } })(),
-      google_review_url: String(cur.google_review_url || ""), published: Number(cur.published ?? 1), version: Number(cur.version ?? 0),
+    if (uploading) throw new Error("Wait for your image upload to finish.");
+    if (Number(cur.version ?? 0) !== Number(page?.version ?? 0)) throw new Error("Your website changed elsewhere. Reopen Brand to load the latest version before saving.");
+    if (cur.draft_json) throw new Error("You have an unpublished website draft. Publish or discard it in the Website editor before changing your brand here.");
+    const current = pageFormOf(cur);
+    const saved = await api<{ page: PageRec }>("/shop/page", "PUT", {
+      ...current, strapline: strap.trim(), cover_url: cover, logo_url: logo,
+      accent, theme: { ...current.theme, mode }, primary_hex: HEX.test(primary) ? primary.toLowerCase() : "",
+      secondary_hex: primary ? current.secondary_hex : "",
     });
+    setPage(saved.page);
     await refresh();
   }
   const week = shopWeekOf(w.shop);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = w.today;
+  const day = week[new Date(`${today}T12:00:00Z`).getUTCDay()];
   const staff = (w.staff as { id: string; name: string; role: string; active?: number; colour?: string; photo_url?: string; title?: string }[]).filter((x) => x.active !== 0);
   const services = (w.services as { id: string; name: string; category?: string; duration_min: number; price_pence: number; active?: number; popular?: number }[]).filter((x) => x.active !== 0);
   const preview: PageData = {
-    shop: { id: w.shop.id, name: w.shop.name, address: w.shop.address, slug: w.shop.slug || "preview", timezone: w.shop.timezone, currency: w.shop.currency, opens: 540, closes: 1080, deposit_pence: w.shop.deposit_pence, cancel_hours: w.shop.cancel_hours, lead_time_min: w.shop.lead_time_min ?? 60, booking_window_days: w.shop.booking_window_days ?? 30 },
+    shop: { id: w.shop.id, name: w.shop.name, address: w.shop.address, slug: w.shop.slug || "preview", timezone: w.shop.timezone, currency: w.shop.currency, opens: day.starts, closes: day.ends, deposit_pence: w.shop.deposit_pence, cancel_hours: w.shop.cancel_hours, lead_time_min: w.shop.lead_time_min ?? 60, booking_window_days: w.shop.booking_window_days ?? 30 },
     page: { strapline: strap, about: "", cover_url: cover, logo_url: logo, gallery: [], phone: "", email: "", instagram: "", map_url: "", transport_note: "", policy_text: "", sections: ["hero", "services", "team", "hours"], accent, theme: { font: "modern", mode, corners: "soft", hero: "editorial", logo: "auto" }, primary_hex: HEX.test(primary) ? primary : "", secondary_hex: "", variants: {}, published: 1 },
     staff, services: services.map((x) => ({ ...x, category: x.category || "Services" })),
     week: week.map((d, i) => (d.enabled ? { weekday: i, open: true as const, starts: d.starts, ends: d.ends } : { weekday: i, open: false as const })),
-    open_now: true, today, closures: [], soonest: [], reviews: [], rating: { count: 0, average: null },
+    open_now: false, today, closures: [], soonest: [], reviews: [], rating: { count: 0, average: null },
   };
+  if (loadError) return <div className="setup-wiz-card"><p role="alert" className="workspace-error">{loadError}</p><Button onClick={() => setRetry(n => n + 1)}>Retry loading brand</Button></div>;
   if (!page) return <div className="setup-wiz-card"><p role="status">Loading…</p></div>;
   return (
     <div className="setup-wiz-card setup-brand" data-testid="setup-brand">
@@ -89,16 +92,16 @@ export function StepBrand({ w, api, refresh, setNotice, setError, onNext, onSkip
             <div className="photo-field">
               <PhotoPreview url={logo} label="logo" onClear={() => setLogo("")} />
               <input type="text" inputMode="url" value={logo} maxLength={500} placeholder="https://…/logo.png" onChange={(e) => setLogo(e.target.value)} aria-label="Logo URL" />
-              <PhotoUpload kind="logo" label="Upload logo" testId="setup-upload-logo" onUploaded={([u]) => setLogo(u)} />
+              <PhotoUpload onBusyChange={onBusyChange} disabled={busy || uploading} kind="logo" label="Upload logo" testId="setup-upload-logo" onUploaded={([u]) => setLogo(u)} />
             </div>
-            <small className="helper">Transparent PNG or SVG. We work out whether it's light or dark and place it so it always reads.</small>
+            <small className="helper">PNG, JPEG or WebP, up to 5 MB. A transparent PNG works best for logos. We work out whether it's light or dark and place it so it always reads.</small>
           </div>
           <div className="workspace-field">
             <span>Cover photo</span>
             <div className="photo-field">
               <PhotoPreview url={cover} label="cover photo" onClear={() => setCover("")} />
               <input type="text" inputMode="url" value={cover} maxLength={500} placeholder="https://…/shopfront.jpg" onChange={(e) => setCover(e.target.value)} aria-label="Cover photo URL" />
-              <PhotoUpload kind="cover" label="Upload photo" testId="setup-upload-cover" onUploaded={([u]) => setCover(u)} />
+              <PhotoUpload onBusyChange={onBusyChange} disabled={busy || uploading} kind="cover" label="Upload photo" testId="setup-upload-cover" onUploaded={([u]) => setCover(u)} />
             </div>
             <div className="stock-covers" role="group" aria-label="Choose a stock cover">
               {STOCK.map((id) => (
@@ -133,16 +136,16 @@ export function StepBrand({ w, api, refresh, setNotice, setError, onNext, onSkip
             </div>
           </div>
         </div>
-        <div className="setup-brand-preview" aria-hidden="true" data-testid="setup-brand-preview">
+        <div className="setup-brand-preview" inert data-testid="setup-brand-preview">
           <div className="shop-preview-frame phone">
             <div className="shop-preview-page" onClickCapture={(e) => e.preventDefault()}>
               <ShopPageView data={preview} me={null} mine={null} preview />
             </div>
           </div>
-          <small className="helper">Live preview of your shop page on a phone.</small>
+          <small className="helper">Brand preview on a phone. Availability is illustrative, not live.</small>
         </div>
       </div>
-      <Actions busy={busy} onNext={() => run(async () => { await save(); setNotice("Brand saved."); await onNext(); }, setError)} onSkip={onSkip} />
+      <Actions busy={busy || uploading} onNext={() => run(async () => { await save(); setNotice("Brand saved."); await onNext(); }, setError)} onSkip={onSkip} />
     </div>
   );
 }
@@ -156,12 +159,10 @@ export function StepTerms({ w, api, refresh, setNotice, setError, onNext, onSkip
   const [window_, setWindow] = useState(shop.booking_window_days ?? 42);
   const [cancel, setCancel] = useState(shop.cancel_hours ?? 24);
   const [terms, setTerms] = useState(shop.terms_text || "");
+  useSetupDirty(lead !== (shop.lead_time_min ?? 60) || window_ !== (shop.booking_window_days ?? 42) || cancel !== (shop.cancel_hours ?? 24) || terms !== (shop.terms_text || ""));
   const { busy, run } = useBusy();
   async function save() {
-    // Policy (cancel hours) then online rules + terms. Two records, both versioned by the shop.
-    await api("/setup/policy", "PUT", { deposit_pence: shop.deposit_pence, cancel_hours: cancel, no_show_grace: shop.no_show_grace ?? 10, payment_mode: shop.payment_mode || "PAY_AT_VISIT" });
-    const live = await api<{ shop: { version: number; slug: string | null; online_booking: number } }>("/workspace");
-    await api("/shop/online", "PUT", { slug: live.shop.slug || shop.slug || "", online_booking: live.shop.online_booking, lead_time_min: lead, booking_window_days: window_, terms_text: terms.trim(), version: live.shop.version });
+    await api("/setup/policy", "PUT", { deposit_pence: shop.deposit_pence, cancel_hours: cancel, no_show_grace: shop.no_show_grace ?? 10, payment_mode: shop.payment_mode || "PAY_AT_VISIT", lead_time_min: lead, booking_window_days: window_, terms_text: terms.trim(), version: shop.version });
     await refresh();
   }
   return (
@@ -184,7 +185,7 @@ export function StepTerms({ w, api, refresh, setNotice, setError, onNext, onSkip
       <label className="workspace-field">
         <span>Your booking terms <small className="helper" style={{ display: "inline" }}>(optional)</small></span>
         <textarea rows={6} maxLength={6000} value={terms} onChange={(e) => setTerms(e.target.value)} placeholder="Lateness, cancellations, children, anything customers should know before they book." data-testid="setup-terms-text" />
-        {!terms && <Button variant="ghost" onClick={() => setTerms(STARTER_TERMS(w.shop.name, cancel || 24))} data-testid="setup-terms-starter"><Icon name="sparkles" size={14} /> Start from a template</Button>}
+        {!terms && <Button variant="ghost" onClick={() => setTerms(STARTER_TERMS(w.shop.name, cancel))} data-testid="setup-terms-starter"><Icon name="sparkles" size={14} /> Start from a template</Button>}
         <small className="helper">Customers accept these when they create an account and again the next time they book after you change the wording.</small>
       </label>
       <Actions busy={busy} onNext={() => run(async () => { await save(); setNotice("Booking rules saved."); await onNext(); }, setError)} onSkip={onSkip} />

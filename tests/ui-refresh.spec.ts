@@ -100,8 +100,11 @@ for (const width of [390, 768, 1024, 1280, 1440]) {
     await expect(page.locator(".calendar-board")).toBeVisible();
     await page.getByTestId("filters-toggle").click();
     await expect(page.getByLabel("Search appointments")).toBeVisible();
+    await expect(page.locator(".calendar-staff-header")).toContainText("£56 booked · 2 visits");
+    const valueBefore = await page.locator(".calendar-staff-header").innerText();
     await page.getByLabel("Search appointments").fill("Jordan");
     await expect(page.locator(".calendar-event")).toHaveCount(1);
+    expect(await page.locator(".calendar-staff-header").innerText()).toBe(valueBefore);
     await page.getByLabel("Search appointments").fill("");
     expect(mutations).toHaveLength(0);
     expect(errors).toEqual([]);
@@ -404,7 +407,7 @@ test("owner admin: discarding a service draft really resets it and pricing saves
   await editor.getByRole("button", { name: "Details", exact: true }).click();
   await expect(editor.getByText("A save is in progress. Wait for its result before leaving this section.", { exact: true })).toBeVisible();
   release();
-  await expect(editor.getByRole("alert")).toContainText("Pricing save unavailable");
+  await expect(editor.getByRole("alert").filter({ hasText: "Pricing save unavailable" })).toBeVisible();
   await expect(price).toHaveValue("31");
   await expect(price).toBeEnabled();
   expect(attempts).toBe(1);
@@ -771,5 +774,201 @@ test("shifts audit: pending conflict saves stay protected and failures can be re
   await page.getByTestId("conflict-apply").click();
   await expect(page.getByTestId("conflict-outcome")).toContainText("1 of 1 decision applied");
   expect(calls).toBe(2);
+  expect(errors).toEqual([]);
+});
+
+async function mountSetup(page: Page, step = "shop") {
+  const base = await mountWorkspace(page);
+  const w = structuredClone(workspace);
+  Object.assign(w.shop, { email: w.account.email, phone: "", kind: "BARBER", lead_time_min: 60, booking_window_days: 28, setup_json: JSON.stringify({ step, done: [], skipped: [] }) });
+  let state = { step, done: [] as string[], skipped: [] as string[], completed_at: null };
+  let record: any = { version: 3, logo_url: "", cover_url: "", strapline: "Original", accent: "ink", theme_json: '{"font":"editorial","mode":"light"}', copy_json: '{"hero.button":"Pick your cut"}', element_styles_json: '{"hero.title":{"fg":"#112233"}}', sections_json: '["hero","services"]', gallery_json: '[]', published: 1 };
+  const writes: { path: string; body: any }[] = [];
+  await page.route("https://ui.test/api/app/**", async route => {
+    const path = new URL(route.request().url()).pathname.replace("/api/app", "");
+    if (path === "/workspace") return route.fulfill({ json: w });
+    if (path === "/setup") return route.fulfill({ json: { state, kind: "BARBER", bank_holidays: {}, progress: { shop: { saved: true }, services: { count: 1 }, team: { staff: 3 }, messages: { providers: { sms: { provider: "mailbox" }, email: { provider: "mailbox" } } }, online: { slug: "northline", live: true }, payments: {} } } });
+    if (path === "/setup/state") {
+      const body = route.request().postDataJSON(); writes.push({ path, body });
+      state = { ...state, ...(body.step ? { step: body.step } : {}), done: body.done ? [...state.done, body.done] : state.done };
+      return route.fulfill({ json: { state } });
+    }
+    if (path === "/shop/page") {
+      if (route.request().method() === "PUT") {
+        const body = route.request().postDataJSON(); writes.push({ path, body });
+        record = { ...record, ...body, version: record.version + 1, theme_json: JSON.stringify(body.theme), copy_json: JSON.stringify(body.copy), element_styles_json: JSON.stringify(body.element_styles) };
+        w.logo_url = body.logo_url;
+      }
+      return route.fulfill({ json: { page: record } });
+    }
+    if (path === "/setup/contact" || path === "/shop" || path === "/setup/policy") {
+      const body = route.request().postDataJSON(); writes.push({ path, body });
+      Object.assign(w.shop, body, { version: w.shop.version + 1 });
+      if (body.week) w.shop.week_json = JSON.stringify(body.week);
+      return route.fulfill({ json: { shop: w.shop, ok: true } });
+    }
+    if (path === "/setup/starter") return route.fulfill({ json: { menu: [] } });
+    return route.fallback();
+  });
+  await page.goto("https://ui.test/workspace/setup");
+  await expect(page.getByTestId("setup-wizard")).toBeVisible();
+  return { ...base, writes, w };
+}
+
+for (const width of [390, 1440]) {
+  test(`setup audit: logo upload waits, brand preserves custom content and retries (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 960 });
+    const { writes, errors } = await mountSetup(page, "brand");
+    await expect(page.getByTestId("setup-brand")).toBeVisible();
+    let release!: () => void;
+    await page.route("**/api/app/media", async route => {
+      await new Promise<void>(resolve => { release = resolve; });
+      await route.fulfill({ status: 201, json: { media: { id: "logo", url: "/static/stock/tools.webp" } } });
+    });
+    await page.getByTestId("setup-upload-logo-input").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: Buffer.from("test image fixture") });
+    await expect(page.getByTestId("setup-exit")).toBeDisabled();
+    await expect(page.getByTestId("setup-next")).toBeDisabled();
+    await expect.poll(() => !!release).toBe(true); release();
+    await expect(page.getByLabel("Logo URL")).toHaveValue("/static/stock/tools.webp");
+    await page.getByTestId("setup-strapline").fill("Fresh branding");
+    page.once("dialog", d => d.dismiss());
+    await page.getByTestId("setup-exit").click();
+    await expect(page.getByTestId("setup-brand")).toBeVisible();
+    let fails = true;
+    await page.route("**/api/app/shop/page", route => route.request().method() === "PUT" && fails ? route.fulfill({ status: 503, json: { message: "Brand save unavailable" } }) : route.fallback());
+    await page.getByTestId("setup-next").click();
+    await expect(page.getByRole("alert")).toContainText("Brand save unavailable");
+    await expect(page.getByTestId("setup-strapline")).toHaveValue("Fresh branding");
+    fails = false;
+    await page.getByTestId("setup-next").click();
+    await expect(page.getByRole("heading", { name: "Opening hours", exact: true })).toBeVisible();
+    const body = writes.find(x => x.path === "/shop/page")!.body;
+    expect(body).toMatchObject({ logo_url: "/static/stock/tools.webp", strapline: "Fresh branding", copy: { "hero.button": "Pick your cut" }, element_styles: { "hero.title": { fg: "#112233" } }, theme: { font: "editorial" } });
+    expect(errors).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+  test(`setup audit: timezone is saved, navigation guarded and hours preserve preferences (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 960 });
+    const { writes, errors, w } = await mountSetup(page);
+    await page.getByLabel("Timezone", { exact: true }).fill("Europe/Paris");
+    page.once("dialog", d => d.dismiss());
+    await page.locator(".setup-flow-rail").getByRole("button", { name: /^Hours/ }).click();
+    await expect(page.getByLabel("Timezone", { exact: true })).toHaveValue("Europe/Paris");
+    await page.getByTestId("setup-next").click();
+    await expect(page.getByTestId("setup-brand")).toBeVisible();
+    expect(writes.find(x => x.path === "/setup/contact")?.body.timezone).toBe("Europe/Paris");
+    await page.locator(".setup-flow-rail").getByRole("button", { name: /^Hours/ }).click();
+    await page.getByLabel("Monday opens").fill("10:00");
+    await page.getByTestId("setup-next").click();
+    await expect(page.getByRole("heading", { name: "Services & prices", exact: true })).toBeVisible();
+    expect(writes.find(x => x.path === "/shop")?.body).toMatchObject({ buffer_min: w.shop.buffer_min, card_colour: w.shop.card_colour, calendar_density: w.shop.calendar_density });
+    expect(errors).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
+test("setup audit: honest brand load failure and booking terms work without a slug", async ({ page }) => {
+  const { writes, w, errors } = await mountSetup(page, "shop");
+  let fail = true;
+  await page.route("**/api/app/shop/page", route => fail ? route.fulfill({ status: 503, json: { message: "Brand could not load" } }) : route.fallback());
+  await page.locator(".setup-flow-rail").getByRole("button", { name: /^Brand/ }).click();
+  await expect(page.getByRole("alert")).toContainText("Brand could not load");
+  await expect(page.getByTestId("setup-next")).toHaveCount(0);
+  fail = false; await page.getByRole("button", { name: "Retry loading brand" }).click();
+  await expect(page.getByTestId("setup-brand")).toBeVisible();
+  const axe = await new AxeBuilder({ page }).include("#workspace-main").withTags(["wcag2a", "wcag2aa"]).analyze();
+  expect(axe.violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => n.target) }))).toEqual([]);
+  w.shop.slug = "";
+  await page.locator(".setup-flow-rail").getByRole("button", { name: /^Terms/ }).click();
+  await page.getByTestId("setup-cancel").selectOption("0");
+  await page.getByTestId("setup-terms-starter").click();
+  await expect(page.getByTestId("setup-terms-text")).toHaveValue(/at least 0 hours/);
+  await page.getByTestId("setup-next").click();
+  await expect.poll(() => writes.some(x => x.path === "/setup/policy")).toBe(true);
+  expect(writes.find(x => x.path === "/setup/policy")!.body).toMatchObject({ cancel_hours: 0, version: 0 });
+  expect(errors).toEqual([]);
+});
+
+for (const width of [390, 1440]) {
+  test(`owner signup audit: validation, failed-save recovery and setup handoff (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 960 });
+    const { errors } = await mountSetup(page);
+    let signedIn = false;
+    const bodies: any[] = [];
+    await page.route("**/api/app/workspace", route => signedIn ? route.fallback() : route.fulfill({ status: 401, json: { message: "Sign in required" } }));
+    await page.route("**/api/app/auth/me", route => route.fulfill({ json: { account: null, demo: false } }));
+    await page.route("**/api/app/auth/slug-check?*", route => route.fulfill({ json: { ok: true, reason: "", host: "" } }));
+    await page.route("**/api/app/auth/signup", async route => {
+      bodies.push(route.request().postDataJSON());
+      if (bodies.length === 1) return route.fulfill({ status: 503, json: { message: "Temporary signup failure" } });
+      signedIn = true;
+      return route.fulfill({ status: 201, json: { ok: true, workspace_url: "https://ui.test/workspace", cross_host_session: false } });
+    });
+    await page.goto("https://ui.test/signup");
+    await expect(page.getByRole("heading", { name: "Set up your shop" })).toBeVisible();
+    await page.getByLabel("Shop name", { exact: true }).fill("New Barber Shop");
+    await page.locator('input[name="slug"]').fill("ab");
+    await page.getByLabel("Your name", { exact: true }).fill("New Owner");
+    await page.getByLabel("Email", { exact: true }).fill("new-owner@example.test");
+    await page.getByLabel("Password", { exact: true }).fill("New-owner-password-123");
+    await page.getByRole("button", { name: "Create shop", exact: true }).click();
+    expect(bodies).toHaveLength(0);
+    await page.locator('input[name="slug"]').fill("new-barber-shop");
+    await page.getByTestId("accept-legal").getByRole("checkbox").check();
+    await page.getByTestId("signup-kind-SALON").click();
+    await page.getByRole("button", { name: "Create shop", exact: true }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "Temporary signup failure" })).toBeVisible();
+    await expect(page.getByLabel("Email", { exact: true })).toHaveValue("new-owner@example.test");
+    await expect(page.getByLabel("Password", { exact: true })).toHaveValue("New-owner-password-123");
+    await page.getByRole("button", { name: "Create shop", exact: true }).click();
+    await expect(page.getByTestId("setup-wizard")).toBeVisible();
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toMatchObject({ shop_name: "New Barber Shop", slug: "new-barber-shop", name: "New Owner", kind: "SALON", accept_legal: true });
+    expect(errors).toEqual([]);
+  });
+}
+
+test("setup audit: invalid booking addresses cannot advance and payment failures remain retryable", async ({ page }) => {
+  const { writes, errors } = await mountSetup(page, "online");
+  await page.route("**/api/app/setup/slug?*", route => route.fulfill({ json: { ok: false, reason: "Address already taken" } }));
+  await page.getByTestId("setup-slug").fill("taken-address");
+  await page.clock.runFor(300);
+  await expect(page.getByText("Address already taken", { exact: true })).toBeVisible();
+  await page.getByTestId("setup-next").click();
+  await expect(page.getByRole("alert")).toContainText("Address already taken");
+  expect(writes).toHaveLength(0);
+  let failed = true;
+  const payBodies: any[] = [];
+  await page.route("**/api/app/shop/payments", route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { stripe: { provider: "stripe", mode: "test" }, active: true, shop_account: { state: { key: "active" } }, settings: { deposits_online: 1, deposit_pence: 500, deposit_hold_min: 10, payment_mode: "DEPOSIT", payout_tier: "STANDARD", payrun_auto: "OFF", payrun_reserve_bps: 0 } } });
+    payBodies.push(route.request().postDataJSON());
+    return route.fulfill(failed ? { status: 503, json: { message: "Payment settings could not save" } } : { json: { ok: true } });
+  });
+  page.once("dialog", d => d.accept());
+  await page.locator(".setup-flow-rail").getByRole("button", { name: "Payments", exact: true }).click();
+  await page.getByTestId("setup-deposit").fill("15");
+  await page.getByTestId("setup-next").click();
+  await expect(page.getByRole("alert")).toContainText("Payment settings could not save");
+  expect(writes.some(x => x.path === "/setup/state" && x.body.complete)).toBe(false);
+  expect(payBodies[0]).toMatchObject({ deposit_pence: 1500, payment_mode: "DEPOSIT" });
+  await expect(page.getByTestId("setup-deposit")).toHaveValue("15");
+  failed = false;
+  await page.getByTestId("setup-next").click();
+  await expect.poll(() => writes.some(x => x.path === "/setup/state" && x.body.complete)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("setup audit: Continue does not silently discard an unfinished team member", async ({ page }) => {
+  const { writes, errors } = await mountSetup(page, "shop");
+  await page.route("**/api/app/auth/access", route => route.fulfill({ json: { members: [], invitations: [], providers: { sms: { provider: "mailbox" }, email: { provider: "mailbox" } } } }));
+  await page.locator(".setup-flow-rail").getByRole("button", { name: "Team", exact: true }).click();
+  await page.getByTestId("setup-add-name").fill("Unsaved barber");
+  page.once("dialog", d => d.dismiss());
+  await page.getByTestId("setup-next").click();
+  await expect(page.getByTestId("setup-add-name")).toHaveValue("Unsaved barber");
+  expect(writes.some(x => x.path === "/setup/state" && x.body.done === "team")).toBe(false);
+  await page.getByTestId("setup-add-name").fill("");
+  await page.getByTestId("setup-next").click();
+  await expect(page.getByRole("heading", { name: "Customer messages", exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
