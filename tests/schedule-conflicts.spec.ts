@@ -1,3 +1,4 @@
+import { chooseCalendarDate } from "./fixture";
 // Schedule changes that land on appointments open the conflict resolver; decisions are applied with
 // the change in one save. Covers day off (calendar menu), no-conflict fast path, and stale versions.
 import { test, expect, type Page } from "@playwright/test";
@@ -34,7 +35,7 @@ test("day off with appointments: resolver lists clashes with suggestions; move +
   const a = await book(page, staff.id, svc.id, day, 600, "Ada Clash");
   const b = await book(page, staff.id, svc.id, day, 840, "Bob Clash");
 
-  await page.getByLabel("Appointment date", { exact: true }).fill(day);
+  await chooseCalendarDate(page, day);
   const heading = page.locator(".staff-column-heading").filter({ hasText: staff.name });
   await heading.getByTestId("staff-menu").click();
   await page.getByRole("menuitem", { name: /Day off/ }).click();
@@ -84,10 +85,11 @@ test("hours change with no clashes saves straight through; stale decision versio
   const svc = w.services[0];
   const bk = await book(page, staff.id, svc.id, day, 600, "Stale Clash");
   const r = await page.request.post(base + "/schedule/apply", { headers: { Origin: origin }, data: { change: { kind: "day_off", staff_id: staff.id, change: { date: day, reason: "Sick" } }, decisions: [{ booking_id: bk.id, version: 999, action: "CANCEL", notify: false }] } });
-  expect(r.status()).toBe(201);
+  expect(r.status()).toBe(409);
   const j = await r.json();
-  expect(j.outcome[0].ok).toBe(false);
-  expect(j.outcome[0].note).toMatch(/Changed elsewhere/);
+  expect(j.message || j.error).toMatch(/changed|Review/i);
+  const unchanged = await (await page.request.get(base + "/workspace")).json();
+  expect(unchanged.days_off.some((d: any) => d.staff_id === staff.id && d.date === day)).toBe(false);
   const still = (await (await page.request.get(`${base}/bookings/${bk.id}`)).json()).booking;
   expect(still.status).toBe("CONFIRMED");
 });

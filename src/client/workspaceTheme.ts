@@ -4,11 +4,11 @@
 // design.css swaps in one place; persisted in localStorage (instant on next load) and in
 // app_memberships.prefs_json (follows the user across devices).
 export const WS_ACCENTS = [
-  { id: "forest", name: "Forest", accent: "#3a7563", dark: "#2f6152", soft: "#e6f0eb", rail: "#0b1a17" },
+  { id: "forest", name: "Foliyo mint", accent: "#00785f", dark: "#005743", soft: "#e4fff6", rail: "#0b0b0c" },
   { id: "ink", name: "Ink", accent: "#1d1f26", dark: "#000000", soft: "#e9e9ee", rail: "#0f1014" },
-  { id: "ocean", name: "Ocean", accent: "#2f6fa8", dark: "#245a89", soft: "#e4eef8", rail: "#0d1b2a" },
-  { id: "clay", name: "Clay", accent: "#a8552f", dark: "#8a4323", soft: "#f6e9e2", rail: "#1f130e" },
-  { id: "plum", name: "Plum", accent: "#6e3b7a", dark: "#562c60", soft: "#f0e6f2", rail: "#170f1a" },
+  { id: "ocean", name: "Ocean", accent: "#1254d9", dark: "#103f9f", soft: "#eaf1ff", rail: "#0b0b0c" },
+  { id: "clay", name: "Clay", accent: "#b84308", dark: "#853000", soft: "#fff1e8", rail: "#0b0b0c" },
+  { id: "plum", name: "Plum", accent: "#7132c4", dark: "#50218f", soft: "#f3ecff", rail: "#0b0b0c" },
   { id: "slate", name: "Slate", accent: "#4a5568", dark: "#364152", soft: "#e8ebf0", rail: "#12161d" },
 ] as const;
 export type WsAccent = (typeof WS_ACCENTS)[number]["id"];

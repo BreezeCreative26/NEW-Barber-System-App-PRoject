@@ -1,3 +1,4 @@
+import { chooseCalendarDate } from "./fixture";
 import { test, expect, request, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { section, openFilters, openFixtureShop } from "./fixture";
@@ -120,7 +121,7 @@ test("timetable click prefills saved booking; reschedule and cancellation update
   page,
 }) => {
   await enter(page);
-  await page.getByLabel("Appointment date", { exact: true }).fill(day());
+  await chooseCalendarDate(page, day());
   const cell = page.getByRole("button", {
     name: "09:00, Marcus Reed — add booking",
     exact: true,
@@ -147,7 +148,7 @@ test("timetable click prefills saved booking; reschedule and cancellation update
     page.getByRole("button", { name: /Calendar saved client,/ }),
   ).toBeVisible();
   await page.reload();
-  await page.getByLabel("Appointment date", { exact: true }).fill(day());
+  await chooseCalendarDate(page, day());
   await page.getByRole("button", { name: /Calendar saved client,/ }).click();
   await page.getByRole("button", { name: "Reschedule", exact: true }).click();
   await page.getByLabel("Available start time").selectOption("600");
@@ -237,7 +238,7 @@ test("incomplete day or workspace responses have recovery without false empty ca
   await page.route("**/api/app/bookings?**", (route) =>
     route.abort("failed"),
   );
-  await page.getByLabel("Appointment date", { exact: true }).fill(day());
+  await chooseCalendarDate(page, day());
   await expect(
     page.getByRole("button", { name: "Retry workspace", exact: true }),
   ).toBeVisible();
@@ -303,7 +304,7 @@ async function populateCalendar(page: Page) {
     expect(result.status(), await result.text()).toBe(201);
     bookings.push((await result.json()).booking);
   }
-  await page.getByLabel("Appointment date", { exact: true }).fill(date);
+  await chooseCalendarDate(page, date);
   await page
     .getByRole("button", { name: "Day timetable", exact: true })
     .click();
@@ -390,6 +391,7 @@ test("E1 filters preserve barber colour and hidden occupancy; navigation keeps f
     name: /15 minute fictional client with/,
   });
   const colour = await event.getAttribute("class");
+  await openFilters(page);
   await page.getByLabel("Barber filter").selectOption(bookings[1].staff_id);
   await expect(event).toHaveAttribute("class", colour!);
   await openFilters(page);
@@ -410,8 +412,8 @@ test("E1 filters preserve barber colour and hidden occupancy; navigation keeps f
   );
   await page.getByRole("button", { name: "Previous day", exact: true }).click();
   await expect(
-    page.getByLabel("Appointment date", { exact: true }),
-  ).toHaveValue(day());
+    page.getByRole("button", { name: /^Choose appointment date,/ }),
+  ).toHaveAttribute("data-date", day());
   await page
     .getByRole("button", { name: "Clear filters", exact: true })
     .click();
@@ -427,8 +429,8 @@ test("E1 filters preserve barber colour and hidden occupancy; navigation keeps f
   await page.getByRole("button", { name: "Today", exact: true }).click();
   const w = await (await page.request.get(base + "/workspace")).json();
   await expect(
-    page.getByLabel("Appointment date", { exact: true }),
-  ).toHaveValue(w.today);
+    page.getByRole("button", { name: /^Choose appointment date,/ }),
+  ).toHaveAttribute("data-date", w.today);
 });
 
 test("E1 unavailable chair time distinguishes past, leave, breaks and shop closure", async ({
@@ -436,7 +438,7 @@ test("E1 unavailable chair time distinguishes past, leave, breaks and shop closu
 }) => {
   await enter(page);
   const w = await (await page.request.get(base + "/workspace")).json();
-  await page.getByLabel("Appointment date", { exact: true }).fill(day(-2));
+  await chooseCalendarDate(page, day(-2));
   await expect(page.locator(".timetable-slot:enabled")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: /09:00,.*Past time/ }),
@@ -449,8 +451,9 @@ test("E1 unavailable chair time distinguishes past, leave, breaks and shop closu
     },
   );
   expect(result.status()).toBe(201);
-  await page.getByLabel("Appointment date", { exact: true }).fill(day());
+  await chooseCalendarDate(page, day());
   // A day off hides the barber from the scheduled team by default; add them back to see the greyed column.
+  await openFilters(page);
   await page.getByTestId("team-picker").click();
   await page.getByRole("dialog", { name: "Scheduled team" }).getByLabel(new RegExp(w.staff[0].name)).check();
   await page.getByRole("dialog", { name: "Scheduled team" }).getByRole("button", { name: "Done" }).click();
@@ -610,8 +613,8 @@ test("rebooking creates a separately priced visit and opens its saved day withou
     .click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(
-    page.getByLabel("Appointment date", { exact: true }),
-  ).toHaveValue(target);
+    page.getByRole("button", { name: /^Choose appointment date,/ }),
+  ).toHaveAttribute("data-date", target);
   const created = (
     await (await page.request.get(base + "/bookings?date=" + target)).json()
   ).bookings;
@@ -624,7 +627,7 @@ test("rebooking creates a separately priced visit and opens its saved day withou
       .booking,
   ).toEqual(original);
   await page.reload();
-  await page.getByLabel("Appointment date", { exact: true }).fill(target);
+  await chooseCalendarDate(page, target);
   await expect(
     page.getByRole("button", { name: /^5 minute fictional client with/ }),
   ).toBeVisible();
@@ -838,7 +841,7 @@ for (const width of [390, 1440])
     const page = await context.newPage();
     try {
       await enter(page);
-      await page.getByLabel("Appointment date", { exact: true }).fill(day());
+      await chooseCalendarDate(page, day());
       await page
         .getByRole("button", { name: "Day timetable", exact: true })
         .click();
@@ -906,7 +909,7 @@ test("week view shows the seven-day load per barber, drills into a day, and open
   await nextHead.click();
   await expect(page.getByRole("button", { name: "Day timetable", exact: true })).toHaveAttribute("aria-pressed", "true");
   expect(label).toContain("Open day timetable");
-  expect(await page.getByLabel("Appointment date", { exact: true }).inputValue()).not.toBe(date);
+  expect(await page.getByRole("button", { name: /^Choose appointment date,/ }).getAttribute("data-date")).not.toBe(date);
   // Accessibility of the week view at desktop width.
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole("button", { name: "Week", exact: true }).click();
@@ -987,6 +990,7 @@ test("walk-in: seats someone now with no phone, lands on today's timetable as WA
   const dayHours = JSON.parse(w.shop.week_json)[new Date(w.today + "T12:00:00Z").getUTCDay()];
   test.skip(!dayHours.enabled || nowMin < dayHours.starts || nowMin > dayHours.ends - 60, "walk-ins only make sense during opening hours");
   const before = (await (await page.request.get(base + "/customers")).json()).customers.length;
+  await openFilters(page);
   await page.getByTestId("walk-in").click();
   const dlg = page.getByRole("dialog");
   await expect(dlg.getByRole("heading", { name: "Walk-in" })).toBeVisible();

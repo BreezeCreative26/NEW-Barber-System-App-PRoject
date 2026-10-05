@@ -5,6 +5,7 @@ import {
   type ReactNode,
   type ButtonHTMLAttributes,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowDownToLine,
   Rows3,
@@ -280,6 +281,30 @@ export function Badge({
     </span>
   );
 }
+// Keep overlay keyboard focus contained and restore the launching control on close.
+export function useDialogFocus<T extends HTMLElement>(onClose: () => void) {
+  const root = useRef<T>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const controls = () => Array.from(root.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]') || []).filter(el => el.getClientRects().length > 0);
+    controls()[0]?.focus();
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); close.current(); }
+      if (event.key !== "Tab") return;
+      const list = controls(), first = list[0], last = list[list.length - 1];
+      if (!first) { event.preventDefault(); return; }
+      if (!root.current?.contains(document.activeElement) || (event.shiftKey && document.activeElement === first)) {
+        event.preventDefault(); (event.shiftKey ? last : first).focus();
+      } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("keydown", key); if (previous?.isConnected) previous.focus(); };
+  }, []);
+  return root;
+}
+
 // The product brand. With a `shop`, the workspace wears the shop's own identity (their logo or
 // initial, their name) and foliyo steps back to a "Powered by" line — it should feel like their
 // software. Without a shop (sign-in, invites, marketing) it is the foliyo wordmark.
@@ -499,7 +524,7 @@ export function TopBar({
   accountOpen?: boolean;
   search?: string;
   wallet?: { amount: string; caption: string; open?: boolean } | null;
-  queue?: { count: number; offered: number; open?: boolean } | null;
+  queue?: { count: number; offered: number; open?: boolean; loading?: boolean; error?: boolean } | null;
   bell?: { count: number; open?: boolean } | null;
   account?: { initials: string; name: string; caption: string; online?: boolean; logo?: string; logoTone?: string } | null;
   shop?: { name: string; logo?: string | null; tone?: string } | null;
@@ -530,7 +555,7 @@ export function TopBar({
       {wallet && (
         <button type="button" className="wallet-chip" onClick={onWallet} aria-expanded={wallet.open ? "true" : "false"} aria-label={`Wallet: ${wallet.amount} ${wallet.caption}`} data-testid="wallet-chip">
           <span className="chip-ic"><Icon name="wallet" size={15} /></span>
-          <span><b>{wallet.amount}</b><small>{wallet.caption}</small></span>
+          <span className="wallet-chip-text"><b>{wallet.amount}</b><small>{wallet.caption}</small></span>
           <Icon name="down" size={14} />
         </button>
       )}
@@ -540,11 +565,11 @@ export function TopBar({
           className={`queue-chip ${queue.offered ? "has-offers" : ""}`}
           onClick={onQueue}
           aria-expanded={queue.open ? "true" : "false"}
-          aria-label={`Waiting list: ${queue.count} waiting${queue.offered ? `, ${queue.offered} offer${queue.offered === 1 ? "" : "s"} pending` : ""}`}
+          aria-label={queue.error ? "Waiting list: could not load" : queue.loading ? "Waiting list: loading" : `Waiting list: ${queue.count} waiting${queue.offered ? `, ${queue.offered} offer${queue.offered === 1 ? "" : "s"} pending` : ""}`}
           data-testid="queue-chip"
         >
           <span className="chip-ic"><Icon name="hourglass" size={15} /></span>
-          <span><b>{queue.count}</b><small>{queue.offered ? `${queue.offered} offered` : "waiting"}</small></span>
+          <span className="queue-chip-text"><b>{queue.error ? "!" : queue.loading ? "…" : queue.count}</b><small>{queue.error ? "Retry" : "Waiting list"}</small></span>
           {queue.offered > 0 && <span className="presence-dot offer-dot" aria-hidden="true" />}
         </button>
       )}
@@ -626,6 +651,52 @@ export function Sidebar({
   shop?: { name: string; logo?: string | null; tone?: string; caption?: string } | null;
   footer?: ReactNode;
 }) {
+  const [tip, setTip] = useState<{ label: string; left: number; top: number } | null>(null);
+  const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keepTip = () => {
+    if (tipTimer.current !== null) clearTimeout(tipTimer.current);
+  };
+  const hideTip = () => {
+    keepTip();
+    setTip(null);
+  };
+  const leaveTip = () => {
+    keepTip();
+    tipTimer.current = setTimeout(() => setTip(null), 120);
+  };
+  const showTip = (button: HTMLButtonElement, label: string) => {
+    keepTip();
+    // Tablets use the compact rail even when the desktop preference is expanded.
+    if (!window.matchMedia("(min-width: 768px)").matches ||
+        (button.closest("nav")?.getBoundingClientRect().width ?? 0) > 100) return;
+    const rect = button.getBoundingClientRect();
+    setTip({ label, left: rect.right + 10, top: Math.max(24, Math.min(innerHeight - 24, rect.top + rect.height / 2)) });
+  };
+  useEffect(() => {
+    setTip(null);
+  }, [collapsed, open, current]);
+  useEffect(() => {
+    const dismiss = () => setTip(null);
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dismiss();
+    };
+    const scroll = () => {
+      const focused = document.activeElement;
+      // Focusing a lower action scrolls it into view; keep its keyboard label in sync.
+      if (focused instanceof HTMLButtonElement && focused.matches(".sidebar-item:focus-visible")) {
+        showTip(focused, focused.getAttribute("aria-label") || "");
+      } else dismiss();
+    };
+    window.addEventListener("resize", dismiss);
+    window.addEventListener("scroll", scroll, true);
+    window.addEventListener("keydown", escape);
+    return () => {
+      if (tipTimer.current !== null) clearTimeout(tipTimer.current);
+      window.removeEventListener("resize", dismiss);
+      window.removeEventListener("scroll", scroll, true);
+      window.removeEventListener("keydown", escape);
+    };
+  }, []);
   const render = (n: NavItem) => (
     <button
       key={n.key}
@@ -633,15 +704,18 @@ export function Sidebar({
       className="sidebar-item"
       aria-current={current === n.key ? "page" : undefined}
       aria-label={n.label}
-      title={collapsed ? n.label : undefined}
+      onPointerEnter={event => showTip(event.currentTarget, n.label)}
+      onPointerLeave={leaveTip}
+      onFocus={event => showTip(event.currentTarget, n.label)}
+      onBlur={hideTip}
       onClick={() => {
+        hideTip();
         onSelect(n.key);
         onClose?.();
       }}
     >
       <Icon name={n.icon} />
       <span className="sidebar-label">{n.label}</span>
-      <span className="rail-tip" aria-hidden="true">{n.label}</span>
     </button>
   );
   return (
@@ -660,7 +734,8 @@ export function Sidebar({
             className="sidebar-toggle"
             onClick={onToggle}
             aria-label={collapsed ? "Expand menu" : "Collapse menu"}
-            aria-pressed={collapsed ? "true" : "false"}
+            aria-expanded={!collapsed}
+            title={collapsed ? "Expand menu" : "Collapse menu"}
             data-testid="sidebar-toggle"
           >
             <Icon name={collapsed ? "panelOpen" : "panelClose"} size={18} />
@@ -671,15 +746,24 @@ export function Sidebar({
             </button>
           )}
         </div>
-        <div className="sidebar-items">{items.map(render)}</div>
-        {bottom && bottom.length > 0 && (
-          <>
-            <span className="rail-spacer" />
-            <div className="sidebar-items sidebar-bottom">{bottom.map(render)}</div>
-          </>
-        )}
-        {footer && <div className="sidebar-foot">{footer}</div>}
+        <div className="sidebar-scroll">
+          <div className="sidebar-items">{items.map(render)}</div>
+          {bottom && bottom.length > 0 && (
+            <>
+              <span className="rail-spacer" />
+              <div className="sidebar-items sidebar-bottom">{bottom.map(render)}</div>
+            </>
+          )}
+          {footer && <div className="sidebar-foot">{footer}</div>}
+        </div>
       </nav>
+      {tip && createPortal(
+        <span className="sidebar-tooltip" aria-hidden="true"
+          style={{ left: tip.left, top: tip.top }}
+          onPointerEnter={keepTip} onPointerLeave={leaveTip}>
+          {tip.label}
+        </span>, document.body,
+      )}
     </>
   );
 }

@@ -50,8 +50,8 @@ export const decisionSchema = z.object({
   version: z.number().int(),
   action: z.enum(["MOVE", "KEEP", "CANCEL", "WAITLIST", "LATER"]),
   notify: z.boolean().default(true),
-  move_to: z.object({ staff_id: z.string().uuid(), date: dateSchema, start_min: z.number().int().min(0).max(1425) }).optional(),
-});
+  move_to: z.object({ staff_id: z.string().uuid(), date: dateSchema, start_min: z.number().int().min(0).max(1425).refine(v => v % 15 === 0) }).optional(),
+}).refine(d => d.action !== "MOVE" || !!d.move_to, { message: "Choose a target for the move", path: ["move_to"] });
 export type Decision = z.infer<typeof decisionSchema>;
 
 export type Suggestion = { staff_id: string; staff_name: string; date: string; start_min: number; same_barber: boolean; same_day: boolean };
@@ -81,7 +81,7 @@ async function loadRoster(db: DB, shop: Shop, from: string, to: string): Promise
     db.prepare("SELECT * FROM staff_blocks WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, from, to),
     db.prepare("SELECT * FROM staff_service_rules WHERE shop_id=?").bind(sid),
     db.prepare(
-      "SELECT b.*, cu.contact_pref, cu.email AS customer_email FROM bookings b LEFT JOIN customers cu ON cu.id=b.customer_id WHERE b.shop_id=? AND b.date BETWEEN ? AND ? AND b.status IN ('CONFIRMED','CHECKED_IN') ORDER BY b.date, b.start_min",
+      "SELECT b.*, cu.contact_pref, cu.email AS customer_email FROM bookings b LEFT JOIN customers cu ON cu.id=b.customer_id WHERE b.shop_id=? AND b.date BETWEEN ? AND ? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE','COMPLETED') ORDER BY b.date, b.start_min",
     ).bind(sid, from, to),
   ]);
   return {
@@ -126,7 +126,7 @@ function reasonFor(r: Roster, b: StoredBooking, now: number, excludeBlocks = fal
     r.overrides.find((o) => o.staff_id === b.staff_id && o.date === b.date) ?? null,
   );
   // Evaluate the booking against the schedule only (not other bookings, not "time has passed").
-  const why = slotReason(r.shop, staff, hours, r.holidays, [], b.date, b.start_min, b.duration_min, 0, b.id, r.daysOff, excludeBlocks ? [] : r.blocks);
+  const why = slotReason(r.shop, staff, hours, r.holidays, [], b.date, b.start_min, b.duration_min, 0, b.id, r.daysOff, excludeBlocks ? [] : r.blocks, b.buffer_min);
   return why === "Time has passed" ? "" : why;
 }
 
@@ -138,15 +138,13 @@ function window(change: ScheduleChange, today: string): { from: string; to: stri
 
 function suggest(r: Roster, b: StoredBooking, max = 3): Suggestion[] {
   const out: Suggestion[] = [];
-  const buf = 0; // slotReason applies the shop buffer itself
-  void buf;
   const others = r.staff.filter((s) => s.active && s.id !== b.staff_id && !r.rules.some((x) => x.staff_id === s.id && x.service_id === b.service_id && !x.enabled));
   const tryDay = (staff: Staff, date: string, fromMin: number) => {
     const hours = effectiveHours(r.hours.find((h) => h.staff_id === staff.id && h.weekday === weekday(date)) ?? null, r.overrides.find((o) => o.staff_id === staff.id && o.date === date) ?? null);
     const dayBookings = r.bookings.filter((x) => x.staff_id === staff.id && x.date === date && x.id !== b.id);
     const day = shopDay(r.shop, weekday(date));
     for (let m = Math.max(0, fromMin); m < Math.min(1440, day.ends); m += 15) {
-      if (!slotReason(r.shop, staff, hours, r.holidays, dayBookings, date, m, b.duration_min, Date.now(), b.id, r.daysOff, r.blocks)) return m;
+      if (!slotReason(r.shop, staff, hours, r.holidays, dayBookings, date, m, b.duration_min, Date.now(), b.id, r.daysOff, r.blocks, b.buffer_min)) return m;
     }
     return null;
   };
@@ -199,6 +197,7 @@ export async function previewChange(db: DB, shop: Shop, today: string, change: S
   const msgShopRow = await msgShop({ env: { DB: db } }, shop.id).catch(() => null);
   const conflicts: Conflict[] = [];
   for (const b of patched.bookings) {
+    if (!["CONFIRMED", "CHECKED_IN"].includes(b.status)) continue;
     if (b.date < win.from || b.date > win.to) continue;
     if (b.start_at <= now) continue;
     const before = reasonFor(roster, b, now);
@@ -271,9 +270,10 @@ export async function applyDecisions(
       } else if (d.action === "MOVE" && d.move_to) {
         const target = roster.staff.find((s) => s.id === d.move_to!.staff_id);
         if (!target) throw new Error("Barber not found");
+        if (roster.rules.some(r => r.staff_id === target.id && r.service_id === b.service_id && r.enabled === 0)) throw new Error("Barber does not offer this service");
         const hours = effectiveHours(roster.hours.find((h) => h.staff_id === target.id && h.weekday === weekday(d.move_to!.date)) ?? null, roster.overrides.find((o) => o.staff_id === target.id && o.date === d.move_to!.date) ?? null);
         const dayBookings = roster.bookings.filter((x) => x.staff_id === target.id && x.date === d.move_to!.date && x.id !== b.id);
-        const bad = slotReason(shop, target, hours, roster.holidays, dayBookings, d.move_to.date, d.move_to.start_min, b.duration_min, Date.now(), b.id, roster.daysOff, roster.blocks);
+        const bad = slotReason(shop, target, hours, roster.holidays, dayBookings, d.move_to.date, d.move_to.start_min, b.duration_min, Date.now(), b.id, roster.daysOff, roster.blocks, b.buffer_min);
         if (bad) throw new Error(bad);
         const start = localInstant(d.move_to.date, d.move_to.start_min, shop.timezone)!;
         const r = await db.batch([

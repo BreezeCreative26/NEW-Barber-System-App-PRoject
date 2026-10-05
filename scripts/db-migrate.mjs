@@ -8,7 +8,10 @@ config({ path: ".env.local" });
 config();
 const url = process.env.DIRECT_URL || process.env.DATABASE_URL;
 if (!url) throw new Error("DIRECT_URL / DATABASE_URL not set");
+if (new URL(url).port === "6543") throw new Error("Migrations require a direct/session connection, not the transaction pooler on port 6543");
 const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {} });
+await sql`SELECT pg_advisory_lock(734892001)`;
+try {
 await sql.unsafe("CREATE TABLE IF NOT EXISTS ollo_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())");
 const done = new Set((await sql`select name from ollo_migrations`).map((r) => r.name));
 const dir = new URL("../src/db/migrations/", import.meta.url);
@@ -21,5 +24,8 @@ for (const f of readdirSync(dir).filter((n) => n.endsWith(".sql")).sort()) {
   });
   console.log("ok");
 }
-await sql.end();
+} finally {
+  await sql`SELECT pg_advisory_unlock(734892001)`;
+  await sql.end();
+}
 console.log("migrations up to date");

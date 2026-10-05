@@ -1,3 +1,4 @@
+import { clientIp } from "./security";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { alertOwners } from "./alerts";
@@ -68,11 +69,7 @@ export const datePlus = (date: string, days: number) => {
   return d.toISOString().slice(0, 10);
 };
 export function clientKey(c: Ctx) {
-  return (
-    c.req.header("cf-connecting-ip") ||
-    c.req.header("x-forwarded-for")?.split(",")[0].trim() ||
-    "local"
-  );
+  return clientIp(c.req);
 }
 export async function throttle(c: Ctx, action: string, identity: string, max = 20) {
   const now = Date.now();
@@ -603,18 +600,20 @@ pub.post("/shops/:slug/waitlist", async (c) => {
       .first();
     if (!staff) fail(404, "Barber is not available");
   }
-  const id = uid(),
-    now = Date.now();
-  await c.env.DB.batch([
-    c.env.DB.prepare(
-      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,date_to,daypart,from_min,to_min,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shop_id,date,phone,service_id) DO UPDATE SET staff_id=excluded.staff_id,date_to=excluded.date_to,daypart=excluded.daypart,from_min=excluded.from_min,to_min=excluded.to_min,notes=excluded.notes,customer_name=excluded.customer_name,email=excluded.email,status='OPEN',version=waitlist_entries.version+1,updated_at=excluded.updated_at",
-    ).bind(id, shop.id, b.staff_id, b.service_id, b.customer_name, b.phone, b.email, b.date, dateTo, daypart, fromMin, toMin, b.notes, now, now),
-    audit(c, "waitlist", id, "WAITLIST_JOINED", `Customer asked to be contacted for ${wl.fmtRange(b.date, dateTo)} (${wl.fmtWindow(fromMin, toMin)}). Confirmation queued, not sent.`),
-  ]);
+  const now = Date.now();
   const q = await shopWithQueue(c, shop.id);
-  const stored = await c.env.DB.prepare("SELECT id FROM waitlist_entries WHERE shop_id=? AND date=? AND phone=? AND service_id=?").bind(shop.id, b.date, b.phone, b.service_id).first<{ id: string }>();
-  await queueMessage(c, q, b, "waitlist_joined", render(templatesOf(q).waitlist_joined, { first: b.customer_name.split(" ")[0], shop: shop.name, date: wl.fmtRange(b.date, dateTo), daypart: wl.fmtWindow(fromMin, toMin) }), { type: "waitlist", id: stored?.id ?? id }).run();
-  await drainSoon(c, 1, { type: "waitlist", id: stored?.id ?? id });
+  const storedId = await c.env.DB.transaction(async tx => {
+    const stored = await tx.prepare(
+      "INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,date_to,daypart,from_min,to_min,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shop_id,date,phone,service_id) DO UPDATE SET staff_id=excluded.staff_id,date_to=excluded.date_to,daypart=excluded.daypart,from_min=excluded.from_min,to_min=excluded.to_min,notes=excluded.notes,customer_name=excluded.customer_name,email=excluded.email,status='OPEN',offer_id=NULL,booking_id=NULL,version=waitlist_entries.version+1,updated_at=excluded.updated_at RETURNING id",
+    ).bind(uid(), shop.id, b.staff_id, b.service_id, b.customer_name, b.phone, b.email, b.date, dateTo, daypart, fromMin, toMin, b.notes, now, now).first<{ id: string }>();
+    await tx.batch([
+      tx.prepare("UPDATE waitlist_offers SET status='SUPERSEDED',responded_at=? WHERE shop_id=? AND entry_id=? AND status='PENDING'").bind(now, shop.id, stored!.id),
+      audit(c, "waitlist", stored!.id, "WAITLIST_JOINED", `Customer asked to be contacted for ${wl.fmtRange(b.date, dateTo)} (${wl.fmtWindow(fromMin, toMin)}).`),
+      queueMessage(c, q, b, "waitlist_joined", render(templatesOf(q).waitlist_joined, { first: b.customer_name.split(" ")[0], shop: shop.name, date: wl.fmtRange(b.date, dateTo), daypart: wl.fmtWindow(fromMin, toMin) }), { type: "waitlist", id: stored!.id }),
+    ]);
+    return stored!.id;
+  });
+  await drainSoon(c, 1, { type: "waitlist", id: storedId });
   return c.json({ ok: true, date: b.date, date_to: dateTo, daypart, from_min: fromMin, to_min: toMin, auto_offer: !!q.waitlist_auto_offer, hold_min: q.waitlist_offer_hold_min, mode: q.waitlist_mode, delay_min: q.waitlist_delay_min }, 201);
 });
 
@@ -656,7 +655,7 @@ export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooki
     service: booking.service_name, barber: (staffName || "us").split(" ")[0], date: fmtDate(booking.date), time: fmtTime(booking.start_min), ref: ref(booking),
     address: shop.address, link, book_link: shopUrl(shop.slug!, "/book", origin), cancel_hours: booking.cancel_hours_snapshot,
     price: new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.price_pence / 100),
-    deposit_note: booking.deposit_policy_pence > 0 ? `deposit ${new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.deposit_policy_pence / 100)} payable in the shop` : "pay in the shop",
+    deposit_note: booking.deposit_status === "PAID" ? "Online payment received" : booking.deposit_status === "REFUNDED" ? "Online payment refunded" : booking.deposit_policy_pence > 0 ? `deposit ${new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.deposit_policy_pence / 100)} payable in the shop` : "pay in the shop",
   };
   const channels = channelsFor(shop, to, "AUTO", template === "booking_confirmed");
   const opts = { related: { type: "booking", id: booking.id }, origin };
@@ -698,7 +697,7 @@ pub.post("/shops/:slug/bookings", async (c) => {
   const { minStart, maxDate } = limits(shop);
   // Online deposit: hold the slot as PENDING and send the customer to Stripe Checkout. The
   // confirmation message goes out when the webhook (or the return trip) marks it paid.
-  const holdMin = depositsOnline(shop) ? (shop.deposit_hold_min || 15) : 0;
+  const holdMin = depositsOnline(shop) ? Math.max(30, shop.deposit_hold_min || 15) : 0;
   const result = await createBooking(
     c,
     { ...bk, source: "TEST_BOOKING" },
@@ -884,7 +883,7 @@ pub.get("/shops/:slug/group-availability", async (c) => {
           break;
         }
         chain.push({ staff_id: id, staff_name: st.name, start_min: cursor, price_pence: q.price_pence, duration_min: q.duration_min });
-        cursor = Math.ceil((cursor + q.duration_min + 10) / 15) * 15;
+        cursor = Math.ceil((cursor + q.duration_min + (shop.buffer_min ?? 10)) / 15) * 15;
       }
       if (ok) return { start_min, available: true, assignment: chain };
     }
@@ -963,9 +962,11 @@ async function offerByToken(c: Ctx) {
   const entry = (await c.env.DB.prepare("SELECT * FROM waitlist_entries WHERE id=?").bind(offer.entry_id).first<WaitlistRow>())!;
   const [staff, service] = await Promise.all([
     c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(shop.id, offer.staff_id).first<{ name: string }>(),
-    c.env.DB.prepare("SELECT name,price_pence,duration_min FROM services WHERE shop_id=? AND id=?").bind(shop.id, offer.service_id).first<{ name: string; price_pence: number; duration_min: number }>(),
+    c.env.DB.prepare("SELECT * FROM services WHERE shop_id=? AND id=?").bind(shop.id, offer.service_id).first<Service>(),
   ]);
-  return { shop, offer: fresh, entry, staffName: staff?.name ?? "", service };
+  const rule = await c.env.DB.prepare("SELECT * FROM staff_service_rules WHERE shop_id=? AND staff_id=? AND service_id=?").bind(shop.id, offer.staff_id, offer.service_id).first<StaffServiceRule>();
+  const quote = service ? calculateQuote(service, rule, [], [], []) : null;
+  return { shop, offer: fresh, entry, staffName: staff?.name ?? "", service: service && quote ? { ...service, price_pence: quote.price_pence, duration_min: quote.duration_min } : null };
 }
 const offerView = (o: OfferRow, entry: WaitlistRow, shop: Shop & Partial<BrandedShop>, staffName: string, service: { name: string; price_pence: number; duration_min: number } | null) => ({
   id: o.id,
@@ -1083,7 +1084,6 @@ export function customerView(b: StoredBooking, shop: Shop & Partial<BrandedShop>
   };
 }
 export async function googleReviewFollowUp(c: Ctx, shop: Shop, booking: StoredBooking, rating: number): Promise<string> {
-  if (rating < 4) return "";
   const page = await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ google_review_url: string }>();
   const link = page?.google_review_url || "";
   if (!link) return "";

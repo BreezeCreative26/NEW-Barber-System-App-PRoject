@@ -16,7 +16,8 @@ Supabase Storage for photos · Vercel for deploys and cron.
 ```bash
 cp .env.example .env          # fill in DATABASE_URL (pooler :6543), DIRECT_URL (:5432), Supabase URL + service key
 npm install
-npm run db:schema             # applies src/db/schema.sql (add -- --force to drop and recreate)
+npm run db:schema             # fresh database baseline only; --force destroys all existing data
+npm run db:migrate            # apply all incremental migrations before starting the app
 npm run build && npm run start
 node scripts/db-seed.mjs      # builds Northline Barbers (the demo shop): owner@demo.test / Demo1234!
 node scripts/smoke.mjs        # 29 end-to-end checks against the running server
@@ -27,7 +28,7 @@ Local dev without Supabase: run Postgres locally and point `DATABASE_URL`/`DIREC
 
 ## Schema changes
 
-`src/db/schema.sql` is the full schema for a fresh database. Changes to an existing database go in
+`src/db/schema.sql` is the fresh-database baseline; follow it with `npm run db:migrate`. Changes to an existing database go in
 `src/db/migrations/NNNN_name.sql` and are applied with `npm run db:migrate` (tracks applied files in
 `ollo_migrations`). Run it against Supabase after pulling a migration, before or right after deploy.
 
@@ -42,11 +43,12 @@ Local dev without Supabase: run Postgres locally and point `DATABASE_URL`/`DIREC
    `CLICKSEND_API_KEY`, `CRON_SECRET`. See `docs/GO_LIVE.md` for the click-by-click list.
 3. Push to `main` → production. Branches → preview URLs.
 4. Leave `DEMO_ENABLED` unset (or `0`) in production — it exposes the demo sign-in and the dev mailbox.
-5. **Check `/api/diag?ping=1` after every deploy.** It reports the Node version, region, commit,
+5. **Check `/api/diag?ping=1` after every deploy using `Authorization: Bearer <DIAGNOSTICS_SECRET>`.** It reports the Node version, region, commit,
    any missing required env vars, the database host and a live `SELECT 1` — a deploy that "builds
    fine but every page is a blank 500" is almost always an empty env var, and this tells you which.
-6. Run `npm run db:migrate` against Supabase whenever `src/db/migrations/` gains a file; the app does
-   not migrate on boot.
+6. Run `npm run db:migrate` as a controlled release step using a direct/session connection whenever
+   `src/db/migrations/` gains a file. Builds and boot do not run migrations; never share a production
+   database with branch previews. Migrations through 0042 are required for this remediation branch; it remains a draft, not a release.
 
 Production: https://new-barber-system-app-p-roject.vercel.app
 
@@ -72,21 +74,50 @@ tiers (STANDARD / FAST float), auto pay runs and the test-mode checklist: **`doc
 
 ## Front door, sign-up and shop setup
 
-`/` is a server-rendered marketing page (no JS, indexable, JSON-LD) with five "Create your shop"
-CTAs → `/signup` (shop name, kind — barbershop / hairdresser / salon —, name, email, password).
+`/` and `/barbers` are barbers-first server-rendered marketing pages (no application JS, indexable,
+JSON-LD), with signup CTAs → `/signup` (shop name, kind, name, email, password). They describe
+implemented calendars, walk-ins, services, shifts, waiting lists, payment records and website editing.
+The calendar illustration is labelled sample data; provider availability/fees are qualified, and no
+unverified testimonials, fixed all-in pricing or AI concierge claims are advertised.
 Visitors with an `ollo_session` cookie are sent straight to `/workspace`.
 
-A new owner lands in the **guided setup** at `/workspace/setup` — seven optional, resumable steps
-(state in `shops.setup_json`): shop contact + SMS/email verification · opening hours + bank
-holidays · starter service menu for the shop kind · team + invites · customer-message preview and
-"text/email me a test" · booking address with live availability check, QR and share card · deposit
-policy and Stripe Connect. "Finish later" drops to the calendar with a *Continue setup* banner until
+A new owner lands in the **guided setup** at `/workspace/setup` — nine resumable steps
+(state in `shops.setup_json`): shop contact + SMS/email verification · logo, cover and branding ·
+opening hours + optional England/Wales bank holidays · starter service menu · team + invites ·
+customer-message preview and tests · booking rules and terms · booking address, QR and share card ·
+deposit policy and Stripe Connect. Signup creates one owner/barber profile with Mon–Sat 09:00–18:00
+hours, not fictional services. Changes to shop opening hours preserve existing barber shifts.
+Step changes warn about unsaved inputs, and saving/uploading blocks navigation. Logo uploads accept
+PNG, JPEG and WebP up to 5 MB; brand saves preserve existing page text/styles and refuse to clear
+an unpublished website draft. Live provider and hosted-storage acceptance remain separate checks. "Finish later" drops to the calendar with a *Continue setup* banner until
 the wizard is completed or hidden. Code: `src/client/Setup.tsx`, `Setup2.tsx`, `src/server/setup.ts`.
 
 **Invites** (Setup → Team or Settings → Accounts): owners and managers invite onto a team profile by
 email, text, both, or a bare link (7 days, one use); resend re-issues the token; revoke withdraws it.
 The accept page (`/workspace?invite=…`) shows the shop, inviter and role before asking for a password.
 **Forgot password**: `/forgot` → email (+ text to the verified shop mobile for the owner) → `/reset`.
+
+## PWA identity and offline boundaries
+
+Owners and staff use the `/workspace` app; staff join through single-use, role-bound invitations.
+Invitation acceptance locks the pending invitation through membership creation and consumption;
+resend/revoke cannot silently reuse an accepted claim. LINK/SMS/BOTH invitations require separate
+email verification rather than treating a shared token as inbox proof. Customer accounts and
+sessions are separate from workspace identity and remain shop-scoped.
+
+The shared worker caches only public `/static/` assets in per-scope caches. It never caches HTML,
+API responses or uploaded media, retires unsafe legacy Foliyo caches, and shows an anonymous offline
+notice. Private records and booking changes require a connection; there is no offline write queue.
+Push navigation stays on the same origin and inside the installed shop scope without replacing
+another shop's tab. Customer logout revokes server push delivery for the device endpoint (or all
+of that customer's endpoints in this shop if unavailable), clears the session, closes displayed
+notifications and attempts device unsubscribe. Delivery already in flight may still arrive.
+
+Automated checks cover signup/role boundaries, invitation races, worker cache policy, malformed push
+payloads, and customer logout/stale-read recovery on shared and shop hosts. Physical Android/iOS
+installation, worker upgrades and real provider delivery remain release acceptance checks; this is
+not production security certification. Workspace sessions remain seven days; customer sessions
+currently remain one year and shared-device session policy/MFA warrant a separate release review.
 
 ## Operations
 
@@ -99,6 +130,25 @@ The accept page (`/workspace?invite=…`) shows the shop, inviter and role befor
   `SIGNUP_IP_LIMIT`, `LOGIN_IP_LIMIT`, `PUBLIC_READ_LIMIT` (test runners raise them).
 - **Retention**: the 5-minute sweep deletes delivered/skipped/failed notifications older than 180
   days; queued rows are never touched.
+
+## Calendar interface — responsive Foliyo refresh
+
+The workspace uses white/ink surfaces and electric-mint primary actions. The calendar toolbar keeps
+Today, date navigation, Day/Week/Agenda, size and New booking together. **Options** contains the
+barber filter, scheduled team, walk-in action, search/status filters and detailed day statistics.
+Phones use the existing bottom-bar booking action; short landscape screens omit the duplicate week
+strip while keeping date navigation. The date picker uses a two-column layout in landscape.
+
+`tests/ui-refresh.spec.ts` exercises the actual built frontend with isolated API fixtures: calendar
+controls, move/resize/undo request contracts, selected workspace screens, 320px phones, landscape,
+booking-form accessibility and homepage contrast. These checks do not prove database persistence,
+provider delivery or full production readiness. The broader audit below remains open.
+
+Owner settings now use a grouped section picker on phones/tablets and keyboard-navigable sections
+on desktop. `#settings/<section>` links survive reloads. Service/team editors protect dirty drafts
+and pending saves when switching records or sections; failed saves keep their inputs. Catalogue
+colour swatches match the calendar. The same isolated suite covers these admin workflows, including
+pricing-rule and category-rename failures; database-backed end-to-end acceptance remains separate.
 
 ## Calendar (Fresha-grade) — all four phases shipped
 
@@ -168,3 +218,44 @@ once per booking per channel) and the morning summaries.
 `app/` Next route handler → `src/index.tsx` Hono app → `src/server/*` routers and domain rules ·
 `src/db/` schema, client, storage · `src/client/` React app · `tests/` Playwright + vitest ·
 `scripts/` db apply/seed/smoke.
+
+## Audit remediation — review branch, not production approval
+
+See the current checklist at the top of `docs/AUDIT.md`. The audit is not fully closed.
+Authentication delivery requires `AUTH_DELIVERY_SECRET` (or `SESSION_SECRET`) of at least 32
+characters. Authentication messages are encrypted at rest and redacted from staff outboxes.
+Customer registration now requires `/account/register/start` followed by `/account/register`
+with the received six-digit `code`; existing API/browser fixtures must follow this protocol.
+Production authentication fails closed when its delivery provider is unavailable. Hosted previews
+never expose development codes. Platform admins must be explicitly provisioned in `platform_admins`
+for a verified user; the public-email bootstrap has been removed. MFA is a separate remaining gate.
+
+`npm run test:unit` includes in-memory Postgres regression tests (no external database/provider).
+`WRITE_EMAIL_EVIDENCE=1` opts into email preview file generation; ordinary tests do not rewrite them.
+The isolated browser checks are `npm run test:area -- tests/audit-registration.spec.ts` after building
+the client and installing the matching Playwright browser/dependencies. They mock network responses;
+they do not replace full end-to-end acceptance on an isolated deployed test database.
+
+
+## Foliyo fee administration (review branch)
+
+`/admin/fees` provides published B2B payment-fee defaults, per-shop overrides, zero-fee waivers,
+and an explicitly confirmed reset of all overrides. Only SUPER/FINANCE can change rates or issue
+fee corrections; SUPPORT is read-only. Changes require a reason and confirmation of agreement/notice.
+Booking and chair-payment quotes retain their original fee rates. Shop fees are capped at the payment
+amount. Fixed fees are GBP-only (other currencies receive percentage fees); correction credits are GBP-only.
+
+Owners/managers see their effective tariff in Settings → Payments and a current-month fee statement
+with CSV download. Period invoices carry a zero-value informational line for fees already deducted;
+they are not charged twice. These statements are not a VAT invoice for payment services: tax treatment
+and formal fee tax invoicing remain release gates. Corrections create bounded, idempotent credits against
+Foliyo billing, not haircut-customer refunds or withdrawable wallet cash. Internal reasons and provider
+costs are excluded from shop statements; tenant JSON excludes recorded Stripe fees. Shop balance reads
+are scoped to their connected account, never Foliyo's shared funding balance.
+
+Migration 0041 adds the proposed prefunding ledger schema; **the prefunding reservation engine,
+shop/barber allocation integration, accelerated transfer worker and refund reconciliation are not yet
+implemented**. Migration 0042 adds fee controls and transaction snapshots. No live migrations or provider
+operations have been performed. Historic payments predating the wallet ledger are not automatically
+backfilled into fee statements and need reconciliation. Keep PR #38 in draft until the remaining audit
+and wallet work in `docs/AUDIT.md` is completed.

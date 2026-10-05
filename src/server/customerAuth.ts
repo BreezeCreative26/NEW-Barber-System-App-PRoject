@@ -1,3 +1,4 @@
+import { testAuthEnabled, oneTimeCode, withDatabase, isPushEndpoint } from "./security";
 // Customer accounts v2: email + password sign-in for the shop's installable app, alongside the
 // one-time mobile code (kept as the recovery path and for people who never set a password).
 //
@@ -17,9 +18,9 @@ import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
 import { brandOf, emailSchema, phoneSchema, type Shop } from "./domain";
-import { digest, passwordHash, readInput, type AppEnv } from "./accounts";
+import { digest, passwordHash, matches, readInput, type AppEnv } from "./accounts";
 import { audit, fail } from "./sandbox";
-import { drain, enqueue, msgShop } from "./messaging";
+import { drain, enqueue, msgShop, providerStatus } from "./messaging";
 import { clientKey, shopBySlug, throttle, type Ctx } from "./public";
 import { pushStatus } from "./push";
 import { shopUrl, sessionCookieDomain } from "./hosts";
@@ -51,6 +52,7 @@ const registerSchema = z.object({
   phone: phoneSchema,
   email: requiredEmail,
   password: customerPassword,
+  code: z.string().regex(/^\d{6}$/, "Verify your mobile number first"),
   marketing_opt_in: z.union([z.literal(0), z.literal(1)]).default(0),
   contact_pref: z.enum(["AUTO", "EMAIL"]).default("AUTO"),
   // The shop's terms version shown and ticked on the sign-up form (0 when the shop has none).
@@ -60,7 +62,7 @@ const loginSchema = z.object({ email: requiredEmail, password: z.string().min(1)
 const forgotSchema = z.object({ email: requiredEmail }).strict();
 const resetSchema = z.object({ token: z.string().min(40).max(200), password: customerPassword }).strict();
 const changeSchema = z.object({ current: z.string().max(128).default(""), password: customerPassword }).strict();
-const pushSchema = z.object({ endpoint: z.string().url().max(2000), keys: z.object({ p256dh: z.string().min(20).max(400), auth: z.string().min(10).max(200) }) }).strict();
+const pushSchema = z.object({ endpoint: z.string().url().max(2000).refine(isPushEndpoint, "Unsupported push service"), keys: z.object({ p256dh: z.string().min(20).max(400), auth: z.string().min(10).max(200) }) }).strict();
 
 export function setSession(c: Ctx, raw: string) {
   setCookie(c, CUSTOMER_COOKIE, raw, { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: SESSION_TTL / 1000, ...(sessionCookieDomain() ? { domain: sessionCookieDomain()! } : {}) });
@@ -68,11 +70,19 @@ export function setSession(c: Ctx, raw: string) {
 export async function openSession(c: Ctx, shop: Shop, account: AccountRow, how: string) {
   const now = Date.now();
   const raw = uid() + uid();
-  await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE customer_accounts SET last_seen_at=? WHERE id=?").bind(now, account.id),
-    c.env.DB.prepare("INSERT INTO customer_sessions(token_hash,account_id,shop_id,created_at,expires_at) VALUES(?,?,?,?,?)").bind(await digest(raw), account.id, shop.id, now, now + SESSION_TTL),
-    audit(c, "customer_account", account.id, "CUSTOMER_SIGNED_IN", `Customer signed in online (${how}).`),
-  ]);
+  const context = c;
+  await c.env.DB.transaction(async tx => {
+    const c = withDatabase(context, tx);
+    // Lock the credential row until the session is written. A password rotation either
+    // revokes this session afterwards or makes this stale credential check fail.
+    const claimed = await tx.prepare("UPDATE customer_accounts SET last_seen_at=? WHERE id=? AND password_hash=? AND password_salt=? RETURNING id")
+      .bind(now, account.id, account.password_hash, account.password_salt).first();
+    if (!claimed) fail(409, "Account changed. Sign in again.");
+    await tx.batch([
+      tx.prepare("INSERT INTO customer_sessions(token_hash,account_id,shop_id,created_at,expires_at) VALUES(?,?,?,?,?)").bind(await digest(raw), account.id, shop.id, now, now + SESSION_TTL),
+      audit(c, "customer_account", account.id, "CUSTOMER_SIGNED_IN", `Customer signed in online (${how}).`),
+    ]);
+  });
   c.set("actor", `customer:${account.id}`);
   setSession(c, raw);
 }
@@ -87,28 +97,20 @@ const byEmail = (c: Ctx, email: string) => c.env.DB.prepare("SELECT * FROM custo
 const byPhone = (c: Ctx, phone: string) => c.env.DB.prepare("SELECT * FROM customer_accounts WHERE phone=?").bind(phone).first<AccountRow>();
 
 async function passwordOk(password: string, a: AccountRow | null) {
-  const actual = await passwordHash(password, a?.password_salt || "customer-unknown-constant-salt");
-  const expected = a?.password_hash || "0".repeat(64);
-  let delta = actual.length ^ expected.length;
-  for (let i = 0; i < Math.min(actual.length, expected.length); i++) delta |= actual.charCodeAt(i) ^ expected.charCodeAt(i);
-  return delta === 0 && !!a?.password_hash;
+  return matches(password, a);
 }
 
 // Create (or adopt) the global account for a booker. Used by /register and by the public booking
 // route so a first booking ends with an account. Returns the row and whether it was created now.
-export async function ensureAccount(c: Ctx, shop: Shop, who: { name: string; phone: string; email: string }, password?: string): Promise<{ account: AccountRow; created: boolean; conflict?: "email" }> {
+export async function ensureAccount(c: Ctx, shop: Shop, who: { name: string; phone: string; email: string }, password?: string, verifiedPhone?: string): Promise<{ account: AccountRow; created: boolean; conflict?: "email" }> {
   const now = Date.now();
+  const signedIn = await currentAccount(c, shop);
+  if (verifiedPhone !== who.phone && signedIn?.phone !== who.phone) fail(403, "Verify your mobile number first");
   let account = await byPhone(c, who.phone);
   const emailOwner = who.email ? await byEmail(c, who.email) : null;
   if (emailOwner && (!account || emailOwner.id !== account.id)) {
-    // The email already belongs to a different account (a different mobile). Don't merge silently.
-    if (account) return { account, created: false, conflict: "email" };
-    // No account for this phone but the email exists: adopt the phone onto that account only if it
-    // has no password yet (a code-only legacy account). Otherwise it's a conflict.
-    if (!emailOwner.password_hash) {
-      await c.env.DB.prepare("UPDATE customer_accounts SET phone=?, name=COALESCE(NULLIF(name,''),?), last_seen_at=? WHERE id=?").bind(who.phone, who.name, now, emailOwner.id).run().catch(() => null);
-      account = (await byPhone(c, who.phone)) ?? emailOwner;
-    } else return { account: emailOwner, created: false, conflict: "email" };
+    // Identifiers are never merged merely because a caller knows an email.
+    return { account: emailOwner, created: false, conflict: "email" };
   }
   let created = false;
   if (!account) {
@@ -186,15 +188,44 @@ export async function recordConsent(c: Ctx, shop: Shop, account: AccountRow, v: 
 
 export const customerAuth = new Hono<AppEnv>();
 
+customerAuth.post("/register/start", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug")!);
+  const b = await readInput(c, z.object({ phone: phoneSchema }).strict());
+  await throttle(c, "register-code-ip", clientKey(c), 20);
+  await throttle(c, "register-code-phone", b.phone, 5);
+  const live = providerStatus().sms.provider !== "mailbox";
+  if (!live && !testAuthEnabled()) fail(503, "Mobile verification is temporarily unavailable");
+  const code = oneTimeCode(), now = Date.now();
+  const ms = await msgShop(c, shop.id);
+  const messages = enqueue(c.env.DB, ms, { phone: b.phone }, "signin_code", { code }, { related: { type: "registration", id: b.phone }, origin: new URL(c.req.url).origin, channel: "SMS", force: true, now });
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO customer_otp(shop_id,phone,code_hash,expires_at,attempts,created_at) VALUES(?,?,?,?,0,?) ON CONFLICT(shop_id,phone) DO UPDATE SET code_hash=EXCLUDED.code_hash, expires_at=EXCLUDED.expires_at, attempts=0, created_at=EXCLUDED.created_at")
+      .bind(shop.id, b.phone, await digest(`${shop.id}:${b.phone}:${code}`), now + 600000, now), ...messages,
+  ]);
+  await drain(c.env.DB, messages.length, now, { type: "registration", id: b.phone });
+  return c.json({ ok: true, ...(!live && testAuthEnabled() ? { sandbox_code: code } : {}) }, 201);
+});
+
 customerAuth.post("/register", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug")!);
   const b = await readInput(c, registerSchema);
   await throttle(c, "cust-register", `${shop.id}:${clientKey(c)}`, 20);
   const termsNeeded = !!shop.terms_text && (shop.terms_version || 0) > 0;
   if (termsNeeded && b.accept_terms_version !== shop.terms_version) fail(400, "Please accept the booking terms to create an account");
+  const now = Date.now();
+  const codeHash = await digest(`${shop.id}:${b.phone}:${b.code}`);
+  const otp = await c.env.DB.prepare("UPDATE customer_otp SET attempts=attempts+1 WHERE shop_id=? AND phone=? AND attempts<5 AND expires_at>? RETURNING code_hash")
+    .bind(shop.id, b.phone, now).first<{ code_hash: string }>();
+  if (!otp || otp.code_hash !== codeHash) fail(401, "The verification code is invalid or expired");
+  const context = c;
+  return c.env.DB.transaction(async tx => {
+  const c = withDatabase(context, tx);
+  const claimed = await tx.prepare("DELETE FROM customer_otp WHERE shop_id=? AND phone=? AND code_hash=? AND expires_at>? RETURNING phone")
+    .bind(shop.id, b.phone, codeHash, now).first();
+  if (!claimed) fail(409, "This verification code was already used");
   const existing = await byPhone(c, b.phone);
   if (existing?.password_hash) fail(409, "There's already an account for this mobile. Sign in, or reset your password.");
-  const { account, conflict } = await ensureAccount(c, shop, { name: b.name, phone: b.phone, email: b.email }, b.password);
+  const { account, conflict } = await ensureAccount(c, shop, { name: b.name, phone: b.phone, email: b.email }, b.password, b.phone);
   if (conflict === "email") fail(409, "That email is already used by another account. Sign in with it, or use a different email.");
   await c.env.DB.prepare("UPDATE customer_accounts SET name=?, email=? WHERE id=? AND password_set_at>=?").bind(b.name, b.email, account.id, Date.now() - 5000).run();
   // The shop's customer record carries the consent: how to message them, and whether marketing is
@@ -213,6 +244,7 @@ customerAuth.post("/register", async (c) => {
     if (welcome.length) { await c.env.DB.batch(welcome); await drain(c.env.DB, welcome.length, Date.now(), { type: "customer_account", id: account.id }).catch(() => {}); }
   } catch { /* the account stands even if the welcome cannot be queued */ }
   return c.json({ ok: true, new_account: true }, 201);
+  });
 });
 
 customerAuth.post("/login", async (c) => {
@@ -225,6 +257,12 @@ customerAuth.post("/login", async (c) => {
     if (account && !account.password_hash) fail(409, "This account signs in with a mobile code. Use \u201cText me a code\u201d, or set a password from Forgot password.");
     fail(401, "Email or password is not right.");
   }
+  if (account && !account.password_hash.startsWith("pbkdf2-sha256$")) {
+    const upgraded = await passwordHash(b.password, account.password_salt);
+    const r = await c.env.DB.prepare("UPDATE customer_accounts SET password_hash=? WHERE id=? AND password_hash=?").bind(upgraded, account.id, account.password_hash).run();
+    if (!r.meta.changes) fail(409, "Account changed. Sign in again.");
+    account.password_hash = upgraded;
+  }
   await openSession(c, shop, account!, "email + password");
   return c.json({ ok: true }, 201);
 });
@@ -233,6 +271,7 @@ customerAuth.post("/forgot", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug")!);
   const b = await readInput(c, forgotSchema);
   await throttle(c, "cust-forgot", `${shop.id}:${clientKey(c)}`, 10);
+  if (!process.env.RESEND_API_KEY && !testAuthEnabled()) fail(503, "Email recovery is temporarily unavailable");
   const account = await byEmail(c, b.email);
   const now = Date.now();
   const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
@@ -244,7 +283,7 @@ customerAuth.post("/forgot", async (c) => {
     await c.env.DB.batch([...stmts, audit(c, "customer_account", account.id, "CUSTOMER_RESET_REQUESTED", "Customer asked for a password reset link.")]);
     if (stmts.length) await drain(c.env.DB, stmts.length, now, { type: "customer_account", id: account.id }).catch(() => {});
     const live = !!process.env.RESEND_API_KEY;
-    return c.json({ ok: true, ...(live ? {} : { sandbox_token: token }) }, 201);
+    return c.json({ ok: true, ...(!live && testAuthEnabled() ? { sandbox_token: token } : {}) }, 201);
   }
   return c.json({ ok: true }, 201);
 });
@@ -255,19 +294,30 @@ customerAuth.post("/reset", async (c) => {
   const b = await readInput(c, resetSchema);
   await throttle(c, "cust-reset", `${shop.id}:${clientKey(c)}`, 20);
   const now = Date.now();
-  const row = await c.env.DB.prepare("SELECT t.*, a.email FROM customer_reset_tokens t JOIN customer_accounts a ON a.id=t.account_id WHERE t.token_hash=? AND t.used_at IS NULL AND t.expires_at>?").bind(await digest(b.token), now).first<{ account_id: string; purpose: "RESET" | "WELCOME"; email: string }>();
+  const row = await c.env.DB.prepare("SELECT t.*, a.email FROM customer_reset_tokens t JOIN customer_accounts a ON a.id=t.account_id WHERE t.token_hash=? AND t.used_at IS NULL AND t.expires_at>? AND t.shop_id=?").bind(await digest(b.token), now, shop.id).first<{ account_id: string; purpose: "RESET" | "WELCOME"; email: string }>();
   if (!row) fail(409, "That link has expired or was already used. Ask for a new one.");
   const salt = uid() + uid();
+  const encoded = await passwordHash(b.password, salt);
+  const context = c;
+  return c.env.DB.transaction(async tx => {
+  const c = withDatabase(context, tx);
+  // All credential/session/push writes lock the account before dependent rows.
+  await tx.prepare("SELECT id FROM customer_accounts WHERE id=? FOR UPDATE").bind(row!.account_id).first();
   await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE customer_accounts SET password_hash=?, password_salt=?, password_set_at=?, email_verified=CASE WHEN ?='WELCOME' THEN 1 ELSE email_verified END, version=version+1 WHERE id=?").bind(await passwordHash(b.password, salt), salt, now, row!.purpose, row!.account_id),
-    c.env.DB.prepare("UPDATE customer_reset_tokens SET used_at=? WHERE token_hash=?").bind(now, await digest(b.token)),
-    // A reset signs every other device out.
+    c.env.DB.prepare("UPDATE customer_reset_tokens SET used_at=? WHERE token_hash=? AND used_at IS NULL AND expires_at>? AND shop_id=?").bind(Date.now(), await digest(b.token), Date.now(), shop.id),
+    c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
+    c.env.DB.prepare("DELETE FROM account_assertions"),
+    c.env.DB.prepare("UPDATE customer_accounts SET password_hash=?, password_salt=?, password_set_at=?, email_verified=CASE WHEN ?='WELCOME' THEN 1 ELSE email_verified END, version=version+1 WHERE id=?").bind(encoded, salt, now, row!.purpose, row!.account_id),
+    // Account credentials are global, so revoke sessions and push across every shop.
     c.env.DB.prepare("DELETE FROM customer_sessions WHERE account_id=?").bind(row!.account_id),
+    c.env.DB.prepare("DELETE FROM customer_push_subscriptions WHERE account_id=?").bind(row!.account_id),
+    c.env.DB.prepare("DELETE FROM customer_reset_tokens WHERE account_id=? AND used_at IS NULL").bind(row!.account_id),
     audit(c, "customer_account", row!.account_id, row!.purpose === "WELCOME" ? "CUSTOMER_PASSWORD_SET" : "CUSTOMER_PASSWORD_RESET", row!.purpose === "WELCOME" ? "Customer set their first password." : "Customer reset their password; other sessions signed out."),
   ]);
   const account = (await c.env.DB.prepare("SELECT * FROM customer_accounts WHERE id=?").bind(row!.account_id).first<AccountRow>())!;
   await openSession(c, shop, account, row!.purpose === "WELCOME" ? "welcome link" : "reset link");
   return c.json({ ok: true, email: account.email }, 201);
+  });
 });
 
 customerAuth.put("/password", async (c) => {
@@ -278,11 +328,24 @@ customerAuth.put("/password", async (c) => {
   if (account.password_hash && !(await passwordOk(b.current, account))) fail(401, "Your current password is not right.");
   const salt = uid() + uid();
   const now = Date.now();
-  await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE customer_accounts SET password_hash=?, password_salt=?, password_set_at=?, version=version+1 WHERE id=?").bind(await passwordHash(b.password, salt), salt, now, account.id),
-    audit(c, "customer_account", account.id, "CUSTOMER_PASSWORD_CHANGED", account.password_hash ? "Customer changed their password." : "Customer set a password."),
-  ]);
-  return c.json({ ok: true });
+  const encoded = await passwordHash(b.password, salt);
+  const context = c;
+  return c.env.DB.transaction(async tx => {
+    const c = withDatabase(context, tx);
+    await tx.prepare("SELECT id FROM customer_accounts WHERE id=? FOR UPDATE").bind(account.id).first();
+    const current = await currentAccount(c, shop);
+    if (!current || current.password_hash !== account.password_hash || current.password_salt !== account.password_salt)
+      fail(409, "Account changed. Sign in again.");
+    await tx.batch([
+      tx.prepare("UPDATE customer_accounts SET password_hash=?, password_salt=?, password_set_at=?, version=version+1 WHERE id=?").bind(encoded, salt, now, account.id),
+      tx.prepare("DELETE FROM customer_sessions WHERE account_id=?").bind(account.id),
+      tx.prepare("DELETE FROM customer_push_subscriptions WHERE account_id=?").bind(account.id),
+      tx.prepare("DELETE FROM customer_reset_tokens WHERE account_id=?").bind(account.id),
+      audit(c, "customer_account", account.id, "CUSTOMER_PASSWORD_CHANGED", account.password_hash ? "Customer changed their password." : "Customer set a password."),
+    ]);
+    await openSession(c, shop, { ...account, password_hash: encoded, password_salt: salt }, "password changed");
+    return c.json({ ok: true });
+  });
 });
 
 // ---- Push subscriptions -----------------------------------------------------------
@@ -300,10 +363,17 @@ customerAuth.post("/push", async (c) => {
   if (!account) return fail(401, "Sign in first");
   const b = await readInput(c, pushSchema);
   const now = Date.now();
-  await c.env.DB.prepare(
-    "INSERT INTO customer_push_subscriptions(id,account_id,shop_id,endpoint,p256dh,auth,user_agent,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT (shop_id,endpoint) DO UPDATE SET account_id=EXCLUDED.account_id, p256dh=EXCLUDED.p256dh, auth=EXCLUDED.auth, failures=0",
-  ).bind(uid(), account.id, shop.id, b.endpoint, b.keys.p256dh, b.keys.auth, (c.req.header("user-agent") || "").slice(0, 200), now).run();
-  await c.env.DB.batch([audit(c, "customer_account", account.id, "CUSTOMER_PUSH_ON", "Customer turned on app notifications.")]);
+  const context = c;
+  await c.env.DB.transaction(async tx => {
+    const c = withDatabase(context, tx);
+    await tx.prepare("SELECT id FROM customer_accounts WHERE id=? FOR UPDATE").bind(account.id).first();
+    // Recheck after the lock: logout/reset may have revoked the earlier session.
+    if (!(await currentAccount(c, shop))) fail(401, "Sign in first");
+    await tx.prepare(
+      "INSERT INTO customer_push_subscriptions(id,account_id,shop_id,endpoint,p256dh,auth,user_agent,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT (shop_id,endpoint) DO UPDATE SET account_id=EXCLUDED.account_id, p256dh=EXCLUDED.p256dh, auth=EXCLUDED.auth, failures=0",
+    ).bind(uid(), account.id, shop.id, b.endpoint, b.keys.p256dh, b.keys.auth, (c.req.header("user-agent") || "").slice(0, 200), now).run();
+    await tx.batch([audit(c, "customer_account", account.id, "CUSTOMER_PUSH_ON", "Customer turned on app notifications.")]);
+  });
   return c.json({ ok: true }, 201);
 });
 customerAuth.delete("/push", async (c) => {

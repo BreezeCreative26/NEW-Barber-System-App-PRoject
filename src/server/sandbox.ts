@@ -1,3 +1,5 @@
+import { effectiveFee, feeStatement, feeStatementCsv, quotedFeeAmount } from "./fees";
+import { publicShop, redactNotification, redactProviderCosts, testAuthEnabled } from "./security";
 import { reportRequestError } from "./telemetry";
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
@@ -100,6 +102,12 @@ import accounts, {
 type Env = AppEnv;
 type Ctx = Context<Env>;
 const sandbox = new Hono<Env>();
+sandbox.use("*", async (c, next) => {
+  await next();
+  if (c.res.headers.get("content-type")?.includes("application/json")) {
+    c.res = new Response(JSON.stringify(redactProviderCosts(await c.res.json())), c.res);
+  }
+});
 const id = () => crypto.randomUUID();
 const hash = async (text: string) =>
   Array.from(
@@ -110,7 +118,7 @@ const hash = async (text: string) =>
     .map((v) => v.toString(16).padStart(2, "0"))
     .join("");
 export const fail = (
-  status: 400 | 401 | 402 | 403 | 404 | 409 | 413 | 429,
+  status: 400 | 401 | 402 | 403 | 404 | 409 | 413 | 429 | 503,
   message: string,
 ): never => {
   throw new HTTPException(status, { message });
@@ -277,7 +285,7 @@ sandbox.use("*", async (c, next) => {
       (["PUT", "DELETE"].includes(method) && path === "/shop/page/draft") ||
       (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/reviews", "/shop/waitlist", "/shop/messaging", "/shop/payments", "/shop/alerts", "/shop/voice"].includes(path)) ||
       (method === "GET" && (path === "/shop/alerts" || path.startsWith("/shop/voice"))) ||
-      (method === "GET" && ["/wallets", "/wallets.csv"].includes(path)) ||
+      (method === "GET" && ["/wallets", "/wallets.csv", "/shop/fees/statement", "/shop/fees/statement.csv"].includes(path)) ||
       (method === "POST" && path === "/shop/voice/rotate") ||
       (method === "POST" && ["/notifications/test", "/notifications/sweep", "/shop/payments/connect"].includes(path)) ||
       (method === "POST" && /^\/notifications\/[^/]+\/resend$/.test(path)) ||
@@ -305,6 +313,7 @@ export function handleError(err: Error, c: Ctx) {
     return c.json({ error: err.code || "stripe_error", message: err.message }, status);
   }
   const message = String(err);
+  if (message.includes("account_assertions")) return c.json({ error: "record_changed", message: "This request was already used or changed. Refresh and try again." }, 409);
   const known = [
     "account_changed",
     "invitation_unavailable",
@@ -411,7 +420,7 @@ sandbox.get("/insights", async (c) => {
       `SELECT COUNT(*) AS n, SUM(price_pence) AS value FROM bookings WHERE shop_id=? AND date>? AND status IN ('CONFIRMED','CHECKED_IN') AND (? IS NULL OR staff_id=?)`,
     ).bind(sid, today, assigned, assigned),
     c.env.DB.prepare(
-      `SELECT COUNT(*) AS n FROM waitlist_entries WHERE shop_id=? AND status='OPEN' AND date>=?`,
+      `SELECT COUNT(*) AS n FROM waitlist_entries WHERE shop_id=? AND status='OPEN' AND date_to>=?`,
     ).bind(sid, today),
   ]);
   return c.json({
@@ -687,7 +696,7 @@ sandbox.get("/workspace", async (c) => {
       .all<Payment>()
   ).results;
   return c.json({
-    shop,
+    shop: publicShop(shop),
     logo_url: (result[11].results[0] as { logo_url?: string } | undefined)?.logo_url || "",
     logo_tone: (result[11].results[0] as { logo_tone?: string } | undefined)?.logo_tone || "",
     account,
@@ -773,13 +782,17 @@ sandbox.get("/shop/page", async (c) => {
   const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(c.get("shopId")).first<ShopPage>();
   return c.json({ page: row ?? defaultShopPage(c.get("shopId")) });
 });
+// The live version and draft timestamp form one compare-and-swap revision. Missing
+// expectations mean "no draft", so older settings screens cannot erase a draft.
+const expectedDraftAt = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable().default(null);
+const pageWriteSchema = shopPageSchema.extend({ expected_draft_at: expectedDraftAt });
 sandbox.put("/shop/page", async (c) => {
-  const b = await input(c, shopPageSchema);
+  const { expected_draft_at, ...b } = await input(c, pageWriteSchema);
   const sid = c.get("shopId");
   const now = Date.now();
   const existing = await c.env.DB.prepare("SELECT version FROM shop_pages WHERE shop_id=?").bind(sid).first<{ version: number }>();
   if (existing && existing.version !== b.version) fail(409, "record_changed");
-  if (!existing && b.version !== 0) fail(409, "record_changed");
+  if (!existing && (b.version !== 0 || expected_draft_at !== null)) fail(409, "record_changed");
   const sections = JSON.stringify([...new Set(b.sections)]);
   // Tone of the logo being saved: measured at upload for our own media, measured now for an
   // external URL (best effort, 4s), blank when there is no logo. Stored alongside so every
@@ -792,33 +805,49 @@ sandbox.put("/shop/page", async (c) => {
   const copy = JSON.stringify(Object.fromEntries(Object.entries(b.copy).filter(([, v]) => !!v && v.trim())));
   const stmt = existing
     ? c.env.DB.prepare(
-        "UPDATE shop_pages SET copy_json=?,element_styles_json=?,draft_json=NULL,draft_updated_at=NULL,logo_tone=?,primary_hex=?,secondary_hex=?,variants_json=?,strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
-      ).bind(copy, elementStyles, tone, primary, secondary, variants, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version)
+        "UPDATE shop_pages SET copy_json=?,element_styles_json=?,draft_json=NULL,draft_updated_at=NULL,logo_tone=?,primary_hex=?,secondary_hex=?,variants_json=?,strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=? AND draft_updated_at IS NOT DISTINCT FROM ? RETURNING *",
+      ).bind(copy, elementStyles, tone, primary, secondary, variants, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version, expected_draft_at)
     : c.env.DB.prepare(
-        "INSERT INTO shop_pages(copy_json,element_styles_json,logo_tone,primary_hex,secondary_hex,variants_json,shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+        "INSERT INTO shop_pages(copy_json,element_styles_json,logo_tone,primary_hex,secondary_hex,variants_json,shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?) ON CONFLICT(shop_id) DO NOTHING RETURNING *",
       ).bind(copy, elementStyles, tone, primary, secondary, variants, sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now);
-  await checkVersionUpdate(c, stmt, audit(c, "shop", sid, "SHOP_PAGE_UPDATED", `${b.published ? "Published" : "Unpublished"}; ${b.sections.length} sections.`, true));
-  const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>();
-  return c.json({ page: row });
+  const result = await checkVersionUpdate(c, stmt, audit(c, "shop", sid, "SHOP_PAGE_UPDATED", `${b.published ? "Published" : "Unpublished"}; ${b.sections.length} sections.`, true));
+  // Return our own write snapshot, not a later read that might include another editor's draft.
+  return c.json({ page: result[0].results[0] });
 });
 // Website editor draft: autosaved as the owner works, never shown to customers. Publishing goes
 // through PUT /shop/page (which clears the draft).
 sandbox.put("/shop/page/draft", async (c) => {
-  const b = await input(c, shopPageSchema);
+  const { expected_draft_at, ...b } = await input(c, pageWriteSchema);
   const sid = c.get("shopId");
   const now = Date.now();
   const exists = await c.env.DB.prepare("SELECT 1 AS x FROM shop_pages WHERE shop_id=?").bind(sid).first();
   if (!exists) {
+    if (b.version !== 0 || expected_draft_at !== null) return fail(409, "Website changed in another editor. Load the latest draft before saving again.");
     const d = defaultShopPage(sid, now);
-    await c.env.DB.prepare("INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)")
+    await c.env.DB.prepare("INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?) ON CONFLICT(shop_id) DO NOTHING")
       .bind(sid, d.strapline, d.about, d.cover_url, d.logo_url, d.gallery_json, d.phone, d.email, d.instagram, d.map_url, d.transport_note, d.policy_text, d.sections_json, d.accent, d.theme_json, d.google_review_url, d.published, now).run();
   }
-  await c.env.DB.prepare("UPDATE shop_pages SET draft_json=?, draft_updated_at=? WHERE shop_id=?").bind(JSON.stringify(b), now, sid).run();
-  return c.json({ ok: true, draft_updated_at: now });
+  // Strictly advance even when two saves arrive in the same millisecond or the clock moves back.
+  const saved = await c.env.DB.prepare("UPDATE shop_pages SET draft_json=?, draft_updated_at=GREATEST(?, COALESCE(draft_updated_at,0)+1) WHERE shop_id=? AND version=? AND draft_updated_at IS NOT DISTINCT FROM ? RETURNING draft_updated_at")
+    .bind(JSON.stringify(b), now, sid, b.version, expected_draft_at).first<{ draft_updated_at: number }>();
+  if (!saved) return fail(409, "Website changed in another editor. Your local edits are kept; load the latest draft before saving again.");
+  return c.json({ ok: true, draft_updated_at: saved.draft_updated_at });
 });
 sandbox.delete("/shop/page/draft", async (c) => {
-  await c.env.DB.prepare("UPDATE shop_pages SET draft_json=NULL, draft_updated_at=NULL WHERE shop_id=?").bind(c.get("shopId")).run();
-  return c.json({ ok: true });
+  const b = await input(c, z.object({ version: z.number().int().min(0), expected_draft_at: expectedDraftAt }).strict());
+  const sid = c.get("shopId");
+  const page = await c.env.DB.transaction(async db => {
+    // Bumping the live version fences any delayed draft writes from before Discard.
+    const row = await db.prepare("UPDATE shop_pages SET draft_json=NULL, draft_updated_at=NULL, version=version+1 WHERE shop_id=? AND version=? AND draft_updated_at IS NOT DISTINCT FROM ? RETURNING *").bind(sid, b.version, b.expected_draft_at).first<ShopPage>();
+    if (row) return row;
+    const exists = await db.prepare("SELECT version FROM shop_pages WHERE shop_id=?").bind(sid).first();
+    if (exists || b.version !== 0 || b.expected_draft_at !== null) return fail(409, "Page changed elsewhere. Reload before discarding your draft.");
+    // Create a version fence even if Discard beat the first autosave.
+    const fresh = await db.prepare("INSERT INTO shop_pages(shop_id,version,updated_at) VALUES(?,1,?) ON CONFLICT(shop_id) DO NOTHING RETURNING *").bind(sid, Date.now()).first<ShopPage>();
+    if (!fresh) return fail(409, "Page changed elsewhere. Reload before discarding your draft.");
+    return fresh;
+  });
+  return c.json({ ok: true, page });
 });
 // Reviews: ask happy customers (4–5★ in-app) to repeat it on Google. Needs the Google link on the page.
 sandbox.put("/shop/reviews", async (c) => {
@@ -876,7 +905,7 @@ sandbox.put("/shop/online", async (c) => {
       fail(409, "slug_taken");
     throw err;
   }
-  return c.json({ shop: await readShop(c) });
+  return c.json({ shop: publicShop(await readShop(c)) });
 });
 // Customer directory derived from saved visits: grouped by normalised mobile number.
 // ---- Customers: editable profile rows plus SQL-derived visit statistics ----
@@ -939,7 +968,8 @@ sandbox.get("/customers", async (c) => {
   const searchBinds: unknown[] = [];
   for (const wd of words) {
     searchClauses.push("(c.name ILIKE '%'||?||'%' OR c.email ILIKE '%'||?||'%' OR c.tags ILIKE '%'||?||'%' OR c.notes ILIKE '%'||?||'%')");
-    searchBinds.push(wd, wd, wd, wd);
+    const literal = wd.replace(/[\\%_]/g, "\\$&");
+    searchBinds.push(literal, literal, literal, literal);
   }
   let searchSql = searchClauses.length ? searchClauses.join(" AND ") : "TRUE";
   if (digits.length >= 3) {
@@ -1150,12 +1180,18 @@ sandbox.post("/customers/:id/erase", async (c) => {
     c.env.DB.prepare("UPDATE waitlist_entries SET customer_name='Erased customer', phone=?, email='', notes='' WHERE shop_id=? AND phone=?").bind(tomb, sid, phone),
     c.env.DB.prepare("UPDATE booking_series SET customer_name='Erased customer', phone=? WHERE shop_id=? AND phone=?").bind(tomb, sid, phone),
     c.env.DB.prepare("UPDATE reviews SET display_name='Former customer', updated_at=? WHERE shop_id=? AND customer_id=?").bind(now, sid, current.id),
-    c.env.DB.prepare("UPDATE notifications SET recipient='' WHERE shop_id=? AND (recipient=? OR (?<>'' AND recipient=?))").bind(sid, phone, email, email),
+    c.env.DB.prepare("UPDATE notifications SET recipient='', body='', html='', subject='', status=CASE WHEN status IN ('QUEUED','SENDING') THEN 'SKIPPED' ELSE status END WHERE shop_id=? AND (recipient=? OR (?<>'' AND recipient=?))").bind(sid, phone, email, email),
     c.env.DB.prepare("DELETE FROM customer_otp WHERE shop_id=? AND phone=?").bind(sid, phone),
     c.env.DB.prepare("DELETE FROM customer_sessions WHERE shop_id=? AND account_id IN (SELECT account_id FROM customer_account_links WHERE shop_id=? AND customer_id=?)").bind(sid, sid, current.id),
     c.env.DB.prepare("DELETE FROM customer_account_links WHERE shop_id=? AND customer_id=?").bind(sid, current.id),
     audit(c, "customer", current.id, "CUSTOMER_ERASED", `Personal data erased on request. ${b.reason}`),
   ];
+  stmts.push(
+    c.env.DB.prepare("UPDATE wa_inbound SET phone='', body='' WHERE shop_id=? AND regexp_replace(phone,'[^0-9]','','g')=regexp_replace(?,'[^0-9]','','g')").bind(sid, phone),
+    c.env.DB.prepare("UPDATE voice_calls SET caller='',summary='',transcript='' WHERE shop_id=? AND regexp_replace(caller,'[^0-9]','','g')=regexp_replace(?,'[^0-9]','','g')").bind(sid, phone),
+    c.env.DB.prepare("DELETE FROM customer_push_subscriptions WHERE shop_id=? AND account_id IN (SELECT id FROM customer_accounts WHERE phone=?)").bind(sid, phone),
+    c.env.DB.prepare("DELETE FROM customer_reset_tokens WHERE shop_id=? AND account_id IN (SELECT id FROM customer_accounts WHERE phone=?)").bind(sid, phone),
+  );
   // Payment requests carry `sent_to` (phone or email the pay link went to).
   stmts.push(c.env.DB.prepare("UPDATE payment_requests SET sent_to='' WHERE shop_id=? AND (sent_to=? OR (?<>'' AND sent_to=?))").bind(sid, phone, email, email));
   try {
@@ -1209,11 +1245,11 @@ sandbox.get("/waitlist", async (c) => {
   const assigned = a?.role === "BARBER" ? a.staff_id : null;
   const statuses = p.data!.status === "ACTIVE" ? ["OPEN", "OFFERED"] : [p.data!.status];
   const rows = await c.env.DB.prepare(
-    `${queueSelect} WHERE w.shop_id=? AND w.status IN (${statuses.map(() => "?").join(",")}) AND (? IS NULL OR w.staff_id=? OR w.staff_id IS NULL) AND (? IS NULL OR w.date>=?) ORDER BY w.date, w.created_at LIMIT 200`,
+    `${queueSelect} WHERE w.shop_id=? AND w.status IN (${statuses.map(() => "?").join(",")}) AND (? IS NULL OR w.staff_id=? OR w.staff_id IS NULL) AND (? IS NULL OR w.date_to>=?) ORDER BY w.date, w.created_at LIMIT 200`,
   )
     .bind(c.get("shopId"), ...statuses, assigned, assigned, p.data!.from ?? null, p.data!.from ?? null)
     .all();
-  const counts = await c.env.DB.prepare("SELECT status, COUNT(*) AS n FROM waitlist_entries WHERE shop_id=? AND date>=? GROUP BY status").bind(c.get("shopId"), shopToday(shop.timezone)).all<{ status: string; n: number }>();
+  const counts = await c.env.DB.prepare("SELECT status, COUNT(*) AS n FROM waitlist_entries WHERE shop_id=? AND date_to>=? AND (? IS NULL OR staff_id=? OR staff_id IS NULL) GROUP BY status").bind(c.get("shopId"), shopToday(shop.timezone), assigned, assigned).all<{ status: string; n: number }>();
   return c.json({ waitlist: rows.results, counts: Object.fromEntries(counts.results.map((r) => [r.status, r.n])), settings: { auto_offer: shop.waitlist_auto_offer, hold_min: shop.waitlist_offer_hold_min, mode: shop.waitlist_mode, delay_min: shop.waitlist_delay_min } });
 });
 sandbox.get("/waitlist/:id/matches", async (c) => {
@@ -1221,9 +1257,10 @@ sandbox.get("/waitlist/:id/matches", async (c) => {
   const entry = await c.env.DB.prepare("SELECT * FROM waitlist_entries WHERE shop_id=? AND id=?").bind(shop.id, c.req.param("id")).first<WaitlistRow>();
   if (!entry) return fail(404, "Waitlist entry not found");
   const a = c.get("account");
+  if (entry.staff_id) scopeStaff(c, entry.staff_id);
   // Date-range entries: walk each day in the range (capped) and tag every match with its date.
   const matches: (Awaited<ReturnType<typeof matchesFor>>[number] & { date: string })[] = [];
-  for (const d of rangeDates(entry.date, entry.date_to || entry.date, 14)) {
+  for (const d of rangeDates(entry.date < shopToday(shop.timezone) ? shopToday(shop.timezone) : entry.date, entry.date_to || entry.date, 31)) {
     for (const m of await matchesFor(c, shop, entry, Date.now(), d)) if (a?.role !== "BARBER" || m.staff_id === a.staff_id) matches.push({ ...m, date: d });
   }
   return c.json({ entry, matches });
@@ -1259,15 +1296,29 @@ sandbox.post("/waitlist/:id/status", async (c) => {
       .strict(),
   );
   const now = Date.now();
-  await checkVersionUpdate(
-    c,
-    c.env.DB.prepare(
-      "UPDATE waitlist_entries SET status=?,booking_id=COALESCE(?,booking_id),offer_id=CASE WHEN ?='OPEN' THEN NULL ELSE offer_id END,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
-    ).bind(b.status, b.booking_id ?? null, b.status, now, c.get("shopId"), c.req.param("id"), b.version),
-    audit(c, "waitlist", c.req.param("id"), `WAITLIST_${b.status}`, b.booking_id ? `Linked to booking ${b.booking_id}.` : "", true),
-  );
-  // Any pending offer is superseded by the shop's decision.
-  await c.env.DB.prepare("UPDATE waitlist_offers SET status='SUPERSEDED',responded_at=? WHERE shop_id=? AND entry_id=? AND status='PENDING'").bind(now, c.get("shopId"), c.req.param("id")).run();
+  const sid = c.get("shopId");
+  await c.env.DB.transaction(async tx => {
+    const entry = await tx.prepare("SELECT * FROM waitlist_entries WHERE shop_id=? AND id=? FOR UPDATE").bind(sid, c.req.param("id")).first<WaitlistRow>();
+    if (!entry) return fail(404, "Waitlist entry not found");
+    if (entry.staff_id) scopeStaff(c, entry.staff_id);
+    if (entry.version !== b.version) fail(409, "record_changed");
+    if (entry.status === "BOOKED" || (b.status !== "OPEN" && !["OPEN", "OFFERED"].includes(entry.status))) fail(409, "invalid_transition");
+    if (b.status === "BOOKED") {
+      if (!b.booking_id) fail(400, "A booking is required");
+      const booking = await tx.prepare("SELECT * FROM bookings WHERE shop_id=? AND id=?").bind(sid, b.booking_id).first<StoredBooking>();
+      if (!booking || booking.phone !== entry.phone || booking.service_id !== entry.service_id || booking.status === "CANCELLED") return fail(409, "Booking does not match this waiting customer");
+      scopeStaff(c, booking.staff_id);
+    } else if (b.booking_id) fail(400, "Only booked entries can link a booking");
+    if (b.status === "OPEN") {
+      const shop = await tx.prepare("SELECT timezone FROM shops WHERE id=?").bind(sid).first<{ timezone: string }>();
+      if ((entry.date_to || entry.date) < shopToday(shop!.timezone)) fail(409, "The requested dates have passed");
+    }
+    await tx.batch([
+      tx.prepare("UPDATE waitlist_entries SET status=?,booking_id=?,offer_id=NULL,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(b.status, b.booking_id ?? null, now, sid, entry.id, b.version),
+      audit(c, "waitlist", entry.id, `WAITLIST_${b.status}`, b.booking_id ? `Linked to booking ${b.booking_id}.` : "", true),
+      tx.prepare("UPDATE waitlist_offers SET status='SUPERSEDED',responded_at=? WHERE shop_id=? AND entry_id=? AND status='PENDING'").bind(now, sid, entry.id),
+    ]);
+  });
   return c.json({ ok: true });
 });
 // Queue settings: auto-offer, hold time, message wording.
@@ -1292,7 +1343,7 @@ sandbox.put("/shop/waitlist", async (c) => {
     audit(c, "shop", c.get("shopId"), "WAITLIST_SETTINGS_UPDATED", `Waiting list ${b.waitlist_enabled ? "on" : "off"}; auto-notify ${b.waitlist_auto_offer ? "on" : "off"}; ${b.waitlist_mode === "EVERYONE" ? "tell everyone" : "next in line"}; wait ${b.waitlist_delay_min} min; hold ${b.waitlist_offer_hold_min} min.`, true),
   );
   const shop = await shopWithQueue(c, c.get("shopId"));
-  return c.json({ shop: await readShop(c), templates: templatesOf(shop), defaults: DEFAULT_TEMPLATES });
+  return c.json({ shop: publicShop(await readShop(c)), templates: templatesOf(shop), defaults: DEFAULT_TEMPLATES });
 });
 sandbox.get("/notifications", async (c) => {
   const p = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50), status: z.enum(["QUEUED", "SENDING", "SENT", "FAILED", "SKIPPED"]).optional() }).safeParse(c.req.query());
@@ -1306,7 +1357,7 @@ sandbox.get("/notifications", async (c) => {
   const shop = await shopWithQueue(c, c.get("shopId"));
   const ms = await msgShop(c, c.get("shopId"));
   return c.json({
-    notifications: rows.results,
+    notifications: rows.results.map(redactNotification),
     counts_30d: Object.fromEntries(counts.results.map((r) => [r.status, r.n])),
     providers: providerStatus(),
     messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "" },
@@ -1335,7 +1386,7 @@ sandbox.get("/notifications/inbound", async (c) => {
 sandbox.get("/notifications/:id", async (c) => {
   const row = await c.env.DB.prepare("SELECT * FROM notifications WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first();
   if (!row) fail(404, "Message not found");
-  return c.json({ notification: row });
+  return c.json({ notification: redactNotification(row!) });
 });
 const messagingSchema = z
   .object({
@@ -1479,9 +1530,9 @@ sandbox.post("/notifications/:id/resend", async (c) => {
 // Dev mailbox: every message this shop would have sent, with rendered email HTML. Only when the demo
 // is enabled (never in a production deployment with the demo off).
 sandbox.get("/dev/mailbox", async (c) => {
-  if ((process.env.DEMO_ENABLED ?? "") !== "1") fail(404, "Not found");
+  if (!testAuthEnabled()) fail(404, "Not found");
   const rows = await c.env.DB.prepare("SELECT id,channel,recipient,template,body,subject,html,status,provider,created_at,sent_at FROM notifications WHERE shop_id=? ORDER BY created_at DESC LIMIT 100").bind(c.get("shopId")).all();
-  return c.json({ messages: rows.results, templates: MESSAGE_TEMPLATES });
+  return c.json({ messages: rows.results.map(redactNotification), templates: MESSAGE_TEMPLATES });
 });
 // Manual sweep (also what the cron route calls).
 sandbox.post("/notifications/sweep", async (c) => {
@@ -1510,9 +1561,10 @@ sandbox.get("/shop/payments", async (c) => {
   const mine = a?.role === "BARBER" ? a.staff_id : null;
   const shopAcct = accounts.find((x) => x.owner_type === "SHOP") ?? null;
   const policy = await platformPolicy(c.env.DB);
+  const fees = await effectiveFee(c.env.DB, shop.id);
   return c.json({
     stripe: stripeStatus(),
-    platform: { fee_bps: policy.fee_bps, fee_fixed_pence: policy.fee_fixed_pence, fast_payouts: policy.fast_payouts },
+    platform: { fee_bps: fees.fee_bps, fee_fixed_pence: fees.fixed_pence, fast_payouts: policy.fast_payouts },
     settings: { deposits_online: shop.deposits_online ?? 0, deposit_hold_min: shop.deposit_hold_min ?? 15, payment_mode: shop.payment_mode ?? "DEPOSIT", deposit_pence: shop.deposit_pence, payout_tier: shop.payout_tier ?? "STANDARD", payrun_auto: shop.payrun_auto ?? "OFF", payrun_reserve_bps: shop.payrun_reserve_bps ?? 0, pay_show_owner_share: shop.pay_show_owner_share ?? 1 },
     shop_account: mine ? null : shopAcct && { ...shopAcct, state: accountState(shopAcct) },
     barbers: staff
@@ -1525,6 +1577,19 @@ sandbox.get("/shop/payments", async (c) => {
     payouts_ready: stripeLive() && stripeConnect() && !!shopAcct?.payouts_enabled,
     totals_30d: { ...(totals as object), ...(moved as object) },
   });
+});
+async function shopFeeStatement(c: Ctx) {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const today = new Date().toISOString().slice(0, 10);
+  return feeStatement(c.env.DB, c.get("shopId"), c.req.query("from") || today.slice(0, 7) + "-01", c.req.query("to") || today);
+}
+sandbox.get("/shop/fees/statement", async c => c.json(await shopFeeStatement(c)));
+sandbox.get("/shop/fees/statement.csv", async c => {
+  const statement = await shopFeeStatement(c);
+  if (statement.truncated) fail(400, "Choose a shorter range to export all fee entries");
+  c.header("Content-Type", "text/csv; charset=utf-8");
+  c.header("Content-Disposition", 'attachment; filename="foliyo-fees.csv"');
+  return c.body(feeStatementCsv(statement));
 });
 const paymentsSchema = z
   .object({
@@ -1631,7 +1696,8 @@ sandbox.get("/payments/wallet", async (c) => {
 sandbox.get("/payments/balance", async (c) => {
   requireRole(c, ["OWNER", "MANAGER"]);
   if (!stripeLive()) return c.json({ available_pence: 0, pending_pence: 0, live: false });
-  const b = await platformBalance().catch(() => null);
+  const account = await c.env.DB.prepare("SELECT id FROM connected_accounts WHERE shop_id=? AND owner_type='SHOP'").bind(c.get("shopId")).first<{ id: string }>();
+  const b = account ? await (await import("./stripe")).accountBalance(account.id).catch(() => null) : null;
   return c.json({ ...(b ?? { available_pence: 0, pending_pence: 0 }), live: !!b });
 });
 // ---- Card at the chair: pay link / QR and Terminal readers ---------------------------------------
@@ -2559,39 +2625,60 @@ sandbox.post("/schedule/apply", async (c) => {
   const staffName = "staff_id" in change ? (await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(sid, change.staff_id).first<{ name: string }>())?.name : undefined;
   const why = describeChange(change, staffName);
   const bookingAudit = (entity: string, entityId: string, action: string, reason: string) => audit(c, entity, entityId, action, reason, true);
+  // Re-read conflicts while holding the booking insert lock and existing booking rows.
+  // No schedule writes occur for omitted, duplicate, unrelated or stale decisions.
+  const changeId = await c.env.DB.transaction(async db => {
+    await db.prepare("SELECT ollo_lock_shop(?)").bind(sid).run();
+    await db.prepare("SELECT id FROM bookings WHERE shop_id=? AND status IN ('CONFIRMED','CHECKED_IN') ORDER BY id FOR UPDATE").bind(sid).all();
+    const currentShop = await db.prepare("SELECT * FROM shops WHERE id=?").bind(sid).first<Shop>();
+    const preview = await previewChange(db, currentShop!, shopToday(currentShop!.timezone), change);
+    const expected = new Map(preview.conflicts.map(b => [b.booking_id, b.version]));
+    const seen = new Set<string>();
+    for (const decision of body.decisions) {
+      if (seen.has(decision.booking_id)) fail(400, "Each appointment needs only one decision");
+      seen.add(decision.booking_id);
+      if (expected.get(decision.booking_id) !== decision.version) fail(409, "Appointments changed. Review the schedule conflicts again.");
+    }
+    if (seen.size !== expected.size) fail(409, "Review every affected appointment before saving this schedule change.");
+    const versioned = async (write: D1PreparedStatement, event: D1PreparedStatement) => {
+      const result = await db.batch([write, event]);
+      if (!result[0].meta.changes) fail(409, "record_changed");
+    };
   // 1. Write the schedule change itself (same guards as the individual endpoints).
   let changeId = "";
   if (change.kind === "override") {
     const b = change.change;
     changeId = change.override_id ?? id();
     const write = change.override_id
-      ? c.env.DB.prepare("UPDATE staff_schedule_overrides SET date=?,enabled=?,starts=?,ends=?,break_start=?,break_end=?,reason=?,version=version+1 WHERE shop_id=? AND staff_id=? AND id=? AND version=?").bind(b.date, b.enabled, b.starts, b.ends, b.break_start, b.break_end, b.reason, sid, change.staff_id, changeId, b.version ?? -1)
-      : c.env.DB.prepare("INSERT INTO staff_schedule_overrides(id,shop_id,staff_id,date,enabled,starts,ends,break_start,break_end,reason) VALUES(?,?,?,?,?,?,?,?,?,?)").bind(changeId, sid, change.staff_id, b.date, b.enabled, b.starts, b.ends, b.break_start, b.break_end, b.reason);
-    await checkVersionUpdate(c, write, audit(c, "schedule_override", changeId, change.override_id ? "DATED_HOURS_UPDATED" : "DATED_HOURS_CREATED", `${b.date}: ${b.reason}. ${body.decisions.length} appointment decision(s) applied.`, true));
+      ? db.prepare("UPDATE staff_schedule_overrides SET date=?,enabled=?,starts=?,ends=?,break_start=?,break_end=?,reason=?,version=version+1 WHERE shop_id=? AND staff_id=? AND id=? AND version=?").bind(b.date, b.enabled, b.starts, b.ends, b.break_start, b.break_end, b.reason, sid, change.staff_id, changeId, b.version ?? -1)
+      : db.prepare("INSERT INTO staff_schedule_overrides(id,shop_id,staff_id,date,enabled,starts,ends,break_start,break_end,reason) VALUES(?,?,?,?,?,?,?,?,?,?)").bind(changeId, sid, change.staff_id, b.date, b.enabled, b.starts, b.ends, b.break_start, b.break_end, b.reason);
+    await versioned(write, audit(c, "schedule_override", changeId, change.override_id ? "DATED_HOURS_UPDATED" : "DATED_HOURS_CREATED", `${b.date}: ${b.reason}. ${body.decisions.length} appointment decision(s) applied.`, true));
   } else if (change.kind === "weekly") {
     const b = change.change;
-    const writes = [c.env.DB.prepare("UPDATE staff SET version=version+1 WHERE shop_id=? AND id=? AND version=?").bind(sid, change.staff_id, b.version)];
+    const writes = [db.prepare("UPDATE staff SET version=version+1 WHERE shop_id=? AND id=? AND version=?").bind(sid, change.staff_id, b.version)];
     const operation = id();
-    writes.push(c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) SELECT ?,?,?,?,?,?,?,? WHERE changes()>0").bind(operation, sid, "staff", change.staff_id, "HOURS_UPDATED", c.get("actor"), `Weekly hours changed; ${body.decisions.length} appointment decision(s) applied.`, Date.now()));
-    for (const row of b.rows) writes.push(c.env.DB.prepare("UPDATE staff_hours SET enabled=?,starts=?,ends=?,break_start=?,break_end=? WHERE shop_id=? AND staff_id=? AND weekday=? AND EXISTS(SELECT 1 FROM audit_events WHERE id=? AND shop_id=?)").bind(row.enabled, row.starts, row.ends, row.break_start, row.break_end, sid, change.staff_id, row.weekday, operation, sid));
-    const result = await c.env.DB.batch(writes);
+    writes.push(db.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) SELECT ?,?,?,?,?,?,?,? WHERE changes()>0").bind(operation, sid, "staff", change.staff_id, "HOURS_UPDATED", c.get("actor"), `Weekly hours changed; ${body.decisions.length} appointment decision(s) applied.`, Date.now()));
+    for (const row of b.rows) writes.push(db.prepare("UPDATE staff_hours SET enabled=?,starts=?,ends=?,break_start=?,break_end=? WHERE shop_id=? AND staff_id=? AND weekday=? AND EXISTS(SELECT 1 FROM audit_events WHERE id=? AND shop_id=?)").bind(row.enabled, row.starts, row.ends, row.break_start, row.break_end, sid, change.staff_id, row.weekday, operation, sid));
+    const result = await db.batch(writes);
     if (!result[0].meta.changes) fail(409, "record_changed");
     changeId = operation;
   } else if (change.kind === "day_off") {
     changeId = id();
-    await c.env.DB.batch([
-      c.env.DB.prepare("INSERT INTO staff_days_off(id,shop_id,staff_id,date,reason,created_at) VALUES(?,?,?,?,?,?)").bind(changeId, sid, change.staff_id, change.change.date, change.change.reason, Date.now()),
+    await db.batch([
+      db.prepare("INSERT INTO staff_days_off(id,shop_id,staff_id,date,reason,created_at) VALUES(?,?,?,?,?,?)").bind(changeId, sid, change.staff_id, change.change.date, change.change.reason, Date.now()),
       audit(c, "staff_day_off", changeId, "DAY_OFF_ADDED", `${staffName}: ${change.change.date} — ${change.change.reason}. ${body.decisions.length} appointment decision(s) applied.`),
     ]);
   } else if (change.kind === "holiday") {
     changeId = id();
-    await c.env.DB.batch([
-      c.env.DB.prepare("INSERT INTO holidays(id,shop_id,date,label) VALUES(?,?,?,?)").bind(changeId, sid, change.change.date, change.change.label),
+    await db.batch([
+      db.prepare("INSERT INTO holidays(id,shop_id,date,label) VALUES(?,?,?,?)").bind(changeId, sid, change.change.date, change.change.label),
       audit(c, "holiday", changeId, "HOLIDAY_CREATED", `${change.change.date}: ${change.change.label}. ${body.decisions.length} appointment decision(s) applied.`),
     ]);
   } else {
     fail(400, "Use Settings to change opening hours");
   }
+    return changeId;
+  });
   // 2. Carry out the decisions.
   const origin = new URL(c.req.url).origin;
   const outcome = await applyDecisions(c, c.env.DB, shop, c.get("actor"), origin, why, change as ScheduleChange, body.decisions, bookingAudit);
@@ -2753,6 +2840,7 @@ sandbox.get("/availability", async (c) => {
               booking?.id,
               data.daysOff,
               data.blocks,
+              booking?.buffer_min,
             ),
     }));
   return c.json({
@@ -3001,7 +3089,7 @@ sandbox.patch("/bookings/:id/items", async (c) => {
   const edited = items.some((it, i) => it.price_pence !== quote.items[i].price_pence || it.duration_min !== quote.items[i].duration_min);
   // Roster + overlap for the new footprint (only re-checked when it grows or moves service).
   const reason = duration !== b.duration_min || body.service_id !== b.service_id
-    ? slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, b.date, b.start_min, duration, 0, b.id, data.daysOff, data.blocks)
+    ? slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, b.date, b.start_min, duration, 0, b.id, data.daysOff, data.blocks, b.buffer_min)
     : "";
   const overridden = !!reason && body.force && overridable(reason);
   if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
@@ -3141,11 +3229,11 @@ sandbox.post("/bookings/:id/checkout", async (c) => {
   const ids: string[] = [];
   if (depositToPost > 0) {
     const pid = id();
-    const policy = await platformPolicy(c.env.DB);
+    const depositFee = await quotedFeeAmount(c.env.DB, shop.id, "BOOKING", b.id, depositToPost);
     statements.push(
       c.env.DB.prepare(
         "INSERT INTO payments(id,shop_id,booking_id,staff_id,customer_id,date,method,service_pence,tip_pence,discount_pence,commission_pct,note,recorded_by,created_at,stripe_payment_intent,platform_fee_pence) VALUES(?,?,?,?,?,?,'ONLINE',?,0,0,?,'Deposit paid by card at booking',?,?,?,?)",
-      ).bind(pid, c.get("shopId"), b.id, b.staff_id, b.customer_id, shopToday(shop.timezone, now), depositToPost, staff?.commission_pct ?? 50, "stripe", now, b.stripe_payment_intent || "", platformFee(depositToPost, policy)),
+      ).bind(pid, c.get("shopId"), b.id, b.staff_id, b.customer_id, shopToday(shop.timezone, now), depositToPost, staff?.commission_pct ?? 50, "stripe", now, b.stripe_payment_intent || "", depositFee),
     );
     statements.push(audit(c, "payment", pid, "PAYMENT_RECORDED", `ONLINE ${depositToPost}p deposit (paid at booking) for ${ref(b)}`));
   }
@@ -3626,6 +3714,7 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     b.id,
     data.daysOff,
     data.blocks,
+    b.buffer_min,
   );
   const moveInstant = localInstant(body.date, body.start_min, data.shop.timezone);
   const overridden = !!reason && body.force && overridable(reason) && moveInstant !== null && moveInstant >= Date.now();
@@ -3745,7 +3834,7 @@ sandbox.post("/series/:id/reschedule", async (c) => {
     try {
       const data = await availabilityContext(c, body.staff_id, b.service_id, date);
       if (data.rule?.enabled === 0) throw new Error("service_ineligible");
-      const reason = slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, date, body.start_min, b.duration_min, Date.now(), b.id, data.daysOff, data.blocks);
+      const reason = slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, date, body.start_min, b.duration_min, Date.now(), b.id, data.daysOff, data.blocks, b.buffer_min);
       if (reason) throw new Error(reason);
       const start = localInstant(date, body.start_min, data.shop.timezone)!;
       await checkVersionUpdate(

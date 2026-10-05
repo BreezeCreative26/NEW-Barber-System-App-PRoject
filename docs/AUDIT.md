@@ -1,3 +1,81 @@
+# Audit remediation status — 2026-10-04
+
+**Partial remediation only. Do not deploy this branch as a completed audit fix.**
+The numbers below refer to the 35 findings in the chat audit of baseline `625b71b`.
+“Implemented” means local code/tests, not verification of production configuration.
+
+| Finding | Current status |
+| --- | --- |
+| 1 Registration ownership | Implemented: phone challenge required, no email-only adoption; account and booking forms updated. Existing pre-remediation account provenance still needs investigation. |
+| 2 Authentication outbox | Implemented: encrypted new auth payloads, redacted staff responses. Rotate/revoke previously exposed credentials/tokens separately. |
+| 3 Production test-code fallback | Implemented: fail closed; demo codes only in non-hosted local development. |
+| 4 Admin email bootstrap | Implemented: removed; admins explicitly provisioned, verified login email required. MFA remains below. |
+| 5 Webhook receipt loss | Implemented: receipt and local effects transactionally commit or roll back. External side-effect reconciliation is still required. |
+| 6 Paid claim without ledger | Implemented: transactional settlement and failure rollback; full successful Stripe reconciliation acceptance remains. |
+| 7 Skipped payouts | Implemented: incomplete runs remain approved; scheduled retries. Exact frozen-payment allocation and provider fault-injection tests remain. |
+| 8 CSRF | Implemented: admin guard and exact-origin checks; no same-site shortcut. |
+| 9 Forwarded headers | Implemented internal-header stripping and removed Cloudflare-IP trust. Production proxy/IP guarantees need verification. |
+| 10 Integration secrets | Implemented sanitized shop responses. Previously exposed voice keys require rotation. |
+| 11 Recovery races | Implemented conditional token consumption, OTP attempt claims and dependent session cleanup. Complete all legacy browser recovery tests. |
+| 12 HTML injection | Implemented escaping of public-page titles. |
+| 13 Outbound URLs | Implemented push-provider allowlist and removal of arbitrary server-side logo fetching. Remote logos use monograms for app icons. |
+| 14 Webhook/cron fail-open | Implemented required secrets/keys. |
+| 15 Password security | Partial: versioned PBKDF2-SHA256 600k with legacy verification/login upgrade. MFA, breach-password screening and deployment capacity benchmarks remain. |
+| 16 Expiry mismatch | Partial: deposit holds use Stripe minimum and chair-link windows are closer. Late-paid cancellation/refund state machine remains. |
+| 17 Request creation idempotency | Open: persist provider-operation identity before checkout/Terminal side effects; reconcile ambiguous failures. |
+| 18 Refund/dispute ledger | Open: partial/pending/external refunds, dispute reversals and won-dispute restoration. |
+| 19 Credit notes | Implemented original-value tracking, locking and corrected credit limits. Stripe credit-note mirroring, VAT and amendment acceptance remain. |
+| 20 Invoice close/collection | Partial: failed shop closes no longer mark the period complete. Durable submission retries, adjustment transactions and due-date collection remain. |
+| 21 Historical billing | Partial: metered events use stored unit-price snapshots. Plan/seat/add-on/allowance history and proration remain. |
+| 22 Alternate booking paths | Partial: group buffer uses shop setting. Shared terms/deposit/payment/notification handling still open. |
+| 23 Entitlement enforcement | Open: centralized server write policy across all booking and operational entry points. |
+| 24 Concurrent messaging | Implemented conditional claim for queued/stale rows; tested with concurrent drainers. Provider idempotency/ambiguous-send reconciliation remains. |
+| 25 Reminder/copy | Implemented contact-preference lookup and paid/refunded deposit wording. |
+| 26 Job execution | Partial: Next after() lifecycle; cron runs the complete sweep. Bounded per-shop queues, checkpoints and alerting still required for scale. |
+| 27 Erasure/export | Partial: redact notification content and selected inbound/voice/push/reset stores. Merged records, alternate phone formats, audit-data policy and complete export inventory remain. |
+| 28 Retention | Implemented guarded deletion of aged terminal rows; auth payloads expire sooner. Queued/recent rows remain protected. |
+| 29 Account delete FKs | Implemented removal of reset/push dependants before account deletion. |
+| 30 Review gating | Implemented: removed rating threshold. |
+| 31 Migration safety | Partial: no build-time migrations, session advisory lock, direct-connection guard, aligned env precedence. Preview isolation and actual upgrade/rollback acceptance remain. |
+| 32 Test gate | Unit/lint repaired; embedded Postgres tests added. Targeted mocked-browser registration checks pass; broad legacy e2e fixtures need the verified-registration contract and explicit admin provisioning. |
+| 33 Dependency chain | Production PostCSS chain patched; production audit reports zero vulnerabilities. Dev-tool advisories require separate review. |
+| 34 Storage/diagnostics | Implemented protected detailed diagnostics, generic fatal errors, durable hosted-storage requirement, awaited bucket setup and deletion errors. Live storage failure testing remains. |
+| 35 Frontend | Partial: HTTPS image CSP aligned; new verification form tested at 390/1440 widths. Workspace decomposition, lazy-loading and CSS reduction remain. |
+
+## Added scope: prefunded wallets and published Foliyo fees
+
+- Prefunded shop → barber wallet model agreed. Migration 0041 is schema groundwork only: receipt journal,
+  risk and operation tables, payment snapshot guards. The funding/reservation engine, actual allocation
+  integration, wallet UI balances and safe accelerated transfer worker remain OPEN.
+- Admin fee controls implemented at `/admin/fees`: defaults, individual-shop overrides, zero-fee waiver,
+  explicitly confirmed all-shop reset, version conflicts, immutable quotes, audit reasons and notice attestation.
+- Corrections are capped, idempotent Foliyo billing account credits. They do NOT create wallet cash or
+  refund the haircut customer's card. Full financial reconciliation and fee tax invoices remain OPEN.
+- Fee statements show only advertised fees and credits; provider cost JSON fields are stripped from tenant
+  APIs. Removed the platform Stripe balance from shop APIs; only their own connected balance is exposed.
+- Period invoices include deducted fees as an informational zero-value line, not another amount due.
+  Local period issuance/adjustment consumption is now serialized transactionally. Provider submission,
+  due-date collection and broader invoice-credit races remain as listed above.
+- Fixed fees and correction credits support GBP only; non-GBP effective fees are percentage-only.
+  New statements do not automatically include payments before the wallet-ledger migration.
+
+## Evidence and release gates
+
+- TypeScript, UX lint, production build pass. 126 unit/database tests pass, including 20 isolated
+  Postgres regression tests; baseline schema plus every migration is exercised in memory.
+- Four isolated Playwright checks pass: two registration contracts (390px/1440px) plus finance/support
+  fee controls, form submissions and correction retry identity (mocked network). Registration checks cover:
+  verification required, error preserves input, phone change requires another challenge, no overflow.
+- No production database, provider, charges, messages, key rotation or deployment was performed.
+- New migrations: 0040 audit integrity, 0041 wallet schema, 0042 fee controls. No live application yet; use a controlled release step after remaining gates are closed.
+- Before production: verify Supabase Data API grants/RLS, backups and restore, rotate exposed secrets,
+  provision verified platform admins, resolve the commercial/merchant-of-record documentation and legal
+  placeholders, and complete the remaining financial + end-to-end acceptance work above.
+- Draft PR: https://github.com/BreezeCreative26/NEW-Barber-System-App-PRoject/pull/38 . Pushes work via
+  `git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push`; stored git credentials expired.
+
+---
+
 # foliyo product audit — 2026-09-16
 
 Method: signed in as owner, barber and customer on the running Next + Postgres build; walked every

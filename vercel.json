@@ -19,5 +19,5 @@
       "schedule": "15 2 * * *"
     }
   ],
-  "buildCommand": "npm run db:migrate && npm run build"
+  "buildCommand": "npm run build"
 }

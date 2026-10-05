@@ -104,18 +104,30 @@ function StatusLine({ state, onDiscard }: { state: LineState; onDiscard?: () => 
 }
 const isConflict = (err: unknown) => err instanceof Error && /changed in another view|record_changed/i.test(err.message);
 // Editors hold unsaved form state; leaving (close or tab switch) must be explicit when dirty.
-function useLeaveGuard(rootId: string) {
+function useLeaveGuard(rootId: string, onDiscard?: () => void) {
   const [pending, setPending] = useState<(() => void) | null>(null);
+  const [blocked, setBlocked] = useState(false);
+  const isSaving = () => !!document.getElementById(rootId)?.querySelector('form[aria-busy="true"]');
+  useEffect(() => {
+    if (!blocked) return;
+    const root = document.getElementById(rootId);
+    if (!root) { setBlocked(false); return; }
+    const observer = new MutationObserver(() => { if (!root.querySelector('form[aria-busy="true"]')) setBlocked(false); });
+    observer.observe(root, { attributes: true, subtree: true, attributeFilter: ["aria-busy"] });
+    return () => observer.disconnect();
+  }, [blocked, rootId]);
   const guarded = (fn: () => void) => () => {
+    if (isSaving()) { setBlocked(true); return; }
+    setBlocked(false);
     const dirty = document.getElementById(rootId)?.querySelector('[data-dirty="true"]');
     if (dirty) setPending(() => fn);
     else fn();
   };
-  const notice = pending ? (
+  const notice = blocked ? <p className="workspace-error studio-status" role="alert">A save is in progress. Wait for its result before leaving this section.</p> : pending ? (
     <div className="workspace-error studio-status" role="alert">
       <p>You have unsaved changes in this section.</p>
       <div className="panel-actions-row">
-        <Button variant="secondary" type="button" onClick={() => { const fn = pending; setPending(null); fn(); }}>
+        <Button variant="secondary" type="button" onClick={() => { if (isSaving()) { setBlocked(true); return; } const fn = pending; setPending(null); onDiscard?.(); fn(); }}>
           Discard changes and continue
         </Button>
         <Button variant="ghost" type="button" onClick={() => setPending(null)}>
@@ -153,6 +165,7 @@ export function RuleMatrix({
   }, [w, service?.id, staff?.id]);
   const [draft, setDraft] = useState<MatrixRow[]>(rows);
   const [busy, setBusy] = useState(false);
+  const saveLock = useRef(false);
   const [state, setState] = useState<LineState>(null);
   useEffect(() => setDraft(rows), [rows]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(rows);
@@ -163,9 +176,12 @@ export function RuleMatrix({
   return (
     <form
       className="rule-matrix"
+      aria-busy={busy}
       data-dirty={dirty ? "true" : undefined}
       onSubmit={async (e) => {
         e.preventDefault();
+        if (saveLock.current) return;
+        saveLock.current = true;
         setBusy(true);
         setState(null);
         try {
@@ -175,10 +191,12 @@ export function RuleMatrix({
         } catch (err) {
           setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save rules." });
         } finally {
+          saveLock.current = false;
           setBusy(false);
         }
       }}
     >
+      <fieldset className="studio-fieldset" disabled={busy}>
       <table className="matrix-table">
         <thead>
           <tr>
@@ -263,6 +281,7 @@ export function RuleMatrix({
         </div>
       </div>
       <StatusLine state={state} />
+      </fieldset>
     </form>
   );
 }
@@ -285,6 +304,7 @@ export function ServiceStudio({
 }) {
   const [selected, setSelected] = useState<string | "new" | null>(initialSelected);
   const [newCategory, setNewCategory] = useState(false);
+  const selection = useLeaveGuard("service-editor");
   useEffect(() => {
     if (initialSelected) setSelected(initialSelected);
   }, [initialSelected]);
@@ -301,16 +321,23 @@ export function ServiceStudio({
   const [query, setQuery] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const [renaming, setRenaming] = useState<{ from: string; to: string; error?: string } | null>(null);
+  const [renamingBusy, setRenamingBusy] = useState(false);
+  const renameLock = useRef(false);
   async function renameCategory() {
-    if (!renaming) return;
+    if (!renaming || renameLock.current) return;
     const to = renaming.to.trim();
     if (to.length < 2) return setRenaming({ ...renaming, error: "Use at least 2 characters." });
+    renameLock.current = true;
+    setRenamingBusy(true);
     try {
       await api("/services/categories/rename", "POST", { from: renaming.from, to });
       setRenaming(null);
       await refresh();
     } catch (e) {
       setRenaming({ ...renaming, error: e instanceof Error ? e.message : "Could not rename." });
+    } finally {
+      renameLock.current = false;
+      setRenamingBusy(false);
     }
   }
   const categories = useMemo(() => {
@@ -327,6 +354,7 @@ export function ServiceStudio({
   const upcoming = (s: Service) => w.bookings.filter((b) => b.service_id === s.id && ["CONFIRMED", "CHECKED_IN"].includes(b.status)).length;
   return (
     <div className={`studio ${selected ? "has-detail" : ""}`}>
+      {selection.notice && <div className="studio-selection-notice">{selection.notice}</div>}
       <section className="workspace-panel studio-list" aria-labelledby="service-studio-heading">
         <div className="workspace-section-heading">
           <div>
@@ -335,10 +363,10 @@ export function ServiceStudio({
               {w.services.filter((s) => s.active).length} live · {w.addons.filter((a) => a.active).length} add-ons · saved appointments keep their price snapshot
             </p>
           </div>
-          <Button onClick={() => setSelected("new")}>
+          <Button onClick={selection.guarded(() => setSelected("new"))}>
             <Icon name="plus" size={16} /> New service
           </Button>
-          <Button variant="secondary" onClick={() => { setNewCategory(true); setSelected("new"); }} data-testid="new-category">
+          <Button variant="secondary" onClick={selection.guarded(() => { setNewCategory(true); setSelected("new"); })} data-testid="new-category">
             <Icon name="plus" size={16} /> New category
           </Button>
         </div>
@@ -356,7 +384,7 @@ export function ServiceStudio({
             <Icon name="scissors" size={28} />
             <h3>Add your first service</h3>
             <p>Customers book a service, not a time. Start with what you do most — a cut, a fade, a beard trim — with its price and how long it takes. You can add barber-specific prices and add-ons later.</p>
-            <Button onClick={() => setSelected("new")} data-testid="add-first-service">
+            <Button onClick={selection.guarded(() => setSelected("new"))} data-testid="add-first-service">
               <Icon name="plus" size={16} /> Add a service
             </Button>
           </div>
@@ -368,6 +396,8 @@ export function ServiceStudio({
               {renaming?.from === cat ? (
                 <form
                   className="studio-rename"
+                  aria-busy={renamingBusy}
+                  data-dirty={renaming.to !== renaming.from ? "true" : undefined}
                   onSubmit={(e) => {
                     e.preventDefault();
                     void renameCategory();
@@ -376,13 +406,14 @@ export function ServiceStudio({
                   <input
                     aria-label={`Rename category ${cat}`}
                     value={renaming.to}
+                    disabled={renamingBusy}
                     autoFocus
                     maxLength={40}
                     onChange={(e) => setRenaming({ from: cat, to: e.target.value })}
-                    onKeyDown={(e) => e.key === "Escape" && setRenaming(null)}
+                    onKeyDown={(e) => e.key === "Escape" && !renamingBusy && setRenaming(null)}
                   />
-                  <Button type="submit" variant="secondary">Save</Button>
-                  <Button variant="ghost" onClick={() => setRenaming(null)}>Cancel</Button>
+                  <Button type="submit" variant="secondary" disabled={renamingBusy}>{renamingBusy ? "Saving…" : "Save"}</Button>
+                  <Button variant="ghost" disabled={renamingBusy} onClick={() => setRenaming(null)}>Cancel</Button>
                   {renaming.error && <span className="workspace-error" role="alert">{renaming.error}</span>}
                 </form>
               ) : (
@@ -399,7 +430,7 @@ export function ServiceStudio({
             <ul className="service-cards">
               {list.map((s) => (
                 <li key={s.id}>
-                  <button type="button" data-testid="service-card" className={`service-card ${s.colour} ${selected === s.id ? "selected" : ""} ${s.active ? "" : "inactive"}`} onClick={() => setSelected(s.id)} aria-current={selected === s.id ? "true" : undefined}>
+                  <button type="button" data-testid="service-card" className={`service-card ${s.colour} ${selected === s.id ? "selected" : ""} ${s.active ? "" : "inactive"}`} onClick={() => { if (selected !== s.id) selection.guarded(() => setSelected(s.id))(); }} aria-current={selected === s.id ? "true" : undefined}>
                     <span className="service-card-head">
                       <strong>{s.name}</strong>
                       {s.popular ? <span className="tag good">Popular</span> : null}
@@ -481,12 +512,13 @@ const serviceForm = (service: Service | null, fallbackCategory: string) => ({
 });
 function ServiceEditor({ w, api, service, onClose, onSaved, startNewCategory = false }: { w: WorkspaceData; api: Api; service: Service | null; onClose: () => void; onSaved: (id?: string) => Promise<WorkspaceData | undefined>; startNewCategory?: boolean }) {
   const [tab, setTabRaw] = useState<"details" | "barbers" | "addons">("details");
-  const { guarded, notice } = useLeaveGuard("service-editor");
+  const { guarded, notice } = useLeaveGuard("service-editor", () => { setForm(serviceForm(service, w.services[0]?.category ?? "Hair")); setState(null); });
   const setTab = (t: typeof tab) => guarded(() => setTabRaw(t))();
   const [form, setForm] = useState(() => serviceForm(service, startNewCategory ? "" : (w.services[0]?.category ?? "Hair")));
   const [customCategory, setCustomCategory] = useState(startNewCategory);
   const [locked, setLocked] = useState(false);
   const [busy, setBusy] = useState(false);
+  const saveLock = useRef(false);
   const [state, setState] = useState<LineState>(null);
   const categories = [...new Set(w.services.map((s) => s.category))];
   const offering = service ? w.staff.filter((b) => b.active && !w.service_rules.some((r) => r.staff_id === b.id && r.service_id === service.id && !r.enabled)) : [];
@@ -494,22 +526,7 @@ function ServiceEditor({ w, api, service, onClose, onSaved, startNewCategory = f
     ? w.service_rules.filter((r) => r.service_id === service.id && r.enabled && r.price_pence !== null).map((r) => r.price_pence as number)
     : [];
   const linkedAddons = service ? w.addons.filter((a) => w.addon_links.some((l) => l.addon_id === a.id && l.service_id === service.id)) : [];
-  const dirty = service
-    ? JSON.stringify(form) !==
-      JSON.stringify({
-        name: service.name,
-        category: service.category,
-        description: service.description,
-        duration_min: service.duration_min,
-        price_pence: service.price_pence,
-        colour: service.colour,
-        online_bookable: service.online_bookable,
-        payment_mode: service.payment_mode ?? null,
-        popular: service.popular,
-        active: service.active,
-        sort_order: service.sort_order,
-      })
-    : true;
+  const dirty = JSON.stringify(form) !== JSON.stringify(serviceForm(service, startNewCategory ? "" : (w.services[0]?.category ?? "Hair")));
   return (
     <section id="service-editor" className="workspace-panel studio-detail" aria-labelledby="service-editor-heading" data-testid="service-editor">
       <button type="button" className="panel-inline customer-back" onClick={guarded(onClose)}>
@@ -539,9 +556,12 @@ function ServiceEditor({ w, api, service, onClose, onSaved, startNewCategory = f
       {tab === "details" && (
         <form
           className="studio-form"
+          aria-busy={busy}
           data-dirty={dirty && !locked ? "true" : undefined}
           onSubmit={async (e) => {
             e.preventDefault();
+            if (saveLock.current) return;
+            saveLock.current = true;
             setBusy(true);
             setState(null);
             try {
@@ -564,10 +584,12 @@ function ServiceEditor({ w, api, service, onClose, onSaved, startNewCategory = f
             } catch (err) {
               setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save.", conflict: isConflict(err) });
             } finally {
+              saveLock.current = false;
               setBusy(false);
             }
           }}
         >
+          <fieldset className="studio-fieldset" disabled={busy || locked}>
           <div className="workspace-form-grid">
             <label className="workspace-field">
               <span>Service name</span>
@@ -673,7 +695,8 @@ function ServiceEditor({ w, api, service, onClose, onSaved, startNewCategory = f
               setState(null);
             }}
           />
-          <p className="workspace-footnote">Changing price or duration affects new quotes only. Buffer stays the shop-wide 10 minutes.</p>
+          <p className="workspace-footnote">Changing price or duration affects new quotes only. The gap between appointments is {w.shop.buffer_min || 0} minutes, managed in Diary &amp; policies.</p>
+          </fieldset>
         </form>
       )}
       {tab === "barbers" && service && <RuleMatrix w={w} api={api} service={service} onSaved={() => onSaved(service.id)} />}
@@ -719,6 +742,7 @@ export function BarberStudio({
   initialTab?: BarberTab | null;
 }) {
   const [selected, setSelected] = useState<string | "new" | null>(initialSelected);
+  const selection = useLeaveGuard("barber-editor");
   useEffect(() => {
     if (initialSelected) setSelected(initialSelected);
   }, [initialSelected]);
@@ -744,7 +768,7 @@ export function BarberStudio({
     return { count: mine.length, value: mine.reduce((n, b) => n + b.price_pence, 0) };
   };
   const workingToday = (s: Staff) => {
-    const row = w.hours.find((h) => h.staff_id === s.id && h.weekday === new Date(`${w.today}T12:00:00Z`).getUTCDay());
+    const row = w.schedule_overrides.find(o => o.staff_id === s.id && o.date === w.today) || w.hours.find((h) => h.staff_id === s.id && h.weekday === new Date(`${w.today}T12:00:00Z`).getUTCDay());
     const off = w.days_off.some((d) => d.staff_id === s.id && d.date === w.today);
     return !!row?.enabled && !off;
   };
@@ -753,6 +777,7 @@ export function BarberStudio({
   const selectedStaff = selected && selected !== "new" ? w.staff.find((s) => s.id === selected) || null : null;
   return (
     <div className={`studio ${selected ? "has-detail" : ""}`}>
+      {selection.notice && <div className="studio-selection-notice">{selection.notice}</div>}
       <section className="workspace-panel studio-list" aria-labelledby="team-heading">
         <div className="workspace-section-heading">
           <div>
@@ -760,7 +785,7 @@ export function BarberStudio({
             <p className="workspace-footnote">{w.staff.filter((s) => s.active).length} active barbers · profiles, hours and pricing</p>
           </div>
           {canEdit && (
-            <Button onClick={() => setSelected("new")}>
+            <Button onClick={selection.guarded(() => setSelected("new"))}>
               <Icon name="plus" size={16} /> Add barber
             </Button>
           )}
@@ -781,7 +806,7 @@ export function BarberStudio({
             const skills = JSON.parse(s.skills || "[]") as string[];
             return (
               <li key={s.id}>
-                <button type="button" data-testid="team-card" className={`team-card ${selected === s.id ? "selected" : ""} ${s.active ? "" : "inactive"}`} onClick={() => setSelected(s.id)} aria-current={selected === s.id ? "true" : undefined}>
+                <button type="button" data-testid="team-card" className={`team-card ${selected === s.id ? "selected" : ""} ${s.active ? "" : "inactive"}`} onClick={() => { if (selected !== s.id) selection.guarded(() => setSelected(s.id))(); }} aria-current={selected === s.id ? "true" : undefined}>
                   {s.photo_url ? <img className={`team-photo ${s.colour}`} src={s.photo_url} alt="" /> : <Avatar initials={initials(s.name)} colour={s.colour} size="large" />}
                   <span className="team-card-main">
                     <strong>{s.name}</strong>
@@ -897,12 +922,13 @@ function BarberEditor({
   useEffect(() => {
     if (tab === "pay") loadPayRuns();
   }, [tab, staff?.version]);
-  const { guarded, notice } = useLeaveGuard("barber-editor");
+  const { guarded, notice } = useLeaveGuard("barber-editor", () => { setForm(staffForm(staff)); setState(null); });
   const setTab = (t: typeof tab) => guarded(() => setTabRaw(t))();
   const [form, setForm] = useState(() => staffForm(staff));
   const [locked, setLocked] = useState(false);
   const dirty = !locked && JSON.stringify(form) !== JSON.stringify(staffForm(staff));
   const [busy, setBusy] = useState(false);
+  const saveLock = useRef(false);
   const [state, setState] = useState<LineState>(null);
   const [perf, setPerf] = useState<Perf | null>(null);
   const [perfDays, setPerfDays] = useState(30);
@@ -964,10 +990,13 @@ function BarberEditor({
       {tab === "profile" && (
         <form
           className="studio-form"
+          aria-busy={busy}
           data-dirty={dirty ? "true" : undefined}
           onSubmit={async (e) => {
             e.preventDefault();
             if (!canEdit) return;
+            if (saveLock.current) return;
+            saveLock.current = true;
             setBusy(true);
             setState(null);
             try {
@@ -991,11 +1020,12 @@ function BarberEditor({
             } catch (err) {
               setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save.", conflict: isConflict(err) });
             } finally {
+              saveLock.current = false;
               setBusy(false);
             }
           }}
         >
-          <fieldset disabled={!canEdit} className="studio-fieldset">
+          <fieldset disabled={!canEdit || busy || locked} className="studio-fieldset">
             <div className="workspace-form-grid">
               <label className="workspace-field">
                 <span>Full name</span>
@@ -1113,6 +1143,8 @@ function BarberEditor({
             onSubmit={async (e) => {
               e.preventDefault();
               if (!canEdit) return;
+              if (saveLock.current) return;
+              saveLock.current = true;
               setBusy(true);
               setState(null);
               try {
@@ -1125,6 +1157,7 @@ function BarberEditor({
               } catch (err) {
                 setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save.", conflict: isConflict(err) });
               } finally {
+                saveLock.current = false;
                 setBusy(false);
               }
             }}
@@ -1135,7 +1168,7 @@ function BarberEditor({
                 <p className="workspace-footnote">How {staff.name.split(" ")[0]} is paid. Existing pay runs keep the terms they were calculated with.</p>
               </div>
             </div>
-            <PayTermsForm form={form as PayForm} setForm={(f) => setForm({ ...form, ...f })} disabled={!canEdit} />
+            <PayTermsForm form={form as PayForm} setForm={(f) => setForm({ ...form, ...f })} disabled={!canEdit || busy || locked} />
             {canEdit && (
               <div className="panel-actions-row">
                 <Button type="submit" disabled={busy || locked || !dirty} data-testid="save-pay-terms">{busy ? "Saving…" : "Save pay terms"}</Button>

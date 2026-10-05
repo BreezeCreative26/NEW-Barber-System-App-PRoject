@@ -1,3 +1,4 @@
+import type { FeeRule, FeeStatement } from "../server/fees";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Button, Icon, Modal, Notice, Rail, StatusPill } from "./ui";
 import { money } from "./fixtures";
@@ -25,6 +26,7 @@ const SECTIONS = [
   { key: "shops", label: "Shops", icon: "store" },
   { key: "catalogue", label: "Billing", icon: "banknote" },
   { key: "invoices", label: "Invoices", icon: "file" },
+  { key: "fees", label: "Payment fees", icon: "banknote" },
   { key: "alerts", label: "Alerts", icon: "bell" },
   { key: "broadcasts", label: "Broadcasts", icon: "send" },
   { key: "ops", label: "Ops", icon: "sliders" },
@@ -62,6 +64,7 @@ export function Admin() {
           {section === "broadcasts" && <AdminBroadcasts me={me} />}
           {section === "ops" && <AdminOps onShop={(id) => { setSection("shops"); setShopId(id); }} />}
           {section === "team" && <AdminTeam me={me} />}
+          {section === "fees" && <AdminFees me={me} />}
         </main>
       </div>
     </div>
@@ -274,8 +277,8 @@ function ShopDetail({ id, onBack, me }: { id: string; onBack: () => void; me: { 
             <ul className="admin-list">{d.discounts.length === 0 && <li className="muted">None</li>}{d.discounts.map((x) => <li key={x.id}><code>{x.code}</code> {x.name} · {x.kind === "PERCENT" ? `${x.value}%` : x.kind === "FIXED" ? money(x.value) : x.kind === "FREE_MONTHS" ? `${x.value} free month${x.value === 1 ? "" : "s"}` : `${x.value} seat${x.value === 1 ? "" : "s"} free`}{x.applied_until ? ` until ${when(x.applied_until)}` : ""}{finance && <ReasonAction title="Remove" cta="Remove discount" onSubmit={(reason) => post(`/shops/${id}/discounts`, { code: x.code, remove: true, reason })} />}</li>)}</ul>
             {finance && <div className="admin-actions">
               <ReasonAction title="Apply discount code" cta="Apply" fields={<label className="workspace-field"><span>Code</span><input name="code" required placeholder="LAUNCH50" /></label>} onSubmit={(reason, f) => post(`/shops/${id}/discounts`, { code: String(f.get("code")), reason })} />
-              <ReasonAction title="Add credit" cta="Add credit" fields={<label className="workspace-field"><span>Amount (£)</span><input name="amount" type="number" step="0.01" min="0.01" required /></label>} onSubmit={(reason, f) => post(`/shops/${id}/adjustments`, { kind: "CREDIT", amount_pence: Math.round(Number(f.get("amount")) * 100), reason })} />
-              <ReasonAction title="Add one-off charge" cta="Add charge" fields={<label className="workspace-field"><span>Amount (£)</span><input name="amount" type="number" step="0.01" min="0.01" required /></label>} onSubmit={(reason, f) => post(`/shops/${id}/adjustments`, { kind: "CHARGE", amount_pence: Math.round(Number(f.get("amount")) * 100), reason })} />
+              <ReasonAction title="Add credit" cta="Add credit" fields={<label className="workspace-field"><span>Amount (GBP)</span><input name="amount" type="number" step="0.01" min="0.01" required /></label>} onSubmit={(reason, f) => post(`/shops/${id}/adjustments`, { kind: "CREDIT", amount_pence: Math.round(Number(f.get("amount")) * 100), reason })} />
+              <ReasonAction title="Add one-off charge" cta="Add charge" fields={<label className="workspace-field"><span>Amount (GBP)</span><input name="amount" type="number" step="0.01" min="0.01" required /></label>} onSubmit={(reason, f) => post(`/shops/${id}/adjustments`, { kind: "CHARGE", amount_pence: Math.round(Number(f.get("amount")) * 100), reason })} />
             </div>}
             <h4>Usage this month</h4>
             <ul className="admin-list">{d.usage.map((u) => <li key={u.feature_key}>{u.quantity} {u.unit}{u.quantity === 1 ? "" : "s"} · {u.name}{u.billable ? ` · ${money(u.amount_pence)}` : ""}</li>)}</ul>
@@ -401,7 +404,7 @@ export function ManualInvoiceAction({ shopId, onDone }: { shopId: string; onDone
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className="workspace-form-grid two admin-invoice-line">
           <label className="workspace-field"><span>{i === 0 ? "Description" : ""}</span><input name={`label${i}`} required={i === 0} maxLength={160} placeholder={i === 0 ? "e.g. Onboarding & data import" : "Another line (optional)"} /></label>
-          <label className="workspace-field"><span>{i === 0 ? "Amount (£)" : ""}</span><input name={`amount${i}`} type="number" step="0.01" required={i === 0} placeholder="0.00" /></label>
+          <label className="workspace-field"><span>{i === 0 ? "Amount (GBP)" : ""}</span><input name={`amount${i}`} type="number" step="0.01" required={i === 0} placeholder="0.00" /></label>
         </div>
       ))}
       {rows < 8 && <button type="button" className="linklike" onClick={() => setRows(rows + 1)}>+ Add a line</button>}
@@ -445,12 +448,12 @@ export function InvoiceTable({ invoices, finance, onChanged, showShop, onShop }:
               <a className="button ghost small" href={`/invoice/${inv.id}?t=${inv.view_token}`} target="_blank" rel="noreferrer">View</a>
               {inv.status !== "VOID" && <ReasonlessAction title="Send" onRun={() => post(`/invoices/${inv.id}/send`, {})} />}
               {finance && inv.kind !== "CREDIT_NOTE" && (inv.status === "OPEN" || inv.status === "UNCOLLECTIBLE") && <ReasonAction title="Mark paid" cta="Record payment" fields={<>
-                <label className="workspace-field"><span>Amount (£) — blank for the full balance</span><input name="amount" type="number" step="0.01" min="0.01" placeholder={(bal / 100).toFixed(2)} /></label>
+                <label className="workspace-field"><span>Amount (GBP) — blank for the full balance</span><input name="amount" type="number" step="0.01" min="0.01" placeholder={(bal / 100).toFixed(2)} /></label>
                 <label className="workspace-field"><span>Paid via</span><select name="via" defaultValue="bank_transfer"><option value="bank_transfer">Bank transfer</option><option value="card">Card</option><option value="cash">Cash</option><option value="stripe">Stripe</option><option value="other">Other</option></select></label>
                 <label className="workspace-field"><span>Reference (optional)</span><input name="ref" maxLength={80} /></label>
               </>} onSubmit={(reason, f) => post(`/invoices/${inv.id}/pay`, { amount_pence: f.get("amount") ? Math.round(Number(f.get("amount")) * 100) : null, via: String(f.get("via")), ref: String(f.get("ref") || ""), reason })} />}
               {finance && inv.kind !== "CREDIT_NOTE" && inv.status !== "VOID" && <ReasonAction title="Credit note" cta="Issue credit note" fields={<>
-                <label className="workspace-field"><span>Amount (£)</span><input name="amount" type="number" step="0.01" min="0.01" max={(Math.abs(inv.total_pence) / 100).toFixed(2)} required /></label>
+                <label className="workspace-field"><span>Amount (GBP)</span><input name="amount" type="number" step="0.01" min="0.01" max={(Math.abs(inv.total_pence) / 100).toFixed(2)} required /></label>
                 {inv.status === "PAID" && <label className="workspace-field"><span>Refund</span><select name="refund" defaultValue="none"><option value="none">No refund — keep as account credit</option><option value="bank_transfer">Refunded by bank transfer</option><option value="card">Refunded to card</option><option value="stripe">Refunded via Stripe</option><option value="other">Refunded another way</option></select></label>}
                 <label className="workspace-field"><span>Refund reference (optional)</span><input name="ref" maxLength={80} /></label>
               </>} onSubmit={(reason, f) => post(`/invoices/${inv.id}/credit-note`, { amount_pence: Math.round(Number(f.get("amount")) * 100), refund: f.get("refund") && f.get("refund") !== "none" ? { via: String(f.get("refund")), ref: String(f.get("ref") || "") } : undefined, send: true, reason })} />}
@@ -478,7 +481,7 @@ function AmendInvoiceAction({ inv, onDone }: { inv: AdminInvoice; onDone: () => 
       {lines.map((l, i) => (
         <div key={i} className="workspace-form-grid two admin-invoice-line">
           <label className="workspace-field"><span>{i === 0 ? "Description" : ""}</span><input name={`label${i}`} defaultValue={l.label} maxLength={160} /></label>
-          <label className="workspace-field"><span>{i === 0 ? "Amount (£)" : ""}</span><input name={`amount${i}`} type="number" step="0.01" defaultValue={(l.amount_pence / 100).toFixed(2)} /></label>
+          <label className="workspace-field"><span>{i === 0 ? "Amount (GBP)" : ""}</span><input name={`amount${i}`} type="number" step="0.01" defaultValue={(l.amount_pence / 100).toFixed(2)} /></label>
         </div>
       ))}
       <p className="workspace-footnote">Clear a description to drop that line. Discounts and credit already applied stay as they were.</p>
@@ -488,4 +491,98 @@ function AmendInvoiceAction({ inv, onDone }: { inv: AdminInvoice; onDone: () => 
       onDone();
     }} />
   );
+}
+
+// Commercial tariffs are editable; completed deductions are corrected with a separate billing credit.
+type FeeShop = { id: string; name: string; slug: string; fee_bps: number | null; fixed_pence: number | null; use_default: number | null; version: number; effective_bps: number; effective_fixed_pence: number };
+function AdminFees({ me }: { me: { role: string } }) {
+  const [data, setData] = useState<{ defaults: FeeRule; shops: FeeShop[] } | null>(null);
+  const [query, setQuery] = useState("");
+  const [scope, setScope] = useState("default");
+  const [rate, setRate] = useState("1.50");
+  const [fixed, setFixed] = useState("0.00");
+  const [inherit, setInherit] = useState(false);
+  const [reason, setReason] = useState("");
+  const [notice, setNotice] = useState(false);
+  const [reset, setReset] = useState(false);
+  const [confirmAll, setConfirmAll] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
+  const [statement, setStatement] = useState<FeeStatement | null>(null);
+  const today = new Date().toISOString().slice(0, 10);
+  const [from, setFrom] = useState(today.slice(0, 7) + "-01");
+  const [to, setTo] = useState(today);
+  const [credit, setCredit] = useState<{ payment_intent: string; request_id: string; amount: string; reason: string } | null>(null);
+  const writable = ["SUPER", "FINANCE"].includes(me.role);
+  const selected = data?.shops.find(s => s.id === scope);
+  const load = async () => {
+    const d = await adminApi<{ defaults: FeeRule; shops: FeeShop[] }>(`/fees?q=${encodeURIComponent(query)}`);
+    setData(d); return d;
+  };
+  const choose = (next: string, d = data) => {
+    setScope(next); setStatement(null); setCredit(null); setReason(""); setNotice(false); setReset(false); setConfirmAll(""); setSaved(""); setError("");
+    const row = next === "default" ? d?.defaults : d?.shops.find(s => s.id === next);
+    setRate(((row?.fee_bps ?? d?.defaults.fee_bps ?? 150) / 100).toFixed(2));
+    setFixed(((row?.fixed_pence ?? d?.defaults.fixed_pence ?? 0) / 100).toFixed(2));
+    setInherit(next !== "default" && (!row || !("shop_id" in row) && (row.use_default === 1 || row.fee_bps === null)));
+  };
+  useEffect(() => { load().then(d => choose("default", d)).catch(e => setError(e.message)); }, []);
+  async function save(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setError(""); setSaved("");
+    try {
+      await adminApi(`/fees/${scope}`, "PUT", { version: scope === "default" ? data!.defaults.version : selected?.version ?? 0,
+        fee_bps: Math.round(Number(rate) * 100), fixed_pence: Math.round(Number(fixed) * 100), use_default: inherit,
+        reason, notice_confirmed: notice, reset_overrides: reset, confirm_all: confirmAll });
+      await load(); setSaved("Fee policy saved. Existing quotes and charges were not changed."); setReason(""); setNotice(false); setReset(false); setConfirmAll("");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not save fees"); } finally { setBusy(false); }
+  }
+  async function loadStatement() {
+    setBusy(true); setError("");
+    try { setStatement(await adminApi<FeeStatement>(`/fees/${scope}/statement?from=${from}&to=${to}`)); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not load statement"); } finally { setBusy(false); }
+  }
+  async function issueCredit(e: FormEvent) {
+    e.preventDefault(); if (!credit) return; setBusy(true); setError("");
+    try {
+      await adminApi(`/fees/${scope}/credits`, "POST", { request_id: credit.request_id, payment_intent: credit.payment_intent, amount_pence: Math.round(Number(credit.amount) * 100), reason: credit.reason });
+      setCredit(null); setSaved("Account credit created against Foliyo billing. No customer card refund or wallet cash was issued.");
+      setStatement(await adminApi<FeeStatement>(`/fees/${scope}/statement?from=${from}&to=${to}`));
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not issue credit"); } finally { setBusy(false); }
+  }
+  const preview = Math.min(3000, Math.round(3000 * Number(rate) / 100) + Math.round(Number(fixed) * 100));
+  return <section className="admin-section" data-testid="admin-fees">
+    <h1>Foliyo payment fees</h1>
+    <p className="workspace-footnote">Published business fees charged to shops, not additional charges to haircut customers. Provider costs and margins are private. New rates apply to new payment quotes only.</p>
+    {!writable && <Notice>Your support role can view fees but cannot change pricing or issue credits.</Notice>}
+    {error && <Notice tone="warn">{error}</Notice>}{saved && <Notice>{saved}</Notice>}
+    {!data ? <p>Loading fee controls…</p> : <>
+      <form onSubmit={async e => { e.preventDefault(); setError(""); try { const d = await load(); choose("default", d); } catch (e) { setError(e instanceof Error ? e.message : "Search failed"); } }} className="panel-actions-row">
+        <label>Find shop<input value={query} onChange={e => setQuery(e.target.value)} placeholder="Shop name or booking name" /></label><Button type="submit" variant="secondary" disabled={busy}>Search</Button>
+      </form>
+      <label>Pricing scope<select value={scope} disabled={busy} onChange={e => choose(e.target.value)}><option value="default">Platform default — shops without an override</option>{data.shops.map(s => <option value={s.id} key={s.id}>{s.name} · {s.use_default === 0 ? "custom" : "default"}</option>)}</select></label>
+      <p className="workspace-footnote">Up to 100 matching shops. Search to find a specific customer.</p>
+      <form onSubmit={save} className="workspace-form">
+        <fieldset disabled={!writable || busy}>
+          <legend>{scope === "default" ? "Default fee" : `Fee agreement: ${selected?.name || "shop"}`}</legend>
+          {scope !== "default" && <label><input type="checkbox" checked={inherit} onChange={e => setInherit(e.target.checked)} /> Use the platform default</label>}
+          <label>Percentage (%)<input type="number" min="0" max="20" step="0.01" required disabled={inherit} value={rate} onChange={e => setRate(e.target.value)} /></label>
+          <label>Fixed charge (GBP)<input type="number" min="0" max="5" step="0.01" required disabled={inherit} value={fixed} onChange={e => setFixed(e.target.value)} /></label>
+          <p className="workspace-footnote">{inherit ? `Inherits ${(data.defaults.fee_bps / 100).toFixed(2)}% + GBP ${(data.defaults.fixed_pence / 100).toFixed(2)}.` : `Example: GBP 30.00 payment → Foliyo fee GBP ${(preview / 100).toFixed(2)}. Set both fields to zero to waive future fees.`} Fixed fees currently require GBP.</p>
+          {scope === "default" && <><label><input type="checkbox" checked={reset} onChange={e => setReset(e.target.checked)} /> Also remove every shop-specific override</label>{reset && <label>Type ALL SHOPS to confirm<input value={confirmAll} onChange={e => setConfirmAll(e.target.value)} required pattern="ALL SHOPS" /></label>}</>}
+          <label>Internal reason<textarea required minLength={5} maxLength={300} value={reason} onChange={e => setReason(e.target.value)} /></label>
+          <label><input type="checkbox" required checked={notice} onChange={e => setNotice(e.target.checked)} /> The affected shops have agreed to these fees and any required notice has been given.</label>
+          <Button type="submit" disabled={!notice || reason.trim().length < 5 || (reset && confirmAll !== "ALL SHOPS")}>{busy ? "Saving…" : "Save fee policy"}</Button>
+        </fieldset>
+      </form>
+      {scope !== "default" && <section className="panel-card">
+        <h2>Statement and corrections</h2><p className="workspace-footnote">Correct a past Foliyo fee with a billing account credit. The original charge remains unchanged. This is not a tax invoice or a refund to the haircut customer.</p>
+        <div className="panel-actions-row"><label>From<input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label><label>To<input type="date" value={to} onChange={e => setTo(e.target.value)} /></label><Button variant="secondary" disabled={busy} onClick={loadStatement}>Load fees</Button></div>
+        {statement && <><p>{statement.currency} {(statement.totals.fee_pence / 100).toFixed(2)} deducted across {statement.totals.count} payments; {(statement.totals.credited_pence / 100).toFixed(2)} credited to billing.</p>{statement.truncated && <Notice>Showing the latest 500 entries. Narrow the date range for more detail.</Notice>}
+          <div className="pay-runs-table-wrap"><table className="pay-runs-table"><thead><tr><th>Booking</th><th>Date</th><th>Foliyo fee</th><th>Credited</th><th>Action</th></tr></thead><tbody>{statement.charges.map(c => <tr key={c.payment_intent}><td>{c.booking_id.slice(0, 8)}</td><td>{when(c.created_at)}</td><td>{statement.currency} {(c.fee_pence / 100).toFixed(2)}</td><td>{(c.credited_pence / 100).toFixed(2)}</td><td>{writable && statement.currency === "GBP" && c.fee_pence > c.credited_pence && <Button variant="ghost" disabled={busy} onClick={() => setCredit({ payment_intent: c.payment_intent, request_id: crypto.randomUUID(), amount: ((c.fee_pence - c.credited_pence) / 100).toFixed(2), reason: "" })}>Credit fee</Button>}</td></tr>)}</tbody></table></div>
+        </>}
+        {credit && <form onSubmit={issueCredit} className="workspace-form"><fieldset disabled={busy}><legend>Issue a billing credit</legend><label>Credit amount (GBP)<input type="number" min="0.01" step="0.01" required value={credit.amount} onChange={e => setCredit({ ...credit, amount: e.target.value })} /></label><label>Internal reason<textarea required minLength={5} maxLength={300} value={credit.reason} onChange={e => setCredit({ ...credit, reason: e.target.value })} /></label><Button type="submit">Create account credit</Button><Button type="button" variant="ghost" onClick={() => setCredit(null)}>Cancel</Button></fieldset></form>}
+      </section>}
+    </>}
+  </section>;
 }

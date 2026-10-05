@@ -1,7 +1,7 @@
-// Shop setup wizard — /workspace/setup. Seven optional steps onto settings that already exist,
+// Shop setup wizard — /workspace/setup. Nine resumable steps onto settings that already exist,
 // plus the setup-only pieces: contact verification, starter menu, invite-by-text, "send me a test".
 // State is server-side (shops.setup_json) so it resumes on any device.
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Shop, WorkspaceData } from "../server/domain";
 import { Badge, Button, Icon } from "./ui";
 
@@ -36,7 +36,44 @@ const clock = (n: number) => `${String(Math.floor(n / 60)).padStart(2, "0")}:${S
 const minute = (s: string) => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+// Shared guard covers step links, exit, uploads and async saves without discarding local input.
+const SetupGuard = createContext<{ dirty: Set<object>; pending: number; busy: (delta: number) => void } | null>(null);
+export function useSetupDirty(dirty: boolean) {
+  const guard = useContext(SetupGuard);
+  const key = useRef({});
+  useLayoutEffect(() => {
+    if (dirty) guard?.dirty.add(key.current); else guard?.dirty.delete(key.current);
+    return () => { guard?.dirty.delete(key.current); };
+  }, [guard, dirty]);
+}
+export function useSetupUpload() {
+  const guard = useContext(SetupGuard);
+  const [uploading, setUploading] = useState(false);
+  const active = useRef(false);
+  const onBusyChange = (value: boolean) => {
+    if (active.current === value) return;
+    active.current = value;
+    guard?.busy(value ? 1 : -1);
+    setUploading(value);
+  };
+  return { uploading, onBusyChange };
+}
+
 export function SetupWizard({ w, api, refresh, onExit, goTo }: { w: WorkspaceData; api: Api; refresh: () => Promise<void>; onExit: () => void; goTo: (tab: string) => void }) {
+  const [pending, setPending] = useState(0);
+  const navigationLock = useRef(false);
+  const guard = useMemo(() => ({ dirty: new Set<object>(), pending: 0, busy(delta: number) {
+    this.pending = Math.max(0, this.pending + delta); setPending(this.pending);
+  } }), []);
+  function canLeave() {
+    if (guard.pending) { setError("Please wait for the save or upload to finish."); return false; }
+    return !guard.dirty.size || window.confirm("Discard unsaved changes on this step?");
+  }
+  useEffect(() => {
+    const unload = (e: BeforeUnloadEvent) => { if (guard.pending || guard.dirty.size) { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", unload);
+    return () => window.removeEventListener("beforeunload", unload);
+  }, [guard]);
   const [data, setData] = useState<SetupData | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -51,6 +88,10 @@ export function SetupWizard({ w, api, refresh, onExit, goTo }: { w: WorkspaceDat
   }, []);
   const idx = STEPS.findIndex((s) => s.key === step);
   async function mark(kind: "done" | "skipped", key: SetupStep) {
+    if (navigationLock.current || ((kind === "skipped" || guard.pending === 0) && !canLeave())) return;
+    navigationLock.current = true;
+    guard.busy(1);
+    try {
     const next = STEPS[idx + 1]?.key;
     const body: Record<string, unknown> = { [kind]: key };
     if (next) body.step = next;
@@ -61,30 +102,38 @@ export function SetupWizard({ w, api, refresh, onExit, goTo }: { w: WorkspaceDat
     await load();
     if (next) { setStep(next); setNotice(""); window.scrollTo({ top: 0, behavior: "smooth" }); }
     else setStep("payments");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not save setup progress."); }
+    finally { navigationLock.current = false; guard.busy(-1); }
   }
   async function jump(key: SetupStep) {
-    setStep(key); setNotice(""); setError("");
-    api("/setup/state", "PUT", { step: key }).catch(() => {});
+    if (key === step || navigationLock.current || !canLeave()) return;
+    navigationLock.current = true; guard.busy(1); setError("");
+    try {
+      await api("/setup/state", "PUT", { step: key });
+      setStep(key); setNotice("");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not save setup progress."); }
+    finally { navigationLock.current = false; guard.busy(-1); }
   }
-  if (error && !data) return <section className="workspace-panel setup-wiz"><p className="workspace-error" role="alert">{error}</p></section>;
+  if (error && !data) return <section className="workspace-panel setup-wiz"><p className="workspace-error" role="alert">{error}</p><Button onClick={() => { setError(""); load().then(d => setStep(d.state.step)).catch(e => setError(e.message)); }}>Retry</Button></section>;
   if (!data) return <section className="workspace-panel setup-wiz"><p role="status">Loading setup…</p></section>;
   const doneSet = new Set([...data.state.done]);
   const complete = !!data.state.completed_at;
-  const common = { w, api, refresh, data, reload: load, setNotice, setError, goTo };
+  const exit = () => { if (canLeave()) onExit(); };
+  const common = { w, api, refresh, data, reload: load, setNotice, setError, goTo: (tab: string) => { if (canLeave()) goTo(tab); } };
   return (
-    <section className="setup-wiz setup-flow" aria-labelledby="setup-wiz-heading" data-testid="setup-wizard">
+    <SetupGuard.Provider value={guard}><section className="setup-wiz setup-flow" aria-labelledby="setup-wiz-heading" data-testid="setup-wizard">
       <header className="setup-flow-top">
         <span className="setup-flow-brand"><Icon name="scissors" size={16} /> {w.shop.name}</span>
         <div className="setup-flow-progress" role="progressbar" aria-valuemin={0} aria-valuemax={STEPS.length} aria-valuenow={doneSet.size} aria-label="Setup progress">
           <i style={{ width: `${Math.round((doneSet.size / STEPS.length) * 100)}%` }} />
         </div>
-        <button type="button" className="linklike" onClick={onExit} data-testid="setup-exit">{complete ? "Back to the calendar" : "Finish later"}</button>
+        <button type="button" className="linklike" disabled={pending > 0} onClick={exit} data-testid="setup-exit">{complete ? "Back to the calendar" : "Finish later"}</button>
       </header>
       <div className="setup-flow-body">
         <ol className="setup-wiz-steps setup-flow-rail" aria-label="Setup steps">
           {STEPS.map((s, i) => (
             <li key={s.key} data-current={s.key === step} data-done={doneSet.has(s.key)} data-skipped={data.state.skipped.includes(s.key) && !doneSet.has(s.key)}>
-              <button type="button" onClick={() => jump(s.key)} aria-current={s.key === step ? "step" : undefined}>
+              <button type="button" aria-label={s.short} disabled={pending > 0} onClick={() => jump(s.key)} aria-current={s.key === step ? "step" : undefined}>
                 <span className="setup-wiz-num" aria-hidden="true">{doneSet.has(s.key) ? <Icon name="check" size={12} /> : i + 1}</span>
                 <span className="setup-flow-step-text"><span>{s.short}</span><small>{s.blurb}</small></span>
               </button>
@@ -100,7 +149,7 @@ export function SetupWizard({ w, api, refresh, onExit, goTo }: { w: WorkspaceDat
           </header>
       {notice && <p className="workspace-success" role="status">{notice}</p>}
       {error && <p className="workspace-error" role="alert">{error}</p>}
-      <div className="setup-wiz-body">
+      <fieldset className="setup-wiz-body" disabled={pending > 0} aria-busy={pending > 0} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         {step === "shop" && <StepShop {...common} onNext={() => mark("done", "shop")} />}
         {step === "brand" && <StepBrand {...common} onNext={() => mark("done", "brand")} onSkip={() => mark("skipped", "brand")} />}
         {step === "terms" && <StepTerms {...common} onNext={() => mark("done", "terms")} onSkip={() => mark("skipped", "terms")} />}
@@ -109,11 +158,11 @@ export function SetupWizard({ w, api, refresh, onExit, goTo }: { w: WorkspaceDat
         {step === "team" && <StepTeam {...common} onNext={() => mark("done", "team")} onSkip={() => mark("skipped", "team")} />}
         {step === "messages" && <StepMessages {...common} onNext={() => mark("done", "messages")} onSkip={() => mark("skipped", "messages")} />}
         {step === "online" && <StepOnline {...common} onNext={() => mark("done", "online")} onSkip={() => mark("skipped", "online")} />}
-        {step === "payments" && <StepPayments {...common} onNext={() => mark("done", "payments")} onSkip={() => mark("skipped", "payments")} complete={complete} onExit={onExit} />}
-      </div>
+        {step === "payments" && <StepPayments {...common} onNext={() => mark("done", "payments")} onSkip={() => mark("skipped", "payments")} complete={complete} onExit={exit} />}
+      </fieldset>
         </div>
       </div>
-    </section>
+    </section></SetupGuard.Provider>
   );
 }
 
@@ -139,9 +188,13 @@ function F({ label, hint, children }: { label: string; hint?: string; children: 
 }
 function useBusy() {
   const [busy, setBusy] = useState(false);
+  const locked = useRef(false);
+  const guard = useContext(SetupGuard);
   const run = async (fn: () => Promise<void>, setError: (s: string) => void) => {
-    setBusy(true); setError("");
-    try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong."); } finally { setBusy(false); }
+    if (locked.current) return;
+    locked.current = true; guard?.busy(1); setBusy(true); setError("");
+    try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong."); }
+    finally { locked.current = false; guard?.busy(-1); setBusy(false); }
   };
   return { busy, run };
 }
@@ -152,15 +205,17 @@ function StepShop({ w, api, refresh, data, reload, setNotice, setError, onNext }
   const [form, setForm] = useState({ name: shop.name, kind: (shop.kind || data.kind || "BARBER") as "BARBER" | "HAIR" | "SALON", phone: shop.phone || "", email: shop.email || w.account?.email || "", address: shop.address || "", timezone: shop.timezone || "Europe/London", currency: (shop.currency || "GBP") as "GBP" | "EUR" | "USD" });
   const { busy, run } = useBusy();
   // After a save the server normalises the mobile (+44…) — take its values so the form isn't "dirty".
-  useEffect(() => { setForm((f) => ({ ...f, name: shop.name, phone: shop.phone || "", email: shop.email || f.email, address: shop.address || "", kind: (shop.kind || f.kind) as "BARBER" })); }, [shop.version]);
-  const dirty = form.name !== shop.name || form.kind !== (shop.kind || "BARBER") || form.phone !== (shop.phone || "") || form.email !== (shop.email || "") || form.address !== (shop.address || "") || form.currency !== shop.currency;
+  useEffect(() => { setForm((f) => ({ ...f, name: shop.name, phone: shop.phone || "", email: shop.email || f.email, address: shop.address || "", timezone: shop.timezone, currency: shop.currency as "GBP", kind: (shop.kind || f.kind) as "BARBER" })); }, [shop.version]);
+  const dirty = form.name !== shop.name || form.kind !== (shop.kind || "BARBER") || form.phone !== (shop.phone || "") || form.email !== (shop.email || "") || form.address !== (shop.address || "") || form.currency !== shop.currency || form.timezone !== shop.timezone;
+  useSetupDirty(dirty);
   async function save() {
+    if (form.name.trim().length < 2) throw new Error("Enter a shop name of at least 2 characters.");
     await api("/setup/contact", "PUT", form);
     await refresh(); await reload();
   }
   return (
     <div className="setup-wiz-card">
-      <p className="setup-wiz-lead">The basics customers see on every message and on your booking page. Nothing here is public until you switch online booking on.</p>
+      <p className="setup-wiz-lead">The basics customers see on every message and on your booking page. Check these details carefully; your address and shop name appear on customer-facing pages and messages.</p>
       <div className="setup-kind" role="radiogroup" aria-label="What kind of shop">
         {(["BARBER", "HAIR", "SALON"] as const).map((k) => (
           <button key={k} type="button" role="radio" aria-checked={form.kind === k} onClick={() => setForm({ ...form, kind: k })} data-testid={`setup-kind-${k}`}>
@@ -184,8 +239,8 @@ function StepShop({ w, api, refresh, data, reload, setNotice, setError, onNext }
       </div>
       {(shop.phone || shop.email) && !dirty && (
         <div className="setup-verify">
-          {shop.phone && <VerifyRow kind="PHONE" target={shop.phone} verified={!!shop.phone_verified_at} api={api} refresh={refresh} reload={reload} setNotice={setNotice} setError={setError} />}
-          {shop.email && <VerifyRow kind="EMAIL" target={shop.email} verified={!!shop.email_verified_at} api={api} refresh={refresh} reload={reload} setNotice={setNotice} setError={setError} />}
+          {shop.phone && <VerifyRow key={`PHONE:${shop.phone}`} kind="PHONE" target={shop.phone} verified={!!shop.phone_verified_at} api={api} refresh={refresh} reload={reload} setNotice={setNotice} setError={setError} />}
+          {shop.email && <VerifyRow key={`EMAIL:${shop.email}`} kind="EMAIL" target={shop.email} verified={!!shop.email_verified_at} api={api} refresh={refresh} reload={reload} setNotice={setNotice} setError={setError} />}
           <p className="helper">Verifying is optional — it just proves the details are yours before we send codes or alerts to them.</p>
         </div>
       )}
@@ -223,7 +278,8 @@ function VerifyRow({ kind, target, verified, api, refresh, reload, setNotice, se
 function StepHours({ w, api, refresh, data, setError, onNext, onSkip }: StepProps) {
   const week = useMemo(() => { try { return JSON.parse(w.shop.week_json) as { enabled: 0 | 1; starts: number; ends: number }[]; } catch { return DAYS.map((_, i) => ({ enabled: i === 0 ? 0 : 1, starts: 540, ends: 1080 })) as { enabled: 0 | 1; starts: number; ends: number }[]; } }, [w.shop.week_json]);
   const [days, setDays] = useState(week);
-  const [closeBank, setCloseBank] = useState(true);
+  const [closeBank, setCloseBank] = useState(false);
+  useSetupDirty(JSON.stringify(days) !== JSON.stringify(week) || closeBank);
   const { busy, run } = useBusy();
   const order = [1, 2, 3, 4, 5, 6, 0];
   const upcoming = Object.entries(data.bank_holidays).filter(([d]) => d >= w.today).slice(0, 8);
@@ -232,14 +288,18 @@ function StepHours({ w, api, refresh, data, setError, onNext, onSkip }: StepProp
     await api("/shop", "PUT", {
       name: w.shop.name, address: w.shop.address, timezone: w.shop.timezone, currency: w.shop.currency,
       week: days.map((d) => ({ enabled: d.enabled, starts: d.starts, ends: d.ends })),
-      deposit_pence: w.shop.deposit_pence, cancel_hours: w.shop.cancel_hours, no_show_grace: w.shop.no_show_grace, till_access: w.shop.till_access, version: w.shop.version,
+      deposit_pence: w.shop.deposit_pence, cancel_hours: w.shop.cancel_hours, no_show_grace: w.shop.no_show_grace, till_access: w.shop.till_access, buffer_min: w.shop.buffer_min, card_colour: w.shop.card_colour, calendar_density: w.shop.calendar_density, version: w.shop.version,
     });
-    if (closeBank) for (const [date, name] of upcoming) if (!already.has(date)) await api("/holidays", "POST", { date, label: name }).catch(() => {});
-    await refresh();
+    try {
+      if (closeBank) for (const [date, name] of upcoming) if (!already.has(date)) {
+        await api("/holidays", "POST", { date, label: name });
+        already.add(date);
+      }
+    } finally { await refresh(); }
   }
   return (
     <div className="setup-wiz-card">
-      <p className="setup-wiz-lead">When the shop is open. Each barber gets these hours to start with; change theirs individually from Team.</p>
+      <p className="setup-wiz-lead">When the shop is open. Existing barber shifts are kept unchanged. Review each person's availability in Shifts; newly added barbers start with the shop's hours.</p>
       <div className="setup-hours">
         {order.map((i) => {
           const d = days[i];
@@ -265,7 +325,7 @@ function StepHours({ w, api, refresh, data, setError, onNext, onSkip }: StepProp
       {upcoming.length > 0 && (
         <label className="setup-check">
           <input type="checkbox" checked={closeBank} onChange={(e) => setCloseBank(e.target.checked)} />
-          <span>Close on bank holidays <small className="helper">{upcoming.map(([, n]) => n).slice(0, 3).join(", ")}{upcoming.length > 3 ? ` and ${upcoming.length - 3} more` : ""}. You can reopen any of them in Settings → Shop closures.</small></span>
+          <span>Close on England & Wales bank holidays <small className="helper">{upcoming.map(([, n]) => n).slice(0, 3).join(", ")}{upcoming.length > 3 ? ` and ${upcoming.length - 3} more` : ""}. You can reopen any of them in Settings → Shop closures.</small></span>
         </label>
       )}
       <StepActions busy={busy} onNext={() => run(async () => { await save(); await onNext(); }, setError)} onSkip={onSkip} />
@@ -287,11 +347,12 @@ function StepServices({ w, api, refresh, data, setNotice, setError, goTo, onNext
   const existing = new Set(w.services.map((s) => s.name.toLowerCase()));
   const rows = menu.map((m, i) => ({ ...m, ...edits[i], i, have: existing.has((edits[i]?.name || m.name).toLowerCase()) }));
   const chosen = rows.filter((r) => picked.has(r.i) && !r.have);
+  useSetupDirty(Object.keys(edits).length > 0);
   return (
     <div className="setup-wiz-card">
       <p className="setup-wiz-lead">
         {w.services.length ? `You have ${w.services.length} service${w.services.length === 1 ? "" : "s"} already. ` : ""}
-        Tick the ones you offer and fix the prices — typical {KIND_LABEL[kind].toLowerCase()} figures to start from. Add-ons, per-barber prices and photos live in Services.
+        Tick the ones you offer and fix the prices — typical {KIND_LABEL[kind].toLowerCase()} figures to start from. Add-ons and per-barber prices live in Services. These are starter prices, not currency-converted recommendations.
       </p>
       <ul className="setup-menu" data-testid="setup-starter-menu">
         {rows.map((r) => (
@@ -300,7 +361,7 @@ function StepServices({ w, api, refresh, data, setNotice, setError, goTo, onNext
             <input className="setup-menu-name" value={r.name} disabled={r.have} onChange={(e) => setEdits({ ...edits, [r.i]: { ...edits[r.i], name: e.target.value } })} aria-label="Service name" />
             <span className="setup-menu-cat">{r.category}</span>
             <label className="setup-menu-num"><input type="number" min={5} step={5} value={r.duration_min} disabled={r.have} onChange={(e) => setEdits({ ...edits, [r.i]: { ...edits[r.i], duration_min: Number(e.target.value) } })} aria-label="Minutes" /><span>min</span></label>
-            <label className="setup-menu-num"><span>£</span><input type="number" min={0} step={0.5} value={(r.price_pence / 100).toFixed(2)} disabled={r.have} onChange={(e) => setEdits({ ...edits, [r.i]: { ...edits[r.i], price_pence: Math.round(Number(e.target.value) * 100) } })} aria-label="Price" /></label>
+            <label className="setup-menu-num"><span>{w.shop.currency === "EUR" ? "€" : w.shop.currency === "USD" ? "$" : "£"}</span><input type="number" min={0} step={0.5} value={(r.price_pence / 100).toFixed(2)} disabled={r.have} onChange={(e) => setEdits({ ...edits, [r.i]: { ...edits[r.i], price_pence: Math.round(Number(e.target.value) * 100) } })} aria-label="Price" /></label>
             {r.have && <Badge tone="good">Added</Badge>}
           </li>
         ))}

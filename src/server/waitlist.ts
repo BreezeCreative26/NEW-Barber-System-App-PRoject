@@ -2,9 +2,10 @@
 // See docs/WAITLIST-PLAN.md. Messages are queued through messaging.ts (shop-branded SMS/email) and
 // drained right after each batch; the offer link is also surfaced to staff.
 import type { Context } from "hono";
+import { HTTPException } from "hono/http-exception";
 import type { Statement as D1PreparedStatement } from "../db/client";
 import { z } from "zod";
-import { calculateQuote, dayStarts, effectiveHours, localInstant, ref, shopToday, slotReason, weekday, type Addon, type AddonLink, type Holiday, type Hours, type ScheduleOverride, type Service, type Shop, type Staff, type StaffDayOff, type StaffServiceRule, type StoredBooking } from "./domain";
+import { calculateQuote, dayStarts, effectiveHours, localInstant, ref, shopToday, slotReason, weekday, type Addon, type AddonLink, type Holiday, type Hours, type ScheduleOverride, type Service, type Shop, type Staff, type StaffDayOff, type StaffBlock, type StaffServiceRule, type StoredBooking } from "./domain";
 import type { AppEnv } from "./accounts";
 import { digest } from "./accounts";
 import { drain, emailHtml, type MessageTemplate } from "./messaging";
@@ -126,11 +127,12 @@ const inWindow = (m: number, e: Pick<WaitlistRow, "from_min" | "to_min" | "daypa
 const inRange = (d: string, e: Pick<WaitlistRow, "date" | "date_to">) => d >= e.date && d <= (e.date_to || e.date);
 
 // Open times on the entry's date that fit its request. Barber-agnostic when staff_id is null.
-export async function matchesFor(c: Ctx, shop: Shop & ShopQueueSettings, entry0: WaitlistRow, now = Date.now(), onDate?: string) {
+export async function matchesFor(c: Ctx, shop: Shop & ShopQueueSettings, entry0: WaitlistRow, now = Date.now(), onDate?: string, database = c.env.DB) {
+  if (!["OPEN", "OFFERED"].includes(entry0.status) || (onDate && !inRange(onDate, entry0))) return [];
   // For a date-range entry the caller says which day to look at; default is the first day.
   const entry = onDate && onDate !== entry0.date ? { ...entry0, date: onDate } : entry0;
   const sid = shop.id;
-  const r = await c.env.DB.batch([
+  const r = await database.batch([
     c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND active=1 ORDER BY sort_order,name").bind(sid),
     c.env.DB.prepare("SELECT * FROM services WHERE shop_id=? AND id=? AND active=1").bind(sid, entry.service_id),
     c.env.DB.prepare("SELECT * FROM staff_hours WHERE shop_id=? AND weekday=?").bind(sid, weekday(entry.date)),
@@ -142,12 +144,13 @@ export async function matchesFor(c: Ctx, shop: Shop & ShopQueueSettings, entry0:
     c.env.DB.prepare("SELECT * FROM addons WHERE shop_id=?").bind(sid),
     c.env.DB.prepare("SELECT * FROM addon_services WHERE shop_id=? AND service_id=?").bind(sid, entry.service_id),
     // Slots already offered (pending) to someone else are not offered twice.
-    c.env.DB.prepare("SELECT staff_id,start_min FROM waitlist_offers WHERE shop_id=? AND date=? AND status='PENDING' AND expires_at>? AND entry_id<>?").bind(sid, entry.date, now, entry.id),
+    c.env.DB.prepare("SELECT o.staff_id,o.start_min,COALESCE(r.duration_min,s.duration_min) AS duration_min FROM waitlist_offers o JOIN services s ON s.shop_id=o.shop_id AND s.id=o.service_id LEFT JOIN staff_service_rules r ON r.shop_id=o.shop_id AND r.staff_id=o.staff_id AND r.service_id=o.service_id WHERE o.shop_id=? AND o.date=? AND o.status='PENDING' AND o.expires_at>? AND o.entry_id<>?").bind(sid, entry.date, now, entry.id),
+    c.env.DB.prepare("SELECT staff_id,date,start_min,end_min FROM staff_blocks WHERE shop_id=? AND date=?").bind(sid, entry.date),
   ]);
   const service = r[1].results[0] as Service | undefined;
   if (!service) return [];
   const rules = r[7].results as StaffServiceRule[];
-  const pending = new Set((r[10].results as { staff_id: string; start_min: number }[]).map((o) => `${o.staff_id}:${o.start_min}`));
+  const pending = r[10].results as { staff_id: string; start_min: number; duration_min: number }[];
   const staff = (r[0].results as Staff[]).filter((s) => (!entry.staff_id || s.id === entry.staff_id) && rules.find((x) => x.staff_id === s.id)?.enabled !== 0);
   const minStart = now + shop.lead_time_min * 60000;
   const out: { staff_id: string; staff_name: string; start_min: number; price_pence: number; duration_min: number }[] = [];
@@ -155,8 +158,8 @@ export async function matchesFor(c: Ctx, shop: Shop & ShopQueueSettings, entry0:
     const q = calculateQuote(service, rules.find((x) => x.staff_id === st.id) ?? null, r[8].results as Addon[], r[9].results as AddonLink[], []);
     const h = effectiveHours((r[2].results as Hours[]).find((x) => x.staff_id === st.id) ?? null, (r[3].results as ScheduleOverride[]).find((o) => o.staff_id === st.id) ?? null);
     for (const m of dayStarts(shop, entry.date)) {
-      if (!inWindow(m, entry) || pending.has(`${st.id}:${m}`)) continue;
-      if (!slotReason(shop, st, h, r[4].results as Holiday[], r[6].results as StoredBooking[], entry.date, m, q.duration_min, minStart, undefined, r[5].results as StaffDayOff[])) {
+      if (!inWindow(m, entry) || pending.some(o => o.staff_id === st.id && m < o.start_min + o.duration_min + (shop.buffer_min ?? 10) && o.start_min < m + q.duration_min + (shop.buffer_min ?? 10))) continue;
+      if (!slotReason(shop, st, h, r[4].results as Holiday[], r[6].results as StoredBooking[], entry.date, m, q.duration_min, minStart, undefined, r[5].results as StaffDayOff[], r[11].results as StaffBlock[])) {
         out.push({ staff_id: st.id, staff_name: st.name, start_min: m, price_pence: q.price_pence, duration_min: q.duration_min });
       }
     }
@@ -181,7 +184,7 @@ export async function sweep(c: Ctx, shop: Shop & ShopQueueSettings, now = Date.n
       c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shop.id, "waitlist", o.entry_id, "WAITLIST_OFFER_EXPIRED", "system:waitlist", `Offer for ${o.date} ${fmtTime(o.start_min)} expired unanswered; customer returned to the queue.`, now),
     );
   }
-  statements.push(c.env.DB.prepare("UPDATE waitlist_entries SET status='EXPIRED',version=version+1,updated_at=? WHERE shop_id=? AND status IN ('OPEN','OFFERED') AND date<?").bind(now, shop.id, today));
+  statements.push(c.env.DB.prepare("UPDATE waitlist_entries SET status='EXPIRED',version=version+1,updated_at=? WHERE shop_id=? AND status IN ('OPEN','OFFERED') AND date_to<?").bind(now, shop.id, today));
   await c.env.DB.batch(statements);
   if (expired.results.length) await drainSoon(c, expired.results.length);
   // Re-offer freed slots to the next in line if auto-offer is on (an expired hold is already "old news" — no extra delay).
@@ -200,13 +203,20 @@ export async function makeOffer(c: Ctx, shop: Shop & ShopQueueSettings, entry: W
   const link = shopUrl(shop.slug!, `/offer/${raw}`, new URL(c.req.url).origin);
   const templates = templatesOf(shop);
   const body = render(templates.waitlist_offer, { first: entry.customer_name.split(" ")[0], shop: shop.name, service: service.name, barber: staff.name.split(" ")[0], date: fmtDate(entry.date), time: fmtTime(slot.start_min), expires: fmtStamp(expires, shop.timezone), link });
-  await c.env.DB.batch([
+  await c.env.DB.transaction(async tx => {
+    await tx.prepare("SELECT id FROM shops WHERE id=? FOR UPDATE").bind(shop.id).first();
+    const current = await tx.prepare("SELECT version,status FROM waitlist_entries WHERE shop_id=? AND id=? FOR UPDATE").bind(shop.id, entry.id).first<WaitlistRow>();
+    if (!current || current.version !== entry.version || !["OPEN", "OFFERED"].includes(current.status)) throw new HTTPException(409, { message: "record_changed" });
+    const matches = await matchesFor(c, shop, entry, now, undefined, tx);
+    if (!matches.some(m => m.staff_id === slot.staff_id && m.start_min === slot.start_min)) throw new HTTPException(409, { message: "slot_taken" });
+    await tx.batch([
     c.env.DB.prepare("UPDATE waitlist_offers SET status='SUPERSEDED',responded_at=? WHERE shop_id=? AND entry_id=? AND status='PENDING'").bind(now, shop.id, entry.id),
     c.env.DB.prepare("INSERT INTO waitlist_offers(id,shop_id,entry_id,staff_id,service_id,date,start_min,token_hash,status,source,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,'PENDING',?,?,?)").bind(offerId, shop.id, entry.id, slot.staff_id, entry.service_id, entry.date, slot.start_min, await digest(raw), source, expires, now),
     c.env.DB.prepare("UPDATE waitlist_entries SET status='OFFERED',offer_id=?,offers_made=offers_made+1,version=version+1,updated_at=? WHERE id=? AND status IN ('OPEN','OFFERED')").bind(offerId, now, entry.id),
     queueMessage(c, shop, entry, "waitlist_offer", body, { type: "waitlist_offer", id: offerId }),
     c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shop.id, "waitlist", entry.id, source === "AUTO" ? "WAITLIST_AUTO_OFFERED" : "WAITLIST_OFFERED", actor, `${service.name} with ${staff.name} on ${entry.date} at ${fmtTime(slot.start_min)} offered until ${fmtStamp(expires, shop.timezone)}. Message queued, not sent.`, now),
-  ]);
+    ]);
+  });
   await drainSoon(c, 2, { type: "waitlist_offer", id: offerId });
   return { offer_id: offerId, link, expires_at: expires, body, staff_name: staff.name, service_name: service.name };
 }
@@ -214,7 +224,7 @@ export async function makeOffer(c: Ctx, shop: Shop & ShopQueueSettings, entry: W
 // A slot has just been freed (cancel, move, declined/expired offer). Offer it to the oldest OPEN
 // entry that fits: same date, service the barber can do, daypart, preferred barber or any.
 export async function autoOffer(c: Ctx, shop: Shop & ShopQueueSettings, freed: { staff_id: string; date: string; start_min: number }, why: string, now = Date.now()) {
-  if (!shop.waitlist_auto_offer) return null;
+  if (!shop.waitlist_auto_offer || shop.waitlist_enabled === 0) return null;
   const today = shopToday(shop.timezone, now);
   if (freed.date < today) return null;
   // Skip anyone who already declined or let this exact slot lapse — the slot goes to the next in line, not back to them.
@@ -272,7 +282,7 @@ export async function announceToAll(c: Ctx, shop: Shop & ShopQueueSettings, free
 // re-book by hand (cancel → book someone else) without a text firing. The sweep releases it.
 // Delay 0 = act now. Re-freeing the same slot pushes the timer back.
 export async function slotFreed(c: Ctx, shop: Shop & ShopQueueSettings, freed: { staff_id: string; date: string; start_min: number }, why: string, now = Date.now()) {
-  if (!shop.waitlist_auto_offer) return null;
+  if (!shop.waitlist_auto_offer || shop.waitlist_enabled === 0) return null;
   const today = shopToday(shop.timezone, now);
   if (freed.date < today) return null;
   const delay = Math.max(0, Number(shop.waitlist_delay_min ?? 5));
@@ -284,6 +294,7 @@ export async function slotFreed(c: Ctx, shop: Shop & ShopQueueSettings, freed: {
 }
 // Actually offer / announce a freed slot, according to the shop's mode.
 async function releaseSlot(c: Ctx, shop: Shop & ShopQueueSettings, freed: { staff_id: string; date: string; start_min: number }, why: string, now = Date.now()) {
+  if (!shop.waitlist_auto_offer || shop.waitlist_enabled === 0) return null;
   if (shop.waitlist_mode === "EVERYONE") return announceToAll(c, shop, freed, why, now);
   return autoOffer(c, shop, freed, why, now);
 }

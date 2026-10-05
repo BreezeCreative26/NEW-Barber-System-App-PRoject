@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Staff } from "../server/domain";
 import { Badge, Button, Icon } from "./ui";
 import { money } from "./fixtures";
-import { F, StepActions, useBusy, type StepProps } from "./Setup";
+import { F, StepActions, useBusy, useSetupDirty, type StepProps } from "./Setup";
 import { SmsBillingAck, SmsSenderField, suggestSenders } from "./SmsSender";
 
 type Invite = { id: string; staff_id: string; email: string; phone: string; role: string; channel: string; sent_count: number; last_sent_at: number | null; expires_at: number; accepted_at: number | null; revoked: number };
@@ -22,10 +22,12 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
   const [adding, setAdding] = useState({ name: "", role: "Barber" });
   const [inviting, setInviting] = useState<string | null>(null); // staff id
   const [inv, setInv] = useState({ email: "", phone: "", role: "BARBER", channel: "EMAIL" as "EMAIL" | "SMS" | "BOTH" | "LINK" });
+  useSetupDirty(!!adding.name.trim() || !!inviting);
+  const [accessError, setAccessError] = useState("");
   const [link, setLink] = useState<{ staff: string; url: string; sent: string[] } | null>(null);
   const { busy, run } = useBusy();
   const isOwner = w.account?.role === "OWNER";
-  const loadAccess = () => api<Access>("/auth/access").then(setAccess).catch(() => setAccess(null));
+  const loadAccess = () => { setAccessError(""); return api<Access>("/auth/access").then(setAccess).catch(e => setAccessError(e.message || "Could not load team access.")); };
   useEffect(() => { loadAccess(); }, []);
   const team = w.staff.filter((s) => s.active);
   const memberFor = (s: Staff) => access?.members.find((m) => m.staff_id === s.id);
@@ -52,11 +54,12 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
     setNotice(r.sent.length ? `Sent again by ${r.sent.join(" and ")}.` : "New link ready to share.");
     await loadAccess();
   }
-  const canSms = access?.providers.sms.provider !== "mailbox";
-  const canEmail = access?.providers.email.provider !== "mailbox";
+  const canSms = !!access && access.providers.sms.provider !== "mailbox";
+  const canEmail = !!access && access.providers.email.provider !== "mailbox";
   return (
     <div className="setup-wiz-card">
-      <p className="setup-wiz-lead">Add everyone who takes bookings. Invite them when you're ready — they get their own login and see only their own column.</p>
+      <p className="setup-wiz-lead">Add everyone who takes bookings. Invite them when you're ready. Barbers see their own column; reception and manager access depend on the role you choose.</p>
+      {accessError && <p role="alert">{accessError} <Button variant="secondary" onClick={loadAccess}>Retry team access</Button></p>}
       <ul className="setup-team" data-testid="setup-team-list">
         {team.map((s) => {
           const m = memberFor(s), p = pendingFor(s);
@@ -78,11 +81,12 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
                       <button type="button" className="linklike" disabled={busy} onClick={() => run(async () => { await api(`/auth/invites/${p.id}/revoke`, "POST", {}); setNotice("Invitation withdrawn."); await loadAccess(); }, setError)}>Withdraw</button>
                     </>
                   ) : (
-                    <Button variant="secondary" onClick={() => { setInviting(s.id); setInv({ email: "", phone: "", role: "BARBER", channel: canEmail ? "EMAIL" : canSms ? "SMS" : "LINK" }); setLink(null); }} data-testid={`invite-${s.id}`}>Invite</Button>
+                    <Button variant="secondary" disabled={!access || busy} onClick={() => { setInviting(s.id); setInv({ email: "", phone: "", role: "BARBER", channel: canEmail ? "EMAIL" : canSms ? "SMS" : "LINK" }); setLink(null); }} data-testid={`invite-${s.id}`}>Invite</Button>
                   )}
               </div>
               {inviting === s.id && (
                 <form className="setup-invite" onSubmit={(e) => { e.preventDefault(); run(() => sendInvite(s), setError); }} data-testid="invite-form">
+                  <p className="helper">Add an email or mobile to identify this person. Choosing a link creates the invitation without sending a message.</p>
                   <div className="setup-grid-2">
                     <F label="Email"><input type="email" inputMode="email" value={inv.email} onChange={(e) => setInv({ ...inv, email: e.target.value })} placeholder="them@example.com" data-testid="invite-email" /></F>
                     <F label="Mobile"><input type="tel" inputMode="tel" value={inv.phone} onChange={(e) => setInv({ ...inv, phone: e.target.value })} placeholder="07700 900123" data-testid="invite-phone" /></F>
@@ -135,6 +139,7 @@ export function StepMessages({ w, api, refresh, data, setNotice, setError, onNex
   const shop = w.shop as typeof w.shop & { phone?: string; email?: string; msg_sms?: number; msg_email?: number; msg_wa?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reply_to?: string; msg_sms_sender?: string };
   const suggested = suggestSenders(shop.name)[0] || "";
   const [m, setM] = useState<Msg>({ msg_sms: shop.msg_sms ?? 1, msg_email: shop.msg_email ?? 1, msg_wa: shop.msg_wa ?? 1, msg_reminders: shop.msg_reminders ?? 1, msg_reminder_hours: shop.msg_reminder_hours ?? 24, msg_reply_to: shop.msg_reply_to || shop.email || "", msg_sms_sender: shop.msg_sms_sender || suggested });
+  useSetupDirty(m.msg_sms !== (shop.msg_sms ?? 1) || m.msg_email !== (shop.msg_email ?? 1) || m.msg_reminders !== (shop.msg_reminders ?? 1) || m.msg_reminder_hours !== (shop.msg_reminder_hours ?? 24) || m.msg_reply_to !== (shop.msg_reply_to || shop.email || "") || m.msg_sms_sender !== (shop.msg_sms_sender || suggested));
   const [bill, setBill] = useState<SmsBilling | null>(null);
   const [ack, setAck] = useState(false);
   const [test, setTest] = useState<{ channel: string; ok: boolean; note: string } | null>(null);
@@ -216,14 +221,20 @@ export function StepOnline({ w, api, refresh, setNotice, setError, goTo, onNext,
   const [window_, setWindow] = useState(w.shop.booking_window_days ?? 42);
   const { busy, run } = useBusy();
   const timer = useRef(0);
+  useSetupDirty(slug !== (w.shop.slug || "") || lead !== (w.shop.lead_time_min ?? 60) || window_ !== (w.shop.booking_window_days ?? 42));
   useEffect(() => {
-    if (!w.shop.slug) api<{ slug: string }>("/setup/slug/suggest").then((r) => { if (!slug) setSlug(r.slug); }).catch(() => {});
+    if (!w.shop.slug) api<{ slug: string }>("/setup/slug/suggest").then((r) => { setSlug(value => value || r.slug); }).catch(() => {});
     else api<typeof share>("/setup/share").then(setShare).catch(() => {});
   }, []);
   useEffect(() => {
-    if (!slug) { setCheck(null); return; }
+    let cancelled = false;
+    setCheck(null);
     window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => api<{ ok: boolean; reason: string }>(`/setup/slug?slug=${encodeURIComponent(slug)}`).then(setCheck).catch(() => setCheck(null)), 250);
+    if (!slug) return;
+    timer.current = window.setTimeout(() => api<{ ok: boolean; reason: string }>(`/setup/slug?slug=${encodeURIComponent(slug)}`)
+      .then(value => { if (!cancelled) setCheck(value); })
+      .catch(() => { if (!cancelled) setCheck({ ok: false, reason: "Could not check this address. Try again." }); }), 250);
+    return () => { cancelled = true; window.clearTimeout(timer.current); };
   }, [slug]);
   const live = !!w.shop.slug && w.shop.online_booking === 1;
   const ready = w.services.some((s) => s.active) && w.staff.some((s) => s.active);
@@ -235,7 +246,7 @@ export function StepOnline({ w, api, refresh, setNotice, setError, goTo, onNext,
   }
   return (
     <div className="setup-wiz-card">
-      <p className="setup-wiz-lead">Your booking link. Put it in your Instagram bio, on Google, on the window. Customers pick a barber, a service and a time, and get a text.</p>
+      <p className="setup-wiz-lead">Your booking link. Put it in your Instagram bio, on Google, on the window. Customers pick a barber, a service and a time. Confirmations use the message channels you have connected.</p>
       <div className="setup-slug">
         <F label="Web address" hint={check?.reason || (check?.ok ? "Available" : " ")}>
           <div className="setup-slug-input" data-ok={check?.ok} data-bad={check ? !check.ok : undefined}>
@@ -264,7 +275,7 @@ export function StepOnline({ w, api, refresh, setNotice, setError, goTo, onNext,
           </div>
         </div>
       )}
-      <StepActions busy={busy} nextLabel={live ? "Continue" : ready && check?.ok ? "Go live and continue" : "Save address and continue"} onNext={() => run(async () => { if (slug && (check?.ok || slug === w.shop.slug)) await save(ready && (live || !!check?.ok)); await onNext(); }, setError)} onSkip={onSkip}>
+      <StepActions busy={busy} nextLabel={live ? "Continue" : ready && check?.ok ? "Go live and continue" : "Save address and continue"} onNext={() => run(async () => { if (!slug || (!check?.ok && slug !== w.shop.slug)) throw new Error(check?.reason || "Wait for a valid booking address, or choose Skip for now."); await save(ready && (live || !!check?.ok)); await onNext(); }, setError)} onSkip={onSkip}>
         {live && <Button variant="ghost" disabled={busy} onClick={() => run(() => save(false), setError)}>Switch off</Button>}
       </StepActions>
     </div>
@@ -275,19 +286,24 @@ export function StepOnline({ w, api, refresh, setNotice, setError, goTo, onNext,
 type Pay = { stripe: { provider: string; mode: string }; active: boolean; shop_account: { state: { key: string; label: string } } | null; settings: { deposits_online: number; deposit_hold_min: number; payment_mode: string; deposit_pence: number; payout_tier: string; payrun_auto: string; payrun_reserve_bps: number } };
 export function StepPayments({ w, api, refresh, data, setNotice, setError, goTo, onNext, onSkip, complete, onExit }: StepProps & { complete: boolean; onExit: () => void }) {
   const [pay, setPay] = useState<Pay | null>(null);
+  const [payError, setPayError] = useState("");
+  const [payRetry, setPayRetry] = useState(0);
   const [mode, setMode] = useState<"PAY_AT_VISIT" | "DEPOSIT" | "PREPAY">((w.shop.payment_mode as "DEPOSIT") || "DEPOSIT");
   const [deposit, setDeposit] = useState(w.shop.deposit_pence / 100);
   const [cancel, setCancel] = useState(w.shop.cancel_hours);
   const { busy, run } = useBusy();
-  useEffect(() => { api<Pay>("/shop/payments").then(setPay).catch(() => setPay(null)); }, []);
+  useSetupDirty(!complete && (mode !== (w.shop.payment_mode || "DEPOSIT") || deposit !== w.shop.deposit_pence / 100 || cancel !== w.shop.cancel_hours));
+  useEffect(() => { let cancelled = false; setPayError(""); api<Pay>("/shop/payments").then(p => { if (!cancelled) setPay(p); }).catch(e => { if (!cancelled) setPayError(e.message || "Could not load payment settings."); }); return () => { cancelled = true; }; }, [payRetry]);
   const stripeOn = pay?.stripe.provider === "stripe";
   const connected = pay?.shop_account?.state.key === "active";
   async function save() {
-    await api("/setup/policy", "PUT", { deposit_pence: Math.round(deposit * 100), cancel_hours: cancel, no_show_grace: w.shop.no_show_grace, payment_mode: mode });
-    if (stripeOn && pay && mode !== "PAY_AT_VISIT") {
-      await api("/shop/payments", "PUT", { ...pay.settings, deposits_online: 1, payment_mode: mode }).catch(() => {}); // needs an amount > 0 for DEPOSIT; policy just set it
-    }
-    await refresh();
+    if (mode === "DEPOSIT" && (!Number.isFinite(deposit) || deposit <= 0)) throw new Error("Enter a deposit greater than zero.");
+    await api("/setup/policy", "PUT", { deposit_pence: Math.round(deposit * 100), cancel_hours: cancel, no_show_grace: w.shop.no_show_grace, payment_mode: mode, version: w.shop.version });
+    try {
+      if (stripeOn && pay) {
+        await api("/shop/payments", "PUT", { ...pay.settings, deposit_pence: Math.round(deposit * 100), deposits_online: mode === "PAY_AT_VISIT" ? 0 : 1, payment_mode: mode });
+      }
+    } finally { await refresh(); }
   }
   async function connect() {
     await save();
@@ -338,16 +354,17 @@ export function StepPayments({ w, api, refresh, data, setNotice, setError, goTo,
       </div>
     );
   }
+  if (!pay) return <div className="setup-wiz-card">{payError ? <><p role="alert">{payError}</p><Button onClick={() => setPayRetry(n => n + 1)}>Retry payment settings</Button></> : <p role="status">Loading payment settings…</p>}<StepActions nextLabel="Skip payments for now" onNext={() => { onSkip?.(); }} /></div>;
   return (
     <div className="setup-wiz-card">
-      <p className="setup-wiz-lead">How customers pay. Most shops take a small deposit online — it cuts no-shows in half and the rest is paid at the chair.</p>
+      <p className="setup-wiz-lead">Choose pay in the shop, a deposit or full payment. Online card collection requires a connected payment provider.</p>
       <div className="setup-kind" role="radiogroup" aria-label="Payment at booking">
-        {([["PAY_AT_VISIT", "Pay in the shop", "No card needed to book. Simplest, most no-shows."], ["DEPOSIT", "Deposit online", "A fixed amount at booking, the rest at the chair."], ["PREPAY", "Pay in full online", "The whole price at booking. Best for high-value services."]] as const).map(([k, t, d]) => (
+        {([["PAY_AT_VISIT", "Pay in the shop", "No card needed to book. Customers pay at their visit."], ["DEPOSIT", "Deposit online", "A fixed amount at booking, the rest at the chair."], ["PREPAY", "Pay in full online", "The whole price at booking. Best for high-value services."]] as const).map(([k, t, d]) => (
           <button key={k} type="button" role="radio" aria-checked={mode === k} onClick={() => setMode(k)} data-testid={`pay-mode-${k}`}><Icon name={k === "PAY_AT_VISIT" ? "banknote" : k === "DEPOSIT" ? "paid" : "card"} /><strong>{t}</strong><span>{d}</span></button>
         ))}
       </div>
       <div className="setup-grid-2">
-        {mode === "DEPOSIT" && <F label="Deposit amount" hint="Kept if they cancel late or don't show; taken off the bill otherwise."><div className="setup-money"><span>£</span><input type="number" min={1} step={1} value={deposit} onChange={(e) => setDeposit(Number(e.target.value))} data-testid="setup-deposit" /></div></F>}
+        {mode === "DEPOSIT" && <F label="Deposit amount" hint="Kept if they cancel late or don't show; taken off the bill otherwise."><div className="setup-money"><span>{w.shop.currency === "EUR" ? "€" : w.shop.currency === "USD" ? "$" : "£"}</span><input type="number" min={1} step={1} value={deposit} onChange={(e) => setDeposit(Number(e.target.value))} data-testid="setup-deposit" /></div></F>}
         <F label="Free cancellation until" hint="After this, the deposit is kept."><select value={cancel} onChange={(e) => setCancel(Number(e.target.value))}><option value={0}>Any time</option><option value={2}>2 hours before</option><option value={12}>12 hours before</option><option value={24}>24 hours before</option><option value={48}>48 hours before</option></select></F>
       </div>
       {mode !== "PAY_AT_VISIT" && (
@@ -358,9 +375,9 @@ export function StepPayments({ w, api, refresh, data, setNotice, setError, goTo,
             <p className="workspace-success">Card payments are connected. {mode === "DEPOSIT" ? `Deposits of ${money(Math.round(deposit * 100))}` : "Full payment"} will be taken at booking.</p>
           ) : (
             <>
-              <p>To take money online the shop needs a payouts account — a five-minute form (business details, bank account, ID). Money lands in your bank on a daily schedule.</p>
+              <p>To take money online the shop needs a payouts account — a five-minute form (business details, bank account, ID). Payout timing depends on your account and payout settings.</p>
               <Button disabled={busy} onClick={() => run(connect, setError)} data-testid="setup-connect-stripe">{busy ? "Opening…" : "Set up payouts"} <Icon name="external" size={14} /></Button>
-              <small className="helper">Fee: card processing plus 1.5% platform fee, shown per payment in <button type="button" className="linklike" onClick={() => goTo("Settings")}>Settings → Payments</button>.</small>
+              <small className="helper">Review your applicable payment fees in <button type="button" className="linklike" onClick={() => goTo("Settings")}>Settings → Payments</button>.</small>
             </>
           )}
         </div>

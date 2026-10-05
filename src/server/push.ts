@@ -1,3 +1,4 @@
+import { isPushEndpoint } from "./security";
 // Web Push to customers' installed shop apps. Each shop's PWA subscribes with the platform VAPID
 // key; a subscription is scoped to (account, shop) so a customer who installed two shops' apps
 // only hears from each shop in that shop's app.
@@ -36,8 +37,11 @@ export async function pushToAccount(db: DB, shopId: string, accountId: string, p
   let sent = 0, removed = 0;
   const now = Date.now();
   for (const s of subs.results) {
+    if (!isPushEndpoint(s.endpoint)) {
+      await db.prepare("DELETE FROM customer_push_subscriptions WHERE id=?").bind(s.id).run(); removed++; continue;
+    }
     try {
-      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(payload), { TTL: 24 * 3600, urgency: "high" });
+      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(payload), { TTL: 24 * 3600, urgency: "high", timeout: 10000 });
       sent++;
       await db.prepare("UPDATE customer_push_subscriptions SET last_used_at=?, failures=0 WHERE id=?").bind(now, s.id).run();
     } catch (err) {

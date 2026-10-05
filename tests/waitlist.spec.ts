@@ -1,3 +1,4 @@
+import { chooseCalendarDate } from "./fixture";
 // Waiting list procedure (docs/WAITLIST-PLAN.md): join → queue chip/drawer → matches → offer →
 // outbox → customer accepts/declines at /offer/<token> → booked / back in line; auto-offer on freed
 // slots; expiry sweep; settings + templates; /me waiting section.
@@ -276,7 +277,7 @@ test("browser: queue chip → drawer → offer a time → copy message; bell kee
   await cust.close();
   // Back in admin the queue is clear and the visit is in the diary.
   await section(page, "Appointments");
-  await page.getByLabel("Appointment date").fill(date);
+  await chooseCalendarDate(page, date);
   await expect(page.getByRole("button", { name: /Browser Bea/ }).first()).toBeVisible();
   await expect(page.getByTestId("queue-chip")).toHaveAccessibleName(new RegExp(`${before - 1} waiting`));
 });

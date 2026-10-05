@@ -98,7 +98,7 @@ export function SmsBillingAck({
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span>
         <strong>Texts cost {price} each</strong>
-        <small>Every text we send for you (confirmations, reminders, codes) is added to your invoice the same day, with the date and who it went to. A busy chair sends roughly 60–80 texts a month — about £5–£6. Emails are free.</small>
+        <small>Every text we send for you (confirmations, reminders, codes) is added to your invoice the same day, with the date and who it went to. Your total depends on the number of texts sent. Emails are free.</small>
       </span>
     </label>
   );

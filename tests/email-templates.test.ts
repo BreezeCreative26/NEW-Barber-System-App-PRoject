@@ -62,7 +62,8 @@ const V: Record<MessageTemplate, Record<string, string | number>> = {
 const PLATFORM = new Set<MessageTemplate>(["invoice", "credit_note", "owner_signin_link", "trial_ending", "trial_ended", "payment_overdue", "account_readonly", "broadcast", "admin_alert_digest", "owner_welcome"]);
 
 const outDir = new URL("../docs/evidence/emails/", import.meta.url);
-mkdirSync(outDir, { recursive: true });
+const writeEvidence = process.env.WRITE_EMAIL_EVIDENCE === "1";
+if (writeEvidence) mkdirSync(outDir, { recursive: true });
 
 describe("message templates", () => {
   it("vars table covers every template", () => {
@@ -104,12 +105,12 @@ describe("message templates", () => {
       }
       // 5) Sent-by line always present.
       expect(html).toContain(`Sent by ${sender.name}`);
-      writeFileSync(new URL(`${t}.html`, outDir), html);
+      if (writeEvidence) writeFileSync(new URL(`${t}.html`, outDir), html);
       index.push(`<li><a href="${t}.html">${t}</a> — <code>${r.subject.replace(/</g, "&lt;")}</code><br><small>SMS: ${r.sms.replace(/</g, "&lt;")}</small></li>`);
     });
   }
   it("writes the preview index", () => {
-    writeFileSync(new URL("index.html", outDir), `<!doctype html><meta charset="utf-8"><title>foliyo email templates</title><body style="font:14px system-ui;max-width:900px;margin:32px auto"><h1>${MESSAGE_TEMPLATES.length} message templates</h1><ul>${index.join("")}</ul>`);
+    if (writeEvidence) writeFileSync(new URL("index.html", outDir), `<!doctype html><meta charset="utf-8"><title>foliyo email templates</title><body style="font:14px system-ui;max-width:900px;margin:32px auto"><h1>${MESSAGE_TEMPLATES.length} message templates</h1><ul>${index.join("")}</ul>`);
     expect(index.length).toBe(MESSAGE_TEMPLATES.length);
   });
   it("HTML-escapes hostile input in every slot", () => {

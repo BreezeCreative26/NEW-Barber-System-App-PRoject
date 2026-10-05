@@ -1,3 +1,4 @@
+import { chooseCalendarDate } from "./fixture";
 import { test, expect, type Page } from "@playwright/test";
 import { openFixtureShop, base, origin } from "./fixture";
 
@@ -98,7 +99,7 @@ test("browser: change price and time from the appointment panel; calendar card a
   const w = (await (await page.request.get(base + "/workspace")).json()) as W;
   const jay = w.staff.find((s) => s.name === "Jay Carter")!;
   const { booking, date } = await book(page, w, jay.id, w.services[0].id, "Panel Edit");
-  await page.getByLabel("Appointment date", { exact: true }).fill(date);
+  await chooseCalendarDate(page, date);
   await page.getByRole("button", { name: /Panel Edit/ }).click();
   await page.getByTestId("edit-items").click();
   await expect(page.getByTestId("items-editor")).toBeVisible();

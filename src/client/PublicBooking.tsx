@@ -540,6 +540,9 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const [regMarketing, setRegMarketing] = useState(false);
   const [login, setLogin] = useState({ email: "", password: "" });
   const [authError, setAuthError] = useState("");
+  const [registrationPhone, setRegistrationPhone] = useState("");
+  const [registrationCode, setRegistrationCode] = useState("");
+  const [registrationHint, setRegistrationHint] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   async function loadSession() {
     const r = await fetch(`/api/public/shops/${encodeURIComponent(slug)}/account/session`, { credentials: "same-origin" });
@@ -573,7 +576,11 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     }
     setAuthBusy(true);
     try {
-      if (authMode === "register") await api(`/shops/${encodeURIComponent(slug)}/account/register`, "POST", { name: reg.name.trim(), phone: reg.phone, email: reg.email.trim(), password: reg.password, marketing_opt_in: regMarketing ? 1 : 0, contact_pref: smsOffered && regTexts ? "AUTO" : "EMAIL", accept_terms_version: termsVersion });
+      if (authMode === "register" && registrationPhone !== reg.phone) {
+        const r = await api<{ sandbox_code?: string }>(`/shops/${encodeURIComponent(slug)}/account/register/start`, "POST", { phone: reg.phone });
+        setRegistrationPhone(reg.phone); setRegistrationCode(""); setRegistrationHint(r.sandbox_code || ""); return;
+      }
+      if (authMode === "register") await api(`/shops/${encodeURIComponent(slug)}/account/register`, "POST", { name: reg.name.trim(), phone: reg.phone, email: reg.email.trim(), password: reg.password, code: registrationCode, marketing_opt_in: regMarketing ? 1 : 0, contact_pref: smsOffered && regTexts ? "AUTO" : "EMAIL", accept_terms_version: termsVersion });
       else await api(`/shops/${encodeURIComponent(slug)}/account/login`, "POST", { email: login.email.trim(), password: login.password });
       if (authMode === "register" && !(smsOffered && regTexts)) setContactPref("EMAIL");
       await loadSession();
@@ -1380,6 +1387,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       <a className="link small" href={shopPath(slug, "/me", "?forgot=1")} data-testid="auth-forgot">Forgot password?</a>
                     </div>
                   )}
+                  {authMode === "register" && registrationPhone === reg.phone && <label><span>Code sent to your mobile</span><input autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required value={registrationCode} onChange={e => setRegistrationCode(e.target.value)} data-testid="register-code" />{registrationHint && <small>Development code: {registrationHint}</small>}<button type="button" className="link" onClick={() => { setRegistrationPhone(""); setRegistrationCode(""); }} data-testid="register-resend">Request another code</button></label>}
                   {authError && (
                     <p className="workspace-error" role="alert" data-testid="auth-error">{authError}</p>
                   )}
@@ -1576,7 +1584,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                 )}
                 {step === 3 ? (
                   <Button key="submit-auth" type="submit" form="customer-auth" disabled={authBusy} aria-busy={authBusy} data-testid="auth-submit">
-                    {authBusy ? (authMode === "register" ? "Creating account…" : "Signing in…") : authMode === "register" ? "Create account and continue" : "Sign in and continue"}
+                    {authBusy ? (authMode === "register" ? "Creating account…" : "Signing in…") : authMode === "register" ? (registrationPhone === reg.phone ? "Verify and continue" : "Send verification code") : "Sign in and continue"}
                     <Icon name="arrowRight" />
                   </Button>
                 ) : step === 4 ? (

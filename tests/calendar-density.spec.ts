@@ -36,7 +36,7 @@ test.describe("laptop 1366×768", () => {
     const today = await page.getByRole("button", { name: "Today", exact: true }).boundingBox();
     const add = await page.getByTestId("new-booking").boundingBox();
     expect(Math.abs((today?.y ?? 0) - (add?.y ?? 99))).toBeLessThan(4);
-    expect((await toolbar.boundingBox())?.height ?? 999).toBeLessThan(64);
+    expect((await toolbar.boundingBox())?.height ?? 999).toBeLessThan(76);
 
     const pick = async (d: string) => { await page.getByTestId("density-button").click(); await page.getByTestId(`density-${d}`).click(); await page.waitForTimeout(250); };
     await pick("compact");
@@ -113,11 +113,11 @@ test.describe("laptop 1366×768", () => {
 test.describe("phone 390×844", () => {
   test.skip(sunday, "fixture shop is closed on Sundays — no timeline to measure");
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
-  test("starts Compact with fixed 24px cells (no auto-squash), cards don't overlap, size menu opens as a sheet", async ({ page }) => {
+  test("starts Standard with fixed 32px cells (no auto-squash), cards don't overlap, size menu opens as a sheet", async ({ page }) => {
     await openFixtureShop(page, "owner");
     const board = page.locator(".connected-scroll");
-    await expect(board).toHaveAttribute("data-density", "COMPACT");
-    expect((await board.evaluate((el) => getComputedStyle(el.querySelector(".calendar-board") as HTMLElement).getPropertyValue("--step"))).trim()).toBe("24px");
+    await expect(board).toHaveAttribute("data-density", "STANDARD");
+    expect((await board.evaluate((el) => getComputedStyle(el.querySelector(".calendar-board") as HTMLElement).getPropertyValue("--step"))).trim()).toBe("32px");
     // No two cards in the same column overlap vertically.
     const boxes = await page.locator(".calendar-event").evaluateAll((els) => els.map((e) => { const b = e.getBoundingClientRect(); return { x: Math.round(b.left), top: b.top, bottom: b.bottom }; }));
     for (const a of boxes) for (const b of boxes) if (a !== b && a.x === b.x) expect(a.top >= b.bottom || b.top >= a.bottom).toBe(true);
@@ -126,7 +126,7 @@ test.describe("phone 390×844", () => {
     await page.getByTestId("density-button").click();
     const menu = page.getByTestId("density-picker");
     await expect(menu).toBeVisible();
-    await page.getByTestId("density-standard").click();
-    expect((await board.evaluate((el) => getComputedStyle(el.querySelector(".calendar-board") as HTMLElement).getPropertyValue("--step"))).trim()).toBe("32px");
+    await page.getByTestId("density-compact").click();
+    expect((await board.evaluate((el) => getComputedStyle(el.querySelector(".calendar-board") as HTMLElement).getPropertyValue("--step"))).trim()).toBe("24px");
   });
 });

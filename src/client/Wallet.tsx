@@ -2,7 +2,7 @@
 // Model A: money never sits in the app — these are totals of what was recorded at the chair.
 import { useEffect, useState } from "react";
 import type { Payment, WorkspaceData } from "../server/domain";
-import { Button, Icon, IconButton, KPI, StatusPill, TxRow, WalletHero } from "./ui";
+import { Button, useDialogFocus, Icon, IconButton, KPI, StatusPill, TxRow, WalletHero } from "./ui";
 import { METHODS } from "./Checkout";
 import { money, time, datePlus } from "./fixtures";
 
@@ -49,28 +49,20 @@ export function WalletDrawer({
   const [data, setData] = useState<WalletData | null>(null);
   const [error, setError] = useState("");
   const barberView = w.account?.role === "BARBER";
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      previous?.focus();
-    };
-  }, []);
+  const ref = useDialogFocus<HTMLElement>(onClose);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     let cancelled = false;
     const r = rangeFor(range, w.today);
     setError("");
+    setData(null);
     api<WalletData>(`/wallet?from=${r.from}&to=${r.to}`)
       .then((d) => !cancelled && setData(d))
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Could not load the wallet."));
     return () => {
       cancelled = true;
     };
-  }, [range, w.now, w.payments.length]);
+  }, [range, w.now, w.today, w.payments.length, retry]);
 
   const t = data?.totals;
   const mine = barberView ? data?.by_staff.find((s) => s.staff_id === w.account?.staff_id) : null;
@@ -80,7 +72,7 @@ export function WalletDrawer({
   return (
     <>
       <div className="drawer-scrim" onClick={onClose} aria-hidden="true" />
-      <aside className="drawer-right wallet-drawer" aria-label={barberView ? "My earnings" : "Shop wallet"} data-testid="wallet-drawer">
+      <aside ref={ref} role="dialog" aria-modal="true" className="drawer-right wallet-drawer" aria-label={barberView ? "My earnings" : "Shop wallet"} data-testid="wallet-drawer">
         <h2>
           {barberView ? "My earnings" : "Shop wallet"}
           <small>{data ? (data.from === data.to ? longDate(data.from) : `${shortDate(data.from)} – ${shortDate(data.to)}`) : "Loading…"}</small>
@@ -88,7 +80,7 @@ export function WalletDrawer({
         </h2>
         <div className="segmented wallet-range" aria-label="Wallet period">
           {RANGES.map((r) => (
-            <button key={r.key} type="button" aria-pressed={range === r.key} onClick={() => setRange(r.key)}>
+            <button key={r.key} type="button" aria-pressed={range === r.key} onClick={() => { if (range !== r.key) { setData(null); setRange(r.key); } }}>
               {r.label}
             </button>
           ))}
@@ -98,6 +90,9 @@ export function WalletDrawer({
             {error}
           </p>
         )}
+        {error && <Button variant="secondary" onClick={() => setRetry(n => n + 1)}>Retry wallet</Button>}
+        {!data && !error && <p className="drawer-note left" role="status">Loading payments…</p>}
+        {data && <>
         <WalletHero
           label={barberView ? `Earned ${label}` : `Taken ${label}`}
           pill={data ? `${t!.visits} paid visit${t!.visits === 1 ? "" : "s"}` : undefined}
@@ -169,12 +164,13 @@ export function WalletDrawer({
             {t.voided} voided row{t.voided === 1 ? "" : "s"} excluded from totals
           </StatusPill>
         )}
+        </>}
         <div className="drawer-foot">
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
         </div>
-        <p className="drawer-note">Ledger of recorded payments · foliyo never holds money</p>
+        <p className="drawer-note">Recorded payments, not an available balance. Transfers are shown in Pay runs.</p>
       </aside>
     </>
   );

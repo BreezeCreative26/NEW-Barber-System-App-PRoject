@@ -1,4 +1,4 @@
-/* Barbershop OS. D-012: preserve the existing matte palette. */
+/* Legacy layout rules. Foliyo tokens and shared controls are defined in design.css. */
 .workspace .account-entry {
   max-width: 680px;
   margin-bottom: 24px;

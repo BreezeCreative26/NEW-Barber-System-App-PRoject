@@ -52,7 +52,7 @@ export function PayRunsPage({ w, api, onOpenBarber }: { w: WorkspaceData; api: A
       </div>
       {msg && <p className="workspace-footnote" role="status" data-testid="pay-runs-msg">{msg}</p>}
       {!d ? <p className="workspace-footnote">Calculating…</p> : rows.length === 0 ? <Notice>No active barbers.</Notice> : (
-        <div className="pay-runs-table-wrap"><table className="pay-runs-table" data-testid="pay-runs-table">
+        <div className="pay-runs-table-wrap"><table className="pay-runs-table pay-period-table" data-testid="pay-runs-table">
           <thead><tr><th>Barber</th><th>Deal</th><th className="num">Sales</th><th className="num">Deductions</th><th className="num">Owed to barber</th><th className="num">Owed to business</th><th>Status</th><th /></tr></thead>
           <tbody>
             {rows.map((r) => (

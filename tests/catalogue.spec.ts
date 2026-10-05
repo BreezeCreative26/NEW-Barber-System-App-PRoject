@@ -1,3 +1,4 @@
+import { chooseCalendarDate } from "./fixture";
 import {
   test,
   expect,
@@ -436,7 +437,7 @@ test("owner edits add-ons, barber pricing and partial shifts; booking items surv
   await save(page);
   await page.reload();
   await section(page, "Appointments");
-  await page.getByLabel("Appointment date", { exact: true }).fill(day());
+  await chooseCalendarDate(page, day());
   await page.getByRole("button", { name: "New booking", exact: true }).click();
   await page
     .getByLabel("Service", { exact: true })
@@ -468,7 +469,7 @@ test("owner edits add-ons, barber pricing and partial shifts; booking items surv
   await page.getByLabel("Add-on price (£)").fill("9");
   await save(page);
   await page.reload();
-  await page.getByLabel("Appointment date", { exact: true }).fill(day());
+  await chooseCalendarDate(page, day());
   await page
     .getByRole("button")
     .filter({ hasText: "Combined quote client" })
@@ -516,7 +517,7 @@ test("changing add-ons invalidates a selected slot, preserves contact fields and
   await expect(
     page.getByRole("button", { name: "New booking", exact: true }),
   ).toBeEnabled();
-  await page.getByLabel("Appointment date", { exact: true }).fill(day());
+  await chooseCalendarDate(page, day());
   await page.getByRole("button", { name: "New booking", exact: true }).click();
   await page
     .getByLabel("Service", { exact: true })

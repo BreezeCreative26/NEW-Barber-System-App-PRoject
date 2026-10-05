@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import type { Staff, StaffDayOff, Holiday, ScheduleOverride, WorkspaceData } from "../server/domain";
+import { useEffect, useMemo, useState } from "react";
+import type { Staff, StaffDayOff, Holiday, ScheduleOverride, StoredBooking, WorkspaceData } from "../server/domain";
 import { Button, Icon, Notice, StatusPill, Avatar } from "./ui";
 import { time, shopWeekOf } from "./fixtures";
 
@@ -9,6 +9,7 @@ import { time, shopWeekOf } from "./fixtures";
 
 type Props = {
   w: WorkspaceData;
+  api: <T>(path: string) => Promise<T>;
   date: string;
   onDate: (d: string) => void;
   onEditDay: (staff: Staff, date: string) => void;
@@ -23,7 +24,7 @@ type Props = {
 const wd = (d: string) => new Date(d + "T12:00:00Z").getUTCDay();
 const plus = (d: string, n: number) => new Date(Date.parse(d + "T12:00:00Z") + n * 86400000).toISOString().slice(0, 10);
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const nice = (d: string, opts: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric", month: "short" }) => new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", opts);
+const nice = (d: string, opts: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric", month: "short" }) => new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", { ...opts, timeZone: "UTC" });
 const initials = (n: string) => n.split(" ").map((p) => p[0]).slice(0, 2).join("");
 
 type DayState =
@@ -41,24 +42,51 @@ export function dayState(w: WorkspaceData, s: Staff, date: string): DayState {
   const o = w.schedule_overrides.find((x) => x.staff_id === s.id && x.date === date) ?? null;
   const h = o ?? w.hours.find((x) => x.staff_id === s.id && x.weekday === wd(date));
   if (!h || !h.enabled) return { kind: "off" };
-  return { kind: "in", starts: h.starts, ends: h.ends, break_start: h.break_start, break_end: h.break_end, dated: o };
+  const day = shopWeekOf(w.shop)[wd(date)];
+  const starts = Math.max(h.starts, day.starts), ends = Math.min(h.ends, day.ends);
+  if (ends <= starts) return { kind: "off" };
+  return { kind: "in", starts, ends, break_start: Math.max(starts, Math.min(ends, h.break_start)), break_end: Math.max(starts, Math.min(ends, h.break_end)), dated: o };
 }
 
-export function Shifts({ w, date, onDate, onEditDay, onDayOff, onWeekly, onHoliday, onRemoveDayOff, onRemoveHoliday, onOpenBooking }: Props) {
+// Union unavailable intervals: overlapping blocks/breaks must not be subtracted twice.
+export function chairMinutes(state: DayState, blocks: { start_min: number; end_min: number }[]) {
+  if (state.kind !== "in") return 0;
+  const intervals = [[state.break_start, state.break_end], ...blocks.map(b => [b.start_min, b.end_min])]
+    .map(([start, end]) => [Math.max(state.starts, start), Math.min(state.ends, end)])
+    .filter(([start, end]) => end > start).sort((a, b) => a[0] - b[0]);
+  let blocked = 0, end = state.starts;
+  for (const [start, stop] of intervals) { blocked += Math.max(0, stop - Math.max(start, end)); end = Math.max(end, stop); }
+  return Math.max(0, state.ends - state.starts - blocked);
+}
+
+export function Shifts({ w, api, date, onDate, onEditDay, onDayOff, onWeekly, onHoliday, onRemoveDayOff, onRemoveHoliday, onOpenBooking }: Props) {
   const [view, setView] = useState<"day" | "week" | "leave">("day");
   const staff = useMemo(() => w.staff.filter((s) => s.active), [w.staff]);
   const weekStart = useMemo(() => { const d = wd(date); return plus(date, -((d + 6) % 7)); }, [date]); // Monday
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => plus(weekStart, i)), [weekStart]);
 
-  // Bookings by staff/date for utilisation (from the workspace snapshot; day view is exact for the selected date).
-  const booked = (s: Staff, d: string) => w.bookings.filter((b) => b.staff_id === s.id && b.date === d && !["CANCELLED", "NO_SHOW"].includes(b.status));
+  const [range, setRange] = useState<{ key: string; bookings: Pick<StoredBooking, "id" | "staff_id" | "date" | "status" | "duration_min">[]; truncated?: boolean } | null>(null);
+  const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
+  const rangeKey = weekStart;
+  useEffect(() => {
+    if (view === "leave") return;
+    let cancelled = false;
+    setRange(null); setError("");
+    api<{ bookings: NonNullable<typeof range>["bookings"]; truncated?: boolean }>(`/bookings/range?from=${weekStart}&to=${plus(weekStart, 6)}`)
+      .then(r => { if (!cancelled) setRange({ key: weekStart, ...r }); })
+      .catch(() => { if (!cancelled) setError("Could not load roster appointments. Please retry."); });
+    return () => { cancelled = true; };
+  }, [weekStart, view === "leave", w.now, reload]);
+  const complete = range?.key === rangeKey && !range.truncated;
+  const booked = (s: Staff, d: string) => (range?.key === rangeKey ? range.bookings : []).filter(b => b.staff_id === s.id && b.date === d && !["CANCELLED", "NO_SHOW"].includes(b.status));
   const issuesFor = (s: Staff, d: string) => w.issues.filter((i) => booked(s, d).some((b) => b.id === i.booking_id));
 
   const dayRows = staff.map((s) => {
     const st = dayState(w, s, date);
     const bs = booked(s, date);
     const blocks = w.blocks.filter((k) => k.staff_id === s.id && k.date === date);
-    const chair = st.kind === "in" ? st.ends - st.starts - Math.max(0, st.break_end - st.break_start) - blocks.reduce((n, k) => n + (k.end_min - k.start_min), 0) : 0;
+    const chair = chairMinutes(st, blocks);
     const used = bs.reduce((n, b) => n + b.duration_min, 0);
     return { s, st, bs, blocks, chair, used, issues: issuesFor(s, date) };
   });
@@ -74,7 +102,12 @@ export function Shifts({ w, date, onDate, onEditDay, onDayOff, onWeekly, onHolid
         <div className="toolbar shifts-toolbar">
           <div className="segmented" role="tablist" aria-label="Shifts view">
             {(["day", "week", "leave"] as const).map((v) => (
-              <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setView(v)} data-testid={`shifts-tab-${v}`}>
+              <button key={v} type="button" role="tab" aria-selected={view === v} tabIndex={view === v ? 0 : -1} aria-controls={`shifts-panel-${v}`} id={`shifts-view-${v}`} onKeyDown={event => {
+                const views = ["day", "week", "leave"] as const;
+                const index = views.indexOf(v);
+                const next = event.key === "ArrowRight" ? (index + 1) % 3 : event.key === "ArrowLeft" ? (index + 2) % 3 : event.key === "Home" ? 0 : event.key === "End" ? 2 : -1;
+                if (next >= 0) { event.preventDefault(); setView(views[next]); document.getElementById(`shifts-view-${views[next]}`)?.focus(); }
+              }} onClick={() => setView(v)} data-testid={`shifts-tab-${v}`}>
                 {v === "day" ? "Day" : v === "week" ? "Week" : "Leave"}
               </button>
             ))}
@@ -91,10 +124,14 @@ export function Shifts({ w, date, onDate, onEditDay, onDayOff, onWeekly, onHolid
         </div>
       </header>
 
+      {staff.length === 0 && <Notice>No active team members. Add a team member to build the roster.</Notice>}
+      {view !== "leave" && error && <Notice tone="warning">{error} <Button variant="secondary" onClick={() => setReload(n => n + 1)}>Retry roster</Button></Notice>}
+      {view !== "leave" && !range && !error && <p role="status">Loading roster appointments…</p>}
+      {view !== "leave" && range?.truncated && <Notice tone="warning">This week has more appointments than can be shown. Counts and utilisation are unavailable.</Notice>}
       {view === "day" && (
-        <div className="shifts-day" data-testid="shifts-day">
+        <div className="shifts-day" role="tabpanel" id="shifts-panel-day" aria-labelledby="shifts-view-day" data-testid="shifts-day">
           <p className="shifts-summary">
-            <strong>{nice(date, { weekday: "long", day: "numeric", month: "long" })}</strong> · {totals.in} of {staff.length} working · {totals.visits} appointment{totals.visits === 1 ? "" : "s"} · {totals.chair ? `${Math.round((totals.used / totals.chair) * 100)}% of chair time booked` : "no chair time"}
+            <strong>{nice(date, { weekday: "long", day: "numeric", month: "long" })}</strong> · {totals.in} of {staff.length} working {complete ? ` · ${totals.visits} appointments · ${totals.chair ? `${Math.round((totals.used / totals.chair) * 100)}% of chair time booked` : "no chair time"}` : " · appointment totals unavailable"}
           </p>
           <ul className="shifts-rows">
             {dayRows.map(({ s, st, bs, blocks, chair, used, issues }) => (
@@ -124,7 +161,7 @@ export function Shifts({ w, date, onDate, onEditDay, onDayOff, onWeekly, onHolid
                   ) : <span className="muted">—</span>}
                 </div>
                 <div className="shifts-load">
-                  {st.kind === "in" ? (
+                  {!complete ? <small className="muted">Appointment totals unavailable</small> : st.kind === "in" ? (
                     <>
                       <div className="shifts-bar" aria-hidden="true"><span style={{ width: `${chair ? Math.min(100, (used / chair) * 100) : 0}%` }} /></div>
                       <small>{bs.length} visit{bs.length === 1 ? "" : "s"} · {used} of {chair} min</small>
@@ -151,7 +188,7 @@ export function Shifts({ w, date, onDate, onEditDay, onDayOff, onWeekly, onHolid
       )}
 
       {view === "week" && (
-        <div className="shifts-week-wrap" data-testid="shifts-week">
+        <div className="shifts-week-wrap" role="tabpanel" tabIndex={0} id="shifts-panel-week" aria-labelledby="shifts-view-week" data-testid="shifts-week">
           <table className="shifts-week">
             <thead>
               <tr>
@@ -175,7 +212,7 @@ export function Shifts({ w, date, onDate, onEditDay, onDayOff, onWeekly, onHolid
                               {st.dated && <small className="shifts-dated">dated</small>}
                             </>
                           ) : st.kind === "leave" ? <span className="shifts-cell-leave">Leave</span> : st.kind === "closed" ? <span className="muted">Closed</span> : <span className="muted">Off</span>}
-                          {n > 0 && <small className={st.kind === "in" ? "" : "shifts-warn"}>{n} booked</small>}
+                          {complete && n > 0 && <small className={st.kind === "in" ? "" : "shifts-warn"}>{n} booked</small>}
                         </button>
                       </td>
                     );
@@ -189,17 +226,16 @@ export function Shifts({ w, date, onDate, onEditDay, onDayOff, onWeekly, onHolid
       )}
 
       {view === "leave" && (
-        <div className="shifts-leave" data-testid="shifts-leave">
+        <div className="shifts-leave" role="tabpanel" id="shifts-panel-leave" aria-labelledby="shifts-view-leave" data-testid="shifts-leave">
           <div className="shifts-leave-col">
             <h3>Days off</h3>
             {upcomingLeave.length === 0 && <p className="workspace-footnote">No upcoming days off.</p>}
             <ul className="shifts-leave-list">
               {upcomingLeave.map((d) => {
                 const s = w.staff.find((x) => x.id === d.staff_id);
-                const n = s ? booked(s, d.date).length : 0;
                 return (
                   <li key={d.id}>
-                    <div><strong>{s?.name ?? "—"}</strong> · {nice(d.date)}<br /><small>{d.reason}</small>{n > 0 && <small className="shifts-warn"> · {n} appointment{n === 1 ? "" : "s"} still booked</small>}</div>
+                    <div><strong>{s?.name ?? "—"}</strong> · {nice(d.date)}<br /><small>{d.reason}</small></div>
                     <Button variant="ghost" onClick={() => onRemoveDayOff(d)}>Remove</Button>
                   </li>
                 );

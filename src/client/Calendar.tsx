@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -8,9 +9,33 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type { WorkspaceData, StoredBooking, Staff, StaffBlock } from "../server/domain";
-import { Avatar, BlockIcons, Icon } from "./ui";
+import { Avatar, BlockIcons, Button, Icon } from "./ui";
 import { time, money, datePlus, shopDayOf } from "./fixtures";
 import { DENSITY_PRESETS, type Density } from "./calendarDensity";
+
+// Same footprint for drag, resize and keyboard previews, including the saved trailing buffer.
+export function calendarFootprintReason(w: WorkspaceData, date: string, staffId: string, start: number, duration: number, excludeId?: string, now = Date.now()): string {
+  const staff = w.staff.find(s => s.id === staffId);
+  if (!staff?.active) return "Inactive barber";
+  const day = shopDayOf(w.shop, date);
+  if (!day.enabled || w.holidays.some(h => h.date === date)) return "Shop closed";
+  if (w.days_off.some(d => d.staff_id === staffId && d.date === date)) return "Day off";
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: w.shop.timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now);
+  const part = (key: string) => parts.find(p => p.type === key)?.value || "";
+  const today = `${part("year")}-${part("month")}-${part("day")}`;
+  if (date < today || (date === today && start < Number(part("hour")) * 60 + Number(part("minute")))) return "Past time";
+  const moving = w.bookings.find(b => b.id === excludeId);
+  if (moving && w.service_rules.some(r => r.staff_id === staffId && r.service_id === moving.service_id && r.enabled === 0)) return "Service unavailable";
+  const shift = w.schedule_overrides.find(o => o.staff_id === staffId && o.date === date) ?? w.hours.find(h => h.staff_id === staffId && h.weekday === new Date(date + "T12:00:00Z").getUTCDay());
+  if (!shift?.enabled) return "Off duty";
+  const end = start + duration + (moving?.buffer_min ?? 0);
+  if (end > 1440) return "Outside day";
+  if (start < Math.max(day.starts, shift.starts) || end > Math.min(day.ends, shift.ends)) return "Outside hours";
+  if (shift.break_end > shift.break_start && start < shift.break_end && end > shift.break_start) return "Break";
+  if (w.blocks.some(b => b.date === date && b.staff_id === staffId && start < b.end_min && end > b.start_min)) return "Blocked";
+  if (w.bookings.some(b => b.date === date && b.staff_id === staffId && b.id !== excludeId && !["CANCELLED", "NO_SHOW"].includes(b.status) && start < b.start_min + b.duration_min + b.buffer_min && end > b.start_min)) return "Occupied";
+  return "";
+}
 
 // Phone-first timetable: below this width columns narrow and the board scrolls sideways
 // inside its own region so the page itself never overflows.
@@ -72,7 +97,7 @@ function tick() {
 }
 // Slot reasons the shop may knowingly book over from the calendar. Mirrors OVERRIDABLE_REASONS server-side.
 const SOFT_REASONS = new Set(["Outside hours", "Off duty", "Break", "Occupied", "Blocked"]);
-const HARD_REASONS = new Set(["Past time", "Shop closed", "Day off", "Inactive barber"]);
+const HARD_REASONS = new Set(["Past time", "Shop closed", "Day off", "Inactive barber", "Service unavailable", "Outside day"]);
 // Out-of-hours cells: greyed flat (not hatched) — the shop is simply shut, but staff may still book.
 const OUTSIDE_REASONS = new Set(["Outside hours", "Off duty"]);
 // Fixed 24-hour board: midnight to midnight, every day.
@@ -223,7 +248,11 @@ export function Calendar({
     const close = (e: Event) => {
       if (!(e.target as HTMLElement).closest?.(".staff-menu")) setMenu(null);
     };
-    const esc = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setMenu(null);
+    const trigger = boardRef.current?.querySelector<HTMLButtonElement>('[data-testid="staff-menu"][aria-expanded="true"]');
+    trigger?.parentElement?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    const esc = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); setMenu(null); trigger?.focus(); }
+    };
     document.addEventListener("pointerdown", close);
     window.addEventListener("keydown", esc);
     return () => {
@@ -274,7 +303,7 @@ export function Calendar({
     ro.observe(el);
     setBoardH(el.clientHeight);
     return () => ro.disconnect();
-  }, []);
+  }, [staff.length]);
   const slots = (end - begin) / 15;
   const openSlots = Math.max(16, (dayHours.ends - dayHours.starts) / 15 || 36); // opening→closing, at least 4h
   // Auto-fit only on wide screens: on a phone the board is short and fitting would squash cards
@@ -315,12 +344,6 @@ export function Calendar({
     positioned.current = key;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, barber, density, staff.length, step]);
-  if (!staff.length)
-    return (
-      <p className="calendar-empty">
-        No barbers match this view. Add a barber or clear the filter.
-      </p>
-    );
   const gutter = compact ? preset.gutterPhone : preset.gutter;
   const columnWidth = compact ? preset.columnPhone : preset.column;
 
@@ -337,34 +360,11 @@ export function Calendar({
     return { staffId: staff[col].id, start: Math.min(end - 15, Math.max(begin, minute)) };
   }
   function slotState(staffId: string, start: number, excludeId?: string): string {
-    const s = staff.find((x) => x.id === staffId);
-    if (!s) return "Inactive barber";
-    const shift = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date) || w.hours.find((h) => h.staff_id === s.id && h.weekday === new Date(date + "T12:00:00Z").getUTCDay());
-    const leave = w.days_off.some((d) => d.staff_id === s.id && d.date === date);
-    if (!s.active) return "Inactive barber";
-    if (closed) return "Shop closed";
-    if (leave) return "Day off";
-    if (date < today || (date === today && start <= currentMinute)) return "Past time";
-    if (!shift?.enabled) return "Off duty";
-    if (start < Math.max(dayHours.starts, shift.starts) || start >= Math.min(dayHours.ends, shift.ends)) return "Outside hours";
-    if (start >= shift.break_start && start < shift.break_end) return "Break";
-    const moving = excludeId ? dayBookings.find((b) => b.id === excludeId) : null;
-    const dur = moving?.duration_min ?? 15;
-    if (dayBlocks.some((k) => k.staff_id === s.id && start < k.end_min && start + dur > k.start_min)) return "Blocked";
-    if (dayBookings.some((b) => b.id !== excludeId && b.staff_id === s.id && start < b.start_min + b.duration_min + b.buffer_min && start + dur > b.start_min)) return "Occupied";
-    return "";
+    const moving = dayBookings.find(b => b.id === excludeId);
+    return calendarFootprintReason(w, date, staffId, start, moving?.duration_min ?? 15, excludeId, now);
   }
-  // Would this footprint (start..start+dur) for barber `staffId` collide with something soft/hard?
   function footprintState(staffId: string, start: number, dur: number, excludeId: string): string {
-    const s = staff.find((x) => x.id === staffId);
-    if (!s) return "Inactive barber";
-    const shift = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date) || w.hours.find((h) => h.staff_id === s.id && h.weekday === weekdayOf);
-    const endAt = start + dur;
-    if (shift?.enabled && endAt > Math.min(dayHours.ends, shift.ends)) return "Outside hours";
-    if (shift?.enabled && start < shift.break_end && endAt > shift.break_start && shift.break_end > shift.break_start) return "Break";
-    if (dayBlocks.some((k) => k.staff_id === s.id && start < k.end_min && endAt > k.start_min)) return "Blocked";
-    if (dayBookings.some((b) => b.id !== excludeId && b.staff_id === s.id && start < b.start_min + b.duration_min + b.buffer_min && endAt > b.start_min)) return "Occupied";
-    return "";
+    return calendarFootprintReason(w, date, staffId, start, dur, excludeId, now);
   }
   function onResizePointerDown(e: ReactPointerEvent<HTMLSpanElement>, b: StoredBooking) {
     if (!onResize || b.status !== "CONFIRMED" || disabled || e.button !== 0) return;
@@ -382,7 +382,7 @@ export function Calendar({
     if (!timeline) return;
     const rect = timeline.getBoundingClientRect();
     const endMinute = begin + Math.round((e.clientY - rect.top) / step) * 15;
-    const duration = Math.max(15, Math.min(end - b.start_min, endMinute - b.start_min));
+    const duration = Math.max(15, Math.min(end - b.start_min - b.buffer_min, endMinute - b.start_min));
     setResizing((prev) => {
       if (!prev || prev.duration === duration) return prev;
       tick();
@@ -503,17 +503,36 @@ export function Calendar({
     }
   }
   useEffect(() => {
-    if (!dragging) return;
+    if (!dragging && !resizing) return;
     const cancel = (ev: KeyboardEvent | globalThis.KeyboardEvent) => {
-      if ((ev as globalThis.KeyboardEvent).key === "Escape") endDrag(false);
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        endDrag(false);
+        resizeRef.current = null;
+        setResizing(null);
+        document.body.classList.remove("is-dragging-appointment");
+      }
     };
     window.addEventListener("keydown", cancel as EventListener);
     return () => window.removeEventListener("keydown", cancel as EventListener);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dragging?.id]);
+  }, [dragging?.id, resizing?.id]);
+  useEffect(() => () => {
+    if (dragRef.current?.timer) window.clearTimeout(dragRef.current.timer);
+    dragRef.current = null;
+    resizeRef.current = null;
+    document.body.classList.remove("is-dragging-appointment");
+  }, []);
+  useEffect(() => {
+    if (dragRef.current?.timer) window.clearTimeout(dragRef.current.timer);
+    dragRef.current = null; resizeRef.current = null;
+    setDragging(null); setResizing(null); setMenu(null);
+    document.body.classList.remove("is-dragging-appointment");
+  }, [date, disabled]);
   const draggingBooking = dragging ? bookings.find((x) => x.id === dragging.id) : null;
   const dropReason = dragging ? slotState(dragging.overStaff, dragging.overStart, dragging.id) : "";
 
+  if (!staff.length) return <p className="calendar-empty">No barbers match this view. Add a barber or clear the filter.</p>;
   return (
     <>
       <div
@@ -522,7 +541,7 @@ export function Calendar({
         ref={scroller}
         tabIndex={0}
         role="region"
-        aria-label="Saved appointment timetable"
+        aria-label={compact && staff.length > 1 ? "Saved appointment timetable. Swipe horizontally to see more barbers." : "Saved appointment timetable"}
         aria-describedby="timetable-keyboard-help"
       >
         <div
@@ -543,7 +562,7 @@ export function Calendar({
               {tzShort(w.shop.timezone, now)}<span>{w.shop.timezone.split("/").pop()?.replace(/_/g, " ")}</span>
             </div>
             {staff.map((s) => {
-              const mine = occupied.filter((b) => b.staff_id === s.id);
+              const mine = dayBookings.filter((b) => b.staff_id === s.id);
               const taken = mine.reduce((n, b) => n + b.price_pence, 0);
               return (
                 <div className="staff-column-heading" key={s.id}>
@@ -559,7 +578,7 @@ export function Calendar({
                   <div>
                     <strong>{s.name}</strong>
                     <span aria-label={`${money(taken)} booked, ${mine.length} visit${mine.length === 1 ? "" : "s"}`}>
-                      {money(taken)} · {mine.length} visit{mine.length === 1 ? "" : "s"}
+                      {money(taken)} booked · {mine.length} visit{mine.length === 1 ? "" : "s"}
                     </span>
                   </div>
                   {onHours && (() => {
@@ -588,9 +607,14 @@ export function Calendar({
                         <Icon name="more" size={16} />
                       </button>
                       {menu === s.id && (
-                        <div className="staff-menu-list" role="menu" aria-label={`${s.name} day actions`}>
+                        <div className="staff-menu-list" role="menu" aria-label={`${s.name} day actions`} onKeyDown={event => {
+                          const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+                          const i = items.indexOf(document.activeElement as HTMLButtonElement);
+                          const next = event.key === "ArrowDown" ? (i + 1) % items.length : event.key === "ArrowUp" ? (i + items.length - 1) % items.length : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : -1;
+                          if (next >= 0) { event.preventDefault(); items[next]?.focus(); }
+                        }}>
                           <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("hours", s); }}>
-                            <Icon name="clock" size={14} /> Edit today's hours
+                            <Icon name="clock" size={14} /> Edit this day's hours
                           </button>
                           <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("block", s); }} disabled={date < today}>
                             <Icon name="blocked" size={14} /> Block time…
@@ -1185,4 +1209,68 @@ export function WeekView({
       )}
     </div>
   );
+}
+
+
+// Accessible calendar navigation. Selection changes the displayed day only, never a booking.
+export function CalendarDatePicker({ value, today, label, onChange }: { value: string; today: string; label?: string; onChange: (date: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [month, setMonth] = useState((value || today).slice(0, 7));
+  const [focused, setFocused] = useState(value || today);
+  const [typed, setTyped] = useState(value || today);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  const grid = useRef<HTMLDivElement>(null);
+  const selected = value || today;
+  const fullDate = (d: string) => new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(d + "T12:00:00Z"));
+  const close = () => { setOpen(false); dialog.current?.close(); trigger.current?.focus(); };
+  const choose = (d: string) => { onChange(d); close(); };
+  useEffect(() => {
+    if (!open) return;
+    dialog.current?.showModal();
+    const frame = requestAnimationFrame(() => grid.current?.querySelector<HTMLButtonElement>(`[data-date="${focused}"]`)?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [open, focused, month]);
+  const monthLabel = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(month + "-01T12:00:00Z"));
+  const shiftMonth = (date: string, delta: number) => {
+    const d = new Date(date.slice(0, 7) + "-01T12:00:00Z");
+    d.setUTCMonth(d.getUTCMonth() + delta);
+    return d.getUTCFullYear() < 1 || d.getUTCFullYear() > 9999 ? date : d.toISOString().slice(0, 10);
+  };
+  const first = month + "-01";
+  const offset = (new Date(first + "T12:00:00Z").getUTCDay() + 6) % 7;
+  const days = Array.from({ length: 42 }, (_, i) => datePlus(first, i - offset)).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  function navigate(e: KeyboardEvent<HTMLButtonElement>, date: string) {
+    let next = "";
+    if (e.key === "ArrowLeft") next = datePlus(date, -1);
+    if (e.key === "ArrowRight") next = datePlus(date, 1);
+    if (e.key === "ArrowUp") next = datePlus(date, -7);
+    if (e.key === "ArrowDown") next = datePlus(date, 7);
+    const weekday = (new Date(date + "T12:00:00Z").getUTCDay() + 6) % 7;
+    if (e.key === "Home") next = datePlus(date, -weekday);
+    if (e.key === "End") next = datePlus(date, 6 - weekday);
+    if (e.key === "PageUp" || e.key === "PageDown") next = shiftMonth(date, (e.key === "PageUp" ? -1 : 1) * (e.shiftKey ? 12 : 1));
+    if (!next) return;
+    e.preventDefault(); setMonth(next.slice(0, 7)); setFocused(next);
+  }
+  return <>
+    <button ref={trigger} type="button" className="button secondary calendar-date-trigger" data-date={selected} aria-label={`Choose appointment date, ${fullDate(selected)}`} aria-haspopup="dialog" aria-expanded={open}
+      onClick={() => { setMonth(selected.slice(0, 7)); setFocused(selected); setTyped(selected); setOpen(true); }}>
+      <Icon name="calendar" size={16} /><span>{label || new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(selected + "T12:00:00Z"))}</span><Icon name="down" size={14} />
+    </button>
+    {open && <dialog ref={dialog} className="calendar-date-dialog" aria-labelledby={titleId} onCancel={e => { e.preventDefault(); close(); }} onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="calendar-date-panel">
+        <header><div><span className="eyebrow">Calendar</span><h2 id={titleId}>Choose appointment date</h2></div><Button variant="ghost" className="icon-only" aria-label="Close date picker" onClick={close}><Icon name="close" /></Button></header>
+        <div className="date-month-nav"><Button variant="secondary" className="icon-only" aria-label="Previous month" onClick={() => { const d = shiftMonth(first, -1); setMonth(d.slice(0, 7)); setFocused(d); }}><Icon name="left" /></Button><strong aria-live="polite">{monthLabel}</strong><Button variant="secondary" className="icon-only" aria-label="Next month" onClick={() => { const d = shiftMonth(first, 1); setMonth(d.slice(0, 7)); setFocused(d); }}><Icon name="right" /></Button></div>
+        <div className="date-weekdays" aria-hidden="true">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => <span key={d}>{d}</span>)}</div>
+        <div ref={grid} className="date-month-days" role="group" aria-label={monthLabel}>
+          {days.map(d => <button type="button" key={d} data-date={d} data-outside={d.slice(0, 7) !== month || undefined} aria-label={fullDate(d)} aria-pressed={d === selected} aria-current={d === today ? "date" : undefined}
+            tabIndex={d === focused ? 0 : -1} onFocus={() => setFocused(d)} onKeyDown={e => navigate(e, d)} onClick={() => choose(d)}>{Number(d.slice(-2))}</button>)}
+        </div>
+        <form className="date-jump" onSubmit={e => { e.preventDefault(); if (typed) choose(typed); }}><label>Appointment date<input aria-label="Appointment date" type="date" min="0001-01-01" max="9999-12-31" required value={typed} onChange={e => setTyped(e.target.value)} /></label><Button type="submit" variant="secondary">Go</Button></form>
+        <footer><Button variant="secondary" onClick={() => choose(today)}>Jump to today</Button><span>Arrow keys to browse · Enter to select</span></footer>
+      </div>
+    </dialog>}
+  </>;
 }

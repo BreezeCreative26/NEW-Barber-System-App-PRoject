@@ -1,3 +1,4 @@
+import { chooseCalendarDate } from "./fixture";
 import { test, expect, type Page } from "@playwright/test";
 import { openFixtureShop, base, origin } from "./fixture";
 
@@ -29,7 +30,7 @@ test("browser: bottom-edge resize snaps to 15 min, saves via items, Undo restore
   const r = await page.request.post(base + "/bookings", { headers: { Origin: origin }, data: { request_id: crypto.randomUUID(), staff_id: jay.id, service_id: svc.id, customer_name: "Stretch Client", phone: "07700 900333", notes: "", date, start_min: start, source: "TEST_BOOKING", quote } });
   expect(r.status(), await r.text()).toBe(201);
   const booking = (await r.json()).booking;
-  await page.getByLabel("Appointment date", { exact: true }).fill(date);
+  await chooseCalendarDate(page, date);
   const card = page.getByRole("button", { name: /Stretch Client/ });
   await expect(card).toBeVisible();
   await card.scrollIntoViewIfNeeded();
@@ -75,6 +76,6 @@ test("browser: bottom-edge resize snaps to 15 min, saves via items, Undo restore
   const again = await page.request.post(base + "/bookings", { headers: { Origin: origin }, data: { request_id: crypto.randomUUID(), staff_id: jay.id, service_id: svc.id, customer_name: "Stretch Client", phone: "07700 900333", notes: "", date, start_min: free[6].start_min, source: "TEST_BOOKING", quote, customer_id: back.customer_id } });
   expect(again.status(), await again.text()).toBe(201);
   await page.getByRole("button", { name: "Today", exact: true }).click();
-  await page.getByLabel("Appointment date", { exact: true }).fill(date);
+  await chooseCalendarDate(page, date);
   await expect(page.getByRole("button", { name: /Stretch Client/ }).first().locator(".block-icons")).toHaveAttribute("aria-label", /Returning customer/);
 });

@@ -1,3 +1,4 @@
+import { chooseCalendarDate } from "./fixture";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { openFixtureShop, origin, base, section, openFilters, markDone } from "./fixture";
@@ -61,7 +62,7 @@ test("successful save followed by failed read recovers without repeating mutatio
 
 async function bookingDraft(page: Page, name = "Recovery test client") {
   const date = future();
-  await page.getByLabel("Appointment date", { exact: true }).fill(date);
+  await chooseCalendarDate(page, date);
   await page.getByRole("button", { name: "New booking", exact: true }).click();
   await page
     .getByLabel("Service", { exact: true })
@@ -135,7 +136,7 @@ test("availability network retry and stale quote refresh keep contact details", 
   page,
 }) => {
   await enter(page);
-  await page.getByLabel("Appointment date", { exact: true }).fill(future());
+  await chooseCalendarDate(page, future());
   await page.route("**/api/app/availability?**", (r) => r.abort("failed"));
   await page.getByRole("button", { name: "New booking", exact: true }).click();
   await expect(
@@ -325,7 +326,7 @@ test("dated staff leave survives reload, flags saved appointments and can be rem
     page.getByText("Barber has a day off.", { exact: false }),
   ).not.toBeVisible();
   await section(page, "Appointments");
-  await page.getByLabel("Appointment date", { exact: true }).fill(date);
+  await chooseCalendarDate(page, date);
   await expect(
     page.getByRole("button").filter({ hasText: "Leave impact client" }),
   ).toBeVisible();
@@ -415,7 +416,7 @@ test("saved setup and appointment workflow survives reload, move and completion"
   await expect(page.getByText("No dated closures.")).toBeVisible();
   await section(page, "Appointments");
   const day = future();
-  await page.getByLabel("Appointment date", { exact: true }).fill(day);
+  await chooseCalendarDate(page, day);
   await page.getByRole("button", { name: "New booking", exact: true }).click();
   await page
     .getByLabel("Barber", { exact: true })
@@ -437,7 +438,7 @@ test("saved setup and appointment workflow survives reload, move and completion"
     page.getByRole("button").filter({ hasText: "Morgan Fictional" }),
   ).toBeVisible();
   await page.reload();
-  await page.getByLabel("Appointment date", { exact: true }).fill(day);
+  await chooseCalendarDate(page, day);
   await page
     .getByRole("button")
     .filter({ hasText: "Morgan Fictional" })
@@ -657,7 +658,7 @@ test("appointment side panel: contextual actions, note, series ops, customer lin
   const range = await (await page.request.get(base + `/bookings/range?from=${w.today}&to=${plusDays(w.today, 30)}`)).json();
   const seriesVisit = range.bookings.find((b: any) => b.series_id && b.status === "CONFIRMED");
   expect(seriesVisit).toBeTruthy();
-  await page.getByLabel("Appointment date", { exact: true }).fill(seriesVisit.date);
+  await chooseCalendarDate(page, seriesVisit.date);
   await page.getByRole("button", { name: new RegExp(seriesVisit.customer_name) }).first().click();
   await expect(panel.getByText("Standing", { exact: true })).toBeVisible();
   await expect(panel.locator(".series-strip li")).toHaveCount(5);

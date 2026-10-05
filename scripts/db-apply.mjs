@@ -2,7 +2,9 @@
 // Idempotent guard: refuses to run against a non-empty schema unless --force (drops everything).
 import { readFileSync } from "node:fs";
 import postgres from "postgres";
-import "dotenv/config";
+import { config } from "dotenv";
+config({ path: ".env.local" });
+config();
 
 const url = process.env.DIRECT_URL || process.env.DATABASE_URL;
 if (!url) throw new Error("DIRECT_URL / DATABASE_URL not set");

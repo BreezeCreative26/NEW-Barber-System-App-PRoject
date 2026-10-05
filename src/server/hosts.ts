@@ -111,7 +111,10 @@ export function rootRedirectFor(pathname: string, isShopSlug: (s: string) => Pro
 // request to hand to Hono, or a redirect Response (root-host shop paths → the sub-domain).
 export const SHOP_HOST_HEADER = "x-foliyo-shop-host";
 export async function routeByHost(req: Request, isShopSlug: (s: string) => Promise<boolean>): Promise<Request | Response> {
-  const info = hostInfo(req.headers.get("x-forwarded-host") || req.headers.get("host") || undefined, req.url);
+  const clean = new Headers(req.headers);
+  clean.delete(SHOP_HOST_HEADER);
+  req = new Request(req, { headers: clean });
+  const info = hostInfo((process.env.VERCEL ? req.headers.get("x-forwarded-host") : null) || req.headers.get("host") || undefined, req.url);
   const u = new URL(req.url);
   if (info.slug) {
     const to = rewritePath(info.slug, u.pathname);

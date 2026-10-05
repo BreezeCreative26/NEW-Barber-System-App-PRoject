@@ -22,10 +22,10 @@ import type {
   StaffDayOff,
   StaffBlock,
 } from "../server/domain";
-import { Brand, Button, Icon, IconButton, Modal, Notice, Badge, Avatar, TopBar, Sidebar, readSidebarCollapsed, TabBar, StatusPill, type NavItem } from "./ui";
+import { Brand, Button, Icon, IconButton, useDialogFocus, Modal, Notice, Badge, Avatar, TopBar, Sidebar, readSidebarCollapsed, TabBar, StatusPill, type NavItem } from "./ui";
 import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio, type BarberTab } from "./Studio";
-import { Calendar, WeekStrip, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
+import { Calendar, CalendarDatePicker, WeekStrip, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { BlockDialog } from "./BlockDialog";
 import { PayRunsPage, MyPay } from "./PayRunsPage";
 import { DENSITIES, DENSITY_PRESETS, resolveDensity, usePhone, writeLocalPrefs, type Density } from "./calendarDensity";
@@ -37,7 +37,7 @@ import { PaymentsPanel } from "./Payouts";
 import { SetupWizard } from "./Setup";
 import { BarberHome } from "./BarberHome";
 import { StaffOnboarding } from "./StaffOnboarding";
-import { WebsiteEditor } from "./WebsiteEditor";
+import { WebsiteEditor, pageFormOf } from "./WebsiteEditor";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
 import { themeClass, type ShopBrand } from "./theme";
@@ -337,20 +337,23 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
   const [slugState, setSlugState] = useState<{ ok: boolean; reason: string; host: string } | null>(null);
   const slugify = (v: string) => v.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
   useEffect(() => {
-    if (!slug) { setSlugState(null); return; }
+    let cancelled = false;
+    setSlugState(null);
+    if (!slug) return;
     const t = setTimeout(() => {
       fetch(`/api/app/auth/slug-check?slug=${encodeURIComponent(slug)}`, { credentials: "same-origin" })
         .then((r) => r.json())
         .then((j: { ok: boolean; reason: string; host: string }) => {
+          if (cancelled) return;
           // The suggested address is taken and the owner hasn't typed their own: offer a free
           // variant (name + short tag) rather than a red error they have to fix by hand.
           if (!j.ok && !slugTouched && /taken/i.test(j.reason || "")) { setSlug(`${slug.replace(/-[a-z0-9]{3}$/, "").slice(0, 36)}-${Math.random().toString(36).slice(2, 5)}`); return; }
           setSlugState(j);
         })
-        .catch(() => setSlugState(null));
+        .catch(() => { if (!cancelled) setSlugState(null); });
     }, 250);
-    return () => clearTimeout(t);
-  }, [slug]);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [slug, slugTouched]);
   const rootHost = location.hostname.replace(/^www\./, "");
   const [peek, setPeek] = useState<InvitePeek | null>(null);
   const [peekError, setPeekError] = useState("");
@@ -532,7 +535,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
               </Field>
               <Field label="Your web address" hint={slugState === null ? "Where customers book and where you and your team sign in." : slugState.ok ? `Available — ${slug}.${slugState.host ? slugState.host.split(".").slice(1).join(".") : rootHost}` : slugState.reason}>
                 <div className="slug-input" data-testid="signup-slug">
-                  <input name="slug" value={slug} required minLength={2} maxLength={40} pattern="[a-z0-9](?:[\-a-z0-9]*[a-z0-9])?" autoCapitalize="off" autoCorrect="off" spellCheck={false} placeholder="fade-society" aria-invalid={slugState ? !slugState.ok : undefined} onChange={(e) => { setSlugTouched(true); setSlug(slugify(e.target.value)); }} />
+                  <input name="slug" value={slug} required minLength={3} maxLength={40} pattern="[a-z0-9](?:[\-a-z0-9]*[a-z0-9])?" autoCapitalize="off" autoCorrect="off" spellCheck={false} placeholder="fade-society" aria-invalid={slugState ? !slugState.ok : undefined} onChange={(e) => { setSlugTouched(true); setSlug(slugify(e.target.value)); }} />
                   <span className="slug-suffix">.{rootHost}</span>
                 </div>
               </Field>
@@ -1324,13 +1327,17 @@ const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: s
   { key: "audit", label: "Activity log", hint: "Who changed what, when", icon: "list", group: "Account" },
 ];
 const SETTINGS_GROUPS: SettingsGroup[] = ["Business", "Bookings", "Website", "Customers", "Team", "Account"];
+function settingsTabFromHash(): SettingsTabKey | null {
+  const key = /^#settings\/(\w+)$/.exec(location.hash)?.[1];
+  return SETTINGS_TABS.find(t => t.key === key)?.key ?? null;
+}
 
 
 // Shown when foliyo support opened this workspace from the admin panel (cookie set by /api/admin/…/impersonate).
 // One-line nudge until the login email is confirmed. Soft: nothing is gated on it, but password
 // resets go to this address so it's worth a click. Re-send is rate-limited server-side (1/min).
 function VerifyEmailNudge({ email, onVerified, compact = false }: { email: string; onVerified: () => void; compact?: boolean }) {
-  const [state, setState] = useState<{ sent?: boolean; sandbox?: string; error?: string; busy?: boolean; hidden?: boolean }>(() => ({ hidden: sessionStorage.getItem("foliyo:verify-nudge") === "hidden" }));
+  const [state, setState] = useState<{ sent?: boolean; previewToken?: string; error?: string; busy?: boolean; hidden?: boolean }>(() => ({ hidden: sessionStorage.getItem("foliyo:verify-nudge") === "hidden" }));
   if (state.hidden && !compact) return null;
   return (
     <section className={compact ? "verify-nudge-compact" : "setup-banner verify-nudge"} data-testid="verify-nudge">
@@ -1338,7 +1345,7 @@ function VerifyEmailNudge({ email, onVerified, compact = false }: { email: strin
         <strong>Confirm your email.</strong>
         <span>
           {state.sent
-            ? <>Sent to {email}. Check spam if it isn't there in a minute.{state.sandbox && <> No email provider is connected here, so: <a href={`/verify?token=${state.sandbox}`} data-testid="sandbox-verify-link">open the confirmation link</a>.</>}</>
+            ? <>Sent to {email}. Check spam if it isn't there in a minute.{state.previewToken && <> No email provider is connected here, so: <a href={`/verify?token=${state.previewToken}`} data-testid="sandbox-verify-link">open the confirmation link</a>.</>}</>
             : state.error
               ? state.error
               : <>We sent a link to {email}. Tap it so password resets reach you.</>}
@@ -1354,7 +1361,7 @@ function VerifyEmailNudge({ email, onVerified, compact = false }: { email: strin
             try {
               const r = await api<{ already?: boolean; sandbox_token?: string }>("/auth/verify-email/resend", "POST", {});
               if (r.already) { onVerified(); return; }
-              setState({ sent: true, sandbox: r.sandbox_token });
+              setState({ sent: true, previewToken: r.sandbox_token });
             } catch (e) {
               setState({ error: e instanceof Error ? e.message : "Could not send the email." });
             }
@@ -1485,18 +1492,36 @@ export function Workspace() {
     const t = window.setTimeout(() => setUndo(null), 20000);
     return () => window.clearTimeout(t);
   }, [undo]);
-  const [tab, setTab] = useState("Appointments");
+  const [tab, setTab] = useState(() => settingsTabFromHash() ? "Settings" : "Appointments");
   // Settings is split into clear sections; the URL hash remembers the open one (#settings/payments).
-  // Phone: settings groups collapse; the group holding the open tab is always expanded.
-  const [openGroup, setOpenGroup] = useState<string>("");
-  const [settingsTab, setSettingsTab] = useState<SettingsTabKey>(() => {
-    const m = /^#settings\/(\w+)$/.exec(location.hash);
-    return (m && SETTINGS_TABS.some((t) => t.key === m[1]) ? (m[1] as SettingsTabKey) : "general");
-  });
+  const [settingsTab, setSettingsTab] = useState<SettingsTabKey>(() => settingsTabFromHash() || "general");
   useEffect(() => {
-    if (tab === "Settings") history.replaceState(null, "", `${location.pathname}#settings/${settingsTab}`);
-    else if (location.hash.startsWith("#settings/")) history.replaceState(null, "", location.pathname);
+    const base = `${location.pathname}${location.search}`;
+    if (tab === "Settings") history.replaceState(null, "", `${base}#settings/${settingsTab}`);
+    else if (location.hash.startsWith("#settings/")) history.replaceState(null, "", base);
   }, [tab, settingsTab]);
+  useEffect(() => {
+    const onHashChange = () => {
+      const next = settingsTabFromHash();
+      if (!next || (tab === "Settings" && next === settingsTab)) return;
+      if (canNavigate()) { setSettingsTab(next); setTab("Settings"); }
+      else history.replaceState(null, "", `${location.pathname}${location.search}${tab === "Settings" ? `#settings/${settingsTab}` : ""}`);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [tab, settingsTab]);
+  useEffect(() => {
+    if (data?.account && data.account.role !== "OWNER" && SETTINGS_TABS.find(t => t.key === settingsTab)?.owner) setSettingsTab("general");
+  }, [data?.account?.role, settingsTab]);
+  useEffect(() => {
+    const protect = (event: BeforeUnloadEvent) => {
+      if (document.getElementById("workspace-main")?.querySelector('form[data-dirty="true"], form[aria-busy="true"]')) {
+        event.preventDefault(); event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", protect);
+    return () => window.removeEventListener("beforeunload", protect);
+  }, []);
   // /workspace/setup opens the guided setup over the Appointments tab; the URL is the state so a
   // refresh or a link from the landing page lands back in it.
   const [setupOpen, setSetupOpen] = useState(() => location.pathname === "/workspace/setup");
@@ -1555,6 +1580,9 @@ export function Workspace() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
+  const [queueLoading, setQueueLoading] = useState(true);
+  const [queueError, setQueueError] = useState("");
+  const [queueReload, setQueueReload] = useState(0);
   const [week, setWeek] = useState<{ key: string; bookings: RangeBooking[] } | null>(null);
   const [weekLoading, setWeekLoading] = useState(false);
   const weekKey = date
@@ -1970,11 +1998,11 @@ export function Workspace() {
         { key: "Customers", label: "Customers", icon: "contact" },
       ];
   const phoneMore = barberApp ? [] : navItems.filter((n) => !phoneNav.some((p) => p.key === n.key));
-  function goTo(name: string) {
+  function goTo(name: string, navigationChecked = false) {
     if (setupOpen) { setSetupOpen(false); history.replaceState(null, "", "/workspace"); }
     if (name === "Week") {
       // Barber app: the full week calendar, own column only.
-      if (!canNavigate()) return;
+      if (!navigationChecked && !canNavigate()) return;
       setCalendarView("week");
       if (w?.account?.staff_id) setBarber(w.account.staff_id);
       setTab("Appointments");
@@ -1983,8 +2011,8 @@ export function Workspace() {
       return;
     }
     if (name === "Appointments" && barberApp) { setBarberWeek(false); setCalendarView("day"); }
-    if (name === "Website") { if (!canNavigate()) return; openEditor(true); return; }
-    if (name === tab || !canNavigate()) return;
+    if (name === "Website") { if (!navigationChecked && !canNavigate()) return; openEditor(true); return; }
+    if (name === tab || (!navigationChecked && !canNavigate())) return;
     setTab(name);
     setNotice("");
     setDirectorySearch("");
@@ -1998,13 +2026,16 @@ export function Workspace() {
   useEffect(() => {
     if (!w) return;
     let cancelled = false;
+    setQueueLoading(true);
+    setQueueError("");
     api<{ waitlist: WaitlistEntry[] }>(`/waitlist?from=${w.today}`)
       .then((r) => !cancelled && setWaitlist(r.waitlist))
-      .catch(() => !cancelled && setWaitlist([]));
+      .catch(() => !cancelled && setQueueError("Could not load the waiting list. Please retry."))
+      .finally(() => !cancelled && setQueueLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [w?.now, w?.bookings.length, w?.today]);
+  }, [w?.now, w?.bookings.length, w?.today, queueReload]);
   const activeFilterCount = [barber, statusFilter, search].filter(Boolean).length;
   const dayStats = (() => {
     const booked = activeBookings.reduce((n, b) => n + b.duration_min, 0);
@@ -2123,11 +2154,11 @@ export function Workspace() {
               }
             : null
         }
-        onWallet={() => setWalletOpen((v) => !v)}
-        queue={w && w.shop.waitlist_enabled !== 0 ? { count: waitlist.length, offered: waitlist.filter((e) => e.status === "OFFERED").length, open: queueOpen } : null}
-        onQueue={() => setQueueOpen((v) => !v)}
+        onWallet={() => { setQueueOpen(false); setNotificationsOpen(false); setWalletOpen(v => !v); }}
+        queue={w && w.shop.waitlist_enabled !== 0 ? { count: waitlist.length, offered: waitlist.filter((e) => e.status === "OFFERED").length, open: queueOpen, loading: queueLoading, error: !!queueError } : null}
+        onQueue={() => { setWalletOpen(false); setNotificationsOpen(false); setQueueOpen(v => !v); }}
         bell={w ? { count: w.issues.length, open: notificationsOpen } : null}
-        onBell={() => setNotificationsOpen((v) => !v)}
+        onBell={() => { setWalletOpen(false); setQueueOpen(false); setNotificationsOpen(v => !v); }}
         account={
           w
             ? {
@@ -2139,7 +2170,7 @@ export function Workspace() {
               }
             : null
         }
-        onAccount={() => setAccountOpen((v) => !v)}
+        onAccount={() => { setWalletOpen(false); setQueueOpen(false); setNotificationsOpen(false); setAccountOpen(v => !v); }}
         accountOpen={accountOpen}
         shop={w ? { name: w.shop.name, logo: w.logo_url || null, tone: w.logo_tone || "" } : null}
       >
@@ -2151,14 +2182,13 @@ export function Workspace() {
           onAccounts={() => goTo("Accounts")}
           onSettings={manager ? () => goTo("Settings") : undefined}
           onPublicPage={w.shop.slug && w.shop.online_booking ? () => window.open(`/${w.shop.slug}`, "_blank", "noopener") : undefined}
+          onSecurity={manager ? () => { if (canNavigate()) { setSettingsTab("security"); setTab("Settings"); } } : undefined}
+          onBilling={w.account?.role === "OWNER" ? () => { if (canNavigate()) { setSettingsTab("billing"); setTab("Settings"); } } : undefined}
           onSignOut={async () => {
-            if (!canNavigate()) return;
-            try {
-              await api("/auth/logout", "POST", {});
-            } catch {
-              /* already signed out */
-            }
+            if (!canNavigate()) return false;
+            await api("/auth/logout", "POST", {});
             await accountChanged();
+            return true;
           }}
         />
       )}
@@ -2219,11 +2249,9 @@ export function Workspace() {
           w={w}
           date={date}
           waitlist={waitlist}
-          onRefresh={() =>
-            api<{ waitlist: WaitlistEntry[] }>(`/waitlist?from=${w.today}`)
-              .then((r) => setWaitlist(r.waitlist))
-              .catch(() => {})
-          }
+          loading={queueLoading}
+          loadError={queueError}
+          onRefresh={() => { setQueueLoading(true); setQueueReload(n => n + 1); }}
           onBook={(entry) => {
             setQueueOpen(false);
             if (tab !== "Appointments") setTab("Appointments");
@@ -2253,7 +2281,11 @@ export function Workspace() {
           items={phoneNav}
           more={phoneMore}
           current={tab}
-          onSelect={goTo}
+          onSelect={(name) => {
+            if (!canNavigate()) return;
+            if (name === "Appointments" && w) setDate(w.today);
+            goTo(name, true);
+          }}
           fab={{
             label: "New booking",
             disabled: !w || !online,
@@ -2432,28 +2464,9 @@ export function Workspace() {
                       >
                         <Icon name="left" />
                       </Button>
-                      <span className="toolbar-date">
-                        <span className="toolbar-date-text" aria-hidden="true">
-                          {!date
-                            ? "Choose a date"
-                            : calendarView === "week"
-                              ? `Week of ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(weekKey + "T12:00:00Z"))}`
-                              : new Intl.DateTimeFormat("en-GB", {
-                                  weekday: "short",
-                                  day: "numeric",
-                                  month: "short",
-                                }).format(new Date(date + "T12:00:00Z"))}
-                          <Icon name="down" size={14} />
-                        </span>
-                        <input
-                          type="date"
-                          aria-label="Appointment date"
-                          value={date}
-                          onChange={(e) => {
-                            if (e.target.value) setDate(e.target.value);
-                          }}
-                        />
-                      </span>
+                      <CalendarDatePicker value={date || w.today} today={w.today}
+                        label={calendarView === "week" ? `Week of ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(weekKey + "T12:00:00Z"))}` : undefined}
+                        onChange={setDate} />
                       <Button
                         variant="ghost"
                         className="icon-only"
@@ -2463,70 +2476,21 @@ export function Workspace() {
                         <Icon name="right" />
                       </Button>
                     </span>
-                    <span className="toolbar-select">
-                      <Icon name="users" size={15} />
-                      <select aria-label="Barber filter" value={barber} onChange={(e) => setBarber(e.target.value)}>
-                        <option value="">All barbers</option>
-                        {w.staff.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
-                    </span>
-                    {calendarView === "day" && !barber && date && (() => {
-                      const wd = new Date(date + "T12:00:00Z").getUTCDay();
-                      const rostered = (s: Staff) => {
-                        const sh = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date) || w.hours.find((h) => h.staff_id === s.id && h.weekday === wd);
-                        return !!sh?.enabled && !w.days_off.some((d) => d.staff_id === s.id && d.date === date);
-                      };
-                      const extra = new Set(team[date] ?? []);
-                      const active = w.staff.filter((s) => s.active);
-                      const shown = active.filter((s) => rostered(s) || extra.has(s.id));
-                      return (
-                        <span className="team-picker">
-                          <Button variant={extra.size ? "secondary" : "ghost"} aria-haspopup="dialog" aria-expanded={teamOpen} onClick={() => setTeamOpen((v) => !v)} data-testid="team-picker" title="Who shows on today's timetable">
-                            <Icon name="contact" size={15} />
-                            <span className="toolbar-label"><span className="team-word">Scheduled team · </span>{shown.length}/{active.length}</span>
-                          </Button>
-                          {teamOpen && (
-                            <div className="team-picker-list" role="dialog" aria-label="Scheduled team">
-                              <header>Working {new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(date + "T12:00:00Z"))}</header>
-                              {active.map((s, i) => {
-                                const on = rostered(s);
-                                return (
-                                  <label key={s.id} className={on ? "" : "off"}>
-                                    <input type="checkbox" checked={on || extra.has(s.id)} disabled={on} onChange={(e) => toggleTeam(date, s.id, e.target.checked)} />
-                                    <Avatar initials={s.name.split(" ").map((n) => n[0]).slice(0, 2).join("")} colour={s.colour || ["sage", "sand", "blue", "clay"][i % 4]} src={s.photo_url} />
-                                    {s.name}
-                                    <small>{on ? "Rostered" : extra.has(s.id) ? "Added" : "Not working"}</small>
-                                  </label>
-                                );
-                              })}
-                              <footer>
-                                <Button variant="ghost" onClick={() => setTeamOpen(false)}>
-                                  Done
-                                </Button>
-                              </footer>
-                            </div>
-                          )}
-                        </span>
-                      );
-                    })()}
                     <Button
-                      variant={filtersOpen || statusFilter || search ? "secondary" : "ghost"}
+                      variant={filtersOpen || activeFilterCount ? "secondary" : "ghost"}
                       className="toolbar-filters"
                       aria-expanded={filtersOpen}
                       aria-controls="timetable-filters"
-                      aria-label="Filters"
-                      onClick={() => setFiltersOpen((v) => !v)}
+                      aria-label="Calendar options and filters"
+                      title="Calendar options: team, filters and walk-ins"
+                      onClick={() => { setFiltersOpen((v) => !v); setTeamOpen(false); }}
                       data-testid="filters-toggle"
                     >
                       <Icon name="sliders" size={16} />
-                      <span className="toolbar-label">Filters</span>
-                      {(statusFilter || search) && (
-                        <span className="count-badge inline" aria-label={`${[statusFilter, search].filter(Boolean).length} active`}>
-                          {[statusFilter, search].filter(Boolean).length}
+                      <span className="toolbar-label">Options</span>
+                      {activeFilterCount > 0 && (
+                        <span className="count-badge inline" aria-label={`${activeFilterCount} active`}>
+                          {activeFilterCount}
                         </span>
                       )}
                     </Button>
@@ -2587,24 +2551,14 @@ export function Workspace() {
                       )}
                     </span>
                     <Button
-                      variant="secondary"
-                      disabled={!online || stale || loading || date !== w.today}
-                      onClick={() => setEditor({ kind: "walkin" })}
-                      data-testid="walk-in"
-                      className="toolbar-walkin"
-                      title={date !== w.today ? "Walk-ins are for today" : "Seat someone now"}
-                    >
-                      <Icon name="user" />
-                      <span className="toolbar-label">Walk-in</span>
-                    </Button>
-                    <Button
                       disabled={!online || stale || loading}
                       onClick={() => setEditor({ kind: "booking" })}
                       data-testid="new-booking"
+                      aria-label="New booking"
                       className="toolbar-add"
                     >
                       <Icon name="plus" />
-                      New booking
+                      <span>New booking</span>
                     </Button>
                   </div>
                     <div className="calendar-summary" role="status" data-testid="calendar-summary">
@@ -2614,6 +2568,86 @@ export function Workspace() {
                         : `${filteredBookings.length} matching appointment${filteredBookings.length === 1 ? "" : "s"}`}
                       {activeFilterCount > 0 && dayReady ? " · filtered" : ""}
                     </span>
+                    {activeFilterCount > 0 && !filtersOpen && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setBarber("");
+                          setStatusFilter("");
+                          setSearch("");
+                        }}
+                      >
+                        Clear filters
+                      </Button>
+                    )}
+                  </div>
+                  {filtersOpen && (
+                    <div className="calendar-filters-panel" id="timetable-filters" aria-label="Calendar options">
+                      <div className="calendar-options-heading"><strong>Calendar options</strong><Button variant="ghost" className="icon-only" aria-label="Close calendar options" data-testid="close-calendar-options" onClick={() => { setFiltersOpen(false); setTeamOpen(false); document.querySelector<HTMLButtonElement>('[data-testid="filters-toggle"]')?.focus(); }}><Icon name="close" /></Button></div>
+                      <div className="calendar-team-controls">
+                    <span className="toolbar-select">
+                      <Icon name="users" size={15} />
+                      <select aria-label="Barber filter" value={barber} onChange={(e) => setBarber(e.target.value)}>
+                        <option value="">All barbers</option>
+                        {w.staff.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    </span>
+                    {calendarView === "day" && !barber && date && (() => {
+                      const wd = new Date(date + "T12:00:00Z").getUTCDay();
+                      const rostered = (s: Staff) => {
+                        const sh = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date) || w.hours.find((h) => h.staff_id === s.id && h.weekday === wd);
+                        return !!sh?.enabled && !w.days_off.some((d) => d.staff_id === s.id && d.date === date);
+                      };
+                      const extra = new Set(team[date] ?? []);
+                      const active = w.staff.filter((s) => s.active);
+                      const shown = active.filter((s) => rostered(s) || extra.has(s.id));
+                      return (
+                        <span className="team-picker">
+                          <Button variant={extra.size ? "secondary" : "ghost"} aria-label="Scheduled team" aria-haspopup="dialog" aria-expanded={teamOpen} onClick={() => setTeamOpen((v) => !v)} data-testid="team-picker" title="Who shows on today's timetable">
+                            <Icon name="contact" size={15} />
+                            <span className="toolbar-label"><span className="team-word">Scheduled team · </span>{shown.length}/{active.length}</span>
+                          </Button>
+                          {teamOpen && (
+                            <div className="team-picker-list" role="dialog" aria-label="Scheduled team">
+                              <header>Working {new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(date + "T12:00:00Z"))}</header>
+                              {active.map((s, i) => {
+                                const on = rostered(s);
+                                return (
+                                  <label key={s.id} className={on ? "" : "off"}>
+                                    <input type="checkbox" checked={on || extra.has(s.id)} disabled={on} onChange={(e) => toggleTeam(date, s.id, e.target.checked)} />
+                                    <Avatar initials={s.name.split(" ").map((n) => n[0]).slice(0, 2).join("")} colour={s.colour || ["sage", "sand", "blue", "clay"][i % 4]} src={s.photo_url} />
+                                    {s.name}
+                                    <small>{on ? "Rostered" : extra.has(s.id) ? "Added" : "Not working"}</small>
+                                  </label>
+                                );
+                              })}
+                              <footer>
+                                <Button variant="ghost" onClick={() => setTeamOpen(false)}>
+                                  Done
+                                </Button>
+                              </footer>
+                            </div>
+                          )}
+                        </span>
+                      );
+                    })()}
+                    <Button
+                      variant="secondary"
+                      disabled={!online || stale || loading || date !== w.today}
+                      onClick={() => setEditor({ kind: "walkin" })}
+                      data-testid="walk-in"
+                      aria-label="Walk-in"
+                      className="toolbar-walkin"
+                      title={date !== w.today ? "Walk-ins are for today" : "Seat someone now"}
+                    >
+                      <Icon name="user" />
+                      <span className="toolbar-label">Walk-in</span>
+                    </Button>
+                      </div>
                     {dayReady && (
                       <span className="calendar-summary-stats" aria-label="Selected day statistics">
                         <span>
@@ -2632,21 +2666,7 @@ export function Workspace() {
                         )}
                       </span>
                     )}
-                    {activeFilterCount > 0 && !filtersOpen && (
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          setBarber("");
-                          setStatusFilter("");
-                          setSearch("");
-                        }}
-                      >
-                        Clear filters
-                      </Button>
-                    )}
-                  </div>
-                  {filtersOpen && (
-                    <div className="calendar-filters-panel" id="timetable-filters">
+
                       <Field label="Status filter">
                         <select
                           value={statusFilter}
@@ -2863,6 +2883,7 @@ export function Workspace() {
               {tab === "Shifts" && (
                 <Shifts
                   w={w}
+                  api={api}
                   date={date || w.today}
                   onDate={(d) => setDate(d)}
                   onEditDay={(item, d) => { setDate(d); setEditor({ kind: "override", item, override: w.schedule_overrides.find((o) => o.staff_id === item.id && o.date === d) }); }}
@@ -2902,15 +2923,27 @@ export function Workspace() {
               )}
               {tab === "Settings" && (
                 <div className="settings-shell" data-testid="settings">
-                  {/* Groups are plain headings + a tablist each: a single tablist may only contain tabs, and
-                      the group toggles are not tabs (axe: aria-required-children). */}
+                  <label className="settings-section-select">
+                    <span>Settings section</span>
+                    <select value={settingsTab} data-testid="settings-section-select" onChange={e => { if (canNavigate()) setSettingsTab(e.target.value as SettingsTabKey); }}>
+                      {SETTINGS_GROUPS.map(g => <optgroup key={g} label={g}>{SETTINGS_TABS.filter(t => t.group === g && (!t.owner || !w.account || w.account.role === "OWNER")).map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</optgroup>)}
+                    </select>
+                  </label>
                   <nav className="settings-nav" aria-label="Settings sections">
                     {SETTINGS_GROUPS.map((g) => (
-                      <div key={g} className="settings-nav-group" data-open={openGroup === g ? "true" : undefined}>
-                        <button type="button" className="settings-nav-label" onClick={() => setOpenGroup((v) => (v === g ? "" : g))} aria-expanded={openGroup === g} aria-controls={`settings-group-${g}`}>{g}</button>
-                        <div role="tablist" aria-label={`${g} settings`} id={`settings-group-${g}`} className="settings-nav-tabs">
-                        {SETTINGS_TABS.filter((t) => t.group === g && (!t.owner || !w.account || w.account.role === "OWNER")).map((t) => (
-                          <button key={t.key} type="button" role="tab" aria-selected={settingsTab === t.key} aria-controls={`settings-${t.key}`} onClick={() => { if (settingsTab !== t.key && canNavigate()) setSettingsTab(t.key); }} data-testid={`settings-tab-${t.key}`}>
+                      <div key={g} className="settings-nav-group">
+                        <div className="settings-nav-label">{g}</div>
+                        <div role="tablist" aria-label={`${g} settings`} aria-orientation="vertical" id={`settings-group-${g}`} className="settings-nav-tabs" onKeyDown={e => {
+                          if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) return;
+                          const tabs = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+                          const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+                          if (index < 0) return;
+                          e.preventDefault();
+                          const next = e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : (index + (e.key === "ArrowDown" ? 1 : -1) + tabs.length) % tabs.length;
+                          tabs[next]?.focus(); tabs[next]?.click();
+                        }}>
+                        {SETTINGS_TABS.filter((t) => t.group === g && (!t.owner || !w.account || w.account.role === "OWNER")).map((t, i) => (
+                          <button key={t.key} id={`settings-tab-${t.key}`} type="button" role="tab" tabIndex={settingsTab === t.key || (!SETTINGS_TABS.some(t => t.group === g && t.key === settingsTab) && i === 0) ? 0 : -1} aria-selected={settingsTab === t.key} aria-controls={settingsTab === t.key ? `settings-${t.key}` : undefined} onClick={() => { if (settingsTab !== t.key && canNavigate()) setSettingsTab(t.key); }} data-testid={`settings-tab-${t.key}`}>
                             <Icon name={t.icon} size={18} />
                             <span><b>{t.label}</b><small>{t.hint}</small></span>
                           </button>
@@ -2919,7 +2952,7 @@ export function Workspace() {
                       </div>
                     ))}
                   </nav>
-                  <div className="settings-body" id={`settings-${settingsTab}`} role="tabpanel">
+                  <div className="settings-body" id={`settings-${settingsTab}`} role="tabpanel" aria-labelledby={`settings-tab-${settingsTab}`}>
                     {settingsTab === "general" && (
                       <>
                         <header className="settings-head"><h2>Business details</h2><p>Who you are and how to reach you. Customers see the name, address and contact on every page and message; the legal details appear on receipts and your terms.</p></header>
@@ -3076,7 +3109,8 @@ export function Workspace() {
                       <>
                         <header className="settings-head"><h2>Activity log</h2><p>The latest 200 changes in this shop, newest first. Append-only.</p></header>
                         <section className="workspace-panel">
-                          <ol className="workspace-audit">
+                          {w.audit.length === 0 && <p className="workspace-empty" role="status">No activity recorded yet. Changes to your shop will appear here.</p>}
+                  <ol className="workspace-audit">
                             {w.audit.map((a) => (
                               <li key={a.id}>
                                 <strong>{a.action.replaceAll("_", " ")}</strong>
@@ -3115,10 +3149,10 @@ export function Workspace() {
                 <section className="workspace-panel">
                   <h2>Recorded activity</h2>
                   <p>
-                    Latest 200 events. Append-only database history, attributed
-                    to this browser’s test session. No external payments or
-                    messages are implied.
+                    The latest 200 recorded changes in your shop, newest first.
+                    Each entry includes who made the change and when.
                   </p>
+                  {w.audit.length === 0 && <p className="workspace-empty" role="status">No activity recorded yet. Changes to your shop will appear here.</p>}
                   <ol className="workspace-audit">
                     {w.audit.map((a) => (
                       <li key={a.id}>
@@ -3569,7 +3603,7 @@ function BusinessDetailsPanel({ w, refresh }: { w: WorkspaceData; refresh: () =>
   return (
     <>
       <section className="workspace-panel">
-        <h2>Shop</h2>
+        <h3 className="settings-subhead">Contact &amp; identity</h3>
         {savedAt > 0 && <p className="workspace-success" role="status" data-testid="biz-saved">Saved. Customers see the new details straight away.</p>}
         <SaveForm
           key={w.shop.version}
@@ -3683,7 +3717,7 @@ function WorkspaceLookPanel({ w }: { w: WorkspaceData }) {
             ))}
           </div>
         </div>
-        <p className="helper">A dark look for the admin side is coming; the customer pages already have one under Settings → Shop page.</p>
+        <p className="helper">Choose your highlight colour. Your customers continue to see your shop’s own branding.</p>
         {state && <p className="workspace-success" role="status">{state}</p>}
       </div>
     </section>
@@ -3710,16 +3744,11 @@ function GoogleReviewsPanel({ w }: { w: WorkspaceData }) {
     if (!page) return;
     setBusy(true); setState(null);
     try {
-      // The page record is strict; read it fresh and change only the link.
+      // Preserve every website field; settings must not clear an unpublished draft.
       const cur = (await api<{ page: Record<string, unknown> }>("/shop/page")).page;
-      const body = {
-        strapline: String(cur.strapline || ""), about: String(cur.about || ""), cover_url: String(cur.cover_url || ""), logo_url: String(cur.logo_url || ""),
-        gallery: JSON.parse(String(cur.gallery_json || "[]")), phone: String(cur.phone || ""), email: String(cur.email || ""), instagram: String(cur.instagram || ""),
-        map_url: String(cur.map_url || ""), transport_note: String(cur.transport_note || ""), policy_text: String(cur.policy_text || ""), sections: JSON.parse(String(cur.sections_json || "[]")),
-        accent: String(cur.accent || "ollo"), theme: (() => { try { return { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto", ...(JSON.parse(String(cur.theme_json || "{}")) as object) }; } catch { return { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto" }; } })(),
-        primary_hex: String(cur.primary_hex || ""), secondary_hex: String(cur.secondary_hex || ""), variants: (() => { try { return JSON.parse(String(cur.variants_json || "{}")); } catch { return {}; } })(),
-        google_review_url: url.trim(), published: Number(cur.published ?? 1), version: Number(cur.version ?? 0),
-      };
+      if (cur.draft_json) throw new Error("A website draft is waiting. Publish or discard it in the Website editor before changing this link here.");
+      if (Number(cur.version ?? 0) !== page.version) throw new Error("Your website changed elsewhere. Reload this screen before saving the link.");
+      const body = { ...pageFormOf(cur), google_review_url: url.trim(), expected_draft_at: null };
       const r = await api<{ page: Record<string, unknown> }>("/shop/page", "PUT", body);
       setPage({ google_review_url: String(r.page.google_review_url || ""), version: Number(r.page.version ?? 0) });
       setState({ kind: "ok", text: url.trim() ? "Google link saved. It shows in your shop page footer and after a 4–5★ rating." : "Google link removed." });
@@ -3936,7 +3965,7 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
             setState({ kind: "ok", text: "Shop page saved." });
           } catch (err) {
             setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
-            if (err instanceof ApiError && err.status === 409) load().catch(() => {});
+            // Keep local inputs after a conflict; never silently replace them with a reload.
           } finally {
             setBusy(false);
           }
@@ -5007,6 +5036,8 @@ function QueueDrawer({
   w,
   date,
   waitlist,
+  loading,
+  loadError,
   onRefresh,
   onBook,
   onOpenSettings,
@@ -5015,6 +5046,8 @@ function QueueDrawer({
   w: WorkspaceData;
   date: string;
   waitlist: WaitlistEntry[];
+  loading: boolean;
+  loadError: string;
   onRefresh: () => void;
   onBook: (entry: WaitlistEntry) => void;
   onOpenSettings: () => void;
@@ -5026,20 +5059,15 @@ function QueueDrawer({
   const [lastOffer, setLastOffer] = useState<{ link: string; body: string; name: string } | null>(null);
   const [copied, setCopied] = useState("");
   const [filter, setFilter] = useState<"all" | "today" | "offered">("all");
-  const ref = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    ref.current?.querySelector<HTMLElement>("button")?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") (offering ? setOffering(null) : onClose());
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      previous?.focus();
-    };
-  }, [offering]);
+  const mutationLock = useRef(false);
+  const matchSequence = useRef(0);
+  const leavePicker = () => { matchSequence.current++; setOffering(null); };
+  const dismiss = () => { if (!mutationLock.current) onClose(); };
+  const ref = useDialogFocus<HTMLElement>(() => { if (!mutationLock.current) offering ? leavePicker() : onClose(); });
+  const disabled = !!busyId || loading || !!loadError;
   async function close(entry: WaitlistEntry) {
+    if (mutationLock.current || loading || loadError) return;
+    mutationLock.current = true;
     setBusyId(entry.id);
     setError("");
     try {
@@ -5048,21 +5076,24 @@ function QueueDrawer({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not update.");
     } finally {
+      mutationLock.current = false;
       setBusyId("");
     }
   }
   async function startOffer(entry: WaitlistEntry) {
+    const request = ++matchSequence.current;
     setOffering({ entry, matches: null });
     setError("");
     try {
       const r = await api<{ matches: QueueMatch[] }>(`/waitlist/${entry.id}/matches`);
-      setOffering((o) => (o && o.entry.id === entry.id ? { entry, matches: r.matches } : o));
+      if (request === matchSequence.current) setOffering({ entry, matches: r.matches });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load times.");
-      setOffering(null);
+      if (request === matchSequence.current) { setError(e instanceof Error ? e.message : "Could not load times."); setOffering(null); }
     }
   }
   async function sendOffer(entry: WaitlistEntry, m: QueueMatch) {
+    if (mutationLock.current || loading || loadError) return;
+    mutationLock.current = true;
     setBusyId(entry.id);
     setError("");
     try {
@@ -5073,6 +5104,7 @@ function QueueDrawer({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not offer that time.");
     } finally {
+      mutationLock.current = false;
       setBusyId("");
     }
   }
@@ -5084,27 +5116,27 @@ function QueueDrawer({
       setCopied("Copy unavailable here; select the text instead.");
     }
   }
-  const shown = waitlist.filter((r) => (filter === "today" ? r.date === date : filter === "offered" ? r.status === "OFFERED" : true));
+  const shown = waitlist.filter((r) => (filter === "today" ? r.date <= date && (r.date_to || r.date) >= date : filter === "offered" ? r.status === "OFFERED" : true));
   const offered = waitlist.filter((r) => r.status === "OFFERED").length;
   const fmt = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/London" });
-  const canOffer = (r: WaitlistEntry) => r.date >= w.today;
+  const canOffer = (r: WaitlistEntry) => (r.date_to || r.date) >= w.today;
   return (
     <>
-      <div className="drawer-scrim" onClick={onClose} aria-hidden="true" />
-      <aside className="drawer-right queue-drawer" aria-label="Waiting list" ref={ref} data-testid="queue-drawer">
+      <div className="drawer-scrim" onClick={dismiss} aria-hidden="true" />
+      <aside role="dialog" aria-modal="true" className="drawer-right queue-drawer" aria-label="Waiting list" ref={ref} data-testid="queue-drawer">
         <h2>
           Waiting list
-          <small>{waitlist.length ? `${waitlist.length} waiting${offered ? ` · ${offered} offered` : ""}` : "Nobody waiting"}</small>
-          <IconButton name="close" label="Close waiting list" onClick={onClose} />
+          <small>{loading ? "Loading…" : loadError ? "Unavailable" : waitlist.length ? `${waitlist.length} waiting${offered ? ` · ${offered} offered` : ""}` : "Nobody waiting"}</small>
+          <IconButton name="close" label="Close waiting list" onClick={dismiss} disabled={!!busyId} />
         </h2>
         <p className="drawer-note left">
-          Customers who asked to be contacted when a full day opens up. Offer a time and the message is prepared for them; a freed slot is offered automatically when auto-offer is on.
+          Find a time that fits, offer it to the customer, or book them in directly. Automatic offers follow your waiting-list settings.
         </p>
         <div className="queue-filters" role="group" aria-label="Filter waiting list">
           {(
             [
               ["all", `All · ${waitlist.length}`],
-              ["today", `${date === w.today ? "Today" : fmt(date)} · ${waitlist.filter((r) => r.date === date).length}`],
+              ["today", `${date === w.today ? "Today" : fmt(date)} · ${waitlist.filter((r) => r.date <= date && (r.date_to || r.date) >= date).length}`],
               ["offered", `Offered · ${offered}`],
             ] as const
           ).map(([k, label]) => (
@@ -5113,11 +5145,13 @@ function QueueDrawer({
             </button>
           ))}
         </div>
-        <ErrorMessage error={error} />
+        <ErrorMessage error={loadError || error} />
+        {loadError && <Button variant="secondary" onClick={onRefresh} disabled={loading}>Retry waiting list</Button>}
+        {loading && <p className="drawer-note left" role="status">Loading waiting list…</p>}
         {lastOffer && (
           <div className="queue-offer-sent" role="status" data-testid="offer-sent">
-            <strong>Offer sent to {lastOffer.name}.</strong>
-            <small>Delivery shows under Settings → Messages. Want to send it yourself too?</small>
+            <strong>Offer created for {lastOffer.name}.</strong>
+            <small>Delivery is not confirmed here. Check Settings → Messages, or share the link yourself.</small>
             <code>{lastOffer.body}</code>
             <div className="queue-offer-actions">
               <Button variant="secondary" onClick={() => copy(lastOffer.body, "Message")}>
@@ -5144,12 +5178,12 @@ function QueueDrawer({
             {offering.matches === null ? (
               <p className="drawer-note left">Checking the diary…</p>
             ) : offering.matches.length === 0 ? (
-              <p className="drawer-note left">Nothing fits yet. Times will be offered automatically if a booking on that day is cancelled or moved.</p>
+              <p className="drawer-note left">Nothing fits right now. Check again later, or review automatic offers in waiting-list settings.</p>
             ) : (
               <ul className="queue-matches">
                 {offering.matches.map((m) => (
                   <li key={`${m.date ?? ""}-${m.staff_id}-${m.start_min}`}>
-                    <button type="button" onClick={() => sendOffer(offering.entry, m)} disabled={busyId === offering.entry.id} data-testid="queue-match">
+                    <button type="button" onClick={() => sendOffer(offering.entry, m)} disabled={disabled} data-testid="queue-match">
                       <b>{time(m.start_min)}</b>
                       <span>
                         {m.date && offering.entry.date_to && offering.entry.date_to !== offering.entry.date ? `${fmt(m.date)} · ` : ""}
@@ -5160,13 +5194,13 @@ function QueueDrawer({
                 ))}
               </ul>
             )}
-            <Button variant="ghost" onClick={() => setOffering(null)}>
+            <Button variant="ghost" disabled={!!busyId} onClick={leavePicker}>
               <Icon name="arrowLeft" size={14} /> Back to the list
             </Button>
           </section>
         ) : (
           <ul className="notify-list queue-list" data-testid="queue-list">
-            {shown.length === 0 && <li className="queue-empty">{waitlist.length ? "Nothing in this view." : "No one is waiting. Customers can join from the booking page when a day is full."}</li>}
+            {!loading && !loadError && shown.length === 0 && <li className="queue-empty">{waitlist.length ? "Nothing in this view." : "No one is waiting. Customers can join from the booking page when a day is full."}</li>}
             {shown.map((r) => (
               <li key={r.id} className={r.status === "OFFERED" ? "offered" : ""} data-testid="queue-row">
                 <div>
@@ -5194,14 +5228,14 @@ function QueueDrawer({
                 </div>
                 <div className="waitlist-row-actions">
                   {canOffer(r) && (
-                    <Button onClick={() => startOffer(r)} disabled={busyId === r.id} data-testid="queue-offer">
+                    <Button onClick={() => startOffer(r)} disabled={disabled} data-testid="queue-offer">
                       {r.status === "OFFERED" ? "Offer another" : "Offer a time"}
                     </Button>
                   )}
-                  <Button variant="secondary" onClick={() => onBook(r)} disabled={busyId === r.id}>
+                  <Button variant="secondary" onClick={() => onBook({ ...r, date: r.date < w.today ? w.today : r.date })} disabled={disabled}>
                     Book them in
                   </Button>
-                  <Button variant="ghost" onClick={() => close(r)} disabled={busyId === r.id}>
+                  <Button variant="ghost" onClick={() => close(r)} disabled={disabled}>
                     {busyId === r.id ? "…" : "Remove"}
                   </Button>
                 </div>
@@ -5210,11 +5244,11 @@ function QueueDrawer({
           </ul>
         )}
         {w.account?.role !== "BARBER" && (
-          <button type="button" className="queue-settings-link" onClick={onOpenSettings} data-testid="queue-settings">
+          <button type="button" className="queue-settings-link" onClick={onOpenSettings} disabled={!!busyId} data-testid="queue-settings">
             <Icon name="settings" size={14} /> Who gets told, the delay and the wording are in Settings → Waiting list
           </button>
         )}
-        <p className="drawer-note">Messages are recorded in the outbox; connect a provider in Settings to send them.</p>
+        <p className="drawer-note">An offer is not a confirmed appointment until the customer accepts. Delivery status is in Settings → Messages.</p>
       </aside>
     </>
   );
@@ -5510,6 +5544,8 @@ function CustomersPanel({
   const canMerge = !w.account || ["OWNER", "MANAGER"].includes(w.account.role);
   useEffect(() => {
     const id = ++sequence.current;
+    setRows(null);
+    setError("");
     const handle = window.setTimeout(() => {
       api<{ customers: CustomerRow[] }>(
         `/customers?${new URLSearchParams({ q: query.trim(), filter, sort, limit: "200" })}`,
@@ -5517,7 +5553,7 @@ function CustomersPanel({
         .then((r) => id === sequence.current && (setRows(r.customers), setError("")))
         .catch((e) => id === sequence.current && setError(e instanceof Error ? e.message : "Could not load customers."));
     }, query ? 120 : 0);
-    return () => window.clearTimeout(handle);
+    return () => { window.clearTimeout(handle); sequence.current++; };
   }, [query, filter, sort, w.bookings.length, w.now, reload]);
   useEffect(() => {
     if (!selectedId) {
@@ -5525,6 +5561,7 @@ function CustomersPanel({
       return;
     }
     let cancelled = false;
+    setProfile(null);
     setProfileError("");
     api<CustomerProfile>(`/customers/${encodeURIComponent(selectedId)}`)
       .then((p) => !cancelled && setProfile(p))
@@ -5590,7 +5627,9 @@ function CustomersPanel({
             <input
               type="search"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => { setRows(null); setQuery(e.target.value); }}
+              maxLength={100}
+              autoComplete="off"
               placeholder="Search name, mobile, email or tag"
               aria-label="Search customers"
             />
@@ -5624,6 +5663,8 @@ function CustomersPanel({
             }}
           />
         )}
+        {error && <Button variant="secondary" onClick={() => setReload(n => n + 1)}>Retry customer search</Button>}
+        {!rows && !error && <p className="workspace-footnote" role="status">Searching customers…</p>}
         {rows && rows.length === 0 && <p className="workspace-footnote">No customers match.</p>}
         {rows && rows.length > 0 && (
           <ul className="customer-list" data-testid="customer-list">
@@ -6698,7 +6739,7 @@ function OverrideEditor({
       (h) =>
         h.staff_id === staff.id &&
         h.weekday === new Date(date + "T12:00:00Z").getUTCDay(),
-    )!;
+    ) ?? { starts: 540, ends: 1020, break_start: 540, break_end: 540 };
   return (
     <SaveForm
       onSave={(f) => {
@@ -6758,6 +6799,7 @@ function OverrideEditor({
                 type="time"
                 required
                 defaultValue={clock(base[key])}
+                step={900}
               />
             </Field>
           ),
@@ -6963,33 +7005,31 @@ function CustomerPicker({
   const [results, setResults] = useState<CustomerRow[] | null>(null);
   const [active, setActive] = useState(0);
   const [duplicate, setDuplicate] = useState<CustomerRow | null>(null);
-  const seq = useRef(0);
+  const [searchError, setSearchError] = useState("");
+  const [searchRetry, setSearchRetry] = useState(0);
   const open = query.trim().length > 0;
   useEffect(() => {
-    if (!open) {
-      setResults(null);
-      return;
-    }
-    const id = ++seq.current;
+    let cancelled = false;
+    setResults(null);
+    setSearchError("");
+    if (!open) return;
     const handle = window.setTimeout(() => {
       api<{ customers: CustomerRow[] }>(`/customers?${new URLSearchParams({ q: query.trim(), limit: "8" })}`)
-        .then((r) => id === seq.current && (setResults(r.customers), setActive(0)))
-        .catch(() => id === seq.current && setResults([]));
-    }, 180);
-    return () => window.clearTimeout(handle);
-  }, [query, open]);
-  // Warn when a typed mobile already belongs to a record that was not picked.
+        .then(r => { if (!cancelled) { setResults(r.customers); setActive(0); } })
+        .catch(() => { if (!cancelled) setSearchError("Could not search customers. Please retry before adding a new record."); });
+    }, 120);
+    return () => { cancelled = true; window.clearTimeout(handle); };
+  }, [query, open, searchRetry]);
   useEffect(() => {
-    const digits = phone.replace(/[\s()-]/g, "");
-    if (pickedId || !/^(?:\+44|0)7\d{9}$/.test(digits)) {
-      setDuplicate(null);
-      return;
-    }
-    const id = ++seq.current + 100000;
-    api<{ customers: CustomerRow[] }>(`/customers?${new URLSearchParams({ q: digits, limit: "1" })}`)
-      .then((r) => setDuplicate(r.customers.find((c) => c.phone === digits) || null))
+    let cancelled = false;
+    const normalize = (value: string) => value.replace(/\D/g, "").replace(/^(?:0044|44)/, "0");
+    const digits = normalize(phone);
+    setDuplicate(null);
+    if (pickedId || !/^07\d{9}$/.test(digits)) return;
+    api<{ customers: CustomerRow[] }>(`/customers?${new URLSearchParams({ q: digits, limit: "8" })}`)
+      .then(r => { if (!cancelled) setDuplicate(r.customers.find(c => normalize(c.phone) === digits) || null); })
       .catch(() => {});
-    return () => void id;
+    return () => { cancelled = true; };
   }, [phone, pickedId]);
   useEffect(() => {
     onChange(name.trim() && phone.trim() ? { id: pickedId, name, phone, favourite_staff_id: pickedFav } : null);
@@ -7019,14 +7059,14 @@ function CustomerPicker({
           <input
             type="search"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => { setResults(null); setQuery(e.target.value); }} maxLength={100}
             placeholder={mode === "new" ? "Or find an existing customer…" : "Name, mobile or email — or type a new customer's name"}
             aria-label="Find customer"
             aria-describedby="customer-picker-hint"
             autoComplete="off"
             data-testid="customer-find"
             onKeyDown={(e) => {
-              if (e.key === "Escape") setQuery("");
+              if (e.key === "Escape") { e.stopPropagation(); setQuery(""); }
               if (!results) return;
               if (e.key === "ArrowDown") { e.preventDefault(); setActive((a) => Math.min(results.length, a + 1)); }
               if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(0, a - 1)); }
@@ -7038,7 +7078,8 @@ function CustomerPicker({
       <p id="customer-picker-hint" className="visually-hidden">
         Use the arrow keys and Enter to choose a match, or add the typed name as a new customer.
       </p>
-      {open && (
+      {searchError && <p className="workspace-error" role="alert">{searchError} <Button variant="ghost" onClick={() => setSearchRetry(n => n + 1)}>Retry search</Button></p>}
+      {open && !searchError && (
         <ul className="customer-picker-results" aria-label="Matching customers">
           {results === null && <li className="workspace-footnote">Searching…</li>}
           {results?.map((c, i) => (

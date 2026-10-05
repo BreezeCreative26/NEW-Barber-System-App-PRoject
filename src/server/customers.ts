@@ -1,3 +1,4 @@
+import { testAuthEnabled, oneTimeCode } from "./security";
 // Customer accounts: passwordless sign-in by one-time code, scoped to one shop per session.
 // Mounted under /api/public/shops/:slug/account. In the sandbox the code is never sent: it is
 // returned to the page (shown on screen) and written to the shop's audit log.
@@ -145,11 +146,12 @@ acct.post("/start", async (c) => {
   const b = await readInput(c, startSchema);
   await throttle(c, "otp-start", `${shop.id}:${clientKey(c)}`, 30);
   await throttle(c, "otp-phone", `${shop.id}:${b.phone}`, 8);
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const code = oneTimeCode();
   const now = Date.now();
   // Live SMS provider → the code goes by text. Otherwise (local dev, tests, no Twilio yet) it is
   // shown on screen, and the outbox still records it so the dev mailbox shows the message.
   const live = providerStatus().sms.provider !== "mailbox";
+  if (!live && !testAuthEnabled()) fail(503, "Text verification is temporarily unavailable");
   const ms = await msgShop(c, shop.id);
   const origin = new URL(c.req.url).origin;
   const stmts = enqueue(c.env.DB, ms, { phone: b.phone }, "signin_code", { code }, { related: { type: "customer_account", id: b.phone.slice(-4) }, origin, channel: "SMS", now });
@@ -170,11 +172,10 @@ acct.post("/verify", async (c) => {
   const b = await readInput(c, verifySchema);
   await throttle(c, "otp-verify", `${shop.id}:${clientKey(c)}`, 60);
   const now = Date.now();
-  const otp = await c.env.DB.prepare("SELECT * FROM customer_otp WHERE shop_id=? AND phone=?").bind(shop.id, b.phone).first<{ code_hash: string; expires_at: number; attempts: number }>();
+  const otp = await c.env.DB.prepare("UPDATE customer_otp SET attempts=attempts+1 WHERE shop_id=? AND phone=? AND attempts<5 AND expires_at>? RETURNING code_hash,expires_at,attempts").bind(shop.id, b.phone, now).first<{ code_hash: string; expires_at: number; attempts: number }>();
   if (!otp || otp.expires_at <= now) return fail(409, "That code has expired. Request a new one.");
-  if (otp.attempts >= 5) fail(429, "Too many wrong codes. Request a new one.");
+  if (otp.attempts > 5) fail(429, "Too many wrong codes. Request a new one.");
   if (otp.code_hash !== (await digest(`${shop.id}:${b.phone}:${b.code}`))) {
-    await c.env.DB.prepare("UPDATE customer_otp SET attempts=attempts+1 WHERE shop_id=? AND phone=?").bind(shop.id, b.phone).run();
     fail(401, "That code is not right. Check it and try again.");
   }
   let account = await c.env.DB.prepare("SELECT * FROM customer_accounts WHERE phone=?").bind(b.phone).first<AccountRow>();
@@ -188,7 +189,9 @@ acct.post("/verify", async (c) => {
   }
   const raw = uid() + uid();
   await c.env.DB.batch([
-    c.env.DB.prepare("DELETE FROM customer_otp WHERE shop_id=? AND phone=?").bind(shop.id, b.phone),
+    c.env.DB.prepare("DELETE FROM customer_otp WHERE shop_id=? AND phone=? AND code_hash=? AND attempts<=5 AND expires_at>?").bind(shop.id, b.phone, otp.code_hash, now),
+    c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
+    c.env.DB.prepare("DELETE FROM account_assertions"),
     c.env.DB.prepare("UPDATE customer_accounts SET last_seen_at=? WHERE id=?").bind(now, account.id),
     c.env.DB.prepare("INSERT INTO customer_sessions(token_hash,account_id,shop_id,created_at,expires_at) VALUES(?,?,?,?,?)").bind(await digest(raw), account.id, shop.id, now, now + SESSION_TTL),
     audit(c, "customer_account", account.id, "CUSTOMER_SIGNED_IN", `Customer signed in online (mobile ending ${b.phone.slice(-4)}).`),
@@ -217,6 +220,7 @@ const completeSchema = z
 acct.post("/complete", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug")!);
   const a = await requireAccount(c, shop);
+  if (a.password_hash) fail(409, "This account is already complete. Use your profile or password settings.");
   const b = await readInput(c, completeSchema);
   const termsNeeded = !!shop.terms_text && (shop.terms_version || 0) > 0;
   if (termsNeeded && b.accept_terms_version !== shop.terms_version) fail(400, "Please accept the booking terms to continue");
@@ -237,10 +241,22 @@ acct.post("/complete", async (c) => {
 });
 
 acct.post("/logout", async (c) => {
-  await shopBySlug(c, c.req.param("slug")!);
-  await readInput(c, z.object({}).strict());
+  const shop = await shopBySlug(c, c.req.param("slug")!);
+  const b = await readInput(c, z.object({ endpoint: z.string().url().max(2000).optional() }).strict());
   const raw = getCookie(c, CUSTOMER_COOKIE);
-  if (raw) await c.env.DB.prepare("DELETE FROM customer_sessions WHERE token_hash=?").bind(await digest(raw)).run();
+  if (raw) {
+    const hash = await digest(raw);
+    await c.env.DB.batch([
+      // Use the same account lock as push registration/password rotation. A delayed
+      // subscription write must not reactivate notifications after this logout.
+      c.env.DB.prepare("SELECT a.id FROM customer_accounts a JOIN customer_sessions s ON s.account_id=a.id WHERE s.token_hash=? AND s.shop_id=? FOR UPDATE OF a").bind(hash, shop.id),
+      // If the device endpoint cannot be read, revoke this account's shop subscriptions
+      // rather than leaving private notifications active after sign-out.
+      c.env.DB.prepare(`DELETE FROM customer_push_subscriptions WHERE shop_id=? AND account_id IN (SELECT account_id FROM customer_sessions WHERE token_hash=? AND shop_id=?)${b.endpoint ? " AND endpoint=?" : ""}`)
+        .bind(shop.id, hash, shop.id, ...(b.endpoint ? [b.endpoint] : [])),
+      c.env.DB.prepare("DELETE FROM customer_sessions WHERE token_hash=? AND shop_id=?").bind(hash, shop.id),
+    ]);
+  }
   deleteCookie(c, CUSTOMER_COOKIE, { path: "/", secure: true, ...(sessionCookieDomain() ? { domain: sessionCookieDomain()! } : {}) });
   return c.json({ ok: true });
 });
@@ -358,9 +374,10 @@ acct.put("/profile", async (c) => {
     ).bind(b.name, b.email, b.birthday || null, b.preferred_staff_id || null, b.marketing_opt_in, b.contact_pref ?? (cust.contact_pref === "EMAIL" ? "EMAIL" : cust.contact_pref === "NONE" ? "NONE" : "AUTO"), b.notes, now, shop.id, cust.id, b.version),
     audit(c, "customer", cust.id, "CUSTOMER_PROFILE_SELF_UPDATED", "Customer updated their own profile online.", true),
   );
-  await c.env.DB.prepare("UPDATE customer_accounts SET name=?,email=?,version=version+1 WHERE id=?").bind(b.name, b.email, a.id).run();
+  // Contact details for this shop are not authority to change the global login address.
+  await c.env.DB.prepare("UPDATE customer_accounts SET name=?,version=version+1 WHERE id=?").bind(b.name, a.id).run();
   const fresh = (await c.env.DB.prepare("SELECT * FROM customers WHERE shop_id=? AND id=?").bind(shop.id, cust.id).first<Customer>())!;
-  return c.json({ profile: profileOf({ ...a, name: b.name, email: b.email }, fresh) });
+  return c.json({ profile: profileOf({ ...a, name: b.name }, fresh) });
 });
 
 // Manage a visit while signed in: same rules as the manage link.
@@ -450,6 +467,8 @@ acct.post("/delete", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM customer_sessions WHERE account_id=?").bind(a.id),
     c.env.DB.prepare("DELETE FROM customer_account_links WHERE account_id=?").bind(a.id),
+    c.env.DB.prepare("DELETE FROM customer_reset_tokens WHERE account_id=?").bind(a.id),
+    c.env.DB.prepare("DELETE FROM customer_push_subscriptions WHERE account_id=?").bind(a.id),
     c.env.DB.prepare("DELETE FROM customer_accounts WHERE id=?").bind(a.id),
     audit(c, "customer_account", a.id, "CUSTOMER_ACCOUNT_DELETED", "Customer deleted their online account. Shop visit history is retained."),
   ]);

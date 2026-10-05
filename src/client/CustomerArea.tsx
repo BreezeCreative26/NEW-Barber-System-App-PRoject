@@ -62,38 +62,55 @@ export function CustomerArea({ slug }: { slug: string }) {
   const [signedOut, setSignedOut] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [logoutBusy, setLogoutBusy] = useState(false);
+  const logoutLock = useRef(false);
+  const loadVersion = useRef(0);
   const [tab, setTab] = useState<"visits" | "profile">(new URLSearchParams(location.search).get("tab") === "profile" ? "profile" : "visits");
   const load = async () => {
+    if (logoutLock.current) return;
+    const version = ++loadVersion.current;
     setError("");
     try {
       // Probe the session first so a signed-out visit is a clean 200, not a console 401.
       const s = await api<{ profile: Profile | null }>(`${A}/session`);
+      if (version !== loadVersion.current) return;
       if (!s.profile) {
         setMe(null);
         setSignedOut(true);
         return;
       }
       const d = await api<Me>(`${A}/me`);
+      if (version !== loadVersion.current) return;
       setCurrency(d.shop.currency);
       setMe(d);
       applyThemeColor(d.shop.brand);
       setSignedOut(false);
       document.title = `Your visits · ${d.shop.name}`;
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) setSignedOut(true);
+      if (version !== loadVersion.current) return;
+      if (e instanceof ApiError && e.status === 401) { setMe(null); setSignedOut(true); }
       else setError(e instanceof Error ? e.message : "Could not load your visits.");
     }
   };
   useEffect(() => {
     load();
+    return () => { loadVersion.current++; };
   }, [slug]);
   // Background re-read (no flicker: state is swapped in place) — only once signed in.
   useLive(() => (me ? load() : undefined), [slug, !!me]);
   async function signOut() {
-    await api(`${A}/logout`, "POST", {});
-    setMe(null);
-    setSignedOut(true);
-    setNotice("");
+    if (logoutLock.current) return;
+    logoutLock.current = true; loadVersion.current++; setLogoutBusy(true); setError("");
+    try {
+      const reg = "serviceWorker" in navigator ? await getShopWorker(slug).catch(() => undefined) : undefined;
+      const sub = await reg?.pushManager?.getSubscription().catch(() => null);
+      await api(`${A}/logout`, "POST", sub?.endpoint ? { endpoint: sub.endpoint } : {});
+      setMe(null); setSignedOut(true); setNotice("");
+      // Device cleanup is best-effort; the server has already revoked delivery and session.
+      try { reg?.active?.postMessage({ type: "SIGNED_OUT" }); } catch { /* Worker was replaced. */ }
+      await sub?.unsubscribe().catch(() => false);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not sign out. Retry when connected."); }
+    finally { logoutLock.current = false; setLogoutBusy(false); }
   }
   if (error && !me)
     return (
@@ -123,7 +140,7 @@ export function CustomerArea({ slug }: { slug: string }) {
         <nav aria-label="Account">
           <a href={shopPath(me.shop.slug, "/book")}>Book</a>
         </nav>
-        <button type="button" className="button secondary ca-signout" onClick={signOut} data-testid="sign-out" aria-label="Sign out">
+        <button type="button" className="button secondary ca-signout" disabled={logoutBusy} onClick={signOut} data-testid="sign-out" aria-label="Sign out">
           <Icon name="logout" size={15} /> <span>Sign out</span>
         </button>
       </header>
@@ -139,6 +156,7 @@ export function CustomerArea({ slug }: { slug: string }) {
             </p>
           </div>
         </section>
+        {error && <p className="form-error" role="alert">{error}</p>}
         {notice && (
           <Notice icon="check">
             <span role="status">{notice}</span>
@@ -182,6 +200,9 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
   const [password2, setPassword2] = useState("");
   const [name, setName] = useState(seedProfile?.name || "");
   const [phone, setPhone] = useState("");
+  const [registrationPhone, setRegistrationPhone] = useState("");
+  const [registrationCode, setRegistrationCode] = useState("");
+  const [registrationHint, setRegistrationHint] = useState("");
   const [code, setCode] = useState("");
   const [shownCode, setShownCode] = useState("");
   const [sandboxToken, setSandboxToken] = useState("");
@@ -231,7 +252,12 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
     e.preventDefault();
     if (password !== password2) { setError("The two passwords don't match."); return; }
     if (terms && !termsTick) { setError(`Please accept ${shopName || "the shop"}’s booking terms.`); return; }
-    run(async () => { await api(`${A}/register`, "POST", { name, phone, email, password, marketing_opt_in: marketing ? 1 : 0, contact_pref: smsOffered && textReminders ? "AUTO" : "EMAIL", accept_terms_version: terms?.version || 0 }); finish(); }, "Could not create your account.");
+    run(async () => {
+      if (registrationPhone !== phone) {
+        const r = await api<{ sandbox_code?: string }>(`${A}/register/start`, "POST", { phone });
+        setRegistrationPhone(phone); setRegistrationCode(""); setRegistrationHint(r.sandbox_code || ""); return;
+      }
+      await api(`${A}/register`, "POST", { name, phone, email, password, code: registrationCode, marketing_opt_in: marketing ? 1 : 0, contact_pref: smsOffered && textReminders ? "AUTO" : "EMAIL", accept_terms_version: terms?.version || 0 }); finish(); }, "Could not create your account.");
   };
   const forgot = (e: FormEvent) => { e.preventDefault(); run(async () => { const r = await api<{ sandbox_token?: string }>(`${A}/forgot`, "POST", { email }); setSandboxToken(r.sandbox_token || ""); go("sent"); }, "Could not send the link."); };
   const reset = (e: FormEvent) => {
@@ -353,7 +379,8 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
                 <small className="ca-hint">By creating an account you agree to the <a href="/legal/terms" target="_blank" rel="noopener">terms</a> and <a href="/legal/privacy" target="_blank" rel="noopener">privacy notice</a>. Booking messages always come by email{smsOffered ? "; texts are your choice" : ""}.</small>
               </div>
               <Err />
-              <Button type="submit" disabled={busy} data-testid="register-submit">{busy ? "Creating…" : "Create account"} <Icon name="arrowRight" size={16} /></Button>
+              {registrationPhone === phone && <label><span>Code sent to your mobile</span><input autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required value={registrationCode} onChange={e => setRegistrationCode(e.target.value)} data-testid="register-code" />{registrationHint && <small>Development code: {registrationHint}</small>}<button type="button" className="link" onClick={() => { setRegistrationPhone(""); setRegistrationCode(""); }} data-testid="register-resend">Request another code</button></label>}
+              <Button type="submit" disabled={busy} data-testid="register-submit">{busy ? "Please wait…" : registrationPhone === phone ? "Verify and create account" : "Send verification code"} <Icon name="arrowRight" size={16} /></Button>
               <p className="ca-switch">Already have one? <button type="button" className="link" onClick={() => go("login")}>Sign in</button></p>
             </form>
           )}
@@ -464,11 +491,19 @@ function urlB64ToUint8Array(b64: string) {
   return Uint8Array.from([...raw].map((ch) => ch.charCodeAt(0)));
 }
 // Registers the shared worker at this shop's scope so the installed app is per shop.
+export const shopWorkerScope = (slug: string) => `${shopPath(slug, "/").replace(/\/$/, "")}/`;
+async function getShopWorker(slug: string) {
+  const scope = new URL(shopWorkerScope(slug), location.origin).href;
+  const reg = await navigator.serviceWorker.getRegistration(scope);
+  return reg?.scope === scope ? reg : undefined;
+}
 export async function registerShopWorker(slug: string) {
   if (!("serviceWorker" in navigator)) return null;
-  try { return await navigator.serviceWorker.register("/sw.js", { scope: `/${slug}/` }); } catch { return null; }
+  try { return await navigator.serviceWorker.register("/sw.js", { scope: shopWorkerScope(slug), updateViaCache: "none" }); } catch { return null; }
 }
 function AppCard({ slug, A, shopName, hasPassword, onSetPassword }: { slug: string; A: string; shopName: string; hasPassword: boolean; onSetPassword: () => void }) {
+  const [pushError, setPushError] = useState("");
+  const pushLock = useRef(false);
   const [installEvt, setInstallEvt] = useState<InstallEvent | null>(null);
   const [installed, setInstalled] = useState(standalone());
   const [push, setPush] = useState<{ enabled: boolean; public_key: string; subscribed: boolean; permission: NotificationPermission | "unsupported" } | null>(null);
@@ -487,8 +522,8 @@ function AppCard({ slug, A, shopName, hasPassword, onSetPassword }: { slug: stri
       const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
       let endpoint = "";
       if (supported) {
-        const reg = await navigator.serviceWorker.getRegistration(`/${slug}/`);
-        const sub = await reg?.pushManager.getSubscription();
+        const reg = await getShopWorker(slug).catch(() => undefined);
+        const sub = await reg?.pushManager.getSubscription().catch(() => null);
         endpoint = sub?.endpoint || "";
       }
       const r = await api<{ enabled: boolean; public_key: string; subscribed: boolean }>(`${A}/push${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ""}`).catch(() => null);
@@ -503,19 +538,19 @@ function AppCard({ slug, A, shopName, hasPassword, onSetPassword }: { slug: stri
     setInstallEvt(null);
   }
   async function togglePush() {
-    if (!push || !push.enabled || push.permission === "unsupported") return;
-    setBusy(true);
+    if (pushLock.current || !push || !push.enabled || push.permission === "unsupported") return;
+    pushLock.current = true; setBusy(true); setPushError("");
     try {
-      const reg = (await navigator.serviceWorker.getRegistration(`/${slug}/`)) || (await registerShopWorker(slug));
-      if (!reg) return;
-      await navigator.serviceWorker.ready;
+      const reg = (await getShopWorker(slug)) || (await registerShopWorker(slug));
+      if (!reg?.active) throw new Error("The shop app is still getting ready. Please try again in a moment.");
       const perm = await Notification.requestPermission();
       if (perm !== "granted") { setPush({ ...push, permission: perm }); return; }
       const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(push.public_key) }));
       const j = sub.toJSON();
       await api(`${A}/push`, "POST", { endpoint: sub.endpoint, keys: { p256dh: j.keys!.p256dh, auth: j.keys!.auth } });
       setPush({ ...push, subscribed: true, permission: "granted" });
-    } catch { /* leave state */ } finally { setBusy(false); }
+    } catch (e) { setPushError(e instanceof Error ? e.message : "Could not enable notifications. Please try again."); }
+    finally { pushLock.current = false; setBusy(false); }
   }
   const showInstall = !installed && !dismissed && (installEvt || isIOS());
   // Once notifications are on for this device the row has done its job — it goes away (turning
@@ -524,6 +559,7 @@ function AppCard({ slug, A, shopName, hasPassword, onSetPassword }: { slug: stri
   if (!showInstall && !showPush && hasPassword) return null;
   return (
     <section className="ca-app" data-testid="app-card" aria-label="Shop app">
+      {pushError && <p className="form-error" role="alert">{pushError}</p>}
       {!hasPassword && (
         <div className="ca-app-row">
           <Icon name="lock" size={18} />

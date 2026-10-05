@@ -1,6 +1,6 @@
 // /offer/<token>: the waiting-list customer's reply page. One held time, two buttons. No sign-in.
 import { Boot } from "./boot";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Avatar, Button, Icon, Notice } from "./ui";
 import { dateLabel, money, time, setCurrency } from "./fixtures";
 import { applyThemeColor, brandStyle, themeClass, type ShopBrand, shopPath } from "./theme";
@@ -28,6 +28,12 @@ export function OfferPage({ token }: { token: string }) {
   const [offer, setOffer] = useState<Offer | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const actionLock = useRef(false);
+  const [clock, setClock] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [done, setDone] = useState<Accepted | null>(null);
   const [left, setLeft] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -42,6 +48,8 @@ export function OfferPage({ token }: { token: string }) {
       .catch((e) => setError(e instanceof Error ? e.message : "This link is not valid."));
   }, [token]);
   async function accept() {
+    if (actionLock.current || !offer || offer.status !== "PENDING" || offer.expires_at <= Date.now()) return;
+    actionLock.current = true;
     setBusy(true);
     setActionError("");
     try {
@@ -53,10 +61,13 @@ export function OfferPage({ token }: { token: string }) {
       setActionError(err.code === "slot_taken" ? "Sorry — that time was taken just before you tapped. You are still on the list and we will offer the next one." : err.message);
       api<{ offer: Offer }>(`/offer/${token}`).then((r) => setOffer(r.offer)).catch(() => {});
     } finally {
+      actionLock.current = false;
       setBusy(false);
     }
   }
   async function decline(leave: boolean) {
+    if (actionLock.current || !offer || offer.status !== "PENDING" || offer.expires_at <= Date.now()) return;
+    actionLock.current = true;
     setBusy(true);
     setActionError("");
     try {
@@ -66,6 +77,7 @@ export function OfferPage({ token }: { token: string }) {
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Could not update.");
     } finally {
+      actionLock.current = false;
       setBusy(false);
     }
   }
@@ -84,8 +96,8 @@ export function OfferPage({ token }: { token: string }) {
     return (
       <Boot label="Opening your offer…" />
     );
-  const expired = offer.status === "EXPIRED" || (offer.status === "PENDING" && offer.expires_at <= Date.now());
-  const minutesLeft = Math.max(0, Math.round((offer.expires_at - Date.now()) / 60000));
+  const expired = offer.status === "EXPIRED" || (offer.status === "PENDING" && offer.expires_at <= clock);
+  const minutesLeft = Math.max(0, Math.ceil((offer.expires_at - clock) / 60000));
   return (
     <div className={themeClass(offer.shop.brand, "customer-area")} style={brandStyle(offer.shop.brand) as CSSProperties} data-testid="offer-page">
       <header className="sp-nav">
@@ -126,7 +138,7 @@ export function OfferPage({ token }: { token: string }) {
                 </div>
               </div>
               <Notice icon="clock">
-                Held for you for another <strong>{minutesLeft} minute{minutesLeft === 1 ? "" : "s"}</strong>. After that it goes to the next person waiting.
+                Offer expires in <strong>{minutesLeft} minute{minutesLeft === 1 ? "" : "s"}</strong>. Availability is checked when you accept.
               </Notice>
               {actionError && (
                 <p className="form-error" role="alert">
