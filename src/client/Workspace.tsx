@@ -37,7 +37,7 @@ import { PaymentsPanel } from "./Payouts";
 import { SetupWizard } from "./Setup";
 import { BarberHome } from "./BarberHome";
 import { StaffOnboarding } from "./StaffOnboarding";
-import { WebsiteEditor } from "./WebsiteEditor";
+import { WebsiteEditor, pageFormOf } from "./WebsiteEditor";
 import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
 import { themeClass, type ShopBrand } from "./theme";
@@ -3744,16 +3744,11 @@ function GoogleReviewsPanel({ w }: { w: WorkspaceData }) {
     if (!page) return;
     setBusy(true); setState(null);
     try {
-      // The page record is strict; read it fresh and change only the link.
+      // Preserve every website field; settings must not clear an unpublished draft.
       const cur = (await api<{ page: Record<string, unknown> }>("/shop/page")).page;
-      const body = {
-        strapline: String(cur.strapline || ""), about: String(cur.about || ""), cover_url: String(cur.cover_url || ""), logo_url: String(cur.logo_url || ""),
-        gallery: JSON.parse(String(cur.gallery_json || "[]")), phone: String(cur.phone || ""), email: String(cur.email || ""), instagram: String(cur.instagram || ""),
-        map_url: String(cur.map_url || ""), transport_note: String(cur.transport_note || ""), policy_text: String(cur.policy_text || ""), sections: JSON.parse(String(cur.sections_json || "[]")),
-        accent: String(cur.accent || "ollo"), theme: (() => { try { return { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto", ...(JSON.parse(String(cur.theme_json || "{}")) as object) }; } catch { return { font: "modern", mode: "light", corners: "soft", hero: "editorial", logo: "auto" }; } })(),
-        primary_hex: String(cur.primary_hex || ""), secondary_hex: String(cur.secondary_hex || ""), variants: (() => { try { return JSON.parse(String(cur.variants_json || "{}")); } catch { return {}; } })(),
-        google_review_url: url.trim(), published: Number(cur.published ?? 1), version: Number(cur.version ?? 0),
-      };
+      if (cur.draft_json) throw new Error("A website draft is waiting. Publish or discard it in the Website editor before changing this link here.");
+      if (Number(cur.version ?? 0) !== page.version) throw new Error("Your website changed elsewhere. Reload this screen before saving the link.");
+      const body = { ...pageFormOf(cur), google_review_url: url.trim(), expected_draft_at: null };
       const r = await api<{ page: Record<string, unknown> }>("/shop/page", "PUT", body);
       setPage({ google_review_url: String(r.page.google_review_url || ""), version: Number(r.page.version ?? 0) });
       setState({ kind: "ok", text: url.trim() ? "Google link saved. It shows in your shop page footer and after a 4–5★ rating." : "Google link removed." });
@@ -3970,7 +3965,7 @@ function ShopPagePanel({ w }: { w: WorkspaceData }) {
             setState({ kind: "ok", text: "Shop page saved." });
           } catch (err) {
             setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
-            if (err instanceof ApiError && err.status === 409) load().catch(() => {});
+            // Keep local inputs after a conflict; never silently replace them with a reload.
           } finally {
             setBusy(false);
           }

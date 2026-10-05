@@ -1,5 +1,14 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-10-05 — Cross-device website draft protection
+- Restored GitHub synchronization and pushed the previously validated editor commit `a813013` before continuing this pass.
+- Save, Publish and Discard now compare both the live page version and expected draft timestamp atomically. Draft timestamps advance monotonically even within one millisecond; no migration is required. Omitted expectations mean no draft, preventing older/settings writers from silently clearing another editor's work. Publication returns its own write snapshot rather than a later read.
+- On a 409 conflict, the editor cancels deferred autosaves, stops queued publication, retains local input and offers Download my draft (JSON) and confirmed Load latest draft. Failed reloads preserve local work. After review/reload, saving resumes against the latest revision. This is conflict detection and manual recovery, not automatic content merging.
+- Google review-link saves preserve page text/styles and refuse to erase an unpublished draft. Legacy page-form conflicts no longer automatically reload over local input.
+- Validation: typecheck, UX lint, production build, 153 unit/in-memory Postgres tests and 71 isolated browser tests passed. New cases cover competing first drafts, same-millisecond revisions, stale/legacy writes, publication/discard races, two browser editors, downloadable recovery, failed reloads and an in-flight conflict cancelling queued saves/publication. Mobile recovery controls pass the targeted accessibility check.
+- No explicit deployment, schema migration or live provider/storage operation. Hosted multi-instance/database acceptance and older service-image/per-service-buffer work remain separate release gates. PR #38 remains draft.
+- Synchronization: all tested source and test changes are already remote at `085a2ae` (confirmed identical `src`, `tests` and `public` trees). Authorization expired at the final squash push; only these handoff notes and consolidated history remain local. Reconnect before updating the PR summary or pushing the reviewed squash. Backup: `backup/cross-device-editor-audit-20261005`.
+
 ## 2026-10-05 — Website editor persistence and usability audit
 - Draft writes are serialized and revision-aware. Publish and Discard cancel deferred timers and wait for outstanding writes. Close flushes the latest draft and stays open if saving fails. Retry, loading and hidden-page status are explicit; uploads and page actions block conflicting controls. Browser unload protects unsaved work.
 - Discard requires the live page version, returns the restored page and increments its version so delayed pre-discard drafts are rejected, including when Discard precedes the first page row. Same-live-version editing from multiple devices remains last-write-wins; collaborative draft conflict resolution is still a separate gate.
@@ -7,7 +16,7 @@
 - Mobile save status, history and preview controls stay available. Editor buttons have corrected dark-surface contrast. Preview uses the shop date/hours and public staff/service visibility, and clearly labels sample availability/reviews. Logo upload instructions match PNG/JPEG/WebP support.
 - Validation: typecheck, UX lint, production build, 150 unit/in-memory database tests and 66 isolated browser checks passed. Nine editor browser regressions cover delayed writes, failed actions, close/reopen, uploads, gallery limits, keyboard history, inspector focus and responsive controls at 320/768/1440px. Desktop/mobile screenshots reviewed. The setup retry assertion now observes the actual request rather than fixture bookkeeping.
 - No new migration, provider activation or explicit deployment. Live database/storage/provider acceptance and older service-image/per-service-buffer requests remain open. PR #38 remains draft, not release approval.
-- GitHub authorization expired during final synchronization. Intermediate editor changes reached the remote at `ac96c58`; the consolidated, fully tested final editor commit is local only. Reconnect GitHub, fetch/review the remote, then push with a reviewed lease before claiming the PR contains the final results. The working tree is clean and the pre-squash backup is `backup/website-editor-audit-20261005`.
+- GitHub authorization expired during this pass's final synchronization; resolved in the subsequent cross-device pass by pushing `a813013`. The pre-squash backup is `backup/website-editor-audit-20261005`.
 
 ## 2026-10-05 — Shop signup, setup and branding audit
 - Signup regressions verify owner/shop/membership/session/legal records, the seven-day owner roster and no fictional service seed. Address checks ignore late responses; signup preserves fields on failure and hands off to setup.

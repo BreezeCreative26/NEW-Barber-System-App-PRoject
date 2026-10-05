@@ -97,9 +97,12 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
   const [selected, setSelected] = useState<{ el: string; sec: string } | null>(null);
   const [panel, setPanel] = useState<"sections" | "design" | "content">("sections");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [action, setAction] = useState<"publish" | "discard" | "close" | null>(null);
+  const [action, setAction] = useState<"publish" | "discard" | "close" | "reload" | null>(null);
   const [error, setError] = useState("");
   const [draftError, setDraftError] = useState("");
+  const [conflict, setConflict] = useState(false);
+  const conflicted = useRef(false);
+  const serverDraftAt = useRef<number | null>(null);
   const [hadDraft, setHadDraft] = useState(false);
   const [uploadCount, setUploadCount] = useState(0);
   const [reload, setReload] = useState(0);
@@ -129,14 +132,7 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
     setError("");
     api<{ page: Record<string, unknown> }>("/shop/page").then((r) => {
       if (cancelled) return;
-      const l = pageFormOf(r.page);
-      setLive(l);
-      let f = l;
-      if (r.page.draft_json) {
-        try { f = { ...l, ...(JSON.parse(String(r.page.draft_json)) as Partial<PageForm>), version: l.version }; setHadDraft(true); } catch { /* keep live page */ }
-      }
-      current.current = f;
-      setForm(f);
+      adoptPage(r.page);
     }).catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : "Could not load the page."); });
     return () => { cancelled = true; };
   }, [reload]);
@@ -154,7 +150,7 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
       }
     };
     const unload = (e: BeforeUnloadEvent) => {
-      if (revision.current !== savedRevision.current || uploads.current || actionLock.current) { e.preventDefault(); e.returnValue = ""; }
+      if (revision.current !== savedRevision.current || uploads.current || actionLock.current || conflicted.current) { e.preventDefault(); e.returnValue = ""; }
     };
     window.addEventListener("keydown", key);
     window.addEventListener("beforeunload", unload);
@@ -189,14 +185,55 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
     const next = ahead.current.shift()!;
     past.current.push(current.current); historyChanged(); setCurrent(next); scheduleDraft(next);
   }
+  function adoptPage(page: Record<string, unknown>) {
+    const l = pageFormOf(page);
+    let f = l;
+    if (page.draft_json) {
+      try { f = { ...l, ...JSON.parse(String(page.draft_json)), version: l.version }; } catch { /* keep live page */ }
+    }
+    serverDraftAt.current = page.draft_updated_at == null ? null : Number(page.draft_updated_at);
+    resetTo(l);
+    setCurrent(f); setHadDraft(!!page.draft_json); setSelected(null);
+  }
+  function markConflict(e: unknown) {
+    if (typeof e !== "object" || e === null || !("status" in e) || e.status !== 409) return false;
+    conflicted.current = true; setConflict(true);
+    window.clearTimeout(saveTimer.current); setSaveState("error");
+    return true;
+  }
+  const conflictMessage = "This website changed in another editor. Autosave is paused and your local edits are still here. Download a copy if needed, then load the latest draft to continue.";
+  function assertNoConflict() { if (conflicted.current) throw new Error(conflictMessage); }
+  function downloadDraft() {
+    if (!current.current || uploads.current) return;
+    try {
+      const blob = new Blob([JSON.stringify({ shop_id: w.shop.id, exported_at: new Date().toISOString(), page: clean(current.current) }, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url; link.download = `website_draft_${(w.shop.slug || "shop").replace(/[^a-z0-9_-]/gi, "_")}.json`;
+      link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch { setError("Could not download your draft. Your edits are still here."); }
+  }
+  async function loadLatest() {
+    if (actionLock.current || uploads.current || !window.confirm("Replace this editor's local changes with the latest saved draft? Download a copy first if you want to keep them.")) return;
+    if (!begin("reload")) return;
+    try {
+      await writes.current;
+      const r = await api<{ page: Record<string, unknown> }>("/shop/page");
+      adoptPage(r.page); setError("");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not load the latest draft. Your edits are still here."); }
+    finally { finish(); }
+  }
   function persist(f: PageForm, rev: number) {
     const write = writes.current.then(async () => {
       if (!mounted.current || rev !== revision.current || savedRevision.current === rev) return;
+      assertNoConflict();
       try {
-        await api("/shop/page/draft", "PUT", clean(f));
+        const r = await api<{ draft_updated_at: number }>("/shop/page/draft", "PUT", { ...clean(f), expected_draft_at: serverDraftAt.current });
+        serverDraftAt.current = r.draft_updated_at;
         savedRevision.current = rev;
         if (mounted.current && revision.current === rev) { setSaveState("saved"); setDraftError(""); setHadDraft(true); }
       } catch (e) {
+        if (mounted.current) markConflict(e);
         if (mounted.current && revision.current === rev) { setSaveState("error"); setDraftError(e instanceof Error ? e.message : "Could not save your draft."); }
         throw e;
       }
@@ -208,19 +245,21 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
   function scheduleDraft(f: PageForm) {
     const rev = ++revision.current;
     window.clearTimeout(saveTimer.current);
+    if (conflicted.current) { setSaveState("error"); return; }
     setSaveState("saving"); setDraftError("");
     saveTimer.current = window.setTimeout(() => { void persist(f, rev).catch(() => {}); }, 700);
   }
   async function flushDraft() {
     window.clearTimeout(saveTimer.current);
     await writes.current;
+    assertNoConflict();
     if (current.current && revision.current !== savedRevision.current) {
       setSaveState("saving");
       await persist(current.current, revision.current);
     }
   }
   async function retryDraft() {
-    if (actionLock.current || uploads.current) return;
+    if (actionLock.current || uploads.current || conflicted.current) return;
     setError("");
     try { await flushDraft(); } catch { /* error and retry stay visible */ }
   }
@@ -229,14 +268,15 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
     uploads.current = Math.max(0, uploads.current + (busy ? 1 : -1));
     setUploadCount(uploads.current);
   }
-  function begin(next: "publish" | "discard" | "close") {
-    if (actionLock.current || uploads.current) return false;
+  function begin(next: "publish" | "discard" | "close" | "reload") {
+    if (actionLock.current || uploads.current || (conflicted.current && next !== "reload")) return false;
     actionLock.current = true; setAction(next); setError("");
     window.clearTimeout(saveTimer.current);
     return true;
   }
   function finish() { actionLock.current = false; if (mounted.current) setAction(null); }
   function resetTo(f: PageForm) {
+    conflicted.current = false; setConflict(false);
     setLive(f); setCurrent(f); past.current = []; ahead.current = []; historyChanged();
     savedRevision.current = ++revision.current;
     setHadDraft(false); setSaveState("idle"); setDraftError("");
@@ -245,9 +285,11 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
     if (!current.current || !begin("publish")) return;
     try {
       await writes.current;
-      const r = await api<{ page: Record<string, unknown> }>("/shop/page", "PUT", clean(current.current));
-      resetTo(pageFormOf(r.page)); onPublished();
+      assertNoConflict();
+      const r = await api<{ page: Record<string, unknown> }>("/shop/page", "PUT", { ...clean(current.current), expected_draft_at: serverDraftAt.current });
+      adoptPage(r.page); onPublished();
     } catch (e) {
+      markConflict(e);
       setError(e instanceof Error ? e.message : "Could not publish. Your changes are kept here.");
       if (revision.current !== savedRevision.current) setSaveState("error");
     }
@@ -258,9 +300,11 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
     if (!begin("discard")) return;
     try {
       await writes.current;
-      const r = await api<{ page: Record<string, unknown> }>("/shop/page/draft", "DELETE", { version: live.version });
-      resetTo(pageFormOf(r.page));
+      assertNoConflict();
+      const r = await api<{ page: Record<string, unknown> }>("/shop/page/draft", "DELETE", { version: live.version, expected_draft_at: serverDraftAt.current });
+      adoptPage(r.page);
     } catch (e) {
+      markConflict(e);
       setError(e instanceof Error ? e.message : "Could not discard. Your changes are kept here.");
       if (revision.current !== savedRevision.current) setSaveState("error");
     }
@@ -328,9 +372,9 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
     <div className={`wed device-${device}`} data-testid="website-editor" role="region" aria-label="Website editor" aria-busy={!!action || uploadCount > 0}>
       <header className="wed-top">
         <div className="wed-top-left">
-          <button type="button" className="wed-iconbtn" onClick={close} disabled={blocked} aria-label="Close editor" data-testid="wed-close"><Icon name="left" size={18} /></button>
+          <button type="button" className="wed-iconbtn" onClick={close} disabled={blocked || conflict} aria-label="Close editor" data-testid="wed-close"><Icon name="left" size={18} /></button>
           <span className="wed-title"><b>{w.shop.name}</b><small>Website</small></span>
-          <span className={`wed-save s-${saveState}`} role="status" data-testid="wed-save">{uploadCount ? "Uploading image…" : action === "close" ? "Saving before closing…" : action === "discard" ? "Discarding…" : action === "publish" ? "Publishing…" : saveState === "error" ? "Draft not saved" : saveState === "saving" ? "Saving draft…" : dirty || hadDraft ? "Draft saved · not live" : live?.published ? "Published" : "Page hidden"}</span>
+          <span className={`wed-save s-${saveState}`} role="status" data-testid="wed-save">{uploadCount ? "Uploading image…" : action === "reload" ? "Loading latest draft…" : conflict ? "Draft conflict · paused" : action === "close" ? "Saving before closing…" : action === "discard" ? "Discarding…" : action === "publish" ? "Publishing…" : saveState === "error" ? "Draft not saved" : saveState === "saving" ? "Saving draft…" : dirty || hadDraft ? "Draft saved · not live" : live?.published ? "Published" : "Page hidden"}</span>
         </div>
         <div className="wed-top-mid">
           <div className="wed-history">
@@ -347,11 +391,18 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
         </div>
         <div className="wed-top-right">
           {w.shop.slug && <a className="button ghost" href={`/${w.shop.slug}`} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> View live</a>}
-          {(dirty || hadDraft) && <Button disabled={blocked} variant="ghost" onClick={discard} data-testid="wed-discard">Discard</Button>}
-          <Button onClick={publish} disabled={blocked || !dirty} data-testid="wed-publish">{action === "publish" ? "Publishing…" : dirty ? form.published ? "Publish" : "Save hidden page" : live?.published ? "Published" : "Page hidden"}</Button>
+          {(dirty || hadDraft) && <Button disabled={blocked || conflict} variant="ghost" onClick={discard} data-testid="wed-discard">Discard</Button>}
+          <Button onClick={publish} disabled={blocked || conflict || !dirty} data-testid="wed-publish">{action === "publish" ? "Publishing…" : dirty ? form.published ? "Publish" : "Save hidden page" : live?.published ? "Published" : "Page hidden"}</Button>
         </div>
       </header>
-      {(error || draftError) && <div className="wed-toast" role="alert"><span>{error || draftError}</span>{saveState === "error" && <Button variant="secondary" disabled={blocked} onClick={retryDraft}>Retry saving draft</Button>}</div>}
+      {(conflict || error || draftError) && <div className="wed-toast" role="alert" data-testid="wed-feedback">
+        <span>{conflict ? conflictMessage : error || draftError}</span>
+        {conflict ? <>
+          {error && <small>{error}</small>}
+          <Button variant="secondary" disabled={blocked} onClick={downloadDraft}>Download my draft</Button>
+          <Button variant="secondary" disabled={blocked} onClick={loadLatest}>Load latest draft</Button>
+        </> : saveState === "error" && <Button variant="secondary" disabled={blocked} onClick={retryDraft}>Retry saving draft</Button>}
+      </div>}
 
       <aside className="wed-left" aria-label="Page" inert={blocked}>
         <div className="wed-tabs" role="tablist" aria-label="Editor panels" onKeyDown={e => {

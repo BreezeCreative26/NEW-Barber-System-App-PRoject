@@ -580,8 +580,10 @@ describe("shop signup and setup audit", () => {
     const { shopPageSchema } = await import("../src/server/domain");
     const initial = shopPageSchema.parse({ version: 0 });
     const form = { ...initial, logo_url: uploadedLogo, cover_url: "/static/stock/brick.webp", copy: { "hero.button": "Choose your cut" }, element_styles: { "hero.title": { fg: "#112233" } } };
-    expect((await owner("/shop/page/draft", "PUT", form)).status).toBe(200);
-    const r = await owner("/shop/page", "PUT", form);
+    const draftSave = await owner("/shop/page/draft", "PUT", form);
+    expect(draftSave.status).toBe(200);
+    const { draft_updated_at } = await draftSave.json();
+    const r = await owner("/shop/page", "PUT", { ...form, expected_draft_at: draft_updated_at });
     expect(r.status,await r.clone().text()).toBe(200);
     const saved = (await r.json()).page;
     expect(saved.logo_url).toBe(form.logo_url); expect(saved.logo_tone).toBe("light"); expect(saved.draft_json).toBeNull();
@@ -596,8 +598,10 @@ describe("shop signup and setup audit", () => {
     const { shopPageSchema } = await import("../src/server/domain");
     const live = (await (await owner("/shop/page")).json()).page;
     const draft = shopPageSchema.parse({ version: live.version, strapline: "Unpublished draft" });
-    expect((await owner("/shop/page/draft", "PUT", draft)).status).toBe(200);
-    const discarded = await owner("/shop/page/draft", "DELETE", { version: live.version });
+    const draftSave = await owner("/shop/page/draft", "PUT", draft);
+    expect(draftSave.status).toBe(200);
+    const { draft_updated_at } = await draftSave.json();
+    const discarded = await owner("/shop/page/draft", "DELETE", { version: live.version, expected_draft_at: draft_updated_at });
     expect(discarded.status, await discarded.clone().text()).toBe(200);
     const page = (await discarded.json()).page;
     expect(page.version).toBe(live.version + 1);
@@ -616,6 +620,64 @@ describe("shop signup and setup audit", () => {
     expect((await discarded.json()).page.version).toBe(1);
     expect((await owner("/shop/page/draft", "PUT", { version: 0, strapline: "Late first write" })).status).toBe(409);
     expect((await owner("/shop/page/draft", "DELETE", {})).status).toBe(400);
+  });
+
+  it("allows only one competing first draft and never stores the concurrency metadata", async () => {
+    await db.prepare("DELETE FROM shop_pages WHERE shop_id=?").bind(id).run();
+    const pair = await Promise.all(["Editor A", "Editor B"].map(strapline => owner("/shop/page/draft", "PUT", { version: 0, expected_draft_at: null, strapline })));
+    expect(pair.map(r => r.status).sort()).toEqual([200, 409]);
+    const page = (await (await owner("/shop/page")).json()).page;
+    const winner = JSON.parse(page.draft_json);
+    expect(winner.strapline).toBe(pair[0].status === 200 ? "Editor A" : "Editor B");
+    expect(winner).not.toHaveProperty("expected_draft_at");
+    expect(page.version).toBe(0);
+    expect(page.draft_updated_at).toBeGreaterThan(0);
+  });
+  it("advances same-millisecond draft revisions and blocks stale or legacy writes", async () => {
+    const page = (await (await owner("/shop/page")).json()).page;
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      const a = await owner("/shop/page/draft", "PUT", { version: page.version, expected_draft_at: page.draft_updated_at, strapline: "First same-time save" });
+      expect(a.status,await a.clone().text()).toBe(200);
+      const first = (await a.json()).draft_updated_at;
+      const b = await owner("/shop/page/draft", "PUT", { version: page.version, expected_draft_at: first, strapline: "Second same-time save" });
+      expect(b.status,await b.clone().text()).toBe(200);
+      const second = (await b.json()).draft_updated_at;
+      expect(second).toBeGreaterThan(first);
+      for (const [path, method] of [["/shop/page/draft", "PUT"], ["/shop/page", "PUT"], ["/shop/page/draft", "DELETE"]]) {
+        for (const token of [undefined, null, page.draft_updated_at, first]) {
+          const r = await owner(path, method, { version: page.version, expected_draft_at: token });
+          expect(r.status,await r.clone().text()).toBe(409);
+        }
+      }
+      expect((await owner("/shop/page/draft", "PUT", { version: page.version, expected_draft_at: -1 })).status).toBe(400);
+      const retained = (await (await owner("/shop/page")).json()).page;
+      expect(retained.draft_updated_at).toBe(second);
+      expect(JSON.parse(retained.draft_json).strapline).toBe("Second same-time save");
+    } finally { clock.mockRestore(); }
+  });
+  it("serializes publication or discard against a concurrent draft with the same revision", async () => {
+    for (const action of ["publish", "discard"] as const) {
+      const before = (await (await owner("/shop/page")).json()).page;
+      const expected = { version: before.version, expected_draft_at: before.draft_updated_at };
+      const operations = await Promise.all([
+        owner(action === "publish" ? "/shop/page" : "/shop/page/draft", action === "publish" ? "PUT" : "DELETE", expected),
+        owner("/shop/page/draft", "PUT", { ...expected, strapline: `Competing ${action} draft` }),
+      ]);
+      expect(operations.map(r => r.status).sort()).toEqual([200, 409]);
+      const after = (await (await owner("/shop/page")).json()).page;
+      if (operations[0].status === 200) {
+        const response = (await operations[0].json()).page;
+        expect(response.version).toBe(before.version + 1);
+        expect(response.draft_json).toBeNull();
+        expect(response.draft_updated_at).toBeNull();
+        expect(after.draft_json).toBeNull();
+      } else {
+        expect(after.version).toBe(before.version);
+        expect(JSON.parse(after.draft_json).strapline).toBe(`Competing ${action} draft`);
+      }
+    }
   });
 
 });

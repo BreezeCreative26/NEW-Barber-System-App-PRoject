@@ -974,24 +974,31 @@ test("setup audit: Continue does not silently discard an unfinished team member"
   expect(errors).toEqual([]);
 });
 
-async function mountEditor(page: Page) {
+function editorStore() {
+  return {
+    failDraft: false, failPublish: false, failDiscard: false, failLoad: false,
+    holdDraft: null as Promise<void> | null, writes: [] as { kind: string; body: any }[],
+    record: { version: 0, strapline: "Original strapline", logo_url: "", cover_url: "", accent: "ink", published: 1, sections_json: '["hero","services","team","gallery","reviews"]', copy_json: '{}', element_styles_json: '{}', theme_json: '{}', gallery_json: '[]', draft_json: null, draft_updated_at: null } as any,
+  };
+}
+async function mountEditor(page: Page, state = editorStore()) {
   const base = await mountWorkspace(page);
-  const state = { failDraft: false, failPublish: false, failDiscard: false, failLoad: false, holdDraft: null as Promise<void> | null, writes: [] as { kind: string; body: any }[] };
-  let record: any = { version: 0, strapline: "Original strapline", logo_url: "", cover_url: "", accent: "ink", published: 1, sections_json: '["hero","services","team","gallery","reviews"]', copy_json: '{}', element_styles_json: '{}', theme_json: '{}', gallery_json: '[]', draft_json: null };
   await page.route("**/api/app/shop/page**", async route => {
     const draft = new URL(route.request().url()).pathname.endsWith("/draft");
     const method = route.request().method();
-    if (method === "GET") return route.fulfill(state.failLoad ? { status: 503, json: { message: "Page loading unavailable" } } : { json: { page: record } });
+    if (method === "GET") return route.fulfill(state.failLoad ? { status: 503, json: { message: "Page loading unavailable" } } : { json: { page: state.record } });
     const body = route.request().postDataJSON();
     const kind = method === "DELETE" ? "discard" : draft ? "draft" : "publish";
     state.writes.push({ kind, body });
     if (kind === "draft" && state.holdDraft) await state.holdDraft;
     if ((kind === "draft" && state.failDraft) || (kind === "publish" && state.failPublish) || (kind === "discard" && state.failDiscard)) return route.fulfill({ status: 503, json: { message: `${kind} unavailable` } });
-    if (body.version !== record.version) return route.fulfill({ status: 409, json: { message: "Page changed elsewhere" } });
-    if (kind === "draft") record.draft_json = JSON.stringify(body);
-    else if (kind === "discard") record = { ...record, draft_json: null, version: record.version + 1 };
-    else record = { ...record, ...body, draft_json: null, version: record.version + 1, theme_json: JSON.stringify(body.theme), gallery_json: JSON.stringify(body.gallery), sections_json: JSON.stringify(body.sections), variants_json: JSON.stringify(body.variants), element_styles_json: JSON.stringify(body.element_styles), copy_json: JSON.stringify(body.copy) };
-    return route.fulfill({ json: { ok: true, page: record } });
+    const record = state.record;
+    if (body.version !== record.version || (body.expected_draft_at ?? null) !== record.draft_updated_at) return route.fulfill({ status: 409, json: { message: "Page changed elsewhere" } });
+    const { expected_draft_at: _expected, ...content } = body;
+    if (kind === "draft") state.record = { ...record, draft_json: JSON.stringify(content), draft_updated_at: (record.draft_updated_at ?? now) + 1 };
+    else if (kind === "discard") state.record = { ...record, draft_json: null, draft_updated_at: null, version: record.version + 1 };
+    else state.record = { ...record, ...content, draft_json: null, draft_updated_at: null, version: record.version + 1, theme_json: JSON.stringify(body.theme), gallery_json: JSON.stringify(body.gallery), sections_json: JSON.stringify(body.sections), variants_json: JSON.stringify(body.variants), element_styles_json: JSON.stringify(body.element_styles), copy_json: JSON.stringify(body.copy) };
+    return route.fulfill({ json: { ok: true, page: state.record, draft_updated_at: state.record.draft_updated_at } });
   });
   await page.goto("https://ui.test/workspace/website");
   await expect(page.getByTestId("wed-publish")).toBeVisible();
@@ -1168,4 +1175,111 @@ test("website editor: inspector focus returns and removing element overrides kee
   await expect(page.getByTestId("wed-save")).toContainText("Draft saved");
   expect(state.writes.at(-1)!.body.element_styles).toEqual({ "page.bg": { bg: "#112233" } });
   expect(errors).toEqual([]);
+});
+
+for (const width of [320, 1440]) {
+  test(`website editor conflict: two editors preserve local work and recover safely (${width}px)`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const { state, errors } = await mountEditor(page);
+    const other = await context.newPage();
+    const remote = await mountEditor(other, state);
+    await other.getByTestId("wed-strapline").fill("Other editor's saved draft");
+    await other.clock.runFor(750);
+    await expect(other.getByTestId("wed-save")).toContainText("Draft saved");
+    const latestStamp = state.record.draft_updated_at;
+    await page.getByTestId("wed-strapline").fill("My unsaved local wording");
+    await page.clock.runFor(750);
+    await expect(page.getByTestId("wed-save")).toHaveText("Draft conflict · paused");
+    await expect(page.getByTestId("wed-publish")).toBeDisabled();
+    await expect(page.getByTestId("wed-discard")).toBeDisabled();
+    expect(JSON.parse(state.record.draft_json).strapline).toBe("Other editor's saved draft");
+    const count = state.writes.length;
+    await page.getByTestId("wed-strapline").fill("My local wording kept for export");
+    await page.clock.runFor(2000);
+    expect(state.writes).toHaveLength(count);
+    expect(await page.evaluate(() => { const e = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented; })).toBe(true);
+    const downloadEvent = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download my draft" }).click();
+    const download = await downloadEvent;
+    const stream = await download.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+    const exported = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    expect(exported.page.strapline).toBe("My local wording kept for export");
+    expect(exported.page).not.toHaveProperty("expected_draft_at");
+    page.once("dialog", d => d.dismiss());
+    await page.getByRole("button", { name: "Load latest draft" }).click();
+    await expect(page.getByTestId("wed-strapline")).toHaveValue("My local wording kept for export");
+    state.failLoad = true;
+    page.once("dialog", d => d.accept());
+    await page.getByRole("button", { name: "Load latest draft" }).click();
+    await expect(page.getByTestId("wed-feedback")).toContainText("Page loading unavailable");
+    await expect(page.getByTestId("wed-strapline")).toHaveValue("My local wording kept for export");
+    const axe = await new AxeBuilder({ page }).include(".wed-toast").withTags(["wcag2a", "wcag2aa"]).analyze();
+    expect(axe.violations.map(v => v.id)).toEqual([]);
+    state.failLoad = false;
+    page.once("dialog", d => d.accept());
+    await page.getByRole("button", { name: "Load latest draft" }).click();
+    await expect(page.getByTestId("wed-strapline")).toHaveValue("Other editor's saved draft");
+    await expect(page.getByTestId("wed-feedback")).toHaveCount(0);
+    expect(state.writes).toHaveLength(count);
+    await page.getByTestId("wed-strapline").fill("Reviewed combined wording");
+    await page.clock.runFor(750);
+    await expect(page.getByTestId("wed-save")).toContainText("Draft saved");
+    expect(state.writes.at(-1)!.body.expected_draft_at).toBe(latestStamp);
+    expect(JSON.parse(state.record.draft_json).strapline).toBe("Reviewed combined wording");
+    expect(errors).toEqual([]); expect(remote.errors).toEqual([]);
+    await other.close();
+  });
+}
+
+for (const operation of ["publish", "discard"] as const) {
+  test(`website editor conflict: stale ${operation} cannot clear another editor's draft`, async ({ page, context }) => {
+    const { state, errors } = await mountEditor(page);
+    const other = await context.newPage();
+    await mountEditor(other, state);
+    await other.getByTestId("wed-strapline").fill("Protected remote draft");
+    await other.clock.runFor(750);
+    await expect(other.getByTestId("wed-save")).toContainText("Draft saved");
+    await page.getByTestId("wed-strapline").fill("Local unpublished change");
+    if (operation === "discard") page.once("dialog", d => d.accept());
+    await page.getByTestId(`wed-${operation}`).click();
+    await expect(page.getByTestId("wed-save")).toHaveText("Draft conflict · paused");
+    await expect(page.getByTestId("wed-strapline")).toHaveValue("Local unpublished change");
+    expect(JSON.parse(state.record.draft_json).strapline).toBe("Protected remote draft");
+    expect(state.record.version).toBe(0);
+    expect(state.writes.map(w => w.kind)).toEqual(["draft", operation]);
+    await page.clock.runFor(1500);
+    expect(state.writes).toHaveLength(2);
+    expect(errors).toEqual([]);
+    await other.close();
+  });
+}
+
+test("website editor conflict: an in-flight conflict cancels queued autosaves and publication", async ({ page, context }) => {
+  const { state, errors } = await mountEditor(page);
+  const other = await context.newPage();
+  await mountEditor(other, state);
+  let release!: () => void;
+  state.holdDraft = new Promise<void>(resolve => { release = resolve; });
+  await page.getByTestId("wed-strapline").fill("First local draft");
+  await page.clock.runFor(750);
+  await expect.poll(() => state.writes.length).toBe(1);
+  await page.getByTestId("wed-strapline").fill("Latest local draft");
+  await page.clock.runFor(750);
+  await page.getByTestId("wed-publish").click();
+  await expect(page.getByTestId("wed-close")).toBeDisabled();
+  state.holdDraft = null;
+  await other.getByTestId("wed-strapline").fill("Remote winner");
+  await other.clock.runFor(750);
+  await expect(other.getByTestId("wed-save")).toContainText("Draft saved");
+  release();
+  await expect(page.getByTestId("wed-save")).toHaveText("Draft conflict · paused");
+  await expect(page.getByTestId("wed-strapline")).toHaveValue("Latest local draft");
+  await page.clock.runFor(2000);
+  expect(state.writes.map(write => write.kind)).toEqual(["draft", "draft"]);
+  expect(JSON.parse(state.record.draft_json).strapline).toBe("Remote winner");
+  expect(state.record.version).toBe(0);
+  expect(errors).toEqual([]);
+  await other.close();
 });

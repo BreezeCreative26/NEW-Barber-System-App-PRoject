@@ -782,13 +782,17 @@ sandbox.get("/shop/page", async (c) => {
   const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(c.get("shopId")).first<ShopPage>();
   return c.json({ page: row ?? defaultShopPage(c.get("shopId")) });
 });
+// The live version and draft timestamp form one compare-and-swap revision. Missing
+// expectations mean "no draft", so older settings screens cannot erase a draft.
+const expectedDraftAt = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable().default(null);
+const pageWriteSchema = shopPageSchema.extend({ expected_draft_at: expectedDraftAt });
 sandbox.put("/shop/page", async (c) => {
-  const b = await input(c, shopPageSchema);
+  const { expected_draft_at, ...b } = await input(c, pageWriteSchema);
   const sid = c.get("shopId");
   const now = Date.now();
   const existing = await c.env.DB.prepare("SELECT version FROM shop_pages WHERE shop_id=?").bind(sid).first<{ version: number }>();
   if (existing && existing.version !== b.version) fail(409, "record_changed");
-  if (!existing && b.version !== 0) fail(409, "record_changed");
+  if (!existing && (b.version !== 0 || expected_draft_at !== null)) fail(409, "record_changed");
   const sections = JSON.stringify([...new Set(b.sections)]);
   // Tone of the logo being saved: measured at upload for our own media, measured now for an
   // external URL (best effort, 4s), blank when there is no logo. Stored alongside so every
@@ -801,40 +805,43 @@ sandbox.put("/shop/page", async (c) => {
   const copy = JSON.stringify(Object.fromEntries(Object.entries(b.copy).filter(([, v]) => !!v && v.trim())));
   const stmt = existing
     ? c.env.DB.prepare(
-        "UPDATE shop_pages SET copy_json=?,element_styles_json=?,draft_json=NULL,draft_updated_at=NULL,logo_tone=?,primary_hex=?,secondary_hex=?,variants_json=?,strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=?",
-      ).bind(copy, elementStyles, tone, primary, secondary, variants, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version)
+        "UPDATE shop_pages SET copy_json=?,element_styles_json=?,draft_json=NULL,draft_updated_at=NULL,logo_tone=?,primary_hex=?,secondary_hex=?,variants_json=?,strapline=?,about=?,cover_url=?,logo_url=?,gallery_json=?,phone=?,email=?,instagram=?,map_url=?,transport_note=?,policy_text=?,sections_json=?,accent=?,theme_json=?,google_review_url=?,published=?,version=version+1,updated_at=? WHERE shop_id=? AND version=? AND draft_updated_at IS NOT DISTINCT FROM ? RETURNING *",
+      ).bind(copy, elementStyles, tone, primary, secondary, variants, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now, sid, b.version, expected_draft_at)
     : c.env.DB.prepare(
-        "INSERT INTO shop_pages(copy_json,element_styles_json,logo_tone,primary_hex,secondary_hex,variants_json,shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+        "INSERT INTO shop_pages(copy_json,element_styles_json,logo_tone,primary_hex,secondary_hex,variants_json,shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?) ON CONFLICT(shop_id) DO NOTHING RETURNING *",
       ).bind(copy, elementStyles, tone, primary, secondary, variants, sid, b.strapline, b.about, b.cover_url, b.logo_url, JSON.stringify(b.gallery), b.phone, b.email, b.instagram.replace(/^@/, ""), b.map_url, b.transport_note, b.policy_text, sections, b.accent, JSON.stringify(b.theme), b.google_review_url, b.published, now);
-  await checkVersionUpdate(c, stmt, audit(c, "shop", sid, "SHOP_PAGE_UPDATED", `${b.published ? "Published" : "Unpublished"}; ${b.sections.length} sections.`, true));
-  const row = await c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>();
-  return c.json({ page: row });
+  const result = await checkVersionUpdate(c, stmt, audit(c, "shop", sid, "SHOP_PAGE_UPDATED", `${b.published ? "Published" : "Unpublished"}; ${b.sections.length} sections.`, true));
+  // Return our own write snapshot, not a later read that might include another editor's draft.
+  return c.json({ page: result[0].results[0] });
 });
 // Website editor draft: autosaved as the owner works, never shown to customers. Publishing goes
 // through PUT /shop/page (which clears the draft).
 sandbox.put("/shop/page/draft", async (c) => {
-  const b = await input(c, shopPageSchema);
+  const { expected_draft_at, ...b } = await input(c, pageWriteSchema);
   const sid = c.get("shopId");
   const now = Date.now();
   const exists = await c.env.DB.prepare("SELECT 1 AS x FROM shop_pages WHERE shop_id=?").bind(sid).first();
   if (!exists) {
+    if (b.version !== 0 || expected_draft_at !== null) return fail(409, "Website changed in another editor. Load the latest draft before saving again.");
     const d = defaultShopPage(sid, now);
     await c.env.DB.prepare("INSERT INTO shop_pages(shop_id,strapline,about,cover_url,logo_url,gallery_json,phone,email,instagram,map_url,transport_note,policy_text,sections_json,accent,theme_json,google_review_url,published,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?) ON CONFLICT(shop_id) DO NOTHING")
       .bind(sid, d.strapline, d.about, d.cover_url, d.logo_url, d.gallery_json, d.phone, d.email, d.instagram, d.map_url, d.transport_note, d.policy_text, d.sections_json, d.accent, d.theme_json, d.google_review_url, d.published, now).run();
   }
-  const saved = await c.env.DB.prepare("UPDATE shop_pages SET draft_json=?, draft_updated_at=? WHERE shop_id=? AND version=?").bind(JSON.stringify(b), now, sid, b.version).run();
-  if (!saved.meta.changes) fail(409, "Page changed elsewhere. Reload before saving this draft.");
-  return c.json({ ok: true, draft_updated_at: now });
+  // Strictly advance even when two saves arrive in the same millisecond or the clock moves back.
+  const saved = await c.env.DB.prepare("UPDATE shop_pages SET draft_json=?, draft_updated_at=GREATEST(?, COALESCE(draft_updated_at,0)+1) WHERE shop_id=? AND version=? AND draft_updated_at IS NOT DISTINCT FROM ? RETURNING draft_updated_at")
+    .bind(JSON.stringify(b), now, sid, b.version, expected_draft_at).first<{ draft_updated_at: number }>();
+  if (!saved) return fail(409, "Website changed in another editor. Your local edits are kept; load the latest draft before saving again.");
+  return c.json({ ok: true, draft_updated_at: saved.draft_updated_at });
 });
 sandbox.delete("/shop/page/draft", async (c) => {
-  const b = await input(c, z.object({ version: z.number().int().min(0) }).strict());
+  const b = await input(c, z.object({ version: z.number().int().min(0), expected_draft_at: expectedDraftAt }).strict());
   const sid = c.get("shopId");
   const page = await c.env.DB.transaction(async db => {
     // Bumping the live version fences any delayed draft writes from before Discard.
-    const row = await db.prepare("UPDATE shop_pages SET draft_json=NULL, draft_updated_at=NULL, version=version+1 WHERE shop_id=? AND version=? RETURNING *").bind(sid, b.version).first<ShopPage>();
+    const row = await db.prepare("UPDATE shop_pages SET draft_json=NULL, draft_updated_at=NULL, version=version+1 WHERE shop_id=? AND version=? AND draft_updated_at IS NOT DISTINCT FROM ? RETURNING *").bind(sid, b.version, b.expected_draft_at).first<ShopPage>();
     if (row) return row;
     const exists = await db.prepare("SELECT version FROM shop_pages WHERE shop_id=?").bind(sid).first();
-    if (exists || b.version !== 0) return fail(409, "Page changed elsewhere. Reload before discarding your draft.");
+    if (exists || b.version !== 0 || b.expected_draft_at !== null) return fail(409, "Page changed elsewhere. Reload before discarding your draft.");
     // Create a version fence even if Discard beat the first autosave.
     const fresh = await db.prepare("INSERT INTO shop_pages(shop_id,version,updated_at) VALUES(?,1,?) ON CONFLICT(shop_id) DO NOTHING RETURNING *").bind(sid, Date.now()).first<ShopPage>();
     if (!fresh) return fail(409, "Page changed elsewhere. Reload before discarding your draft.");
