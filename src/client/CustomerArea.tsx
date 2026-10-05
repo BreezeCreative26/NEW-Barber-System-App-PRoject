@@ -182,6 +182,9 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
   const [password2, setPassword2] = useState("");
   const [name, setName] = useState(seedProfile?.name || "");
   const [phone, setPhone] = useState("");
+  const [registrationPhone, setRegistrationPhone] = useState("");
+  const [registrationCode, setRegistrationCode] = useState("");
+  const [registrationHint, setRegistrationHint] = useState("");
   const [code, setCode] = useState("");
   const [shownCode, setShownCode] = useState("");
   const [sandboxToken, setSandboxToken] = useState("");
@@ -231,7 +234,12 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
     e.preventDefault();
     if (password !== password2) { setError("The two passwords don't match."); return; }
     if (terms && !termsTick) { setError(`Please accept ${shopName || "the shop"}’s booking terms.`); return; }
-    run(async () => { await api(`${A}/register`, "POST", { name, phone, email, password, marketing_opt_in: marketing ? 1 : 0, contact_pref: smsOffered && textReminders ? "AUTO" : "EMAIL", accept_terms_version: terms?.version || 0 }); finish(); }, "Could not create your account.");
+    run(async () => {
+      if (registrationPhone !== phone) {
+        const r = await api<{ sandbox_code?: string }>(`${A}/register/start`, "POST", { phone });
+        setRegistrationPhone(phone); setRegistrationCode(""); setRegistrationHint(r.sandbox_code || ""); return;
+      }
+      await api(`${A}/register`, "POST", { name, phone, email, password, code: registrationCode, marketing_opt_in: marketing ? 1 : 0, contact_pref: smsOffered && textReminders ? "AUTO" : "EMAIL", accept_terms_version: terms?.version || 0 }); finish(); }, "Could not create your account.");
   };
   const forgot = (e: FormEvent) => { e.preventDefault(); run(async () => { const r = await api<{ sandbox_token?: string }>(`${A}/forgot`, "POST", { email }); setSandboxToken(r.sandbox_token || ""); go("sent"); }, "Could not send the link."); };
   const reset = (e: FormEvent) => {
@@ -353,7 +361,8 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
                 <small className="ca-hint">By creating an account you agree to the <a href="/legal/terms" target="_blank" rel="noopener">terms</a> and <a href="/legal/privacy" target="_blank" rel="noopener">privacy notice</a>. Booking messages always come by email{smsOffered ? "; texts are your choice" : ""}.</small>
               </div>
               <Err />
-              <Button type="submit" disabled={busy} data-testid="register-submit">{busy ? "Creating…" : "Create account"} <Icon name="arrowRight" size={16} /></Button>
+              {registrationPhone === phone && <label><span>Code sent to your mobile</span><input autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required value={registrationCode} onChange={e => setRegistrationCode(e.target.value)} data-testid="register-code" />{registrationHint && <small>Development code: {registrationHint}</small>}<button type="button" className="link" onClick={() => { setRegistrationPhone(""); setRegistrationCode(""); }} data-testid="register-resend">Request another code</button></label>}
+              <Button type="submit" disabled={busy} data-testid="register-submit">{busy ? "Please wait…" : registrationPhone === phone ? "Verify and create account" : "Send verification code"} <Icon name="arrowRight" size={16} /></Button>
               <p className="ca-switch">Already have one? <button type="button" className="link" onClick={() => go("login")}>Sign in</button></p>
             </form>
           )}

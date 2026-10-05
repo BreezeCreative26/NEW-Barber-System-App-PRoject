@@ -29,7 +29,12 @@ export async function section(page: Page, name: string) {
   let settingsTab = "";
   if (name.startsWith("Settings/")) { settingsTab = name.slice(9); name = "Settings"; }
   await sectionNav(page, name);
-  if (settingsTab) await page.getByTestId(`settings-tab-${settingsTab}`).click();
+  if (settingsTab) await selectSettingsTab(page, settingsTab);
+}
+export async function selectSettingsTab(page: Page, key: string) {
+  const compact = page.getByTestId("settings-section-select");
+  if (await compact.isVisible()) await compact.selectOption(key);
+  else await page.getByTestId(`settings-tab-${key}`).click();
 }
 async function sectionNav(page: Page, name: string) {
   const nav = page.getByRole("navigation", { name: "Workspace sections" });
@@ -89,4 +94,13 @@ export async function markDone(page: Page) {
     await panel.getByRole("button", { name: "Mark done without payment", exact: true }).click();
   }
   await expect(panel.getByText("Completed", { exact: true }).first()).toBeVisible();
+}
+
+// Calendar navigation uses a labelled dialog rather than an invisible native picker overlay.
+export async function chooseCalendarDate(page: Page, date: string) {
+  await page.getByRole("button", { name: /^Choose appointment date,/ }).click();
+  const picker = page.getByRole("dialog", { name: "Choose appointment date" });
+  await picker.getByLabel("Appointment date", { exact: true }).fill(date);
+  await picker.getByRole("button", { name: "Go", exact: true }).click();
+  await expect(picker).not.toBeVisible();
 }

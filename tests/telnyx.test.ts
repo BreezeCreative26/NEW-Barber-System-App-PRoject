@@ -57,8 +57,8 @@ describe("telnyxWebhookOk", () => {
     expect(telnyxWebhookOk(body, sig, String(Number(ts) - 3600), { TELNYX_PUBLIC_KEY: raw32 })).toBe(false);
     expect(telnyxWebhookOk(body, undefined, ts, { TELNYX_PUBLIC_KEY: raw32 })).toBe(false);
   });
-  it("is open when no public key is configured (dev preview)", () => {
-    expect(telnyxWebhookOk(body, undefined, undefined, {})).toBe(true);
+  it("rejects when no public key is configured", () => {
+    expect(telnyxWebhookOk(body, undefined, undefined, {})).toBe(false);
   });
 });
 

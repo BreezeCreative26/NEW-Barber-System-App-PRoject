@@ -70,7 +70,7 @@ const ALPHA_REFUSED = new Set(["40301", "40302", "40303", "40305"]);
 // telnyx-timestamp. Tolerance 5 minutes against replay.
 export function telnyxWebhookOk(raw: string, signature?: string, timestamp?: string, e: Env = env(), now = Date.now()): boolean {
   const pub = e.TELNYX_PUBLIC_KEY;
-  if (!pub) return true; // dev preview: nothing to verify against
+  if (!pub) return false; // missing verification is never authentication
   if (!signature || !timestamp || !/^\d+$/.test(timestamp)) return false;
   if (Math.abs(now / 1000 - Number(timestamp)) > 300) return false;
   try {

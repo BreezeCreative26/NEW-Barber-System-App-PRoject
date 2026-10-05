@@ -1,3 +1,5 @@
+import { after } from "next/server";
+import { maybeSweep } from "../../src/server/messaging";
 // Every request goes through the Hono app (API routes and the HTML shells alike). Next.js is the
 // host: it gives us Vercel deploys, previews, cron and the Node runtime; Hono keeps the routing
 // and the ported server logic unchanged.
@@ -31,6 +33,8 @@ function env(): AppBindings {
 }
 const REQUIRED = ["DATABASE_URL", "SESSION_SECRET", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
 async function diag(req: Request) {
+  const secret = process.env.DIAGNOSTICS_SECRET;
+  if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) return Response.json({ error: "not_found" }, { status: 404 });
   const e = env();
   const missing = REQUIRED.filter((k) => !process.env[k]);
   const dbUrl = process.env.DATABASE_URL || "";
@@ -81,11 +85,16 @@ const handle = async (incoming: Request) => {
     const routed = await routeByHost(incoming, isShopSlug);
     if (routed instanceof Response) return routed;
     const req = routed;
-    return await app.fetch(req, env());
+    const bindings = env();
+    const response = await app.fetch(req, bindings);
+    if (bindings.DB && path.startsWith("/api/") && !path.startsWith("/api/cron/")) {
+      after(async () => { await maybeSweep(bindings.DB, process.env.APP_ORIGIN || new URL(req.url).origin).catch(() => null); });
+    }
+    return response;
   } catch (err) {
     // Last resort: a readable 500 instead of an empty one.
     void report({ message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined, route: path, method: incoming.method, status: 500, source: "server", tags: { boot_error: bootError ?? "" } });
-    return Response.json({ error: "server_error", message: err instanceof Error ? err.message : String(err), boot_error: bootError }, { status: 500 });
+    return Response.json({ error: "server_error", message: "The service could not complete this request." }, { status: 500 });
   }
 };
 export const GET = handle;

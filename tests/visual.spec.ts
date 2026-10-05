@@ -24,7 +24,7 @@ for (const shot of shots)
       maxDiffPixelRatio: 0.02,
       mask: [
         page.locator(".workspace-heading p").last(),
-        page.getByLabel("Appointment date", { exact: true }),
+        page.getByRole("button", { name: /^Choose appointment date,/ }),
         page.locator(".calendar-now, .now-marker, [data-testid='now-line']"),
         page.locator("time"),
       ],

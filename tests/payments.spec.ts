@@ -1,3 +1,4 @@
+import { chooseCalendarDate } from "./fixture";
 // Payments ledger (Model A): checkout records how a visit was paid; the wallet reads that ledger.
 // No money moves; nothing here talks to a card reader. Each test uses its own fixture shop.
 import { test, expect, type Page } from "@playwright/test";
@@ -54,7 +55,7 @@ test("checkout records service + tip by method, completes the visit, updates the
   expect(r.status()).toBe(200);
   const chipBefore = await page.getByTestId("wallet-chip").locator("b").innerText();
 
-  await page.getByLabel("Appointment date", { exact: true }).fill(booking.date);
+  await chooseCalendarDate(page, booking.date);
   await refreshView(page);
   await page.getByRole("button", { name: /Till Test Client/ }).first().click();
   const panel = page.getByTestId("appointment-panel");

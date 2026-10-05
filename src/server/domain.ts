@@ -1435,9 +1435,10 @@ export function slotReason(
   excludeId?: string,
   daysOff: StaffDayOff[] = [],
   blocks: Pick<StaffBlock, "staff_id" | "date" | "start_min" | "end_min">[] = [],
+  bufferOverride?: number,
 ): string {
   if (!staff?.active) return "Barber unavailable";
-  const buf = shopBuffer(shop);
+  const buf = bufferOverride ?? shopBuffer(shop);
   if (
     daysOff.some(
       (d) =>

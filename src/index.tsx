@@ -1,3 +1,4 @@
+import { escapeHtml, withDatabase } from "./server/security";
 import { Hono, type Context } from "hono";
 
 import sandbox from "./server/sandbox";
@@ -32,37 +33,19 @@ import type { Database } from "./db/client";
 import type { ObjectStore } from "./db/storage";
 export type AppBindings = { DB: Database; MEDIA?: ObjectStore; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string; FOLIYO_ADMIN_EMAILS?: string; OLLO_ADMIN_EMAILS?: string };
 const app = new Hono<{ Bindings: AppBindings; Variables: { shopId: string; actor: string; account: null } }>();
-// Lazy sweep: any public/app API request may trigger the reminder + outbox sweep, at most once per
-// 5 minutes across the deployment (platform_kv claim). Runs after the response so it never slows
-// the request. Vercel Cron hits /api/cron/messages every 5 minutes as the guaranteed path.
-app.use("/api/*", async (c, next) => {
-  await next();
-  if (!c.env?.DB || c.req.path.startsWith("/api/cron")) return;
-  const origin = new URL(c.req.url).origin;
-  // Fire and forget. On Node (Vercel) the promise runs to completion after the response; on
-  // Workers, executionCtx.waitUntil keeps the isolate alive — Hono throws when there is none.
-  const job = maybeSweep(c.env.DB, origin).catch(() => null);
-  try {
-    c.executionCtx.waitUntil(job);
-  } catch {
-    /* no execution context: Node runtime, promise continues on its own */
-  }
-});
+// Durable scheduling is the cron route; the Next adapter may schedule a best-effort sweep with after().
 app.get("/api/cron/messages", async (c) => {
   const secret = process.env.CRON_SECRET;
-  if (secret && c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
+  if (!secret || c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
   const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
-  const holds = await expireHolds(c.env.DB);
-  const reminders = await sweepReminders(c.env.DB, origin);
-  const drained = await drain(c.env.DB, 100);
-  const waitlist = await sweepWaitlistPlatform(c.env.DB, origin).catch(() => 0);
-  return c.json({ ok: true, reminders, drained, holds_released: holds.length, waitlist, providers: providerStatus() });
+  const result = await maybeSweep(c.env.DB, origin);
+  return c.json({ ok: true, result });
 });
 // Daily billing sweep: on the 1st (or the first run after it) close last month's period for every
 // paying shop — invoices issued, handed to Stripe, emailed — then apply dunning (overdue → past due).
 app.get("/api/cron/billing", async (c) => {
   const secret = process.env.CRON_SECRET;
-  if (secret && c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
+  if (!secret || c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
   const pb = await platformBilling(c.env.DB);
   const period = prevPeriodKey();
   const closed = pb.last_period_close >= period ? { period, skipped: "already closed" } : await runPeriodClose(c.env.DB, period, "cron");
@@ -76,6 +59,9 @@ app.post("/api/stripe/webhook", async (c) => {
   const v = await verifyWebhook(raw, c.req.header("stripe-signature"));
   if (!v.ok) return c.json({ error: v.reason }, v.reason === "no_secret" ? 503 : 400);
   const evt = JSON.parse(raw) as { id: string; type: string; data: { object: { id: string; payment_status?: string; payment_intent?: string | null; amount_total?: number; metadata?: Record<string, string>; client_reference_id?: string | null } } };
+  const context = c;
+  return c.env.DB.transaction(async tx => {
+  const c = withDatabase(context, tx);
   const seen = await c.env.DB.prepare("INSERT INTO stripe_events(id,type,received_at) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING").bind(evt.id, evt.type, Date.now()).run();
   if (!seen.meta.changes) return c.json({ ok: true, duplicate: true });
   const o = evt.data.object;
@@ -88,7 +74,7 @@ app.post("/api/stripe/webhook", async (c) => {
   }
   if (evt.type === "checkout.session.completed" && o.metadata?.purpose === "billing_card" && shopId) {
     const si = (o as { setup_intent?: string | null }).setup_intent;
-    if (typeof si === "string") await cardSaved(c.env.DB, shopId, si).catch(() => null);
+    if (typeof si === "string") await cardSaved(c.env.DB, shopId, si);
     return c.json({ ok: true, billing: "card" });
   }
   if (requestId && (evt.type === "checkout.session.completed" || evt.type === "checkout.session.async_payment_succeeded" || evt.type === "payment_intent.succeeded")) {
@@ -113,6 +99,7 @@ app.post("/api/stripe/webhook", async (c) => {
     await handleConnectEvent(c.env.DB, evt as ConnectEvent);
   }
   return c.json({ ok: true });
+  });
 });
 // Which client build is live. Installed apps compare this with the build that rendered them and
 // reload when it moves, so a phone is never a deploy behind the dashboard.
@@ -249,7 +236,7 @@ function workspaceShell(c: Context<{ Bindings: AppBindings }>) {
   c.header("Referrer-Policy", "same-origin");
   c.header(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
   return c.html(
     `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>foliyo</title>${meta}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/><link rel="apple-touch-icon" href="/foliyo-apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>${STYLES}</head><body><div id="root"><p class="boot-message">Opening workspace…</p></div><noscript>JavaScript is required.</noscript>${entryTags("app")}</body></html>`,
@@ -303,7 +290,7 @@ async function bootBrand(db: Database, slug: string): Promise<BootBrand | undefi
   return brand;
 }
 const onShopHost = (c: { req: { header: (k: string) => string | undefined } }, slug: string) => (c.req.header(SHOP_HOST_HEADER) || "") === slug;
-const publicPage = (title: string, description: string, slug?: string, onHost = false, brand?: BootBrand) => shell(`<meta name="robots" content="noindex,nofollow"/><meta name="description" content="${description}"/><title>${brand ? `${title} · ${brand.name}` : title}</title>${slug ? shopAppHead(slug, onHost, !!brand?.dark) : ""}`, brand);
+const publicPage = (title: string, description: string, slug?: string, onHost = false, brand?: BootBrand) => shell(`<meta name="robots" content="noindex,nofollow"/><meta name="description" content="${description}"/><title>${escapeHtml(brand ? `${title} · ${brand.name}` : title)}</title>${slug ? shopAppHead(slug, onHost, !!brand?.dark) : ""}`, brand);
 // Installable shop app: per-shop manifest (name/icon/colours from the shop page) and the shared
 // service worker registered at the shop's scope. Overrides the platform manifest in shell().
 const shopAppHead = (slug: string, onHost = false, dark = false) => `${onHost ? `<meta name="foliyo-shop" content="${slug}"/>` : ""}<link rel="manifest" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/manifest.webmanifest" data-shop/><link rel="apple-touch-icon" sizes="192x192" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/icon-192.png"/><link rel="apple-touch-icon" sizes="512x512" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/icon-512.png"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-title" content="${slug}"/><meta name="apple-mobile-web-app-status-bar-style" content="${dark ? "black-translucent" : "default"}"/>`;
@@ -325,7 +312,7 @@ app.get("/", (c) => {
   c.header("Referrer-Policy", "strict-origin-when-cross-origin");
   c.header(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
+    "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self' data: https:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
   return c.html(landingPage(publicOrigin(c), VERTICALS.universal));
 });
@@ -338,7 +325,7 @@ app.get("/barbers", (c) => {
   c.header("Referrer-Policy", "strict-origin-when-cross-origin");
   c.header(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
+    "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self' data: https:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
   return c.html(landingPage(publicOrigin(c), VERTICALS.barbers));
 });
@@ -348,7 +335,7 @@ const secure = (c: { header: (k: string, v: string) => void }) => {
   c.header("Referrer-Policy", "same-origin");
   c.header(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
 };
 // Customer-side plan, readable from the admin (Settings → Customer pages → Read the plan).
@@ -397,12 +384,10 @@ app.get("/:slug/:icon{icon-(192|512)\\.png}", async (c, next) => {
     const row = await c.env.DB.prepare("SELECT object_key FROM shop_media WHERE id=?").bind(m[1]).first<{ object_key: string }>();
     const obj = row ? await c.env.MEDIA.get(row.object_key) : null;
     if (obj) logo = obj.body instanceof Uint8Array ? obj.body : new Uint8Array(await new Response(obj.body as ReadableStream).arrayBuffer());
-  } else if (/^https?:\/\//.test(shop.logo_url) || shop.logo_url.startsWith("/static/")) {
-    try {
-      const r = await fetch(shop.logo_url.startsWith("/") ? publicOrigin(c) + shop.logo_url : shop.logo_url, { signal: AbortSignal.timeout(4000) });
-      if (r.ok) logo = new Uint8Array(await r.arrayBuffer());
-    } catch { /* monogram fallback */ }
   }
+  // Remote logo URLs remain browser-rendered only. App icons use uploaded media or a monogram,
+  // so caller-selected URLs never cause server-side fetches (including redirects/private hosts).
+
   const dark = (() => { try { return (JSON.parse(shop.theme_json) as { mode?: string }).mode === "dark"; } catch { return false; } })();
   const ACCENT: Record<string, string> = { ollo: "#1f6f5f", ink: "#111318", sage: "#5b7a68", clay: "#a0522d", plum: "#5a3e6b", slate: "#4a5568" };
   const tone = (shop as { logo_tone?: string }).logo_tone || "";

@@ -1,3 +1,4 @@
+import { feeStatement } from "./fees";
 // foliyo → shop invoicing that works with or without Stripe.
 //
 // Period invoices: one per shop per calendar month, built from the same `estimate()` the Billing
@@ -53,6 +54,12 @@ export type IssueResult = { invoice: InvoiceRow; skipped?: string };
 // Close a shop's period: build the invoice from the estimate + pending adjustments. Idempotent per
 // (shop, period). Trials and cancelled shops with nothing to bill are skipped.
 export async function issuePeriodInvoice(db: DB, shopId: string, periodKey: string, actor: string, opts: { force?: boolean } = {}): Promise<IssueResult | { skipped: string }> {
+  return db.transaction(async tx => {
+    await tx.prepare("SELECT pg_advisory_xact_lock(hashtextextended(?,0))").bind(`invoice:${shopId}`).first();
+    return issuePeriodInvoiceLocked(tx, shopId, periodKey, actor, opts);
+  });
+}
+async function issuePeriodInvoiceLocked(db: DB, shopId: string, periodKey: string, actor: string, opts: { force?: boolean }): Promise<IssueResult | { skipped: string }> {
   const existing = await db.prepare("SELECT * FROM invoices WHERE shop_id=? AND period_key=? AND kind='PERIOD' AND status<>'VOID'").bind(shopId, periodKey).first<InvoiceRow>();
   if (existing) return { invoice: existing, skipped: "already issued" };
   const sub = await subscriptionFor(db, shopId);
@@ -64,6 +71,10 @@ export async function issuePeriodInvoice(db: DB, shopId: string, periodKey: stri
   if (!paying && !opts.force) return { skipped: sub.status === "TRIAL" ? "on trial" : `subscription ${sub.status.toLowerCase()}` };
   const est = await estimate(db, shopId, periodKey);
   const lines: InvoiceLine[] = est.lines.map((l) => ({ label: l.label, detail: l.detail, amount_pence: l.amount_pence }));
+  // Informational line only: these fees already reduced the shop collection entitlement.
+  // Never put them into the amount due again or send provider costs to the shop.
+  const feeSummary = await feeStatement(db, shopId, new Date(start).toISOString().slice(0, 10), new Date(end).toISOString().slice(0, 10));
+  if (feeSummary.totals.count) lines.push({ label: "Foliyo payment fees (already deducted)", detail: `${feeSummary.currency} ${(feeSummary.totals.fee_pence / 100).toFixed(2)} deducted across ${feeSummary.totals.count} payments. Statement information only; not charged again.`, amount_pence: 0 });
   const adj = await pendingAdjustments(db, shopId);
   for (const a of adj.filter((x) => x.kind === "CHARGE")) lines.push({ label: a.reason, detail: "one-off charge", amount_pence: a.amount_pence });
   const subtotal = lines.reduce((n, l) => n + l.amount_pence, 0);
@@ -89,7 +100,7 @@ export async function issuePeriodInvoice(db: DB, shopId: string, periodKey: stri
   let remaining = creditApplied;
   for (const a of adj) {
     if (a.kind === "CHARGE") { await db.prepare("UPDATE invoice_adjustments SET invoice_id=?, applied_at=? WHERE id=?").bind(id, now, a.id).run(); continue; }
-    if (remaining <= 0) break;
+    if (remaining <= 0) continue;
     if (a.amount_pence <= remaining) { await db.prepare("UPDATE invoice_adjustments SET invoice_id=?, applied_at=? WHERE id=?").bind(id, now, a.id).run(); remaining -= a.amount_pence; }
     else {
       await db.prepare("UPDATE invoice_adjustments SET amount_pence=?, invoice_id=?, applied_at=? WHERE id=?").bind(remaining, id, now, a.id).run();
@@ -115,7 +126,7 @@ export async function runPeriodClose(db: DB, periodKey: string, actor: string) {
       else out.skipped.push({ shop: s.name, why: ("skipped" in r && r.skipped) || "already issued" });
     } catch (e) { out.errors.push({ shop: s.name, error: (e as Error).message }); }
   }
-  await db.prepare("UPDATE platform_billing SET last_period_close=?, updated_at=? WHERE id=1").bind(periodKey, Date.now()).run();
+  if (!out.errors.length) await db.prepare("UPDATE platform_billing SET last_period_close=?, updated_at=? WHERE id=1").bind(periodKey, Date.now()).run();
   // Hand each new invoice to Stripe for collection (saved card charged on the due date), then email it.
   for (const i of out.issued) {
     let row = await db.prepare("SELECT * FROM invoices WHERE number=?").bind(i.number).first<InvoiceRow>();
@@ -146,12 +157,13 @@ export async function issueManualInvoice(db: DB, shopId: string, lines: InvoiceL
 
 // Credit note against an invoice: reduces what is owed (OPEN) or creates a refundable credit (PAID).
 export async function issueCreditNote(db: DB, invoiceId: string, amountPence: number, reason: string, actor: string, refund?: { via: string; ref: string }) {
-  const inv = await db.prepare("SELECT * FROM invoices WHERE id=?").bind(invoiceId).first<InvoiceRow>();
+  return db.transaction(async db => {
+  const inv = await db.prepare("SELECT * FROM invoices WHERE id=? FOR UPDATE").bind(invoiceId).first<InvoiceRow & { original_total_pence: number }>();
   if (!inv) throw new Error("Invoice not found");
   if (inv.kind === "CREDIT_NOTE") throw new Error("Cannot credit a credit note");
   if (inv.status === "VOID") throw new Error("Invoice is void");
-  const already = (await db.prepare("SELECT COALESCE(SUM(total_pence),0)::int AS n FROM invoices WHERE credit_note_for=? AND status<>'VOID'").bind(invoiceId).first<{ n: number }>())?.n ?? 0;
-  if (amountPence <= 0 || amountPence > inv.total_pence - already) throw new Error(`Credit must be between £0.01 and ${money(inv.total_pence - already)}`);
+  const already = (await db.prepare("SELECT COALESCE(-SUM(total_pence),0)::int AS n FROM invoices WHERE credit_note_for=? AND status<>'VOID'").bind(invoiceId).first<{ n: number }>())?.n ?? 0;
+  if (amountPence <= 0 || amountPence > inv.original_total_pence - already) throw new Error(`Credit must be between £0.01 and ${money(inv.original_total_pence - already)}`);
   const pb = await platformBilling(db);
   const now = Date.now();
   const id = uid();
@@ -177,6 +189,7 @@ export async function issueCreditNote(db: DB, invoiceId: string, amountPence: nu
   }
   await logBilling(db, inv.shop_id, "CREDIT_NOTE", `Credit note ${number} · ${money(amountPence)} against ${inv.number} — ${reason} · ${outcome}`, actor, { invoice_id: id, against: invoiceId });
   return (await db.prepare("SELECT * FROM invoices WHERE id=?").bind(id).first<InvoiceRow>())!;
+  });
 }
 
 export async function markPaid(db: DB, invoiceId: string, amountPence: number | null, via: string, ref: string, actor: string) {

@@ -18,7 +18,7 @@ export const waSender = () => (env().INFOBIP_WA_SENDER || "").replace(/\D/g, "")
 // Webhook guard: when INFOBIP_WEBHOOK_KEY is set, Infobip must send it as `?key=` or X-Ollo-Webhook.
 export function waWebhookOk(queryKey?: string, headerKey?: string) {
   const want = env().INFOBIP_WEBHOOK_KEY;
-  if (!want) return true;
+  if (!want) return false;
   return queryKey === want || headerKey === want;
 }
 // Infobip's shared test sender: only reaches phones that texted the keyword first; stock templates only.

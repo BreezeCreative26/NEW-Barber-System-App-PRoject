@@ -184,6 +184,8 @@ export async function executeRun(db: DB, shop: Shop, run: PayRun, staff: Staff, 
       return { ...out, error: `Stripe refused the ${leg.to === "STAFF" ? "barber" : "shop"} transfer: ${err instanceof Error ? err.message : "error"}` };
     }
   }
+  // A partial run remains APPROVED. Persisted successful legs are skipped on retry.
+  if (out.skipped.length) return { ...out, error: "Waiting for recipient onboarding; unfinished transfers remain pending" };
   // Settle the payments into this run so they can't be paid twice, and advance the run.
   await db.batch([
     db.prepare("UPDATE payments SET pay_run_id=? WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND pay_run_id IS NULL").bind(run.id, shop.id, staff.id, run.period_from, run.period_to),
@@ -256,6 +258,11 @@ export async function scheduledPayRuns(db: DB, now = Date.now()) {
   const shops = (await db.prepare("SELECT * FROM shops WHERE payrun_auto<>'OFF'").all<Shop>()).results;
   let n = 0;
   for (const shop of shops) {
+    const pending = (await db.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND status='APPROVED' ORDER BY created_at LIMIT 25").bind(shop.id).all<PayRun>()).results;
+    for (const run of pending) {
+      const staff = await db.prepare("SELECT * FROM staff WHERE shop_id=? AND id=?").bind(shop.id, run.staff_id).first<Staff>();
+      if (staff) await executeRun(db, shop, run, staff, "system");
+    }
     const today = new Date(now).toLocaleDateString("en-CA", { timeZone: shop.timezone });
     const yesterday = new Date(Date.parse(today) - 86400000).toISOString().slice(0, 10);
     let from = yesterday, to = yesterday;

@@ -109,11 +109,17 @@ export async function recordUsage(db: DB, shopId: string, featureKey: string, qu
 export type UsageLine = { feature_key: string; name: string; unit: string; quantity: number; included: number; billable: number; unit_pence: number; amount_pence: number };
 export async function usageFor(db: DB, shopId: string, period = periodKey()): Promise<UsageLine[]> {
   const fs = await features(db);
-  const rows = (await db.prepare("SELECT feature_key, COALESCE(SUM(quantity),0)::int AS q FROM usage_events WHERE shop_id=? AND period_key=? GROUP BY feature_key").bind(shopId, period).all<{ feature_key: string; q: number }>()).results;
+  const rows = (await db.prepare("SELECT feature_key,quantity,unit_pence FROM usage_events WHERE shop_id=? AND period_key=? ORDER BY occurred_at,id").bind(shopId, period).all<{ feature_key: string; quantity: number; unit_pence: number }>()).results;
   return fs.filter((f) => f.unit).map((f) => {
-    const q = rows.find((r) => r.feature_key === f.key)?.q ?? 0;
-    const billable = Math.max(0, q - f.included_units);
-    return { feature_key: f.key, name: f.name, unit: f.unit, quantity: q, included: f.included_units, billable, unit_pence: f.unit_pence, amount_pence: billable * f.unit_pence };
+    let remaining = f.included_units, quantity = 0, billable = 0, amount = 0;
+    for (const row of rows.filter(r => r.feature_key === f.key)) {
+      quantity += row.quantity;
+      const free = Math.min(remaining, row.quantity);
+      remaining -= free;
+      billable += row.quantity - free;
+      amount += (row.quantity - free) * row.unit_pence;
+    }
+    return { feature_key: f.key, name: f.name, unit: f.unit, quantity, included: f.included_units, billable, unit_pence: f.unit_pence, amount_pence: amount };
   });
 }
 

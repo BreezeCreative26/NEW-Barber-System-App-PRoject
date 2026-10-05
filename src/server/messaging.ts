@@ -1,3 +1,4 @@
+import { sensitiveMessage, sealDelivery, openDelivery, AUTH_TEMPLATES } from "./security";
 import { recordUsage } from "./billing";
 // Messaging: the outbox becomes a real delivery queue.
 //
@@ -426,8 +427,8 @@ export function emailHtml(shop: { name: string; address?: string; slug?: string 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 1px 2px rgba(20,21,26,.06)">
 <tr><td style="padding:22px 28px;background:${band.bg};border-bottom:1px solid ${bandDark ? "#262833" : "#eceef3"}">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-    <td style="vertical-align:middle">${platform ? mark : `<img src="${origin}${bandDark ? PLATFORM_WORDMARK_WHITE : PLATFORM_WORDMARK_INK}" alt="foliyo" height="22" style="height:22px;width:auto;display:block" />`}</td>
-    <td align="right" style="vertical-align:middle">${platform ? `<span style="font:600 14px ${F};color:${band.ink}">${esc(shop.name)}</span>` : `<table role="presentation" cellpadding="0" cellspacing="0" align="right"><tr><td style="vertical-align:middle">${mark}</td></tr></table>`}</td>
+    <td style="vertical-align:middle">${mark}</td>
+    <td align="right" style="vertical-align:middle"><span style="font:600 14px ${F};color:${band.ink}">${esc(shop.name)}</span></td>
   </tr></table>
 </td></tr>
 <tr><td style="height:4px;background:${a.bg};font-size:0;line-height:0">&nbsp;</td></tr>
@@ -479,6 +480,7 @@ export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageT
   const html = emailHtml(shop, brand, opts.origin, r, { phone: shop.phone, email: shop.email });
   const out = [];
   const chosen = channelsFor(shop, to, opts.channel || "AUTO", both, opts.force, template);
+  const protect = (value: string) => sensitiveMessage(template) ? sealDelivery(value) : value;
   for (let channel of chosen) {
     // WA rows keep the SMS text as the readable body; the template payload rides in `html` as JSON.
     let wa = channel === "WA" ? waPayload(template, { first: to.name, ...vars }, shop.name, r.sms) : null;
@@ -492,7 +494,7 @@ export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageT
     out.push(
       db.prepare(
         "INSERT INTO notifications(id,shop_id,channel,recipient,template,body,subject,html,status,status_note,related_type,related_id,created_at,next_attempt_at) VALUES(?,?,?,?,?,?,?,?,'QUEUED','',?,?,?,?) ON CONFLICT DO NOTHING",
-      ).bind(uid(), shop.id, channel, channel === "EMAIL" ? to.email! : to.phone!, template, r.sms, channel === "EMAIL" ? r.subject : "", channel === "EMAIL" ? html : channel === "WA" ? JSON.stringify(wa) : "", opts.related.type, opts.related.id, now, now),
+      ).bind(uid(), shop.id, channel, channel === "EMAIL" ? to.email! : to.phone!, template, protect(r.sms), channel === "EMAIL" ? r.subject : "", protect(channel === "EMAIL" ? html : channel === "WA" ? JSON.stringify(wa) : ""), opts.related.type, opts.related.id, now, now),
     );
   }
   return out;
@@ -654,12 +656,13 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
     .bind(now, now - 10 * 60000, related?.type ?? null, related?.type ?? null, related?.id ?? null, limit)
     .all<Row>();
   let sent = 0, failed = 0, retried = 0;
-  for (const row of due.results) {
-    const claim = await db.prepare("UPDATE notifications SET status='SENDING', next_attempt_at=?, attempts=attempts+1 WHERE id=? AND status IN ('QUEUED','SENDING')").bind(now, row.id).run();
+  for (let row of due.results) {
+    const claim = await db.prepare("UPDATE notifications SET status='SENDING', next_attempt_at=?, attempts=attempts+1 WHERE id=? AND ((status='QUEUED' AND (next_attempt_at IS NULL OR next_attempt_at<=?)) OR (status='SENDING' AND next_attempt_at<=?))").bind(now, row.id, now, now - 10 * 60000).run();
     if (!claim.meta.changes) continue; // someone else took it
     const attempt = row.attempts + 1;
     let d: Delivery;
     try {
+      if (sensitiveMessage(row.template)) row = { ...row, body: openDelivery(row.body), html: openDelivery(row.html) };
       d = row.channel === "EMAIL" ? await sendEmail(row) : row.channel === "WA" ? await sendWa(db, row) : row.channel === "PUSH" ? await sendPush(db, row) : await sendSms(row, db);
     } catch (e) {
       d = { ok: false, provider: row.channel === "EMAIL" ? "resend" : row.channel === "WA" ? "infobip" : row.channel === "PUSH" ? "webpush" : "sms", error: e instanceof Error ? e.message : "network error" };
@@ -719,10 +722,11 @@ export async function sweepReminders(db: DB, origin: string, now = Date.now()) {
         .bind(shop.id, w.from, w.to, w.template)
         .all<{ id: string; customer_name: string; attendee_name: string; phone: string; email: string; service_name: string; staff_name: string | null; date: string; start_min: number; token_hash: string | null; price_pence: number }>();
       for (const b of rows.results) {
+        const pref = await db.prepare("SELECT COALESCE(NULLIF(NULLIF(b.contact_pref,'AUTO'),''), c.contact_pref, 'AUTO') AS pref FROM bookings b LEFT JOIN customers c ON c.id=b.customer_id AND c.shop_id=b.shop_id WHERE b.id=? AND b.shop_id=?").bind(b.id, shop.id).first<{ pref: Recipient["pref"] }>();
         // The manage link needs the raw token, which we don't store. Reminders link to /<slug>/me
         // (one-time code sign-in) — always valid, and the customer sees every visit there.
         const link = shopUrl(shop.slug!, "/me", origin);
-        const stmts = enqueue(db, shop, { name: b.attendee_name || b.customer_name, phone: b.phone, email: b.email }, w.template, {
+        const stmts = enqueue(db, shop, { name: b.attendee_name || b.customer_name, phone: b.phone, email: b.email, pref: pref?.pref }, w.template, {
           service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], date: fmtDate(b.date), time: fmtTime(b.start_min), ref: b.id.slice(0, 6).toUpperCase(),
           address: shop.address, link, map_link: shop.map_url || (shop.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.address)}` : link),
         }, { related: { type: "booking", id: b.id }, origin, now }, false);
@@ -753,7 +757,8 @@ export async function maybeSweep(db: DB, origin: string, intervalMs = 5 * 60000,
   const waitlist = await sweepWaitlistPlatform(db, origin, now).catch(() => 0);
   // Retention: delivered/skipped/failed rows older than 180 days go; the outbox shows 30 days and the
   // audit trail keeps the fact a message was sent. Anything still QUEUED is never touched.
-  await db.prepare("DELETE FROM notifications WHERE status IN ('SENT','SKIPPED','FAILED') AND created_at < ?").bind(now - 180 * 86400000).run().catch(() => null);
+  await db.prepare("DELETE FROM notifications WHERE status IN ('SENT','SKIPPED','FAILED') AND created_at < ?").bind(now - 180 * 86400000).run();
+  await db.prepare(`DELETE FROM notifications WHERE status IN ('SENT','SKIPPED','FAILED') AND created_at < ? AND template IN (${[...AUTH_TEMPLATES].map(() => '?').join(',')})`).bind(now - 86400000, ...AUTH_TEMPLATES).run();
   return { reminders, drained, holds_released: holds.length, pay_runs: runs, summaries, platform, waitlist };
 }
 

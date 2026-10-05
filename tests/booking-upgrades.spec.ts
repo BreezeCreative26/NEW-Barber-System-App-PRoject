@@ -1,3 +1,4 @@
+import { chooseCalendarDate } from "./fixture";
 // Booking flow upgrades: any-barber shortcut from the service step, book for someone else
 // (attendee on the visit, contact stays the booker's), and group bookings (2-4 people, together or
 // back to back; each visit its own row under every guard, shared group_id, partial failure honest).
@@ -254,7 +255,7 @@ test("owner sees attendee and group badge in the appointment panel and calendar"
     })
   ).json();
   expect(g.bookings).toHaveLength(2);
-  await page.getByLabel("Appointment date").fill(date);
+  await chooseCalendarDate(page, date);
   const card = page.getByRole("button", { name: /Kid Panel/ }).first();
   await expect(card).toBeVisible();
   await card.click();

@@ -1,3 +1,4 @@
+import { chooseCalendarDate } from "./fixture";
 import { test, expect, type Page } from "@playwright/test";
 import { registerCustomer } from "./shop";
 import { openFixtureShop, base, origin } from "./fixture";
@@ -84,7 +85,7 @@ test("browser: overlapping appointments share the column; pointer drag snaps to 
   expect(a.status).toBe(201);
   expect(b.status).toBe(201);
 
-  await page.getByLabel("Appointment date", { exact: true }).fill(date);
+  await chooseCalendarDate(page, date);
   const one = page.getByRole("button", { name: /Lane One/ });
   const two = page.getByRole("button", { name: /Lane Two/ });
   await expect(one).toBeVisible();

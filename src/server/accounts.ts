@@ -1,3 +1,4 @@
+import { testAuthEnabled, clientIp } from "./security";
 import { Hono, type Context } from "hono";
 import { drain, enqueue, msgShop, platformSender, providerStatus } from "./messaging";
 import { platformBilling } from "./billing";
@@ -35,55 +36,21 @@ export const ACCOUNT_COOKIE = "ollo_session";
 // Same-origin guard for every write. Development proxies (preview wrappers, HTTPS
 // tunnels) rewrite Host, so the forwarded host/proto and an explicit sandbox-only
 // allow-list also count as "this site". Cross-site origins are always refused.
-export function sameOrigin(c: Ctx): boolean {
-  const url = new URL(c.req.url);
-  const origin = c.req.header("origin") ?? "";
-  const hostOf = (v: string | undefined | null) => {
-    if (!v) return "";
-    try {
-      return new URL(v.includes("://") ? v : `https://${v}`).host.toLowerCase();
-    } catch {
-      return "";
-    }
-  };
-  const originHost = hostOf(origin);
-  // 1. Exact match.
-  if (origin && origin === url.origin) return true;
-  // 2. Browser-asserted same-origin/same-site fetch (cannot be forged cross-site).
-  const site = c.req.header("sec-fetch-site");
-  if (site === "same-origin" || site === "same-site") return true;
-  // 3. Proxies rewrite the scheme and/or Host; compare hosts only against the
-  //    request host and any forwarded host.
-  const candidates = [
-    url.host,
-    hostOf(c.req.header("host")),
-    ...(c.req.header("x-forwarded-host") || "").split(",").map((h) => hostOf(h.trim())),
-  ].filter(Boolean);
-  if (originHost && candidates.includes(originHost)) return true;
-  // 4. No Origin (older browsers on same-origin POST) but a same-host Referer.
-  if (!origin) {
-    const ref = hostOf(c.req.header("referer"));
-    if (ref && candidates.includes(ref)) return true;
+export function sameOrigin(c: { req: { url: string; header(k: string): string | undefined }; env: { ALLOWED_ORIGINS?: string } }): boolean {
+  const actual = new URL(c.req.url).origin;
+  const origin = c.req.header("origin");
+  const allowed = new Set([actual]);
+  // Only the deployment's trusted proxy may supply the external host.
+  if (process.env.VERCEL) {
+    const host = c.req.header("x-forwarded-host");
+    if (host && /^[a-z0-9.-]+(?::[0-9]+)?$/i.test(host)) allowed.add(`https://${host}`);
   }
-  // 5. Explicit sandbox allow-list.
-  const allowed = (c.env.ALLOWED_ORIGINS || "")
-    .split(",")
-    .map((o) => o.trim().replace(/\/$/, ""))
-    .filter(Boolean);
-  if (allowed.some((a) => a === "*" || a === origin || hostOf(a) === originHost)) return true;
-  // Diagnostics only: no bodies or cookies are logged.
-  console.warn(
-    "origin_forbidden",
-    JSON.stringify({
-      url_origin: url.origin,
-      origin,
-      host: c.req.header("host") ?? null,
-      x_forwarded_host: c.req.header("x-forwarded-host") ?? null,
-      sec_fetch_site: site ?? null,
-      referer_host: hostOf(c.req.header("referer")) || null,
-    }),
-  );
-  return false;
+  for (const value of (c.env.ALLOWED_ORIGINS || "").split(",")) {
+    try { if (value.trim()) allowed.add(new URL(value.trim()).origin); } catch { /* no wildcards */ }
+  }
+  if (origin) return allowed.has(origin);
+  const ref = c.req.header("referer");
+  try { return !!ref && allowed.has(new URL(ref).origin); } catch { return false; }
 }
 const LEGACY_COOKIES = ["barbershop_account", "barbershop_test_session"];
 const uid = () => crypto.randomUUID();
@@ -143,9 +110,8 @@ export async function readInput<T>(c: Ctx, schema: z.ZodType<T>): Promise<T> {
     );
   return parsed.data;
 }
-// Web Crypto's portable Workers PBKDF2 limit is 100,000. Local test adapter only;
-// production managed identity, MFA/recovery and security acceptance remain separate.
-export async function passwordHash(password: string, salt: string) {
+// Versioned hashes support gradual upgrades without invalidating existing accounts.
+async function derivePasswordHash(password: string, salt: string, iterations: number) {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(password),
@@ -157,7 +123,7 @@ export async function passwordHash(password: string, salt: string) {
     {
       name: "PBKDF2",
       salt: new TextEncoder().encode(salt),
-      iterations: 100000,
+      iterations,
       hash: "SHA-256",
     },
     key,
@@ -167,19 +133,18 @@ export async function passwordHash(password: string, salt: string) {
     .map((n) => n.toString(16).padStart(2, "0"))
     .join("");
 }
-async function matches(
-  password: string,
-  user: { password_hash: string; password_salt: string } | null,
-) {
-  const actual = await passwordHash(
-    password,
-    user?.password_salt || "local-unknown-account-constant-salt",
-  );
-  const expected = user?.password_hash || "0".repeat(64);
+export async function passwordHash(password: string, salt: string) {
+  return `pbkdf2-sha256$600000$${await derivePasswordHash(password, salt, 600000)}`;
+}
+export async function matches(password: string, user: { password_hash: string; password_salt: string } | null) {
+  const stored = user?.password_hash || "";
+  const modern = /^pbkdf2-sha256\$600000\$([a-f0-9]{64})$/.exec(stored);
+  const legacy = /^[a-f0-9]{64}$/.test(stored);
+  const expected = modern?.[1] || (legacy ? stored : "0".repeat(64));
+  const actual = await derivePasswordHash(password, user?.password_salt || "unknown-account-constant-salt", legacy ? 100000 : 600000);
   let delta = 0;
-  for (let i = 0; i < 64; i++)
-    delta |= actual.charCodeAt(i) ^ expected.charCodeAt(i);
-  return !!user && delta === 0;
+  for (let i = 0; i < 64; i++) delta |= actual.charCodeAt(i) ^ expected.charCodeAt(i);
+  return !!user && !!(modern || legacy) && delta === 0;
 }
 // Per-identity cap always; the global cap guards password guessing on login only (a busy
 // launch day must not lock out new shops).
@@ -189,11 +154,11 @@ export async function throttle(c: Ctx, action: string, identity: string) {
   if (action === "login") {
     limits.push([`${action}:global`, 180]);
     // Per-IP cap too, so one host cannot spray many emails at 12 attempts each.
-    const ip = (c.req.header("x-forwarded-for") || "").split(",")[0].trim() || c.req.header("x-real-ip") || "";
+    const ip = clientIp(c.req);
     if (ip) limits.push([`${action}:ip:${ip}`, Number(process.env.LOGIN_IP_LIMIT) || 60]);
   }
   if (action === "signup") {
-    const ip = (c.req.header("x-forwarded-for") || "").split(",")[0].trim() || c.req.header("x-real-ip") || "";
+    const ip = clientIp(c.req);
     // SIGNUP_IP_LIMIT raises the cap for test runners that create hundreds of shops from one host.
     const cap = Number(process.env.SIGNUP_IP_LIMIT) || 60;
     if (ip) limits.push([`${action}:ip:${ip}`, cap]);
@@ -299,7 +264,7 @@ export function cookies(c: Ctx, raw: string) {
   for (const name of LEGACY_COOKIES) deleteCookie(c, name, { path: "/", secure: true });
 }
 const accounts = new Hono<AppEnv>();
-export const demoEnabled = (c: Ctx) => (c.env.DEMO_ENABLED ?? process.env.DEMO_ENABLED ?? "") === "1";
+export const demoEnabled = (_c: Ctx) => testAuthEnabled();
 const timezone = z
   .string()
   .trim()
@@ -480,6 +445,12 @@ accounts.post("/login", async (c) => {
   }
   if (!valid || !m || !u)
     return reject(401, "Unable to sign in with these details");
+  if (!u.password_hash.startsWith("pbkdf2-sha256$")) {
+    const upgraded = await passwordHash(b.password, u.password_salt);
+    const r = await c.env.DB.prepare("UPDATE app_users SET password_hash=? WHERE id=? AND password_hash=?").bind(upgraded, u.id, u.password_hash).run();
+    if (!r.meta.changes) return reject(409, "Account changed. Sign in again.");
+    u.password_hash = upgraded;
+  }
   const session = await newSession(c, m.id, u.password_hash, m.version);
   const old = getCookie(c, ACCOUNT_COOKIE);
   await c.env.DB.batch([
@@ -872,15 +843,17 @@ accounts.post("/reset", async (c) => {
   const b = await readInput(c, z.object({ token: z.string().min(60).max(100), password }).strict());
   await throttle(c, "reset", b.token.slice(0, 16));
   const now = Date.now();
-  const row = await c.env.DB.prepare("SELECT r.user_id,r.expires_at,r.used_at,m.id AS membership_id,m.shop_id FROM password_resets r JOIN app_memberships m ON m.user_id=r.user_id WHERE r.token_hash=? AND m.active=1").bind(await digest(b.token)).first<{ user_id: string; expires_at: number; used_at: number | null; membership_id: string; shop_id: string }>();
+  const row = await c.env.DB.prepare("SELECT r.user_id,r.expires_at,r.used_at,m.id AS membership_id,m.shop_id,m.version FROM password_resets r JOIN app_memberships m ON m.user_id=r.user_id WHERE r.token_hash=? AND m.active=1").bind(await digest(b.token)).first<{ user_id: string; expires_at: number; used_at: number | null; membership_id: string; shop_id: string; version: number }>();
   if (!row || row.used_at || row.expires_at <= now) return reject(409, "This reset link is no longer valid. Request a new one.");
   const salt = uid() + uid();
   const encoded = await passwordHash(b.password, salt);
-  const session = await newSession(c, row.membership_id);
+  const session = await newSession(c, row.membership_id, null, row.version);
   await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE password_resets SET used_at=? WHERE token_hash=? AND used_at IS NULL AND expires_at>?").bind(now, await digest(b.token), now),
+    c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
+    c.env.DB.prepare("DELETE FROM account_assertions"),
     c.env.DB.prepare("UPDATE app_users SET password_hash=?, password_salt=? WHERE id=?").bind(encoded, salt, row.user_id),
-    c.env.DB.prepare("UPDATE password_resets SET used_at=? WHERE token_hash=?").bind(now, await digest(b.token)),
-    c.env.DB.prepare("DELETE FROM app_sessions WHERE membership_id=?").bind(row.membership_id),
+    c.env.DB.prepare("DELETE FROM app_sessions WHERE membership_id IN (SELECT id FROM app_memberships WHERE user_id=?)").bind(row.user_id),
     session.write,
     event(c, row.shop_id, `user:${row.user_id}`, row.user_id, "PASSWORD_RESET"),
   ]);

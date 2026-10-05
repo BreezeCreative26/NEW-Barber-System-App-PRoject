@@ -1,3 +1,4 @@
+import { chooseCalendarDate, openFilters } from "./fixture";
 import { test, expect, type Page } from "@playwright/test";
 import { openFixtureShop, base, origin } from "./fixture";
 
@@ -84,7 +85,7 @@ test("browser: ⋯ menu blocks time with a reason; the grey card appears; schedu
   const w = (await (await page.request.get(base + "/workspace")).json()) as W;
   const jay = w.staff.find((s) => s.name === "Jay Carter")!;
   const { date } = await freeDay(page, w, jay.id, w.services[0].id);
-  await page.getByLabel("Appointment date", { exact: true }).fill(date);
+  await chooseCalendarDate(page, date);
   await page.getByTestId("staff-menu").first().click();
   await page.getByRole("menuitem", { name: /Block time/ }).click();
   const dialog = page.getByTestId("block-dialog");
@@ -102,7 +103,8 @@ test("browser: ⋯ menu blocks time with a reason; the grey card appears; schedu
   // Scheduled team: pick a Monday (Dani doesn't work Mondays in the fixture) and add her.
   const d = new Date(w.today + "T12:00:00Z");
   do d.setUTCDate(d.getUTCDate() + 1); while (d.getUTCDay() !== 1);
-  await page.getByLabel("Appointment date", { exact: true }).fill(d.toISOString().slice(0, 10));
+  await chooseCalendarDate(page, d.toISOString().slice(0, 10));
+  await openFilters(page);
   const picker = page.getByTestId("team-picker");
   await expect(picker).toContainText("2/3");
   await picker.click();

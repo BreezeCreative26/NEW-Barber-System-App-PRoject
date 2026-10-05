@@ -46,9 +46,9 @@ export function AdminCatalogue({ me }: { me: { role: string } }) {
                 <legend><code>{p.id}</code></legend>
                 <div className="workspace-form-grid four">
                   <label className="workspace-field"><span>Name</span><input name="name" defaultValue={p.name} required /></label>
-                  <label className="workspace-field"><span>Monthly (£)</span><input name="monthly" type="number" step="0.01" min="0" defaultValue={(p.monthly_pence / 100).toFixed(2)} /></label>
+                  <label className="workspace-field"><span>Monthly (GBP)</span><input name="monthly" type="number" step="0.01" min="0" defaultValue={(p.monthly_pence / 100).toFixed(2)} /></label>
                   <label className="workspace-field"><span>Seats included</span><input name="included" type="number" min="0" defaultValue={p.included_seats} /></label>
-                  <label className="workspace-field"><span>Extra seat (£)</span><input name="seat" type="number" step="0.01" min="0" defaultValue={(p.seat_pence / 100).toFixed(2)} /></label>
+                  <label className="workspace-field"><span>Extra seat (GBP)</span><input name="seat" type="number" step="0.01" min="0" defaultValue={(p.seat_pence / 100).toFixed(2)} /></label>
                 </div>
                 <label className="workspace-check"><input type="checkbox" name="active" defaultChecked={!!p.active} /> Available to new shops</label>
                 {superUser && <><Reason /><div className="workspace-save-actions"><Button type="submit">Save plan</Button></div></>}
@@ -101,7 +101,7 @@ export function AdminCatalogue({ me }: { me: { role: string } }) {
                         <label className="workspace-field"><span>Name · <code>{x.key}</code></span><input name="name" defaultValue={x.name} required /></label>
                         <label className="workspace-field"><span>Description</span><input name="description" defaultValue={x.description} /></label>
                         <span className="workspace-field"><span>Kind</span><StatusPill tone="note">{x.kind}</StatusPill></span>
-                        <label className="workspace-field"><span>Monthly (£)</span><input name="monthly" type="number" step="0.01" min="0" defaultValue={(x.monthly_pence / 100).toFixed(2)} /></label>
+                        <label className="workspace-field"><span>Monthly (GBP)</span><input name="monthly" type="number" step="0.01" min="0" defaultValue={(x.monthly_pence / 100).toFixed(2)} /></label>
                         <label className="workspace-field"><span>Per {x.unit || "unit"} (p)</span><input name="unit_pence" type="number" min="0" defaultValue={x.unit_pence} disabled={!x.unit} /></label>
                         <label className="workspace-field"><span>Included {x.unit ? x.unit + "s" : ""}</span><input name="included" type="number" min="0" defaultValue={x.included_units} disabled={!x.unit} /></label>
                         <label className="workspace-check"><input type="checkbox" name="in_plan" defaultChecked={!!x.in_plan} /> In plan</label>

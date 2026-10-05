@@ -15,6 +15,7 @@ export const deleteObject = (s: ObjectStore, key: string) => s.delete(key);
 const BUCKET = process.env.SUPABASE_MEDIA_BUCKET || "media";
 
 class SupabaseStore implements ObjectStore {
+  private ready: Promise<void> | null = null;
   constructor(private url: string, private serviceKey: string) {}
   private endpoint(key: string) {
     return `${this.url}/storage/v1/object/${BUCKET}/${key.split("/").map(encodeURIComponent).join("/")}`;
@@ -25,10 +26,13 @@ class SupabaseStore implements ObjectStore {
   async ensureBucket() {
     const r = await fetch(`${this.url}/storage/v1/bucket/${BUCKET}`, { headers: this.headers() });
     if (r.status === 404 || r.status === 400) {
-      await fetch(`${this.url}/storage/v1/bucket`, { method: "POST", headers: this.headers({ "Content-Type": "application/json" }), body: JSON.stringify({ id: BUCKET, name: BUCKET, public: false, file_size_limit: 5 * 1024 * 1024, allowed_mime_types: ["image/jpeg", "image/png", "image/webp"] }) });
-    }
+      const created = await fetch(`${this.url}/storage/v1/bucket`, { method: "POST", headers: this.headers({ "Content-Type": "application/json" }), body: JSON.stringify({ id: BUCKET, name: BUCKET, public: false, file_size_limit: 5 * 1024 * 1024, allowed_mime_types: ["image/jpeg", "image/png", "image/webp"] }) });
+      if (!created.ok && created.status !== 409) throw new Error(`storage_bucket_failed ${created.status}`);
+    } else if (!r.ok) throw new Error(`storage_bucket_failed ${r.status}`);
   }
   async put(key: string, bytes: Uint8Array, contentType: string) {
+    if (!this.ready) this.ready = this.ensureBucket().catch(e => { this.ready = null; throw e; });
+    await this.ready;
     const r = await fetch(this.endpoint(key), { method: "POST", headers: this.headers({ "Content-Type": contentType, "x-upsert": "true" }), body: bytes as unknown as BodyInit });
     if (!r.ok) throw new Error(`storage_put_failed ${r.status} ${await r.text()}`);
   }
@@ -38,14 +42,17 @@ class SupabaseStore implements ObjectStore {
     return { body: r.body, contentType: r.headers.get("content-type") || "application/octet-stream" };
   }
   async delete(key: string) {
-    await fetch(`${this.url}/storage/v1/object/${BUCKET}`, { method: "DELETE", headers: this.headers({ "Content-Type": "application/json" }), body: JSON.stringify({ prefixes: [key] }) });
+    const r = await fetch(`${this.url}/storage/v1/object/${BUCKET}`, { method: "DELETE", headers: this.headers({ "Content-Type": "application/json" }), body: JSON.stringify({ prefixes: [key] }) });
+    if (!r.ok && r.status !== 404) throw new Error(`storage_delete_failed ${r.status}`);
   }
 }
 
 class FileStore implements ObjectStore {
   constructor(private root: string) {}
   private file(key: string) {
-    return path.join(this.root, key.replace(/[^A-Za-z0-9._\/-]/g, "_"));
+    const file = path.resolve(this.root, key);
+    if (!file.startsWith(path.resolve(this.root) + path.sep)) throw new Error("Invalid storage path");
+    return file;
   }
   async put(key: string, bytes: Uint8Array, contentType: string) {
     const f = this.file(key);
@@ -75,8 +82,10 @@ export function getStore(): ObjectStore {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (url && key) {
     const s = new SupabaseStore(url, key);
-    void s.ensureBucket().catch(() => {});
     store = s;
-  } else store = new FileStore(process.env.MEDIA_DIR || path.join(process.cwd(), ".media"));
+  } else {
+    if (process.env.VERCEL) throw new Error("Durable media storage must be configured on hosted deployments");
+    store = new FileStore(process.env.MEDIA_DIR || path.join(process.cwd(), ".media"));
+  }
   return store;
 }

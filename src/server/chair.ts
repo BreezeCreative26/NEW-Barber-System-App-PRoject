@@ -1,3 +1,4 @@
+import { quoteFee, quotedFeeAmount } from "./fees";
 // Card at the chair. Two ways, both charging the platform so the pay run treats them as card money:
 //   LINK     — a Checkout session for the visit's amount; shown as a QR on the shop device and/or
 //              texted to the customer. Works on any phone today, no hardware.
@@ -49,8 +50,9 @@ export async function createLinkRequest(db: DB, shop: Shop, booking: StoredBooki
   const total = amounts.service_pence + amounts.tip_pence;
   if (total <= 0) throw new StripeError("Nothing to charge", 400, "zero");
   const id = crypto.randomUUID();
+  await quoteFee(db, shop.id, "CHAIR", id);
   const now = Date.now();
-  const expires = now + REQUEST_TTL_MIN * 60000;
+  const expires = now + (REQUEST_TTL_MIN + 1) * 60000;
   const ref = booking.id.slice(0, 6).toUpperCase();
   const body: Record<string, string | number> = {
     mode: "payment",
@@ -63,7 +65,7 @@ export async function createLinkRequest(db: DB, shop: Shop, booking: StoredBooki
     success_url: `${origin}/pay/${id}?done=1`,
     cancel_url: `${origin}/pay/${id}?done=0`,
     client_reference_id: booking.id,
-    expires_at: Math.floor(expires / 1000) + 30 * 60, // Stripe minimum 30 min after creation
+    expires_at: Math.floor(expires / 1000) + 60, // keep provider expiry close to the local window
     "metadata[shop_id]": shop.id,
     "metadata[booking_id]": booking.id,
     "metadata[payment_request_id]": id,
@@ -131,6 +133,7 @@ export async function createTerminalRequest(db: DB, shop: Shop, booking: StoredB
   const total = amounts.service_pence + amounts.tip_pence;
   if (total <= 0) throw new StripeError("Nothing to charge", 400, "zero");
   const id = crypto.randomUUID();
+  await quoteFee(db, shop.id, "CHAIR", id);
   const now = Date.now();
   const pi = await stripe<{ id: string; client_secret: string }>("/payment_intents", {
     amount: total,
@@ -174,15 +177,16 @@ export async function pollRequest(db: DB, req: PaymentRequest, actor: string) {
 }
 // Write the ledger row for a paid request. Idempotent: claims the request row first.
 export async function settleRequest(db: DB, req: PaymentRequest, paymentIntent: string, actor: string) {
+  return db.transaction(async db => {
   const now = Date.now();
-  const claim = await db.prepare("UPDATE payment_requests SET status='PAID', paid_at=?, stripe_payment_intent=? WHERE id=? AND status='OPEN'").bind(now, paymentIntent, req.id).run();
+  const claim = await db.prepare("UPDATE payment_requests SET status='PAID', paid_at=?, stripe_payment_intent=? WHERE id=? AND status IN ('OPEN','EXPIRED')").bind(now, paymentIntent, req.id).run();
   if (!claim.meta.changes) return (await db.prepare("SELECT * FROM payment_requests WHERE id=?").bind(req.id).first<PaymentRequest>())!;
   const shop = await db.prepare("SELECT * FROM shops WHERE id=?").bind(req.shop_id).first<Shop>();
   const b = await db.prepare("SELECT * FROM bookings WHERE shop_id=? AND id=?").bind(req.shop_id, req.booking_id).first<StoredBooking>();
   const staff = await db.prepare("SELECT commission_pct FROM staff WHERE shop_id=? AND id=?").bind(req.shop_id, req.staff_id).first<{ commission_pct: number }>();
-  if (!shop || !b) return req;
+  if (!shop || !b) throw new Error("Payment references a missing booking or shop");
   const fee = await chargeFee(paymentIntent).catch(() => ({ charge: "", fee_pence: 0 }));
-  const policy = await platformPolicy(db);
+  const foliyoFee = await quotedFeeAmount(db, shop.id, "CHAIR", req.id, req.service_pence + req.tip_pence);
   const pid = crypto.randomUUID();
   const today = new Date(now).toLocaleDateString("en-CA", { timeZone: shop.timezone });
   const stmts = [];
@@ -191,7 +195,7 @@ export async function settleRequest(db: DB, req: PaymentRequest, paymentIntent: 
   stmts.push(
     db.prepare(
       "INSERT INTO payments(id,shop_id,booking_id,staff_id,customer_id,date,method,service_pence,tip_pence,discount_pence,commission_pct,note,recorded_by,created_at,stripe_payment_intent,stripe_charge,stripe_fee_pence,platform_fee_pence) VALUES(?,?,?,?,?,?,'CARD',?,?,?,?,?,?,?,?,?,?,?)",
-    ).bind(pid, shop.id, b.id, req.staff_id, b.customer_id, today, req.service_pence, req.tip_pence, req.discount_pence, staff?.commission_pct ?? 50, req.note || (req.kind === "LINK" ? "Paid by card via link" : "Paid by card at the chair"), actor, now, paymentIntent, fee.charge, fee.fee_pence, platformFee(req.service_pence + req.tip_pence, policy)),
+    ).bind(pid, shop.id, b.id, req.staff_id, b.customer_id, today, req.service_pence, req.tip_pence, req.discount_pence, staff?.commission_pct ?? 50, req.note || (req.kind === "LINK" ? "Paid by card via link" : "Paid by card at the chair"), actor, now, paymentIntent, fee.charge, fee.fee_pence, foliyoFee),
   );
   stmts.push(db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), shop.id, "payment", pid, "PAYMENT_RECORDED", actor, `CARD ${req.service_pence}p service + ${req.tip_pence}p tip via ${req.kind === "LINK" ? "pay link" : "reader"} (${paymentIntent})`, now));
   if (req.complete) {
@@ -201,6 +205,7 @@ export async function settleRequest(db: DB, req: PaymentRequest, paymentIntent: 
   stmts.push(db.prepare("UPDATE payment_requests SET payment_id=? WHERE id=?").bind(pid, req.id));
   await db.batch(stmts);
   return (await db.prepare("SELECT * FROM payment_requests WHERE id=?").bind(req.id).first<PaymentRequest>())!;
+  });
 }
 // Webhook path: a Checkout session / PaymentIntent with payment_request_id metadata succeeded.
 export async function settleByMetadata(db: DB, requestId: string, paymentIntent: string) {

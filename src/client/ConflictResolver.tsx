@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button, Icon, Notice } from "./ui";
 import { money, time } from "./fixtures";
 
@@ -48,6 +48,7 @@ export function ConflictResolver({
     return d;
   });
   const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
   const [error, setError] = useState("");
   const set = (id: string, patch: Partial<Decision>) => setDecisions((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
   const bulk = (action: Decision["action"]) =>
@@ -77,8 +78,11 @@ export function ConflictResolver({
       className="workspace-form conflict-resolver"
       data-testid="conflict-resolver"
       data-dirty="true"
+      aria-busy={busy}
       onSubmit={async (e) => {
         e.preventDefault();
+        if (lock.current) return;
+        lock.current = true;
         setBusy(true);
         setError("");
         try {
@@ -86,6 +90,7 @@ export function ConflictResolver({
         } catch (err) {
           setError(err instanceof Error ? err.message : "Could not save.");
         } finally {
+          lock.current = false;
           setBusy(false);
         }
       }}

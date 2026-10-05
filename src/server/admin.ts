@@ -1,3 +1,6 @@
+import { sameOrigin } from "./accounts";
+import { redactProviderCosts } from "./security";
+import { creditFee, feesOverview, feeStatement, setFeeRule } from "./fees";
 // foliyo master admin: oversee every shop, support them, and run billing.
 //
 // Access: a signed-in app user whose id is in platform_admins. Roles: SUPER (everything, incl.
@@ -31,27 +34,30 @@ async function resolveAdmin(c: Ctx): Promise<Admin | null> {
   if (!token) return null;
   const db = c.env.DB;
   const user = await db.prepare(
-    "SELECT u.id, u.name, u.email FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id WHERE s.token_hash=? AND s.expires_at>?",
+    "SELECT u.id, u.name, u.email FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1 AND u.email_verified_at IS NOT NULL",
   ).bind(await digest(token), Date.now()).first<{ id: string; name: string; email: string }>();
   if (!user) return null;
-  const count = (await db.prepare("SELECT COUNT(*)::int AS n FROM platform_admins").first<{ n: number }>())?.n ?? 0;
-  if (count === 0) {
-    const seeds = (c.env.FOLIYO_ADMIN_EMAILS ?? process.env.FOLIYO_ADMIN_EMAILS ?? c.env.OLLO_ADMIN_EMAILS ?? process.env.OLLO_ADMIN_EMAILS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-    if (seeds.includes(user.email.toLowerCase())) {
-      await db.prepare("INSERT INTO platform_admins(user_id,role,created_by,created_at) VALUES(?,?,?,?) ON CONFLICT(user_id) DO NOTHING").bind(user.id, "SUPER", "seed", Date.now()).run();
-    }
-  }
+  // Admin identities are provisioned explicitly, never from a public email claim.
   const row = await db.prepare("SELECT role FROM platform_admins WHERE user_id=?").bind(user.id).first<{ role: Role }>();
   return row ? { user_id: user.id, role: row.role, name: user.name, email: user.email } : null;
 }
 
 const admin = new Hono<Env>();
 admin.use("*", async (c, next) => {
+  if (!["GET", "HEAD"].includes(c.req.method) && !sameOrigin(c)) fail(403, "Same-origin requests are required");
   const a = await resolveAdmin(c);
   if (!a) fail(404, "Not found");
   c.set("admin", a!);
   c.header("Cache-Control", "no-store");
   await next();
+  if (a!.role === "SUPPORT" && c.res.headers.get("content-type")?.includes("application/json")) {
+    c.res = new Response(JSON.stringify(redactProviderCosts(await c.res.json())), c.res);
+  }
+});
+admin.onError((err, c) => {
+  if (err instanceof HTTPException) return c.json({ message: err.message }, err.status);
+  console.error("Admin request failed", err);
+  return c.json({ message: "Unable to complete this request" }, 500);
 });
 const need = (c: Ctx, roles: Role[]) => { if (!roles.includes(c.get("admin").role)) { void audit(c, null, "DENIED", {}, { path: c.req.path }, ""); fail(403, "Your admin role cannot do that"); } };
 async function audit(c: Ctx, shopId: string | null, action: string, before: unknown, after: unknown, reason: string) {
@@ -66,6 +72,32 @@ async function body<T>(c: Ctx, schema: z.ZodType<T>): Promise<T> {
 }
 
 admin.get("/me", (c) => c.json({ admin: c.get("admin") }));
+
+// Foliyo fees are B2B shop charges, not card surcharges added to haircut customers.
+const feeChangeSchema = z.object({
+  version: z.number().int().min(0), fee_bps: z.number().int().min(0).max(2000),
+  fixed_pence: z.number().int().min(0).max(500), use_default: z.boolean().default(false),
+  reason: reasonSchema, notice_confirmed: z.literal(true), reset_overrides: z.boolean().default(false),
+  confirm_all: z.string().optional(),
+}).strict();
+admin.get("/fees", async c => c.json(await feesOverview(c.env.DB, (c.req.query("q") || "").slice(0, 100))));
+admin.put("/fees/:scope", async c => {
+  need(c, ["SUPER", "FINANCE"]);
+  const scope = c.req.param("scope");
+  if (scope !== "default" && !z.string().uuid().safeParse(scope).success) fail(400, "Invalid shop");
+  const change = await body(c, feeChangeSchema);
+  if (change.reset_overrides && (scope !== "default" || change.confirm_all !== "ALL SHOPS")) fail(400, "Type ALL SHOPS to replace shop-specific pricing");
+  return c.json({ rule: await setFeeRule(c.env.DB, c.get("admin").user_id, scope, change) });
+});
+admin.get("/fees/:shopId/statement", async c => {
+  const today = new Date().toISOString().slice(0, 10);
+  return c.json(await feeStatement(c.env.DB, c.req.param("shopId"), c.req.query("from") || today.slice(0, 7) + "-01", c.req.query("to") || today));
+});
+admin.post("/fees/:shopId/credits", async c => {
+  need(c, ["SUPER", "FINANCE"]);
+  const input = await body(c, z.object({ request_id: z.string().uuid(), payment_intent: z.string().min(1).max(200), amount_pence: z.number().int().min(1).max(1000000), reason: reasonSchema }).strict());
+  return c.json(await creditFee(c.env.DB, c.get("admin").user_id, c.req.param("shopId"), input), 201);
+});
 
 // ---- Overview ------------------------------------------------------------------------------------
 admin.get("/overview", async (c) => {

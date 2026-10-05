@@ -2,6 +2,7 @@
 // their days, one-tap status moves, and a bottom bar of Today / Week / Customers / My pay / Account.
 // Week opens the shared calendar in week view filtered to them. Owners keep the full calendar.
 import { test, expect } from "@playwright/test";
+import { openFilters } from "./fixture";
 
 const origin = "http://localhost:3000";
 const base = origin + "/api/app";
@@ -55,6 +56,7 @@ test("barber on a phone: Today agenda, own week strip, status moves, bottom tabs
   // Week tab → shared week calendar filtered to me.
   await tabbar.getByRole("button", { name: "Week" }).click();
   await expect(page.getByLabel("Appointment calendar")).toBeVisible();
+  await openFilters(page);
   await expect(page.getByLabel("Barber filter")).toHaveValue(me);
   await expect(page.locator('[aria-label="Calendar view"] button[aria-pressed="true"]')).toHaveAttribute("aria-label", "Week");
   // Back to Today.

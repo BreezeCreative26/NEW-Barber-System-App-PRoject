@@ -1,3 +1,4 @@
+import { chooseCalendarDate } from "./fixture";
 // Stripe Connect platform, preview mode (no keys): the account layer, the card/cash split on pay
 // runs, the settlement maths, role boundaries and the owner/barber UI all work — and every route
 // that would move money refuses honestly until Stripe is switched on. Live transfers are covered
@@ -224,7 +225,7 @@ test("browser: checkout is method-first; card shows as hand-recorded until Strip
   expect(created.status(), await created.text()).toBe(201);
   const booking = (await created.json()).booking;
   await page.request.post(base + `/bookings/${booking.id}/status`, { headers: { Origin: origin }, data: { status: "CHECKED_IN", reason: "", version: booking.version } });
-  await page.getByLabel("Appointment date", { exact: true }).fill(date);
+  await chooseCalendarDate(page, date);
   await refreshView(page);
   await page.getByRole("button", { name: /Card Chair Client/ }).first().click();
   const panel = page.getByTestId("appointment-panel");

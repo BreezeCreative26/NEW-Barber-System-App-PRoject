@@ -1,3 +1,4 @@
+import type { FeeStatement } from "../server/fees";
 // Payments: foliyo is the Stripe platform. Settings → Payments (owner) shows provider status, the
 // shop's Stripe account, every barber's account, deposit + payout policy and 30-day money moved.
 // BarberPayoutCard (Team → barber → Pay) lets a barber be set up and see their own wallet.
@@ -27,6 +28,7 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
   const [balance, setBalance] = useState<{ available_pence: number; pending_pence: number; live: boolean } | null>(null);
   const [state, setState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
   const [busy, setBusy] = useState("");
+  const [fees, setFees] = useState<FeeStatement | null>(null);
   const load = () =>
     api<PaymentsData>("/shop/payments")
       .then((d) => {
@@ -36,6 +38,7 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
       .catch((e) => setState({ kind: "error", text: e instanceof Error ? e.message : "Could not load." }));
   useEffect(() => {
     load();
+    if (canEdit) api<FeeStatement>("/shop/fees/statement").then(setFees).catch(() => null);
     if (canEdit) api<{ available_pence: number; pending_pence: number; live: boolean }>("/payments/balance").then(setBalance).catch(() => null);
   }, []);
   // Back from Stripe onboarding: refresh the account that was being set up.
@@ -136,11 +139,11 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
 
           {/* Float / balance */}
           {canEdit && (
-            <section className="panel-card payments-card" aria-label="Platform balance">
+            <section className="panel-card payments-card" aria-label="Shop Stripe balance">
               <h3>
-                <Icon name="wallet" size={15} /> foliyo balance
+                <Icon name="wallet" size={15} /> Shop Stripe balance
               </h3>
-              <p className="workspace-footnote">Card money sits here between the customer paying and the pay run sending it on. “Available” is what can move today.</p>
+              <p className="workspace-footnote">This is your shop’s connected Stripe account, not Foliyo’s platform funding balance. Bank payout timing is separate.</p>
               <dl className="payments-figures">
                 <div>
                   <dt>Available</dt>
@@ -189,6 +192,13 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
         </div>
       )}
 
+      {fees && canEdit && <section className="panel-card" data-testid="shop-fee-statement">
+        <h3>Foliyo fee statement</h3><p className="workspace-footnote">{fees.from} – {fees.to}. {fees.label}. This summary is not a tax invoice.</p>
+        <dl className="payments-figures"><div><dt>Foliyo fees</dt><dd>{fees.currency} {(fees.totals.fee_pence / 100).toFixed(2)}</dd></div><div><dt>Billing credits</dt><dd>{fees.currency} {(fees.totals.credited_pence / 100).toFixed(2)}</dd></div></dl>
+        <p className="workspace-footnote">{fees.credit_destination}</p>
+        {!fees.truncated && <a className="button ghost" href={`/api/app/shop/fees/statement.csv?from=${fees.from}&to=${fees.to}`} download>Download fee statement</a>}
+        {fees.truncated && <p>More than 500 payments: use a shorter statement date range when exporting.</p>}
+      </section>}
       {/* Barbers */}
       {data && data.barbers.length > 0 && (
         <section className="payments-barbers" aria-label="Barber payout accounts">

@@ -1,5 +1,42 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-10-05 — Customer search, wallet controls and waiting-list audit
+- Customer palette/directory/booking-picker searches clear stale results, cancel outdated responses and expose failures with retry. Booking duplicate-phone lookups no longer invalidate search requests. Header search stays available on phones; wallet and queue icons have consistent dimensions.
+- Wallet loading and period changes no longer display old totals or fabricated zero balances. Search, wallet and queue overlays contain keyboard focus and restore their launching controls. Queue load failures no longer look like an empty list; offer/remove writes are guarded and delivery wording distinguishes creation from sending.
+- Waiting-list ranges remain active through their final day; matching respects staff blocks and overlapping pending offers. Offer creation is serialized and version-checked. Staff status changes validate linked bookings and supersede offers atomically; resubmitting a public request invalidates the previous offer. Customer offer prices/durations respect barber overrides, and expiry controls update without reload.
+- Validation: typecheck, production build, UX lint, 135 unit/in-memory Postgres tests and 39 isolated browser checks passed. Coverage includes join/update, matches, duplicate offers, accept replay, decline/expiry, disabled automation, formatted-phone search, delayed-response failures, and responsive controls. No production database or live message/payment provider was used; no new migration required.
+- Remaining audit work: simultaneous public accept/decline/removal and concurrent sweep/broadcast paths need dedicated transaction hardening and multi-connection integration tests. Live SMS/email delivery and production booking acceptance remain release gates. Prior service-image/per-service-buffer work is still separate; PR #38 remains draft.
+
+## 2026-10-05 — Detailed shop-owner admin audit and fixes
+- Restored GitHub access and pushed the previously pending UI correction/notes. Continued with the shop-owner workspace (not a production/provider acceptance run).
+- Reproduced lost settings deep links, unguarded service selection changes, and editable fields during pending saves. Settings links now survive reloads, desktop sections support arrow/Home/End keys, and phone/tablet settings use a compact grouped selector.
+- Service/team editors, pricing matrices and category renames now lock pending writes and preserve inputs on failures. Record/section changes respect unsaved drafts; explicit discard resets drafts; browser unload warns while editing. Team roster cards respect dated schedule overrides.
+- Refined editor tabs, form spacing, catalogue swatches and selected states; removed test-era activity copy and added useful empty activity states. Customer branding and existing API contracts retained.
+- Validation: typecheck, production build, UX lint, 126 unit/database tests and 28 isolated browser tests passed. Ten new admin tests cover responsive settings/editor screens, deep links, keyboard navigation, dirty guards, save/retry behavior, duplicate-submit locks and pricing/category failure paths. Reviewed before/after screenshots at 390/768/1440; no live database, provider operation or production deployment. The existing bundle-size warning remains.
+- Still separate: database-backed end-to-end acceptance, remaining payment/security/legal gates in AUDIT.md, and settings/provider panels not exercised with real backend data. PR #38 stays draft.
+
+## 2026-10-04 — Foliyo interface cleanup
+- Simplified the calendar toolbar: team, walk-ins, filters and detailed statistics live in Options; date/view/size/booking stay primary. Removed conflicting responsive toolbar rules and wrapping staff headers.
+- Small-phone and landscape layouts reserve space for appointments; landscape date picker shows month grid and direct-date actions side by side. Shared controls retain consistent sizing, white/ink surfaces and mint primary actions; the marketing page no longer uses cream/matte-mint branding.
+- Validation: production build and typecheck passed; 126 unit/database tests and 18 isolated browser tests passed. Browser checks include 320×568, 375×667, 844×390, 1366×768, five standard widths, selected workspace screens, options interactions, booking forms, move/resize/undo request contracts and homepage contrast. Screenshots reviewed; no live database/provider acceptance performed.
+- The fee assertion now queries an explicit ledger period instead of mixing UTC fixture dates with the shop-local default. Payment implementation unchanged.
+- Main cleanup pushed to draft PR #38. GitHub credentials expired during finalization; the final accessible-name correction and handoff notes need synchronization after reconnecting. Do not treat the broader audit or wallet work as complete.
+
+## 2026-10-04 — Prefunded-wallet schema and Foliyo fee controls (partial)
+- Confirmed model: Foliyo backs each shop's internal wallet from available platform funds; barber allocations reduce unallocated shop funds. Actual transfers go directly from Foliyo to each final recipient.
+- Migration 0041 adds wallet receipts, movements, risk holds, reservation/allocation/operation tables and snapshot guards. Funding/reservation/transfer engine and wallet UI integration are STILL PENDING; this is schema groundwork, not instant wallets delivered.
+- Migration 0042 plus `/admin/fees`: versioned defaults, per-shop rates, waivers, explicit all-shop reset, mandatory reason/notice confirmation, SUPER/FINANCE mutation permissions and SUPPORT read-only access.
+- Quote-time fee snapshots; immutable recorded deductions; bounded/idempotent billing credits. Shop statements/CSV exclude provider costs; period invoices show deducted fees as a zero-value information line. VAT fee invoices, accelerated-fee pricing and automatic refund reconciliation remain separate work.
+- Removed cross-shop platform-balance exposure; `/payments/balance` now reads the shop's connected account only. Tenant JSON strips supplier-cost fields; internal correction reasons stay out of customer billing text.
+- Validation: production build/typecheck/lint passed; 126 unit/database tests and 4 mocked-browser registration/admin-fee checks. No live database migration, provider call or explicit deployment performed.
+- Git's stored credential expired again; using the existing GitHub CLI credential helper restored pushes. PR #38 remains draft.
+
+## 2026-10-04 — Audit remediation (partial, not release-ready)
+- Security guards, verified registration, encrypted/redacted auth messages, transactional webhook/payment claims, pending payout retry, credit-note limits, retention/erasure, password upgrade and dependency fixes implemented.
+- `docs/AUDIT.md` tracks all 35 findings, with partial/open work explicitly listed. Migration 0040 is required; builds no longer migrate databases.
+- Evidence: typecheck/lint/build pass; 118 unit/database tests; 2 isolated browser registration checks. No production operations performed.
+- Draft PR #38 is synchronized using the GitHub CLI credential helper; do not treat the audit or wallet build as complete.
+
 ## 2026-09-27 — Customer experience audit + fixes
 - `docs/CX_AUDIT.md`: walked shop page → booking → confirmation → passwordless sign-in → account (usual / upcoming / history / profile) → waiting list, on phone and laptop; screenshots in `docs/evidence/cx/`. Zero console errors. Shop scoping of accounts confirmed. Verdict: shop page, account area and manage link are commercial grade; booking flow had four rough edges, all fixed:
   1. "Live shop prices · no payment taken" test-era copy removed from the booking summary.

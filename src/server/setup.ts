@@ -1,3 +1,4 @@
+import { testAuthEnabled, oneTimeCode } from "./security";
 // Shop setup: the guided wizard behind /workspace/setup.
 //
 // State lives in shops.setup_json ({step, done[], skipped[], completed_at}) so it survives devices
@@ -203,12 +204,13 @@ setup.post("/verify/start", async (c) => {
   const target = b.kind === "PHONE" ? shop.phone || "" : shop.email || "";
   if (!target) fail(409, b.kind === "PHONE" ? "Add a mobile number first" : "Add an email address first");
   await throttle(c, "verify-start", `${shop.id}:${b.kind}`);
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const code = oneTimeCode();
   const now = Date.now();
   const ms = await msgShop(c, shop.id);
   const origin = new URL(c.req.url).origin;
   const ps = providerStatus();
   const live = b.kind === "PHONE" ? ps.sms.provider !== "mailbox" : ps.email.provider !== "mailbox";
+  if (!live && !testAuthEnabled()) fail(503, "Contact verification is temporarily unavailable");
   const stmts = enqueue(c.env.DB, ms, b.kind === "PHONE" ? { phone: target } : { email: target }, "verify_contact", { code, kind: b.kind }, { related: { type: "shop_verify", id: shop.id }, origin, channel: b.kind === "PHONE" ? "SMS" : "EMAIL", now, force: true });
   await c.env.DB.batch([
     c.env.DB.prepare(
