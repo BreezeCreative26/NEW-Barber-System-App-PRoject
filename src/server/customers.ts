@@ -247,6 +247,9 @@ acct.post("/logout", async (c) => {
   if (raw) {
     const hash = await digest(raw);
     await c.env.DB.batch([
+      // Use the same account lock as push registration/password rotation. A delayed
+      // subscription write must not reactivate notifications after this logout.
+      c.env.DB.prepare("SELECT a.id FROM customer_accounts a JOIN customer_sessions s ON s.account_id=a.id WHERE s.token_hash=? AND s.shop_id=? FOR UPDATE OF a").bind(hash, shop.id),
       // If the device endpoint cannot be read, revoke this account's shop subscriptions
       // rather than leaving private notifications active after sign-out.
       c.env.DB.prepare(`DELETE FROM customer_push_subscriptions WHERE shop_id=? AND account_id IN (SELECT account_id FROM customer_sessions WHERE token_hash=? AND shop_id=?)${b.endpoint ? " AND endpoint=?" : ""}`)
