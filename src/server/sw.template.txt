@@ -1,95 +1,96 @@
-/* foliyo shop app service worker.
- * Served by the app at /sw.js with this build's id and asset list stamped in (__BUILD__ /
- * __ASSETS__), so every deploy produces a byte-different worker: the browser installs it on the
- * next open, it takes over immediately and drops the previous build's cache. The page reloads
- * itself once when it notices the build changed (see src/client/shop.tsx).
- *
- * Rules:
- *   HTML            → network first, fall back to the last good copy when offline.
- *   /static, /media → cache first (hashed / versioned by build), fill from network.
- *   /api            → never cached: visits and availability are always live.
+/* Foliyo PWA: cache public static assets only. HTML, API responses and uploaded media
+ * always use the network. Offline pages contain no shop/customer/account information.
+ * Each installed app owns its cache; older unsafe Foliyo caches are retired on activation.
  */
 const BUILD = "__BUILD__";
 const ASSETS = __ASSETS__;
-const CACHE = `foliyo-${BUILD}`;
+const SCOPE = new URL(self.registration.scope);
+const PREFIX = `foliyo-pwa-${encodeURIComponent(SCOPE.pathname)}-`;
+const CACHE = `${PREFIX}${BUILD}`;
+const isStatic = (url) => url.origin === self.location.origin && url.pathname.startsWith("/static/");
+const cacheable = (response) => response.ok && !response.redirected &&
+  !/no-store|private/i.test(response.headers.get("cache-control") || "") &&
+  !/text\/html/i.test(response.headers.get("content-type") || "");
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE)
-      .then((c) => Promise.all(ASSETS.map((a) => c.add(a).catch(() => null))))
-      .then(() => self.skipWaiting()),
-  );
+  event.waitUntil(caches.open(CACHE).then(async (cache) => {
+    await Promise.all(ASSETS.filter((asset) => isStatic(new URL(asset, SCOPE))).map(async (asset) => {
+      try {
+        const response = await fetch(asset);
+        if (cacheable(response)) await cache.put(asset, response);
+      } catch { /* An unavailable asset must not block a security update. */ }
+    }));
+    await self.skipWaiting();
+  }));
 });
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches
-      .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim()),
-  );
+  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key =>
+    (key.startsWith(PREFIX) && key !== CACHE) ||
+    (key.startsWith("foliyo-") && !key.startsWith("foliyo-pwa-"))
+  ).map(key => caches.delete(key)))).then(() => self.clients.claim()));
 });
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith("/api/")) return;
+  if (url.origin !== self.location.origin || url.pathname === "/api" || url.pathname.startsWith("/api/")) return;
   if (req.mode === "navigate" || (req.headers.get("accept") || "").includes("text/html")) {
-    event.respondWith(
-      fetch(req)
-        .then((res) => {
-          if (res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone()));
-          return res;
-        })
-        .catch(() => caches.match(req).then((hit) => hit || caches.match(new Request(url.origin + "/")))),
-    );
+    event.respondWith(fetch(req, { cache: "no-store" }).catch(() => new Response(
+      '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connection needed</title><body><main><h1>You are offline</h1><p>Reconnect to sign in, view appointments or make changes. No booking changes have been saved.</p><p>Once connected, reload this page.</p></main></body></html>',
+      { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }
+    )));
     return;
   }
-  if (url.pathname.startsWith("/static/") || url.pathname.startsWith("/media/")) {
-    event.respondWith(
-      caches.match(req).then(
-        (hit) =>
-          hit ||
-          fetch(req).then((res) => {
-            if (res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone()));
-            return res;
-          }),
-      ),
-    );
+  if (isStatic(url)) {
+    event.respondWith(caches.open(CACHE).then(async cache => {
+      const hit = await cache.match(req);
+      if (hit) return hit;
+      const response = await fetch(req);
+      if (cacheable(response)) await cache.put(req, response.clone());
+      return response;
+    }));
   }
 });
 
+function notificationIcon(raw) {
+  try {
+    if (typeof raw !== "string" || !raw) return undefined;
+    const icon = new URL(raw, SCOPE);
+    return icon.origin === SCOPE.origin ? icon.href : undefined;
+  } catch { return undefined; }
+}
+function notificationTarget(raw) {
+  try {
+    const target = new URL(raw || SCOPE.href, SCOPE);
+    const root = SCOPE.pathname.replace(/\/$/, "");
+    if (target.origin !== SCOPE.origin || (target.pathname !== root && !target.pathname.startsWith(`${root}/`))) return SCOPE.href;
+    if (/^\/(api|admin|workspace|signin|signup)(\/|$)/.test(target.pathname)) return SCOPE.href;
+    return target.href;
+  } catch { return SCOPE.href; }
+}
 self.addEventListener("push", (event) => {
   let data = {};
-  try {
-    data = event.data ? event.data.json() : {};
-  } catch {
-    data = { title: "Update", body: event.data ? event.data.text() : "" };
+  try { data = event.data ? event.data.json() : {}; } catch { /* Never show an unparsed payload. */ }
+  if (!data || typeof data !== "object") data = {};
+  event.waitUntil(self.registration.showNotification(String(data.title || "Shop update"), {
+    body: String(data.body || ""),
+    icon: notificationIcon(data.icon),
+    tag: data.tag ? String(data.tag) : undefined,
+    data: { url: notificationTarget(data.url) },
+  }));
+});
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SIGNED_OUT") {
+    event.waitUntil(self.registration.getNotifications().then(items => items.forEach(item => item.close())));
   }
-  const title = data.title || "Your visit";
-  const options = {
-    body: data.body || "",
-    icon: data.icon || undefined,
-    badge: data.badge || undefined,
-    tag: data.tag || undefined,
-    renotify: !!data.tag,
-    data: { url: data.url || "/" },
-  };
-  event.waitUntil(self.registration.showNotification(title, options));
 });
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || "/";
-  event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-      for (const client of list) {
-        if ("focus" in client) {
-          client.navigate(url);
-          return client.focus();
-        }
-      }
-      return self.clients.openWindow(url);
-    }),
-  );
+  const target = notificationTarget(event.notification.data?.url);
+  event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async clients => {
+    // Do not navigate a different shop's tab, or an owner's workspace.
+    const client = clients.find(item => item.url === target);
+    if (client && "focus" in client) return client.focus();
+    return self.clients.openWindow(target);
+  }));
 });

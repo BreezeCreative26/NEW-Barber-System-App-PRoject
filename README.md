@@ -74,8 +74,11 @@ tiers (STANDARD / FAST float), auto pay runs and the test-mode checklist: **`doc
 
 ## Front door, sign-up and shop setup
 
-`/` is a server-rendered marketing page (no JS, indexable, JSON-LD) with five "Create your shop"
-CTAs → `/signup` (shop name, kind — barbershop / hairdresser / salon —, name, email, password).
+`/` and `/barbers` are barbers-first server-rendered marketing pages (no application JS, indexable,
+JSON-LD), with signup CTAs → `/signup` (shop name, kind, name, email, password). They describe
+implemented calendars, walk-ins, services, shifts, waiting lists, payment records and website editing.
+The calendar illustration is labelled sample data; provider availability/fees are qualified, and no
+unverified testimonials, fixed all-in pricing or AI concierge claims are advertised.
 Visitors with an `ollo_session` cookie are sent straight to `/workspace`.
 
 A new owner lands in the **guided setup** at `/workspace/setup` — nine resumable steps
@@ -93,6 +96,28 @@ the wizard is completed or hidden. Code: `src/client/Setup.tsx`, `Setup2.tsx`, `
 email, text, both, or a bare link (7 days, one use); resend re-issues the token; revoke withdraws it.
 The accept page (`/workspace?invite=…`) shows the shop, inviter and role before asking for a password.
 **Forgot password**: `/forgot` → email (+ text to the verified shop mobile for the owner) → `/reset`.
+
+## PWA identity and offline boundaries
+
+Owners and staff use the `/workspace` app; staff join through single-use, role-bound invitations.
+Invitation acceptance locks the pending invitation through membership creation and consumption;
+resend/revoke cannot silently reuse an accepted claim. LINK/SMS/BOTH invitations require separate
+email verification rather than treating a shared token as inbox proof. Customer accounts and
+sessions are separate from workspace identity and remain shop-scoped.
+
+The shared worker caches only public `/static/` assets in per-scope caches. It never caches HTML,
+API responses or uploaded media, retires unsafe legacy Foliyo caches, and shows an anonymous offline
+notice. Private records and booking changes require a connection; there is no offline write queue.
+Push navigation stays on the same origin and inside the installed shop scope without replacing
+another shop's tab. Customer logout revokes server push delivery for the device endpoint (or all
+of that customer's endpoints in this shop if unavailable), clears the session, closes displayed
+notifications and attempts device unsubscribe. Delivery already in flight may still arrive.
+
+Automated checks cover signup/role boundaries, invitation races, worker cache policy, malformed push
+payloads, and customer logout/stale-read recovery on shared and shop hosts. Physical Android/iOS
+installation, worker upgrades and real provider delivery remain release acceptance checks; this is
+not production security certification. Workspace sessions remain seven days; customer sessions
+currently remain one year and shared-device session policy/MFA warrant a separate release review.
 
 ## Operations
 

@@ -230,7 +230,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
   });
 }
 
-for (const width of [390, 1440]) {
+for (const width of [320, 390, 768, 1440]) {
   test(`Foliyo homepage palette and contrast (${width}px)`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 900 });
     await page.route("https://brand.test/**", async route => {
@@ -244,11 +244,24 @@ for (const width of [390, 1440]) {
       return route.fulfill({ contentType: "text/html", body: landingPage("https://brand.test", VERTICALS.universal) });
     });
     await page.goto("https://brand.test/");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("More time behind the chair.");
+    await expect(page.locator(".l-feature-grid article")).toHaveCount(6);
+    await expect(page.locator(".l-app-card")).toHaveCount(3);
+    await expect(page.locator(".l-product figcaption")).toContainText("not a live calendar");
+    await expect(page.locator("body")).not.toContainText(/AI Concierge|Join hundreds|£24.99|Book in 7 seconds|No commission, ever/);
+    for (const id of ["header", "hero", "setup", "pricing-main", "final"]) await expect(page.getByTestId(`landing-cta-${id}`)).toHaveAttribute("href", "/signup");
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
+    const faq = page.locator("#faq details").filter({ hasText: "Does the app work offline?" });
+    await faq.locator("summary").click();
+    await expect(faq.locator("p")).toBeVisible();
+    await expect(faq).toContainText("does not queue booking changes offline");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
     expect(axe.violations.map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) }))).toEqual([]);
     await expect(page.locator(".l-light").first()).toHaveCSS("background-color", "rgb(255, 255, 255)");
     await expect(page.locator(".l-btn-green").first()).toHaveCSS("background-color", "rgb(0, 232, 176)");
+    await page.evaluate(() => { (document.activeElement as HTMLElement)?.blur(); window.scrollTo(0, 0); });
     await page.screenshot({ path: info.outputPath(`clean-homepage-${width}.png`), fullPage: true });
   });
 }

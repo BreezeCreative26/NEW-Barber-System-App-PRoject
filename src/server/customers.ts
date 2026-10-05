@@ -241,10 +241,19 @@ acct.post("/complete", async (c) => {
 });
 
 acct.post("/logout", async (c) => {
-  await shopBySlug(c, c.req.param("slug")!);
-  await readInput(c, z.object({}).strict());
+  const shop = await shopBySlug(c, c.req.param("slug")!);
+  const b = await readInput(c, z.object({ endpoint: z.string().url().max(2000).optional() }).strict());
   const raw = getCookie(c, CUSTOMER_COOKIE);
-  if (raw) await c.env.DB.prepare("DELETE FROM customer_sessions WHERE token_hash=?").bind(await digest(raw)).run();
+  if (raw) {
+    const hash = await digest(raw);
+    await c.env.DB.batch([
+      // If the device endpoint cannot be read, revoke this account's shop subscriptions
+      // rather than leaving private notifications active after sign-out.
+      c.env.DB.prepare(`DELETE FROM customer_push_subscriptions WHERE shop_id=? AND account_id IN (SELECT account_id FROM customer_sessions WHERE token_hash=? AND shop_id=?)${b.endpoint ? " AND endpoint=?" : ""}`)
+        .bind(shop.id, hash, shop.id, ...(b.endpoint ? [b.endpoint] : [])),
+      c.env.DB.prepare("DELETE FROM customer_sessions WHERE token_hash=? AND shop_id=?").bind(hash, shop.id),
+    ]);
+  }
   deleteCookie(c, CUSTOMER_COOKIE, { path: "/", secure: true, ...(sessionCookieDomain() ? { domain: sessionCookieDomain()! } : {}) });
   return c.json({ ok: true });
 });

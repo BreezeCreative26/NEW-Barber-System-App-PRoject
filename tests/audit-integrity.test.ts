@@ -681,3 +681,96 @@ describe("shop signup and setup audit", () => {
   });
 
 });
+
+describe("PWA identity and signup boundaries", () => {
+  let barberCookie = "", staffId = "";
+  it("requires an invite and legal agreement for staff signup without promoting a shared link to email proof", async () => {
+    const created = await call("/api/app/staff", "POST", { name: "PWA Barber", role: "Barber" }, ownerCookie);
+    expect(created.status, await created.clone().text()).toBe(201);
+    staffId = (await created.json()).id;
+    const invited = await call("/api/app/auth/invites", "POST", { staff_id: staffId, email: "pwa-barber@audit.test", role: "BARBER", channel: "LINK" }, ownerCookie);
+    expect(invited.status, await invited.clone().text()).toBe(201);
+    const { token } = await invited.json();
+    const body = { token, name: "PWA Barber", email: "pwa-barber@audit.test", password: "PWA-barber-password", accept_legal: true };
+    expect((await call("/api/app/auth/accept", "POST", { ...body, accept_legal: false })).status).toBe(400);
+    expect((await call("/api/app/auth/accept", "POST", { ...body, email: "different@audit.test" })).status).toBe(400);
+    const accepted = await call("/api/app/auth/accept", "POST", body);
+    expect(accepted.status, await accepted.clone().text()).toBe(201);
+    barberCookie = cookieOf(accepted, "ollo_session");
+    expect(accepted.headers.get("set-cookie")).toContain("HttpOnly");
+    expect(accepted.headers.get("set-cookie")).toContain("Secure");
+    expect((await db.prepare("SELECT email_verified_at FROM app_users WHERE email=?").bind(body.email).first<any>())!.email_verified_at).toBeNull();
+    expect([400,409]).toContain((await call("/api/app/auth/accept", "POST", body)).status);
+  });
+  it("enforces barber permissions at the API and revokes access when the staff profile is disabled", async () => {
+    for (const [path,method,body] of [["/setup","GET",undefined], ["/shop/page","PUT",{ version: 0 }], ["/auth/invites","POST",{ staff_id: staffId, email: "no@audit.test", role: "MANAGER", channel: "LINK" }]] as const) {
+      expect((await call(`/api/app${path}`,method,body,barberCookie)).status).toBe(403);
+    }
+    const w = await call("/api/app/workspace", "GET", undefined, barberCookie);
+    expect(w.status).toBe(200);
+    const data = await w.json(); expect(data.account).toMatchObject({ role: "BARBER", staff_id: staffId });
+    expect(data.bookings.every((b: any) => b.staff_id === staffId)).toBe(true);
+    await db.prepare("UPDATE staff SET active=0 WHERE id=?").bind(staffId).run();
+    expect((await call("/api/app/workspace","GET",undefined,barberCookie)).status).toBe(401);
+  });
+  it("rejects revoked and expired invitations and serializes competing acceptance or resend", async () => {
+    async function invite(label: string) {
+      const staff = await call("/api/app/staff", "POST", { name: `Security ${label}`, role: "Barber" }, ownerCookie);
+      expect(staff.status).toBe(201);
+      const staffId = (await staff.json()).id;
+      const email = `security-${label}@audit.test`;
+      const res = await call("/api/app/auth/invites", "POST", { staff_id: staffId, email, role: "BARBER", channel: "LINK" }, ownerCookie);
+      expect(res.status, await res.clone().text()).toBe(201);
+      const data = await res.json();
+      return { ...data, staffId, email, body: { token: data.token, email, name: `Security ${label}`, password: "Secure-invitation-password", accept_legal: true } };
+    }
+    for (const reason of ["revoked", "expired"]) {
+      const i = await invite(reason);
+      if (reason === "revoked") expect((await call(`/api/app/auth/invites/${i.id}/revoke`, "POST", {}, ownerCookie)).status).toBe(200);
+      else await db.prepare("UPDATE staff_invitations SET expires_at=? WHERE id=?").bind(Date.now()-1, i.id).run();
+      expect((await call("/api/app/auth/accept", "POST", i.body)).status).toBe(400);
+      expect(await db.prepare("SELECT id FROM app_users WHERE email=?").bind(i.email).first()).toBeNull();
+    }
+    const one = await invite("race");
+    const accepted = await Promise.all([call("/api/app/auth/accept", "POST", one.body), call("/api/app/auth/accept", "POST", one.body)]);
+    expect(accepted.map(r => r.status).sort()).toEqual([201,409]);
+    expect((await db.prepare("SELECT COUNT(*)::int AS n FROM app_memberships WHERE staff_id=?").bind(one.staffId).first<any>())!.n).toBe(1);
+    const revoked = await invite("revoke-race");
+    const outcomes = await Promise.all([
+      call("/api/app/auth/accept", "POST", revoked.body),
+      call(`/api/app/auth/invites/${revoked.id}/revoke`, "POST", {}, ownerCookie),
+    ]);
+    const row = await db.prepare("SELECT accepted_at,revoked FROM staff_invitations WHERE id=?").bind(revoked.id).first<any>();
+    expect(!!row.accepted_at && !!row.revoked).toBe(false);
+    if (row.revoked) {
+      expect([400,409]).toContain(outcomes[0].status);
+      expect(await db.prepare("SELECT id FROM app_users WHERE email=?").bind(revoked.email).first()).toBeNull();
+    } else { expect(outcomes.map(r => r.status)).toEqual([201,404]); }
+    const resend = await invite("resend-race");
+    await db.prepare("UPDATE staff_invitations SET last_sent_at=? WHERE id=?").bind(Date.now()-61000, resend.id).run();
+    const resent = await Promise.all([
+      call(`/api/app/auth/invites/${resend.id}/resend`, "POST", {}, ownerCookie),
+      call(`/api/app/auth/invites/${resend.id}/resend`, "POST", {}, ownerCookie),
+    ]);
+    expect(resent.filter(r => r.status === 201)).toHaveLength(1);
+    expect(resent.every(r => [201,409,429].includes(r.status))).toBe(true);
+    expect((await call("/api/app/auth/accept", "POST", resend.body)).status).toBe(400);
+    const replacement = await resent.find(r => r.status === 201)!.json();
+    expect((await call("/api/app/auth/accept", "POST", { ...resend.body, token: replacement.token })).status).toBe(201);
+  });
+  it("keeps customer and workspace sessions separate and revokes push delivery on logout", async () => {
+    const customer = await register("07700900771", "pwa-customer@audit.test");
+    expect((await call("/api/app/workspace","GET",undefined,customer)).status).toBe(401);
+    const ownerInCustomer = await call(`${A}/session`,"GET",undefined,ownerCookie);
+    expect((await ownerInCustomer.json()).profile).toBeNull();
+    const account = (await db.prepare("SELECT id FROM customer_accounts WHERE email=?").bind("pwa-customer@audit.test").first<any>())!.id;
+    const endpoint = "https://fcm.googleapis.com/fcm/send/pwa-audit";
+    const push = await call(`${A}/push`,"POST", { endpoint, keys: { p256dh: "a".repeat(80), auth: "b".repeat(24) } },customer);
+    expect(push.status,await push.clone().text()).toBe(201);
+    const logout = await call(`${A}/logout`,"POST", { endpoint },customer);
+    expect(logout.status).toBe(200);
+    expect(await db.prepare("SELECT id FROM customer_push_subscriptions WHERE account_id=? AND shop_id=?").bind(account,shopId).first()).toBeNull();
+    expect((await (await call(`${A}/session`,"GET",undefined,customer)).json()).profile).toBeNull();
+    expect((await call(`${A}/push`,"POST", { endpoint, keys: { p256dh: "a".repeat(80), auth: "b".repeat(24) } },customer)).status).toBe(401);
+  });
+});

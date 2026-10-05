@@ -2,6 +2,8 @@
   "name": "foliyo appointments",
   "short_name": "foliyo",
   "description": "Appointment booking for barbers and salons.",
+  "id": "/workspace",
+  "scope": "/workspace",
   "start_url": "/workspace",
   "display": "standalone",
   "background_color": "#0b0b0c",

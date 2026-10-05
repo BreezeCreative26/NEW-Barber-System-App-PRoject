@@ -3,6 +3,82 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve, extname } from "node:path";
 
 // Isolated browser contract tests: serve the actual built customer client, never call providers.
+for (const ownHost of [false, true]) {
+  test(`customer PWA logout rejects stale reads and retries failures (${ownHost ? "shop host" : "shared host"})`, async ({ page }) => {
+    const manifest = JSON.parse(readFileSync("public/static/manifest.json", "utf8"));
+    const entry = manifest["src/client/shop.tsx"].file;
+    const scope = ownHost ? "/" : "/audit-shop/";
+    const endpoint = "https://fcm.googleapis.com/fcm/send/device-audit";
+    await page.addInitScript(({ scope, endpoint }) => {
+      const state = { scopes: [] as string[], messages: [] as unknown[], unsubscribed: 0 };
+      (window as any).pwaAudit = state;
+      const sub = { endpoint, unsubscribe: async () => { state.unsubscribed++; return true; }, toJSON: () => ({ keys: { auth: "auth", p256dh: "key" } }) };
+      const reg = { scope: location.origin + scope, active: { postMessage: (m: unknown) => state.messages.push(m) }, update: async () => {}, pushManager: { getSubscription: async () => sub } };
+      Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: {
+        register: async (_url: string, options: { scope: string }) => { state.scopes.push(options.scope); return reg; },
+        getRegistration: async (path: string) => { state.scopes.push(path); return reg; },
+        addEventListener: () => {},
+        get ready() { throw new Error("Must not wait for another app's worker"); },
+      } });
+      Object.defineProperty(window, "PushManager", { configurable: true, value: class {} });
+      Object.defineProperty(window, "Notification", { configurable: true, value: { permission: "granted", requestPermission: async () => "granted" } });
+    }, { scope, endpoint });
+    const profile = { id: "customer", name: "Private Customer", phone: "07700900000", email: "customer@test.example", birthday: "", preferred_staff_id: "", marketing_opt_in: 0, notes: "", version: 0, member_since: 0, complete: true, has_password: true };
+    const me = { shop: { name: "Audit Shop", slug: "audit-shop", address: "", timezone: "Europe/London", currency: "GBP", today: "2030-01-07", cancel_hours: 24, lead_time_min: 0 }, profile, upcoming: [], history: [], usual: null, next_usual: null, staff: [], stats: { visits: 0, spent_pence: 0, first_visit: null }, waiting: [] };
+    let reads = 0, logouts = 0, pushWrites = 0, signedOut = false;
+    let release!: () => void;
+    const held = new Promise<void>(r => { release = r; });
+    const errors: string[] = [];
+    page.on("pageerror", e => errors.push(e.message));
+    await page.route("https://customer.test/**", async route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path.startsWith("/static/")) {
+        const file = resolve("public", path.slice(1));
+        const types: Record<string,string> = { ".js": "application/javascript", ".css": "text/css", ".woff2": "font/woff2", ".svg": "image/svg+xml" };
+        return route.fulfill({ status: existsSync(file) ? 200 : 404, contentType: types[extname(file)] || "application/octet-stream", body: existsSync(file) ? readFileSync(file) : "" });
+      }
+      if (path.endsWith("/account/session")) return route.fulfill({ json: { profile: signedOut ? null : profile } });
+      if (path.endsWith("/account/me")) { reads++; if (reads === 2) await held; return route.fulfill({ json: me }); }
+      if (path.endsWith("/account/logout")) {
+        logouts++; expect(route.request().postDataJSON()).toEqual({ endpoint });
+        if (logouts === 1) return route.fulfill({ status: 503, json: { message: "Sign out unavailable. Please retry." } });
+        signedOut = true; return route.fulfill({ json: { ok: true } });
+      }
+      if (path.endsWith("/account/push")) {
+        if (route.request().method() === "POST") { pushWrites++; return route.fulfill({ status: 503, json: { message: "Push setup unavailable. Please retry." } }); }
+        return route.fulfill({ json: { enabled: true, public_key: "test", subscribed: false } });
+      }
+      if (path === "/api/public/shops/audit-shop") return route.fulfill({ json: { shop: me.shop } });
+      if (path.startsWith("/api/")) return route.fulfill({ json: {} });
+      return route.fulfill({ contentType: "text/html", body: `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1">${ownHost ? '<meta name="foliyo-shop" content="audit-shop">' : ''}${["style", "design", "theme-fonts", "shop-theme"].map(n => `<link rel="stylesheet" href="/static/${n}.css">`).join("")}</head><body><div id="root"></div><script type="module" src="/static/${entry}"></script></body></html>` });
+    });
+    await page.goto(`https://customer.test${ownHost ? "/me" : "/audit-shop/me"}`);
+    await expect(page.getByRole("heading", { name: "Hello, Private." })).toBeVisible();
+    await page.getByTestId("push-toggle").click();
+    await expect(page.getByTestId("app-card").getByRole("alert")).toContainText("Push setup unavailable");
+    await expect(page.getByTestId("push-toggle")).toBeEnabled();
+    expect(pushWrites).toBe(1);
+    await page.getByTestId("sign-out").click();
+    await expect(page.getByRole("alert").filter({ hasText: "Sign out unavailable" })).toBeVisible();
+    await expect(page.getByTestId("customer-area")).toBeVisible();
+    const pendingRead = page.waitForRequest(r => r.url().endsWith("/account/me"));
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await pendingRead;
+    await page.getByTestId("sign-out").click();
+    await expect(page.getByTestId("signin-email")).toBeVisible();
+    const staleResponse = page.waitForResponse(r => r.url().endsWith("/account/me"));
+    release(); await staleResponse;
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await expect(page.getByTestId("customer-area")).toBeHidden();
+    await expect(page.getByTestId("signin-email")).toBeVisible();
+    const state = await page.evaluate(() => (window as any).pwaAudit);
+    expect(state.unsubscribed).toBe(1);
+    expect(state.messages).toEqual([{ type: "SIGNED_OUT" }]);
+    expect(state.scopes.every((s: string) => s === scope || s === `https://customer.test${scope}`)).toBe(true);
+    expect(errors).toEqual([]);
+  });
+}
+
 for (const width of [390, 1440]) {
   test(`registration verifies the phone and preserves inputs on failure (${width}px)`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 900 });

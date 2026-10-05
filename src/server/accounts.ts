@@ -598,7 +598,9 @@ accounts.post("/invites/:id/resend", async (c) => {
   const channel = b.channel || inv.channel;
   const token = uid() + uid(), now = Date.now();
   await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE staff_invitations SET token_hash=?, expires_at=?, channel=?, sent_count=sent_count+1, last_sent_at=? WHERE id=?").bind(await digest(token), now + 7 * 86400000, channel, now, inv.id),
+    c.env.DB.prepare("UPDATE staff_invitations SET token_hash=?, expires_at=?, channel=?, sent_count=sent_count+1, last_sent_at=? WHERE id=? AND shop_id=? AND accepted_at IS NULL AND revoked=0 AND sent_count=?").bind(await digest(token), now + 7 * 86400000, channel, now, inv.id, a.shop_id, inv.sent_count),
+    c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
+    c.env.DB.prepare("DELETE FROM account_assertions"),
     event(c, a.shop_id, `user:${a.user_id}`, inv.id, "STAFF_INVITE_RESENT"),
   ]);
   const email = inv.email.endsWith("@sms.invite") ? "" : inv.email;
@@ -651,7 +653,7 @@ accounts.post("/accept", async (c) => {
     "SELECT i.* FROM staff_invitations i JOIN staff s ON s.shop_id=i.shop_id AND s.id=i.staff_id WHERE i.token_hash=? AND (i.email=? OR i.email LIKE '%@sms.invite') AND i.revoked=0 AND i.accepted_at IS NULL AND i.expires_at>? AND s.active=1",
   )
     .bind(await digest(b.token), b.email, Date.now())
-    .first<{ id: string; shop_id: string; staff_id: string; role: string; invited_by: string; email: string }>();
+    .first<{ id: string; shop_id: string; staff_id: string; role: string; invited_by: string; email: string; channel: string }>();
   if (!invite)
     return reject(400, "Invitation is unavailable or details do not match");
   // One email = one shop = one account, by design. A barber at two shops holds two separate accounts.
@@ -663,24 +665,31 @@ accounts.post("/accept", async (c) => {
     encoded = await passwordHash(b.password, salt);
   const session = await newSession(c, membership);
   // A user has one shop membership in this local slice; existing emails are not silently linked.
+  const acceptedAt = Date.now();
   await c.env.DB.batch([
+    // Lock the pending invitation first; retain pending status for the membership trigger.
+    // The row lock lasts through membership creation and the final consumed stamp.
+    c.env.DB.prepare("UPDATE staff_invitations SET email=? WHERE id=? AND token_hash=? AND accepted_at IS NULL AND revoked=0 AND expires_at>? AND EXISTS (SELECT 1 FROM staff s WHERE s.id=staff_invitations.staff_id AND s.shop_id=staff_invitations.shop_id AND s.active=1)")
+      .bind(b.email, invite.id, await digest(b.token), acceptedAt),
+    c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
+    c.env.DB.prepare("DELETE FROM account_assertions"),
     c.env.DB.prepare(
       "INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)",
     ).bind(user, b.email, b.name, encoded, salt, Date.now()),
     c.env.DB.prepare(
-      "INSERT INTO app_memberships(id,shop_id,user_id,role,staff_id) SELECT ?,shop_id,?,role,staff_id FROM staff_invitations WHERE id=? AND token_hash=? AND revoked=0 AND accepted_at IS NULL AND expires_at>?"
+      "INSERT INTO app_memberships(id,shop_id,user_id,role,staff_id) SELECT ?,shop_id,?,role,staff_id FROM staff_invitations WHERE id=? AND token_hash=? AND revoked=0 AND accepted_at IS NULL"
     ).bind(
       membership,
       user,
       invite.id,
       await digest(b.token),
-      Date.now(),
     ),
     c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
     c.env.DB.prepare("DELETE FROM account_assertions"),
-    c.env.DB.prepare(
-      "UPDATE staff_invitations SET accepted_at=?, email=? WHERE id=? AND accepted_at IS NULL AND revoked=0 AND expires_at>?",
-    ).bind(Date.now(), b.email, invite.id, Date.now()),
+    c.env.DB.prepare("UPDATE staff_invitations SET accepted_at=? WHERE id=? AND token_hash=? AND accepted_at IS NULL AND revoked=0")
+      .bind(acceptedAt, invite.id, await digest(b.token)),
+    c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
+    c.env.DB.prepare("DELETE FROM account_assertions"),
     session.write,
     c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
     c.env.DB.prepare("DELETE FROM account_assertions"),
@@ -693,9 +702,9 @@ accounts.post("/accept", async (c) => {
     ),
     ...acceptanceStatements(c.env.DB, c, { user_id: user, shop_id: invite.shop_id, subject: "STAFF" }, STAFF_DOCS, { ip_hash: await ipHash(c) }),
   ]);
-  // An email invite already proved the address (the token came from that inbox); SMS/link
-  // invites did not, so those sign-ups get a confirm-email message.
-  const emailInvite = !String(invite.email || "").endsWith("@sms.invite") && invite.email === b.email;
+  // Only an email-only invitation is email proof. A LINK, SMS or BOTH token may
+  // have arrived outside that inbox, so those sign-ups must confirm email separately.
+  const emailInvite = invite.channel === "EMAIL" && !String(invite.email || "").endsWith("@sms.invite") && invite.email === b.email;
   const now = Date.now();
   if (emailInvite) {
     await c.env.DB.prepare("UPDATE app_users SET email_verified_at=? WHERE id=?").bind(now, user).run();

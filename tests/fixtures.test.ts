@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import app from "../src/index";
 import { chairMinutes, dayState } from "../src/client/Shifts";
 import { calendarFootprintReason } from "../src/client/Calendar";
@@ -89,5 +91,79 @@ describe("roster capacity and calendar footprints", () => {
     const w = fixture(), h = { ...w.hours[0], ends: 1080 };
     expect(slotReason(w.shop,w.staff[0],h,[],[],date,1050,30,now,undefined,[],[],0)).toBe("");
     expect(slotReason(w.shop,w.staff[0],h,[],[],date,1050,30,now,undefined,[],[],10)).toBe("Outside working hours");
+  });
+});
+
+function workerFixture(scope = "https://pwa.test/northline/") {
+  const handlers: Record<string, (e: any) => void> = {};
+  const stores = new Map<string, Map<string, Response>>();
+  const key = (request: any) => typeof request === "string" ? request : request.url;
+  const caches = {
+    keys: async () => [...stores.keys()],
+    delete: async (name: string) => stores.delete(name),
+    open: async (name: string) => {
+      if (!stores.has(name)) stores.set(name, new Map());
+      return { match: async (r: any) => stores.get(name)!.get(key(r)), put: async (r: any, v: Response) => { stores.get(name)!.set(key(r), v); } };
+    },
+  };
+  const fetch = vi.fn(async () => new Response("private HTML", { headers: { "Content-Type": "text/html", "Cache-Control": "no-store" } }));
+  const openWindow = vi.fn(async () => null), focus = vi.fn(), navigate = vi.fn();
+  const self = { registration: { scope, showNotification: vi.fn(), getNotifications: async () => [] }, location: { origin: "https://pwa.test" }, addEventListener: (name: string, fn: any) => { handlers[name] = fn; }, skipWaiting: async () => {}, clients: { claim: async () => {}, openWindow, matchAll: async () => [{ url: "https://pwa.test/another-shop/me", focus, navigate }] } };
+  const code = readFileSync("src/server/sw.template.txt", "utf8").replaceAll("__BUILD__", "audit").replaceAll("__ASSETS__", "[]");
+  runInNewContext(code, { self, caches, URL, Response, fetch });
+  const dispatch = async (type: string, data: any) => {
+    const waits: Promise<unknown>[] = [];
+    let response: Promise<Response> | undefined;
+    handlers[type]({ ...data, waitUntil: (p: Promise<unknown>) => waits.push(p), respondWith: (p: Promise<Response>) => { response = p; } });
+    await Promise.all(waits);
+    return response ? await response : undefined;
+  };
+  return { stores, fetch, dispatch, openWindow, focus, navigate, showNotification: self.registration.showNotification };
+}
+describe("PWA cache and notification security", () => {
+  it("never caches private HTML, API or media and shows an anonymous offline page", async () => {
+    const w = workerFixture();
+    const request = (path: string, mode = "navigate") => ({ method: "GET", url: `https://pwa.test${path}`, mode, headers: new Headers(mode === "navigate" ? { accept: "text/html" } : {}) });
+    await w.dispatch("fetch", { request: request("/northline/me?reset=secret") });
+    expect(w.stores.size).toBe(0);
+    expect(await w.dispatch("fetch", { request: request("/api/public/shops/northline/account/me", "cors") })).toBeUndefined();
+    expect(await w.dispatch("fetch", { request: request("/media/private", "cors") })).toBeUndefined();
+    w.fetch.mockRejectedValueOnce(new Error("offline"));
+    const offline = await w.dispatch("fetch", { request: request("/workspace") });
+    expect(offline!.status).toBe(503); expect(await offline!.text()).toContain("You are offline");
+    expect(w.stores.size).toBe(0);
+  });
+  it("caches only public static responses and does not clear another app's new cache", async () => {
+    const w = workerFixture();
+    w.stores.set("foliyo-old-unsafe", new Map());
+    w.stores.set("unrelated-cache", new Map());
+    w.stores.set("foliyo-pwa-%2Fanother-shop%2F-audit", new Map());
+    await w.dispatch("activate", {});
+    expect(w.stores.has("foliyo-old-unsafe")).toBe(false);
+    expect(w.stores.has("unrelated-cache")).toBe(true);
+    expect(w.stores.has("foliyo-pwa-%2Fanother-shop%2F-audit")).toBe(true);
+    const request = { method: "GET", url: "https://pwa.test/static/app-audit.js", mode: "cors", headers: new Headers() };
+    await w.dispatch("fetch", { request });
+    expect([...w.stores.values()].every(s => s.size === 0)).toBe(true);
+    w.fetch.mockResolvedValue(new Response("public JS", { headers: { "Content-Type": "application/javascript", "Cache-Control": "public" } }));
+    await w.dispatch("fetch", { request });
+    expect([...w.stores.values()].some(s => s.has(request.url))).toBe(true);
+  });
+  it("handles malformed push icons and respects path segment boundaries", async () => {
+    const w = workerFixture("https://pwa.test/northline");
+    for (const icon of ["http://[", "https://external.test/icon.png", null]) {
+      await w.dispatch("push", { data: { json: () => ({ icon, url: "/northline-elsewhere/me" }) } });
+      expect(w.showNotification).toHaveBeenLastCalledWith("Shop update", expect.objectContaining({ icon: undefined, data: { url: "https://pwa.test/northline" } }));
+    }
+    await w.dispatch("notificationclick", { notification: { close: () => {}, data: { url: "/northline/me" } } });
+    expect(w.openWindow).toHaveBeenLastCalledWith("https://pwa.test/northline/me");
+  });
+  it("does not hijack another shop's tab or open an external push target", async () => {
+    const w = workerFixture();
+    await w.dispatch("notificationclick", { notification: { close: () => {}, data: { url: "https://evil.example/" } } });
+    expect(w.openWindow).toHaveBeenCalledWith("https://pwa.test/northline/");
+    expect(w.navigate).not.toHaveBeenCalled(); expect(w.focus).not.toHaveBeenCalled();
+    await w.dispatch("notificationclick", { notification: { close: () => {}, data: { url: "/another-shop/me" } } });
+    expect(w.openWindow).toHaveBeenLastCalledWith("https://pwa.test/northline/");
   });
 });
