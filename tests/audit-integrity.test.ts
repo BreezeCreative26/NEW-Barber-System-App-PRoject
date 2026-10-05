@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { citext } from "@electric-sql/pglite/contrib/citext";
 import { readFileSync, readdirSync } from "node:fs";
-import { createHmac } from "node:crypto";
+import { createHmac, pbkdf2Sync } from "node:crypto";
 import app from "../src/index";
 import { toPositional, type Database, type Statement } from "../src/db/client";
 import { enqueue, drain, msgShop } from "../src/server/messaging";
@@ -772,5 +772,145 @@ describe("PWA identity and signup boundaries", () => {
     expect(await db.prepare("SELECT id FROM customer_push_subscriptions WHERE account_id=? AND shop_id=?").bind(account,shopId).first()).toBeNull();
     expect((await (await call(`${A}/session`,"GET",undefined,customer)).json()).profile).toBeNull();
     expect((await call(`${A}/push`,"POST", { endpoint, keys: { p256dh: "a".repeat(80), auth: "b".repeat(24) } },customer)).status).toBe(401);
+  });
+});
+
+describe("customer credential rotation and device revocation", () => {
+  const password = "Isolated-customer-password";
+  const replacement = "Rotated-customer-password";
+  const otherShop = "rotation-other-shop";
+  let sequence = 0;
+  beforeAll(async () => {
+    await db.prepare("INSERT INTO shops(id,name,slug,created_at) VALUES(?,?,?,?)").bind(otherShop, "Other shop", otherShop, Date.now()).run();
+  });
+  async function customer() {
+    const n = ++sequence;
+    const email = `rotation-${n}@audit.test`;
+    const cookie = await register(`077009008${String(n).padStart(2, "0")}`, email);
+    const account = (await db.prepare("SELECT * FROM customer_accounts WHERE email=?").bind(email).first<any>())!;
+    return { email, cookie, account };
+  }
+  const pushBody = (id: string) => ({ endpoint: `https://fcm.googleapis.com/fcm/send/rotation-${id}`, keys: { p256dh: "a".repeat(80), auth: "b".repeat(24) } });
+  async function token(email: string) {
+    const response = await call(`${A}/forgot`, "POST", { email });
+    expect(response.status, await response.clone().text()).toBe(201);
+    return (await response.json()).sandbox_token as string;
+  }
+  async function reset(email: string) {
+    const response = await call(`${A}/reset`, "POST", { token: await token(email), password: replacement });
+    expect(response.status, await response.clone().text()).toBe(201);
+    return response;
+  }
+  // Hold an already-read credential/session snapshot, without holding a transaction.
+  // This makes the stale-request ordering deterministic rather than timing-dependent.
+  function pauseRead(fragment: string) {
+    let ready!: () => void, release!: () => void;
+    const reached = new Promise<void>(resolve => { ready = resolve; });
+    const resumed = new Promise<void>(resolve => { release = resolve; });
+    const prepare = db.prepare.bind(db);
+    let held = false;
+    const spy = vi.spyOn(db, "prepare").mockImplementation(sql => {
+      const statement = prepare(sql);
+      if (!sql.includes(fragment) || held) return statement;
+      const bind = statement.bind.bind(statement);
+      statement.bind = (...args) => {
+        const bound = bind(...args);
+        const first = bound.first.bind(bound);
+        bound.first = (async (...params: any[]) => {
+          const row = await first(...params);
+          if (!held) { held = true; ready(); await resumed; }
+          return row;
+        }) as Statement["first"];
+        return bound;
+      };
+      return statement;
+    });
+    return { reached, release, restore: () => spy.mockRestore() };
+  }
+  it.each(["reset", "change"])("%s revokes old sessions, recovery links and push in every shop, preserving other accounts", async mode => {
+    const a = await customer(), unrelated = await customer();
+    const otherCookie = cookieOf(await call(`/api/public/shops/${otherShop}/account/login`, "POST", { email: a.email, password }), "ollo_customer");
+    expect(otherCookie).not.toBe("");
+    for (const [shop, cookie, id] of [[slug, a.cookie, a.account.id], [otherShop, otherCookie, a.account.id], [slug, unrelated.cookie, unrelated.account.id]]) {
+      expect((await call(`/api/public/shops/${shop}/account/push`, "POST", pushBody(id), cookie)).status).toBe(201);
+    }
+    const oldToken = await token(a.email);
+    const rotated = mode === "reset"
+      ? await call(`${A}/reset`, "POST", { token: oldToken, password: replacement })
+      : await call(`${A}/password`, "PUT", { current: password, password: replacement }, a.cookie);
+    expect(rotated.status, await rotated.clone().text()).toBe(mode === "reset" ? 201 : 200);
+    const freshCookie = cookieOf(rotated, "ollo_customer");
+    expect(freshCookie).not.toBe("");
+    expect(rotated.headers.get("set-cookie")).toContain("HttpOnly");
+    expect((await (await call(`${A}/session`, "GET", undefined, a.cookie)).json()).profile).toBeNull();
+    expect((await (await call(`/api/public/shops/${otherShop}/account/session`, "GET", undefined, otherCookie)).json()).profile).toBeNull();
+    expect((await (await call(`${A}/session`, "GET", undefined, freshCookie)).json()).profile).not.toBeNull();
+    expect((await call(`${A}/reset`, "POST", { token: oldToken, password })).status).toBe(409);
+    expect(await db.prepare("SELECT id FROM customer_push_subscriptions WHERE account_id=?").bind(a.account.id).first()).toBeNull();
+    expect(await db.prepare("SELECT id FROM customer_push_subscriptions WHERE account_id=?").bind(unrelated.account.id).first()).not.toBeNull();
+    expect((await call(`${A}/login`, "POST", { email: a.email, password })).status).toBe(401);
+    expect((await call(`${A}/login`, "POST", { email: a.email, password: replacement })).status).toBe(201);
+  });
+  it("rejects a login that validated an old credential snapshot before reset", async () => {
+    const a = await customer();
+    const gate = pauseRead("WHERE lower(email)=lower(?)");
+    const pending = call(`${A}/login`, "POST", { email: a.email, password });
+    try {
+      await gate.reached;
+      await reset(a.email);
+      gate.release();
+      const stale = await pending;
+      expect(stale.status, await stale.clone().text()).toBe(409);
+      expect(cookieOf(stale, "ollo_customer")).toBe("");
+      expect((await db.prepare("SELECT COUNT(*)::int AS n FROM customer_sessions WHERE account_id=?").bind(a.account.id).first<any>())!.n).toBe(1);
+    } finally { gate.release(); gate.restore(); await pending; }
+  });
+  it("rejects a password change whose session was revoked while checking credentials", async () => {
+    const a = await customer();
+    const gate = pauseRead("SELECT a.* FROM customer_sessions");
+    const pending = call(`${A}/password`, "PUT", { current: password, password: "Stale-password-must-not-win" }, a.cookie);
+    try {
+      await gate.reached;
+      await reset(a.email);
+      gate.release();
+      expect((await pending).status).toBe(409);
+      expect((await call(`${A}/login`, "POST", { email: a.email, password: replacement })).status).toBe(201);
+    } finally { gate.release(); gate.restore(); await pending; }
+  });
+  it.each(["logout", "reset"])("does not restore push after %s revokes an in-flight registration", async action => {
+    const a = await customer();
+    const gate = pauseRead("SELECT a.* FROM customer_sessions");
+    const pending = call(`${A}/push`, "POST", pushBody(a.account.id), a.cookie);
+    try {
+      await gate.reached;
+      if (action === "logout") expect((await call(`${A}/logout`, "POST", {}, a.cookie)).status).toBe(200);
+      else await reset(a.email);
+      gate.release();
+      expect((await pending).status).toBe(401);
+      expect(await db.prepare("SELECT id FROM customer_push_subscriptions WHERE account_id=?").bind(a.account.id).first()).toBeNull();
+    } finally { gate.release(); gate.restore(); await pending; }
+  });
+  it("upgrades legacy passwords without rejecting the freshly upgraded credential", async () => {
+    const a = await customer();
+    const legacy = pbkdf2Sync(password, a.account.password_salt, 100000, 32, "sha256").toString("hex");
+    await db.prepare("UPDATE customer_accounts SET password_hash=? WHERE id=?").bind(legacy, a.account.id).run();
+    const response = await call(`${A}/login`, "POST", { email: a.email, password });
+    expect(response.status, await response.clone().text()).toBe(201);
+    expect(cookieOf(response, "ollo_customer")).not.toBe("");
+    expect((await db.prepare("SELECT password_hash FROM customer_accounts WHERE id=?").bind(a.account.id).first<any>())!.password_hash).toMatch(/^pbkdf2-sha256\$600000\$/);
+  });
+  it("enforces expiry for workspace and customer sessions at the server", async () => {
+    const a = await customer();
+    await db.prepare("UPDATE customer_sessions SET expires_at=? WHERE account_id=?").bind(Date.now()-1, a.account.id).run();
+    expect((await (await call(`${A}/session`, "GET", undefined, a.cookie)).json()).profile).toBeNull();
+    expect((await call(`${A}/me`, "GET", undefined, a.cookie)).status).toBe(401);
+    expect((await call(`${A}/push`, "POST", pushBody(a.account.id), a.cookie)).status).toBe(401);
+    const login = await call("/api/app/auth/login", "POST", { email: "owner@audit.test", password: "Isolated-owner-password" });
+    expect(login.status).toBe(201);
+    const cookie = cookieOf(login, "ollo_session");
+    const { digest } = await import("../src/server/accounts");
+    await db.prepare("UPDATE app_sessions SET expires_at=? WHERE token_hash=?").bind(Date.now()-1, await digest(cookie.split("=")[1])).run();
+    expect((await call("/api/app/workspace", "GET", undefined, cookie)).status).toBe(401);
+    expect((await call("/api/app/workspace", "GET", undefined, ownerCookie)).status).toBe(200);
   });
 });
