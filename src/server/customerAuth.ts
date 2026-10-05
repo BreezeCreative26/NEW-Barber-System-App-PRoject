@@ -70,11 +70,19 @@ export function setSession(c: Ctx, raw: string) {
 export async function openSession(c: Ctx, shop: Shop, account: AccountRow, how: string) {
   const now = Date.now();
   const raw = uid() + uid();
-  await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE customer_accounts SET last_seen_at=? WHERE id=?").bind(now, account.id),
-    c.env.DB.prepare("INSERT INTO customer_sessions(token_hash,account_id,shop_id,created_at,expires_at) VALUES(?,?,?,?,?)").bind(await digest(raw), account.id, shop.id, now, now + SESSION_TTL),
-    audit(c, "customer_account", account.id, "CUSTOMER_SIGNED_IN", `Customer signed in online (${how}).`),
-  ]);
+  const context = c;
+  await c.env.DB.transaction(async tx => {
+    const c = withDatabase(context, tx);
+    // Lock the credential row until the session is written. A password rotation either
+    // revokes this session afterwards or makes this stale credential check fail.
+    const claimed = await tx.prepare("UPDATE customer_accounts SET last_seen_at=? WHERE id=? AND password_hash=? AND password_salt=? RETURNING id")
+      .bind(now, account.id, account.password_hash, account.password_salt).first();
+    if (!claimed) fail(409, "Account changed. Sign in again.");
+    await tx.batch([
+      tx.prepare("INSERT INTO customer_sessions(token_hash,account_id,shop_id,created_at,expires_at) VALUES(?,?,?,?,?)").bind(await digest(raw), account.id, shop.id, now, now + SESSION_TTL),
+      audit(c, "customer_account", account.id, "CUSTOMER_SIGNED_IN", `Customer signed in online (${how}).`),
+    ]);
+  });
   c.set("actor", `customer:${account.id}`);
   setSession(c, raw);
 }
@@ -253,6 +261,7 @@ customerAuth.post("/login", async (c) => {
     const upgraded = await passwordHash(b.password, account.password_salt);
     const r = await c.env.DB.prepare("UPDATE customer_accounts SET password_hash=? WHERE id=? AND password_hash=?").bind(upgraded, account.id, account.password_hash).run();
     if (!r.meta.changes) fail(409, "Account changed. Sign in again.");
+    account.password_hash = upgraded;
   }
   await openSession(c, shop, account!, "email + password");
   return c.json({ ok: true }, 201);
@@ -288,18 +297,27 @@ customerAuth.post("/reset", async (c) => {
   const row = await c.env.DB.prepare("SELECT t.*, a.email FROM customer_reset_tokens t JOIN customer_accounts a ON a.id=t.account_id WHERE t.token_hash=? AND t.used_at IS NULL AND t.expires_at>? AND t.shop_id=?").bind(await digest(b.token), now, shop.id).first<{ account_id: string; purpose: "RESET" | "WELCOME"; email: string }>();
   if (!row) fail(409, "That link has expired or was already used. Ask for a new one.");
   const salt = uid() + uid();
+  const encoded = await passwordHash(b.password, salt);
+  const context = c;
+  return c.env.DB.transaction(async tx => {
+  const c = withDatabase(context, tx);
+  // All credential/session/push writes lock the account before dependent rows.
+  await tx.prepare("SELECT id FROM customer_accounts WHERE id=? FOR UPDATE").bind(row!.account_id).first();
   await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE customer_reset_tokens SET used_at=? WHERE token_hash=? AND used_at IS NULL AND expires_at>? AND shop_id=?").bind(now, await digest(b.token), now, shop.id),
+    c.env.DB.prepare("UPDATE customer_reset_tokens SET used_at=? WHERE token_hash=? AND used_at IS NULL AND expires_at>? AND shop_id=?").bind(Date.now(), await digest(b.token), Date.now(), shop.id),
     c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
     c.env.DB.prepare("DELETE FROM account_assertions"),
-    c.env.DB.prepare("UPDATE customer_accounts SET password_hash=?, password_salt=?, password_set_at=?, email_verified=CASE WHEN ?='WELCOME' THEN 1 ELSE email_verified END, version=version+1 WHERE id=?").bind(await passwordHash(b.password, salt), salt, now, row!.purpose, row!.account_id),
-    // A reset signs every other device out.
+    c.env.DB.prepare("UPDATE customer_accounts SET password_hash=?, password_salt=?, password_set_at=?, email_verified=CASE WHEN ?='WELCOME' THEN 1 ELSE email_verified END, version=version+1 WHERE id=?").bind(encoded, salt, now, row!.purpose, row!.account_id),
+    // Account credentials are global, so revoke sessions and push across every shop.
     c.env.DB.prepare("DELETE FROM customer_sessions WHERE account_id=?").bind(row!.account_id),
+    c.env.DB.prepare("DELETE FROM customer_push_subscriptions WHERE account_id=?").bind(row!.account_id),
+    c.env.DB.prepare("DELETE FROM customer_reset_tokens WHERE account_id=? AND used_at IS NULL").bind(row!.account_id),
     audit(c, "customer_account", row!.account_id, row!.purpose === "WELCOME" ? "CUSTOMER_PASSWORD_SET" : "CUSTOMER_PASSWORD_RESET", row!.purpose === "WELCOME" ? "Customer set their first password." : "Customer reset their password; other sessions signed out."),
   ]);
   const account = (await c.env.DB.prepare("SELECT * FROM customer_accounts WHERE id=?").bind(row!.account_id).first<AccountRow>())!;
   await openSession(c, shop, account, row!.purpose === "WELCOME" ? "welcome link" : "reset link");
   return c.json({ ok: true, email: account.email }, 201);
+  });
 });
 
 customerAuth.put("/password", async (c) => {
@@ -310,13 +328,24 @@ customerAuth.put("/password", async (c) => {
   if (account.password_hash && !(await passwordOk(b.current, account))) fail(401, "Your current password is not right.");
   const salt = uid() + uid();
   const now = Date.now();
-  await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE customer_accounts SET password_hash=?, password_salt=?, password_set_at=?, version=version+1 WHERE id=?").bind(await passwordHash(b.password, salt), salt, now, account.id),
-    c.env.DB.prepare("DELETE FROM customer_sessions WHERE account_id=?").bind(account.id),
-    audit(c, "customer_account", account.id, "CUSTOMER_PASSWORD_CHANGED", account.password_hash ? "Customer changed their password." : "Customer set a password."),
-  ]);
-  await openSession(c, shop, account, "password changed");
-  return c.json({ ok: true });
+  const encoded = await passwordHash(b.password, salt);
+  const context = c;
+  return c.env.DB.transaction(async tx => {
+    const c = withDatabase(context, tx);
+    await tx.prepare("SELECT id FROM customer_accounts WHERE id=? FOR UPDATE").bind(account.id).first();
+    const current = await currentAccount(c, shop);
+    if (!current || current.password_hash !== account.password_hash || current.password_salt !== account.password_salt)
+      fail(409, "Account changed. Sign in again.");
+    await tx.batch([
+      tx.prepare("UPDATE customer_accounts SET password_hash=?, password_salt=?, password_set_at=?, version=version+1 WHERE id=?").bind(encoded, salt, now, account.id),
+      tx.prepare("DELETE FROM customer_sessions WHERE account_id=?").bind(account.id),
+      tx.prepare("DELETE FROM customer_push_subscriptions WHERE account_id=?").bind(account.id),
+      tx.prepare("DELETE FROM customer_reset_tokens WHERE account_id=?").bind(account.id),
+      audit(c, "customer_account", account.id, "CUSTOMER_PASSWORD_CHANGED", account.password_hash ? "Customer changed their password." : "Customer set a password."),
+    ]);
+    await openSession(c, shop, { ...account, password_hash: encoded, password_salt: salt }, "password changed");
+    return c.json({ ok: true });
+  });
 });
 
 // ---- Push subscriptions -----------------------------------------------------------
@@ -334,10 +363,17 @@ customerAuth.post("/push", async (c) => {
   if (!account) return fail(401, "Sign in first");
   const b = await readInput(c, pushSchema);
   const now = Date.now();
-  await c.env.DB.prepare(
-    "INSERT INTO customer_push_subscriptions(id,account_id,shop_id,endpoint,p256dh,auth,user_agent,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT (shop_id,endpoint) DO UPDATE SET account_id=EXCLUDED.account_id, p256dh=EXCLUDED.p256dh, auth=EXCLUDED.auth, failures=0",
-  ).bind(uid(), account.id, shop.id, b.endpoint, b.keys.p256dh, b.keys.auth, (c.req.header("user-agent") || "").slice(0, 200), now).run();
-  await c.env.DB.batch([audit(c, "customer_account", account.id, "CUSTOMER_PUSH_ON", "Customer turned on app notifications.")]);
+  const context = c;
+  await c.env.DB.transaction(async tx => {
+    const c = withDatabase(context, tx);
+    await tx.prepare("SELECT id FROM customer_accounts WHERE id=? FOR UPDATE").bind(account.id).first();
+    // Recheck after the lock: logout/reset may have revoked the earlier session.
+    if (!(await currentAccount(c, shop))) fail(401, "Sign in first");
+    await tx.prepare(
+      "INSERT INTO customer_push_subscriptions(id,account_id,shop_id,endpoint,p256dh,auth,user_agent,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT (shop_id,endpoint) DO UPDATE SET account_id=EXCLUDED.account_id, p256dh=EXCLUDED.p256dh, auth=EXCLUDED.auth, failures=0",
+    ).bind(uid(), account.id, shop.id, b.endpoint, b.keys.p256dh, b.keys.auth, (c.req.header("user-agent") || "").slice(0, 200), now).run();
+    await tx.batch([audit(c, "customer_account", account.id, "CUSTOMER_PUSH_ON", "Customer turned on app notifications.")]);
+  });
   return c.json({ ok: true }, 201);
 });
 customerAuth.delete("/push", async (c) => {
