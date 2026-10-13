@@ -3700,7 +3700,7 @@ function WorkspaceLookPanel({ w }: { w: WorkspaceData }) {
           <span className="workspace-field"><span>Accent colour</span></span>
           <div className="ws-swatches" role="radiogroup" aria-label="Workspace accent colour">
             {WS_ACCENTS.map((a) => (
-              <button key={a.id} type="button" role="radio" aria-checked={t.accent === a.id} aria-label={a.name} title={a.name} className="ws-swatch" style={{ background: a.accent }} onClick={() => pick({ ...t, accent: a.id })} data-testid={`ws-accent-${a.id}`}>
+              <button key={a.id} type="button" role="radio" aria-checked={t.accent === a.id} aria-label={a.name} title={a.name} className="ws-swatch" style={{ background: a.fill, color: a.fillInk }} onClick={() => pick({ ...t, accent: a.id })} data-testid={`ws-accent-${a.id}`}>
                 {t.accent === a.id && <Icon name="check" size={16} />}
               </button>
             ))}

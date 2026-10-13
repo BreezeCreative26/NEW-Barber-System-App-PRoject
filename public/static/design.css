@@ -5,45 +5,68 @@
    primary action per surface. Loaded after style.css and wins on conflicts.
    ========================================================================== */
 
+/* Product typefaces (SIL OFL; licences in /static/fonts/). Declared here because design.css is the
+   one stylesheet every page loads — the Vite-bundled fonts.css is never linked. */
+@font-face { font-family: "Geist"; font-style: normal; font-display: swap; font-weight: 100 900; src: url("/static/fonts/geist-latin-wght-normal.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Geist"; font-style: normal; font-display: swap; font-weight: 100 900; src: url("/static/fonts/geist-latin-ext-wght-normal.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Inter Variable"; font-style: normal; font-display: swap; font-weight: 100 900; src: url("/static/fonts/inter-latin-wght-normal.woff2") format("woff2"); }
+
 :root {
-  /* Brand — from the foliyo logo mockup: deep green-black ink, warm cream, matte mint. */
-  --ollo: #0b1a17;
-  --ollo-green: #a8d5c2;
-  --ollo-soft: #e6f0eb;
-  --accent: #3a7563;
-  --accent-dark: #2f6152;
-  --accent-grad: linear-gradient(135deg, #3a7563 0%, #3a7563 70%, #5e9a86 100%);
-  --cream: #f4f3ee;
+  /* foliyo 2026 refresh — brand pack colours (ink #0b0b0c, mint #00e8b0) on crisp cool neutrals.
+     Mint is a fill colour (with ink text on top); text and borders use the deeper mint. */
+  --mint: #00e8b0;
+  --mint-2: #00d39f;
+  --mint-deep: #00805c;
+  --mint-soft: #e3fbf3;
+  --ollo: #0b0b0c;
+  --ollo-green: #00e8b0;
+  --ollo-soft: #e3fbf3;
+  --accent: #00805c;
+  --accent-dark: #006b4d;
+  --accent-fill: #00e8b0;
+  --accent-fill-hover: #00d39f;
+  --accent-fill-ink: #0b0b0c;
+  --accent-grad: linear-gradient(135deg, #006b4d 0%, #00805c 55%, #00a878 100%);
+  --cream: #f5f6f8;
+  --soft: #f1f3f5;
 
   /* Neutrals */
-  --ink: #0f1f1b;
-  --ink-2: #1c2f2a;
-  --muted: #5c6a65;
-  --muted-2: #8a968f;
-  --line: #e1e4de;
-  --line-2: #eceee8;
-  --canvas: #f4f3ee;
+  --ink: #0e0f12;
+  --ink-2: #26282e;
+  --muted: #5d616c;
+  --muted-2: #8a8e99;
+  --line: #e3e5e9;
+  --line-2: #eef0f2;
+  --canvas: #f5f6f8;
   --surface: #ffffff;
-  --rail: #0b1a17;
-  --rail-fg: #b8c4be;
+  --rail: #0b0b0c;
+  --rail-fg: #a3a6ae;
   --rail-fg-on: #ffffff;
   --on-accent: #ffffff;
 
+  /* Colour for data, staff and categories — vivid but balanced against the neutrals. */
+  --c-mint: #00c896;
+  --c-violet: #7c5cff;
+  --c-sky: #2b8cff;
+  --c-amber: #ffa41b;
+  --c-coral: #ff5c5c;
+  --c-pink: #f0479a;
+
   /* Semantic */
-  --good: #2c5a3e;
-  --good-bg: #e9f1e9;
-  --warn: #8a3b24;
-  --warn-bg: #f7e6e0;
-  --note: #6b5626;
-  --note-bg: #f1ead9;
-  --presence: #3aa76d;
-  --blocked-a: #e9ebf3;
-  --blocked-b: #f3f4f9;
-  --blocked-line: #aab0c8;
+  --good: #0b7a52;
+  --good-bg: #e3f8ef;
+  --warn: #b42318;
+  --warn-bg: #fdecea;
+  --note: #8a5a00;
+  --note-bg: #fff3d6;
+  --presence: #00c896;
+  --blocked-a: #eef0f4;
+  --blocked-b: #f6f7f9;
+  --blocked-line: #b6bccb;
 
   /* Shape */
   --r-sm: 8px;
-  --r: 12px;
+  --r: 10px;
   --r-lg: 14px;
   --r-xl: 18px;
   --r-pill: 999px;
@@ -56,13 +79,14 @@
   --s-5: 20px;
   --s-6: 28px;
 
-  /* Elevation */
-  --shadow-1: 0 1px 2px rgba(24, 27, 42, 0.07);
-  --shadow-2: 0 6px 16px rgba(24, 27, 42, 0.12);
-  --shadow-drawer: -12px 0 32px rgba(24, 27, 42, 0.1);
+  /* Elevation — crisp, layered, low blur */
+  --shadow-1: 0 1px 2px rgba(14, 15, 18, 0.06), 0 0 0 1px rgba(14, 15, 18, 0.02);
+  --shadow-2: 0 2px 6px rgba(14, 15, 18, 0.06), 0 14px 32px -12px rgba(14, 15, 18, 0.2);
+  --shadow-drawer: -16px 0 40px rgba(14, 15, 18, 0.12);
+  --ring: 0 0 0 3px rgba(0, 232, 176, 0.35);
 
   /* Type */
-  --font: "Inter Variable", Inter, system-ui, sans-serif;
+  --font: "Geist", "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
   --fs-11: 11px;
   --fs-12: 12px;
   --fs-13: 13px;
@@ -2020,6 +2044,10 @@ html[class*="ws-accent-"] {
   --sage: var(--ws-soft);
   --forest: var(--ws-rail);
   --rail: var(--ws-rail);
+  --mint-soft: var(--ws-soft);
+  --accent-fill: var(--ws-fill, var(--ws-accent));
+  --accent-fill-hover: var(--ws-fill-hover, var(--ws-accent-dark));
+  --accent-fill-ink: var(--ws-fill-ink, #fff);
 }
 html.ws-dark {
   --canvas: #0f1114;
@@ -2055,7 +2083,7 @@ html.ws-dark .shop-page { color-scheme: light; }
 /* Workspace look picker */
 .ws-look { display: grid; gap: 14px; }
 .ws-swatches { display: flex; gap: 8px; flex-wrap: wrap; }
-.ws-swatch { width: 40px; height: 40px; border-radius: 999px; border: 2px solid transparent; cursor: pointer; display: grid; place-items: center; color: #fff; box-shadow: var(--shadow-1); }
+.ws-swatch { width: 40px; height: 40px; border-radius: 999px; border: 2px solid transparent; cursor: pointer; display: grid; place-items: center; box-shadow: var(--shadow-1); }
 .ws-swatch[aria-checked="true"] { border-color: var(--ink); box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--ink); }
 
 /* ---- Booking flow v2: its own page. One column of big choices, a slim sticky summary, a fixed action bar on phones. ---- */

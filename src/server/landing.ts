@@ -7,6 +7,9 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&
 // Inline icons (stroke = currentColor) so the page stays script-free and one request.
 const svg = (d: string, extra = "") => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}>${d}</svg>`;
 const ICO = {
+  brush: svg('<path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/>'),
+  dumbbell: svg('<path d="M6.5 6.5v11M17.5 6.5v11M3 9.5v5M21 9.5v5M6.5 12h11"/>'),
+  arrow: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
   scissors: svg('<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/>'),
   sparkle: svg('<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/>'),
   pen: svg('<path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/>'),
@@ -33,8 +36,9 @@ type Step = string;
 type Faq = { q: string; a: string };
 // One layout, several audiences. `/` speaks to every appointment business; `/barbers` is the
 // original "Built by barbers" story. Add a vertical by adding an entry — copy only, no new CSS.
+export type VerticalSlug = "" | "barbers" | "hair-salons" | "beauty-and-nails" | "tattoo-studios" | "clinics" | "personal-trainers";
 export type Vertical = {
-  slug: "" | "barbers";
+  slug: VerticalSlug;
   path: string;
   title: string;
   description: string;
@@ -61,6 +65,8 @@ export type Vertical = {
   finalH2: string;
   footerTag: string;
   industries?: { name: string; blurb: string; href?: string; icon: string }[];
+  /** Short name for cross-links: "barbers", "hair salons"… */
+  short?: string;
 };
 
 const BARBER_QUOTES: Quote[] = [
@@ -95,7 +101,25 @@ const UNIVERSAL_FAQS: Faq[] = [
   { q: "Is my data safe?", a: "Hosted in the EU, encrypted in transit, backed up daily. You can export everything at any time." },
 ];
 
-export const VERTICALS: Record<"universal" | "barbers", Vertical> = {
+type IndustryCopy = Pick<Vertical, "slug" | "title" | "description" | "audience" | "heroEyebrow" | "heroH1" | "heroLede" | "everythingLede" | "actionH2" | "steps" | "seatWord" | "seatWordPlural" | "chairWord" | "faqH2" | "finalH2" | "short"> & { img: string; alt: string; faqs: Faq[] };
+// Industry pages share the universal story (why / pricing / testimonials) and swap the parts that
+// should sound like the trade: hero, wording for a seat, booking steps and the first FAQs.
+const industry = (c: IndustryCopy): Vertical => ({
+  ...c,
+  path: `/${c.slug}`,
+  heroImg: { src: `/static/landing/hero-${c.img}-hd.webp`, small: `/static/landing/hero-${c.img}-600.webp`, alt: c.alt },
+  whyH2: "We listened to the people doing the work.<br/>Then we built what they wanted.",
+  whyLede: "foliyo started behind a barber’s chair, after 20 years of using every booking system on the market. It turned out every appointment business had the same complaints: commission, per-booking fees, and software that gets in the way. So we built the system we all wanted.",
+  script: "Built by the trade.",
+  priceListLogin: `A login for every ${c.seatWord}`,
+  cardCopy: "Switch on if you want deposits at booking, prepay or pay on the day. One all-in rate per payment, money goes straight to each team member. Leave it off and pay nothing.",
+  testiEyebrow: "Trusted across the appointment trades",
+  quotes: UNIVERSAL_QUOTES,
+  faqs: [...c.faqs, ...UNIVERSAL_FAQS.slice(1)],
+  footerTag: "Built by the trade. For every trade.",
+});
+
+export const VERTICALS: Record<"universal" | "barbers" | "salons" | "beauty" | "tattoo" | "clinics" | "trainers", Vertical> = {
   universal: {
     slug: "",
     path: "/",
@@ -105,7 +129,7 @@ export const VERTICALS: Record<"universal" | "barbers", Vertical> = {
     heroEyebrow: "Booking software for any appointment business",
     heroH1: "Built for people<br/>who run on appointments.",
     heroLede: "foliyo is the all-in-one booking system for barbers, salons, beauty studios, tattoo artists, clinics, trainers and anyone whose day is a diary. One clear monthly price, text and email confirmations and everything you need to run the business — without the commission and hidden fees.",
-    heroImg: { src: "/static/landing/hero-universal.webp", small: "/static/landing/hero-universal-sm.webp", alt: "A studio owner at her reception desk checking bookings on her phone" },
+    heroImg: { src: "/static/landing/hero-universal-hd.webp", small: "/static/landing/hero-universal-600.webp", alt: "A studio owner at her reception desk checking bookings on her phone" },
     everythingLede: "From the first click to the final invoice, foliyo keeps your business running smoothly. Manage bookings, clients, staff, payments and more — all in one easy-to-use platform.",
     whyH2: "We listened to the people doing the work.<br/>Then we built what they wanted.",
     whyLede: "foliyo started behind a barber’s chair, after 20 years of using every booking system on the market. It turned out every appointment business had the same complaints: commission, per-booking fees, and software that gets in the way. So we built the system we all wanted.",
@@ -125,11 +149,11 @@ export const VERTICALS: Record<"universal" | "barbers", Vertical> = {
     footerTag: "Built by the trade. For every trade.",
     industries: [
       { name: "Barbers", blurb: "Where foliyo started. Chairs, walk-ins, pay at the chair.", href: "/barbers", icon: "scissors" },
-      { name: "Hair & salons", blurb: "Colour, cuts, long services and split appointments.", icon: "sparkle" },
-      { name: "Beauty & nails", blurb: "Deposits, add-ons and packed-out Saturdays.", icon: "sparkle" },
-      { name: "Tattoo & piercing", blurb: "Consults, sittings and deposits that stick.", icon: "pen" },
-      { name: "Clinics & therapists", blurb: "Client notes, intake and reminders that cut no-shows.", icon: "heart" },
-      { name: "Trainers & coaching", blurb: "Sessions, blocks and clients who book themselves.", icon: "bolt" },
+      { name: "Hair & salons", blurb: "Colour, cuts, long services and split appointments.", href: "/hair-salons", icon: "sparkle" },
+      { name: "Beauty & nails", blurb: "Deposits, add-ons and packed-out Saturdays.", href: "/beauty-and-nails", icon: "brush" },
+      { name: "Tattoo & piercing", blurb: "Consults, sittings and deposits that stick.", href: "/tattoo-studios", icon: "pen" },
+      { name: "Clinics & therapists", blurb: "Client notes, intake and reminders that cut no-shows.", href: "/clinics", icon: "heart" },
+      { name: "Trainers & coaching", blurb: "Sessions, blocks and clients who book themselves.", href: "/personal-trainers", icon: "dumbbell" },
     ],
   },
   barbers: {
@@ -141,7 +165,7 @@ export const VERTICALS: Record<"universal" | "barbers", Vertical> = {
     heroEyebrow: "Booking software for barbers, hairdressers &amp; salons",
     heroH1: "Built by barbers.<br/>For the industry.",
     heroLede: "foliyo is the all-in-one booking system designed specifically for barbers, hairdressers and salons. With one clear monthly price, text confirmations and everything you need to run your shop — we’ve taken the best bits from other platforms and removed all the things you don’t want.",
-    heroImg: { src: "/static/landing/hero-barber.webp", small: "/static/landing/hero-barber-sm.webp", alt: "A barber cutting a client’s hair" },
+    heroImg: { src: "/static/landing/hero-barbers-hd.webp", small: "/static/landing/hero-barbers-600.webp", alt: "A barber cutting a client’s hair" },
     everythingLede: "From the first click to the final cut, foliyo keeps your shop running smoothly. Manage bookings, clients, barbers, payments and more — all in one easy-to-use platform.",
     whyH2: "We listened to the industry.<br/>Then we built what we wanted.",
     whyLede: "After 20 years behind the chair, we’ve used almost every booking system on the market. We loved some things, we hated others. So we created foliyo — a complete system built by barbers, for barbers, hairdressers and salon owners.",
@@ -159,8 +183,134 @@ export const VERTICALS: Record<"universal" | "barbers", Vertical> = {
     faqs: BARBER_FAQS,
     finalH2: "Join hundreds of barbers, hairdressers and salons already using foliyo.",
     footerTag: "Built by barbers. For the industry.",
+    short: "barbers",
   },
+  salons: industry({
+    slug: "hair-salons",
+    short: "hair salons",
+    img: "salons",
+    alt: "A stylist blow-drying a client’s hair in a bright salon",
+    title: "foliyo for Hair Salons — Salon booking software with no commission",
+    description: "Salon booking software: online booking, colour and processing time, split appointments, deposits, stylist pay runs and reminders by text, email and push. One fair monthly price, no commission.",
+    audience: "Hair salons and independent stylists",
+    heroEyebrow: "Booking software for hair salons &amp; stylists",
+    heroH1: "Every colour<br/>and cut, booked.",
+    heroLede: "Long colour services, processing time, add-on treatments and stylists with their own regulars — foliyo keeps the whole salon diary in one place, with one clear monthly price and no commission on your clients.",
+    everythingLede: "From the first consultation to the final blow-dry, foliyo keeps your salon running smoothly. Bookings, client notes and formulas, stylists, payments and more — all in one place.",
+    actionH2: "Book a colour<br/>in 7 seconds.",
+    steps: ["Choose a stylist", "Pick the service and add-ons", "Pick a time", "Confirm & you’re all set"],
+    seatWord: "stylist",
+    seatWordPlural: "stylists",
+    chairWord: "chair",
+    faqH2: "Questions salons ask",
+    finalH2: "Join the salons and stylists already running on foliyo.",
+    faqs: [
+      { q: "Can I book long colour services with processing time?", a: "Yes. Set a service’s length and any buffer after it, and foliyo blocks exactly the right time in the stylist’s column so nothing overlaps." },
+      { q: "Can clients add a treatment or toner when they book?", a: "Yes. Add-ons sit under each service with their own price and time, and the booking adds them up automatically." },
+    ],
+  }),
+  beauty: industry({
+    slug: "beauty-and-nails",
+    short: "beauty and nails",
+    img: "beauty",
+    alt: "A nail technician painting a client’s nails at a marble table",
+    title: "foliyo for Beauty & Nails — Booking software for beauty studios",
+    description: "Booking software for beauty and nail studios: deposits that cut no-shows, add-ons, patch-test reminders, a team calendar and text, email and push reminders. One fair monthly price, no commission.",
+    audience: "Beauty salons, nail technicians and lash and brow studios",
+    heroEyebrow: "Booking software for beauty, nails, lashes &amp; brows",
+    heroH1: "Full books.<br/>Fewer no-shows.",
+    heroLede: "Deposits at booking, reminders that actually get read and add-ons clients pick themselves. foliyo fills your Saturdays and protects your time, with one clear monthly price and no commission.",
+    everythingLede: "From the first booking to the aftercare text, foliyo keeps your studio running smoothly. Bookings, client notes, deposits, your team and payments — all in one easy-to-use platform.",
+    actionH2: "Book a set of nails<br/>in 7 seconds.",
+    steps: ["Choose a technician", "Pick the treatment and extras", "Pick a time", "Pay the deposit & you’re booked"],
+    seatWord: "technician",
+    seatWordPlural: "technicians",
+    chairWord: "seat",
+    faqH2: "Questions beauty studios ask",
+    finalH2: "Join the beauty and nail studios already running on foliyo.",
+    faqs: [
+      { q: "Can I take a deposit to stop no-shows?", a: "Yes. Ask for a fixed deposit, a percentage or full prepayment, studio-wide or per treatment. Late cancellations and no-shows can keep the deposit; cancel on them and it’s refunded automatically." },
+      { q: "Can clients add extras like nail art or a lash tint?", a: "Yes. Add-ons sit under each treatment with their own price and time, and the booking adds them up automatically." },
+    ],
+  }),
+  tattoo: industry({
+    slug: "tattoo-studios",
+    short: "tattoo studios",
+    img: "tattoo",
+    alt: "A tattoo artist working on a client’s forearm in a clean studio",
+    title: "foliyo for Tattoo Studios — Booking and deposits for tattoo and piercing",
+    description: "Booking software for tattoo and piercing studios: consultations, multi-session pieces, deposits that stick, artist calendars and reminders by text, email and push. One fair monthly price, no commission.",
+    audience: "Tattoo and piercing studios and independent artists",
+    heroEyebrow: "Booking software for tattoo &amp; piercing studios",
+    heroH1: "Book the sitting.<br/>Keep the deposit.",
+    heroLede: "Take a deposit when the date is booked, keep every sitting of a big piece with the right artist, and let walk-in piercings fill the gaps. One clear monthly price and no commission on your clients.",
+    everythingLede: "From the first consult to the final session, foliyo keeps your studio running smoothly. Artists’ diaries, client notes, deposits and payments — all in one place.",
+    actionH2: "Book a sitting<br/>in 7 seconds.",
+    steps: ["Choose an artist", "Pick a consult or sitting", "Pick a time", "Pay the deposit & you’re booked"],
+    seatWord: "artist",
+    seatWordPlural: "artists",
+    chairWord: "seat",
+    faqH2: "Questions tattoo studios ask",
+    finalH2: "Join the tattoo and piercing studios already running on foliyo.",
+    faqs: [
+      { q: "Can I take a deposit when someone books?", a: "Yes. Set a deposit per service — a fixed amount or a percentage — or ask for full prepayment. It’s taken at booking and shown on the appointment and the final bill." },
+      { q: "Can I book long sessions and keep notes on the design?", a: "Yes. Services can be as long as you need, and each client has private notes and history only your team can see." },
+    ],
+  }),
+  clinics: industry({
+    slug: "clinics",
+    short: "clinics and therapists",
+    img: "clinics",
+    alt: "A physiotherapist assessing a client’s shoulder in a bright treatment room",
+    title: "foliyo for Clinics & Therapists — Appointment booking for practitioners",
+    description: "Appointment software for clinics, physios, massage and therapists: online booking, client notes, reminders that cut no-shows, practitioner calendars and card payments. One fair monthly price, no commission.",
+    audience: "Clinics, physiotherapists, massage therapists and wellbeing practitioners",
+    heroEyebrow: "Booking software for clinics, physios &amp; therapists",
+    heroH1: "Calmer days.<br/>Fewer empty slots.",
+    heroLede: "Clients book their own appointments, get reminders that cut no-shows and pay when they arrive. foliyo keeps every practitioner’s diary, client notes and payments in one place, with one clear monthly price.",
+    everythingLede: "From the first booking to the follow-up, foliyo keeps your practice running smoothly. Diaries, client records and notes, practitioners and payments — all in one easy-to-use platform.",
+    actionH2: "Book a session<br/>in 7 seconds.",
+    steps: ["Choose a practitioner", "Pick the treatment", "Pick a time", "Confirm & you’re all set"],
+    seatWord: "practitioner",
+    seatWordPlural: "practitioners",
+    chairWord: "room",
+    faqH2: "Questions clinics ask",
+    finalH2: "Join the clinics and therapists already running on foliyo.",
+    faqs: [
+      { q: "Can I keep private notes on each client?", a: "Yes. Every client has notes and a full visit history that only your team can see — never shown on the booking page or in messages." },
+      { q: "Do reminders really reduce no-shows?", a: "Yes. Clients get a confirmation and a reminder by text, email or push before every visit, with a private link to move or cancel — so a slot is freed instead of wasted." },
+    ],
+  }),
+  trainers: industry({
+    slug: "personal-trainers",
+    short: "personal trainers",
+    img: "trainers",
+    alt: "A personal trainer coaching a client through a kettlebell squat",
+    title: "foliyo for Personal Trainers — Session booking for trainers and coaches",
+    description: "Booking software for personal trainers and coaches: clients book their own sessions, reminders by text, email and push, card payments and a clear diary across the team. One fair monthly price, no commission.",
+    audience: "Personal trainers, coaches and small studios",
+    heroEyebrow: "Booking software for personal trainers &amp; coaches",
+    heroH1: "Clients book.<br/>You coach.",
+    heroLede: "Stop losing evenings to messages about times. Clients book and move their own sessions, get reminders and pay up front or on the day — one clear monthly price, no commission.",
+    everythingLede: "From the first session to the hundredth, foliyo keeps your training business running smoothly. Your diary, clients, coaches and payments — all in one easy-to-use platform.",
+    actionH2: "Book a session<br/>in 7 seconds.",
+    steps: ["Choose a coach", "Pick the session", "Pick a time", "Confirm & you’re all set"],
+    seatWord: "coach",
+    seatWordPlural: "coaches",
+    chairWord: "seat",
+    faqH2: "Questions trainers ask",
+    finalH2: "Join the trainers and coaches already running on foliyo.",
+    faqs: [
+      { q: "Can clients move their own sessions?", a: "Yes. Every confirmation has a private link to move or cancel within the notice you set, so you’re not stuck rearranging by message." },
+      { q: "Can I take payment up front?", a: "Yes. Ask for full prepayment or a deposit per session type, or let clients pay on the day. Card payments are optional at 2.2% + 20p." },
+    ],
+  }),
 };
+/** Every industry page (all verticals except the universal front page), keyed by URL path. */
+export const INDUSTRY_PAGES: Vertical[] = Object.values(VERTICALS).filter((v) => v.slug !== "");
+
+// The "next up" card floating over each hero photo: a believable service for that trade.
+const NEXT_UP: Record<VerticalSlug, string> = { "": "Cut & finish", barbers: "Skin fade", "hair-salons": "Balayage", "beauty-and-nails": "Gel manicure", "tattoo-studios": "Sleeve, session 2", clinics: "Sports massage", "personal-trainers": "PT session" };
 
 export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
   const { title, description } = v;
@@ -184,7 +334,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
 <meta property="og:title" content="${esc(title)}"/><meta property="og:description" content="${esc(description)}"/>
 <meta property="og:url" content="${esc(origin)}${v.path === "/" ? "/" : v.path}"/><meta property="og:image" content="${esc(origin)}${v.heroImg.src}"/>
 <meta name="twitter:card" content="summary_large_image"/>
-<meta name="theme-color" content="#0b1a17"/>
+<meta name="theme-color" content="#0b0b0c"/>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/><link rel="apple-touch-icon" href="/foliyo-apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>
 <link rel="stylesheet" href="/static/design.css"/>
 <link rel="stylesheet" href="/static/landing.css"/>
@@ -225,13 +375,15 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
           <li><i class="l-ico">${ICO.chat}</i>Text &amp; Email Reminders</li>
           <li><i class="l-ico">${ICO.slash}</i>No Hidden Costs</li>
         </ul>
-        ${v.industries ? `<a class="l-hero-vertical" href="/barbers">${ICO.scissors} Run a barbershop? <b>See foliyo for barbers →</b></a>` : `<a class="l-hero-vertical" href="/">${ICO.check} Not a barber? <b>foliyo works for every appointment business →</b></a>`}
+        ${v.industries ? `<a class="l-hero-vertical" href="#industries">${ICO.scissors} Barber, salon, studio or clinic? <b>Find your trade →</b></a>` : `<a class="l-hero-vertical" href="/">${ICO.check} Not ${/^[aeiou]/i.test(v.short || "") ? "an" : "a"} ${esc((v.short || "").replace(/s$/, "").replace(/ and .*/, ""))}? <b>foliyo works for every appointment business →</b></a>`}
       </div>
       <div class="l-hero-visual">
         <picture>
           <source media="(max-width: 720px)" srcset="${v.heroImg.small}"/>
-          <img class="l-hero-photo" src="${v.heroImg.src}" alt="${esc(v.heroImg.alt)}" width="768" height="1024" fetchpriority="high"/>
+          <img class="l-hero-photo" src="${v.heroImg.src}" srcset="${v.heroImg.small} 600w, ${v.heroImg.src} 1086w" sizes="(max-width: 980px) 92vw, 560px" alt="${esc(v.heroImg.alt)}" width="1086" height="1448" fetchpriority="high"/>
         </picture>
+        <div class="l-chip l-chip-next" aria-hidden="true"><i class="l-chip-dot"></i><span><small>Next up · 11:30</small><b>Jake · ${esc(NEXT_UP[v.slug])}</b></span></div>
+        <div class="l-chip l-chip-paid" aria-hidden="true"><i class="l-ico l-ico-fill l-ico-sm">${ICO.check}</i><span><small>Deposit paid</small><b>£10.00</b></span></div>
         <div class="l-phone l-phone-hero" role="img" aria-label="A text confirmation from the shop: appointment confirmed for Friday 15th May at 11:30am with Sam.">
           <div class="l-phone-top"><img src="/static/brand/foliyo-wordmark-ink.svg" alt="" width="45" height="17"/></div>
           <div class="l-phone-card">
@@ -444,7 +596,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
         <p class="l-lede l-lede-center">Same calendar, same fair price. Pick your trade to see how shops like yours use foliyo.</p>
       </div>
       <ul class="l-industries-grid">
-        ${v.industries.map((i) => `<li class="${i.href ? "l-ind-link" : ""}">${i.href ? `<a href="${i.href}">` : "<div>"}<i class="l-ico">${ICO[i.icon as keyof typeof ICO] || ICO.check}</i><b>${esc(i.name)}</b><p>${esc(i.blurb)}</p>${i.href ? `<span class="l-ind-more">See foliyo for ${esc(i.name.toLowerCase())} →</span></a>` : "</div>"}</li>`).join("")}
+        ${v.industries.map((i) => { const page = INDUSTRY_PAGES.find((x) => x.path === i.href); return `<li class="${i.href ? "l-ind-link" : ""}">${i.href ? `<a href="${i.href}">` : "<div>"}${page ? `<img class="l-ind-img" src="${page.heroImg.small}" alt="" width="600" height="800" loading="lazy"/>` : ""}<span class="l-ind-body"><i class="l-ico">${ICO[i.icon as keyof typeof ICO] || ICO.check}</i><b>${esc(i.name)}</b><p>${esc(i.blurb)}</p>${i.href ? `<span class="l-ind-more">See foliyo for ${esc(page?.short || i.name.toLowerCase())} →</span>` : ""}</span>${i.href ? "</a>" : "</div>"}</li>`; }).join("")}
       </ul>
     </div>
   </section>` : ""}
@@ -505,7 +657,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
       <a class="l-brand" href="/" aria-label="foliyo home"><img src="/static/brand/foliyo-wordmark-white.svg" alt="foliyo" width="75" height="28"/></a>
       <p class="l-tiny">© ${new Date().getFullYear()} foliyo. All rights reserved.</p>
     </div>
-    <nav aria-label="Footer"><a href="/">foliyo for every business</a><a href="/barbers">foliyo for barbers</a><a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/legal/terms">Terms</a><a href="/legal/privacy">Privacy</a><a href="/legal/dpa">DPA</a><a href="/legal/cookies">Cookies</a><a href="/signin">Sign in</a><a href="/signup">Create your shop</a></nav>
+    <nav aria-label="Footer"><a href="/">foliyo for every business</a>${INDUSTRY_PAGES.map((p) => `<a href="${p.path}">For ${esc(p.short || p.slug)}</a>`).join("")}<a href="#features">Features</a><a href="#pricing">Pricing</a><a href="#faq">FAQ</a><a href="/legal/terms">Terms</a><a href="/legal/privacy">Privacy</a><a href="/legal/dpa">DPA</a><a href="/legal/cookies">Cookies</a><a href="/signin">Sign in</a><a href="/signup">Create your shop</a></nav>
     <div class="l-footer-right">
       <div class="l-social" aria-label="Social">
         <a href="https://instagram.com" aria-label="Instagram" rel="noopener">${ICO.ig}</a>

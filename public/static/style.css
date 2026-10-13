@@ -1215,27 +1215,19 @@
   color: var(--muted);
 }
 :root {
-  /* foliyo brand: deep green ink, warm cream canvas, matte-mint accent. Legacy token names kept so existing rules keep working. */
-  --canvas: #f4f3ee;
+  --canvas: #f5f6f8;
   --surface: #fff;
-  --ink: #0f1f1b;
-  --muted: #5c6a65;
-  --line: #e1e4de;
-  --accent: #3a7563;
-  --accent-dark: #2f6152;
-  --ollo: #0b1a17;
-  --ollo-soft: #e6f0eb;
-  --cream: #f4f3ee;
-  --sage: #e6f0eb;
-  --forest: #0b1a17;
-  --radius: 12px;
-  font-family: "Inter Variable", Inter, system-ui, sans-serif;
-  color: var(--ink);
-  background: var(--canvas);
-  font-synthesis: none;
-  font-optical-sizing: auto;
-  font-size: 14px;
-  line-height: 1.5;
+  --ink: #0e0f12;
+  --muted: #5d616c;
+  --line: #e3e5e9;
+  --accent: #00805c;
+  --accent-dark: #006b4d;
+  --ollo: #0b0b0c;
+  --ollo-soft: #e3fbf3;
+  --cream: #f5f6f8;
+  --sage: #e3fbf3;
+  --forest: #0b0b0c;
+  --radius: 10px;
 }
 * {
   box-sizing: border-box;
