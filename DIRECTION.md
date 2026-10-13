@@ -12,7 +12,7 @@ backups, tooling, hiring); Vercel matches the team's push-to-deploy habit; the N
 (Stripe, Twilio, Resend) fits without workarounds. Cloudflare stays useful later for DNS/CDN and
 per-shop custom domains ("Cloudflare for SaaS"), not as the app runtime.
 
-Stack: Next.js 15 (App Router) · Hono API mounted at `/api/*` · Drizzle + `postgres` driver ·
+Stack: Next.js 15 (App Router) · Hono API mounted at `/api/*` · the `postgres` driver (raw SQL) ·
 Supabase Postgres (transaction pooler at runtime, session pooler for migrations) · Supabase
 Storage for photos · Vercel Cron for sweeps · Stripe / Twilio / Resend when we wire money and
 messages. One database; every business row carries `shop_id`.
@@ -51,6 +51,6 @@ messages. One database; every business row carries `shop_id`.
 - `app/` Next.js routes (`/workspace`, `/[slug]`, `/[slug]/me`, `/book/[slug]`, `/manage/[token]`,
   `/offer/[token]`, `/api/[[...route]]` → Hono).
 - `src/server/` Hono routers and domain rules (ported from the Cloudflare version).
-- `src/db/` Drizzle schema, migrations, client.
+- `src/db/` schema, migrations, client.
 - `src/client/` React app (Workspace, ShopPage, PublicBooking, CustomerArea, …).
 - `docs/` plans (`CUSTOMER-PLAN.md`, `WAITLIST-PLAN.md`, `SHOP-PAGE-PLAN.md`) and `PROGRESS.md`.

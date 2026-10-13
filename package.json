@@ -1,5 +1,5 @@
 {
-  "name": "barbershop-os",
+  "name": "foliyo",
   "type": "module",
   "scripts": {
     "dev": "npm run build:client && next dev -p 3000",
@@ -26,7 +26,6 @@
     "@fontsource-variable/playfair-display": "^5.3.0",
     "@fontsource-variable/space-grotesk": "^5.3.0",
     "@fontsource/bebas-neue": "^5.3.0",
-    "drizzle-orm": "^0.45.2",
     "hono": "^4.13.7",
     "lucide-react": "^1.46.0",
     "next": "^15.5.25",
@@ -48,7 +47,6 @@
     "@types/react-dom": "^19.3.0",
     "@types/web-push": "^3.6.4",
     "dotenv": "^17.4.2",
-    "drizzle-kit": "^0.31.10",
     "prettier": "^3.9.6",
     "typescript": "^5.9.3",
     "vite": "^8.1.4",
@@ -56,5 +54,8 @@
   },
   "engines": {
     "node": "22.x"
+  },
+  "overrides": {
+    "postcss": "^8.5.30"
   }
 }

@@ -50,7 +50,7 @@ app.use("/api/*", async (c, next) => {
 });
 app.get("/api/cron/messages", async (c) => {
   const secret = process.env.CRON_SECRET;
-  if (secret && c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
+  if (!secret || c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
   const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
   const holds = await expireHolds(c.env.DB);
   const reminders = await sweepReminders(c.env.DB, origin);
@@ -62,7 +62,7 @@ app.get("/api/cron/messages", async (c) => {
 // paying shop — invoices issued, handed to Stripe, emailed — then apply dunning (overdue → past due).
 app.get("/api/cron/billing", async (c) => {
   const secret = process.env.CRON_SECRET;
-  if (secret && c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
+  if (!secret || c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
   const pb = await platformBilling(c.env.DB);
   const period = prevPeriodKey();
   const closed = pb.last_period_close >= period ? { period, skipped: "already closed" } : await runPeriodClose(c.env.DB, period, "cron");
