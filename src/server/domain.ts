@@ -1078,6 +1078,8 @@ export const moveSchema = z
     // Fresha-style override: the shop chooses to double-book or book outside rostered hours.
     // Only soft reasons yield (see OVERRIDABLE_REASONS); past time / closed shop never do.
     force: z.boolean().default(false),
+    // Message the customer about the new time (held briefly so Undo can cancel it). Off unless asked.
+    notify: z.boolean().default(false),
   })
   .strict();
 // Reasons a shop user may knowingly override from the calendar. Public booking never can.

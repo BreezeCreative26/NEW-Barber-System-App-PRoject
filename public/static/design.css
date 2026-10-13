@@ -4087,3 +4087,12 @@ p.auth-switch button.linklike:hover { text-decoration: underline; text-underline
   border-radius: 6px; background: #fff; color: var(--ink, #0b0b0c); font: 600 11.5px/18px var(--font-sans, inherit); text-align: center;
 }
 @media (max-width: 767px) { .calendar-shortcuts { display: none; } }
+.ask-check {
+  display: flex; gap: 10px; align-items: flex-start; margin-top: 4px; padding: 12px 14px; cursor: pointer;
+  border: 1px solid var(--line, #e6e6e9); border-radius: 12px; background: #f7f8f8;
+}
+.ask-check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: #0a7d5c; flex: none; }
+.ask-check span { display: grid; gap: 2px; }
+.ask-check strong { font-size: 14px; font-weight: 600; }
+.ask-check small { color: var(--muted, #5b5b63); font-size: 12.5px; line-height: 1.4; }
+.ask-check:has(input:checked) { border-color: rgba(0, 168, 128, .45); background: rgba(0, 232, 176, .08); }

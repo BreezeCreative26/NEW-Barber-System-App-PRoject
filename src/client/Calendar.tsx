@@ -160,6 +160,7 @@ export function Calendar({
   onOpen,
   onHours,
   onMove,
+  onMoveBlocked,
   onAction,
   onBlock,
   onRemoveBlock,
@@ -181,6 +182,8 @@ export function Calendar({
   onOpen: (booking: StoredBooking) => void;
   onHours?: (staff: Staff, date: string) => void;
   onMove?: (booking: StoredBooking, to: MoveTarget) => Promise<void> | void;
+  // A drop that can't happen (past, shop closed, day off…): say why instead of silently snapping back.
+  onMoveBlocked?: (booking: StoredBooking, reason: string) => void;
   // Per-barber ⋯ menu. `block` may carry the slot that was right-clicked / chosen.
   onAction?: (action: StaffAction, staff: Staff, at?: number) => void;
   onBlock?: (block: StaffBlock) => void;
@@ -433,7 +436,7 @@ export function Calendar({
     if (!b) return;
     if (live.overStaff === b.staff_id && live.overStart === b.start_min) return;
     const reason = slotState(live.overStaff, live.overStart, b.id);
-    if (HARD_REASONS.has(reason)) return; // ghost was already red; drop is a no-op
+    if (HARD_REASONS.has(reason)) { onMoveBlocked?.(b, reason); return; } // ghost was already red
     void onMove(b, { staffId: live.overStaff, start: live.overStart, override: SOFT_REASONS.has(reason) ? reason : "" });
   }
   function onEventPointerDown(e: ReactPointerEvent<HTMLButtonElement>, b: StoredBooking) {

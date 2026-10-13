@@ -81,7 +81,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         sms: `${s}: your visit has moved — ${v.service} with ${v.barber} is now ${when}. Ref ${v.ref}. ${v.link}`,
         subject: `Your visit at ${s} has moved to ${v.date}`,
         heading: `New time: ${when}.`,
-        lines: [`${v.service} with ${v.barber}`, `Reference ${v.ref}`],
+        lines: [`${v.service} with ${v.barber}`, v.was ? `Was ${v.was}` : "", `Reference ${v.ref}`].filter(Boolean),
         cta: { label: "View your visit", href: String(v.link) },
       };
     case "booking_cancelled":
@@ -442,7 +442,13 @@ export function emailHtml(shop: { name: string; address?: string; slug?: string 
 // `force`: shop-side messages (verification codes, password resets, owner alerts) ignore the shop's
 // customer-facing SMS/email toggles — those switches are about what customers receive.
 export type Channel = "SMS" | "EMAIL" | "WA" | "PUSH";
-export type EnqueueOpts = { related: { type: string; id: string }; channel?: Channel | "AUTO"; origin: string; now?: number; force?: boolean };
+export type EnqueueOpts = {
+  related: { type: string; id: string }; channel?: Channel | "AUTO"; origin: string; now?: number; force?: boolean;
+  // Hold the message until this instant (e.g. a calendar move waits out the Undo window). Drain skips it until then.
+  sendAt?: number;
+  // Shown in the shop's message log while the row waits (status_note).
+  note?: string;
+};
 
 // Channel choice. Customer preference first, then SMS, then email. AUTO = SMS if there's a mobile,
 // else email; both for confirmations. Customers reach the shop by text, email and push.
@@ -491,8 +497,8 @@ export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageT
     }
     out.push(
       db.prepare(
-        "INSERT INTO notifications(id,shop_id,channel,recipient,template,body,subject,html,status,status_note,related_type,related_id,created_at,next_attempt_at) VALUES(?,?,?,?,?,?,?,?,'QUEUED','',?,?,?,?) ON CONFLICT DO NOTHING",
-      ).bind(uid(), shop.id, channel, channel === "EMAIL" ? to.email! : to.phone!, template, r.sms, channel === "EMAIL" ? r.subject : "", channel === "EMAIL" ? html : channel === "WA" ? JSON.stringify(wa) : "", opts.related.type, opts.related.id, now, now),
+        "INSERT INTO notifications(id,shop_id,channel,recipient,template,body,subject,html,status,status_note,related_type,related_id,created_at,next_attempt_at) VALUES(?,?,?,?,?,?,?,?,'QUEUED',?,?,?,?,?) ON CONFLICT DO NOTHING",
+      ).bind(uid(), shop.id, channel, channel === "EMAIL" ? to.email! : to.phone!, template, r.sms, channel === "EMAIL" ? r.subject : "", channel === "EMAIL" ? html : channel === "WA" ? JSON.stringify(wa) : "", opts.note ?? "", opts.related.type, opts.related.id, now, opts.sendAt ?? now),
     );
   }
   return out;
@@ -634,7 +640,7 @@ export async function pushFor(db: DB, shop: MsgShop, to: Recipient, template: Me
   return [
     db.prepare(
       "INSERT INTO notifications(id,shop_id,channel,recipient,template,body,subject,html,status,status_note,related_type,related_id,created_at,next_attempt_at) VALUES(?,?,'PUSH',?,?,?,?,?,'QUEUED','',?,?,?,?) ON CONFLICT DO NOTHING",
-    ).bind(uid(), shop.id, accountId, template, payload.body, payload.title, JSON.stringify(payload), opts.related.type, opts.related.id, now, now),
+    ).bind(uid(), shop.id, accountId, template, payload.body, payload.title, JSON.stringify(payload), opts.related.type, opts.related.id, now, opts.sendAt ?? now),
   ];
 }
 

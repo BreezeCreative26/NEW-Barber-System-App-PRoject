@@ -14,8 +14,10 @@ type AskOptions = {
   tone?: "default" | "danger" | "warning";
 };
 type TextOptions = AskOptions & { label?: string; placeholder?: string; initial?: string; required?: boolean };
+type CheckOptions = AskOptions & { check: { label: string; hint?: string; initial: boolean } };
 type Request =
   | { kind: "confirm"; opts: AskOptions; resolve: (v: boolean) => void }
+  | { kind: "check"; opts: CheckOptions; resolve: (v: { checked: boolean } | null) => void }
   | { kind: "text"; opts: TextOptions; resolve: (v: string | null) => void };
 
 let root: Root | null = null;
@@ -40,6 +42,10 @@ function enqueue(r: Request) {
 export function ask(opts: AskOptions): Promise<boolean> {
   return new Promise((resolve) => enqueue({ kind: "confirm", opts, resolve }));
 }
+// Confirm with one tick box (e.g. "Text the customer"). Resolves null on cancel.
+export function askCheck(opts: CheckOptions): Promise<{ checked: boolean } | null> {
+  return new Promise((resolve) => enqueue({ kind: "check", opts, resolve }));
+}
 export function askText(opts: TextOptions): Promise<string | null> {
   return new Promise((resolve) => enqueue({ kind: "text", opts, resolve }));
 }
@@ -57,6 +63,7 @@ function Host() {
   if (!current) return null;
   const done = (value: boolean | string | null) => {
     if (current.kind === "confirm") current.resolve(value === true);
+    else if (current.kind === "check") current.resolve(typeof value === "boolean" ? { checked: value } : null);
     else current.resolve(typeof value === "string" ? value : null);
     setItems((xs) => xs.slice(1));
   };
@@ -67,6 +74,7 @@ function AskDialog({ req, onDone }: { req: Request; onDone: (v: boolean | string
   const ref = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState(req.kind === "text" ? req.opts.initial || "" : "");
+  const [checked, setChecked] = useState(req.kind === "check" ? req.opts.check.initial : false);
   const { opts } = req;
   const tone = opts.tone || "default";
   useEffect(() => {
@@ -78,7 +86,7 @@ function AskDialog({ req, onDone }: { req: Request; onDone: (v: boolean | string
     }, 0);
     return () => previous?.focus?.();
   }, [req.kind]);
-  const cancel = () => onDone(req.kind === "text" ? null : false);
+  const cancel = () => onDone(req.kind === "confirm" ? false : null);
   const accept = () => {
     if (req.kind === "text") {
       if ((req.opts.required ?? true) && !text.trim()) {
@@ -86,7 +94,8 @@ function AskDialog({ req, onDone }: { req: Request; onDone: (v: boolean | string
         return;
       }
       onDone(text.trim());
-    } else onDone(true);
+    } else if (req.kind === "check") onDone(checked);
+    else onDone(true);
   };
   return (
     <dialog
@@ -134,6 +143,15 @@ function AskDialog({ req, onDone }: { req: Request; onDone: (v: boolean | string
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) accept();
               }}
             />
+          </label>
+        )}
+        {req.kind === "check" && (
+          <label className="ask-check" data-testid="confirm-check">
+            <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+            <span>
+              <strong>{req.opts.check.label}</strong>
+              {req.opts.check.hint && <small>{req.opts.check.hint}</small>}
+            </span>
           </label>
         )}
         <div className="ask-actions">
