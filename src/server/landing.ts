@@ -375,7 +375,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
           <li><i class="l-ico">${ICO.chat}</i>Text &amp; Email Reminders</li>
           <li><i class="l-ico">${ICO.slash}</i>No Hidden Costs</li>
         </ul>
-        ${v.industries ? `<a class="l-hero-vertical" href="#industries">${ICO.scissors} Barber, salon, studio or clinic? <b>Find your trade →</b></a>` : `<a class="l-hero-vertical" href="/">${ICO.check} Not ${/^[aeiou]/i.test(v.short || "") ? "an" : "a"} ${esc((v.short || "").replace(/s$/, "").replace(/ and .*/, ""))}? <b>foliyo works for every appointment business →</b></a>`}
+        ${v.industries ? `<a class="l-hero-vertical" href="#industries">${ICO.scissors} Barber, salon, studio or clinic? <b>Find your trade →</b></a>` : `<a class="l-hero-vertical" href="/">${ICO.check} Different kind of business? <b>foliyo works for every appointment business →</b></a>`}
       </div>
       <div class="l-hero-visual">
         <picture>
