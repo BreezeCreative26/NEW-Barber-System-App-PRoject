@@ -1945,7 +1945,7 @@ body:has(.ollo-admin-shell) { margin: 0; padding: 0; background: #f5f6f8; }
 .workspace .connected-calendar .calendar-event .event-inline-icons .block-icons svg { width: 10px; height: 10px; }
 
 /* Compact: one line per card, hairline padding, single-row header. */
-.workspace .connected-calendar .density-compact .calendar-event { padding: 1px 6px; gap: 0; line-height: 1.2; justify-content: center; border-left-width: 3px; }
+.workspace .connected-calendar .density-compact .calendar-event { padding: 1px 6px; gap: 0; line-height: 1.2; justify-content: flex-start; padding-top: 2px; border-left-width: 3px; }
 .workspace .connected-calendar .density-compact .calendar-event strong { font-size: 11.5px; font-weight: 600; }
 .workspace .connected-calendar .density-compact .calendar-event strong time { font-weight: 700; }
 .workspace .connected-calendar .density-compact .calendar-event span, .workspace .connected-calendar .density-compact .calendar-event small { font-size: 10.5px; }
@@ -4045,3 +4045,45 @@ p.auth-switch button.linklike:hover { text-decoration: underline; text-underline
 .modal .booking-review { border: 1px solid color-mix(in srgb, var(--accent-fill) 55%, var(--line)); background: linear-gradient(180deg, var(--mint-soft, #e6fcf4), var(--surface) 70%); border-radius: 16px; padding: 18px 20px; }
 .modal .booking-review .notice { background: transparent; border: 0; padding: 0; }
 .modal .booking-review .notice strong { font-size: 15px; }
+
+/* ---- Agenda view: rows were flush to the card edge, so times sat under the rounded border. */
+.workspace .connected-calendar .workspace-bookings { padding: 4px 20px 8px; }
+@media (max-width: 767px) { .workspace .connected-calendar .workspace-bookings { padding: 0 12px 6px; } }
+
+/* ---- In-app confirm / prompt (src/client/confirm.tsx) — replaces the browser's grey pop-ups. */
+.ask-dialog {
+  width: min(440px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line, #e6e6e9);
+  border-radius: 16px; background: #fff; color: var(--ink, #0b0b0c);
+  box-shadow: 0 24px 64px -16px rgba(11, 11, 12, .28), 0 2px 6px rgba(11, 11, 12, .06);
+}
+.ask-dialog::backdrop { background: rgba(11, 11, 12, .42); backdrop-filter: blur(3px); }
+.ask-dialog[open] { animation: ask-in .16s ease-out; }
+@keyframes ask-in { from { opacity: 0; transform: translateY(6px) scale(.985); } to { opacity: 1; transform: none; } }
+.ask-dialog form { display: grid; gap: 10px; padding: 22px 22px 18px; }
+.ask-dialog h2 { margin: 0; font-size: 17px; line-height: 1.3; font-weight: 650; letter-spacing: -.01em; }
+.ask-dialog p { margin: 0; color: var(--muted, #5b5b63); font-size: 14px; line-height: 1.5; }
+.ask-dialog.tone-warning h2::before, .ask-dialog.tone-danger h2::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 9px; vertical-align: 2px;
+  background: #e8a200;
+}
+.ask-dialog.tone-danger h2::before { background: #d93a3a; }
+.ask-field { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
+.ask-field textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 76px; padding: 10px 12px; font: inherit; font-weight: 400;
+  border: 1px solid var(--line, #e0e0e4); border-radius: 10px;
+}
+.ask-field textarea:focus { outline: 2px solid var(--accent, #00e8b0); outline-offset: 1px; border-color: transparent; }
+.ask-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.ask-actions .button { min-height: 40px; padding-inline: 16px; }
+@media (max-width: 767px) {
+  .ask-dialog { width: 100vw; max-width: 100vw; margin: auto 0 0; border-radius: 18px 18px 0 0; border-bottom: 0; }
+  .ask-dialog form { padding: 20px 18px calc(18px + env(safe-area-inset-bottom)); }
+  .ask-actions { flex-direction: column-reverse; }
+  .ask-actions .button { width: 100%; min-height: 46px; }
+}
+.calendar-shortcuts { margin-top: 8px; color: var(--muted, #5b5b63); font-size: 12.5px; line-height: 2; }
+.calendar-shortcuts kbd {
+  display: inline-block; min-width: 20px; padding: 0 6px; border: 1px solid var(--line, #e0e0e4); border-bottom-width: 2px;
+  border-radius: 6px; background: #fff; color: var(--ink, #0b0b0c); font: 600 11.5px/18px var(--font-sans, inherit); text-align: center;
+}
+@media (max-width: 767px) { .calendar-shortcuts { display: none; } }

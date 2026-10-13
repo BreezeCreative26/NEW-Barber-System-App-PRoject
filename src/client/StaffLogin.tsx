@@ -2,6 +2,7 @@
 // account state (none / invited / active / suspended), sends or resends the invitation from the
 // shop, and lets the owner change role or suspend. The invitee lands in StaffOnboarding.
 import { useEffect, useState } from "react";
+import { ask } from "./confirm";
 import type { Staff, WorkspaceData } from "../server/domain";
 import { Badge, Button, Icon, Notice } from "./ui";
 
@@ -74,7 +75,7 @@ export function StaffLoginPanel({ w, api, staff, onChanged }: { w: WorkspaceData
               <div className="workspace-field">
                 <span>Access</span>
                 {member.active ? (
-                  <Button variant="secondary" disabled={busy} onClick={() => { if (window.confirm(`Stop ${member.name} signing in? Their bookings and history stay.`)) setMember(member, { active: 0 }); }} data-testid="staff-login-suspend"><Icon name="lock" size={14} /> Suspend sign-in</Button>
+                  <Button variant="secondary" disabled={busy} onClick={async () => { if (await ask({ title: `Stop ${member.name} signing in?`, body: "Their bookings and history stay.", confirm: "Suspend sign-in", tone: "danger" })) setMember(member, { active: 0 }); }} data-testid="staff-login-suspend"><Icon name="lock" size={14} /> Suspend sign-in</Button>
                 ) : (
                   <Button disabled={busy} onClick={() => setMember(member, { active: 1 })} data-testid="staff-login-restore"><Icon name="check" size={14} /> Restore sign-in</Button>
                 )}
@@ -93,7 +94,7 @@ export function StaffLoginPanel({ w, api, staff, onChanged }: { w: WorkspaceData
           <div className="panel-actions-row">
             <Button variant="secondary" disabled={busy} onClick={() => resend(pending)} data-testid="staff-login-resend"><Icon name="message" size={14} /> Send again</Button>
             <Button variant="ghost" disabled={busy} onClick={async () => setState({ kind: "ok", text: (await copy(link || "")) && link ? "Link copied." : "Send again to get a fresh link to copy." })}><Icon name="copy" size={14} /> Copy link</Button>
-            <Button variant="ghost" disabled={busy} onClick={() => { if (window.confirm("Withdraw this invitation?")) revoke(pending); }} data-testid="staff-login-revoke">Withdraw</Button>
+            <Button variant="ghost" disabled={busy} onClick={async () => { if (await ask({ title: "Withdraw this invitation?", confirm: "Withdraw", tone: "danger" })) revoke(pending); }} data-testid="staff-login-revoke">Withdraw</Button>
           </div>
         </section>
       ) : (

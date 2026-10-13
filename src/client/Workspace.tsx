@@ -45,6 +45,7 @@ import { ShopPageView, type PageData as ShopPageData, type SectionVariants } fro
 import { SmsBillingAck, SmsSenderField } from "./SmsSender";
 import { TemplateEditor } from "./TemplateEditor";
 import { WS_ACCENTS, DEFAULT_WS_THEME, applyWsTheme, parseWsTheme, readLocalWsTheme, writeLocalWsTheme, type WorkspaceTheme } from "./workspaceTheme";
+import { ask } from "./confirm";
 import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
 
 const reference = (b: StoredBooking) =>
@@ -727,7 +728,7 @@ function AccountSettings({
             ];
             if (
               others.length &&
-              !window.confirm("Discard unsaved account changes and sign out?")
+              !(await ask({ title: "Discard unsaved changes and sign out?", confirm: "Sign out", tone: "danger" }))
             )
               return;
             await api("/auth/logout", "POST", {});
@@ -851,11 +852,11 @@ function AccountSettings({
           <h3>Team access</h3>
           <Button
             variant="secondary"
-            onClick={() => {
+            onClick={async () => {
               if (root.current?.querySelector('form[aria-busy="true"]')) return;
               if (
                 root.current?.querySelector('form[data-dirty="true"]') &&
-                !window.confirm("Discard unsaved access edits and refresh?")
+                !(await ask({ title: "Discard unsaved access edits and refresh?", confirm: "Discard and refresh", tone: "danger" }))
               )
                 return;
               loadAccess()
@@ -1447,8 +1448,10 @@ export function Workspace() {
       inFlight = true;
       try {
         const r = await api<{ cursor: string }>("/changes");
-        if (cursor && r.cursor !== cursor && idle()) { lastTick.current = Date.now(); tick(); }
-        cursor = r.cursor;
+        // Only mark a change as seen once we've actually re-read it. If the user is mid-edit
+        // (dialog open, dragging), keep the old cursor so the refresh happens as soon as they finish.
+        if (!cursor) cursor = r.cursor;
+        else if (r.cursor !== cursor && idle()) { lastTick.current = Date.now(); tick(); cursor = r.cursor; }
       } catch { /* offline or signed out; the next beat retries */ } finally { inFlight = false; }
     };
     const heartbeat = window.setInterval(beat, 2000);
@@ -1555,6 +1558,40 @@ export function Workspace() {
       if (t.closest("input, textarea, select, [contenteditable]")) return;
       e.preventDefault();
       setSearchOpen(true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+  // Calendar keyboard shortcuts (Appointments tab): T today, ← / → previous / next day or week,
+  // D / W / A switch view, N new booking, F full screen. They drive the visible toolbar buttons,
+  // so disabled states (offline, loading) are respected, and they stay out of the way while typing,
+  // inside a dialog or menu, or while arrow keys are moving focus around the timetable grid.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      const t = e.target as HTMLElement;
+      if (t.closest?.("input, textarea, select, [contenteditable], dialog, [role=dialog], [role=menu]")) return;
+      if (document.querySelector("dialog[open], [role=dialog], [role=menu]")) return;
+      const bar = document.querySelector<HTMLElement>(".calendar-toolbar-row");
+      if (!bar) return;
+      const arrow = e.key === "ArrowLeft" || e.key === "ArrowRight";
+      if (arrow && t.closest(".connected-calendar .calendar-board, .connected-calendar [role=grid], .timetable-slot, .calendar-event")) return;
+      const pick: Record<string, string> = {
+        t: ".toolbar-today",
+        ArrowLeft: 'button[aria-label="Previous day"], button[aria-label="Previous week"]',
+        ArrowRight: 'button[aria-label="Next day"], button[aria-label="Next week"]',
+        d: '.segmented button[aria-label="Day timetable"]',
+        w: '.segmented button[aria-label="Week"]',
+        a: '.segmented button[aria-label="Agenda"]',
+        n: '[data-testid="new-booking"]',
+        f: '[data-testid="calendar-fullscreen"]',
+      };
+      const sel = pick[e.key.length === 1 ? e.key.toLowerCase() : e.key];
+      if (!sel) return;
+      const btn = document.querySelector<HTMLButtonElement>(sel);
+      if (!btn || btn.disabled) return;
+      e.preventDefault();
+      btn.click();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -2636,6 +2673,23 @@ export function Workspace() {
                     </Button>
                   </div>
                     <div className="calendar-summary" role="status" data-testid="calendar-summary">
+                    {calendarView === "week" ? (() => {
+                      // Week view: totals for the visible week, not the selected day.
+                      const rows = (week?.key === weekKey ? week.bookings : []).filter((x) => !barber || x.staff_id === barber);
+                      const live = rows.filter((x) => !["CANCELLED", "NO_SHOW"].includes(x.status));
+                      return (
+                        <>
+                          <span>{week?.key !== weekKey ? "Loading the week…" : `${live.length} appointment${live.length === 1 ? "" : "s"} this week`}</span>
+                          {week?.key === weekKey && (
+                            <span className="calendar-summary-stats" aria-label="Week statistics">
+                              <span><b>{money(live.reduce((t, x) => t + x.price_pence, 0))}</b> booked</span>
+                              <span><b>{live.filter((x) => x.status === "COMPLETED").length}</b>/{live.length} completed</span>
+                              <span><b>{live.filter((x) => x.channel === "ONLINE").length}</b> online</span>
+                            </span>
+                          )}
+                        </>
+                      );
+                    })() : (<>
                     <span>
                       {!dayReady
                         ? "Loading appointments…"
@@ -2660,6 +2714,7 @@ export function Workspace() {
                         )}
                       </span>
                     )}
+                    </>)}
                     {activeFilterCount > 0 && !filtersOpen && (
                       <Button
                         variant="ghost"
@@ -2745,8 +2800,9 @@ export function Workspace() {
                               const who = w.staff.find((x) => x.id === draft.staffId)?.name.split(" ")[0] ?? "";
                               const same = draft.staffId === b.staff_id && date === b.date;
                               const at = time(draft.start);
-                              const warn = draft.outside === "Occupied" ? "\n\nThis overlaps another appointment — both will sit side by side." : draft.outside ? `\n\n${who || "The barber"} isn't rostered then (${draft.outside.toLowerCase()}). Book it anyway?` : "";
-                              if (!window.confirm(`Move ${b.attendee_name || b.customer_name} to ${at} on ${new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(date + "T12:00:00Z"))}${same ? "" : ` with ${who}`}?${warn}`)) return;
+                              const warn = draft.outside === "Occupied" ? "This overlaps another appointment — both will sit side by side." : draft.outside ? `${who || "The barber"} isn't rostered then (${draft.outside.toLowerCase()}).` : "";
+                              const dayText = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(date + "T12:00:00Z"));
+                              if (!(await ask({ title: `Move ${b.attendee_name || b.customer_name} to ${at}?`, body: `${time(b.start_min)} → ${at} on ${dayText}${same ? "" : ` with ${who}`}${warn ? `\n${warn}` : ""}`, confirm: warn ? "Move anyway" : "Move", tone: warn ? "warning" : "default" }))) return;
                               setMoving(null);
                               try {
                                 await api(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: draft.start, staff_id: draft.staffId, reason: "Moved on the timetable", version: b.version, ...(draft.outside ? { force: true } : {}) });
@@ -2786,7 +2842,7 @@ export function Workspace() {
                                   const addons = items.filter((i) => i.kind === "ADDON");
                                   const addonMinutes = addons.reduce((n, i) => n + i.duration_min, 0);
                                   const serviceDuration = Math.max(5, to.duration - addonMinutes);
-                                  if (to.override && !window.confirm(`Make ${b.attendee_name || b.customer_name} ${to.duration} min?\n\n${to.override === "Occupied" ? "It will overlap the next appointment — both sit side by side." : `${to.override} — save it anyway?`}`)) return;
+                                  if (to.override && !(await ask({ title: `Make ${b.attendee_name || b.customer_name} ${to.duration} min?`, body: to.override === "Occupied" ? "It will overlap the next appointment — both sit side by side." : `${to.override} — save it anyway?`, confirm: "Save anyway", tone: "warning" }))) return;
                                   setPanelError("");
                                   const body = (dur: number, version: number) => ({
                                     service_id: b.service_id,
@@ -2825,11 +2881,11 @@ export function Workspace() {
                                   const same = to.staffId === b.staff_id;
                                   const at = `${String(Math.floor(to.start / 60)).padStart(2, "0")}:${String(to.start % 60).padStart(2, "0")}`;
                                   const warn = to.override === "Occupied"
-                                    ? `\n\nThis overlaps another appointment — both will sit side by side.`
+                                    ? "This overlaps another appointment — both will sit side by side."
                                     : to.override
-                                      ? `\n\n${who || "The barber"} isn't rostered then (${to.override.toLowerCase()}). Book it anyway?`
+                                      ? `${who || "The barber"} isn't rostered then (${to.override.toLowerCase()}).`
                                       : "";
-                                  if (!window.confirm(`Move ${b.attendee_name || b.customer_name} to ${at}${same ? "" : ` with ${who}`}?${warn}`)) return;
+                                  if (!(await ask({ title: `Move ${b.attendee_name || b.customer_name} to ${at}?`, body: `${time(b.start_min)} → ${at}${same ? "" : ` with ${who}`}${warn ? `\n${warn}` : ""}`, confirm: warn ? "Move anyway" : "Move", tone: warn ? "warning" : "default" }))) return;
                                   setPanelError("");
                                   try {
                                     const r = await api<{ booking: StoredBooking }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: to.start, staff_id: to.staffId, reason: to.override ? `Moved on the calendar (over: ${to.override.toLowerCase()})` : "Moved on the calendar", version: b.version, ...(to.override ? { force: true } : {}) });
@@ -4398,7 +4454,7 @@ function VoicePanel({ timezone }: { timezone: string }) {
               <div className="voice-secret">
                 <code data-testid="voice-secret">{secret || `ollo_vk_…${d.secret_hint.replace("…", "")} (hidden)`}</code>
                 {secret ? <Button variant="ghost" onClick={() => copy(secret, "Key")}>Copy</Button> : (
-                  <Button variant="ghost" onClick={async () => { if (!confirm("Generate a new key? The old one stops working straight away.")) return; const r = await api<{ secret: string }>("/shop/voice/rotate", "POST", {}); setSecret(r.secret); load(); }} data-testid="voice-rotate">New key</Button>
+                  <Button variant="ghost" onClick={async () => { if (!(await ask({ title: "Generate a new key?", body: "The old one stops working straight away.", confirm: "Generate key", tone: "danger" }))) return; const r = await api<{ secret: string }>("/shop/voice/rotate", "POST", {}); setSecret(r.secret); load(); }} data-testid="voice-rotate">New key</Button>
                 )}
               </div>
             </li>

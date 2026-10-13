@@ -122,8 +122,8 @@ test("browser: overlapping appointments share the column; pointer drag snaps to 
   const hh = String(Math.floor(target / 60)).padStart(2, "0"), mm = String(target % 60).padStart(2, "0");
   await page.mouse.move(grabX, grabY + step * 3 + 4);
   await expect(ghost.locator(".ghost-time")).toHaveText(`${hh}:${mm}`);
-  page.once("dialog", (d) => d.accept());
   await page.mouse.up();
+  await page.getByTestId("confirm-accept").click();
   await expect(page.getByRole("button", { name: /Lane One/ })).toContainText(`${hh}:${mm}`);
   const fresh = await (await page.request.get(base + `/bookings/${a.body.booking.id}`)).json();
   expect(fresh.booking.start_min).toBe(target);

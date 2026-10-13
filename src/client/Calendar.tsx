@@ -205,6 +205,16 @@ export function Calendar({
     timer: number | null; // long-press arm on touch
   } | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
+  // Once a touch long-press has armed a drag, stop the page scrolling under the finger. Cards
+  // use touch-action: pan-y (so a normal swipe still scrolls the day); without this the first
+  // vertical move would start a scroll and the browser would cancel the drag.
+  useEffect(() => {
+    const block = (e: TouchEvent) => {
+      if (dragRef.current?.armed || resizeRef.current) e.preventDefault();
+    };
+    document.addEventListener("touchmove", block, { passive: false });
+    return () => document.removeEventListener("touchmove", block);
+  }, []);
   const [hover, setHover] = useState<{ staffId: string; start: number } | null>(null);
   const [focusedSlot, setFocusedSlot] = useState<
     (CalendarDraft & { date: string }) | null
@@ -447,6 +457,7 @@ export function Calendar({
             const d = dragRef.current;
             if (!d || d.id !== b.id) return;
             d.armed = true;
+            navigator.vibrate?.(12); // light haptic "picked up" cue where supported
             tick();
             setDragging({ id: b.id, overStaff: b.staff_id, overStart: b.start_min, tick: 0 });
             document.body.classList.add("is-dragging-appointment");
@@ -867,7 +878,10 @@ export function Calendar({
                             />
                           );
                           // How many lines fit: the preset caps it, the card's height decides.
-                          const lines = Math.min(preset.lines, px >= 3 * 15 + 8 ? 3 : px >= 2 * 15 + 6 ? 2 : 1);
+                          // Phones have narrow columns, so a tall Compact card gets a second line rather than
+                          // cramming name and service into one truncated row.
+                          const cap = compact && preset.lines === 1 && px >= 44 ? 2 : preset.lines;
+                          const lines = Math.min(cap, px >= 3 * 15 + 8 ? 3 : px >= 2 * 15 + 6 ? 2 : 1);
                           return (
                             <>
                               <strong>
@@ -935,10 +949,10 @@ export function Calendar({
           </div>
         </div>
       </div>
-      <div className="calendar-slot-context" role="status">
+      <div className="calendar-slot-context visually-hidden" role="status">
         {focusedSlot?.date === date &&
         staff.some((s) => s.id === focusedSlot.staffId)
-          ? `Last focused chair time: ${time(focusedSlot.start)} · ${staff.find((s) => s.id === focusedSlot.staffId)?.name} · ${date}. Selecting a cell only starts a draft; review and confirm to save.`
+          ? `${time(focusedSlot.start)} with ${staff.find((s) => s.id === focusedSlot.staffId)?.name}. Press Enter to start a booking here.`
           : ""}
       </div>
       <footer className="calendar-foot">
@@ -974,6 +988,10 @@ export function Calendar({
             books a day off or seats a walk-in. Right-click a cell to block from that time. Tab reaches
             one free slot per barber; arrow keys move between slots, Home / End jump within a barber.
             Change how much of the day fits on screen with the density control (Compact / Standard / Large) in the toolbar.
+          </p>
+          <p className="calendar-shortcuts" aria-label="Keyboard shortcuts">
+            <kbd>T</kbd> today · <kbd>←</kbd> <kbd>→</kbd> previous / next · <kbd>D</kbd> <kbd>W</kbd> <kbd>A</kbd> day, week,
+            agenda · <kbd>N</kbd> new booking · <kbd>F</kbd> full screen · <kbd>/</kbd> search · <kbd>Esc</kbd> close
           </p>
         </details>
       </footer>

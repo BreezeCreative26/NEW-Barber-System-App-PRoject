@@ -81,7 +81,7 @@ test("draft is resumed on reopen and can be discarded", async ({ page }) => {
   await page.reload();
   await expect(page.getByTestId("wed-frame")).toBeVisible();
   await expect(page.locator("#sp-editor-scope .sp-strap")).toHaveText("Draft strapline here");
-  page.once("dialog", (d) => d.accept());
   await page.getByTestId("wed-discard").click();
+  await page.getByTestId("confirm-accept").click();
   await expect(page.locator("#sp-editor-scope .sp-strap")).not.toHaveText("Draft strapline here");
 });
