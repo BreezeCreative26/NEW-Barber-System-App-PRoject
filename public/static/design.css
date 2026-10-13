@@ -3795,3 +3795,8 @@ p.auth-switch button.linklike:hover { text-decoration: underline; text-underline
   .calendar-summary-stats { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
   .calendar-summary-stats::-webkit-scrollbar { display: none; }
 }
+
+/* Calendar card text sits at reduced opacity for secondary lines; keep every tone above WCAG AA */
+.calendar-event.sage, .week-card.sage { color: #005a40; }
+.calendar-event.sand, .week-card.sand { color: #7a4400; }
+.calendar-event.clay, .week-card.clay { color: #9a2620; }
