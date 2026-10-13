@@ -199,11 +199,13 @@ function SaveForm({
   onSave,
   label = "Save changes",
   className = "",
+  footer,
 }: {
   children?: ReactNode;
   onSave: (data: FormData) => Promise<unknown>;
   label?: string;
   className?: string;
+  footer?: ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -256,6 +258,7 @@ function SaveForm({
         <ErrorMessage error={error} />
         {savedMessage && <p role="status">{savedMessage}</p>}
         <div className="workspace-save-actions">
+          {footer}
           <Button type="submit">{busy ? "Saving…" : label}</Button>
         </div>
       </fieldset>
@@ -1033,6 +1036,8 @@ function WeekHoursEditor({ week }: { week: ShopDayClient[] }) {
 
 // Free start times as tappable chips, grouped by part of day. Unavailable times live in the
 // fallback select so the grid stays scannable.
+const prettyBookingDate = (d: string) =>
+  d ? new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }) : "";
 function SlotGrid({
   slots,
   value,
@@ -1056,7 +1061,7 @@ function SlotGrid({
         if (!items.length) return null;
         return (
           <div className="slot-grid-group" key={label}>
-            <h5>{label}</h5>
+            <h4>{label}</h4>
             <div className="slot-grid-chips">
               {items.map((s) => (
                 <button
@@ -7043,7 +7048,7 @@ function CustomerPicker({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={mode === "new" ? "Or find an existing customer…" : "Name, mobile or email — or type a new customer's name"}
+            placeholder={mode === "new" ? "Or find an existing customer…" : "Search name, mobile or email"}
             aria-label="Find customer"
             aria-describedby="customer-picker-hint"
             autoComplete="off"
@@ -7312,6 +7317,26 @@ function BookingForm({
   return (
     <SaveForm
       className="booking-workflow"
+      footer={(() => {
+        const svc = w.services.find((s) => s.id === service);
+        const who = w.staff.find((s) => s.id === staff);
+        const startMin = start ? Number(start) : null;
+        return (
+          <div className="booking-summary-bar" aria-live="polite" data-testid="booking-summary-bar">
+            <span className="bsb-main">
+              <strong>{svc?.name || "Choose a service"}</strong>
+              {who ? <span> with {who.name}</span> : null}
+            </span>
+            <span className="bsb-when">
+              {prettyBookingDate(date)}
+              {startMin !== null
+                ? ` · ${time(startMin)}–${time(startMin + (slots?.duration_min || svc?.duration_min || 0))}`
+                : " · choose a time"}
+            </span>
+            {slots ? <span className="bsb-price">{money(slots.price_pence)}</span> : null}
+          </div>
+        );
+      })()}
       label={
         review
           ? b
@@ -7600,7 +7625,12 @@ function BookingForm({
               ) && <p>No add-ons offered with this service.</p>}
             </fieldset>
           )}
-          <h4>Choose your date</h4>
+        </section>
+        <section
+          className="booking-when"
+          aria-labelledby="booking-when-heading"
+        >
+          <h3 id="booking-when-heading">2. Date & time</h3>
           {rebook && !waitlist && (
             <div
               className="booking-date-shortcuts"
@@ -7625,10 +7655,33 @@ function BookingForm({
               ))}
             </div>
           )}
+          <div className="booking-day-strip" role="group" aria-label="Quick dates">
+            {Array.from({ length: 14 }, (_, i) => datePlus(w.today, i)).map((d, i) => {
+              const dt = new Date(`${d}T12:00:00Z`);
+              return (
+                <button
+                  type="button"
+                  key={d}
+                  className="booking-day"
+                  aria-pressed={date === d}
+                  aria-label={dt.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}
+                  onClick={(e) => {
+                    markDraft(e.currentTarget);
+                    setDate(d);
+                  }}
+                >
+                  <small>{i === 0 ? "Today" : dt.toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" })}</small>
+                  <strong>{dt.getUTCDate()}</strong>
+                  <small>{dt.toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" })}</small>
+                </button>
+              );
+            })}
+          </div>
           <Field label="Booking date">
             <input
               type="date"
               required
+              lang="en-GB"
               value={date}
               onChange={(e) => setDate(e.target.value)}
             />
@@ -7655,8 +7708,7 @@ function BookingForm({
                   setStart(String(m));
                 }}
               />
-              <details className="booking-time-fallback" open>
-                <summary>All times, including unavailable</summary>
+              <div className="booking-time-row">
                 <Field label="Available start time">
                   <select
                     value={start}
@@ -7676,7 +7728,7 @@ function BookingForm({
                     ))}
                   </select>
                 </Field>
-              </details>
+              </div>
               <div className="booking-time-shortcut">
                 <Button
                   variant="secondary"
@@ -7715,7 +7767,7 @@ function BookingForm({
           aria-labelledby="booking-customer-heading"
         >
           <h3 id="booking-customer-heading">
-            2. {b ? "Move details" : "Customer details"}
+            3. {b ? "Move details" : "Customer details"}
           </h3>
           {!b && (
             <>
@@ -7817,7 +7869,7 @@ function BookingForm({
         >
           <Notice>
             <strong>
-              Ready to save: {date} at {time(Number(start))}.
+              Ready to save: {prettyBookingDate(date)} at {time(Number(start))}.
             </strong>
             <p>
               {reviewContact.name} · {reviewContact.phone}
@@ -7899,8 +7951,7 @@ function BookingForm({
                 </p>
               </div>
             )}
-            Confirm below to save in local D1. Availability is checked again
-            atomically; no hold, payment or notification is created.
+            Availability is checked again when you confirm. Nothing is held until then.
           </Notice>
           <Button
             variant="ghost"

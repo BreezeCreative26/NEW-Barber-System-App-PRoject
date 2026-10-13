@@ -3930,3 +3930,118 @@ p.auth-switch button.linklike:hover { text-decoration: underline; text-underline
   .workspace .calendar-summary { padding-top: 3px; padding-bottom: 3px; min-height: 0; }
   .workspace .calendar-foot { padding-top: 0; padding-bottom: 0; }
 }
+
+/* ==========================================================================
+   New booking / reschedule: wide three-column sheet with a sticky summary bar
+   ========================================================================== */
+.modal.wide:has(.booking-workflow) { width: min(1240px, calc(100vw - 48px)); max-height: calc(100vh - 40px); border-radius: 18px; border: 1px solid var(--line); box-shadow: 0 40px 120px -20px rgba(11, 11, 12, .45); }
+.modal:has(.booking-workflow) .modal-header { padding: 18px 28px; margin: 0; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(10px); }
+.modal:has(.booking-workflow) .modal-header h2 { font-size: 22px; letter-spacing: -.02em; }
+.modal:has(.booking-workflow) .booking-workflow { padding: 0; }
+.modal:has(.booking-workflow) .booking-workflow > fieldset { display: block; }
+.modal:has(.booking-workflow) .booking-workflow > fieldset > :not(.booking-layout):not(.workspace-save-actions) { margin-left: 28px; margin-right: 28px; }
+.modal .booking-layout { display: grid; grid-template-columns: minmax(250px, .85fr) minmax(0, 1.35fr) minmax(300px, 1fr); gap: 0; align-items: start; }
+.modal .booking-layout > section { padding: 22px 26px 26px; min-width: 0; }
+.modal .booking-layout > section + section { border-left: 1px solid var(--line-2, #eceef2); }
+.modal .booking-customer { border-left: 1px solid var(--line-2, #eceef2); padding-left: 26px; }
+.modal .booking-layout h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+.modal .booking-layout h3::first-letter { color: var(--accent); }
+.modal .booking-workflow .workspace-form-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.modal .booking-workflow select, .modal .booking-workflow input:not([type=checkbox]):not([type=radio]), .modal .booking-workflow textarea { border-radius: 10px; min-height: 42px; }
+.modal .booking-workflow .field > span, .modal .booking-workflow label > span:first-child { font-size: 12px; font-weight: 600; color: var(--muted); }
+
+/* Add-ons as tidy toggle rows */
+.modal .workspace-addon-options { border: 0; padding: 0; margin: 18px 0 0; display: grid; gap: 8px; }
+.modal .workspace-addon-options legend { font-size: 12px; font-weight: 600; color: var(--muted); padding: 0; margin-bottom: 8px; }
+.modal .workspace-addon-options .workspace-check { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--surface); font-size: 13px; transition: border-color .15s, background .15s; }
+.modal .workspace-addon-options .workspace-check:has(input:checked) { border-color: var(--accent-fill); background: var(--mint-soft, #e6fcf4); }
+.modal .workspace-addon-options p { margin: 0; font-size: 13px; color: var(--muted); }
+
+/* Date strip */
+.modal .booking-day-strip { display: grid; grid-auto-flow: column; grid-auto-columns: 58px; gap: 6px; overflow-x: auto; padding: 2px 2px 8px; margin: 0 -2px 10px; scrollbar-width: thin; scroll-snap-type: x proximity; }
+.modal .booking-day { scroll-snap-align: start; display: grid; justify-items: center; gap: 1px; padding: 8px 0 7px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); cursor: pointer; font: inherit; transition: border-color .15s, background .15s, transform .15s; }
+.modal .booking-day small { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.modal .booking-day strong { font-size: 18px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.modal .booking-day:hover { border-color: var(--ink-3, #9aa0aa); }
+.modal .booking-day[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+.modal .booking-day[aria-pressed="true"] small { color: var(--mint, #00e8b0); }
+.modal .booking-when > .field:has(input[type=date]) { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; }
+.modal .booking-when > .field:has(input[type=date]) > span { white-space: nowrap; }
+.modal .booking-when input[type=date] { max-width: 190px; min-height: 36px !important; font-size: 13px; }
+
+/* Times */
+.modal .slot-grid { display: grid; gap: 14px; margin: 0 0 16px; }
+.modal .slot-grid-group h4 { margin: 0 0 8px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.modal .slot-grid-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+.modal .slot-chip { min-height: 40px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font: inherit; font-size: 14px; font-weight: 550; font-variant-numeric: tabular-nums; color: var(--ink); cursor: pointer; transition: border-color .15s, background .15s; }
+.modal .slot-chip:hover { border-color: var(--accent-fill); background: var(--mint-soft, #e6fcf4); }
+.modal .slot-chip[aria-pressed="true"] { background: var(--accent-fill, #00e8b0); border-color: var(--accent-fill, #00e8b0); color: var(--ink); font-weight: 700; box-shadow: 0 4px 14px -6px rgba(0, 200, 150, .7); }
+.modal .booking-time-row { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; margin: 0 0 6px; }
+.modal .booking-time-row .field { flex: 1 1 200px; margin: 0; }
+.modal .booking-time-shortcut { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0 16px; }
+.modal .booking-time-shortcut .button { min-height: 36px; }
+.modal .workspace-quote { margin: 4px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--canvas); border: 1px solid var(--line-2, #eceef2); font-size: 13px; color: var(--muted); }
+.modal .workspace-quote strong { color: var(--ink); font-size: 15px; }
+
+/* Customer column */
+.modal .booking-customer .customer-new { background: var(--canvas); border-color: var(--line-2, #eceef2); }
+.modal .booking-customer .workspace-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.modal .series-options { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 14px 0 0; }
+.modal .series-options legend { display: inline-flex; align-items: center; gap: 6px; padding: 0 6px; margin-left: -6px; font-size: 13px; font-weight: 600; }
+.modal .series-options .series-toggle { display: flex; align-items: center; gap: 10px; font-size: 13px; background: none; padding: 0; }
+.modal .booking-customer > .workspace-footnote:last-child { display: none; }
+
+/* Sticky summary + action bar */
+.modal:has(.booking-workflow) .workspace-save-actions { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 16px; margin: 0; padding: 14px 28px; background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(10px); border-top: 1px solid var(--line); }
+.modal:has(.booking-workflow) .workspace-save-actions > .button { margin-left: auto; min-height: 46px; padding: 0 26px; font-size: 15px; font-weight: 650; border-radius: 12px; }
+.booking-summary-bar { display: flex; align-items: center; gap: 6px 18px; flex-wrap: wrap; min-width: 0; font-size: 14px; color: var(--muted); }
+.booking-summary-bar .bsb-main strong { color: var(--ink); font-weight: 650; }
+.booking-summary-bar .bsb-when { font-variant-numeric: tabular-nums; }
+.booking-summary-bar .bsb-price { padding: 3px 10px; border-radius: 999px; background: var(--ink); color: #fff; font-weight: 650; font-variant-numeric: tabular-nums; }
+.modal .booking-review { margin: 0 28px 20px; }
+
+/* Medium screens: service + time stacked on the left, customer on the right */
+@media (max-width: 1100px) {
+  .modal .booking-layout { grid-template-columns: minmax(0, 1.3fr) minmax(280px, 1fr); }
+  .modal .booking-layout > .booking-selection { grid-column: 1; grid-row: 1; padding-bottom: 6px; }
+  .modal .booking-layout > .booking-when { grid-column: 1; grid-row: 2; border-left: 0; padding-top: 6px; }
+  .modal .booking-layout > .booking-customer { grid-column: 2; grid-row: 1 / span 2; }
+}
+/* Phones: full-screen sheet, single column */
+@media (max-width: 720px) {
+  .modal.wide:has(.booking-workflow) { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; border: 0; }
+  .modal:has(.booking-workflow) .modal-header { padding: 12px 16px; }
+  .modal:has(.booking-workflow) .modal-header h2 { font-size: 19px; }
+  .modal:has(.booking-workflow) .booking-workflow > fieldset > :not(.booking-layout):not(.workspace-save-actions) { margin-left: 16px; margin-right: 16px; }
+  .modal .booking-layout { display: block; }
+  .modal .booking-layout > section { padding: 18px 16px; border-left: 0 !important; }
+  .modal .booking-layout > section + section { border-top: 8px solid var(--canvas); }
+  .modal .booking-customer { padding-left: 16px; }
+  .modal .booking-workflow .workspace-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .modal .booking-customer .workspace-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .modal .slot-grid-chips { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .modal:has(.booking-workflow) .workspace-save-actions { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); gap: 10px; }
+  .modal:has(.booking-workflow) .workspace-save-actions > .button { padding: 0 16px; flex: 0 0 auto; }
+  .booking-summary-bar { font-size: 12.5px; gap: 2px 8px; flex: 1 1 0; }
+  .booking-summary-bar .bsb-main { flex-basis: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .booking-summary-bar .bsb-price { padding: 1px 8px; }
+  .modal .booking-review { margin: 0 16px 16px; }
+}
+.modal .booking-when > .workspace-field:has(input[type=date]) { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; }
+.modal .booking-when > .workspace-field:has(input[type=date]) > span { white-space: nowrap; margin: 0; }
+.modal .booking-when > .workspace-field:has(input[type=date]) input { flex: 0 1 190px; }
+.modal .customer-picker .customers-search { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.modal .customer-picker .customers-search:focus-within { border-color: var(--accent-fill); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-fill) 22%, transparent); }
+.modal .customer-picker .customers-search svg { color: var(--muted); flex: none; }
+.modal .customer-picker .customers-search input { border: 0 !important; box-shadow: none !important; background: transparent; padding: 0; min-height: 0 !important; height: 100%; flex: 1; outline: 0; }
+@media (max-width: 720px) {
+  .booking-summary-bar .bsb-main span { display: none; }
+  .booking-summary-bar { align-items: center; }
+  .booking-summary-bar .bsb-main { flex-basis: 100%; }
+  .modal .booking-when > .workspace-field:has(input[type=date]) input { flex: 1 1 auto; }
+}
+.modal .booking-when > .workspace-field:has(input[type=date]) { flex-direction: row; justify-content: flex-start; text-align: left; }
+.modal .booking-when > .workspace-field:has(input[type=date]) input { height: 36px; flex: 0 1 190px; }
+.modal .booking-review { border: 1px solid color-mix(in srgb, var(--accent-fill) 55%, var(--line)); background: linear-gradient(180deg, var(--mint-soft, #e6fcf4), var(--surface) 70%); border-radius: 16px; padding: 18px 20px; }
+.modal .booking-review .notice { background: transparent; border: 0; padding: 0; }
+.modal .booking-review .notice strong { font-size: 15px; }

@@ -7735,7 +7735,7 @@ details.workspace-welcome > svg { display: none; }
 
 /* ---- New booking: slot grid ---- */
 .slot-grid { display: grid; gap: 10px; margin: 8px 0 10px; }
-.slot-grid-group h5 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.slot-grid-group h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .slot-grid-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .slot-chip { border: 1px solid var(--line); background: var(--surface, #fff); border-radius: 10px; padding: 8px 12px; font: inherit; font-size: 14px; font-variant-numeric: tabular-nums; cursor: pointer; min-width: 64px; }
 .slot-chip:hover { border-color: var(--ink); }
