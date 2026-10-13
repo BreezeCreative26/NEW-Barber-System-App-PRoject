@@ -568,7 +568,8 @@ export function Calendar({
                     src={s.photo_url}
                   />
                   <div>
-                    <strong>{s.name}</strong>
+                    {/* Phone columns are ~120px: first name only so it isn't cut to "Jay Cart…". */}
+                    <strong title={s.name}>{compact ? s.name.split(" ")[0] : s.name}</strong>
                     <span aria-label={`${money(taken)} booked, ${mine.length} visit${mine.length === 1 ? "" : "s"}`}>
                       {money(taken)} · {mine.length} visit{mine.length === 1 ? "" : "s"}
                     </span>
