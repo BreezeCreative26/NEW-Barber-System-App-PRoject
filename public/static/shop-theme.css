@@ -26,8 +26,8 @@
   --sp-r-lg: 20px;
   --sp-r-pill: 999px;
   /* Type */
-  --sp-display: "Inter Variable", system-ui, sans-serif;
-  --sp-text: "Inter Variable", system-ui, sans-serif;
+  --sp-display: "Geist", "Inter Variable", system-ui, sans-serif;
+  --sp-text: "Geist", "Inter Variable", system-ui, sans-serif;
   --sp-display-weight: 700;
   --sp-display-tracking: -0.03em;
   --sp-display-case: none;
@@ -679,3 +679,112 @@
 .shop-page .sp-services-section.v-tabs .sp-cat-tabs button { white-space: nowrap; }
 .shop-page .sp-review-quote p { overflow-wrap: anywhere; }
 .shop-page .sp-gallery-section.v-strip .sp-gallery, .shop-page .sp-reviews.v-carousel .sp-review-list { max-width: 100%; }
+
+/* =============================================================================
+   foliyo 2026 refresh — customer-facing shop pages.
+   The owner's choices (accent, light/dark, font, corners, hero, section layouts) still drive
+   everything; this pass sharpens what every shop shares: livelier accents, crisper neutrals,
+   tighter rhythm, bigger photos and clearer hover/press feedback.
+   ============================================================================ */
+.shop-page {
+  --sp-bg: #f6f7f9;
+  --sp-surface-2: #eff1f4;
+  --sp-ink: #0e0f12;
+  --sp-ink-2: #2a2d35;
+  --sp-muted: #5d616c;
+  --sp-line: #e5e7eb;
+  --sp-line-2: #d6d9df;
+  --sp-shadow: 0 1px 2px rgba(14, 15, 18, 0.05), 0 8px 24px -14px rgba(14, 15, 18, 0.22);
+  --sp-shadow-2: 0 2px 6px rgba(14, 15, 18, 0.06), 0 22px 44px -18px rgba(14, 15, 18, 0.32);
+}
+.shop-page.mode-dark { --sp-bg: #0c0d10; --sp-surface: #15161a; --sp-surface-2: #1d1f24; --sp-line: rgba(255, 255, 255, 0.08); --sp-line-2: rgba(255, 255, 255, 0.15); }
+/* Livelier accents (same names, so saved choices carry over) */
+.shop-page.accent-ollo { --sp-accent: #00805c; --sp-accent-dark: #006b4d; --sp-soft: #e3fbf3; }
+.shop-page.accent-sage { --sp-accent: #0f8a5f; --sp-accent-dark: #0b6e4b; --sp-soft: rgba(15, 138, 95, 0.12); }
+.shop-page.accent-clay { --sp-accent: #c2410c; --sp-accent-dark: #9a330a; --sp-soft: rgba(194, 65, 12, 0.11); }
+.shop-page.accent-plum { --sp-accent: #6d3fe0; --sp-accent-dark: #5530b8; --sp-soft: rgba(109, 63, 224, 0.11); }
+.shop-page.accent-slate { --sp-accent: #3f4b5e; --sp-accent-dark: #2c3646; --sp-soft: rgba(63, 75, 94, 0.11); }
+.shop-page.mode-dark.accent-ollo { --sp-accent: #00e8b0; --sp-accent-dark: #4ff0c8; --sp-accent-ink: #0b0b0c; --sp-soft: rgba(0, 232, 176, 0.14); }
+.shop-page.mode-dark.accent-sage { --sp-accent: #34d399; --sp-accent-dark: #6ee7b7; --sp-accent-ink: #0b0b0c; --sp-soft: rgba(52, 211, 153, 0.14); }
+.shop-page.mode-dark.accent-clay { --sp-accent: #fb8c4a; --sp-accent-dark: #fdab78; --sp-accent-ink: #0b0b0c; --sp-soft: rgba(251, 140, 74, 0.14); }
+.shop-page.mode-dark.accent-plum { --sp-accent: #a78bfa; --sp-accent-dark: #c4b5fd; --sp-accent-ink: #0b0b0c; --sp-soft: rgba(167, 139, 250, 0.15); }
+.shop-page.mode-dark.accent-slate { --sp-accent: #a3b1c6; --sp-accent-dark: #c3cddb; --sp-accent-ink: #0b0b0c; --sp-soft: rgba(163, 177, 198, 0.14); }
+
+.shop-page { text-rendering: optimizeLegibility; -moz-osx-font-smoothing: grayscale; }
+.shop-page .button { transition: background .15s ease, border-color .15s ease, transform .15s ease, box-shadow .15s ease; }
+.shop-page .button:active { transform: translateY(1px); }
+.shop-page .button.primary { box-shadow: 0 1px 2px rgba(0, 0, 0, .12), inset 0 1px 0 rgba(255, 255, 255, .14); }
+.shop-page :focus-visible { outline: 2px solid var(--sp-accent); outline-offset: 2px; }
+
+/* Rhythm: one consistent gap between sections instead of stacked paddings */
+.shop-page .sp-section { padding-top: clamp(28px, 4vw, 52px); padding-bottom: clamp(20px, 3vw, 36px); }
+.shop-page .sp-section h2 { line-height: 1.05; }
+.shop-page .sp-section-head { margin-bottom: 20px; gap: 6px; }
+.shop-page .sp-about p { font-size: clamp(18px, 1.6vw, 22px); line-height: 1.55; max-width: 62ch; }
+
+/* Hero: deeper bottom scrim so text stays crisp on any photo */
+.shop-page.hero-editorial .sp-hero.has-cover .sp-hero-inner::before { background: linear-gradient(180deg, rgba(8, 9, 12, 0) 0%, rgba(8, 9, 12, 0.25) 40%, rgba(8, 9, 12, 0.88) 100%), linear-gradient(90deg, rgba(8, 9, 12, 0.6) 0%, rgba(8, 9, 12, 0) 65%); }
+.shop-page .sp-hero-actions { gap: 10px; }
+.shop-page .sp-hero-actions .button { min-height: 52px; padding: 0 26px; }
+.shop-page .sp-open { font-weight: 600; letter-spacing: .01em; }
+
+/* Next available: bigger photo, the time as a clear accent pill */
+.shop-page .sp-next-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.shop-page .sp-next-list :is(button, a) { padding: 12px 14px 12px 12px; gap: 14px; transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
+.shop-page .sp-next-list :is(button, a):hover { transform: translateY(-2px); border-color: var(--sp-accent); }
+.shop-page .sp-next-photo, .shop-page .sp-next-list .avatar { width: 52px; height: 52px; }
+.shop-page .sp-next-time { background: var(--sp-soft); color: var(--sp-accent-dark); padding: 6px 10px; border-radius: var(--sp-r); font-size: 18px; line-height: 1; }
+.shop-page.mode-dark .sp-next-time { color: var(--sp-accent); }
+
+/* Services: clearer hover, price stands out */
+.shop-page .sp-services :is(button, a) { transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
+.shop-page .sp-services :is(button, a):hover { transform: translateY(-2px); border-color: var(--sp-accent); }
+.shop-page .sp-service-meta b { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.shop-page .sp-service-go { width: 32px; height: 32px; border-radius: var(--sp-r-pill); }
+.shop-page.mode-dark .sp-popular { color: var(--sp-accent); }
+
+/* Team (card layout): full-width portrait on top — the people are the product */
+.shop-page .sp-team-section.v-cards .sp-team { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.shop-page .sp-team-section.v-cards .sp-barber { grid-template-columns: 1fr; padding: 0; overflow: hidden; gap: 0; transition: transform .2s ease, box-shadow .2s ease; }
+.shop-page .sp-team-section.v-cards .sp-barber:hover { transform: translateY(-3px); box-shadow: var(--sp-shadow-2); }
+.shop-page .sp-team-section.v-cards .sp-barber > .sp-photo, .shop-page .sp-team-section.v-cards .sp-barber > .avatar.large { width: 100%; height: auto; aspect-ratio: 4 / 3; border-radius: 0; object-position: 50% 28%; font-size: 40px; }
+.shop-page .sp-team-section.v-cards .sp-barber-text { padding: 18px 20px 0; gap: 6px; }
+.shop-page .sp-team-section.v-cards .sp-barber-text b { font-size: 18px; letter-spacing: -0.01em; }
+.shop-page .sp-team-section.v-cards .sp-barber-actions { padding: 14px 20px 20px; margin-top: auto; }
+.shop-page .sp-team-section.v-cards .sp-barber { display: flex; flex-direction: column; }
+.shop-page.mode-dark .sp-barber-next { color: var(--sp-accent); }
+
+/* Booking band */
+.shop-page .sp-cta-card { position: relative; overflow: hidden; box-shadow: var(--sp-shadow-2); }
+.shop-page .sp-cta-card::after { content: ""; position: absolute; width: 360px; height: 360px; right: -120px; top: -180px; border-radius: 50%; background: radial-gradient(closest-side, rgba(255, 255, 255, 0.14), transparent 70%); pointer-events: none; }
+
+/* Hours & find us cards */
+.shop-page .sp-two { gap: 16px; }
+.shop-page .sp-hours > div { padding: 10px 14px; border-radius: var(--sp-r); }
+.shop-page .sp-hours > div.today { background: var(--sp-soft); color: var(--sp-ink); box-shadow: inset 3px 0 0 var(--sp-accent); }
+
+/* Gallery: larger, even tiles with a subtle zoom */
+.shop-page .sp-gallery { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.shop-page .sp-gallery li { overflow: hidden; border-radius: var(--sp-r); }
+.shop-page .sp-gallery img { aspect-ratio: 4 / 3; transition: transform .5s ease; }
+.shop-page .sp-gallery li:hover img { transform: scale(1.04); }
+
+/* Reviews */
+.shop-page .sp-review { transition: box-shadow .2s ease; }
+.shop-page .sp-review:hover { box-shadow: var(--sp-shadow-2); }
+.shop-page .stars .on { color: #ffb020; fill: #ffb020; }
+
+@media (max-width: 767px) {
+  .shop-page .sp-team-section.v-cards .sp-team { grid-template-columns: 1fr; }
+  .shop-page .sp-gallery { grid-template-columns: 1fr 1fr; gap: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shop-page .sp-next-list :is(button, a), .shop-page .sp-services :is(button, a), .shop-page .sp-team-section.v-cards .sp-barber, .shop-page .sp-gallery img { transition: none; }
+}
+/* Card titles are links, but they read as content: ink, with the accent kept for prices and actions */
+.shop-page .sp-services a, .shop-page .sp-next-list a { color: var(--sp-ink); }
+/* Booking band button: always the inverse of the band */
+.shop-page .sp-cta-card .button.sp-cta-btn { background: var(--sp-accent-ink); color: var(--sp-accent-dark); border-color: transparent; }
+.shop-page.accent-ink .sp-cta-card .button.sp-cta-btn { background: #fff; color: #111318; }
+.shop-page.mode-dark.accent-ink .sp-cta-card .button.sp-cta-btn { background: var(--sp-ink); color: var(--sp-bg); }
+.shop-page.mode-dark:not(.accent-ink) .sp-cta-card .button.sp-cta-btn { background: var(--sp-accent-ink); color: var(--sp-accent); }

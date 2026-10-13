@@ -8,7 +8,7 @@
 @font-face { font-family: "Bebas Neue"; font-style: normal; font-display: swap; font-weight: 400; src: url("/static/fonts/bebas-neue-latin-400-normal.woff2") format("woff2"); }
 
 /* Font pairings: --sp-display for headings, --sp-text for everything else. */
-.shop-page.font-modern { --sp-display: "Inter Variable", system-ui, sans-serif; --sp-text: "Inter Variable", system-ui, sans-serif; --sp-display-weight: 700; --sp-display-tracking: -0.03em; --sp-display-case: none; }
+.shop-page.font-modern { --sp-display: "Geist", "Inter Variable", system-ui, sans-serif; --sp-text: "Geist", "Inter Variable", system-ui, sans-serif; --sp-display-weight: 700; --sp-display-tracking: -0.03em; --sp-display-case: none; }
 .shop-page.font-editorial { --sp-display: "Fraunces", Georgia, serif; --sp-text: "Manrope", system-ui, sans-serif; --sp-display-weight: 600; --sp-display-tracking: -0.02em; --sp-display-case: none; }
 .shop-page.font-grotesk { --sp-display: "Space Grotesk", system-ui, sans-serif; --sp-text: "Space Grotesk", system-ui, sans-serif; --sp-display-weight: 600; --sp-display-tracking: -0.035em; --sp-display-case: none; }
 .shop-page.font-heritage { --sp-display: "Playfair Display", Georgia, serif; --sp-text: "DM Sans", system-ui, sans-serif; --sp-display-weight: 700; --sp-display-tracking: -0.01em; --sp-display-case: none; }
