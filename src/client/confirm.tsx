@@ -14,10 +14,13 @@ type AskOptions = {
   tone?: "default" | "danger" | "warning";
 };
 type TextOptions = AskOptions & { label?: string; placeholder?: string; initial?: string; required?: boolean };
-type CheckOptions = AskOptions & { check: { label: string; hint?: string; initial: boolean } };
+export type CheckItem = { id: string; label: string; detail?: string; initial: boolean };
+// One or more tick boxes under an optional heading (e.g. "Let Leo know": Text / Email).
+type CheckOptions = AskOptions & { checks: CheckItem[]; heading?: string; hint?: string };
+type Checked = Record<string, boolean>;
 type Request =
   | { kind: "confirm"; opts: AskOptions; resolve: (v: boolean) => void }
-  | { kind: "check"; opts: CheckOptions; resolve: (v: { checked: boolean } | null) => void }
+  | { kind: "check"; opts: CheckOptions; resolve: (v: Checked | null) => void }
   | { kind: "text"; opts: TextOptions; resolve: (v: string | null) => void };
 
 let root: Root | null = null;
@@ -42,8 +45,8 @@ function enqueue(r: Request) {
 export function ask(opts: AskOptions): Promise<boolean> {
   return new Promise((resolve) => enqueue({ kind: "confirm", opts, resolve }));
 }
-// Confirm with one tick box (e.g. "Text the customer"). Resolves null on cancel.
-export function askCheck(opts: CheckOptions): Promise<{ checked: boolean } | null> {
+// Confirm with tick boxes. Resolves null on cancel, otherwise { [id]: ticked }.
+export function askCheck(opts: CheckOptions): Promise<Checked | null> {
   return new Promise((resolve) => enqueue({ kind: "check", opts, resolve }));
 }
 export function askText(opts: TextOptions): Promise<string | null> {
@@ -61,20 +64,22 @@ function Host() {
   }, []);
   const current = items[0];
   if (!current) return null;
-  const done = (value: boolean | string | null) => {
+  const done = (value: boolean | string | Checked | null) => {
     if (current.kind === "confirm") current.resolve(value === true);
-    else if (current.kind === "check") current.resolve(typeof value === "boolean" ? { checked: value } : null);
+    else if (current.kind === "check") current.resolve(value && typeof value === "object" ? value : null);
     else current.resolve(typeof value === "string" ? value : null);
     setItems((xs) => xs.slice(1));
   };
   return <AskDialog key={items.length + current.opts.title} req={current} onDone={done} />;
 }
 
-function AskDialog({ req, onDone }: { req: Request; onDone: (v: boolean | string | null) => void }) {
+function AskDialog({ req, onDone }: { req: Request; onDone: (v: boolean | string | Checked | null) => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState(req.kind === "text" ? req.opts.initial || "" : "");
-  const [checked, setChecked] = useState(req.kind === "check" ? req.opts.check.initial : false);
+  const [checked, setChecked] = useState<Checked>(() =>
+    req.kind === "check" ? Object.fromEntries(req.opts.checks.map((c) => [c.id, c.initial])) : {},
+  );
   const { opts } = req;
   const tone = opts.tone || "default";
   useEffect(() => {
@@ -146,13 +151,24 @@ function AskDialog({ req, onDone }: { req: Request; onDone: (v: boolean | string
           </label>
         )}
         {req.kind === "check" && (
-          <label className="ask-check" data-testid="confirm-check">
-            <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
-            <span>
-              <strong>{req.opts.check.label}</strong>
-              {req.opts.check.hint && <small>{req.opts.check.hint}</small>}
-            </span>
-          </label>
+          <fieldset className="ask-checks" data-testid="confirm-check">
+            {req.opts.heading && <legend>{req.opts.heading}</legend>}
+            {req.opts.checks.map((c) => (
+              <label key={c.id} className="ask-check">
+                <input
+                  type="checkbox"
+                  data-testid={`confirm-check-${c.id}`}
+                  checked={!!checked[c.id]}
+                  onChange={(e) => setChecked((v) => ({ ...v, [c.id]: e.target.checked }))}
+                />
+                <span>
+                  <strong>{c.label}</strong>
+                  {c.detail && <small>{c.detail}</small>}
+                </span>
+              </label>
+            ))}
+            {req.opts.hint && <p className="ask-checks-hint">{req.opts.hint}</p>}
+          </fieldset>
         )}
         <div className="ask-actions">
           <button type="button" className="button secondary" onClick={cancel} data-testid="confirm-cancel">

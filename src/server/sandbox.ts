@@ -563,6 +563,16 @@ sandbox.get("/bookings", async (c) => {
     .bind(...values, q.limit + 1)
     .all<StoredBooking>();
   const rows = result.results.slice(0, q.limit);
+  // Shop-made bookings keep the email on the customer record; surface it so the calendar can
+  // offer "Email" when telling someone their appointment moved.
+  const ids = [...new Set(rows.filter((r) => !r.email && r.customer_id).map((r) => r.customer_id!))];
+  if (ids.length) {
+    const found = await c.env.DB.prepare(
+      `SELECT id,email FROM customers WHERE shop_id=? AND email<>'' AND id IN (${ids.map(() => "?").join(",")})`,
+    ).bind(c.get("shopId"), ...ids).all<{ id: string; email: string }>();
+    const byId = new Map(found.results.map((r) => [r.id, r.email]));
+    for (const r of rows) if (!r.email && r.customer_id && byId.has(r.customer_id)) r.customer_email = byId.get(r.customer_id);
+  }
   const last = rows.at(-1);
   return c.json({
     date: q.date,
@@ -3662,7 +3672,7 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
 // the 5-minute message cron is the backstop if the tab closes.
 export const MOVE_HOLD_MS = 30_000;
 const slotText = (date: string, start: number) => `${fmtDate(date)} at ${fmtTime(start)}`;
-async function noticeMove(c: Ctx, before: StoredBooking, after: StoredBooking, notify: boolean) {
+async function noticeMove(c: Ctx, before: StoredBooking, after: StoredBooking, notify: boolean | { sms: boolean; email: boolean }) {
   const shopId = c.get("shopId");
   const now = Date.now();
   const pending = await c.env.DB.prepare(
@@ -3674,7 +3684,7 @@ async function noticeMove(c: Ctx, before: StoredBooking, after: StoredBooking, n
     await c.env.DB.prepare(
       "UPDATE notifications SET status='SKIPPED', status_note='Replaced by a later change before it was sent.' WHERE shop_id=? AND related_type='booking' AND related_id=? AND template='booking_moved' AND status='QUEUED' AND attempts=0",
     ).bind(shopId, before.id).run();
-  if (!notify) return null;
+  if (!notify || (typeof notify === "object" && !notify.sms && !notify.email)) return null;
   const was = knownWas || slotText(before.date, before.start_min);
   const nowAt = slotText(after.date, after.start_min);
   // Back at the time the customer last heard about (e.g. moved, then moved straight back): nothing to say.
@@ -3682,12 +3692,14 @@ async function noticeMove(c: Ctx, before: StoredBooking, after: StoredBooking, n
   const shop = await msgShop(c, shopId);
   if (!shop.slug) return null;
   let pref: Recipient["pref"] = after.contact_pref && after.contact_pref !== "AUTO" ? (after.contact_pref as Recipient["pref"]) : undefined;
-  if (!pref && after.customer_id) {
-    const cu = await c.env.DB.prepare("SELECT contact_pref FROM customers WHERE shop_id=? AND id=?").bind(shopId, after.customer_id).first<{ contact_pref: string | null }>();
-    if (cu?.contact_pref && cu.contact_pref !== "AUTO") pref = cu.contact_pref as Recipient["pref"];
+  let email = after.email;
+  if (after.customer_id) {
+    const cu = await c.env.DB.prepare("SELECT contact_pref,email FROM customers WHERE shop_id=? AND id=?").bind(shopId, after.customer_id).first<{ contact_pref: string | null; email: string | null }>();
+    if (!pref && cu?.contact_pref && cu.contact_pref !== "AUTO") pref = cu.contact_pref as Recipient["pref"];
+    if (!email && cu?.email) email = cu.email; // shop-made bookings keep the email on the customer
   }
   if (pref === "NONE") return null;
-  const to: Recipient = { name: after.attendee_name || after.customer_name, phone: after.phone, email: after.email, pref };
+  const to: Recipient = { name: after.attendee_name || after.customer_name, phone: after.phone, email, pref };
   const staff = await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(shopId, after.staff_id).first<{ name: string }>();
   const origin = new URL(c.req.url).origin;
   const vars = {
@@ -3696,10 +3708,23 @@ async function noticeMove(c: Ctx, before: StoredBooking, after: StoredBooking, n
   };
   const sendAt = now + MOVE_HOLD_MS;
   const opts = { related: { type: "booking", id: after.id }, origin, sendAt, note: `Held ${MOVE_HOLD_MS / 1000}s so Undo can cancel it · was ${was}` };
-  const stmts = [...enqueue(c.env.DB, shop, to, "booking_moved", vars, opts), ...(await pushFor(c.env.DB, shop, to, "booking_moved", vars, opts))];
-  if (!stmts.length) return null;
+  // Explicit choice: a text-only recipient (WhatsApp if that's their preference) and/or an
+  // email-only recipient, so neither silently falls back to the other channel.
+  const asked = typeof notify === "object" ? notify : null;
+  const legs: { to: Recipient; channel: "AUTO" | "EMAIL" }[] = asked
+    ? [
+        ...(asked.sms && to.phone ? [{ to: { ...to, email: undefined, pref: to.pref === "EMAIL" ? undefined : to.pref }, channel: "AUTO" as const }] : []),
+        ...(asked.email && to.email ? [{ to: { ...to, phone: undefined, pref: undefined }, channel: "EMAIL" as const }] : []),
+      ]
+    : [{ to, channel: "AUTO" }];
+  const channels = legs.flatMap((l) => channelsFor(shop, l.to, l.channel, false, false, "booking_moved"));
+  const stmts = [
+    ...legs.flatMap((l) => enqueue(c.env.DB, shop, l.to, "booking_moved", vars, { ...opts, channel: l.channel })),
+    ...(await pushFor(c.env.DB, shop, to, "booking_moved", vars, opts)),
+  ];
+  if (!stmts.length || !channels.length) return null;
   await c.env.DB.batch(stmts);
-  return { channels: channelsFor(shop, to, "AUTO"), send_at: sendAt };
+  return { channels: [...new Set(channels)], send_at: sendAt };
 }
 // Send any held move message for this booking whose hold has ended (called by the calendar when
 // the Undo window closes). Only due rows go; a still-held or replaced message is untouched.

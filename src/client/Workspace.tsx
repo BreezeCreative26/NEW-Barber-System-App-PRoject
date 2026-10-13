@@ -166,26 +166,47 @@ async function readDay(date: string): Promise<StoredBooking[]> {
 }
 const text = (f: FormData, k: string) => String(f.get(k) ?? "");
 // ---- Telling the customer about a move ---------------------------------------------------------
-// The server holds the message for 30s (Undo window); the tick-box choice is remembered per browser.
+// The server holds the message for 30s (Undo window). Staff pick text and/or email; each choice is
+// remembered per browser (default: both on).
 const NOTIFY_KEY = "foliyo.notifyMoves";
-export const notifyMovesDefault = () => { try { return localStorage.getItem(NOTIFY_KEY) !== "0"; } catch { return true; } };
-const rememberNotify = (on: boolean) => { try { localStorage.setItem(NOTIFY_KEY, on ? "1" : "0"); } catch { /* private mode */ } };
+export type NotifyChoice = { sms: boolean; email: boolean };
+export const notifyMovesDefault = (): NotifyChoice => {
+  try {
+    const raw = localStorage.getItem(NOTIFY_KEY);
+    if (raw === "0") return { sms: false, email: false }; // older single on/off setting
+    if (raw && raw.startsWith("{")) { const v = JSON.parse(raw); return { sms: v.sms !== false, email: v.email !== false }; }
+  } catch { /* private mode / bad value */ }
+  return { sms: true, email: true };
+};
+export const rememberNotify = (v: NotifyChoice) => { try { localStorage.setItem(NOTIFY_KEY, JSON.stringify(v)); } catch { /* private mode */ } };
 export type MoveNotice = { channels: string[]; send_at: number } | null;
-export function moveContact(b: Pick<StoredBooking, "attendee_name" | "customer_name" | "phone" | "email">) {
+// Who can be told, and how. Walk-ins and contactless bookings get no option.
+export function moveContact(b: Pick<StoredBooking, "attendee_name" | "customer_name" | "phone" | "email" | "customer_email">) {
   const first = (b.attendee_name || b.customer_name || "").trim().split(/\s+/)[0];
   if (!first || /^walk-?in$/i.test(first)) return null;
-  if (b.phone) return { first, label: `Text ${first} the new time` };
-  if (b.email) return { first, label: `Email ${first} the new time` };
-  return null;
+  const email = b.email || b.customer_email || "";
+  if (!b.phone && !email) return null;
+  return { first, phone: b.phone || "", email };
 }
-// Confirm a move; returns null on cancel, otherwise whether to notify the customer.
-async function confirmMove(b: StoredBooking, o: { title: string; body: string; confirm: string; tone: "default" | "warning" }): Promise<{ notify: boolean } | null> {
+// What we send: only channels the booking has. Undefined = nothing ticked.
+const pickNotify = (who: { phone: string; email: string }, v: NotifyChoice): NotifyChoice | undefined => {
+  const out = { sms: !!who.phone && v.sms, email: !!who.email && v.email };
+  return out.sms || out.email ? out : undefined;
+};
+// Confirm a move; returns null on cancel, otherwise the channels to notify on (or undefined for none).
+async function confirmMove(b: StoredBooking, o: { title: string; body: string; confirm: string; tone: "default" | "warning" }): Promise<{ notify: NotifyChoice | undefined } | null> {
   const who = moveContact(b);
-  if (!who) return (await ask(o)) ? { notify: false } : null;
-  const r = await askCheck({ ...o, check: { label: who.label, hint: "Sent 30 seconds after you move it, so Undo cancels it.", initial: notifyMovesDefault() } });
+  if (!who) return (await ask(o)) ? { notify: undefined } : null;
+  const d = notifyMovesDefault();
+  const checks = [
+    ...(who.phone ? [{ id: "sms", label: "Text", detail: who.phone, initial: d.sms }] : []),
+    ...(who.email ? [{ id: "email", label: "Email", detail: who.email, initial: d.email }] : []),
+  ];
+  const r = await askCheck({ ...o, heading: `Let ${who.first} know the new time`, hint: "Sent 30 seconds after you move it, so Undo cancels it.", checks });
   if (!r) return null;
-  rememberNotify(r.checked);
-  return { notify: r.checked };
+  const choice = { sms: who.phone ? !!r.sms : d.sms, email: who.email ? !!r.email : d.email };
+  rememberNotify(choice);
+  return { notify: pickNotify(who, choice) };
 }
 // When the hold ends, ask the server to send it now rather than waiting for the 5-minute sweep.
 export function flushMoveNotice(bookingId: string, n: MoveNotice) {
@@ -195,8 +216,8 @@ export function flushMoveNotice(bookingId: string, n: MoveNotice) {
 export function noticeSuffix(b: Pick<StoredBooking, "attendee_name" | "customer_name">, n: MoveNotice) {
   if (!n || !n.channels.length) return "";
   const first = (b.attendee_name || b.customer_name || "").split(" ")[0];
-  const how = n.channels.includes("SMS") ? "a text" : n.channels.includes("EMAIL") ? "an email" : "a message";
-  return ` ${first} gets ${how} in 30 seconds unless you undo.`;
+  const parts = [n.channels.some((c) => c === "SMS" || c === "WA") ? (n.channels.includes("WA") ? "a WhatsApp" : "a text") : "", n.channels.includes("EMAIL") ? "an email" : ""].filter(Boolean);
+  return parts.length ? ` ${first} gets ${parts.join(" and ")} in 30 seconds unless you undo.` : "";
 }
 const number = (f: FormData, k: string) => Number(text(f, k));
 const minute = (s: string) => {
@@ -2844,7 +2865,7 @@ export function Workspace() {
                                 flushMoveNotice(b.id, n);
                                 setNotice(`Moved ${b.attendee_name || b.customer_name} to ${at}${same ? "" : ` with ${who}`}.${noticeSuffix(b, n)}`);
                                 const from = { date: b.date, start_min: b.start_min, staff_id: b.staff_id };
-                                setUndo({ label: `back to ${time(from.start_min)}`, run: async () => { const cur = (await api<{ booking: StoredBooking }>(`/bookings/${b.id}`)).booking; const u = await api<{ notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo timetable move", version: cur.version, force: true, notify: !!n && Date.now() >= n.send_at }); flushMoveNotice(b.id, u.notify ?? null); } });
+                                setUndo({ label: `back to ${time(from.start_min)}`, run: async () => { const cur = (await api<{ booking: StoredBooking }>(`/bookings/${b.id}`)).booking; const u = await api<{ notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo timetable move", version: cur.version, force: true, notify: n && Date.now() >= n.send_at ? ok.notify : undefined }); flushMoveNotice(b.id, u.notify ?? null); } });
                                 await refresh({ background: true });
                               } catch (e) { setError(e instanceof Error ? e.message : "Could not move the appointment."); }
                               return;
@@ -2938,7 +2959,7 @@ export function Workspace() {
                                       run: async () => {
                                         const cur = (await api<{ booking: StoredBooking }>(`/bookings/${b.id}`)).booking;
                                         // Inside the hold the pending message is simply dropped; after it, the customer is told it's back.
-                                        const u = await api<{ notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo calendar move", version: cur.version, force: true, notify: !!n && Date.now() >= n.send_at });
+                                        const u = await api<{ notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo calendar move", version: cur.version, force: true, notify: n && Date.now() >= n.send_at ? ok.notify : undefined });
                                         flushMoveNotice(b.id, u.notify ?? null);
                                       },
                                     });
@@ -7498,7 +7519,15 @@ function BookingForm({
               start_min: Number(start),
               version: b.version,
               reason: text(f, "reason"),
-              notify: f.get("notify_customer") === "on",
+              notify: (() => {
+                const who = moveContact(b);
+                if (!who) return undefined;
+                const d = notifyMovesDefault();
+                const choice = { sms: who.phone ? f.get("notify_sms") === "on" : d.sms, email: who.email ? f.get("notify_email") === "on" : d.email };
+                rememberNotify(choice);
+                const out = { sms: !!who.phone && choice.sms, email: !!who.email && choice.email };
+                return out.sms || out.email ? out : undefined;
+              })(),
               ...(override ? { force: true } : {}),
             }
           : {
@@ -7959,20 +7988,28 @@ function BookingForm({
               <textarea name="reason" required minLength={3} maxLength={300} />
             </Field>
           )}
-          {b && moveContact(b) && (
-            <label className="ask-check booking-notify" data-testid="reschedule-notify">
-              <input
-                type="checkbox"
-                name="notify_customer"
-                defaultChecked={notifyMovesDefault()}
-                onChange={(e) => { try { localStorage.setItem("foliyo.notifyMoves", e.target.checked ? "1" : "0"); } catch { /* private mode */ } }}
-              />
-              <span>
-                <strong>{moveContact(b)!.label}</strong>
-                <small>Sent 30 seconds after you save, with the old and new time.</small>
-              </span>
-            </label>
-          )}
+          {b && moveContact(b) && (() => {
+            const who = moveContact(b)!;
+            const d = notifyMovesDefault();
+            return (
+              <fieldset className="ask-checks booking-notify" data-testid="reschedule-notify">
+                <legend>Let {who.first} know the new time</legend>
+                {who.phone && (
+                  <label className="ask-check">
+                    <input type="checkbox" name="notify_sms" defaultChecked={d.sms} data-testid="reschedule-notify-sms" />
+                    <span><strong>Text</strong><small>{who.phone}</small></span>
+                  </label>
+                )}
+                {who.email && (
+                  <label className="ask-check">
+                    <input type="checkbox" name="notify_email" defaultChecked={d.email} data-testid="reschedule-notify-email" />
+                    <span><strong>Email</strong><small>{who.email}</small></span>
+                  </label>
+                )}
+                <p className="ask-checks-hint">Sent 30 seconds after you save, with the old and new time.</p>
+              </fieldset>
+            );
+          })()}
           <p className="workspace-footnote">Review the details before saving.</p>
         </section>
       </div>
