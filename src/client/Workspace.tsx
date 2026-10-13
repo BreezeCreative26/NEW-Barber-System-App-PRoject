@@ -1588,6 +1588,18 @@ export function Workspace() {
   const phoneDevice = usePhone();
   const [densityChoice, setDensityChoice] = useState<Density | null>(null);
   const [densityOpen, setDensityOpen] = useState(false);
+  // Full-screen calendar: hides the side rail and top bar so the timetable fills the window.
+  // Remembered per browser; Escape or the toolbar button exits. Appointments tab only.
+  const [calFull, setCalFull] = useState<boolean>(() => { try { return localStorage.getItem("foliyo-cal-full") === "1"; } catch { return false; } });
+  useEffect(() => {
+    const on = calFull && tab === "Appointments";
+    document.documentElement.classList.toggle("cal-full", on);
+    try { localStorage.setItem("foliyo-cal-full", calFull ? "1" : "0"); } catch { /* private mode */ }
+    if (!on) return;
+    const esc = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape" && !document.querySelector("[role=dialog], .density-menu [role=menu]")) setCalFull(false); };
+    window.addEventListener("keydown", esc);
+    return () => { window.removeEventListener("keydown", esc); document.documentElement.classList.remove("cal-full"); };
+  }, [calFull, tab]);
   useEffect(() => {
     if (!densityOpen) return;
     const close = (e: Event) => { if (!(e.target as HTMLElement).closest?.(".density-menu")) setDensityOpen(false); };
@@ -2560,6 +2572,17 @@ export function Workspace() {
                         <span className="toolbar-label">Agenda</span>
                       </button>
                     </div>
+                    <Button
+                      variant="ghost"
+                      className="icon-only toolbar-fullscreen"
+                      aria-label={calFull ? "Exit full screen calendar" : "Full screen calendar"}
+                      aria-pressed={calFull}
+                      title={calFull ? "Exit full screen (Esc)" : "Full screen calendar"}
+                      data-testid="calendar-fullscreen"
+                      onClick={() => setCalFull((v) => !v)}
+                    >
+                      <Icon name={calFull ? "minimize" : "maximize"} />
+                    </Button>
                     <span className="density-menu toolbar-density">
                       <Button
                         variant="ghost"

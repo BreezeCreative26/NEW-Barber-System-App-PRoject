@@ -3629,3 +3629,12 @@ body.editor-open { overflow: hidden; }
   .wallets-table tfoot td:nth-child(6)::before { content: "in transit"; }
   .wallets-table tfoot td:nth-child(7)::before { content: "reached bank"; }
 }
+
+/* ---------- Full-screen calendar (toggle in the timetable toolbar; Esc exits) ---------- */
+html.cal-full .workspace .topbar,
+html.cal-full .workspace .rail,
+html.cal-full .workspace .tabbar,
+html.cal-full .workspace .skip-link { display: none; }
+html.cal-full .workspace .workspace-layout { min-height: 100dvh; }
+html.cal-full .workspace .workspace-main:has(> .connected-calendar) { height: 100dvh; padding: 0; }
+html.cal-full .workspace .connected-calendar { border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0; box-shadow: none; }
