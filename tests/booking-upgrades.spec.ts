@@ -124,7 +124,7 @@ test("book for someone else: attendee saved and shown to owner, customer and man
     await page.getByRole("button", { name: "Next week" }).click();
   }
   await page.getByRole("button", { name: new RegExp(`^${label},`) }).click();
-  const slots = page.getByRole("group", { name: "Choose an appointment time" }).locator("button:not([disabled])");
+  const slots = page.getByRole("group", { name: "Choose an appointment time" }).locator(".time-slots button:not(.time-more):not([disabled])");
   await expect(slots.first()).toBeVisible();
   // Any-barber slots carry the assigned barber's first name.
   await expect(slots.first().locator("small")).toHaveText(/\w+/);

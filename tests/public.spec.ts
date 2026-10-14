@@ -343,7 +343,7 @@ test.describe("public booking pages", () => {
       await page.getByRole("button", { name: "Next week" }).click();
     }
     await page.getByRole("button", { name: new RegExp(`^${label},`) }).click();
-    await page.getByRole("group", { name: "Choose an appointment time" }).locator("button:not([disabled])").first().click();
+    await page.getByRole("group", { name: "Choose an appointment time" }).locator(".time-slots button:not(.time-more):not([disabled])").first().click();
     // Not signed in → the account step: create an account (or sign in) before the review.
     await page.getByRole("button", { name: "Sign in to book", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Sign in to book." })).toBeVisible();

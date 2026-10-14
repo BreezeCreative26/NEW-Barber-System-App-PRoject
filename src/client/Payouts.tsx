@@ -2,6 +2,7 @@
 // shop's Stripe account, every barber's account, deposit + payout policy and 30-day money moved.
 // BarberPayoutCard (Team → barber → Pay) lets a barber be set up and see their own wallet.
 import { useEffect, useState } from "react";
+import { ask } from "./confirm";
 import type React from "react";
 import { Button, Icon, Notice, StatusPill } from "./ui";
 import { money } from "./fixtures";
@@ -444,7 +445,7 @@ function ReadersCard({ api, live }: { api: Api; live: boolean }) {
               <StatusPill tone={r.status === "online" ? "good" : "note"}>{r.status}</StatusPill>
               <div className="row-actions">
                 <Button variant="ghost" disabled={!live || busy} onClick={() => api(`/terminal/readers/${r.id}/refresh`, "POST", {}).then(load).catch(() => null)}>Refresh</Button>
-                <Button variant="ghost" disabled={busy} onClick={() => { if (confirm(`Remove ${r.label}?`)) api(`/terminal/readers/${r.id}`, "DELETE").then(load).catch(() => null); }}>Remove</Button>
+                <Button variant="ghost" disabled={busy} onClick={async () => { if (await ask({ title: `Remove ${r.label}?`, confirm: "Remove", tone: "danger" })) api(`/terminal/readers/${r.id}`, "DELETE").then(load).catch(() => null); }}>Remove</Button>
               </div>
             </li>
           ))}

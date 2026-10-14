@@ -1,6 +1,7 @@
 // Appointment side panel: right-hand drawer on desktop, bottom sheet on phones.
 // The calendar stays visible behind it so the owner can compare or move visits.
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ask } from "./confirm";
 import type { StoredBooking, WorkspaceData, BookingItem, Payment } from "../server/domain";
 import { Avatar, Badge, Button, Icon, IconButton, Notice } from "./ui";
 import { Checkout, PaidStrip, paidFor, type Tender } from "./Checkout";
@@ -67,6 +68,20 @@ const when = (ms: number) =>
   new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }).format(new Date(ms));
 const longDate = (d: string) =>
   new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "long", timeZone: "UTC" }).format(new Date(d + "T12:00:00Z"));
+const actionLabel = (action: string) => {
+  const t = actionLabels[action] || action.replace(/_/g, " ").toLowerCase();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
+// Server actors: user:<id> (signed-in team member), sandbox-owner:<id>, customer:<id>, customer:online, system/cron.
+const actorLabel = (actor: string) => {
+  if (/^customer:online$/.test(actor)) return "Customer, online";
+  if (/^customer:/.test(actor)) return "Customer account";
+  if (/^(user|sandbox-owner):/.test(actor)) return "Shop team";
+  if (/^(system|cron|stripe|webhook)/i.test(actor)) return "Automatic";
+  return actor.charAt(0).toUpperCase() + actor.slice(1);
+};
+// "£28.00 30min" → "£28 · 30 min" in audit reasons.
+const tidyReason = (r: string) => r.replace(/£(\d+)\.00\b/g, "£$1").replace(/(£[\d.]+) (\d+)min\b/g, "$1 · $2 min").replace(/(\d+)min\b/g, "$1 min");
 const initials = (name: string) => name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 
 export function AppointmentPanel({
@@ -530,9 +545,9 @@ export function AppointmentPanel({
                   <li key={ev.id}>
                     <span className="tl-dot" aria-hidden="true" />
                     <div>
-                      <strong>{actionLabels[ev.action] || ev.action.replace(/_/g, " ").toLowerCase()}</strong>
-                      <small>{when(ev.created_at)} · {ev.actor.replace(/^sandbox-owner:.*/, "owner").replace(/^user:.*/, "account")}</small>
-                      {ev.reason && <p>{ev.reason}</p>}
+                      <strong>{actionLabel(ev.action)}</strong>
+                      <small>{when(ev.created_at)} · {actorLabel(ev.actor)}</small>
+                      {ev.reason && <p>{tidyReason(ev.reason)}</p>}
                     </div>
                   </li>
                 ))}
@@ -677,7 +692,7 @@ function EditItems({
           setDone({ refunded_pence: (r && "refunded_pence" in r ? r.refunded_pence : 0) || 0 });
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Could not save.";
-          if (/slot_taken|Slot taken|just booked/i.test(msg) && window.confirm("The longer time overlaps the next appointment. Save anyway (they'll sit side by side)?")) {
+          if (/slot_taken|Slot taken|just booked/i.test(msg) && (await ask({ title: "Overlaps the next appointment", body: "The longer time overlaps the next appointment. Save anyway? They'll sit side by side.", confirm: "Save anyway", tone: "warning" }))) {
             try {
               const r = await onSave({ service_id: serviceId, addon_ids: addonIds, ...(priceChanged ? { service_price_pence: pence(price) } : {}), ...(timeChanged ? { service_duration_min: duration } : {}), addon_prices: {}, reason: reason.trim(), version: booking.version, force: true });
               setDone({ refunded_pence: (r && "refunded_pence" in r ? r.refunded_pence : 0) || 0 });

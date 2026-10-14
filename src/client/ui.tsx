@@ -96,9 +96,13 @@ import {
   Monitor,
   MousePointerClick,
   ChevronUp,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 
 const icons: Record<string, LucideIcon> = {
+  maximize: Maximize2,
+  minimize: Minimize2,
   image: ImageIcon,
   palette: Palette,
   arrowDown: ArrowDownToLine,

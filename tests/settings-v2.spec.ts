@@ -107,7 +107,7 @@ test("workspace accent is personal and persists across reloads", async ({ page }
   await expect(page.locator("html")).toHaveClass(/ws-accent-ocean/);
   await expect(look.getByRole("status")).toContainText(/Saved/);
   const accent = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim());
-  expect(accent).toBe("#2f6fa8");
+  expect(accent).toBe("#1d5fd6");
   await page.reload();
   await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
   await expect(page.locator("html")).toHaveClass(/ws-accent-ocean/);

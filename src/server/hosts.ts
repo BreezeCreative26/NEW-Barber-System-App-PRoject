@@ -16,7 +16,7 @@ import type { MiddlewareHandler } from "hono";
 
 const SLUG = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 // Sub-domains no shop may take. Kept in one place with the slug validator's list (domain.ts).
-export const RESERVED_SUBDOMAINS = new Set(["www", "app", "api", "mail", "smtp", "imap", "pop", "admin", "help", "support", "status", "blog", "docs", "static", "cdn", "assets", "dev", "staging", "preview", "test", "demo", "send", "resend", "email", "ns1", "ns2", "mx", "ftp", "shop", "shops", "book", "pay", "billing", "account", "accounts", "login", "signin", "signup"]);
+export const RESERVED_SUBDOMAINS = new Set(["www", "app", "api", "mail", "smtp", "imap", "pop", "admin", "help", "support", "status", "blog", "docs", "static", "cdn", "assets", "dev", "staging", "preview", "test", "demo", "send", "resend", "email", "ns1", "ns2", "mx", "ftp", "shop", "shops", "book", "pay", "billing", "account", "accounts", "login", "signin", "signup", "barbers", "hair-salons", "beauty-and-nails", "tattoo-studios", "clinics", "personal-trainers", "for", "industries"]);
 
 export type HostInfo = { root: string; slug: string | null; secure: boolean; port: string };
 

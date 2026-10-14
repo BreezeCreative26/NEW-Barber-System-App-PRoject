@@ -1,6 +1,7 @@
 // Pay terms + pay runs for one barber. Terms are saved on the staff record (PUT /staff/:id);
 // pay runs are calculated server-side from the payments ledger and the terms in force.
 import { useEffect, useState } from "react";
+import { askText } from "./confirm";
 import { withLegacyRent, type Deduction, type PayModel, type PayPeriod, type PayRun, type Staff, type WorkspaceData } from "../server/domain";
 import { Button, Icon, Notice, StatusPill } from "./ui";
 import { money, datePlus, currencySymbol } from "./fixtures";
@@ -439,8 +440,8 @@ export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: Worksp
             <MarkPaid run={existing} busy={!!busy} onPaid={(method, ref) => act("paid", () => api(`/pay-runs/${existing.id}`, "PUT", { version: existing.version, status: "PAID", paid_method: method, paid_reference: ref }))} />
           )}
           {existing && existing.status !== "PAID" && (
-            <Button variant="ghost" disabled={!!busy} onClick={() => {
-              const reason = window.prompt("Why void this pay run?");
+            <Button variant="ghost" disabled={!!busy} onClick={async () => {
+              const reason = await askText({ title: "Void this pay run?", label: "Reason", placeholder: "At least 3 characters", confirm: "Void pay run", tone: "danger" });
               if (reason && reason.trim().length >= 3) act("void", () => api(`/pay-runs/${existing.id}`, "PUT", { version: existing.version, status: "VOID", reason: reason.trim() }));
             }}>
               Void

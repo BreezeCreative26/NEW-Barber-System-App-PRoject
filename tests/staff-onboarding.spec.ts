@@ -87,8 +87,8 @@ test("owner sets up a barber login from Team; barber onboards on first sign-in",
   await page.getByTestId("barber-tab-login").click();
   await expect(page.getByTestId("staff-login-active")).toBeVisible();
   await expect(page.getByTestId("staff-login-active")).toContainText(email);
-  page.once("dialog", (d) => d.accept());
   await page.getByTestId("staff-login-suspend").click();
+  await page.getByTestId("confirm-accept").click();
   await expect(page.getByTestId("staff-login-active")).toContainText("Suspended");
   await page.getByTestId("staff-login-restore").click();
   await expect(page.getByTestId("staff-login-active")).toContainText("Can sign in");

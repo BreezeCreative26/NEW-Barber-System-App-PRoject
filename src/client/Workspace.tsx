@@ -45,6 +45,7 @@ import { ShopPageView, type PageData as ShopPageData, type SectionVariants } fro
 import { SmsBillingAck, SmsSenderField } from "./SmsSender";
 import { TemplateEditor } from "./TemplateEditor";
 import { WS_ACCENTS, DEFAULT_WS_THEME, applyWsTheme, parseWsTheme, readLocalWsTheme, writeLocalWsTheme, type WorkspaceTheme } from "./workspaceTheme";
+import { ask, askCheck } from "./confirm";
 import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
 
 const reference = (b: StoredBooking) =>
@@ -164,6 +165,60 @@ async function readDay(date: string): Promise<StoredBooking[]> {
   return rows;
 }
 const text = (f: FormData, k: string) => String(f.get(k) ?? "");
+// ---- Telling the customer about a move ---------------------------------------------------------
+// The server holds the message for 30s (Undo window). Staff pick text and/or email; each choice is
+// remembered per browser (default: both on).
+const NOTIFY_KEY = "foliyo.notifyMoves";
+export type NotifyChoice = { sms: boolean; email: boolean };
+export const notifyMovesDefault = (): NotifyChoice => {
+  try {
+    const raw = localStorage.getItem(NOTIFY_KEY);
+    if (raw === "0") return { sms: false, email: false }; // older single on/off setting
+    if (raw && raw.startsWith("{")) { const v = JSON.parse(raw); return { sms: v.sms !== false, email: v.email !== false }; }
+  } catch { /* private mode / bad value */ }
+  return { sms: true, email: true };
+};
+export const rememberNotify = (v: NotifyChoice) => { try { localStorage.setItem(NOTIFY_KEY, JSON.stringify(v)); } catch { /* private mode */ } };
+export type MoveNotice = { channels: string[]; send_at: number } | null;
+// Who can be told, and how. Walk-ins and contactless bookings get no option.
+export function moveContact(b: Pick<StoredBooking, "attendee_name" | "customer_name" | "phone" | "email" | "customer_email">) {
+  const first = (b.attendee_name || b.customer_name || "").trim().split(/\s+/)[0];
+  if (!first || /^walk-?in$/i.test(first)) return null;
+  const email = b.email || b.customer_email || "";
+  if (!b.phone && !email) return null;
+  return { first, phone: b.phone || "", email };
+}
+// What we send: only channels the booking has. Undefined = nothing ticked.
+const pickNotify = (who: { phone: string; email: string }, v: NotifyChoice): NotifyChoice | undefined => {
+  const out = { sms: !!who.phone && v.sms, email: !!who.email && v.email };
+  return out.sms || out.email ? out : undefined;
+};
+// Confirm a move; returns null on cancel, otherwise the channels to notify on (or undefined for none).
+async function confirmMove(b: StoredBooking, o: { title: string; body: string; confirm: string; tone: "default" | "warning" }): Promise<{ notify: NotifyChoice | undefined } | null> {
+  const who = moveContact(b);
+  if (!who) return (await ask(o)) ? { notify: undefined } : null;
+  const d = notifyMovesDefault();
+  const checks = [
+    ...(who.phone ? [{ id: "sms", label: "Text", detail: who.phone, initial: d.sms }] : []),
+    ...(who.email ? [{ id: "email", label: "Email", detail: who.email, initial: d.email }] : []),
+  ];
+  const r = await askCheck({ ...o, heading: `Let ${who.first} know the new time`, hint: "Sent 30 seconds after you move it, so Undo cancels it.", checks });
+  if (!r) return null;
+  const choice = { sms: who.phone ? !!r.sms : d.sms, email: who.email ? !!r.email : d.email };
+  rememberNotify(choice);
+  return { notify: pickNotify(who, choice) };
+}
+// When the hold ends, ask the server to send it now rather than waiting for the 5-minute sweep.
+export function flushMoveNotice(bookingId: string, n: MoveNotice) {
+  if (!n) return;
+  window.setTimeout(() => { api(`/bookings/${bookingId}/notify-flush`, "POST", {}).catch(() => {}); }, Math.max(0, n.send_at - Date.now()) + 1500);
+}
+export function noticeSuffix(b: Pick<StoredBooking, "attendee_name" | "customer_name">, n: MoveNotice) {
+  if (!n || !n.channels.length) return "";
+  const first = (b.attendee_name || b.customer_name || "").split(" ")[0];
+  const parts = [n.channels.some((c) => c === "SMS" || c === "WA") ? (n.channels.includes("WA") ? "a WhatsApp" : "a text") : "", n.channels.includes("EMAIL") ? "an email" : ""].filter(Boolean);
+  return parts.length ? ` ${first} gets ${parts.join(" and ")} in 30 seconds unless you undo.` : "";
+}
 const number = (f: FormData, k: string) => Number(text(f, k));
 const minute = (s: string) => {
   const [h, m] = s.split(":").map(Number);
@@ -199,11 +254,13 @@ function SaveForm({
   onSave,
   label = "Save changes",
   className = "",
+  footer,
 }: {
   children?: ReactNode;
   onSave: (data: FormData) => Promise<unknown>;
   label?: string;
   className?: string;
+  footer?: ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -256,6 +313,7 @@ function SaveForm({
         <ErrorMessage error={error} />
         {savedMessage && <p role="status">{savedMessage}</p>}
         <div className="workspace-save-actions">
+          {footer}
           <Button type="submit">{busy ? "Saving…" : label}</Button>
         </div>
       </fieldset>
@@ -724,7 +782,7 @@ function AccountSettings({
             ];
             if (
               others.length &&
-              !window.confirm("Discard unsaved account changes and sign out?")
+              !(await ask({ title: "Discard unsaved changes and sign out?", confirm: "Sign out", tone: "danger" }))
             )
               return;
             await api("/auth/logout", "POST", {});
@@ -848,11 +906,11 @@ function AccountSettings({
           <h3>Team access</h3>
           <Button
             variant="secondary"
-            onClick={() => {
+            onClick={async () => {
               if (root.current?.querySelector('form[aria-busy="true"]')) return;
               if (
                 root.current?.querySelector('form[data-dirty="true"]') &&
-                !window.confirm("Discard unsaved access edits and refresh?")
+                !(await ask({ title: "Discard unsaved access edits and refresh?", confirm: "Discard and refresh", tone: "danger" }))
               )
                 return;
               loadAccess()
@@ -1033,6 +1091,8 @@ function WeekHoursEditor({ week }: { week: ShopDayClient[] }) {
 
 // Free start times as tappable chips, grouped by part of day. Unavailable times live in the
 // fallback select so the grid stays scannable.
+const prettyBookingDate = (d: string) =>
+  d ? new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }) : "";
 function SlotGrid({
   slots,
   value,
@@ -1056,7 +1116,7 @@ function SlotGrid({
         if (!items.length) return null;
         return (
           <div className="slot-grid-group" key={label}>
-            <h5>{label}</h5>
+            <h4>{label}</h4>
             <div className="slot-grid-chips">
               {items.map((s) => (
                 <button
@@ -1442,8 +1502,10 @@ export function Workspace() {
       inFlight = true;
       try {
         const r = await api<{ cursor: string }>("/changes");
-        if (cursor && r.cursor !== cursor && idle()) { lastTick.current = Date.now(); tick(); }
-        cursor = r.cursor;
+        // Only mark a change as seen once we've actually re-read it. If the user is mid-edit
+        // (dialog open, dragging), keep the old cursor so the refresh happens as soon as they finish.
+        if (!cursor) cursor = r.cursor;
+        else if (r.cursor !== cursor && idle()) { lastTick.current = Date.now(); tick(); cursor = r.cursor; }
       } catch { /* offline or signed out; the next beat retries */ } finally { inFlight = false; }
     };
     const heartbeat = window.setInterval(beat, 2000);
@@ -1554,6 +1616,40 @@ export function Workspace() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
+  // Calendar keyboard shortcuts (Appointments tab): T today, ← / → previous / next day or week,
+  // D / W / A switch view, N new booking, F full screen. They drive the visible toolbar buttons,
+  // so disabled states (offline, loading) are respected, and they stay out of the way while typing,
+  // inside a dialog or menu, or while arrow keys are moving focus around the timetable grid.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      const t = e.target as HTMLElement;
+      if (t.closest?.("input, textarea, select, [contenteditable], dialog, [role=dialog], [role=menu]")) return;
+      if (document.querySelector("dialog[open], [role=dialog], [role=menu]")) return;
+      const bar = document.querySelector<HTMLElement>(".calendar-toolbar-row");
+      if (!bar) return;
+      const arrow = e.key === "ArrowLeft" || e.key === "ArrowRight";
+      if (arrow && t.closest(".connected-calendar .calendar-board, .connected-calendar [role=grid], .timetable-slot, .calendar-event")) return;
+      const pick: Record<string, string> = {
+        t: ".toolbar-today",
+        ArrowLeft: 'button[aria-label="Previous day"], button[aria-label="Previous week"]',
+        ArrowRight: 'button[aria-label="Next day"], button[aria-label="Next week"]',
+        d: '.segmented button[aria-label="Day timetable"]',
+        w: '.segmented button[aria-label="Week"]',
+        a: '.segmented button[aria-label="Agenda"]',
+        n: '[data-testid="new-booking"]',
+        f: '[data-testid="calendar-fullscreen"]',
+      };
+      const sel = pick[e.key.length === 1 ? e.key.toLowerCase() : e.key];
+      if (!sel) return;
+      const btn = document.querySelector<HTMLButtonElement>(sel);
+      if (!btn || btn.disabled) return;
+      e.preventDefault();
+      btn.click();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
   const [week, setWeek] = useState<{ key: string; bookings: RangeBooking[] } | null>(null);
   const [weekLoading, setWeekLoading] = useState(false);
@@ -1588,6 +1684,18 @@ export function Workspace() {
   const phoneDevice = usePhone();
   const [densityChoice, setDensityChoice] = useState<Density | null>(null);
   const [densityOpen, setDensityOpen] = useState(false);
+  // Full-screen calendar: hides the side rail and top bar so the timetable fills the window.
+  // Remembered per browser; Escape or the toolbar button exits. Appointments tab only.
+  const [calFull, setCalFull] = useState<boolean>(() => { try { return localStorage.getItem("foliyo-cal-full") === "1"; } catch { return false; } });
+  useEffect(() => {
+    const on = calFull && tab === "Appointments";
+    document.documentElement.classList.toggle("cal-full", on);
+    try { localStorage.setItem("foliyo-cal-full", calFull ? "1" : "0"); } catch { /* private mode */ }
+    if (!on) return;
+    const esc = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape" && !document.querySelector("[role=dialog], .density-menu [role=menu]")) setCalFull(false); };
+    window.addEventListener("keydown", esc);
+    return () => { window.removeEventListener("keydown", esc); document.documentElement.classList.remove("cal-full"); };
+  }, [calFull, tab]);
   useEffect(() => {
     if (!densityOpen) return;
     const close = (e: Event) => { if (!(e.target as HTMLElement).closest?.(".density-menu")) setDensityOpen(false); };
@@ -2560,6 +2668,17 @@ export function Workspace() {
                         <span className="toolbar-label">Agenda</span>
                       </button>
                     </div>
+                    <Button
+                      variant="ghost"
+                      className="icon-only toolbar-fullscreen"
+                      aria-label={calFull ? "Exit full screen calendar" : "Full screen calendar"}
+                      aria-pressed={calFull}
+                      title={calFull ? "Exit full screen (Esc)" : "Full screen calendar"}
+                      data-testid="calendar-fullscreen"
+                      onClick={() => setCalFull((v) => !v)}
+                    >
+                      <Icon name={calFull ? "minimize" : "maximize"} />
+                    </Button>
                     <span className="density-menu toolbar-density">
                       <Button
                         variant="ghost"
@@ -2608,6 +2727,23 @@ export function Workspace() {
                     </Button>
                   </div>
                     <div className="calendar-summary" role="status" data-testid="calendar-summary">
+                    {calendarView === "week" ? (() => {
+                      // Week view: totals for the visible week, not the selected day.
+                      const rows = (week?.key === weekKey ? week.bookings : []).filter((x) => !barber || x.staff_id === barber);
+                      const live = rows.filter((x) => !["CANCELLED", "NO_SHOW"].includes(x.status));
+                      return (
+                        <>
+                          <span>{week?.key !== weekKey ? "Loading the week…" : `${live.length} appointment${live.length === 1 ? "" : "s"} this week`}</span>
+                          {week?.key === weekKey && (
+                            <span className="calendar-summary-stats" aria-label="Week statistics">
+                              <span><b>{money(live.reduce((t, x) => t + x.price_pence, 0))}</b> booked</span>
+                              <span><b>{live.filter((x) => x.status === "COMPLETED").length}</b>/{live.length} completed</span>
+                              <span><b>{live.filter((x) => x.channel === "ONLINE").length}</b> online</span>
+                            </span>
+                          )}
+                        </>
+                      );
+                    })() : (<>
                     <span>
                       {!dayReady
                         ? "Loading appointments…"
@@ -2632,6 +2768,7 @@ export function Workspace() {
                         )}
                       </span>
                     )}
+                    </>)}
                     {activeFilterCount > 0 && !filtersOpen && (
                       <Button
                         variant="ghost"
@@ -2717,14 +2854,18 @@ export function Workspace() {
                               const who = w.staff.find((x) => x.id === draft.staffId)?.name.split(" ")[0] ?? "";
                               const same = draft.staffId === b.staff_id && date === b.date;
                               const at = time(draft.start);
-                              const warn = draft.outside === "Occupied" ? "\n\nThis overlaps another appointment — both will sit side by side." : draft.outside ? `\n\n${who || "The barber"} isn't rostered then (${draft.outside.toLowerCase()}). Book it anyway?` : "";
-                              if (!window.confirm(`Move ${b.attendee_name || b.customer_name} to ${at} on ${new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(date + "T12:00:00Z"))}${same ? "" : ` with ${who}`}?${warn}`)) return;
+                              const warn = draft.outside === "Occupied" ? "This overlaps another appointment — both will sit side by side." : draft.outside ? `${who || "The barber"} isn't rostered then (${draft.outside.toLowerCase()}).` : "";
+                              const dayText = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(date + "T12:00:00Z"));
+                              const ok = await confirmMove(b, { title: `Move ${b.attendee_name || b.customer_name} to ${at}?`, body: `${time(b.start_min)} → ${at} on ${dayText}${same ? "" : ` with ${who}`}${warn ? `\n${warn}` : ""}`, confirm: warn ? "Move anyway" : "Move", tone: warn ? "warning" : "default" });
+                              if (!ok) return;
                               setMoving(null);
                               try {
-                                await api(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: draft.start, staff_id: draft.staffId, reason: "Moved on the timetable", version: b.version, ...(draft.outside ? { force: true } : {}) });
-                                setNotice(`Moved ${b.attendee_name || b.customer_name} to ${at}${same ? "" : ` with ${who}`}.`);
+                                const r = await api<{ booking: StoredBooking; notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: draft.start, staff_id: draft.staffId, reason: "Moved on the timetable", version: b.version, notify: ok.notify, ...(draft.outside ? { force: true } : {}) });
+                                const n = r.notify ?? null;
+                                flushMoveNotice(b.id, n);
+                                setNotice(`Moved ${b.attendee_name || b.customer_name} to ${at}${same ? "" : ` with ${who}`}.${noticeSuffix(b, n)}`);
                                 const from = { date: b.date, start_min: b.start_min, staff_id: b.staff_id };
-                                setUndo({ label: `back to ${time(from.start_min)}`, run: async () => { const cur = (await api<{ booking: StoredBooking }>(`/bookings/${b.id}`)).booking; await api(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo timetable move", version: cur.version, force: true }); } });
+                                setUndo({ label: `back to ${time(from.start_min)}`, run: async () => { const cur = (await api<{ booking: StoredBooking }>(`/bookings/${b.id}`)).booking; const u = await api<{ notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo timetable move", version: cur.version, force: true, notify: n && Date.now() >= n.send_at ? ok.notify : undefined }); flushMoveNotice(b.id, u.notify ?? null); } });
                                 await refresh({ background: true });
                               } catch (e) { setError(e instanceof Error ? e.message : "Could not move the appointment."); }
                               return;
@@ -2758,7 +2899,7 @@ export function Workspace() {
                                   const addons = items.filter((i) => i.kind === "ADDON");
                                   const addonMinutes = addons.reduce((n, i) => n + i.duration_min, 0);
                                   const serviceDuration = Math.max(5, to.duration - addonMinutes);
-                                  if (to.override && !window.confirm(`Make ${b.attendee_name || b.customer_name} ${to.duration} min?\n\n${to.override === "Occupied" ? "It will overlap the next appointment — both sit side by side." : `${to.override} — save it anyway?`}`)) return;
+                                  if (to.override && !(await ask({ title: `Make ${b.attendee_name || b.customer_name} ${to.duration} min?`, body: to.override === "Occupied" ? "It will overlap the next appointment — both sit side by side." : `${to.override} — save it anyway?`, confirm: "Save anyway", tone: "warning" }))) return;
                                   setPanelError("");
                                   const body = (dur: number, version: number) => ({
                                     service_id: b.service_id,
@@ -2790,6 +2931,9 @@ export function Workspace() {
                           }
                           onBlock={(k) => setEditor({ kind: "block", item: w.staff.find((s) => s.id === k.staff_id)!, at: k.start_min })}
                           onRemoveBlock={(k) => setEditor({ kind: "removeBlock", item: k })}
+                          onMoveBlocked={(b, reason) =>
+                            setNotice(`Can't move ${b.attendee_name || b.customer_name} there — ${reason === "Past time" ? "that time has passed" : reason === "Shop closed" ? "the shop is closed then" : reason === "Day off" ? "the barber is off that day" : reason.toLowerCase()}.`)
+                          }
                           onMove={
                             manager || w.shop.till_access === "ALL"
                               ? async (b, to) => {
@@ -2797,21 +2941,26 @@ export function Workspace() {
                                   const same = to.staffId === b.staff_id;
                                   const at = `${String(Math.floor(to.start / 60)).padStart(2, "0")}:${String(to.start % 60).padStart(2, "0")}`;
                                   const warn = to.override === "Occupied"
-                                    ? `\n\nThis overlaps another appointment — both will sit side by side.`
+                                    ? "This overlaps another appointment — both will sit side by side."
                                     : to.override
-                                      ? `\n\n${who || "The barber"} isn't rostered then (${to.override.toLowerCase()}). Book it anyway?`
+                                      ? `${who || "The barber"} isn't rostered then (${to.override.toLowerCase()}).`
                                       : "";
-                                  if (!window.confirm(`Move ${b.attendee_name || b.customer_name} to ${at}${same ? "" : ` with ${who}`}?${warn}`)) return;
+                                  const ok = await confirmMove(b, { title: `Move ${b.attendee_name || b.customer_name} to ${at}?`, body: `${time(b.start_min)} → ${at}${same ? "" : ` with ${who}`}${warn ? `\n${warn}` : ""}`, confirm: warn ? "Move anyway" : "Move", tone: warn ? "warning" : "default" });
+                                  if (!ok) return;
                                   setPanelError("");
                                   try {
-                                    const r = await api<{ booking: StoredBooking }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: to.start, staff_id: to.staffId, reason: to.override ? `Moved on the calendar (over: ${to.override.toLowerCase()})` : "Moved on the calendar", version: b.version, ...(to.override ? { force: true } : {}) });
-                                    setNotice(`Moved to ${at}${same ? "" : ` with ${who}`}.`);
+                                    const r = await api<{ booking: StoredBooking; notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: to.start, staff_id: to.staffId, reason: to.override ? `Moved on the calendar (over: ${to.override.toLowerCase()})` : "Moved on the calendar", version: b.version, notify: ok.notify, ...(to.override ? { force: true } : {}) });
+                                    const n = r.notify ?? null;
+                                    flushMoveNotice(b.id, n);
+                                    setNotice(`Moved to ${at}${same ? "" : ` with ${who}`}.${noticeSuffix(b, n)}`);
                                     const from = { date: b.date, start_min: b.start_min, staff_id: b.staff_id };
                                     setUndo({
                                       label: `back to ${time(from.start_min)}`,
                                       run: async () => {
                                         const cur = (await api<{ booking: StoredBooking }>(`/bookings/${b.id}`)).booking;
-                                        await api(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo calendar move", version: cur.version, force: true });
+                                        // Inside the hold the pending message is simply dropped; after it, the customer is told it's back.
+                                        const u = await api<{ notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo calendar move", version: cur.version, force: true, notify: n && Date.now() >= n.send_at ? ok.notify : undefined });
+                                        flushMoveNotice(b.id, u.notify ?? null);
                                       },
                                     });
                                     await refresh();
@@ -3677,7 +3826,7 @@ function WorkspaceLookPanel({ w }: { w: WorkspaceData }) {
           <span className="workspace-field"><span>Accent colour</span></span>
           <div className="ws-swatches" role="radiogroup" aria-label="Workspace accent colour">
             {WS_ACCENTS.map((a) => (
-              <button key={a.id} type="button" role="radio" aria-checked={t.accent === a.id} aria-label={a.name} title={a.name} className="ws-swatch" style={{ background: a.accent }} onClick={() => pick({ ...t, accent: a.id })} data-testid={`ws-accent-${a.id}`}>
+              <button key={a.id} type="button" role="radio" aria-checked={t.accent === a.id} aria-label={a.name} title={a.name} className="ws-swatch" style={{ background: a.fill, color: a.fillInk }} onClick={() => pick({ ...t, accent: a.id })} data-testid={`ws-accent-${a.id}`}>
                 {t.accent === a.id && <Icon name="check" size={16} />}
               </button>
             ))}
@@ -4370,7 +4519,7 @@ function VoicePanel({ timezone }: { timezone: string }) {
               <div className="voice-secret">
                 <code data-testid="voice-secret">{secret || `ollo_vk_…${d.secret_hint.replace("…", "")} (hidden)`}</code>
                 {secret ? <Button variant="ghost" onClick={() => copy(secret, "Key")}>Copy</Button> : (
-                  <Button variant="ghost" onClick={async () => { if (!confirm("Generate a new key? The old one stops working straight away.")) return; const r = await api<{ secret: string }>("/shop/voice/rotate", "POST", {}); setSecret(r.secret); load(); }} data-testid="voice-rotate">New key</Button>
+                  <Button variant="ghost" onClick={async () => { if (!(await ask({ title: "Generate a new key?", body: "The old one stops working straight away.", confirm: "Generate key", tone: "danger" }))) return; const r = await api<{ secret: string }>("/shop/voice/rotate", "POST", {}); setSecret(r.secret); load(); }} data-testid="voice-rotate">New key</Button>
                 )}
               </div>
             </li>
@@ -7020,7 +7169,7 @@ function CustomerPicker({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={mode === "new" ? "Or find an existing customer…" : "Name, mobile or email — or type a new customer's name"}
+            placeholder={mode === "new" ? "Or find an existing customer…" : "Search name, mobile or email"}
             aria-label="Find customer"
             aria-describedby="customer-picker-hint"
             autoComplete="off"
@@ -7289,6 +7438,26 @@ function BookingForm({
   return (
     <SaveForm
       className="booking-workflow"
+      footer={(() => {
+        const svc = w.services.find((s) => s.id === service);
+        const who = w.staff.find((s) => s.id === staff);
+        const startMin = start ? Number(start) : null;
+        return (
+          <div className="booking-summary-bar" aria-live="polite" data-testid="booking-summary-bar">
+            <span className="bsb-main">
+              <strong>{svc?.name || "Choose a service"}</strong>
+              {who ? <span> with {who.name}</span> : null}
+            </span>
+            <span className="bsb-when">
+              {prettyBookingDate(date)}
+              {startMin !== null
+                ? ` · ${time(startMin)}–${time(startMin + (slots?.duration_min || svc?.duration_min || 0))}`
+                : " · choose a time"}
+            </span>
+            {slots ? <span className="bsb-price">{money(slots.price_pence)}</span> : null}
+          </div>
+        );
+      })()}
       label={
         review
           ? b
@@ -7350,6 +7519,15 @@ function BookingForm({
               start_min: Number(start),
               version: b.version,
               reason: text(f, "reason"),
+              notify: (() => {
+                const who = moveContact(b);
+                if (!who) return undefined;
+                const d = notifyMovesDefault();
+                const choice = { sms: who.phone ? f.get("notify_sms") === "on" : d.sms, email: who.email ? f.get("notify_email") === "on" : d.email };
+                rememberNotify(choice);
+                const out = { sms: !!who.phone && choice.sms, email: !!who.email && choice.email };
+                return out.sms || out.email ? out : undefined;
+              })(),
               ...(override ? { force: true } : {}),
             }
           : {
@@ -7375,6 +7553,7 @@ function BookingForm({
             "POST",
             b ? payload : { ...payload, request_id: request.current.key },
           );
+          if (b && (result as { notify?: MoveNotice } | undefined)?.notify) flushMoveNotice(b.id, (result as { notify: MoveNotice }).notify);
           // Link the waitlist request to the saved visit; a failure here never undoes the booking.
           if (waitlist && result?.booking)
             api(`/waitlist/${waitlist.id}/status`, "POST", {
@@ -7439,7 +7618,7 @@ function BookingForm({
             Moving {reference(b)} · {b.customer_name}
           </strong>
           <p>
-            {b.date} · {time(b.start_min)} ·{" "}
+            {prettyBookingDate(b.date)} · {time(b.start_min)} ·{" "}
             {w.staff.find((s) => s.id === b.staff_id)?.name}
           </p>
           <p>
@@ -7577,7 +7756,12 @@ function BookingForm({
               ) && <p>No add-ons offered with this service.</p>}
             </fieldset>
           )}
-          <h4>Choose your date</h4>
+        </section>
+        <section
+          className="booking-when"
+          aria-labelledby="booking-when-heading"
+        >
+          <h3 id="booking-when-heading">2. Date & time</h3>
           {rebook && !waitlist && (
             <div
               className="booking-date-shortcuts"
@@ -7602,10 +7786,33 @@ function BookingForm({
               ))}
             </div>
           )}
+          <div className="booking-day-strip" role="group" aria-label="Quick dates">
+            {Array.from({ length: 14 }, (_, i) => datePlus(w.today, i)).map((d, i) => {
+              const dt = new Date(`${d}T12:00:00Z`);
+              return (
+                <button
+                  type="button"
+                  key={d}
+                  className="booking-day"
+                  aria-pressed={date === d}
+                  aria-label={dt.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}
+                  onClick={(e) => {
+                    markDraft(e.currentTarget);
+                    setDate(d);
+                  }}
+                >
+                  <small>{i === 0 ? "Today" : dt.toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" })}</small>
+                  <strong>{dt.getUTCDate()}</strong>
+                  <small>{dt.toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" })}</small>
+                </button>
+              );
+            })}
+          </div>
           <Field label="Booking date">
             <input
               type="date"
               required
+              lang="en-GB"
               value={date}
               onChange={(e) => setDate(e.target.value)}
             />
@@ -7632,8 +7839,7 @@ function BookingForm({
                   setStart(String(m));
                 }}
               />
-              <details className="booking-time-fallback" open>
-                <summary>All times, including unavailable</summary>
+              <div className="booking-time-row">
                 <Field label="Available start time">
                   <select
                     value={start}
@@ -7653,7 +7859,7 @@ function BookingForm({
                     ))}
                   </select>
                 </Field>
-              </details>
+              </div>
               <div className="booking-time-shortcut">
                 <Button
                   variant="secondary"
@@ -7692,7 +7898,7 @@ function BookingForm({
           aria-labelledby="booking-customer-heading"
         >
           <h3 id="booking-customer-heading">
-            2. {b ? "Move details" : "Customer details"}
+            3. {b ? "Move details" : "Customer details"}
           </h3>
           {!b && (
             <>
@@ -7782,6 +7988,28 @@ function BookingForm({
               <textarea name="reason" required minLength={3} maxLength={300} />
             </Field>
           )}
+          {b && moveContact(b) && (() => {
+            const who = moveContact(b)!;
+            const d = notifyMovesDefault();
+            return (
+              <fieldset className="ask-checks booking-notify" data-testid="reschedule-notify">
+                <legend>Let {who.first} know the new time</legend>
+                {who.phone && (
+                  <label className="ask-check">
+                    <input type="checkbox" name="notify_sms" defaultChecked={d.sms} data-testid="reschedule-notify-sms" />
+                    <span><strong>Text</strong><small>{who.phone}</small></span>
+                  </label>
+                )}
+                {who.email && (
+                  <label className="ask-check">
+                    <input type="checkbox" name="notify_email" defaultChecked={d.email} data-testid="reschedule-notify-email" />
+                    <span><strong>Email</strong><small>{who.email}</small></span>
+                  </label>
+                )}
+                <p className="ask-checks-hint">Sent 30 seconds after you save, with the old and new time.</p>
+              </fieldset>
+            );
+          })()}
           <p className="workspace-footnote">Review the details before saving.</p>
         </section>
       </div>
@@ -7794,7 +8022,7 @@ function BookingForm({
         >
           <Notice>
             <strong>
-              Ready to save: {date} at {time(Number(start))}.
+              Ready to save: {prettyBookingDate(date)} at {time(Number(start))}.
             </strong>
             <p>
               {reviewContact.name} · {reviewContact.phone}
@@ -7876,8 +8104,7 @@ function BookingForm({
                 </p>
               </div>
             )}
-            Confirm below to save in local D1. Availability is checked again
-            atomically; no hold, payment or notification is created.
+            Availability is checked again when you confirm. Nothing is held until then.
           </Notice>
           <Button
             variant="ghost"
