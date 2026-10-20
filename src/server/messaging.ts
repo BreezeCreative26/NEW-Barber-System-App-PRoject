@@ -720,11 +720,14 @@ export async function sweepReminders(db: DB, origin: string, now = Date.now()) {
         .prepare(
           `SELECT b.*, st.name AS staff_name, t.token_hash FROM bookings b LEFT JOIN staff st ON st.shop_id=b.shop_id AND st.id=b.staff_id LEFT JOIN booking_manage_tokens t ON t.booking_id=b.id
            WHERE b.shop_id=? AND b.status='CONFIRMED' AND b.start_at>? AND b.start_at<=? AND (b.phone<>'' OR b.email<>'')
-           AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.shop_id=b.shop_id AND n.related_id=b.id AND n.template=?)`,
+           AND NOT EXISTS (SELECT 1 FROM reminder_marks m WHERE m.shop_id=b.shop_id AND m.booking_id=b.id AND m.template=? AND m.start_at=b.start_at)`,
         )
         .bind(shop.id, w.from, w.to, w.template)
-        .all<{ id: string; customer_name: string; attendee_name: string; phone: string; email: string; service_name: string; staff_name: string | null; date: string; start_min: number; token_hash: string | null; price_pence: number }>();
+        .all<{ id: string; start_at: number; customer_name: string; attendee_name: string; phone: string; email: string; service_name: string; staff_name: string | null; date: string; start_min: number; token_hash: string | null; price_pence: number }>();
       for (const b of rows.results) {
+        // Claim this reminder for this booking at this start time; a move changes the time, so it earns a new one.
+        const claim = await db.prepare("INSERT INTO reminder_marks(shop_id,booking_id,template,start_at,created_at) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING").bind(shop.id, b.id, w.template, b.start_at, now).run();
+        if (!claim.meta.changes) continue;
         // The manage link needs the raw token, which we don't store. Reminders link to /<slug>/me
         // (one-time code sign-in) — always valid, and the customer sees every visit there.
         const link = shopUrl(shop.slug!, "/me", origin);

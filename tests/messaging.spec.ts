@@ -253,3 +253,46 @@ test("browser: Settings → Messages shows provider status, saves channel settin
   await page.locator(".outbox-head").getByRole("button", { name: "All" }).click();
   await expect(page.locator("[data-status]").filter({ hasText: "owner-ui@example.test" }).first()).toBeVisible();
 });
+
+test("a moved booking gets a fresh reminder: the old reminder is retired, an unsent one is cancelled", async () => {
+  const { r, w, slug } = await onlineShop();
+  const c = await customer();
+  const staff = w.staff[0].id, service = w.services[0].id;
+  let date = "", slots: number[] = [];
+  for (let d = 3; d < 12 && !slots.length; d++) {
+    date = new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
+    const avail = await (await c.get(`${pub}/shops/${slug}/availability?date=${date}&staff_id=${staff}&service_id=${service}`)).json();
+    slots = (avail.slots as { start_min: number; available: boolean; reason?: string }[]).filter((s) => s.available !== false && !s.reason).map((s) => s.start_min);
+  }
+  expect(slots.length).toBeGreaterThan(0);
+  const created = await bookOnline(c, slug, w, date, slots[0]);
+  const id = created.booking.id as string;
+  const postgres = (await import("postgres")).default;
+  const sql = postgres(process.env.DATABASE_URL || process.env.DIRECT_URL || "postgresql://postgres:postgres@127.0.0.1:5432/ollo", { max: 1 });
+  try {
+    const shopId = (w as unknown as { shop: { id: string } }).shop.id;
+    const ins = (nid: string, status: string) => sql`INSERT INTO notifications(id,shop_id,channel,recipient,template,body,status,related_type,related_id,created_at)
+      VALUES (${nid}, ${shopId}, 'SMS', '07700900000', 'booking_reminder', 'x', ${status}, 'booking', ${id}, ${Date.now()})`;
+    const marks = async () => Number((await sql`SELECT count(*)::int AS n FROM reminder_marks WHERE booking_id=${id}`)[0].n);
+    const b0 = (await sql`SELECT start_at FROM bookings WHERE id=${id}`)[0].start_at;
+    // Put the booking inside the 24h window, sweep: one reminder. Sweep again: none (de-duplicated).
+    const hrs = 23.5 * 3600000, shift = Number(Date.now() + hrs) - Number(b0);
+    await sql`UPDATE bookings SET start_at = start_at + ${shift}, end_at = end_at + ${shift}, version = version + 1 WHERE id=${id}`;
+    const a = await (await r.post(base + "/notifications/sweep", { data: {} })).json();
+    expect(await marks()).toBe(1);
+    const again = await (await r.post(base + "/notifications/sweep", { data: {} })).json();
+    expect(await marks()).toBe(1);
+    expect(a.reminders.queued).toBeGreaterThan(0);
+    expect(again.reminders.queued).toBe(0);
+    // A reminder still waiting to send is cancelled when the booking moves.
+    await ins("rem-wait-" + id, "QUEUED");
+    const s2 = 6 * 3600000;
+    await sql`UPDATE bookings SET start_at = start_at + ${s2}, end_at = end_at + ${s2}, version = version + 1 WHERE id=${id}`;
+    expect((await sql`SELECT status FROM notifications WHERE id=${"rem-wait-" + id}`)[0].status).toBe("SKIPPED");
+    // Move it back into the window at a new time: it is reminded again.
+    const s3 = -(s2 - 600000);
+    await sql`UPDATE bookings SET start_at = start_at + ${s3}, end_at = end_at + ${s3}, version = version + 1 WHERE id=${id}`;
+    await r.post(base + "/notifications/sweep", { data: {} });
+    expect(await marks()).toBe(2);
+  } finally { await sql.end(); }
+});

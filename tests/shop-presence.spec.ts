@@ -245,14 +245,20 @@ test("browser: shop page shows photos, hero rating and reviews (axe clean); owne
   const state = await page.context().storageState();
   const r = await request.newContext({ extraHTTPHeaders: { Origin: origin }, storageState: state });
   const w = await (await r.get(base + "/workspace")).json();
-  // Owner: Settings → Shop page → upload cover via the file input.
+  // Owner: Settings → Shop page → website editor → upload a cover and publish.
   await section(page, "Settings/page");
-  const panel = page.getByTestId("shop-page-panel");
-  await expect(panel).toBeVisible();
-  await panel.getByTestId("upload-cover-input").setInputFiles({ name: "cover.png", mimeType: "image/png", buffer: PNG });
-  await expect(panel.locator(".photo-field .photo-preview img").first()).toHaveAttribute("src", /^\/media\//);
-  await panel.getByTestId("save-shop-page").click();
-  await expect(panel.getByText("Saved")).toBeVisible();
+  await page.getByTestId("open-website-editor").click();
+  await expect(page.getByTestId("website-editor")).toBeVisible();
+  for (const k of ["design", "content"]) {
+    await page.getByTestId(`wed-panel-${k}`).click();
+    if (await page.getByTestId("wed-cover-upload-input").count()) break;
+  }
+  await page.getByTestId("wed-cover-upload-input").setInputFiles({ name: "cover.png", mimeType: "image/png", buffer: PNG });
+  await expect(page.getByTestId("wed-cover").locator("img").first()).toHaveAttribute("src", /^\/media\//);
+  await page.getByTestId("wed-publish").click();
+  await expect(page.getByTestId("wed-publish")).toHaveText("Published", { timeout: 10000 });
+  await page.getByTestId("wed-close").click();
+  await section(page, "Settings/reviews");
   // Reviews panel: hide the first shown review, reply to it.
   const reviews = page.getByTestId("reviews-panel");
   await reviews.scrollIntoViewIfNeeded();
@@ -277,7 +283,7 @@ test("browser: shop page shows photos, hero rating and reviews (axe clean); owne
   // Public page reflects: cover, rating, reviews section with the reply.
   const visitor = await page.context().browser()!.newContext({ viewport: { width: 390, height: 844 } });
   const vp = await visitor.newPage();
-  await vp.goto(`/${slug}`);
+  await vp.goto(home(slug));
   await expect(vp.getByTestId("hero-rating")).toBeVisible();
   await expect(vp.locator(".sp-hero.has-cover")).toBeVisible();
   await vp.getByTestId("reviews-section").scrollIntoViewIfNeeded();
@@ -310,6 +316,6 @@ test("browser: shop page shows photos, hero rating and reviews (axe clean); owne
   await expect(vp.getByTestId("review-card").getByText("Brilliant, as always.")).toBeVisible();
   await expect(vp.getByTestId("review-card").getByTestId("review-submit")).toHaveCount(0);
   // ...and it is on the shop page.
-  await vp.goto(`/${slug}#reviews`);
+  await vp.goto(home(slug) + "#reviews");
   await expect(vp.getByTestId("public-review").filter({ hasText: "Brilliant, as always." })).toBeVisible();
 });

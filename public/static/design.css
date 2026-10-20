@@ -1023,10 +1023,10 @@
 .pay-history-table tr.voided td { color: var(--muted); text-decoration: line-through; }
 /* Pay statement (v2): sales → barber share → deductions → owed each way */
 .pay-statement { margin: 0; display: grid; gap: 0; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--surface); }
-.pay-statement-group { display: grid; gap: 4px; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--line-2); }
+.pay-statement-group { display: grid; margin: 0; gap: 4px; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--line-2); }
 .pay-statement-group > div { display: flex; justify-content: space-between; gap: var(--s-3); font-size: var(--fs-13); align-items: baseline; }
 .pay-statement dt { color: var(--muted); }
-.pay-statement dt small { color: var(--muted-2); margin-left: 4px; }
+.pay-statement dt small { color: var(--muted); margin-left: 4px; }
 .pay-statement dd { margin: 0; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .pay-statement dd.minus { color: var(--muted); }
 .pay-statement .pay-subtotal { margin-top: 4px; padding-top: 6px; border-top: 1px dashed var(--line); }

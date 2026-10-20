@@ -517,7 +517,7 @@ CREATE TABLE notifications (
 CREATE INDEX notifications_shop ON notifications(shop_id,created_at);
 CREATE INDEX notifications_due ON notifications(status, next_attempt_at) WHERE status IN ('QUEUED','SENDING');
 CREATE INDEX notifications_related ON notifications(shop_id, related_type, related_id, template);
-CREATE UNIQUE INDEX notifications_once_per_booking ON notifications(shop_id, related_id, template, channel) WHERE template IN ('booking_reminder','booking_reminder_soon','booking_confirmed');
+CREATE UNIQUE INDEX notifications_once_per_booking ON notifications(shop_id, related_id, template, channel) WHERE template IN ('booking_confirmed');
 CREATE TABLE platform_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at BIGINT NOT NULL);
 -- Stripe webhook events already handled (idempotency).
 CREATE TABLE stripe_events (id TEXT PRIMARY KEY, type TEXT NOT NULL, received_at BIGINT NOT NULL);
@@ -889,3 +889,21 @@ CREATE INDEX IF NOT EXISTS booking_adjustments_open ON booking_adjustments(shop_
 
 -- Which line items were re-priced by hand (reporting). NULL = catalogue price at the time.
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS items_edited_at BIGINT;
+
+CREATE TABLE IF NOT EXISTS reminder_marks (
+  shop_id TEXT NOT NULL REFERENCES shops(id), booking_id TEXT NOT NULL, template TEXT NOT NULL, start_at BIGINT NOT NULL,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (shop_id, booking_id, template, start_at)
+);
+CREATE OR REPLACE FUNCTION skip_reminders_on_move() RETURNS trigger AS $$
+BEGIN
+  IF NEW.start_at IS DISTINCT FROM OLD.start_at THEN
+    UPDATE notifications SET status='SKIPPED', status_note='Booking was moved before this was sent.'
+     WHERE shop_id=OLD.shop_id AND related_id=OLD.id AND status='QUEUED' AND attempts=0
+       AND template IN ('booking_reminder','booking_reminder_soon');
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS bookings_skip_reminders ON bookings;
+CREATE TRIGGER bookings_skip_reminders AFTER UPDATE OF start_at ON bookings
+  FOR EACH ROW EXECUTE FUNCTION skip_reminders_on_move();

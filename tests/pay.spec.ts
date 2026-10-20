@@ -16,17 +16,20 @@ test("pay terms: every model saves, summary reflects it, and the deal is snapsho
   // Demo seed: tiered commission 55% / 65% above £1,000.
   await expect(page.getByTestId("pay-summary")).toContainText("55% · 65% above £1,000");
   // Switch to chair rent and save.
-  await terms.getByRole("radio", { name: /Chair rent/ }).click();
-  await terms.getByLabel("Chair rent per period (£)").fill("150");
-  await expect(page.getByTestId("pay-summary")).toContainText("£150 chair rent weekly");
+  await terms.getByRole("radio", { name: /Keeps all takings/ }).click();
+  // Rent is a deduction now: add the Chair rent preset (£150 a week).
+  await terms.getByRole("button", { name: "Chair rent" }).click();
+  await expect(terms.getByTestId("pay-deduction")).toHaveCount(1);
   await page.getByTestId("save-pay-terms").click();
   await expect(page.getByText("Pay terms saved", { exact: false })).toBeVisible();
   let fresh = (await (await page.request.get(base + "/workspace")).json()).staff.find((s: any) => s.id === jay.id);
   expect(fresh.pay_model).toBe("CHAIR_RENT");
-  expect(fresh.rent_pence).toBe(15000);
+  const ded = JSON.parse(fresh.deductions_json);
+  expect(ded).toHaveLength(1);
+  expect(ded[0]).toMatchObject({ label: "Chair rent", kind: "FIXED", amount_pence: 15000, cadence: "WEEKLY" });
   // Pay run preview for last week reflects rent: barber pays shop (rent − tips collected).
   const runs = page.getByTestId("pay-runs");
-  await expect(runs).toContainText("Chair rent owed to shop");
+  await expect(runs).toContainText("Chair rent");
   // Create → approve → mark paid; then the run is frozen and the history shows it.
   await page.getByTestId("create-pay-run").click();
   await expect(page.getByTestId("approve-pay-run")).toBeVisible();
@@ -38,7 +41,7 @@ test("pay terms: every model saves, summary reflects it, and the deal is snapsho
   const run = list.pay_runs.find((r: any) => r.staff_id === jay.id && r.status === "PAID");
   expect(run).toBeTruthy();
   expect(JSON.parse(run.terms_json).pay_model).toBe("CHAIR_RENT");
-  expect(run.rent_pence).toBe(15000);
+  expect(run.deductions_pence).toBe(15000);
   // Frozen: any further edit is refused; duplicate live run for the period is refused.
   let r = await page.request.put(base + `/pay-runs/${run.id}`, { headers: { Origin: origin }, data: { version: run.version, status: "APPROVED" } });
   expect(r.status()).toBe(409);
@@ -50,10 +53,10 @@ test("pay terms: every model saves, summary reflects it, and the deal is snapsho
   await page.getByTestId("save-pay-terms").click();
   await expect(page.getByText("Pay terms saved", { exact: false })).toBeVisible();
   const after = (await (await page.request.get(base + "/pay-runs")).json()).pay_runs.find((x: any) => x.id === run.id);
-  expect(after.rent_pence).toBe(15000);
+  expect(after.deductions_pence).toBe(15000);
   expect(after.pay_model).toBe("CHAIR_RENT");
   // Hourly preview uses rostered hours.
-  await expect(runs).toContainText("Rostered hours");
+  await expect(runs).toContainText("on rostered hours");
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations).toEqual([]);
 });
 
@@ -119,7 +122,7 @@ test("top bar: search palette opens in place and deep-links; account menu offers
   await expect(page.getByTestId("barber-editor")).toBeVisible(); // still on Team
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations).toEqual([]);
   await menu.getByRole("menuitem", { name: "Shop settings" }).click();
-  await expect(page.getByRole("heading", { name: "Shop settings" })).toBeVisible();
+  await expect(page.getByTestId("settings")).toBeVisible();
   await page.getByTestId("account-pill").click();
   await page.getByTestId("sign-out").click();
   await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();

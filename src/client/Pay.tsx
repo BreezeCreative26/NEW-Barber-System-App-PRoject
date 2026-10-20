@@ -519,37 +519,37 @@ export function PayStatement({ barber, terms, input, result, adjustments, split,
   const grossToStaff = result.staff_share_pence + result.tip_pence;
   const plus = adjustments.filter((a) => a.pence > 0), minus = adjustments.filter((a) => a.pence < 0);
   return (
-    <dl className="pay-statement" aria-label="Pay run statement" data-testid="pay-statement">
-      <div className="pay-statement-group">
+    <div role="group" className="pay-statement" aria-label="Pay run statement" data-testid="pay-statement">
+      <dl className="pay-statement-group">
         <Line label="Total sales (ledger)" value={money(input.service_pence)} sub={`${input.visits} paid visit${input.visits === 1 ? "" : "s"}${split ? ` · card ${money(split.card)} · cash ${money(split.cash)}` : ""}`} />
         <Line label="Tips" value={money(input.tips_pence)} />
-      </div>
-      <div className="pay-statement-group">
+      </dl>
+      <dl className="pay-statement-group">
         <Line label={`${barber}'s share`} value={money(result.staff_share_pence)} sub={shareLabel} />
         <Line label={`Tips to ${barber}`} value={money(result.tip_pence)} sub={`${terms.tip_share_pct}%`} />
         <div className="pay-subtotal" data-testid="pay-gross"><dt>Gross to {barber}</dt><dd>{money(grossToStaff)}</dd></div>
-      </div>
+      </dl>
       {(result.deductions.length > 0 || adjustments.length > 0) && (
-        <div className="pay-statement-group">
+        <dl className="pay-statement-group">
           {result.deductions.map((d, i) => <Line key={`d${i}`} label={d.label} value={`− ${money(d.pence)}`} sub={d.detail} />)}
           {minus.map((a) => { const i = adjustments.indexOf(a); return <Line key={`m${i}`} label={a.label} value={`− ${money(-a.pence)}`} sub="one-off" onRemove={onRemoveAdjustment ? () => onRemoveAdjustment(i) : undefined} />; })}
           {plus.map((a) => { const i = adjustments.indexOf(a); return <Line key={`p${i}`} label={a.label} value={`+ ${money(a.pence)}`} sub="one-off" onRemove={onRemoveAdjustment ? () => onRemoveAdjustment(i) : undefined} />; })}
-        </div>
+        </dl>
       )}
-      <div className={`pay-net ${result.net_pence < 0 ? "negative" : ""}`} data-testid="pay-owed-staff">
+      <dl className={`pay-net ${result.net_pence < 0 ? "negative" : ""}`} data-testid="pay-owed-staff">
         <dt>{result.net_pence < 0 ? `${barber} owes the shop` : `Owed to ${barber}`}</dt>
         <dd data-testid="pay-net">{money(Math.abs(result.net_pence))}</dd>
-      </div>
+      </dl>
       {showOwner && (
-        <div className="pay-statement-group pay-owner" data-testid="pay-owed-business">
+        <dl className="pay-statement-group pay-owner" data-testid="pay-owed-business">
           <Line label={`Owner's share${ownerPct ? ` ${ownerPct}` : ""}`} value={money(result.owner_share_pence)} sub="sales less barber's share" />
           {result.deductions_pence > 0 && <Line label="Deductions" value={`+ ${money(result.deductions_pence)}`} />}
           {result.adjustments_pence !== 0 && <Line label={result.adjustments_pence > 0 ? "less one-off payments" : "one-off charges"} value={`${result.adjustments_pence > 0 ? "− " : "+ "}${money(Math.abs(result.adjustments_pence))}`} />}
           <div className="pay-subtotal strong"><dt>Owed to business</dt><dd>{money(result.owed_to_business_pence)}</dd></div>
-        </div>
+        </dl>
       )}
       {frozen && <p className="workspace-footnote pay-statement-group">Terms, shares and deductions were frozen when this run was created. Void and recreate to pick up changed terms.</p>}
-    </dl>
+    </div>
   );
 }
 
