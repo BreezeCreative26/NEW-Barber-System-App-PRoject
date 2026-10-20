@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { brandOf, type Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { shopManifest } from "./server/customerAuth";
-import { SHOP_HOST_HEADER, shopOrigin } from "./server/hosts";
+import { SHOP_HOST_HEADER, shopOrigin, shopUrl } from "./server/hosts";
 import { shopIcon } from "./server/images";
 import { currentBuild, entryTags, shopAssetList } from "./server/assets";
 import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
@@ -461,7 +461,7 @@ app.get("/sitemap.xml", async (c) => {
   ).all<{ slug: string; updated_at: number }>();
   const origin = publicOrigin(c);
   const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
-  const urls = rows.results.map((r) => `<url><loc>${esc(`${origin}/${r.slug}`)}</loc>${r.updated_at ? `<lastmod>${new Date(r.updated_at).toISOString().slice(0, 10)}</lastmod>` : ""}<changefreq>weekly</changefreq></url>`).join("");
+  const urls = rows.results.map((r) => `<url><loc>${esc(shopUrl(r.slug, "/", origin))}</loc>${r.updated_at ? `<lastmod>${new Date(r.updated_at).toISOString().slice(0, 10)}</lastmod>` : ""}<changefreq>weekly</changefreq></url>`).join("");
   c.header("Content-Type", "application/xml; charset=utf-8");
   c.header("Cache-Control", "public, max-age=3600");
   const statics = ["/", ...INDUSTRY_PAGES.map((p) => p.path)].map((p) => `<url><loc>${esc(origin + p)}</loc><changefreq>monthly</changefreq></url>`).join("");

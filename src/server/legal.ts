@@ -159,8 +159,8 @@ export function legalDocument(doc: LegalDoc): Document {
         summary: `${S.name} uses only the cookies it needs to keep you signed in. There is no advertising, no analytics tracking and nothing from third parties.`,
         sections: [
           { h: "Cookies we set", p: [
-            "ollo_session — set when a shop owner or staff member signs in to the workspace. Identifies your session. HttpOnly, Secure, SameSite=Strict. Lasts 7 days or until you sign out.",
-            "ollo_customer — set when a customer signs in to a shop's site to see their visits. Scoped to that shop. HttpOnly, Secure. Lasts 90 days or until you sign out.",
+            "ollo_session — set when a shop owner or staff member signs in to the workspace. Identifies your session. HttpOnly, Secure, SameSite=Lax. Lasts 7 days or until you sign out.",
+            "__Host-fc-… — set when a customer signs in to a shop's own site to see their visits. There is one per shop, it only ever goes to that shop's own address, and it is not shared with any other shop. HttpOnly, Secure, SameSite=Lax. Lasts up to a year or until you sign out.",
             "Stripe may set its own cookies on its hosted payment pages; those are covered by Stripe's cookie policy.",
           ] },
           { h: "Local storage", p: ["The workspace remembers small preferences on your device (for example calendar density and which barbers you last showed). These never leave your browser and hold no personal data beyond your own choices."] },

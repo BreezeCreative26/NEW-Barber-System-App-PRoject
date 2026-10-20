@@ -87,7 +87,8 @@ import { readFileSync } from "node:fs";
 
 // Keep an executable inventory of ALL write routes, including PATCH and DELETE.
 // A new write route without a security test fails this source-derived coverage gate.
-const mutationContracts = [
+// A third entry is the status an invalid body gets where that route checks something else first.
+const mutationContracts: [string, string, number?][] = [
   ["PUT", "/shop"],
   ["PUT", "/shop/online"],
   ["PUT", "/shop/messaging"],
@@ -166,6 +167,14 @@ const mutationContracts = [
   ["POST", "/billing/features/:key"],
   ["PUT", "/billing/contact"],
   ["PUT", "/me/prefs"],
+  ["PUT", "/me/profile", 409],
+  ["POST", "/me/onboarded"],
+  ["PUT", "/shop/reviews"],
+  ["PUT", "/shop/page/draft"],
+  ["DELETE", "/shop/page/draft", 200],
+  ["POST", "/billing/card"],
+  ["POST", "/billing/portal"],
+  ["POST", "/bookings/:id/notify-flush"],
   ["POST", "/customers/:id/erase"],
 ] as const;
 test("all registered mutation endpoints enforce origin and session boundaries", async () => {
@@ -186,7 +195,7 @@ test("all registered mutation endpoints enforce origin and session boundaries", 
   });
   const w = await workspace(a);
   const before = w.audit.length;
-  for (const [method, pattern] of mutationContracts) {
+  for (const [method, pattern, badStatus] of mutationContracts) {
     const path = pattern.replace(/:[a-zA-Z]+/g, () => crypto.randomUUID());
     const foreign = await a.fetch(base + path, {
       method,
@@ -207,7 +216,7 @@ test("all registered mutation endpoints enforce origin and session boundaries", 
           : {}),
       });
       expect(invalid.status(), `${method} ${pattern} validation`).toBe(
-        method === "DELETE" ? 404 : 400,
+        badStatus ?? (method === "DELETE" ? 404 : 400),
       );
     }
   }
@@ -350,7 +359,7 @@ test("session cookie, same-origin checks and isolation across entity endpoints",
   expect(wa.shop.id).not.toBe(wb.shop.id);
   const cookie = (await a.storageState()).cookies[0];
   expect(cookie.httpOnly).toBe(true);
-  expect(cookie.sameSite).toBe("Strict");
+  expect(cookie.sameSite).toBe("Lax"); // Lax so the redirect from root signup to <slug>.<root>/workspace carries it
   const anonymous = await request.newContext();
   expect((await anonymous.get(base + "/workspace")).status()).toBe(401);
   expect(
@@ -720,8 +729,8 @@ test("weekly hours, holidays, shop settings and deactivation flag affected booki
   expect((await r.put(base + `/staff/${barber.id}/hours`, { data: { version: barber.version, rows: lateRows } })).status()).toBe(200);
   const thu = await (await r.get(base + `/availability?date=${nextThu}&staff_id=${barber.id}&service_id=${w.services[0].id}`)).json();
   const sat = await (await r.get(base + `/availability?date=${nextSat}&staff_id=${barber.id}&service_id=${w.services[0].id}`)).json();
-  expect(thu.slots.some((x: { start_min: number }) => x.start_min === 1110)).toBe(true);
-  expect(sat.slots.some((x: { start_min: number }) => x.start_min === 1110)).toBe(false);
+  expect(thu.slots.some((x: { start_min: number; reason?: string }) => x.start_min === 1110 && !x.reason)).toBe(true);
+  expect(sat.slots.some((x: { start_min: number; reason?: string }) => x.start_min === 1110 && !x.reason)).toBe(false);
   await r.dispose();
 });
 

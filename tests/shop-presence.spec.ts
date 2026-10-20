@@ -37,6 +37,10 @@ const JPEG = Buffer.from(
   "base64",
 );
 
+// A shop's page lives on its own address; ask for it there without needing *.localhost DNS.
+const home = (slug: string) => `http://${slug}.localhost:${new URL(origin).port}/`;
+const onShop = (slug: string) => ({ "x-forwarded-host": `${slug}.localhost:3000` });
+
 test("shop page head is rendered on the server: title, description, canonical, Open Graph, JSON-LD HairSalon with hours, catalogue and rating", async () => {
   const { r, w, slug } = await fixture();
   // Give the fixture a page with reviews-worthy data: seed already has staff/services; add a cover.
@@ -45,12 +49,12 @@ test("shop page head is rendered on the server: title, description, canonical, O
     data: { strapline: "Sharp cuts, straight talk.", about: page.about || "", cover_url: "/static/demo/cover.jpg", gallery: ["/static/demo/gallery-1.jpg"], phone: "020 7946 0111", email: "", instagram: "", map_url: "", transport_note: "", policy_text: "", sections: JSON.parse(page.sections_json || "[]").length ? JSON.parse(page.sections_json) : undefined, accent: "ollo", published: 1, version: page.version },
   });
   expect(put.status(), await put.text()).toBe(200);
-  const html = await (await r.get(`${origin}/${slug}`)).text();
+  const html = await (await r.get(`${origin}/`, { headers: onShop(slug) })).text();
   expect(html).toContain(`<title>${w.shop.name} · Barbers in London</title>`);
   expect(html).toContain('<meta name="robots" content="index,follow"/>');
-  expect(html).toContain(`<link rel="canonical" href="${origin}/${slug}"/>`);
+  expect(html).toContain(`<link rel="canonical" href="${home(slug)}"/>`); // the shop's own address, not /<slug>
   expect(html).toContain('<meta property="og:type" content="business.business"/>');
-  expect(html).toContain(`<meta property="og:image" content="${origin}/static/demo/cover.jpg"/>`);
+  expect(html).toContain(`<meta property="og:image" content="${home(slug).slice(0, -1)}/static/demo/`);
   expect(html).toContain('<meta name="twitter:card" content="summary_large_image"/>');
   const ld = JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/)![1]);
   expect(ld["@type"]).toBe("HairSalon");
@@ -65,7 +69,7 @@ test("shop page head is rendered on the server: title, description, canonical, O
   expect(ld.aggregateRating.reviewCount).toBeGreaterThan(5);
   expect(ld.employee.length).toBe(3);
   // Private pages stay out of search.
-  for (const path of [`/book/${slug}`, `/${slug}/me`, "/workspace"]) expect(await (await r.get(origin + path)).text()).toContain('content="noindex,nofollow"');
+  for (const path of ["/book", "/me", "/workspace"]) expect(await (await r.get(origin + path, { headers: onShop(slug) })).text()).toContain('content="noindex,nofollow"');
   // robots + sitemap
   const robots = await (await r.get(origin + "/robots.txt")).text();
   expect(robots).toContain("Disallow: /api/");
@@ -73,7 +77,7 @@ test("shop page head is rendered on the server: title, description, canonical, O
   expect(robots).toContain(`Sitemap: ${origin}/sitemap.xml`);
   const sitemap = await r.get(origin + "/sitemap.xml");
   expect(sitemap.headers()["content-type"]).toContain("application/xml");
-  expect(await sitemap.text()).toContain(`<loc>${origin}/${slug}</loc>`);
+  expect(await sitemap.text()).toContain(`<loc>${home(slug)}</loc>`);
 });
 
 test("hidden pages disappear from /<slug>, the public page API and the sitemap; /book keeps working; reserved slugs rejected", async () => {
@@ -81,14 +85,14 @@ test("hidden pages disappear from /<slug>, the public page API and the sitemap; 
   const page = (await (await r.get(base + "/shop/page")).json()).page;
   const body = { strapline: page.strapline, about: page.about, cover_url: page.cover_url, gallery: JSON.parse(page.gallery_json), phone: page.phone, email: page.email, instagram: page.instagram, map_url: page.map_url, transport_note: page.transport_note, policy_text: page.policy_text, sections: JSON.parse(page.sections_json), accent: page.accent, published: 0, version: page.version };
   expect((await r.put(base + "/shop/page", { data: body })).status()).toBe(200);
-  expect((await c.get(`${origin}/${slug}`)).status()).toBe(404);
+  expect((await c.get(`${origin}/`, { headers: onShop(slug) })).status()).toBe(404);
   expect((await c.get(`${pub}/shops/${slug}/page`)).status()).toBe(404);
-  expect(await (await c.get(origin + "/sitemap.xml")).text()).not.toContain(`/${slug}</loc>`);
-  expect((await c.get(`${origin}/book/${slug}`)).status()).toBe(200);
+  expect(await (await c.get(origin + "/sitemap.xml")).text()).not.toContain(`${slug}`);
+  expect((await c.get(`${origin}/book`, { headers: onShop(slug) })).status()).toBe(200);
   expect((await c.get(`${pub}/shops/${slug}`)).status()).toBe(200);
   // Back on.
   expect((await r.put(base + "/shop/page", { data: { ...body, published: 1, version: page.version + 1 } })).status()).toBe(200);
-  expect((await c.get(`${origin}/${slug}`)).status()).toBe(200);
+  expect((await c.get(`${origin}/`, { headers: onShop(slug) })).status()).toBe(200);
   // New reserved words cannot be claimed as addresses.
   const online = await r.get(base + "/workspace");
   const shop = (await online.json()).shop;

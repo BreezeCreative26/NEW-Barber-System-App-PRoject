@@ -629,7 +629,7 @@ const PUSH_TEMPLATES = new Set<MessageTemplate>(["booking_confirmed", "booking_m
 // because it needs the account id behind the phone; callers spread the result into their batch.
 export async function pushFor(db: DB, shop: MsgShop, to: Recipient, template: MessageTemplate, vars: MessageVars, opts: EnqueueOpts) {
   if (!PUSH_TEMPLATES.has(template) || !to.phone) return [];
-  const accountId = await accountForPhone(db, to.phone);
+  const accountId = await accountForPhone(db, shop.id, to.phone);
   if (!accountId) return [];
   const has = await db.prepare("SELECT 1 AS x FROM customer_push_subscriptions WHERE shop_id=? AND account_id=? LIMIT 1").bind(shop.id, accountId).first();
   if (!has) return [];

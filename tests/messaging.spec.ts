@@ -70,7 +70,7 @@ test("booking created → confirmation queued on SMS and email, shop-branded, ne
     expect(["SENT", "QUEUED"]).toContain(n.status);
     expect(n.body).toContain("Northline Test Barbers");
     expect(n.body).not.toMatch(/OLLO/i);
-    expect(n.body).toContain("/manage/");
+    expect(n.body).toMatch(/\/(manage\/|me\?visit=)/); // account holders land in their account, guests get the one-time link
   }
   const email = mine.find((n) => n.channel === "EMAIL")!;
   expect(email.recipient).toBe("msg-customer@example.test");
@@ -96,7 +96,7 @@ test("channel toggles are respected: SMS off → email only; both off → nothin
   const { r, w, slug } = await onlineShop();
   const c = await customer();
   const set = async (msg_sms: 0 | 1, msg_email: 0 | 1) => {
-    const res = await r.put(base + "/shop/messaging", { data: { msg_sms, msg_email, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } });
+    const res = await r.put(base + "/shop/messaging", { data: { sms_billing_ack: true, msg_sms, msg_email, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } });
     expect(res.status(), await res.text()).toBe(200);
   };
   await set(0, 1);
@@ -115,7 +115,7 @@ test("channel toggles are respected: SMS off → email only; both off → nothin
   expect(customerRows(box.notifications, b.booking.id)).toEqual([]);
 
   // Validation: reply-to must be an email, sender max 11 alphanumerics.
-  const bad = await r.put(base + "/shop/messaging", { data: { msg_sms: 1, msg_email: 1, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "not-an-email", msg_sms_sender: "Way Too Long Sender!" } });
+  const bad = await r.put(base + "/shop/messaging", { data: { sms_billing_ack: true, msg_sms: 1, msg_email: 1, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "not-an-email", msg_sms_sender: "Way Too Long Sender!" } });
   expect(bad.status()).toBe(400);
 });
 
@@ -154,7 +154,7 @@ test("reminders sweep is idempotent: one reminder per booking per window, honour
     expect(reminders[0].body).toContain(`/${slug}/me`);
   }
   // Reminders off → sweep queues nothing for this shop.
-  await r.put(base + "/shop/messaging", { data: { msg_sms: 1, msg_email: 1, msg_reminders: 0, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } });
+  await r.put(base + "/shop/messaging", { data: { sms_billing_ack: true, msg_sms: 1, msg_email: 1, msg_reminders: 0, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } });
   const third = await (await r.post(base + "/notifications/sweep", { data: {} })).json();
   expect(third.reminders.queued).toBe(0);
 });
@@ -183,7 +183,7 @@ test("owner test send lands in the outbox and returns delivery; resend only acce
   // Bad input.
   expect((await r.post(base + "/notifications/test", { data: { channel: "FAX", to: "x" } })).status()).toBe(400);
   // Switched-off channel refuses a test send.
-  await r.put(base + "/shop/messaging", { data: { msg_sms: 0, msg_email: 1, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } });
+  await r.put(base + "/shop/messaging", { data: { sms_billing_ack: true, msg_sms: 0, msg_email: 1, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } });
   expect((await r.post(base + "/notifications/test", { data: { channel: "SMS", to: "07700 900999" } })).status()).toBe(409);
 });
 

@@ -559,16 +559,30 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
           label={mode === "invite" ? "Join the team" : mode === "signup" ? "Create shop" : mode === "forgot" ? "Send reset link" : mode === "reset" ? "Set password and sign in" : "Sign in"}
           onSave={async (f) => {
             if (mode === "signup") {
-              const r = await api<{ workspace_url?: string; cross_host_session?: boolean }>("/auth/signup", "POST", {
-                shop_name: text(f, "shop_name"),
-                slug,
-                name: text(f, "name"),
-                email: text(f, "email"),
-                password: text(f, "password"),
-                timezone: tz,
-                kind,
-                accept_legal: f.get("accept_legal") === "on",
-              });
+              // If the suggested address was taken a moment ago (or before the suggestion finished
+              // loading), quietly pick a free variant instead of showing an error. An address the
+              // owner typed themselves is never changed for them.
+              let address = slug;
+              let r!: { workspace_url?: string; cross_host_session?: boolean };
+              for (let attempt = 0; ; attempt++) {
+                try {
+                  r = await api<{ workspace_url?: string; cross_host_session?: boolean }>("/auth/signup", "POST", {
+                    shop_name: text(f, "shop_name"),
+                    slug: address,
+                    name: text(f, "name"),
+                    email: text(f, "email"),
+                    password: text(f, "password"),
+                    timezone: tz,
+                    kind,
+                    accept_legal: f.get("accept_legal") === "on",
+                  });
+                  break;
+                } catch (e) {
+                  if (slugTouched || attempt >= 3 || !/already taken/i.test(e instanceof Error ? e.message : "")) throw e;
+                  address = `${address.replace(/-[a-z0-9]{3}$/, "").slice(0, 36)}-${Math.random().toString(36).slice(2, 5)}`;
+                  setSlug(address);
+                }
+              }
               // The owner's home is their shop's own address. Same host (local dev) → carry on here.
               if (r.workspace_url && r.cross_host_session && new URL(r.workspace_url).host !== location.host) { location.assign(`${r.workspace_url}/setup`); return; }
             } else if (mode === "invite")

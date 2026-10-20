@@ -1863,6 +1863,8 @@ sandbox.post("/media", async (c) => {
   const alt = String(form.get("alt") || "").trim().slice(0, 200);
   if (!(file instanceof File)) fail(400, "Choose a photo to upload");
   if (!(mediaKinds as readonly string[]).includes(kind)) fail(400, "Unknown photo kind");
+  // Barbers may add their own profile photo, not the shop's cover, gallery or logo.
+  if (c.get("account")?.role === "BARBER" && kind !== "staff") fail(403, "Only the owner or manager can add shop photos");
   const f = file as File;
   if (f.size > MEDIA_MAX_BYTES) fail(413, "Photos must be 5 MB or smaller");
   const raw = new Uint8Array(await f.arrayBuffer());

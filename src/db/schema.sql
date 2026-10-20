@@ -258,7 +258,8 @@ CREATE TABLE customers (
 CREATE INDEX customers_shop_name ON customers(shop_id,name);
 CREATE TABLE customer_accounts (
   id TEXT PRIMARY KEY,
-  phone TEXT NOT NULL UNIQUE,
+  shop_id TEXT NOT NULL REFERENCES shops(id),   -- an account belongs to ONE shop
+  phone TEXT NOT NULL,
   email TEXT NOT NULL DEFAULT '',
   name TEXT NOT NULL DEFAULT '',
   created_at BIGINT NOT NULL,
@@ -267,13 +268,17 @@ CREATE TABLE customer_accounts (
   password_hash TEXT NOT NULL DEFAULT '',
   password_salt TEXT NOT NULL DEFAULT '',
   email_verified INTEGER NOT NULL DEFAULT 0,
-  password_set_at BIGINT
+  password_set_at BIGINT,
+  UNIQUE (id, shop_id)
 );
-CREATE UNIQUE INDEX customer_accounts_email ON customer_accounts(lower(email)) WHERE email <> '';
+CREATE UNIQUE INDEX customer_accounts_shop_phone ON customer_accounts(shop_id, phone);
+CREATE UNIQUE INDEX customer_accounts_shop_email ON customer_accounts(shop_id, lower(email)) WHERE email <> '';
+CREATE INDEX customer_accounts_shop ON customer_accounts(shop_id);
 CREATE TABLE customer_reset_tokens (
   token_hash TEXT PRIMARY KEY,
-  account_id TEXT NOT NULL REFERENCES customer_accounts(id),
+  account_id TEXT NOT NULL,
   shop_id TEXT NOT NULL REFERENCES shops(id),
+  FOREIGN KEY (account_id, shop_id) REFERENCES customer_accounts(id, shop_id),
   purpose TEXT NOT NULL CHECK(purpose IN ('RESET','WELCOME')),
   created_at BIGINT NOT NULL,
   expires_at BIGINT NOT NULL,
@@ -282,8 +287,9 @@ CREATE TABLE customer_reset_tokens (
 CREATE INDEX customer_reset_tokens_account ON customer_reset_tokens(account_id);
 CREATE TABLE customer_push_subscriptions (
   id TEXT PRIMARY KEY,
-  account_id TEXT NOT NULL REFERENCES customer_accounts(id),
+  account_id TEXT NOT NULL,
   shop_id TEXT NOT NULL REFERENCES shops(id),
+  FOREIGN KEY (account_id, shop_id) REFERENCES customer_accounts(id, shop_id),
   endpoint TEXT NOT NULL,
   p256dh TEXT NOT NULL,
   auth TEXT NOT NULL,
@@ -295,8 +301,9 @@ CREATE TABLE customer_push_subscriptions (
 );
 CREATE INDEX customer_push_account ON customer_push_subscriptions(account_id, shop_id);
 CREATE TABLE customer_account_links (
-  account_id TEXT NOT NULL REFERENCES customer_accounts(id),
+  account_id TEXT NOT NULL,
   shop_id TEXT NOT NULL,
+  FOREIGN KEY (account_id, shop_id) REFERENCES customer_accounts(id, shop_id),
   customer_id TEXT NOT NULL,
   linked_at BIGINT NOT NULL,
   terms_version INTEGER NOT NULL DEFAULT 0,
@@ -312,8 +319,9 @@ CREATE TABLE customer_otp (
 );
 CREATE TABLE customer_sessions (
   token_hash TEXT PRIMARY KEY,
-  account_id TEXT NOT NULL REFERENCES customer_accounts(id),
+  account_id TEXT NOT NULL,
   shop_id TEXT NOT NULL REFERENCES shops(id),
+  FOREIGN KEY (account_id, shop_id) REFERENCES customer_accounts(id, shop_id),
   created_at BIGINT NOT NULL,
   expires_at BIGINT NOT NULL
 );

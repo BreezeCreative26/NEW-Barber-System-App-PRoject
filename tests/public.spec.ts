@@ -438,7 +438,7 @@ test.describe("public booking pages", () => {
     const fresh: WorkspaceData = await (await r.get(base + "/workspace")).json();
     const booked = await bookOnline(c, slug, fresh, futureDate());
     expect(booked.res.status()).toBe(201);
-    await page.getByRole("button", { name: "Customers", exact: true }).click();
+    await page.getByTestId("rail").getByRole("button", { name: "Customers", exact: true }).click();
     await expect(page.getByRole("heading", { level: 2, name: "Customers" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Online Customer" })).toBeVisible();
     await page.getByRole("button", { name: "Online Customer" }).click();
@@ -472,6 +472,7 @@ const publicMutations = [
   ["POST", "/shops/:slug/account/waitlist/:id/leave"],
   ["POST", "/shops/:slug/account/bookings/:id/review"],
   ["POST", "/manage/:token/review"],
+  ["POST", "/shops/:slug/account/complete"],
   ["POST", "/shops/:slug/account/delete"],
 ] as const;
 test("all public mutation endpoints enforce origin and validate input", async () => {
@@ -690,7 +691,7 @@ test.describe("public booking v2 UI", () => {
     await expect(page.getByRole("complementary", { name: "Waitlist request" })).toContainText("Waiting Wanda");
     await expect(page.getByLabel("Customer name", { exact: true })).toHaveValue("Waiting Wanda");
     await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "Customers", exact: true }).click();
+    await page.getByTestId("rail").getByRole("button", { name: "Customers", exact: true }).click();
     await page.getByRole("button", { name: "Waiting Wanda" }).click();
     await page.locator(".customer-history").getByRole("button").first().click();
     await page.getByTestId("appointment-panel").locator(".panel-more summary").click();

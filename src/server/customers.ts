@@ -2,15 +2,13 @@
 // Mounted under /api/public/shops/:slug/account. In the sandbox the code is never sent: it is
 // returned to the page (shown on screen) and written to the shop's audit log.
 import { Hono } from "hono";
-import { sessionCookieDomain } from "./hosts";
-import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
 import { brandOf, dayStarts, phoneSchema, ref, shopToday, type Customer, type Shop, type StoredBooking } from "./domain";
 import { digest, passwordHash, readInput, type AppEnv } from "./accounts";
 import { audit, checkVersionUpdate, fail, readBooking } from "./sandbox";
 import { leaveReview, ownReviewView, reviewEligibility, reviewSchema, type ReviewRow } from "./presence";
 import { drain, enqueue, msgShop, providerStatus } from "./messaging";
-import { customerAuth, customerPassword, recordConsent } from "./customerAuth";
+import { byPhone, clearSession, currentAccount, customerAuth, customerPassword, customerSessionToken, recordConsent, setSession } from "./customerAuth";
 import {
   calendarResponse,
   cancelBody,
@@ -30,10 +28,9 @@ import {
   type Ctx,
 } from "./public";
 
-export const CUSTOMER_COOKIE = "ollo_customer";
 const uid = () => crypto.randomUUID();
 const CODE_TTL = 10 * 60000;
-const SESSION_TTL = 90 * 86400000;
+const SESSION_TTL = 90 * 86400000; // how long a code sign-in lasts (password sign-ins last a year)
 
 type AccountRow = { id: string; phone: string; email: string; name: string; created_at: number; last_seen_at: number; version: number; password_hash?: string; email_verified?: number };
 
@@ -53,22 +50,6 @@ const profileSchema = z
   })
   .strict();
 
-function cookie(c: Ctx, raw: string) {
-  setCookie(c, CUSTOMER_COOKIE, raw, { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: SESSION_TTL / 1000, ...(sessionCookieDomain() ? { domain: sessionCookieDomain()! } : {}) });
-}
-
-// Signed-in customer for this shop, or null. Sessions are shop-scoped so a token from shop A
-// never reads shop B.
-async function currentAccount(c: Ctx, shop: Shop) {
-  const raw = getCookie(c, CUSTOMER_COOKIE);
-  if (!raw || raw.length < 60) return null;
-  const row = await c.env.DB.prepare(
-    "SELECT a.* FROM customer_sessions s JOIN customer_accounts a ON a.id=s.account_id WHERE s.token_hash=? AND s.shop_id=? AND s.expires_at>?",
-  )
-    .bind(await digest(raw), shop.id, Date.now())
-    .first<AccountRow>();
-  return row;
-}
 async function requireAccount(c: Ctx, shop: Shop) {
   const a = await currentAccount(c, shop);
   if (!a) return fail(401, "Sign in to see your visits");
@@ -177,14 +158,14 @@ acct.post("/verify", async (c) => {
     await c.env.DB.prepare("UPDATE customer_otp SET attempts=attempts+1 WHERE shop_id=? AND phone=?").bind(shop.id, b.phone).run();
     fail(401, "That code is not right. Check it and try again.");
   }
-  let account = await c.env.DB.prepare("SELECT * FROM customer_accounts WHERE phone=?").bind(b.phone).first<AccountRow>();
+  let account = await byPhone(c, shop.id, b.phone) as AccountRow | null;
   if (!account) {
     // Seed the account name/email from what this shop already knows about the phone.
     const known = await c.env.DB.prepare("SELECT name,email FROM customers WHERE shop_id=? AND phone=? AND merged_into IS NULL").bind(shop.id, b.phone).first<{ name: string; email: string }>();
-    await c.env.DB.prepare("INSERT INTO customer_accounts(id,phone,email,name,created_at,last_seen_at,version) VALUES(?,?,?,?,?,?,0)")
-      .bind(uid(), b.phone, known?.email ?? "", known?.name ?? "", now, now)
+    await c.env.DB.prepare("INSERT INTO customer_accounts(id,shop_id,phone,email,name,created_at,last_seen_at,version) VALUES(?,?,?,?,?,?,?,0)")
+      .bind(uid(), shop.id, b.phone, known?.email ?? "", known?.name ?? "", now, now)
       .run();
-    account = (await c.env.DB.prepare("SELECT * FROM customer_accounts WHERE phone=?").bind(b.phone).first<AccountRow>())!;
+    account = (await byPhone(c, shop.id, b.phone) as AccountRow)!;
   }
   const raw = uid() + uid();
   await c.env.DB.batch([
@@ -195,7 +176,7 @@ acct.post("/verify", async (c) => {
   ]);
   c.set("actor", `customer:${account.id}`);
   const cust = await linkedCustomer(c, shop, account);
-  cookie(c, raw);
+  setSession(c, shop, raw);
   // An account that only ever signed in by code has no email or password: it cannot receive
   // confirmations by email or reset itself. The client finishes the profile before going on.
   const needsProfile = !account.email || !account.password_hash || !(account.name || "").trim();
@@ -220,7 +201,7 @@ acct.post("/complete", async (c) => {
   const b = await readInput(c, completeSchema);
   const termsNeeded = !!shop.terms_text && (shop.terms_version || 0) > 0;
   if (termsNeeded && b.accept_terms_version !== shop.terms_version) fail(400, "Please accept the booking terms to continue");
-  const other = await c.env.DB.prepare("SELECT id FROM customer_accounts WHERE lower(email)=lower(?) AND email<>'' AND id<>?").bind(b.email, a.id).first<{ id: string }>();
+  const other = await c.env.DB.prepare("SELECT id FROM customer_accounts WHERE shop_id=? AND lower(email)=lower(?) AND email<>'' AND id<>?").bind(shop.id, b.email, a.id).first<{ id: string }>();
   if (other) fail(409, "That email is already used by another account. Sign in with it instead.");
   const now = Date.now();
   const salt = uid() + uid();
@@ -237,11 +218,11 @@ acct.post("/complete", async (c) => {
 });
 
 acct.post("/logout", async (c) => {
-  await shopBySlug(c, c.req.param("slug")!);
+  const shop = await shopBySlug(c, c.req.param("slug")!);
   await readInput(c, z.object({}).strict());
-  const raw = getCookie(c, CUSTOMER_COOKIE);
-  if (raw) await c.env.DB.prepare("DELETE FROM customer_sessions WHERE token_hash=?").bind(await digest(raw)).run();
-  deleteCookie(c, CUSTOMER_COOKIE, { path: "/", secure: true, ...(sessionCookieDomain() ? { domain: sessionCookieDomain()! } : {}) });
+  const raw = customerSessionToken(c, shop);
+  if (raw) await c.env.DB.prepare("DELETE FROM customer_sessions WHERE token_hash=? AND shop_id=?").bind(await digest(raw), shop.id).run();
+  clearSession(c, shop);
   return c.json({ ok: true });
 });
 
@@ -449,11 +430,13 @@ acct.post("/delete", async (c) => {
   await readInput(c, z.object({ confirm: z.literal("DELETE") }).strict());
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM customer_sessions WHERE account_id=?").bind(a.id),
+    c.env.DB.prepare("DELETE FROM customer_reset_tokens WHERE account_id=?").bind(a.id),
+    c.env.DB.prepare("DELETE FROM customer_push_subscriptions WHERE account_id=?").bind(a.id),
     c.env.DB.prepare("DELETE FROM customer_account_links WHERE account_id=?").bind(a.id),
-    c.env.DB.prepare("DELETE FROM customer_accounts WHERE id=?").bind(a.id),
+    c.env.DB.prepare("DELETE FROM customer_accounts WHERE id=? AND shop_id=?").bind(a.id, shop.id),
     audit(c, "customer_account", a.id, "CUSTOMER_ACCOUNT_DELETED", "Customer deleted their online account. Shop visit history is retained."),
   ]);
-  deleteCookie(c, CUSTOMER_COOKIE, { path: "/", secure: true, ...(sessionCookieDomain() ? { domain: sessionCookieDomain()! } : {}) });
+  clearSession(c, shop);
   return c.json({ ok: true });
 });
 

@@ -700,7 +700,7 @@
 .shop-page.mode-dark { --sp-bg: #0c0d10; --sp-surface: #15161a; --sp-surface-2: #1d1f24; --sp-line: rgba(255, 255, 255, 0.08); --sp-line-2: rgba(255, 255, 255, 0.15); }
 /* Livelier accents (same names, so saved choices carry over) */
 .shop-page.accent-ollo { --sp-accent: #00805c; --sp-accent-dark: #006b4d; --sp-soft: #e3fbf3; }
-.shop-page.accent-sage { --sp-accent: #0f8a5f; --sp-accent-dark: #0b6e4b; --sp-soft: rgba(15, 138, 95, 0.12); }
+.shop-page.accent-sage { --sp-accent: #0c7d56; --sp-accent-dark: #0b6e4b; --sp-soft: rgba(12, 125, 86, 0.12); }
 .shop-page.accent-clay { --sp-accent: #c2410c; --sp-accent-dark: #9a330a; --sp-soft: rgba(194, 65, 12, 0.11); }
 .shop-page.accent-plum { --sp-accent: #6d3fe0; --sp-accent-dark: #5530b8; --sp-soft: rgba(109, 63, 224, 0.11); }
 .shop-page.accent-slate { --sp-accent: #3f4b5e; --sp-accent-dark: #2c3646; --sp-soft: rgba(63, 75, 94, 0.11); }

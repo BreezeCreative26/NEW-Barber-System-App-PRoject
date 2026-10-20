@@ -181,3 +181,4 @@ Re-check provider documentation during the implementation spike; links are archi
 ## Change log
 
 - 2026-09-14: Captured user-approved SaaS/PWA and Model A decisions; established proposed architecture and unresolved launch scope; no implementation claims.
+- 2026-10-20: **Customer accounts are per shop (user decision).** A customer account belongs to exactly one shop and lives on that shop's own subdomain. The same person at two shops has two accounts with separate passwords, sessions, visits and push subscriptions. Email and mobile are unique within a shop, not across foliyo. The sign-in cookie is host-only (`__Host-fc-<shop>`, no Domain, one name per shop); the old shared `ollo_customer` cookie is ignored and cleared. Migration `0040_customer_accounts_per_shop.sql` splits any existing multi-shop account into one copy per shop. Proven by `tests/customer-per-shop.spec.ts`. Owner/team sessions are unchanged (one email = one shop).

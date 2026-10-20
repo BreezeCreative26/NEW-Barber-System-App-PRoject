@@ -167,12 +167,19 @@ test("browser: sign in on /<slug>/me, see usual and visits, rebook the usual wit
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   await page.goto(`/${slug}/me`);
   await expect(page.getByTestId("customer-signin")).toBeVisible();
+  // Email and password is the front door now; the mobile code sits behind "Text me a code instead".
+  await page.getByTestId("signin-use-code").click();
   await page.getByTestId("signin-phone").fill("07700 901000");
   await page.getByTestId("signin-send").click();
   const code = (await page.getByTestId("shown-code").textContent())!;
   expect(code).toMatch(/^\d{6}$/);
   await page.getByTestId("signin-code").fill(code);
   await page.getByTestId("signin-verify").click();
+  // A code-only account finishes itself first: name and email are prefilled, so just add a password.
+  await expect(page.getByTestId("complete-form")).toBeVisible();
+  await page.getByTestId("complete-form").getByLabel(/^Password/).fill("Ada-Sign1n!");
+  await page.getByTestId("complete-form").getByLabel("Repeat password").fill("Ada-Sign1n!");
+  await page.getByTestId("complete-submit").click();
   const area = page.getByTestId("customer-area");
   await expect(area).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: /Hello, Ada/ })).toBeVisible();
@@ -217,7 +224,7 @@ test("browser: sign in on /<slug>/me, see usual and visits, rebook the usual wit
   await expect(movedRow.locator(".ca-visit-when")).not.toHaveText(beforeWhen!);
 
   // Profile edit round-trips.
-  await page.getByTestId("tab-profile").click();
+  await page.getByTestId("tab-profile").locator("visible=true").click();
   await page.getByTestId("profile-notes").fill("Scissors on top please");
   await page.getByTestId("save-profile").click();
   await expect(page.getByRole("status")).toContainText("Profile saved");
@@ -225,7 +232,7 @@ test("browser: sign in on /<slug>/me, see usual and visits, rebook the usual wit
   expect(a11y.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
 
   // "Your usual" deep-links to the shop page with the flow on the time step, barber + service set, details prefilled.
-  await page.getByTestId("tab-visits").click();
+  await page.getByTestId("tab-visits").locator("visible=true").click();
   await page.getByTestId("book-usual-next").click();
   await expect(page).toHaveURL(new RegExp(`/book(/${slug})?\\?.*service=`));
   const flow = page.locator(".booking-app.standalone");
@@ -259,8 +266,13 @@ test("admin: Customer pages lists accounts as live; a customer who signed in car
   const panel = page.getByTestId("customer-pages");
   await expect(panel).toContainText("Customer accounts");
   await expect(panel.getByTestId("view-customer-area")).toHaveAttribute("href", new RegExp(`/${slug}/me$`));
-  expect((await page.request.get(`/${slug}/me`)).status()).toBe(200);
-  expect((await page.request.get(`/no-such-shop/me`)).status()).toBe(404);
+  // A shop's customer area lives on its own address. Ask for it there (via the host header, so this
+  // also works where *.localhost names do not resolve); the root address only redirects to it.
+  expect((await page.request.get(`/me`, { headers: { "x-forwarded-host": `${slug}.localhost:3000` } })).status()).toBe(200);
+  const redirect = await page.request.get(`/${slug}/me`, { maxRedirects: 0 });
+  expect([301, 308]).toContain(redirect.status());
+  expect(redirect.headers()["location"]).toContain(`${slug}.`);
+  expect((await page.request.get(`/no-such-shop/me`, { maxRedirects: 0 })).status()).toBe(404);
   await section(page, "Customers");
   await page.getByPlaceholder("Search name, mobile, email or tag").fill(PHONE);
   const row = page.getByTestId("customer-list").locator("li").filter({ hasText: PHONE }).first();
