@@ -29,7 +29,7 @@ test("shop setup: signup → 9-step onboarding → go live; invite accepted by S
   await page.getByTestId("setup-next").click();
   // Step 2 brand — full-screen flow hides the rail; live phone preview renders the real shop page
   await expect(page.getByTestId("setup-brand")).toBeVisible();
-  await expect(page.locator(".workspace-layout.onboarding")).toBeVisible();
+  await expect(page.locator(".setup-flow")).toBeVisible(); // full-screen flow (the redesign no longer uses the .onboarding layout class)
   await expect(page.getByTestId("rail")).toBeHidden();
   await page.getByTestId("setup-stock-industrial").click();
   await page.getByTestId("setup-accent-clay").click();

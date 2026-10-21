@@ -292,6 +292,8 @@ export type StaffBlock = {
 };
 export type StoredBooking = {
   customer_id: string | null;
+  // GET /bookings only: the linked customer's email when the booking itself has none.
+  customer_email?: string;
   id: string;
   shop_id: string;
   sequence: number;
@@ -1078,6 +1080,9 @@ export const moveSchema = z
     // Fresha-style override: the shop chooses to double-book or book outside rostered hours.
     // Only soft reasons yield (see OVERRIDABLE_REASONS); past time / closed shop never do.
     force: z.boolean().default(false),
+    // Message the customer about the new time (held briefly so Undo can cancel it). Off unless asked.
+    // true = their usual channel; { sms, email } = exactly those (each only if the booking has it).
+    notify: z.union([z.boolean(), z.object({ sms: z.boolean(), email: z.boolean() }).strict()]).default(false),
   })
   .strict();
 // Reasons a shop user may knowingly override from the calendar. Public booking never can.

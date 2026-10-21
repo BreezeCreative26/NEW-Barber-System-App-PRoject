@@ -1,0 +1,184 @@
+// In-app confirm / prompt. Replaces the browser's grey window.confirm()/prompt() with a styled,
+// accessible dialog that matches the workspace. Self-mounting: call `ask()` from anywhere.
+//
+//   if (!(await ask({ title: "Move Leo to 16:30?", confirm: "Move" }))) return;
+//   const reason = await askText({ title: "Why void this pay run?", confirm: "Void" });
+import { useEffect, useRef, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
+
+type AskOptions = {
+  title: string;
+  body?: string;
+  confirm?: string;
+  cancel?: string;
+  tone?: "default" | "danger" | "warning";
+};
+type TextOptions = AskOptions & { label?: string; placeholder?: string; initial?: string; required?: boolean };
+export type CheckItem = { id: string; label: string; detail?: string; initial: boolean };
+// One or more tick boxes under an optional heading (e.g. "Let Leo know": Text / Email).
+type CheckOptions = AskOptions & { checks: CheckItem[]; heading?: string; hint?: string };
+type Checked = Record<string, boolean>;
+type Request =
+  | { kind: "confirm"; opts: AskOptions; resolve: (v: boolean) => void }
+  | { kind: "check"; opts: CheckOptions; resolve: (v: Checked | null) => void }
+  | { kind: "text"; opts: TextOptions; resolve: (v: string | null) => void };
+
+let root: Root | null = null;
+let push: ((r: Request) => void) | null = null;
+const queue: Request[] = [];
+
+function mount() {
+  if (root || typeof document === "undefined") return;
+  const el = document.createElement("div");
+  el.id = "foliyo-confirm-root";
+  document.body.appendChild(el);
+  root = createRoot(el);
+  root.render(<Host />);
+}
+
+function enqueue(r: Request) {
+  mount();
+  if (push) push(r);
+  else queue.push(r);
+}
+
+export function ask(opts: AskOptions): Promise<boolean> {
+  return new Promise((resolve) => enqueue({ kind: "confirm", opts, resolve }));
+}
+// Confirm with tick boxes. Resolves null on cancel, otherwise { [id]: ticked }.
+export function askCheck(opts: CheckOptions): Promise<Checked | null> {
+  return new Promise((resolve) => enqueue({ kind: "check", opts, resolve }));
+}
+export function askText(opts: TextOptions): Promise<string | null> {
+  return new Promise((resolve) => enqueue({ kind: "text", opts, resolve }));
+}
+
+function Host() {
+  const [items, setItems] = useState<Request[]>([]);
+  useEffect(() => {
+    push = (r) => setItems((xs) => [...xs, r]);
+    if (queue.length) setItems((xs) => [...xs, ...queue.splice(0)]);
+    return () => {
+      push = null;
+    };
+  }, []);
+  const current = items[0];
+  if (!current) return null;
+  const done = (value: boolean | string | Checked | null) => {
+    if (current.kind === "confirm") current.resolve(value === true);
+    else if (current.kind === "check") current.resolve(value && typeof value === "object" ? value : null);
+    else current.resolve(typeof value === "string" ? value : null);
+    setItems((xs) => xs.slice(1));
+  };
+  return <AskDialog key={items.length + current.opts.title} req={current} onDone={done} />;
+}
+
+function AskDialog({ req, onDone }: { req: Request; onDone: (v: boolean | string | Checked | null) => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const [text, setText] = useState(req.kind === "text" ? req.opts.initial || "" : "");
+  const [checked, setChecked] = useState<Checked>(() =>
+    req.kind === "check" ? Object.fromEntries(req.opts.checks.map((c) => [c.id, c.initial])) : {},
+  );
+  const { opts } = req;
+  const tone = opts.tone || "default";
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    ref.current?.showModal();
+    window.setTimeout(() => {
+      if (req.kind === "text") input.current?.focus();
+      else ref.current?.querySelector<HTMLButtonElement>("[data-testid=confirm-accept]")?.focus();
+    }, 0);
+    return () => previous?.focus?.();
+  }, [req.kind]);
+  const cancel = () => onDone(req.kind === "confirm" ? false : null);
+  const accept = () => {
+    if (req.kind === "text") {
+      if ((req.opts.required ?? true) && !text.trim()) {
+        input.current?.focus();
+        return;
+      }
+      onDone(text.trim());
+    } else if (req.kind === "check") onDone(checked);
+    else onDone(true);
+  };
+  return (
+    <dialog
+      ref={ref}
+      className={`ask-dialog tone-${tone}`}
+      aria-labelledby="ask-title"
+      aria-describedby={opts.body ? "ask-body" : undefined}
+      data-testid="confirm-dialog"
+      onCancel={(e) => {
+        e.preventDefault();
+        cancel();
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) cancel();
+      }}
+    >
+      <form
+        method="dialog"
+        onSubmit={(e) => {
+          e.preventDefault();
+          accept();
+        }}
+      >
+        <h2 id="ask-title">{opts.title}</h2>
+        {opts.body && (
+          <p id="ask-body">
+            {opts.body.split("\n").map((line, i) => (
+              <span key={i}>
+                {line}
+                <br />
+              </span>
+            ))}
+          </p>
+        )}
+        {req.kind === "text" && (
+          <label className="ask-field">
+            <span>{req.opts.label || "Reason"}</span>
+            <textarea
+              ref={input}
+              rows={3}
+              value={text}
+              placeholder={req.opts.placeholder}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) accept();
+              }}
+            />
+          </label>
+        )}
+        {req.kind === "check" && (
+          <fieldset className="ask-checks" data-testid="confirm-check">
+            {req.opts.heading && <legend>{req.opts.heading}</legend>}
+            {req.opts.checks.map((c) => (
+              <label key={c.id} className="ask-check">
+                <input
+                  type="checkbox"
+                  data-testid={`confirm-check-${c.id}`}
+                  checked={!!checked[c.id]}
+                  onChange={(e) => setChecked((v) => ({ ...v, [c.id]: e.target.checked }))}
+                />
+                <span>
+                  <strong>{c.label}</strong>
+                  {c.detail && <small>{c.detail}</small>}
+                </span>
+              </label>
+            ))}
+            {req.opts.hint && <p className="ask-checks-hint">{req.opts.hint}</p>}
+          </fieldset>
+        )}
+        <div className="ask-actions">
+          <button type="button" className="button secondary" onClick={cancel} data-testid="confirm-cancel">
+            {opts.cancel || "Cancel"}
+          </button>
+          <button type="submit" className={`button ${tone === "danger" ? "danger" : "primary"}`} data-testid="confirm-accept">
+            {opts.confirm || "Confirm"}
+          </button>
+        </div>
+      </form>
+    </dialog>
+  );
+}

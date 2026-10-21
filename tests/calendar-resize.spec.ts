@@ -62,8 +62,8 @@ test("browser: bottom-edge resize snaps to 15 min, saves via items, Undo restore
   await page.mouse.down();
   await page.mouse.move(gx, gy + 12);
   await page.mouse.move(gx, gy + step * 4 + 4);
-  page.once("dialog", (d) => d.accept());
   await page.mouse.up();
+  await page.getByTestId("confirm-accept").click();
   await expect(page.getByRole("status").filter({ hasText: /Moved to/ })).toBeVisible();
   const moved = (await (await page.request.get(base + `/bookings/${booking.id}`)).json()).booking;
   expect(moved.start_min).toBe(start + 60);

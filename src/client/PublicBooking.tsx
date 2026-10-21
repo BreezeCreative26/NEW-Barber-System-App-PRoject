@@ -32,7 +32,7 @@ export type PublicShop = {
     lead_time_min: number;
     booking_window_days: number;
     version: number;
-    channels?: { sms: boolean; email: boolean; wa: boolean };
+    channels?: { sms: boolean; email: boolean; wa: boolean; code?: boolean };
     // The shop's own booking terms, when set. Customers accept a version; a newer one asks again.
     terms?: { text: string; version: number; updated_at: number } | null;
   };
@@ -288,6 +288,12 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const [from, setFrom] = useState("");
   const [date, setDate] = useState("");
   const [pickedDate, setPickedDate] = useState(false);
+  // Read by async callbacks: a days response that lands after the customer tapped a day must
+  // see the tap (a captured `pickedDate`/`date` would be stale and jump them to another day).
+  const pickedDateRef = useRef(false);
+  pickedDateRef.current = pickedDate;
+  const dateRef = useRef("");
+  dateRef.current = date;
   const [days, setDays] = useState<DaySummary[] | null>(null);
   const [next, setNext] = useState<NextSlot[] | null>(null);
   const [availability, setAvailability] = useState<Availability | null>(null);
@@ -437,11 +443,13 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
         setDays(r.days);
         // Opening on "today" when today is closed (or full) shows an empty day under the
         // Soonest tiles. If the customer hasn't picked a day yet, land on the first useful one.
-        if (!pickedDate) {
-          const cur = r.days.find((x) => x.date === date);
+        if (!pickedDateRef.current) {
+          const now = dateRef.current;
+          const cur = r.days.find((x) => x.date === now);
           if (!cur || cur.closed || cur.beyond || cur.available === 0) {
             const first = r.days.find((x) => !x.closed && !x.beyond && x.available > 0);
-            if (first && first.date !== date) setDate(first.date);
+            // Functional update: never overwrite a day the customer picked meanwhile.
+            if (first && first.date !== now) setDate((d) => (pickedDateRef.current || d !== now ? d : first.date));
           }
         }
       })
@@ -465,6 +473,10 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   }, [quoteKey, step, shop]);
   const availCache = useRef(new Map<string, Availability>());
   const [slotsLoading, setSlotsLoading] = useState(false);
+  // Which service+day the times on screen belong to. Until it matches the chosen day the old
+  // times are locked, so a quick tap can't pick a time from the previous day.
+  const [availKey, setAvailKey] = useState("");
+  const slotsStale = slotsLoading || availKey !== `${quoteKey}|${date}`;
   useEffect(() => {
     if (!shop || !barber || !service || !date || step < 1) return;
     let cancelled = false;
@@ -474,6 +486,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     setWaitlist("idle");
     if (cached) {
       setAvailability(cached);
+      setAvailKey(key);
       setSlotsLoading(false);
     } else {
       setSlotsLoading(true);
@@ -485,6 +498,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
         if (cancelled) return;
         availCache.current.set(key, r);
         setAvailability(r);
+        setAvailKey(key);
         setSlotsLoading(false);
         setSlot((s) => {
           const keep = s !== null ? r.slots.find((x) => x.start_min === s && x.available) : null;
@@ -528,6 +542,9 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   };
   const jumpTo = (n: NextSlot) => {
     setFrom(n.date < from || n.date > datePlus(from, 6) ? n.date : from);
+    pickedDateRef.current = true; // a chosen "soonest" time is a chosen day
+    dateRef.current = n.date;
+    setPickedDate(true);
     setDate(n.date);
     setSlot(n.start_min);
     setAssigned({ id: n.staff_id, name: n.staff_name });
@@ -1074,6 +1091,8 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                           className={`${date === d ? "chosen" : ""} ${level}`}
                           disabled={disabled}
                           onClick={() => {
+                            pickedDateRef.current = true;
+                            dateRef.current = d;
                             setDate(d);
                             setPickedDate(true);
                             setSlot(null);
@@ -1147,6 +1166,8 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                                     title={`${s.duration_min ?? duration}-minute appointment${anyBarber && s.staff_name ? ` with ${s.staff_name}` : ""}`}
                                     aria-label={`${time(s.start_min)}, available${anyBarber && s.staff_name ? ` with ${s.staff_name}` : ""}`}
                                     aria-pressed={slot === s.start_min}
+                                    // Times on screen belong to the previous day while a new day loads.
+                                    disabled={slotsStale}
                                     onClick={() => pickSlot(s)}
                                     className={slot === s.start_min ? "chosen" : ""}
                                   >

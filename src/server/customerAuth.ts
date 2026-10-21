@@ -1,8 +1,9 @@
 // Customer accounts v2: email + password sign-in for the shop's installable app, alongside the
 // one-time mobile code (kept as the recovery path and for people who never set a password).
 //
-// Mounted into the account router at /api/public/shops/:slug/account. The account row is global
-// (one person, one login for every shop on foliyo); the session cookie is shop-scoped as before.
+// Mounted into the account router at /api/public/shops/:slug/account. An account belongs to ONE
+// shop: the same person at two shops has two separate accounts, passwords and sessions. The session
+// cookie is private to the shop's own address (host-only, never shared across foliyo.co.uk).
 //
 //   POST /register        name + mobile + email + password → account + session (+ links this shop)
 //   POST /login           email + password → session
@@ -14,7 +15,7 @@
 //   DELETE /push          remove it
 //   GET  /:slug/manifest.webmanifest  (mounted separately) per-shop PWA manifest
 import { Hono } from "hono";
-import { getCookie, setCookie } from "hono/cookie";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
 import { brandOf, emailSchema, phoneSchema, type Shop } from "./domain";
 import { digest, passwordHash, readInput, type AppEnv } from "./accounts";
@@ -24,7 +25,10 @@ import { clientKey, shopBySlug, throttle, type Ctx } from "./public";
 import { pushStatus } from "./push";
 import { shopUrl, sessionCookieDomain } from "./hosts";
 
-export const CUSTOMER_COOKIE = "ollo_customer";
+// Cookie name carries the shop, and the `__Host-` prefix makes browsers refuse any Domain=, so a
+// customer's session can never be sent to (or overwritten by) another shop's subdomain.
+export const LEGACY_CUSTOMER_COOKIE = "ollo_customer";
+export const customerCookieName = (shopId: string) => `__Host-fc-${shopId.replace(/-/g, "").slice(0, 16)}`;
 const uid = () => crypto.randomUUID();
 // A year: the installed app should stay signed in. Sessions are still revocable server-side.
 export const SESSION_TTL = 365 * 86400000;
@@ -32,7 +36,7 @@ const RESET_TTL = 30 * 60000;
 const WELCOME_TTL = 24 * 3600000;
 
 export type AccountRow = {
-  id: string; phone: string; email: string; name: string; created_at: number; last_seen_at: number; version: number;
+  id: string; shop_id: string; phone: string; email: string; name: string; created_at: number; last_seen_at: number; version: number;
   password_hash: string; password_salt: string; email_verified: number; password_set_at: number | null;
 };
 
@@ -62,9 +66,21 @@ const resetSchema = z.object({ token: z.string().min(40).max(200), password: cus
 const changeSchema = z.object({ current: z.string().max(128).default(""), password: customerPassword }).strict();
 const pushSchema = z.object({ endpoint: z.string().url().max(2000), keys: z.object({ p256dh: z.string().min(20).max(400), auth: z.string().min(10).max(200) }) }).strict();
 
-export function setSession(c: Ctx, raw: string) {
-  setCookie(c, CUSTOMER_COOKIE, raw, { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: SESSION_TTL / 1000, ...(sessionCookieDomain() ? { domain: sessionCookieDomain()! } : {}) });
+export function setSession(c: Ctx, shop: Shop, raw: string) {
+  setCookie(c, customerCookieName(shop.id), raw, { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: SESSION_TTL / 1000 });
+  dropLegacyCookie(c);
 }
+export function clearSession(c: Ctx, shop: Shop) {
+  deleteCookie(c, customerCookieName(shop.id), { path: "/", secure: true });
+  dropLegacyCookie(c);
+}
+// The old shared cookie (Domain=.foliyo.co.uk) is never trusted again; remove it when we can.
+function dropLegacyCookie(c: Ctx) {
+  const d = sessionCookieDomain();
+  deleteCookie(c, LEGACY_CUSTOMER_COOKIE, { path: "/", secure: true, ...(d ? { domain: d } : {}) });
+  deleteCookie(c, LEGACY_CUSTOMER_COOKIE, { path: "/", secure: true });
+}
+export const customerSessionToken = (c: Ctx, shop: Shop) => getCookie(c, customerCookieName(shop.id)) || null;
 export async function openSession(c: Ctx, shop: Shop, account: AccountRow, how: string) {
   const now = Date.now();
   const raw = uid() + uid();
@@ -74,17 +90,18 @@ export async function openSession(c: Ctx, shop: Shop, account: AccountRow, how: 
     audit(c, "customer_account", account.id, "CUSTOMER_SIGNED_IN", `Customer signed in online (${how}).`),
   ]);
   c.set("actor", `customer:${account.id}`);
-  setSession(c, raw);
+  setSession(c, shop, raw);
 }
 export async function currentAccount(c: Ctx, shop: Shop): Promise<AccountRow | null> {
-  const raw = getCookie(c, CUSTOMER_COOKIE);
+  const raw = customerSessionToken(c, shop);
   if (!raw || raw.length < 60) return null;
-  return c.env.DB.prepare("SELECT a.* FROM customer_sessions s JOIN customer_accounts a ON a.id=s.account_id WHERE s.token_hash=? AND s.shop_id=? AND s.expires_at>?")
+  return c.env.DB.prepare("SELECT a.* FROM customer_sessions s JOIN customer_accounts a ON a.id=s.account_id AND a.shop_id=s.shop_id WHERE s.token_hash=? AND s.shop_id=? AND s.expires_at>?")
     .bind(await digest(raw), shop.id, Date.now())
     .first<AccountRow>();
 }
-const byEmail = (c: Ctx, email: string) => c.env.DB.prepare("SELECT * FROM customer_accounts WHERE lower(email)=lower(?) AND email<>''").bind(email).first<AccountRow>();
-const byPhone = (c: Ctx, phone: string) => c.env.DB.prepare("SELECT * FROM customer_accounts WHERE phone=?").bind(phone).first<AccountRow>();
+// Always looked up inside one shop: the same email or mobile at another shop is a different person-record.
+export const byEmail = (c: Ctx, shopId: string, email: string) => c.env.DB.prepare("SELECT * FROM customer_accounts WHERE shop_id=? AND lower(email)=lower(?) AND email<>''").bind(shopId, email).first<AccountRow>();
+export const byPhone = (c: Ctx, shopId: string, phone: string) => c.env.DB.prepare("SELECT * FROM customer_accounts WHERE shop_id=? AND phone=?").bind(shopId, phone).first<AccountRow>();
 
 async function passwordOk(password: string, a: AccountRow | null) {
   const actual = await passwordHash(password, a?.password_salt || "customer-unknown-constant-salt");
@@ -94,30 +111,30 @@ async function passwordOk(password: string, a: AccountRow | null) {
   return delta === 0 && !!a?.password_hash;
 }
 
-// Create (or adopt) the global account for a booker. Used by /register and by the public booking
+// Create (or adopt) this shop's account for a booker. Used by /register and by the public booking
 // route so a first booking ends with an account. Returns the row and whether it was created now.
 export async function ensureAccount(c: Ctx, shop: Shop, who: { name: string; phone: string; email: string }, password?: string): Promise<{ account: AccountRow; created: boolean; conflict?: "email" }> {
   const now = Date.now();
-  let account = await byPhone(c, who.phone);
-  const emailOwner = who.email ? await byEmail(c, who.email) : null;
+  let account = await byPhone(c, shop.id, who.phone);
+  const emailOwner = who.email ? await byEmail(c, shop.id, who.email) : null;
   if (emailOwner && (!account || emailOwner.id !== account.id)) {
     // The email already belongs to a different account (a different mobile). Don't merge silently.
     if (account) return { account, created: false, conflict: "email" };
     // No account for this phone but the email exists: adopt the phone onto that account only if it
     // has no password yet (a code-only legacy account). Otherwise it's a conflict.
     if (!emailOwner.password_hash) {
-      await c.env.DB.prepare("UPDATE customer_accounts SET phone=?, name=COALESCE(NULLIF(name,''),?), last_seen_at=? WHERE id=?").bind(who.phone, who.name, now, emailOwner.id).run().catch(() => null);
-      account = (await byPhone(c, who.phone)) ?? emailOwner;
+      await c.env.DB.prepare("UPDATE customer_accounts SET phone=?, name=COALESCE(NULLIF(name,''),?), last_seen_at=? WHERE id=? AND shop_id=?").bind(who.phone, who.name, now, emailOwner.id, shop.id).run().catch(() => null);
+      account = (await byPhone(c, shop.id, who.phone)) ?? emailOwner;
     } else return { account: emailOwner, created: false, conflict: "email" };
   }
   let created = false;
   if (!account) {
     const salt = password ? uid() + uid() : "";
     const hash = password ? await passwordHash(password, salt) : "";
-    await c.env.DB.prepare("INSERT INTO customer_accounts(id,phone,email,name,created_at,last_seen_at,version,password_hash,password_salt,email_verified,password_set_at) VALUES(?,?,?,?,?,?,0,?,?,0,?)")
-      .bind(uid(), who.phone, who.email, who.name, now, now, hash, salt, password ? now : null)
+    await c.env.DB.prepare("INSERT INTO customer_accounts(id,shop_id,phone,email,name,created_at,last_seen_at,version,password_hash,password_salt,email_verified,password_set_at) VALUES(?,?,?,?,?,?,?,0,?,?,0,?)")
+      .bind(uid(), shop.id, who.phone, who.email, who.name, now, now, hash, salt, password ? now : null)
       .run();
-    account = (await byPhone(c, who.phone))!;
+    account = (await byPhone(c, shop.id, who.phone))!;
     created = true;
   } else {
     // Fill blanks; never overwrite an email that already has a password behind it.
@@ -132,7 +149,7 @@ export async function ensureAccount(c: Ctx, shop: Shop, who: { name: string; pho
     }
     if (sets.length) {
       await c.env.DB.prepare(`UPDATE customer_accounts SET ${sets.join(",")}, version=version+1 WHERE id=?`).bind(...args, account.id).run();
-      account = (await byPhone(c, who.phone))!;
+      account = (await byPhone(c, shop.id, who.phone))!;
     }
   }
   return { account, created };
@@ -192,7 +209,7 @@ customerAuth.post("/register", async (c) => {
   await throttle(c, "cust-register", `${shop.id}:${clientKey(c)}`, 20);
   const termsNeeded = !!shop.terms_text && (shop.terms_version || 0) > 0;
   if (termsNeeded && b.accept_terms_version !== shop.terms_version) fail(400, "Please accept the booking terms to create an account");
-  const existing = await byPhone(c, b.phone);
+  const existing = await byPhone(c, shop.id, b.phone);
   if (existing?.password_hash) fail(409, "There's already an account for this mobile. Sign in, or reset your password.");
   const { account, conflict } = await ensureAccount(c, shop, { name: b.name, phone: b.phone, email: b.email }, b.password);
   if (conflict === "email") fail(409, "That email is already used by another account. Sign in with it, or use a different email.");
@@ -219,8 +236,8 @@ customerAuth.post("/login", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug")!);
   const b = await readInput(c, loginSchema);
   await throttle(c, "cust-login", `${shop.id}:${clientKey(c)}`, 30);
-  await throttle(c, "cust-login-email", `${b.email}`, 10);
-  const account = await byEmail(c, b.email);
+  await throttle(c, "cust-login-email", `${shop.id}:${b.email}`, 10);
+  const account = await byEmail(c, shop.id, b.email);
   if (!(await passwordOk(b.password, account))) {
     if (account && !account.password_hash) fail(409, "This account signs in with a mobile code. Use \u201cText me a code\u201d, or set a password from Forgot password.");
     fail(401, "Email or password is not right.");
@@ -233,7 +250,7 @@ customerAuth.post("/forgot", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug")!);
   const b = await readInput(c, forgotSchema);
   await throttle(c, "cust-forgot", `${shop.id}:${clientKey(c)}`, 10);
-  const account = await byEmail(c, b.email);
+  const account = await byEmail(c, shop.id, b.email);
   const now = Date.now();
   const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
   // Same response whether or not the email exists.
@@ -255,7 +272,7 @@ customerAuth.post("/reset", async (c) => {
   const b = await readInput(c, resetSchema);
   await throttle(c, "cust-reset", `${shop.id}:${clientKey(c)}`, 20);
   const now = Date.now();
-  const row = await c.env.DB.prepare("SELECT t.*, a.email FROM customer_reset_tokens t JOIN customer_accounts a ON a.id=t.account_id WHERE t.token_hash=? AND t.used_at IS NULL AND t.expires_at>?").bind(await digest(b.token), now).first<{ account_id: string; purpose: "RESET" | "WELCOME"; email: string }>();
+  const row = await c.env.DB.prepare("SELECT t.*, a.email FROM customer_reset_tokens t JOIN customer_accounts a ON a.id=t.account_id WHERE t.token_hash=? AND t.shop_id=? AND t.used_at IS NULL AND t.expires_at>?").bind(await digest(b.token), shop.id, now).first<{ account_id: string; purpose: "RESET" | "WELCOME"; email: string }>();
   if (!row) fail(409, "That link has expired or was already used. Ask for a new one.");
   const salt = uid() + uid();
   await c.env.DB.batch([

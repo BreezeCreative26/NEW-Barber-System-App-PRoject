@@ -77,7 +77,7 @@ test("owner enables the receptionist → secret minted once; tools answer with s
   expect(bj.ok).toBe(true);
   expect(bj.reference).toMatch(/^[A-Z]{3}-\d{4}$/);
   expect(bj.say).toMatch(/Booked: Signature cut with (Jay|Marcus) on .* at 2 pm/);
-  expect(bj.sent_to).toContain("WA");
+  expect(bj.sent_to).toContain("SMS") // WhatsApp is off by default now; the booking is confirmed by text;
   // The booking is a normal ONLINE booking in the diary, flagged as phone.
   const wb = await (await r.get(base + `/bookings/${bj.booking.id}`)).json();
   expect(wb.booking.notes).toMatch(/AI receptionist/);

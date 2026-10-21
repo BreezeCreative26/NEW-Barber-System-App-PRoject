@@ -258,7 +258,8 @@ CREATE TABLE customers (
 CREATE INDEX customers_shop_name ON customers(shop_id,name);
 CREATE TABLE customer_accounts (
   id TEXT PRIMARY KEY,
-  phone TEXT NOT NULL UNIQUE,
+  shop_id TEXT NOT NULL REFERENCES shops(id),   -- an account belongs to ONE shop
+  phone TEXT NOT NULL,
   email TEXT NOT NULL DEFAULT '',
   name TEXT NOT NULL DEFAULT '',
   created_at BIGINT NOT NULL,
@@ -267,13 +268,17 @@ CREATE TABLE customer_accounts (
   password_hash TEXT NOT NULL DEFAULT '',
   password_salt TEXT NOT NULL DEFAULT '',
   email_verified INTEGER NOT NULL DEFAULT 0,
-  password_set_at BIGINT
+  password_set_at BIGINT,
+  UNIQUE (id, shop_id)
 );
-CREATE UNIQUE INDEX customer_accounts_email ON customer_accounts(lower(email)) WHERE email <> '';
+CREATE UNIQUE INDEX customer_accounts_shop_phone ON customer_accounts(shop_id, phone);
+CREATE UNIQUE INDEX customer_accounts_shop_email ON customer_accounts(shop_id, lower(email)) WHERE email <> '';
+CREATE INDEX customer_accounts_shop ON customer_accounts(shop_id);
 CREATE TABLE customer_reset_tokens (
   token_hash TEXT PRIMARY KEY,
-  account_id TEXT NOT NULL REFERENCES customer_accounts(id),
+  account_id TEXT NOT NULL,
   shop_id TEXT NOT NULL REFERENCES shops(id),
+  FOREIGN KEY (account_id, shop_id) REFERENCES customer_accounts(id, shop_id),
   purpose TEXT NOT NULL CHECK(purpose IN ('RESET','WELCOME')),
   created_at BIGINT NOT NULL,
   expires_at BIGINT NOT NULL,
@@ -282,8 +287,9 @@ CREATE TABLE customer_reset_tokens (
 CREATE INDEX customer_reset_tokens_account ON customer_reset_tokens(account_id);
 CREATE TABLE customer_push_subscriptions (
   id TEXT PRIMARY KEY,
-  account_id TEXT NOT NULL REFERENCES customer_accounts(id),
+  account_id TEXT NOT NULL,
   shop_id TEXT NOT NULL REFERENCES shops(id),
+  FOREIGN KEY (account_id, shop_id) REFERENCES customer_accounts(id, shop_id),
   endpoint TEXT NOT NULL,
   p256dh TEXT NOT NULL,
   auth TEXT NOT NULL,
@@ -295,8 +301,9 @@ CREATE TABLE customer_push_subscriptions (
 );
 CREATE INDEX customer_push_account ON customer_push_subscriptions(account_id, shop_id);
 CREATE TABLE customer_account_links (
-  account_id TEXT NOT NULL REFERENCES customer_accounts(id),
+  account_id TEXT NOT NULL,
   shop_id TEXT NOT NULL,
+  FOREIGN KEY (account_id, shop_id) REFERENCES customer_accounts(id, shop_id),
   customer_id TEXT NOT NULL,
   linked_at BIGINT NOT NULL,
   terms_version INTEGER NOT NULL DEFAULT 0,
@@ -312,8 +319,9 @@ CREATE TABLE customer_otp (
 );
 CREATE TABLE customer_sessions (
   token_hash TEXT PRIMARY KEY,
-  account_id TEXT NOT NULL REFERENCES customer_accounts(id),
+  account_id TEXT NOT NULL,
   shop_id TEXT NOT NULL REFERENCES shops(id),
+  FOREIGN KEY (account_id, shop_id) REFERENCES customer_accounts(id, shop_id),
   created_at BIGINT NOT NULL,
   expires_at BIGINT NOT NULL
 );
@@ -509,7 +517,7 @@ CREATE TABLE notifications (
 CREATE INDEX notifications_shop ON notifications(shop_id,created_at);
 CREATE INDEX notifications_due ON notifications(status, next_attempt_at) WHERE status IN ('QUEUED','SENDING');
 CREATE INDEX notifications_related ON notifications(shop_id, related_type, related_id, template);
-CREATE UNIQUE INDEX notifications_once_per_booking ON notifications(shop_id, related_id, template, channel) WHERE template IN ('booking_reminder','booking_reminder_soon','booking_confirmed');
+CREATE UNIQUE INDEX notifications_once_per_booking ON notifications(shop_id, related_id, template, channel) WHERE template IN ('booking_confirmed');
 CREATE TABLE platform_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at BIGINT NOT NULL);
 -- Stripe webhook events already handled (idempotency).
 CREATE TABLE stripe_events (id TEXT PRIMARY KEY, type TEXT NOT NULL, received_at BIGINT NOT NULL);
@@ -881,3 +889,27 @@ CREATE INDEX IF NOT EXISTS booking_adjustments_open ON booking_adjustments(shop_
 
 -- Which line items were re-priced by hand (reporting). NULL = catalogue price at the time.
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS items_edited_at BIGINT;
+
+CREATE TABLE IF NOT EXISTS reminder_marks (
+  shop_id TEXT NOT NULL REFERENCES shops(id), booking_id TEXT NOT NULL, template TEXT NOT NULL, start_at BIGINT NOT NULL,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (shop_id, booking_id, template, start_at)
+);
+CREATE OR REPLACE FUNCTION skip_reminders_on_move() RETURNS trigger AS $$
+BEGIN
+  IF NEW.start_at IS DISTINCT FROM OLD.start_at THEN
+    UPDATE notifications SET status='SKIPPED', status_note='Booking was moved before this was sent.'
+     WHERE shop_id=OLD.shop_id AND related_id=OLD.id AND status='QUEUED' AND attempts=0
+       AND template IN ('booking_reminder','booking_reminder_soon');
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS bookings_skip_reminders ON bookings;
+CREATE TRIGGER bookings_skip_reminders AFTER UPDATE OF start_at ON bookings
+  FOR EACH ROW EXECUTE FUNCTION skip_reminders_on_move();
+
+-- Per-shop switch: may customers sign in with a text code? On by default (existing behaviour);
+-- it still needs texts to be on for the shop, because the code is sent by text.
+ALTER TABLE shops ADD COLUMN IF NOT EXISTS customer_code_signin INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE shops DROP CONSTRAINT IF EXISTS shops_customer_code_signin_check;
+ALTER TABLE shops ADD CONSTRAINT shops_customer_code_signin_check CHECK (customer_code_signin IN (0,1));

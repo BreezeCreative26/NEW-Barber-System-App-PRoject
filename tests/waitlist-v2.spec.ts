@@ -11,7 +11,7 @@ const pub = origin + "/api/public";
 // Per-run phone suffix so reruns inside the 10-minute join throttle never collide.
 const RUN = String(Date.now() % 900 + 100);
 const ph = (n: number) => `0770${RUN}${String(n).padStart(4, "0")}`;
-const sql = postgres(process.env.DATABASE_URL || "postgresql://postgres:postgres@127.0.0.1:5432/ollo", { max: 3, idle_timeout: 20, connect_timeout: 10 });
+const sql = postgres(process.env.DATABASE_URL || process.env.DIRECT_URL || "postgresql://postgres:postgres@127.0.0.1:5432/ollo", { max: 3, idle_timeout: 20, connect_timeout: 10 });
 test.afterAll(() => sql.end());
 
 async function fixture() {
@@ -24,7 +24,7 @@ async function fixture() {
   return { r, c, w, slug: body.slug, shopId: body.shop_id, P: `${pub}/shops/${body.slug}` };
 }
 const dateIn = (days: number) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
-function weekdayAhead(from = 3) {
+function weekdayAhead(from = 21) {
   for (let d = from; d < from + 7; d++) {
     const wd = new Date(dateIn(d) + "T12:00:00Z").getUTCDay();
     if (wd >= 2 && wd <= 5) return dateIn(d);
@@ -82,7 +82,7 @@ test("delay: a cancelled slot is parked, a re-book by hand drops it silently, ot
   // The shop books someone else straight back in. When the delay passes, the parked row is dropped — no text.
   const walkIn = await bookOnline(c, P, staff, service, date, 600, ph(3), "Walk-in Will");
   await fastForward(shopId);
-  const cron = await c.get(origin + "/api/cron/messages");
+  const cron = await c.get(origin + "/api/cron/messages", { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } });
   expect(cron.status()).toBe(200);
   expect(await sql`SELECT 1 FROM waitlist_pending_slots WHERE shop_id = ${shopId}`).toHaveLength(0);
   q = await queue(r);
@@ -92,7 +92,7 @@ test("delay: a cancelled slot is parked, a re-book by hand drops it silently, ot
   const cancel2 = await r.post(base + `/bookings/${walkIn.id}/status`, { data: { status: "CANCELLED", reason: "Changed plans", version: walkIn.version } });
   expect(cancel2.status(), await cancel2.text()).toBe(200);
   await fastForward(shopId);
-  await c.get(origin + "/api/cron/messages");
+  await c.get(origin + "/api/cron/messages", { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } });
   q = await queue(r);
   expect(q.waitlist.find((e) => e.customer_name === "Waiting Wendy")).toMatchObject({ status: "OFFERED", offer_source: "AUTO", offer_start_min: 600 });
   const msg = (await outbox(r)).find((n) => n.recipient === ph(2) && n.template === "waitlist_offer");
@@ -128,7 +128,7 @@ test("tell everyone: every matching waiter gets one text with the exact time and
   for (const t of texts) {
     expect(t.body).toMatch(/10:30/);
     expect(t.body).toMatch(/First to book gets it/);
-    expect(t.body).toContain(`/book/${q.waitlist.length ? (await (await r.get(base + "/workspace")).json()).shop.slug : ""}?service=${service}&staff=${staff}&date=${date}&start=630&step=2&wl=`);
+    expect(t.body).toContain(`/book?service=${service}&staff=${staff}&date=${date}&start=630&step=2&wl=`);
   }
   expect(await sql`SELECT count(*)::int AS n FROM waitlist_announcements WHERE shop_id = ${shopId}`).toEqual([{ n: 2 }]);
   // Andy books it from the link → his request is BOOKED and linked; Erin stays OPEN.
@@ -147,7 +147,7 @@ test("tell everyone: every matching waiter gets one text with the exact time and
 test("time windows and date ranges: a customer's own from/to and 'any day up to' are respected when matching and when a slot frees", async () => {
   const { r, c, w, P } = await fixture();
   const d1 = weekdayAhead(3);
-  const d2 = weekdayAhead(5) === d1 ? dateIn(6) : weekdayAhead(5);
+  const d2 = weekdayAhead(7); // always later than d1 (a Tue-Fri exists within any 7 days)
   const staff = w.staff[0].id, service = w.services[0].id;
   await settings(r, { waitlist_mode: "ORDER", waitlist_delay_min: 0 });
   // Validation: end before start, half-window, last day before first, out of the booking window.

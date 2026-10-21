@@ -97,7 +97,7 @@ test("shop switches WhatsApp off → WA preference falls back to text; toggle ro
   const c = await customer();
   let box = await outbox(r);
   expect(box.messaging.msg_wa).toBe(1);
-  const res = await r.put(base + "/shop/messaging", { data: { ...box.messaging, msg_wa: 0 } });
+  const res = await r.put(base + "/shop/messaging", { data: { ...box.messaging, msg_wa: 0, sms_billing_ack: true } });
   expect(res.status(), await res.text()).toBe(200);
   box = await outbox(r);
   expect(box.messaging.msg_wa).toBe(0);
@@ -113,7 +113,7 @@ test("shop switches WhatsApp off → WA preference falls back to text; toggle ro
   // Older clients that omit msg_wa keep it as it was (default 1 only applies when unset in the DB).
   const { msg_wa: _drop, ...legacy } = box.messaging;
   void _drop;
-  const res2 = await r.put(base + "/shop/messaging", { data: legacy });
+  const res2 = await r.put(base + "/shop/messaging", { data: { ...legacy, sms_billing_ack: true } });
   expect(res2.status(), await res2.text()).toBe(200);
 });
 

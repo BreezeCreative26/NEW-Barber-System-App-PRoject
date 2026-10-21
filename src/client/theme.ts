@@ -105,7 +105,7 @@ export function shopPath(slug: string, path: "" | "/" | "/book" | "/me", suffix 
 
 // The brand the server embedded in the shell (see brandScript in src/index.tsx). Read once; lets
 // every customer screen render themed on its very first frame instead of after a fetch.
-export type ServerBrand = { name: string; slug: string; brand: ShopBrand; channels?: { sms: boolean; email: boolean }; terms?: { text: string; version: number } | null };
+export type ServerBrand = { name: string; slug: string; brand: ShopBrand; channels?: { sms: boolean; email: boolean; code?: boolean }; terms?: { text: string; version: number } | null };
 let embedded: ServerBrand | null | undefined;
 export function serverBrand(): ServerBrand | null {
   if (embedded !== undefined) return embedded;

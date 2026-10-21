@@ -14,7 +14,7 @@ describe("app route boundaries", () => {
     expect(r.headers.get("cache-control")).toBe("no-store");
     const body = await r.text();
     expect(body).toContain("noindex,nofollow");
-    expect(body).toContain("/static/app.js");
+    expect(body).toMatch(/\/static\/app(-[\w-]+)?\.js/);
     expect(body).toContain('lang="en"');
   });
   it("has no fixture preview surfaces and rejects unknown business API routes", async () => {

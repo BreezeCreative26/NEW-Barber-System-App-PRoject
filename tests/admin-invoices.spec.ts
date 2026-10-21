@@ -2,12 +2,12 @@
 // write-off, dunning; plus shop lifecycle (sign-in link, suspend) and the owner-visible record.
 import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { base, origin, openFixtureShop } from "./fixture";
 
 const H = { Origin: origin };
 function psql(sqlText: string) {
-  const url = readFileSync("/home/user/webapp/.env.local", "utf8").split("\n").find((l) => l.startsWith("DATABASE_URL="))!.slice("DATABASE_URL=".length);
+  const url = readFileSync(existsSync(".env.local") ? ".env.local" : ".env", "utf8").split("\n").find((l) => l.startsWith("DATABASE_URL="))!.slice("DATABASE_URL=".length);
   return execSync(`psql "${url}" -Atc "${sqlText.replace(/"/g, '\\"')}"`).toString().trim();
 }
 async function api(page: Page, method: string, path: string, data?: unknown) {

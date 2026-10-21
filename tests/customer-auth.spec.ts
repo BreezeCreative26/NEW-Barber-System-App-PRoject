@@ -146,8 +146,8 @@ test("per-shop web app: manifest carries the shop's name/colours/start_url; icon
   expect(sw.status()).toBe(200);
   expect(await sw.text()).toContain("notificationclick");
   // Shop surfaces link the shop manifest, not the platform one
-  const html = await (await c.get(`${origin}/${slug}/me`)).text();
-  expect(html).toContain(`/${slug}/manifest.webmanifest`);
+  const html = await (await c.get(`${origin}/me`, { headers: { "x-forwarded-host": `${slug}.localhost:3000` } })).text();
+  expect(html).toMatch(/\/(?:[a-z0-9-]+\/)?manifest\.webmanifest/); // short path on the shop's own address
   expect(html).not.toContain("/site.webmanifest");
   // Unknown shop → 404
   expect((await c.get(`${origin}/no-such-shop-xyz/manifest.webmanifest`)).status()).toBe(404);

@@ -89,7 +89,8 @@ test("shop page renders the seeded sections and every shortcut deep-links into t
 
 test("unknown, reserved and offline slugs do not get a shop page", async ({ page }) => {
   const { r, slug } = await fixture();
-  expect((await page.request.get(`/${slug}`)).status()).toBe(200);
+  expect((await page.request.get(`/${slug}`, { maxRedirects: 0 })).status()).toBe(301);
+  expect((await page.request.get("/", { headers: { "x-forwarded-host": `${slug}.localhost:3000` } })).status()).toBe(200);
   expect((await page.request.get("/no-such-shop-here")).status()).toBe(404);
   expect((await page.request.get(`/api/public/shops/no-such-shop-here/page`)).status()).toBe(404);
   // Reserved first segments still belong to the app, never to a shop.
@@ -101,7 +102,8 @@ test("unknown, reserved and offline slugs do not get a shop page", async ({ page
     data: { slug, online_booking: 0, lead_time_min: w.shop.lead_time_min, booking_window_days: w.shop.booking_window_days, version: w.shop.version },
   });
   expect(off.status(), await off.text()).toBe(200);
-  expect((await page.request.get(`/${slug}`)).status()).toBe(404);
+  expect((await page.request.get(`/${slug}`, { maxRedirects: 0 })).status()).toBe(301);
+  expect((await page.request.get("/", { headers: { "x-forwarded-host": `${slug}.localhost:3000` } })).status()).toBe(404);
 });
 
 test("owner edits the shop page in the website editor and the public page reflects it", async ({ page }) => {

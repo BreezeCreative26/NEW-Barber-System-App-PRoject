@@ -3,13 +3,15 @@
 // from a curated palette and light / dark canvas. Applied as classes on <html> so every token in
 // design.css swaps in one place; persisted in localStorage (instant on next load) and in
 // app_memberships.prefs_json (follows the user across devices).
+// Ids are stored in prefs and validated server-side, so they never change; names and colours may.
+// `fill` is the primary-button colour and `fillInk` the text on it (mint needs ink, the rest white).
 export const WS_ACCENTS = [
-  { id: "forest", name: "Forest", accent: "#3a7563", dark: "#2f6152", soft: "#e6f0eb", rail: "#0b1a17" },
-  { id: "ink", name: "Ink", accent: "#1d1f26", dark: "#000000", soft: "#e9e9ee", rail: "#0f1014" },
-  { id: "ocean", name: "Ocean", accent: "#2f6fa8", dark: "#245a89", soft: "#e4eef8", rail: "#0d1b2a" },
-  { id: "clay", name: "Clay", accent: "#a8552f", dark: "#8a4323", soft: "#f6e9e2", rail: "#1f130e" },
-  { id: "plum", name: "Plum", accent: "#6e3b7a", dark: "#562c60", soft: "#f0e6f2", rail: "#170f1a" },
-  { id: "slate", name: "Slate", accent: "#4a5568", dark: "#364152", soft: "#e8ebf0", rail: "#12161d" },
+  { id: "forest", name: "Foliyo", accent: "#00805c", dark: "#006b4d", soft: "#e3fbf3", rail: "#0b0b0c", fill: "#00e8b0", fillHover: "#00d39f", fillInk: "#0b0b0c" },
+  { id: "ink", name: "Ink", accent: "#18181b", dark: "#000000", soft: "#ececef", rail: "#0b0b0c", fill: "#18181b", fillHover: "#000000", fillInk: "#ffffff" },
+  { id: "ocean", name: "Ocean", accent: "#1d5fd6", dark: "#174cad", soft: "#e6efff", rail: "#0a1530", fill: "#2b6ef2", fillHover: "#1d5fd6", fillInk: "#ffffff" },
+  { id: "clay", name: "Ember", accent: "#c2410c", dark: "#9a330a", soft: "#fff0e8", rail: "#1c0f0a", fill: "#ea580c", fillHover: "#c2410c", fillInk: "#ffffff" },
+  { id: "plum", name: "Violet", accent: "#6d3fe0", dark: "#5530b8", soft: "#f0ebff", rail: "#130c26", fill: "#7c5cff", fillHover: "#6d3fe0", fillInk: "#ffffff" },
+  { id: "slate", name: "Slate", accent: "#3f4b5e", dark: "#2c3646", soft: "#ebeef3", rail: "#0f141c", fill: "#3f4b5e", fillHover: "#2c3646", fillInk: "#ffffff" },
 ] as const;
 export type WsAccent = (typeof WS_ACCENTS)[number]["id"];
 export type WsMode = "light" | "dark";
@@ -53,12 +55,15 @@ export function applyWsTheme(t: WorkspaceTheme) {
   root.style.setProperty("--ws-accent-dark", a.dark);
   root.style.setProperty("--ws-soft", a.soft);
   root.style.setProperty("--ws-rail", a.rail);
+  root.style.setProperty("--ws-fill", a.fill);
+  root.style.setProperty("--ws-fill-hover", a.fillHover);
+  root.style.setProperty("--ws-fill-ink", a.fillInk);
 }
 export function clearWsTheme() {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   for (const x of WS_ACCENTS) root.classList.remove(`ws-accent-${x.id}`);
   root.classList.remove("ws-dark");
-  for (const k of ["--ws-accent", "--ws-accent-dark", "--ws-soft", "--ws-rail"]) root.style.removeProperty(k);
+  for (const k of ["--ws-accent", "--ws-accent-dark", "--ws-soft", "--ws-rail", "--ws-fill", "--ws-fill-hover", "--ws-fill-ink"]) root.style.removeProperty(k);
   root.style.colorScheme = "";
 }

@@ -1,3 +1,4 @@
+import { bootCache } from "./bootCache";
 import { reportRequestError } from "./telemetry";
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
@@ -78,7 +79,7 @@ import { billingSummary, entitlements, setFeature, syncSeats, hasFeature, featur
 import { runningStatement, statementCsv } from "./statement";
 import { billingLive, cardSetupSession, paymentMethodSummary, portalSession } from "./stripeBilling";
 import { applyDecisions, changeSchema, decisionSchema, describeChange, previewChange, type ScheduleChange } from "./schedule";
-import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, sweepReminders, MESSAGE_TEMPLATES } from "./messaging";
+import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, pushFor, sweepReminders, MESSAGE_TEMPLATES, type Recipient } from "./messaging";
 import { agentPrompt, newSecret, voiceEndpoints, voiceOf, voiceSettingsSchema } from "./voice";
 import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import QRCode from "qrcode";
@@ -262,6 +263,7 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && /^\/series\/[^/]+\/(cancel|reschedule)$/.test(path)) ||
       (method === "GET" && /^\/bookings\/[^/]+\/timeline$/.test(path)) ||
       (method === "POST" && /^\/bookings\/[^/]+\/manage-link$/.test(path)) ||
+      (method === "POST" && /^\/bookings\/[^/]+\/notify-flush$/.test(path)) ||
       (method === "POST" && /^\/waitlist\/[^/]+\/status$/.test(path)) ||
       (method === "GET" && /^\/bookings\/[^/]+$/.test(path)) ||
       (method === "POST" &&
@@ -562,6 +564,16 @@ sandbox.get("/bookings", async (c) => {
     .bind(...values, q.limit + 1)
     .all<StoredBooking>();
   const rows = result.results.slice(0, q.limit);
+  // Shop-made bookings keep the email on the customer record; surface it so the calendar can
+  // offer "Email" when telling someone their appointment moved.
+  const ids = [...new Set(rows.filter((r) => !r.email && r.customer_id).map((r) => r.customer_id!))];
+  if (ids.length) {
+    const found = await c.env.DB.prepare(
+      `SELECT id,email FROM customers WHERE shop_id=? AND email<>'' AND id IN (${ids.map(() => "?").join(",")})`,
+    ).bind(c.get("shopId"), ...ids).all<{ id: string; email: string }>();
+    const byId = new Map(found.results.map((r) => [r.id, r.email]));
+    for (const r of rows) if (!r.email && r.customer_id && byId.has(r.customer_id)) r.customer_email = byId.get(r.customer_id);
+  }
   const last = rows.at(-1);
   return c.json({
     date: q.date,
@@ -1309,7 +1321,7 @@ sandbox.get("/notifications", async (c) => {
     notifications: rows.results,
     counts_30d: Object.fromEntries(counts.results.map((r) => [r.status, r.n])),
     providers: providerStatus(),
-    messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "" },
+    messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "", customer_code_signin: (ms as { customer_code_signin?: number }).customer_code_signin ?? 1 },
     // What a text costs the shop and whether the owner has acknowledged texts are billed.
     sms_billing: await smsBilling(c),
     templates: templatesOf(shop),
@@ -1343,6 +1355,8 @@ const messagingSchema = z
     msg_email: z.union([z.literal(0), z.literal(1)]),
     // Older clients omit this; WhatsApp stays on unless the shop switches it off.
     msg_wa: z.union([z.literal(0), z.literal(1)]).default(1),
+    // May customers sign in with a text code? Older clients omit it: stays on.
+    customer_code_signin: z.union([z.literal(0), z.literal(1)]).default(1),
     msg_reminders: z.union([z.literal(0), z.literal(1)]),
     msg_reminder_hours: z.number().int().min(1).max(72),
     msg_reply_to: z.union([z.literal(""), z.string().trim().email().max(120)]),
@@ -1366,9 +1380,10 @@ sandbox.put("/shop/messaging", async (c) => {
   if (b.msg_sms === 1 && !bill.acknowledged_at && !b.sms_billing_ack) fail(409, `Please confirm you understand texts are billed at ${bill.unit_pence}p each.`);
   const ackNow = b.msg_sms === 1 && !bill.acknowledged_at && b.sms_billing_ack ? Date.now() : null;
   await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE shops SET msg_sms=?,msg_email=?,msg_wa=?,msg_reminders=?,msg_reminder_hours=?,msg_reply_to=?,msg_sms_sender=?,version=version+1${ackNow ? ", msg_sms_billing_ack_at=?" : ""} WHERE id=?`).bind(...[b.msg_sms, b.msg_email, b.msg_wa, b.msg_reminders, b.msg_reminder_hours, b.msg_reply_to, b.msg_sms_sender, ...(ackNow ? [ackNow] : []), sid]),
-    audit(c, "shop", sid, "MESSAGING_UPDATED", `SMS ${b.msg_sms ? "on" : "off"}${ackNow ? ` (billing at ${bill.unit_pence}p/text accepted)` : ""}, WhatsApp ${b.msg_wa ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
+    c.env.DB.prepare(`UPDATE shops SET customer_code_signin=?,msg_sms=?,msg_email=?,msg_wa=?,msg_reminders=?,msg_reminder_hours=?,msg_reply_to=?,msg_sms_sender=?,version=version+1${ackNow ? ", msg_sms_billing_ack_at=?" : ""} WHERE id=?`).bind(...[b.customer_code_signin, b.msg_sms, b.msg_email, b.msg_wa, b.msg_reminders, b.msg_reminder_hours, b.msg_reply_to, b.msg_sms_sender, ...(ackNow ? [ackNow] : []), sid]),
+    audit(c, "shop", sid, "MESSAGING_UPDATED", `Customer code sign-in ${b.customer_code_signin ? "on" : "off"}, SMS ${b.msg_sms ? "on" : "off"}${ackNow ? ` (billing at ${bill.unit_pence}p/text accepted)` : ""}, WhatsApp ${b.msg_wa ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
   ]);
+  bootCache.clear(); // customers see the new sign-in options straight away
   const shop_version = (await c.env.DB.prepare("SELECT version FROM shops WHERE id=?").bind(sid).first<{ version: number }>())?.version;
   return c.json({ ok: true, messaging: b, shop_version });
 });
@@ -1852,6 +1867,8 @@ sandbox.post("/media", async (c) => {
   const alt = String(form.get("alt") || "").trim().slice(0, 200);
   if (!(file instanceof File)) fail(400, "Choose a photo to upload");
   if (!(mediaKinds as readonly string[]).includes(kind)) fail(400, "Unknown photo kind");
+  // Barbers may add their own profile photo, not the shop's cover, gallery or logo.
+  if (c.get("account")?.role === "BARBER" && kind !== "staff") fail(403, "Only the owner or manager can add shop photos");
   const f = file as File;
   if (f.size > MEDIA_MAX_BYTES) fail(413, "Photos must be 5 MB or smaller");
   const raw = new Uint8Array(await f.arrayBuffer());
@@ -3650,7 +3667,78 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     overridden ? [forceSlot(c)] : [],
   );
   await slotFreed(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "move");
-  return c.json({ booking: await readBooking(c, b.id) });
+  const after = await readBooking(c, b.id);
+  const notice = await noticeMove(c, b, after, body.notify);
+  return c.json({ booking: after, notify: notice });
+});
+// Tell the customer their appointment moved. The message is held for MOVE_HOLD_MS so the shop's
+// Undo (or a second drag) can replace it: any earlier move message that hasn't gone out yet is
+// marked "Not sent", and the customer only hears about the final time — or nothing, if the
+// appointment ends up back where they last knew it. The client flushes it when the hold ends;
+// the 5-minute message cron is the backstop if the tab closes.
+export const MOVE_HOLD_MS = 30_000;
+const slotText = (date: string, start: number) => `${fmtDate(date)} at ${fmtTime(start)}`;
+async function noticeMove(c: Ctx, before: StoredBooking, after: StoredBooking, notify: boolean | { sms: boolean; email: boolean }) {
+  const shopId = c.get("shopId");
+  const now = Date.now();
+  const pending = await c.env.DB.prepare(
+    "SELECT id,status_note FROM notifications WHERE shop_id=? AND related_type='booking' AND related_id=? AND template='booking_moved' AND status='QUEUED' AND attempts=0",
+  ).bind(shopId, before.id).all<{ id: string; status_note: string }>();
+  // What the customer last heard. A pending (unsent) message carries it in its note.
+  const knownWas = pending.results.map((r) => /· was (.+)$/.exec(r.status_note)?.[1]).find(Boolean);
+  if (pending.results.length)
+    await c.env.DB.prepare(
+      "UPDATE notifications SET status='SKIPPED', status_note='Replaced by a later change before it was sent.' WHERE shop_id=? AND related_type='booking' AND related_id=? AND template='booking_moved' AND status='QUEUED' AND attempts=0",
+    ).bind(shopId, before.id).run();
+  if (!notify || (typeof notify === "object" && !notify.sms && !notify.email)) return null;
+  const was = knownWas || slotText(before.date, before.start_min);
+  const nowAt = slotText(after.date, after.start_min);
+  // Back at the time the customer last heard about (e.g. moved, then moved straight back): nothing to say.
+  if (knownWas ? knownWas === nowAt : before.date === after.date && before.start_min === after.start_min && before.staff_id === after.staff_id) return null;
+  const shop = await msgShop(c, shopId);
+  if (!shop.slug) return null;
+  let pref: Recipient["pref"] = after.contact_pref && after.contact_pref !== "AUTO" ? (after.contact_pref as Recipient["pref"]) : undefined;
+  let email = after.email;
+  if (after.customer_id) {
+    const cu = await c.env.DB.prepare("SELECT contact_pref,email FROM customers WHERE shop_id=? AND id=?").bind(shopId, after.customer_id).first<{ contact_pref: string | null; email: string | null }>();
+    if (!pref && cu?.contact_pref && cu.contact_pref !== "AUTO") pref = cu.contact_pref as Recipient["pref"];
+    if (!email && cu?.email) email = cu.email; // shop-made bookings keep the email on the customer
+  }
+  if (pref === "NONE") return null;
+  const to: Recipient = { name: after.attendee_name || after.customer_name, phone: after.phone, email, pref };
+  const staff = await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(shopId, after.staff_id).first<{ name: string }>();
+  const origin = new URL(c.req.url).origin;
+  const vars = {
+    service: after.service_name, barber: (staff?.name || "us").split(" ")[0], date: fmtDate(after.date), time: fmtTime(after.start_min),
+    ref: ref(after), was, link: shopUrl(shop.slug, `/me?visit=${encodeURIComponent(after.id)}`, origin),
+  };
+  const sendAt = now + MOVE_HOLD_MS;
+  const opts = { related: { type: "booking", id: after.id }, origin, sendAt, note: `Held ${MOVE_HOLD_MS / 1000}s so Undo can cancel it · was ${was}` };
+  // Explicit choice: a text-only recipient (WhatsApp if that's their preference) and/or an
+  // email-only recipient, so neither silently falls back to the other channel.
+  const asked = typeof notify === "object" ? notify : null;
+  const legs: { to: Recipient; channel: "AUTO" | "EMAIL" }[] = asked
+    ? [
+        ...(asked.sms && to.phone ? [{ to: { ...to, email: undefined, pref: to.pref === "EMAIL" ? undefined : to.pref }, channel: "AUTO" as const }] : []),
+        ...(asked.email && to.email ? [{ to: { ...to, phone: undefined, pref: undefined }, channel: "EMAIL" as const }] : []),
+      ]
+    : [{ to, channel: "AUTO" }];
+  const channels = legs.flatMap((l) => channelsFor(shop, l.to, l.channel, false, false, "booking_moved"));
+  const stmts = [
+    ...legs.flatMap((l) => enqueue(c.env.DB, shop, l.to, "booking_moved", vars, { ...opts, channel: l.channel })),
+    ...(await pushFor(c.env.DB, shop, to, "booking_moved", vars, opts)),
+  ];
+  if (!stmts.length || !channels.length) return null;
+  await c.env.DB.batch(stmts);
+  return { channels: [...new Set(channels)], send_at: sendAt };
+}
+// Send any held move message for this booking whose hold has ended (called by the calendar when
+// the Undo window closes). Only due rows go; a still-held or replaced message is untouched.
+sandbox.post("/bookings/:id/notify-flush", async (c) => {
+  await input(c, z.object({}).strict());
+  const b = await readBooking(c, c.req.param("id"));
+  const r = await drain(c.env.DB, 5, Date.now(), { type: "booking", id: b.id });
+  return c.json({ sent: r.sent });
 });
 // ---- Appointment panel: per-booking timeline and standing-series operations ----
 sandbox.get("/bookings/:id/timeline", async (c) => {

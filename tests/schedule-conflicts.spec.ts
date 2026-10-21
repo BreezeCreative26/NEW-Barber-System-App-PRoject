@@ -9,7 +9,7 @@ const plus = (n: number) => new Date(Date.now() + n * 86400000).toISOString().sl
 async function rosteredDay(page: Page) {
   const w = await (await page.request.get(base + "/workspace")).json();
   const week = JSON.parse(w.shop.week_json);
-  for (let i = 2; i < 12; i++) {
+  for (let i = 10; i < 30; i++) {
     const d = plus(i);
     for (const s of w.staff.filter((x: any) => x.active)) {
       const h = w.hours.find((x: any) => x.staff_id === s.id && x.weekday === wd(d));

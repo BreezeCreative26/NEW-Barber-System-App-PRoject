@@ -55,3 +55,4 @@ public/static/shop-*.js
 public/static/chunk-*.js
 public/static/style-*.css
 public/static/*.woff2
+*.tsbuildinfo

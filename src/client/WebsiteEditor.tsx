@@ -3,6 +3,7 @@
 // layout choices; the left rail lists sections (show/hide, reorder) and the design system
 // (brand colours, type, look). Edits autosave as a draft; Publish makes them live.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { ask } from "./confirm";
 import { PAGE_COPY_DEFAULTS, type PageCopy, type PageCopyKey, type WorkspaceData } from "../server/domain";
 import { Button, Icon } from "./ui";
 import { PhotoUpload } from "./Media";
@@ -158,7 +159,7 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
   }
   async function discard() {
     if (!live) return;
-    if (!window.confirm("Throw away your unpublished changes?")) return;
+    if (!(await ask({ title: "Throw away your unpublished changes?", confirm: "Discard changes", tone: "danger" }))) return;
     await api("/shop/page/draft", "DELETE").catch(() => {});
     setForm(live); setHistory([]); setFuture([]); setHadDraft(false); setSaveState("idle");
   }
@@ -217,7 +218,7 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
     <div className={`wed device-${device}`} data-testid="website-editor" role="application" aria-label="Website editor">
       <header className="wed-top">
         <div className="wed-top-left">
-          <button type="button" className="wed-iconbtn" onClick={() => { if (!dirty || window.confirm("Leave the editor? Your draft is saved; nothing is published.")) onClose(); }} aria-label="Close editor" data-testid="wed-close"><Icon name="left" size={18} /></button>
+          <button type="button" className="wed-iconbtn" onClick={async () => { if (!dirty || (await ask({ title: "Leave the editor?", body: "Your draft is saved; nothing is published.", confirm: "Leave" }))) onClose(); }} aria-label="Close editor" data-testid="wed-close"><Icon name="left" size={18} /></button>
           <span className="wed-title"><b>{w.shop.name}</b><small>Website</small></span>
           <span className={`wed-save s-${saveState}`} role="status" data-testid="wed-save">{saveState === "saving" ? "Saving…" : saveState === "saved" || hadDraft ? (dirty ? "Draft saved" : "") : saveState === "error" ? "Couldn't save draft" : dirty ? "" : "Published"}</span>
         </div>

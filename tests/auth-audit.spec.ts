@@ -11,7 +11,7 @@ async function onlineShop(sms: 0 | 1) {
   let w: WorkspaceData = await (await r.get(base + "/workspace")).json();
   const slug = `auth-${crypto.randomUUID().slice(0, 12)}`;
   expect((await r.put(base + "/shop/online", { data: { slug, online_booking: 1, lead_time_min: 60, booking_window_days: 42, version: w.shop.version } })).status()).toBe(200);
-  expect((await r.put(base + "/shop/messaging", { data: { msg_sms: sms, msg_email: 1, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } })).status(), "messaging save").toBe(200);
+  expect((await r.put(base + "/shop/messaging", { data: { sms_billing_ack: true, msg_sms: sms, msg_email: 1, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } })).status(), "messaging save").toBe(200);
   w = await (await r.get(base + "/workspace")).json();
   return { r, w, slug, ownerEmail: email };
 }

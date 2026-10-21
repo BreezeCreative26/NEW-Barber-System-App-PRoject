@@ -163,7 +163,8 @@ export type HeadInput = {
 };
 
 export function shopPageHead(i: HeadInput) {
-  const url = `${i.origin}/${i.shop.slug}`;
+  // The shop's own address is the one real URL for its page (the /<slug> form on the root only redirects).
+  const url = shopUrl(i.shop.slug || "", "/", i.origin);
   const bookUrl = shopUrl(i.shop.slug || "", "/book", i.origin);
   const town = townOf(i.shop.address);
   const title = `${i.shop.name} · ${town ? `Barbers in ${town}` : "Book online"}`;

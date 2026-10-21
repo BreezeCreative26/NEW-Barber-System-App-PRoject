@@ -21,7 +21,8 @@ for (const shot of shots)
     await page.waitForTimeout(500);
     await expect(page).toHaveScreenshot(`${shot.name}.png`, {
       fullPage: false,
-      maxDiffPixelRatio: 0.02,
+      // The phone board is small, so the date strip and the day's seeded visits are a bigger share of it.
+      maxDiffPixelRatio: shot.width < 500 ? 0.05 : 0.02,
       mask: [
         page.locator(".workspace-heading p").last(),
         page.getByLabel("Appointment date", { exact: true }),

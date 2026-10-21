@@ -70,7 +70,7 @@ test("booking created → confirmation queued on SMS and email, shop-branded, ne
     expect(["SENT", "QUEUED"]).toContain(n.status);
     expect(n.body).toContain("Northline Test Barbers");
     expect(n.body).not.toMatch(/OLLO/i);
-    expect(n.body).toContain("/manage/");
+    expect(n.body).toMatch(/\/(manage\/|me\?visit=)/); // account holders land in their account, guests get the one-time link
   }
   const email = mine.find((n) => n.channel === "EMAIL")!;
   expect(email.recipient).toBe("msg-customer@example.test");
@@ -96,7 +96,7 @@ test("channel toggles are respected: SMS off → email only; both off → nothin
   const { r, w, slug } = await onlineShop();
   const c = await customer();
   const set = async (msg_sms: 0 | 1, msg_email: 0 | 1) => {
-    const res = await r.put(base + "/shop/messaging", { data: { msg_sms, msg_email, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } });
+    const res = await r.put(base + "/shop/messaging", { data: { sms_billing_ack: true, msg_sms, msg_email, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } });
     expect(res.status(), await res.text()).toBe(200);
   };
   await set(0, 1);
@@ -115,7 +115,7 @@ test("channel toggles are respected: SMS off → email only; both off → nothin
   expect(customerRows(box.notifications, b.booking.id)).toEqual([]);
 
   // Validation: reply-to must be an email, sender max 11 alphanumerics.
-  const bad = await r.put(base + "/shop/messaging", { data: { msg_sms: 1, msg_email: 1, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "not-an-email", msg_sms_sender: "Way Too Long Sender!" } });
+  const bad = await r.put(base + "/shop/messaging", { data: { sms_billing_ack: true, msg_sms: 1, msg_email: 1, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "not-an-email", msg_sms_sender: "Way Too Long Sender!" } });
   expect(bad.status()).toBe(400);
 });
 
@@ -124,14 +124,16 @@ test("reminders sweep is idempotent: one reminder per booking per window, honour
   const c = await customer();
   // 24h reminder window is (h-1, h] hours ahead. Book something 23.5h from now on a 15-minute grid.
   const target = new Date(Date.now() + 23.5 * 3600000);
-  const date = target.toISOString().slice(0, 10);
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(target);
   if (new Date(date + "T00:00:00Z").getUTCDay() === 0) test.skip(true, "target day is Sunday (shop closed)");
   // Pick the first available slot on that day nearest the target — availability tells us what's open.
   const staff = w.staff[0].id, service = w.services[0].id;
   const avail = await (await c.get(`${pub}/shops/${slug}/availability?date=${date}&staff_id=${staff}&service_id=${service}`)).json();
   const slots: number[] = (avail.slots as { start_min: number; available: boolean }[]).filter((s) => s.available).map((s) => s.start_min);
   test.skip(slots.length === 0, "no open slot on the target day");
-  const wantMin = target.getUTCHours() * 60 + target.getUTCMinutes();
+  // Shop-local minutes (Europe/London), not UTC: they differ by an hour while British Summer Time runs.
+  const londonMin = (t: Date) => { const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(t); return Number(p.find((x) => x.type === "hour")!.value) * 60 + Number(p.find((x) => x.type === "minute")!.value); };
+  const wantMin = londonMin(target);
   const start_min = slots.reduce((best, s) => (Math.abs(s - wantMin) < Math.abs(best - wantMin) ? s : best), slots[0]);
   // Only a window-hit if the slot lands 23–24h ahead; otherwise we still verify idempotency (0 then 0).
   const created = await bookOnline(c, slug, w, date, start_min);
@@ -146,15 +148,17 @@ test("reminders sweep is idempotent: one reminder per booking per window, honour
   expect(reminders.filter((n) => n.channel === "EMAIL").length).toBeLessThanOrEqual(1);
   // The sweep is platform-wide (other shops in parallel tests count too); only assert when the
   // booked slot actually sits inside this shop's 23–24h window.
-  const startsAt = new Date(`${date}T00:00:00Z`).getTime() + start_min * 60000;
+  const noonLondon = new Date(`${date}T12:00:00Z`);
+  const offsetMin = londonMin(noonLondon) - 12 * 60; // 0 in winter, 60 in summer time
+  const startsAt = new Date(`${date}T00:00:00Z`).getTime() + (start_min - offsetMin) * 60000;
   const hoursAhead = (startsAt - Date.now()) / 3600000;
   if (first.reminders.queued > 0 && hoursAhead > 23 && hoursAhead <= 24) {
     expect(reminders.length).toBeGreaterThanOrEqual(1);
     expect(reminders[0].body).toMatch(/tomorrow|reminder|see you/i);
-    expect(reminders[0].body).toContain(`/${slug}/me`);
+    expect(reminders[0].body).toMatch(new RegExp(`${slug}[^ ]*/me`)); // the shop's own address, then /me
   }
   // Reminders off → sweep queues nothing for this shop.
-  await r.put(base + "/shop/messaging", { data: { msg_sms: 1, msg_email: 1, msg_reminders: 0, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } });
+  await r.put(base + "/shop/messaging", { data: { sms_billing_ack: true, msg_sms: 1, msg_email: 1, msg_reminders: 0, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } });
   const third = await (await r.post(base + "/notifications/sweep", { data: {} })).json();
   expect(third.reminders.queued).toBe(0);
 });
@@ -183,7 +187,7 @@ test("owner test send lands in the outbox and returns delivery; resend only acce
   // Bad input.
   expect((await r.post(base + "/notifications/test", { data: { channel: "FAX", to: "x" } })).status()).toBe(400);
   // Switched-off channel refuses a test send.
-  await r.put(base + "/shop/messaging", { data: { msg_sms: 0, msg_email: 1, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } });
+  await r.put(base + "/shop/messaging", { data: { sms_billing_ack: true, msg_sms: 0, msg_email: 1, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } });
   expect((await r.post(base + "/notifications/test", { data: { channel: "SMS", to: "07700 900999" } })).status()).toBe(409);
 });
 
@@ -252,4 +256,47 @@ test("browser: Settings → Messages shows provider status, saves channel settin
   await expect(page.locator("[data-status]").filter({ hasText: "owner-ui@example.test" })).toHaveCount(0);
   await page.locator(".outbox-head").getByRole("button", { name: "All" }).click();
   await expect(page.locator("[data-status]").filter({ hasText: "owner-ui@example.test" }).first()).toBeVisible();
+});
+
+test("a moved booking gets a fresh reminder: the old reminder is retired, an unsent one is cancelled", async () => {
+  const { r, w, slug } = await onlineShop();
+  const c = await customer();
+  const staff = w.staff[0].id, service = w.services[0].id;
+  let date = "", slots: number[] = [];
+  for (let d = 3; d < 12 && !slots.length; d++) {
+    date = new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
+    const avail = await (await c.get(`${pub}/shops/${slug}/availability?date=${date}&staff_id=${staff}&service_id=${service}`)).json();
+    slots = (avail.slots as { start_min: number; available: boolean; reason?: string }[]).filter((s) => s.available !== false && !s.reason).map((s) => s.start_min);
+  }
+  expect(slots.length).toBeGreaterThan(0);
+  const created = await bookOnline(c, slug, w, date, slots[0]);
+  const id = created.booking.id as string;
+  const postgres = (await import("postgres")).default;
+  const sql = postgres(process.env.DATABASE_URL || process.env.DIRECT_URL || "postgresql://postgres:postgres@127.0.0.1:5432/ollo", { max: 1 });
+  try {
+    const shopId = (w as unknown as { shop: { id: string } }).shop.id;
+    const ins = (nid: string, status: string) => sql`INSERT INTO notifications(id,shop_id,channel,recipient,template,body,status,related_type,related_id,created_at)
+      VALUES (${nid}, ${shopId}, 'SMS', '07700900000', 'booking_reminder', 'x', ${status}, 'booking', ${id}, ${Date.now()})`;
+    const marks = async () => Number((await sql`SELECT count(*)::int AS n FROM reminder_marks WHERE booking_id=${id}`)[0].n);
+    const b0 = (await sql`SELECT start_at FROM bookings WHERE id=${id}`)[0].start_at;
+    // Put the booking inside the 24h window, sweep: one reminder. Sweep again: none (de-duplicated).
+    const hrs = 23.5 * 3600000, shift = Number(Date.now() + hrs) - Number(b0);
+    await sql`UPDATE bookings SET start_at = start_at + ${shift}, end_at = end_at + ${shift}, version = version + 1 WHERE id=${id}`;
+    const a = await (await r.post(base + "/notifications/sweep", { data: {} })).json();
+    expect(await marks()).toBe(1);
+    const again = await (await r.post(base + "/notifications/sweep", { data: {} })).json();
+    expect(await marks()).toBe(1);
+    expect(a.reminders.queued).toBeGreaterThan(0);
+    expect(again.reminders.queued).toBe(0);
+    // A reminder still waiting to send is cancelled when the booking moves.
+    await ins("rem-wait-" + id, "QUEUED");
+    const s2 = 6 * 3600000;
+    await sql`UPDATE bookings SET start_at = start_at + ${s2}, end_at = end_at + ${s2}, version = version + 1 WHERE id=${id}`;
+    expect((await sql`SELECT status FROM notifications WHERE id=${"rem-wait-" + id}`)[0].status).toBe("SKIPPED");
+    // Move it back into the window at a new time: it is reminded again.
+    const s3 = -(s2 - 600000);
+    await sql`UPDATE bookings SET start_at = start_at + ${s3}, end_at = end_at + ${s3}, version = version + 1 WHERE id=${id}`;
+    await r.post(base + "/notifications/sweep", { data: {} });
+    expect(await marks()).toBe(2);
+  } finally { await sql.end(); }
 });

@@ -187,6 +187,7 @@ const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   terms: s.terms_text ? { text: s.terms_text, version: s.terms_version || 0, updated_at: s.terms_updated_at || 0 } : null,
   channels: {
     sms: (s as { msg_sms?: number }).msg_sms !== 0,
+    code: (s as { msg_sms?: number }).msg_sms !== 0 && (s as { customer_code_signin?: number }).customer_code_signin !== 0,
     email: (s as { msg_email?: number }).msg_email !== 0,
     wa: waAvailable() && (s as { msg_wa?: number }).msg_wa !== 0,
   },
@@ -643,7 +644,7 @@ export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooki
   const origin = new URL(c.req.url).origin;
   // Where the message points. Anyone with an account lands in their account (the visit opened);
   // the one-time manage link is only for guests without one (phone bookings, imported records).
-  const hasAccount = !!(await c.env.DB.prepare("SELECT 1 FROM customer_accounts WHERE phone=? AND password_hash<>''").bind(booking.phone).first());
+  const hasAccount = !!(await c.env.DB.prepare("SELECT 1 FROM customer_accounts WHERE shop_id=? AND phone=? AND password_hash<>''").bind(shopId, booking.phone).first());
   const link = hasAccount || !manageToken ? shopUrl(shop.slug!, `/me?visit=${encodeURIComponent(booking.id)}`, origin) : shopUrl(shop.slug!, `/manage/${manageToken}`, origin);
   // The booking's own choice wins (picked at checkout); otherwise the customer record's standing preference.
   let pref: Recipient["pref"] = booking.contact_pref && booking.contact_pref !== "AUTO" ? booking.contact_pref : undefined;

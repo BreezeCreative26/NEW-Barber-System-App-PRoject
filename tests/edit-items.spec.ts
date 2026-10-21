@@ -65,7 +65,7 @@ test("API: edit price, duration, service and add-ons; audit; refuses paid/closed
   const cur = j.booking;
   const depositPence = 2000;
   const pg = await import("node:child_process");
-  const url = (await import("node:fs")).readFileSync("/home/user/webapp/.env.local", "utf8").split("\n").find((l) => l.startsWith("DATABASE_URL="))!.slice("DATABASE_URL=".length);
+  const url = (await import("node:fs")).readFileSync((await import("node:fs")).existsSync(".env.local") ? ".env.local" : ".env", "utf8").split("\n").find((l) => l.startsWith("DATABASE_URL="))!.slice("DATABASE_URL=".length);
   pg.execSync(`psql "${url}" -Atc "UPDATE bookings SET deposit_status='PAID', deposit_paid_pence=${depositPence} WHERE id='${cur.id}'"`);
   r = await patch(page, cur.id, { service_id: cur.service_id, addon_ids: [], service_price_pence: 1500, addon_prices: {}, reason: "Only did the basic cut", version: cur.version });
   expect(r.status(), await r.text()).toBe(200);

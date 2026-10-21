@@ -41,9 +41,9 @@ test("customer screen tour", async ({ page }) => {
   await expect(openDay).toHaveAttribute("aria-label", / times$/);
   const label = ((await openDay.getAttribute("aria-label")) || "").split(",")[0];
   await openDay.click();
-  await expect(page.getByRole("group", { name: "Choose an appointment time" }).locator("button:not([disabled])").first()).toBeVisible();
+  await expect(page.getByRole("group", { name: "Choose an appointment time" }).locator(".time-slots button:not(.time-more):not([disabled])").first()).toBeVisible();
   await shot(page, "04-book-time");
-  await page.getByRole("group", { name: "Choose an appointment time" }).locator("button:not([disabled])").first().click();
+  await page.getByRole("group", { name: "Choose an appointment time" }).locator(".time-slots button:not(.time-more):not([disabled])").first().click();
   await page.getByRole("button", { name: "Sign in to book", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Sign in to book." })).toBeVisible();
   await page.getByLabel("Your name").fill("Jordan Lee");

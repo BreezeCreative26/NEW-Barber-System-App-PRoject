@@ -1,3 +1,4 @@
+import { bootCache } from "./server/bootCache";
 import { Hono, type Context } from "hono";
 
 import sandbox from "./server/sandbox";
@@ -7,13 +8,13 @@ import { join } from "node:path";
 import { brandOf, type Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { shopManifest } from "./server/customerAuth";
-import { SHOP_HOST_HEADER, shopOrigin } from "./server/hosts";
+import { SHOP_HOST_HEADER, shopOrigin, shopUrl } from "./server/hosts";
 import { shopIcon } from "./server/images";
 import { currentBuild, entryTags, shopAssetList } from "./server/assets";
 import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
 import { sweepWaitlistPlatform } from "./server/waitlist";
 import { report, telemetryStatus } from "./server/telemetry";
-import { landingPage, VERTICALS } from "./server/landing";
+import { landingPage, VERTICALS, INDUSTRY_PAGES } from "./server/landing";
 import { legalPage, LEGAL_DOCS, type LegalDoc } from "./server/legal";
 import { getCookie } from "hono/cookie";
 import { ACCOUNT_COOKIE } from "./server/accounts";
@@ -50,7 +51,7 @@ app.use("/api/*", async (c, next) => {
 });
 app.get("/api/cron/messages", async (c) => {
   const secret = process.env.CRON_SECRET;
-  if (secret && c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
+  if (!secret || c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
   const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
   const holds = await expireHolds(c.env.DB);
   const reminders = await sweepReminders(c.env.DB, origin);
@@ -62,7 +63,7 @@ app.get("/api/cron/messages", async (c) => {
 // paying shop — invoices issued, handed to Stripe, emailed — then apply dunning (overdue → past due).
 app.get("/api/cron/billing", async (c) => {
   const secret = process.env.CRON_SECRET;
-  if (secret && c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
+  if (!secret || c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
   const pb = await platformBilling(c.env.DB);
   const period = prevPeriodKey();
   const closed = pb.last_period_close >= period ? { period, skipped: "already closed" } : await runPeriodClose(c.env.DB, period, "cron");
@@ -260,10 +261,10 @@ const STYLES = ["style", "design", "theme-fonts", "shop-theme"].map((n) => `<lin
 // Customer-facing boot screen: the shop's own colours and logo (or initials) paint before any
 // JavaScript arrives, so an installed app opens straight into the shop rather than a grey
 // "loading" line. Dark/light and the accent come from the shop page theme.
-type BootBrand = { name: string; slug?: string; logo_url?: string; dark?: boolean; accent?: string; theme_json?: string; logo_tone?: string; sms?: boolean; email?: boolean; terms?: { text: string; version: number } | null };
+type BootBrand = { name: string; slug?: string; logo_url?: string; dark?: boolean; accent?: string; theme_json?: string; logo_tone?: string; sms?: boolean; code?: boolean; email?: boolean; terms?: { text: string; version: number } | null };
 // Embedded for the client: the full brand, so the very first React render is already in the shop's
 // theme (no unthemed frame between the boot screen and the screen).
-const brandScript = (b?: BootBrand) => (b ? `<script type="application/json" id="foliyo-brand">${JSON.stringify({ name: b.name, slug: b.slug || "", brand: brandOf({ logo_url: b.logo_url || "", accent: b.accent, theme_json: b.theme_json, logo_tone: b.logo_tone }), channels: { sms: b.sms !== false, email: b.email !== false }, terms: b.terms || null }).replace(/</g, "\\u003c")}</script>` : "");
+const brandScript = (b?: BootBrand) => (b ? `<script type="application/json" id="foliyo-brand">${JSON.stringify({ name: b.name, slug: b.slug || "", brand: brandOf({ logo_url: b.logo_url || "", accent: b.accent, theme_json: b.theme_json, logo_tone: b.logo_tone }), channels: { sms: b.sms !== false, code: b.sms !== false && b.code !== false, email: b.email !== false }, terms: b.terms || null }).replace(/</g, "\\u003c")}</script>` : "");
 const BOOT_ACCENT: Record<string, string> = { ollo: "#1f6f5f", ink: "#111318", sage: "#5b7a68", clay: "#a0522d", plum: "#5a3e6b", slate: "#4a5568" };
 const logoAuto = (themeJson?: string) => { try { return (JSON.parse(themeJson || "{}") as { logo?: string }).logo !== "original"; } catch { return true; } };
 function bootScreen(b?: BootBrand) {
@@ -286,17 +287,16 @@ const bootThemeColor = (b?: BootBrand) => (b?.dark ? "#17181e" : "#ffffff");
 const shell = (head: string, brand?: BootBrand) =>
   `<!doctype html><html lang="en"${brand?.dark ? ' class="boot-dark"' : ""}><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="${bootThemeColor(brand)}"/>${head}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/>${head.includes("data-shop") ? "" : `<link rel="apple-touch-icon" href="/foliyo-apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>`}${STYLES}</head><body><div id="root">${bootScreen(brand)}</div><noscript>Online booking needs JavaScript.</noscript>${brandScript(brand)}${entryTags("shop")}</body></html>`;
 // Brand for the boot screen of /book and /me: one small read, cached per process for a minute.
-const bootCache = new Map<string, { at: number; brand: BootBrand | undefined }>();
 async function bootBrand(db: Database, slug: string): Promise<BootBrand | undefined> {
   const hit = bootCache.get(slug);
-  if (hit && Date.now() - hit.at < 60000) return hit.brand;
+  if (hit && Date.now() - hit.at < 60000) return hit.brand as BootBrand | undefined;
   let brand: BootBrand | undefined;
   try {
-    const row = await db.prepare("SELECT s.name,s.msg_sms,s.msg_email,s.terms_text,s.terms_version,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ name: string; msg_sms: number; msg_email: number; terms_text: string; terms_version: number; logo_url: string; accent: string; theme_json: string; logo_tone: string }>();
+    const row = await db.prepare("SELECT s.name,s.msg_sms,s.customer_code_signin,s.msg_email,s.terms_text,s.terms_version,COALESCE(p.logo_url,'') AS logo_url,COALESCE(p.accent,'ollo') AS accent,COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1").bind(slug).first<{ name: string; msg_sms: number; msg_email: number; customer_code_signin: number; terms_text: string; terms_version: number; logo_url: string; accent: string; theme_json: string; logo_tone: string }>();
     if (row) {
       let dark = false;
       try { dark = (JSON.parse(row.theme_json) as { mode?: string }).mode === "dark"; } catch { /* default light */ }
-      brand = { name: row.name, slug, logo_url: row.logo_url || undefined, dark, accent: row.accent, theme_json: row.theme_json, logo_tone: row.logo_tone || "", sms: row.msg_sms !== 0, email: row.msg_email !== 0, terms: row.terms_text ? { text: row.terms_text, version: row.terms_version || 0 } : null };
+      brand = { name: row.name, slug, logo_url: row.logo_url || undefined, dark, accent: row.accent, theme_json: row.theme_json, logo_tone: row.logo_tone || "", sms: row.msg_sms !== 0, code: row.customer_code_signin !== 0, email: row.msg_email !== 0, terms: row.terms_text ? { text: row.terms_text, version: row.terms_version || 0 } : null };
     }
   } catch { brand = undefined; }
   bootCache.set(slug, { at: Date.now(), brand });
@@ -330,7 +330,7 @@ app.get("/", (c) => {
   return c.html(landingPage(publicOrigin(c), VERTICALS.universal));
 });
 // Vertical landing pages share the layout; only the story changes. Signed-in owners still go to work.
-app.get("/barbers", (c) => {
+for (const page of INDUSTRY_PAGES) app.get(page.path, (c) => {
   if (getCookie(c, ACCOUNT_COOKIE)) return c.redirect("/workspace");
   c.header("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400");
   c.header("Vary", "Cookie");
@@ -340,7 +340,7 @@ app.get("/barbers", (c) => {
     "Content-Security-Policy",
     "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
-  return c.html(landingPage(publicOrigin(c), VERTICALS.barbers));
+  return c.html(landingPage(publicOrigin(c), page));
 });
 const secure = (c: { header: (k: string, v: string) => void }) => {
   c.header("Cache-Control", "no-store");
@@ -432,7 +432,7 @@ app.get("/:slug", async (c, next) => {
   const head = shopPageHead({ origin: publicOrigin(c), shop, ...data });
   let dark = false;
   try { dark = (JSON.parse(data.page.theme_json || "{}") as { mode?: string }).mode === "dark"; } catch { /* light */ }
-  return c.html(shell(head.html + shopAppHead(slug, onShopHost(c, slug), dark), { name: shop.name, slug, logo_url: data.page.logo_url || undefined, dark, accent: data.page.accent, theme_json: data.page.theme_json, logo_tone: data.page.logo_tone || "", sms: (shop as { msg_sms?: number }).msg_sms !== 0, email: (shop as { msg_email?: number }).msg_email !== 0, terms: shop.terms_text ? { text: shop.terms_text, version: shop.terms_version || 0 } : null }));
+  return c.html(shell(head.html + shopAppHead(slug, onShopHost(c, slug), dark), { name: shop.name, slug, logo_url: data.page.logo_url || undefined, dark, accent: data.page.accent, theme_json: data.page.theme_json, logo_tone: data.page.logo_tone || "", sms: (shop as { msg_sms?: number }).msg_sms !== 0, code: (shop as { customer_code_signin?: number }).customer_code_signin !== 0, email: (shop as { msg_email?: number }).msg_email !== 0, terms: shop.terms_text ? { text: shop.terms_text, version: shop.terms_version || 0 } : null }));
 });
 // Apple Pay on the pay-link / deposit checkout: Stripe verifies the domain by fetching this file
 // (public/.well-known/…). Served explicitly so no hosting rewrite can swallow the dot-directory.
@@ -461,10 +461,10 @@ app.get("/sitemap.xml", async (c) => {
   ).all<{ slug: string; updated_at: number }>();
   const origin = publicOrigin(c);
   const esc = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
-  const urls = rows.results.map((r) => `<url><loc>${esc(`${origin}/${r.slug}`)}</loc>${r.updated_at ? `<lastmod>${new Date(r.updated_at).toISOString().slice(0, 10)}</lastmod>` : ""}<changefreq>weekly</changefreq></url>`).join("");
+  const urls = rows.results.map((r) => `<url><loc>${esc(shopUrl(r.slug, "/", origin))}</loc>${r.updated_at ? `<lastmod>${new Date(r.updated_at).toISOString().slice(0, 10)}</lastmod>` : ""}<changefreq>weekly</changefreq></url>`).join("");
   c.header("Content-Type", "application/xml; charset=utf-8");
   c.header("Cache-Control", "public, max-age=3600");
-  const statics = ["/", "/barbers"].map((p) => `<url><loc>${esc(origin + p)}</loc><changefreq>monthly</changefreq></url>`).join("");
+  const statics = ["/", ...INDUSTRY_PAGES.map((p) => p.path)].map((p) => `<url><loc>${esc(origin + p)}</loc><changefreq>monthly</changefreq></url>`).join("");
   return c.body(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${statics}${urls}</urlset>`);
 });
 // Uploaded photos. Ids are unique per upload, so the response can be cached hard.

@@ -5,7 +5,7 @@ import { base, origin, openFixtureShop } from "./fixture";
 async function promoteToSuper(page: Page) {
   const w = await (await page.request.get(base + "/workspace")).json();
   const pg = await import("node:child_process");
-  const url = (await import("node:fs")).readFileSync("/home/user/webapp/.env.local", "utf8").split("\n").find((l) => l.startsWith("DATABASE_URL="))!.slice("DATABASE_URL=".length);
+  const url = (await import("node:fs")).readFileSync((await import("node:fs")).existsSync(".env.local") ? ".env.local" : ".env", "utf8").split("\n").find((l) => l.startsWith("DATABASE_URL="))!.slice("DATABASE_URL=".length);
   pg.execSync(`psql "${url}" -Atc "INSERT INTO platform_admins(user_id,role,created_by,created_at) VALUES('${w.account.user_id}','SUPER','test',${Date.now()}) ON CONFLICT(user_id) DO UPDATE SET role='SUPER'"`);
   return w;
 }

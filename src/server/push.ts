@@ -54,7 +54,7 @@ export async function pushToAccount(db: DB, shopId: string, accountId: string, p
 }
 
 // Find the customer account behind a booking's phone so a booking-level event can notify the app.
-export async function accountForPhone(db: DB, phone: string): Promise<string | null> {
-  const row = await db.prepare("SELECT id FROM customer_accounts WHERE phone=?").bind(phone).first<{ id: string }>();
+export async function accountForPhone(db: DB, shopId: string, phone: string): Promise<string | null> {
+  const row = await db.prepare("SELECT id FROM customer_accounts WHERE shop_id=? AND phone=?").bind(shopId, phone).first<{ id: string }>();
   return row?.id ?? null;
 }
