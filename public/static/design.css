@@ -4250,3 +4250,5 @@ html.calendar-pinned, html.calendar-pinned body { overscroll-behavior: none; }
 .notify-push { display: grid; gap: 6px; padding: 0 0 var(--s-3); }
 .notify-push small { color: var(--muted); }
 .notify-list li.unread { box-shadow: inset 3px 0 0 var(--accent); padding-left: 10px; }
+.perm-group { display: grid; gap: 6px; margin-top: var(--s-3); }
+.perm-group > strong { font-size: var(--fs-12); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }

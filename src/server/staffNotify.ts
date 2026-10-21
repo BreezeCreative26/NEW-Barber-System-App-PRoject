@@ -9,12 +9,13 @@ import webpush from "web-push";
 import type { Database as DB } from "../db/client";
 import type { StoredBooking } from "./domain";
 import { pushStatus } from "./push";
+import { effectivePerms } from "./perms";
 
 export type EventKind = "new_booking" | "cancelled" | "moved" | "no_show" | "waitlist";
 export type Viewer = { id: string; role: string; staff_id: string | null; perms?: Record<string, boolean | undefined> | null };
 export type ShopEvent = { id: string; kind: string; title: string; body: string; booking_id: string | null; staff_id: string | null; created_at: number };
 
-export const seesAll = (v: Viewer) => v.role !== "BARBER" || !!v.perms?.all_notifications;
+export const seesAll = (v: Viewer) => v.role === "OWNER" || !!v.perms?.all_notifications;
 const visibleSql = (v: Viewer) => (seesAll(v) ? { sql: "", args: [] as string[] } : { sql: " AND staff_id=?", args: [v.staff_id || "none"] });
 
 const when = (b: StoredBooking) => {
@@ -58,9 +59,8 @@ async function pushToTeam(db: DB, shopId: string, p: { title: string; body: stri
     "SELECT s.id,s.account_id,s.endpoint,s.p256dh,s.auth,s.failures,m.role,m.staff_id,m.permissions_json FROM staff_push_subscriptions s JOIN app_memberships m ON m.id=s.account_id AND m.shop_id=s.shop_id WHERE s.shop_id=? AND m.active=1",
   ).bind(shopId).all<SubRow>()).results;
   for (const s of subs) {
-    let perms: Record<string, boolean> = {};
-    try { perms = JSON.parse(s.permissions_json || "{}"); } catch { /* none */ }
-    const v: Viewer = { id: s.account_id, role: s.role === "SHOP" ? "MANAGER" : s.role, staff_id: s.staff_id, perms };
+    const role = s.role === "SHOP" ? "RECEPTION" : s.role;
+    const v: Viewer = { id: s.account_id, role, staff_id: s.staff_id, perms: effectivePerms(role, s.permissions_json) };
     if (!seesAll(v) && p.staff_id !== v.staff_id) continue;
     try {
       await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify({ title: p.title, body: p.body, url: "/workspace", tag: p.tag }), { TTL: 6 * 3600, urgency: "high" });

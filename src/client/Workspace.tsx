@@ -2016,6 +2016,8 @@ export function Workspace() {
     }
   }
   const w = data;
+  // Same screens for everyone; these decide which features this account can use.
+  const can = (k: string) => !w?.account || w.account.role === "OWNER" || !!(w.account.perms as Record<string, boolean> | undefined)?.[k];
   useEffect(() => {
     if (!w) return;
     loadInbox();
@@ -2053,7 +2055,7 @@ export function Workspace() {
   const activeBookings = filteredBookings.filter(
     (b) => !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
-  const manager = !w?.account || ["OWNER", "MANAGER"].includes(w.account.role) || !!(w.account as { perms?: { setup?: boolean } }).perms?.setup;
+  const manager = !w?.account || w.account.role === "OWNER" || !!(w.account as { perms?: { setup?: boolean } }).perms?.setup;
   const userPref = (() => { try { return (JSON.parse(w?.account?.prefs_json || "{}") as { calendar_density?: string }).calendar_density; } catch { return undefined; } })();
   // Personal workspace look: local copy first (no flash), then the account's saved choice wins.
   useEffect(() => {
@@ -2112,7 +2114,8 @@ export function Workspace() {
   ];
   // Barbers on a phone get their own app: Today (own agenda), Week (own calendar column),
   // Customers (own), My pay, Account. Owners/managers keep the wider set.
-  const barberApp = !!w?.account && w.account.role === "BARBER" && !!w.account.staff_id;
+  // Barbers get the same calendar and menu as everyone else; permissions only switch features.
+  const barberApp = false;
   const phoneNav: NavItem[] = barberApp
     ? [
         { key: "Appointments", label: "Today", icon: "sun" },
@@ -2281,7 +2284,7 @@ export function Workspace() {
             : null
         }
         onWallet={() => setWalletOpen((v) => !v)}
-        queue={w && w.shop.waitlist_enabled !== 0 ? { count: waitlist.length, offered: waitlist.filter((e) => e.status === "OFFERED").length, open: queueOpen } : null}
+        queue={w && w.shop.waitlist_enabled !== 0 && can("waitlist") ? { count: waitlist.length, offered: waitlist.filter((e) => e.status === "OFFERED").length, open: queueOpen } : null}
         onQueue={() => setQueueOpen((v) => !v)}
         bell={w ? { count: w.issues.length + (inbox?.unread ?? 0), open: notificationsOpen } : null}
         onBell={() => setNotificationsOpen((v) => !v)}
@@ -2419,7 +2422,7 @@ export function Workspace() {
           onSelect={goTo}
           fab={{
             label: "New booking",
-            disabled: !w || !online,
+            disabled: !w || !online || !can("book"),
             onClick: () => {
               if (!w) return;
               if (tab !== "Appointments" && !canNavigate()) return;
@@ -2785,6 +2788,7 @@ export function Workspace() {
                       )}
                     </span>
                     <Button
+                      hidden={!can("book")}
                       disabled={!online || stale || loading}
                       onClick={() => setEditor({ kind: "booking" })}
                       data-testid="new-booking"
@@ -2873,6 +2877,7 @@ export function Workspace() {
                     <>
                       {calendarView === "day" && (
                         <Calendar
+                          canEdit={(b) => can("manage_others") || b.staff_id === w.account?.staff_id}
                           w={w}
                           date={date}
                           barber={barber}
