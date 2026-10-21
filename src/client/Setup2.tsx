@@ -340,12 +340,18 @@ export function StepPayments({ w, api, refresh, data, setNotice, setError, goTo,
   }
   return (
     <div className="setup-wiz-card">
-      <p className="setup-wiz-lead">How customers pay. Most shops take a small deposit online — it cuts no-shows in half and the rest is paid at the chair.</p>
-      <div className="setup-kind" role="radiogroup" aria-label="Payment at booking">
-        {([["PAY_AT_VISIT", "Pay in the shop", "No card needed to book. Simplest, most no-shows."], ["DEPOSIT", "Deposit online", "A fixed amount at booking, the rest at the chair."], ["PREPAY", "Pay in full online", "The whole price at booking. Best for high-value services."]] as const).map(([k, t, d]) => (
-          <button key={k} type="button" role="radio" aria-checked={mode === k} onClick={() => setMode(k)} data-testid={`pay-mode-${k}`}><Icon name={k === "PAY_AT_VISIT" ? "banknote" : k === "DEPOSIT" ? "paid" : "card"} /><strong>{t}</strong><span>{d}</span></button>
-        ))}
+      <p className="setup-wiz-lead">One choice for the whole shop: take payments online, or pay in store with no online payments.</p>
+      <div className="setup-kind" role="radiogroup" aria-label="How the shop takes payment">
+        <button type="button" role="radio" aria-checked={mode !== "PAY_AT_VISIT"} onClick={() => setMode(mode === "PAY_AT_VISIT" ? "DEPOSIT" : mode)} data-testid="pay-where-online"><Icon name="card" /><strong>Online payments</strong><span>Customers pay by card when they book. Fewer no-shows.</span></button>
+        <button type="button" role="radio" aria-checked={mode === "PAY_AT_VISIT"} onClick={() => setMode("PAY_AT_VISIT")} data-testid="pay-where-store"><Icon name="banknote" /><strong>Pay in store</strong><span>No online payments. Customers pay at the shop.</span></button>
       </div>
+      {mode !== "PAY_AT_VISIT" && (
+        <div className="setup-kind" role="radiogroup" aria-label="How much is taken online">
+          {([["DEPOSIT", "Deposit", "A fixed amount at booking, the rest at the chair."], ["PREPAY", "Pay in full", "The whole price at booking."]] as const).map(([k, t, d]) => (
+            <button key={k} type="button" role="radio" aria-checked={mode === k} onClick={() => setMode(k)} data-testid={`pay-mode-${k}`}><Icon name={k === "DEPOSIT" ? "paid" : "card"} /><strong>{t}</strong><span>{d}</span></button>
+          ))}
+        </div>
+      )}
       <div className="setup-grid-2">
         {mode === "DEPOSIT" && <F label="Deposit amount" hint="Kept if they cancel late or don't show; taken off the bill otherwise."><div className="setup-money"><span>£</span><input type="number" min={1} step={1} value={deposit} onChange={(e) => setDeposit(Number(e.target.value))} data-testid="setup-deposit" /></div></F>}
         <F label="Free cancellation until" hint="After this, the deposit is kept."><select value={cancel} onChange={(e) => setCancel(Number(e.target.value))}><option value={0}>Any time</option><option value={2}>2 hours before</option><option value={12}>12 hours before</option><option value={24}>24 hours before</option><option value={48}>48 hours before</option></select></F>

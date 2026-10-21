@@ -92,6 +92,17 @@ export async function shopIcon(size: 192 | 512, logo: Uint8Array | null, name: s
   }
   if (!logo) return new Uint8Array(await sharp(Buffer.from(monogram)).png().toBuffer());
   try {
+    // If the logo has its own solid background (all four corners opaque and the same colour), the
+    // icon plate matches it so the logo sits seamlessly. Otherwise the caller's plate (the shop
+    // website's theme default) is used.
+    const raw = await sharp(Buffer.from(logo), { failOn: "none" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const { width: iw, height: ih, channels: ch } = raw.info;
+    const px = (x: number, y: number) => { const o = (y * iw + x) * ch; return [raw.data[o], raw.data[o + 1], raw.data[o + 2], raw.data[o + 3]]; };
+    const corners = [px(0, 0), px(iw - 1, 0), px(0, ih - 1), px(iw - 1, ih - 1)];
+    const same = corners.every((q) => q[3] >= 250 && Math.abs(q[0] - corners[0][0]) < 12 && Math.abs(q[1] - corners[0][1]) < 12 && Math.abs(q[2] - corners[0][2]) < 12);
+    if (same) bg = "#" + corners[0].slice(0, 3).map((v) => v.toString(16).padStart(2, "0")).join("");
+  } catch { /* keep the caller's plate */ }
+  try {
     const inner = Math.round(size * 0.62); // 19% padding each side keeps the logo inside the maskable safe zone
     const logoBuf = await sharp(Buffer.from(logo), { failOn: "none" }).resize({ width: inner, height: inner, fit: "inside", withoutEnlargement: false }).png().toBuffer({ resolveWithObject: true });
     const left = Math.round((size - logoBuf.info.width) / 2), top = Math.round((size - logoBuf.info.height) / 2);

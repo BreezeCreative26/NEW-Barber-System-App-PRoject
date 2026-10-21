@@ -85,7 +85,8 @@ test("browser: ⋯ menu blocks time with a reason; the grey card appears; schedu
   const jay = w.staff.find((s) => s.name === "Jay Carter")!;
   const { date } = await freeDay(page, w, jay.id, w.services[0].id);
   await page.getByLabel("Appointment date", { exact: true }).fill(date);
-  await page.getByTestId("staff-menu").first().click();
+  await page.getByTestId("day-menu-button").click();
+  await page.getByTestId("day-menu").getByLabel("Barber").selectOption({ label: "Jay Carter" });
   await page.getByRole("menuitem", { name: /Block time/ }).click();
   const dialog = page.getByTestId("block-dialog");
   await expect(dialog).toBeVisible();

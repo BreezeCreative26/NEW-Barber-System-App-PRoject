@@ -4108,3 +4108,41 @@ p.auth-switch button.linklike:hover { text-decoration: underline; text-underline
 .ask-checks label.ask-check { display: flex !important; flex-direction: row; align-items: center; gap: 12px; padding: 10px 14px; grid-template-columns: none; }
 .ask-checks label.ask-check input { margin: 0; }
 .ask-checks label.ask-check span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+
+/* Calendar time gutter: a full label on every 15-minute row; the hour reads strongest. */
+.workspace .connected-calendar .time-gutter > span.quarter { font-size: 10px; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.workspace .connected-calendar .time-gutter > span.hour { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Calendar toolbar: one dots menu replaces filters and walk-in. */
+.workspace .toolbar-daymenu { position: relative; display: inline-flex; }
+.workspace .day-menu-list { position: absolute; left: 0; z-index: 60; top: calc(100% + 6px); z-index: 30; min-width: 220px; padding: 8px; display: grid; gap: 2px; background: var(--surface, #fff); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 32px rgba(11,11,12,.16); }
+.workspace .day-menu-list button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; font: inherit; color: inherit; text-align: left; }
+.workspace .day-menu-list button:hover:not(:disabled) { background: var(--soft, #f3f4f6); }
+.workspace .day-menu-list button:disabled { opacity: .45; }
+.workspace .day-menu-who { display: grid; gap: 4px; padding: 4px 4px 8px; font-size: 12px; color: var(--muted); }
+.workspace .day-menu-who select { min-height: 44px; font-size: 16px; }
+
+/* No page zoom in the app. iPhones zoom into any field under 16px, so touch screens get 16px fields. */
+html, body { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
+@media (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea { font-size: 16px !important; }
+}
+
+/* Customers (phone): one search border, full-width field, filters never overlap the list. */
+.workspace label.customers-search { display: flex; align-items: center; gap: 8px; }
+.workspace label.customers-search input[type="search"], .workspace label.customers-search input:not([type="checkbox"]) { flex: 1; min-width: 0; width: 100%; border: 0 !important; box-shadow: none !important; background: transparent !important; padding: 0 !important; min-height: 40px; -webkit-appearance: none; appearance: none; }
+.workspace label.customers-search svg { flex: none; }
+.workspace .customers-toolbar { display: grid; gap: 10px; }
+.workspace .customers-filters { display: flex; overflow-x: auto; scrollbar-width: none; margin-bottom: 12px; }
+.workspace .customers-filters::-webkit-scrollbar { display: none; }
+.workspace .customers-filters button { flex: none; white-space: nowrap; }
+.workspace .customer-list { margin-top: 0; position: relative; z-index: 0; }
+
+/* Small phones: the top bar never overlaps. The account button already shows the shop logo. */
+@media (max-width: 400px) {
+  .topbar { gap: 6px; padding-left: 8px; padding-right: 8px; min-width: 0; }
+  .topbar .brand, .topbar .topbar-search { display: none !important; }
+  .topbar .wallet-chip, .topbar .queue-chip { flex: 0 1 auto; min-width: 0; padding-left: 8px; padding-right: 8px; }
+  .topbar .wallet-chip small, .topbar .queue-chip small { display: none; }
+  .workspace .customers-filters button { padding-left: 12px; padding-right: 12px; }
+}

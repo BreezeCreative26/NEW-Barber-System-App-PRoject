@@ -1,3 +1,4 @@
+import { cancelOptions } from "./cancelChoices";
 import {
   useEffect,
   useId,
@@ -1608,7 +1609,8 @@ export function Workspace() {
   const [staffOnbDone, setStaffOnbDone] = useState(false);
   // Barber app: false = Today agenda, true = the week calendar (own column).
   const [barberWeek, setBarberWeek] = useState(false);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [dayMenuOpen, setDayMenuOpen] = useState(false);
+  const [dayMenuStaff, setDayMenuStaff] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
@@ -2635,23 +2637,43 @@ export function Workspace() {
                         </span>
                       );
                     })()}
-                    <Button
-                      variant={filtersOpen || statusFilter || search ? "secondary" : "ghost"}
-                      className="toolbar-filters"
-                      aria-expanded={filtersOpen}
-                      aria-controls="timetable-filters"
-                      aria-label="Filters"
-                      onClick={() => setFiltersOpen((v) => !v)}
-                      data-testid="filters-toggle"
-                    >
-                      <Icon name="sliders" size={16} />
-                      <span className="toolbar-label">Filters</span>
-                      {(statusFilter || search) && (
-                        <span className="count-badge inline" aria-label={`${[statusFilter, search].filter(Boolean).length} active`}>
-                          {[statusFilter, search].filter(Boolean).length}
-                        </span>
-                      )}
-                    </Button>
+                    <span className="day-menu toolbar-daymenu">
+                      <Button
+                        variant={dayMenuOpen ? "secondary" : "ghost"}
+                        className="icon-only"
+                        aria-label="Day actions"
+                        aria-haspopup="menu"
+                        aria-expanded={dayMenuOpen}
+                        data-testid="day-menu-button"
+                        onClick={() => setDayMenuOpen((o) => !o)}
+                      >
+                        <Icon name="more" size={18} />
+                      </Button>
+                      {dayMenuOpen && (() => {
+                        const list = w.staff.filter((s) => s.active);
+                        const target = list.find((s) => s.id === (dayMenuStaff || barber)) || list[0];
+                        if (!target) return null;
+                        const act = (action: "hours" | "block" | "dayOff") => {
+                          setDayMenuOpen(false);
+                          if (action === "hours") setEditor({ kind: "override", item: target, override: w.schedule_overrides.find((o) => o.staff_id === target.id && o.date === date) });
+                          else if (action === "block") setEditor({ kind: "block", item: target });
+                          else setEditor({ kind: "daysOff", item: target });
+                        };
+                        return (
+                          <div className="day-menu-list" role="menu" aria-label="Day actions" data-testid="day-menu">
+                            <label className="day-menu-who">
+                              <span>For</span>
+                              <select value={target.id} onChange={(e) => setDayMenuStaff(e.target.value)} aria-label="Barber">
+                                {list.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                              </select>
+                            </label>
+                            <button type="button" role="menuitem" onClick={() => act("hours")}><Icon name="clock" size={14} /> Edit today's hours</button>
+                            <button type="button" role="menuitem" disabled={date < w.today} onClick={() => act("block")}><Icon name="blocked" size={14} /> Block time…</button>
+                            <button type="button" role="menuitem" onClick={() => act("dayOff")}><Icon name="sun" size={14} /> Day off</button>
+                          </div>
+                        );
+                      })()}
+                    </span>
                     <span className="toolbar-grow" aria-hidden="true" />
                     <div className="segmented" aria-label="Calendar view">
                       <button
@@ -2720,17 +2742,6 @@ export function Workspace() {
                       )}
                     </span>
                     <Button
-                      variant="secondary"
-                      disabled={!online || stale || loading || date !== w.today}
-                      onClick={() => setEditor({ kind: "walkin" })}
-                      data-testid="walk-in"
-                      className="toolbar-walkin"
-                      title={date !== w.today ? "Walk-ins are for today" : "Seat someone now"}
-                    >
-                      <Icon name="user" />
-                      <span className="toolbar-label">Walk-in</span>
-                    </Button>
-                    <Button
                       disabled={!online || stale || loading}
                       onClick={() => setEditor({ kind: "booking" })}
                       data-testid="new-booking"
@@ -2761,7 +2772,7 @@ export function Workspace() {
                     <span>
                       {!dayReady
                         ? "Loading appointments…"
-                        : `${filteredBookings.length} matching appointment${filteredBookings.length === 1 ? "" : "s"}`}
+                        : `${filteredBookings.length} appointment${filteredBookings.length === 1 ? "" : "s"}`}
                       {activeFilterCount > 0 && dayReady ? " · filtered" : ""}
                     </span>
                     {dayReady && (
@@ -2783,7 +2794,7 @@ export function Workspace() {
                       </span>
                     )}
                     </>)}
-                    {activeFilterCount > 0 && !filtersOpen && (
+                    {activeFilterCount > 0 && (
                       <Button
                         variant="ghost"
                         onClick={() => {
@@ -2796,41 +2807,6 @@ export function Workspace() {
                       </Button>
                     )}
                   </div>
-                  {filtersOpen && (
-                    <div className="calendar-filters-panel" id="timetable-filters">
-                      <Field label="Status filter">
-                        <select
-                          value={statusFilter}
-                          onChange={(e) => setStatusFilter(e.target.value)}
-                        >
-                          <option value="">All statuses</option>
-                          {Object.entries(labels).map(([key, label]) => (
-                            <option key={key} value={key}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                      <Field label="Search appointments">
-                        <input
-                          placeholder="Name, phone or reference"
-                          value={search}
-                          onChange={(e) => setSearch(e.target.value)}
-                        />
-                      </Field>
-                      <Button
-                        variant="ghost"
-                        disabled={!activeFilterCount}
-                        onClick={() => {
-                          setBarber("");
-                          setStatusFilter("");
-                          setSearch("");
-                        }}
-                      >
-                        Clear filters
-                      </Button>
-                    </div>
-                  )}
                   {date && calendarView !== "week" && <WeekStrip date={date} onDate={setDate} />}
                   {calendarView === "week" && date ? (
                     <WeekView
@@ -2895,6 +2871,7 @@ export function Workspace() {
                             setEditor({ kind: "override", item: staffMember, override: w.schedule_overrides.find((o) => o.staff_id === staffMember.id && o.date === d) });
                           }}
                           team={barber ? undefined : new Set(team[date] ?? [])}
+                          columnMenu={false}
                           onAction={(action, staffMember, at) => {
                             if (action === "hours") setEditor({ kind: "override", item: staffMember, override: w.schedule_overrides.find((o) => o.staff_id === staffMember.id && o.date === date) });
                             else if (action === "block") setEditor({ kind: "block", item: staffMember, at });
@@ -3125,8 +3102,8 @@ export function Workspace() {
                               <Field label={`Deposit (${currencySymbol(w.shop.currency || "GBP")}) · shown to customers, payable in the shop`}>
                                 <input type="number" name="deposit" min={0} max={100} step="0.01" required defaultValue={w.shop.deposit_pence / 100} />
                               </Field>
-                              <Field label="Cancellation policy hours">
-                                <input type="number" name="cancel_hours" min={0} max={168} required defaultValue={w.shop.cancel_hours} />
+                              <Field label="Free cancellation until">
+                                <select name="cancel_hours" required defaultValue={w.shop.cancel_hours}>{cancelOptions(w.shop.cancel_hours)}</select>
                               </Field>
                               <Field label="No-show grace minutes">
                                 <input type="number" name="no_show_grace" min={0} max={120} required defaultValue={w.shop.no_show_grace} />
@@ -6259,11 +6236,7 @@ function BookingList({
       ))}
     </div>
   ) : (
-    <div className="workspace-empty">
-      <Icon name="calendar" size={34} />
-      <h2>No matching appointments</h2>
-      <p>Add a booking, change the date or clear your filters.</p>
-    </div>
+    <p className="calendar-empty" role="status">Nothing booked.</p>
   );
 }
 

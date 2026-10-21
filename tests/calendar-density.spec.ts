@@ -22,7 +22,7 @@ test.describe("laptop 1366×768", () => {
     const board = page.locator(".connected-scroll");
     // The board is always 00:00 → 24:00 (96 quarter-hours) and scrolls inside the card: the time
     // rail starts at midnight and the last hour label is 23:00. The page itself never grows.
-    const labels = await page.locator(".time-gutter > span:not(.half)").allTextContents();
+    const labels = await page.locator(".time-gutter > span.hour").allTextContents();
     expect(labels[0]).toBe("00:00");
     expect(labels[labels.length - 1]).toBe("23:00");
     expect(labels.length).toBe(24);

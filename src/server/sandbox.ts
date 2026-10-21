@@ -1934,6 +1934,14 @@ sandbox.post("/staff", async (c) => {
 sandbox.put("/staff/:id", async (c) => {
   const b = await input(c, staffSchema);
   if (b.version === undefined) fail(400, "version is required");
+  // Only the owner decides who is a manager or barber. A manager cannot change anyone's role, their own included.
+  {
+    const acting = c.get("account");
+    if (acting && acting.role !== "OWNER") {
+      const cur = await c.env.DB.prepare("SELECT role FROM staff WHERE id=? AND shop_id=?").bind(c.req.param("id"), c.get("shopId")).first<{ role: string }>();
+      if (cur && cur.role !== b.role) fail(403, "Only the shop owner can change a role");
+    }
+  }
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(

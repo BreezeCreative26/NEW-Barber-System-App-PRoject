@@ -162,6 +162,7 @@ export function Calendar({
   onMove,
   onMoveBlocked,
   onAction,
+  columnMenu,
   onBlock,
   onRemoveBlock,
   onResize,
@@ -186,6 +187,7 @@ export function Calendar({
   onMoveBlocked?: (booking: StoredBooking, reason: string) => void;
   // Per-barber ⋯ menu. `block` may carry the slot that was right-clicked / chosen.
   onAction?: (action: StaffAction, staff: Staff, at?: number) => void;
+  columnMenu?: boolean;
   onBlock?: (block: StaffBlock) => void;
   onRemoveBlock?: (block: StaffBlock) => void;
   // Extra (non-rostered) barbers the user added to the day via "Scheduled team".
@@ -589,7 +591,7 @@ export function Calendar({
                       </button>
                     );
                   })()}
-                  {onAction && (
+                  {onAction && columnMenu !== false && (
                     <div className="staff-menu">
                       <button
                         type="button"
@@ -629,17 +631,12 @@ export function Calendar({
             style={{ height }}
           >
             <div className="time-gutter">
-              {Array.from({ length: Math.ceil((end - begin) / 60) }, (_, i) => (
-                <span key={i} style={{ top: i * step * 4 }}>
-                  {time(begin + i * 60)}
+              {/* Every row is a 15-minute slot and every row says its time, in full. */}
+              {Array.from({ length: Math.ceil((end - begin) / 15) }, (_, i) => (
+                <span key={i} className={i % 4 === 0 ? "hour" : "quarter"} style={{ top: i * step }}>
+                  {time(begin + i * 15)}
                 </span>
               ))}
-              {preset.halfHourLabels &&
-                Array.from({ length: Math.ceil((end - begin) / 60) }, (_, i) => (
-                  <span key={`h${i}`} className="half" aria-hidden="true" style={{ top: i * step * 4 + step * 2 }}>
-                    {time(begin + i * 60 + 30).slice(-2) === "30" ? ":30" : ""}
-                  </span>
-                ))}
             </div>
             {staff.map((s, i) => {
               const shift =
