@@ -508,7 +508,7 @@ sandbox.post("/series", async (c) => {
     try {
       const result = await createBooking(
         c,
-        { ...single, email: "", date: t.date, request_id: id() },
+        { ...single, email: single.email ?? "", date: t.date, request_id: id() },
         "OWNER",
         { seriesId },
       );

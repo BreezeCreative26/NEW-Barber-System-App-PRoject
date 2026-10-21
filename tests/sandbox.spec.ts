@@ -879,12 +879,13 @@ test("customers: booking creates/links records, CRUD is versioned, filters/sorts
   expect(me.upcoming).toBe(2);
   expect(me.visits).toBe(2);
   // Create via API with tags; duplicate phone refused.
-  const created = await r.post(base + "/customers", { data: { name: "Walk In", phone: "07700 900 888", email: "", tags: ["VIP"] } });
+  const created = await r.post(base + "/customers", { data: { name: "Walk In", phone: "07700 900 888", email: "walkin@example.com", tags: ["VIP"] } });
   expect(created.status(), await created.text()).toBe(201);
+  expect((await r.post(base + "/customers", { data: { name: "No Mail", phone: "07700 900 889" } })).status()).toBe(400);
   const cust = (await created.json()).customer;
   expect(cust.phone).toBe("07700900888");
-  expect((await r.post(base + "/customers", { data: { name: "Dup", phone: "07700900888" } })).status()).toBe(409);
-  expect((await r.post(base + "/customers", { data: { name: "Bad", phone: "12345" } })).status()).toBe(400);
+  expect((await r.post(base + "/customers", { data: { name: "Dup", phone: "07700900888", email: "dup@example.com" } })).status()).toBe(409);
+  expect((await r.post(base + "/customers", { data: { name: "Bad", phone: "12345", email: "bad@example.com" } })).status()).toBe(400);
   // Update is versioned and audited.
   const upd = await r.put(base + `/customers/${cust.id}`, {
     data: { name: "Walk In", phone: "07700900888", email: "w@example.test", notes: "Likes it short", tags: ["VIP", "Regular"], birthday: "", preferred_staff_id: w.staff[1].id, marketing_opt_in: 1, version: 0 },

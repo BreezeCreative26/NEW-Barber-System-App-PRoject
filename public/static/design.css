@@ -4235,3 +4235,15 @@ html.calendar-pinned, html.calendar-pinned body { overscroll-behavior: none; }
 .holiday-table-wrap tr.over td { color: var(--warn); }
 .holiday-year { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; font-size: var(--fs-13); }
 @media (max-width: 640px) { .holiday-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Repeat-booking quick choices (shop form and customer booking) */
+.series-presets, .repeat-choices { display: flex; flex-wrap: wrap; gap: 6px; grid-column: 1 / -1; }
+.series-presets .chip, .repeat-choices .chip {
+  min-height: 40px; padding: 0 var(--s-3); border-radius: var(--r-pill); border: 1px solid var(--line);
+  background: var(--surface); font: inherit; font-size: var(--fs-13); font-weight: 600; color: var(--ink); cursor: pointer;
+}
+.series-presets .chip.active, .repeat-choices .chip.active { background: var(--ollo-soft); border-color: var(--accent); color: var(--accent-dark); }
+.review-repeat { display: grid; gap: 8px; padding: var(--s-3) 0; }
+.review-repeat h3 { margin: 0; font-size: var(--fs-14); display: flex; gap: 6px; align-items: center; }
+.repeat-visits { display: grid; gap: 4px; font-size: var(--fs-13); }
+.repeat-result { margin-top: var(--s-4); padding: var(--s-4); border: 1px solid var(--line); border-radius: var(--r-md, 12px); background: var(--surface); }
+.repeat-result h2 { margin: 0 0 4px; font-size: var(--fs-16, 16px); }

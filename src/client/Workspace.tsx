@@ -6052,8 +6052,8 @@ function CustomerForm({
             <Field label="Mobile number">
               <input name="phone" type="tel" required defaultValue={customer?.phone} placeholder="07700 900123" autoComplete="off" />
             </Field>
-            <Field label="Email (optional)">
-              <input name="email" type="email" maxLength={254} defaultValue={customer?.email} autoComplete="off" />
+            <Field label={customer?.email ? "Email" : "Email address"}>
+              <input name="email" type="email" required={!customer || !!customer.email} maxLength={254} defaultValue={customer?.email} autoComplete="off" />
             </Field>
             <Field label="Birthday (optional)">
               <input name="birthday" type="date" defaultValue={customer?.birthday || ""} />
@@ -7278,6 +7278,11 @@ function CustomerPicker({
               autoComplete="off"
             />
           </Field>
+          {!!name.trim() && !pickedId && (
+            <Field label="Email address" hint="So they get their confirmation and reminders">
+              <input name="email" type="email" required placeholder="name@example.com" autoComplete="off" data-testid="customer-email" />
+            </Field>
+          )}
         </div>
         {duplicate && (
           <p className="customer-duplicate" role="status">
@@ -7398,6 +7403,7 @@ function BookingForm({
       start_min: Number(start),
       customer_name: text(f, "customer_name") || "Walk-in",
       phone: text(f, "phone"),
+      ...(text(f, "email") ? { email: text(f, "email") } : {}),
       notes: text(f, "notes"),
       source: text(f, "customer_name") ? text(f, "source") : "WALK_IN",
       quote: slots?.quote,
@@ -7557,6 +7563,7 @@ function BookingForm({
               start_min: Number(start),
               customer_name: text(f, "customer_name") || "Walk-in",
               phone: text(f, "phone"),
+              ...(text(f, "email") ? { email: text(f, "email") } : {}),
               notes: text(f, "notes"),
               source: text(f, "customer_name") ? text(f, "source") : "WALK_IN",
               quote: slots.quote,
@@ -7963,6 +7970,13 @@ function BookingForm({
                 </label>
                 {repeat && (
                   <div className="series-controls">
+                    <div className="series-presets" role="group" aria-label="Quick repeat">
+                      {([[1, "Every week"], [2, "Every 2 weeks"]] as const).map(([n, label]) => (
+                        <button key={n} type="button" className={`chip${intervalWeeks === n ? " active" : ""}`} aria-pressed={intervalWeeks === n} onClick={() => { setIntervalWeeks(n); setSkipDates([]); }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                     <Field label="Every">
                       <select
                         value={intervalWeeks}

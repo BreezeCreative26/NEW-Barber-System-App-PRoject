@@ -259,6 +259,7 @@ export function presetFromLocation(search = location.search): BookingPreset | nu
   const num = (k: string) => (q.get(k) !== null && /^\d+$/.test(q.get(k)!) ? Number(q.get(k)) : undefined);
   return { service: q.get("service") || undefined, staff: q.get("staff") || undefined, date: q.get("date") || undefined, start: num("start"), step: num("step"), nonce: Date.now() };
 }
+const repeatDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: string; preset?: BookingPreset | null; onLoaded?: (shop: PublicShop) => void; onSignedIn?: (me: BookingCustomer) => void }) {
   const [shop, setShop] = useState<PublicShop | null>(null);
   // Booking is for members of the shop: the flow knows who is signed in (details, name in the top bar)
@@ -337,7 +338,11 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     manage_token: string | null;
     sent_to?: string[];
     account?: { created: boolean; has_password: boolean; email: string } | null;
+    repeats?: { booked: string[]; skipped: { date: string; reason: string }[] } | null;
   } | null>(null);
+  // Repeat this booking: 0 = just once, otherwise every 1, 2 or 4 weeks.
+  const [repeatWeeks, setRepeatWeeks] = useState(0);
+  const [repeatVisits, setRepeatVisits] = useState(4);
   const request = useRef({ key: crypto.randomUUID(), payload: "" });
   const heading = useRef<HTMLHeadingElement>(null);
   const load = async () => {
@@ -634,6 +639,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       quote: availability.quote,
       ...(contactPref !== "AUTO" ? { contact_pref: contactPref } : {}),
       ...(termsDue ? { accept_terms_version: termsVersion } : {}),
+      ...(repeatWeeks ? { repeat_weeks: repeatWeeks, repeat_visits: repeatVisits } : {}),
     };
     const serialised = JSON.stringify(payload);
     // A changed payload gets a fresh request key; an unchanged retry replays safely.
@@ -642,7 +648,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     setBusy(true);
     setSaveError("");
     try {
-      const r = await api<{ booking: CustomerBooking; manage_token: string | null; checkout_url?: string | null; account?: { created: boolean; has_password: boolean; email: string } | null }>(
+      const r = await api<{ booking: CustomerBooking; manage_token: string | null; checkout_url?: string | null; account?: { created: boolean; has_password: boolean; email: string } | null; repeats?: { booked: string[]; skipped: { date: string; reason: string }[] } | null }>(
         `/shops/${encodeURIComponent(slug)}/bookings`,
         "POST",
         { request_id: request.current.key, ...payload },
@@ -736,6 +742,15 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
         <BookingTopBar slug={slug} name={shop.shop.name} logo={shop.shop.logo_url} customer={customer} />
         <main id="main-content" className="booking-body">
           <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} sentTo={confirmed.sent_to || []} signedIn={!!customer} account={confirmed.account ?? null} />
+          {confirmed.repeats && (
+            <section className="repeat-result" data-testid="repeat-result">
+              <h2>Repeat visits</h2>
+              <p>{confirmed.repeats.booked.length} visit{confirmed.repeats.booked.length === 1 ? "" : "s"} booked: {confirmed.repeats.booked.map((d) => repeatDate(d)).join(", ")}.</p>
+              {confirmed.repeats.skipped.length > 0 && (
+                <p>Not available, so not booked: {confirmed.repeats.skipped.map((d) => `${repeatDate(d.date)} (${d.reason})`).join(", ")}. You can book another time for these from the shop page.</p>
+              )}
+            </section>
+          )}
         </main>
         <ShopTabBar slug={slug} active="book" signedIn={!!customer} />
       </div>
@@ -1456,6 +1471,25 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       {details.phone}
                       {details.email && ` · ${details.email}`}
                     </p>
+                  </section>
+                  <section className="review-repeat" data-testid="repeat-booking">
+                    <h3><Icon name="repeat" size={16} /> Repeat this booking</h3>
+                    <div className="repeat-choices" role="radiogroup" aria-label="Repeat this booking">
+                      {([[0, "Just once"], [1, "Every week"], [2, "Every 2 weeks"], [4, "Every 4 weeks"]] as const).map(([n, label]) => (
+                        <button key={n} type="button" role="radio" aria-checked={repeatWeeks === n} className={`chip${repeatWeeks === n ? " active" : ""}`} onClick={() => setRepeatWeeks(n)} data-testid={`repeat-${n}`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {repeatWeeks > 0 && (
+                      <label className="repeat-visits">
+                        Number of visits in total
+                        <select value={repeatVisits} onChange={(e) => setRepeatVisits(Number(e.target.value))} data-testid="repeat-visits">
+                          {Array.from({ length: 11 }, (_, i) => i + 2).map((n) => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                        <span className="field-help">Same barber and time each visit. Any date that is not free is skipped and shown after booking. Any deposit is taken for the first visit only.</span>
+                      </label>
+                    )}
                   </section>
                   <details className="review-more" open={forOther || !!details.notes || contactPref !== "AUTO"} data-testid="review-more">
                     <summary><Icon name="settings" size={16} /> More options <small>someone else · how we message you · a note</small><Icon name="down" size={16} /></summary>
