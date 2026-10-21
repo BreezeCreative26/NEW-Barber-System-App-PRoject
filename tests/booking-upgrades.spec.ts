@@ -48,8 +48,8 @@ test("group availability: together assigns distinct barbers, back to back chains
   }
   for (const o of b2b) {
     expect(o.assignment[0].staff_id).toBe(o.assignment[1].staff_id);
-    // Second starts on the quarter hour after first duration + 10-minute buffer.
-    const expected = Math.ceil((o.assignment[0].start_min + o.assignment[0].duration_min + 10) / 15) * 15;
+    // Second starts on the quarter hour after first duration (no buffer).
+    const expected = Math.ceil((o.assignment[0].start_min + o.assignment[0].duration_min) / 15) * 15;
     expect(o.assignment[1].start_min).toBe(expected);
   }
   // Save a "together" group with an attendee on the second member.

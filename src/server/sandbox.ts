@@ -87,6 +87,8 @@ import { agentPrompt, newSecret, voiceEndpoints, voiceOf, voiceSettingsSchema } 
 import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import QRCode from "qrcode";
 import setup from "./setup";
+import { PERM_DEFS, type PermKey } from "./perms";
+import { listFor, markSeen, staffPushStatus } from "./staffNotify";
 import { ALERT_KINDS, DEFAULT_PREFS, alertOwners, prefsOf, type AlertPrefs } from "./alerts";
 import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
@@ -121,13 +123,22 @@ export const fail = (
 };
 const input = readInput;
 // A barber sees only their own work unless the owner granted the matching extra.
-function ownScope(a: { role: string; staff_id: string | null; perms?: Record<string, boolean | undefined> } | null | undefined, perm: "calendar" | "insights" | "pay"): string | null {
+// Everyone sees the same calendar. Feature permissions (see perms.ts) decide what each account can
+// open and do; "scope" below means "only their own" when a barber lacks the matching permission.
+type Who = { role: string; staff_id: string | null; perms?: Record<string, boolean | undefined> } | null | undefined;
+const can = (a: Who, k: PermKey) => !a || a.role === "OWNER" || !!a.perms?.[k];
+function ownScope(a: Who, perm: PermKey): string | null {
   return a?.role === "BARBER" && !a.perms?.[perm] ? a.staff_id : null;
 }
 function scopeStaff(c: Ctx, staffId: string) {
   const a = c.get("account");
-  if (a?.role === "BARBER" && !a.perms?.calendar && a.staff_id !== staffId)
-    fail(403, "Assigned barber access only");
+  if (a && !can(a, "manage_others") && a.staff_id !== staffId)
+    fail(403, "You can only change your own appointments");
+}
+// Other barbers' appointments show as Busy (time only) to accounts without "calendar_all".
+function redact<T extends { staff_id: string }>(a: Who, b: T): T {
+  if (can(a, "calendar_all") || b.staff_id === a?.staff_id) return b;
+  return { ...b, customer_name: "Busy", attendee_name: "", service_name: "Busy", phone: "", email: "", notes: "", price_pence: 0, deposit_paid_pence: 0, customer_id: null, items_json: "[]", busy: 1 } as unknown as T;
 }
 export function audit(
   c: Ctx,
@@ -158,14 +169,14 @@ export async function readShop(c: Ctx) {
   if (!shop) return fail(404, "Workspace not found");
   return shop;
 }
-export async function readBooking(c: Ctx, bookingId: string) {
+export async function readBooking(c: Ctx, bookingId: string, viewOnly = false) {
   const b = await c.env.DB.prepare(
     "SELECT * FROM bookings WHERE shop_id=? AND id=?",
   )
     .bind(c.get("shopId"), bookingId)
     .first<StoredBooking>();
   if (!b) return fail(404, "Booking not found");
-  scopeStaff(c, b.staff_id);
+  if (!viewOnly) scopeStaff(c, b.staff_id);
   return b;
 }
 export async function checkVersionUpdate(
@@ -248,6 +259,9 @@ sandbox.use("*", async (c, next) => {
       (method === "GET" && path === "/pay-runs/export.csv") ||
       (method === "POST" && path === "/pay-runs/bulk") ||
       (method === "PUT" && path === "/me/prefs") ||
+      (method === "GET" && [ "/inbox", "/inbox/push" ].includes(path)) ||
+      (method === "POST" && [ "/inbox/read", "/inbox/push" ].includes(path)) ||
+      (method === "DELETE" && path === "/inbox/push") ||
       (method === "PUT" && path === "/me/profile") ||
       (method === "POST" && path === "/me/onboarded") ||
       (method === "POST" && path === "/media") ||
@@ -298,6 +312,9 @@ sandbox.use("*", async (c, next) => {
       (method === "DELETE" && /^\/media\/[^/]+$/.test(path)) ||
       (["POST", "PUT", "DELETE"].includes(method) &&
         /^\/(staff|services|addons|holidays|service-rules|pay-runs)(\/|$)/.test(path));
+    // Feature permissions: the same screens for everyone, with these switched per account.
+    const needs = featureFor(method, path);
+    if (needs && !can(account, needs)) fail(403, "Your account does not have access to this feature");
     if (!(
       operational ||
       (["OWNER", "MANAGER"].includes(account.role) && setup) ||
@@ -307,7 +324,21 @@ sandbox.use("*", async (c, next) => {
       fail(403, "Your account cannot perform this operation");
   }
   await next();
+  // Without "customer_contact", phone numbers and emails are removed from customer screens.
+  if (account && c.req.method === "GET" && path.startsWith("/customers") && !can(account, "customer_contact") && c.res.headers.get("content-type")?.includes("json")) {
+    const strip = (v: unknown): unknown => Array.isArray(v) ? v.map(strip) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, ["phone", "email", "customer_email"].includes(k) ? "" : strip(x)])) : v;
+    const body = strip(await c.res.clone().json());
+    c.res = new Response(JSON.stringify(body), { status: c.res.status, headers: { "Content-Type": "application/json" } });
+  }
 });
+function featureFor(method: string, path: string): PermKey | null {
+  if (method === "POST" && (path === "/bookings" || path === "/series" || path === "/series/preview")) return "book";
+  if (/^\/bookings\/[^/]+\/(checkout|pay-link|terminal|deposit\/refund)$/.test(path) || /^\/payments\/[^/]+\/void$/.test(path) || /^\/payment-requests\//.test(path) || path.startsWith("/terminal")) return "payments";
+  if (path.startsWith("/waitlist")) return "waitlist";
+  if (path === "/notifications" || /^\/notifications\/[^/]+$/.test(path) || path === "/dev/mailbox") return method === "GET" ? "messages" : null;
+  if (path.startsWith("/customers/import")) return "export";
+  return null;
+}
 export function handleError(err: Error, c: Ctx) {
   if (err instanceof HTTPException)
     return c.json({ error: err.message, message: err.message }, err.status);
@@ -376,13 +407,12 @@ sandbox.get("/bookings/range", async (c) => {
   const span = (Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86400000;
   if (span > 31) fail(400, "Range is limited to 31 days");
   const a = c.get("account");
-  const assigned = ownScope(a, "calendar");
   const rows = await c.env.DB.prepare(
-    "SELECT id,staff_id,service_id,customer_name,service_name,date,start_min,start_at,end_at,duration_min,price_pence,status,channel,source,series_id FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND (? IS NULL OR staff_id=?) ORDER BY date,start_at,id LIMIT 2000",
+    "SELECT id,staff_id,service_id,customer_name,service_name,date,start_min,start_at,end_at,duration_min,price_pence,status,channel,source,series_id FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? ORDER BY date,start_at,id LIMIT 2000",
   )
-    .bind(c.get("shopId"), from, to, assigned, assigned)
-    .all();
-  return c.json({ from, to, bookings: rows.results, truncated: rows.results.length >= 2000 });
+    .bind(c.get("shopId"), from, to)
+    .all<{ staff_id: string }>();
+  return c.json({ from, to, bookings: rows.results.map((b) => redact(a, b)), truncated: rows.results.length >= 2000 });
 });
 // Insights: aggregates computed from saved records only. Not payment or accounting data.
 sandbox.get("/insights", async (c) => {
@@ -508,7 +538,7 @@ sandbox.post("/series", async (c) => {
     try {
       const result = await createBooking(
         c,
-        { ...single, email: "", date: t.date, request_id: id() },
+        { ...single, email: single.email ?? "", date: t.date, request_id: id() },
         "OWNER",
         { seriesId },
       );
@@ -552,8 +582,6 @@ sandbox.get("/bookings", async (c) => {
   if (!parsed.success) return fail(400, "Invalid booking query");
   const q = parsed.data;
   const account = c.get("account");
-  if (q.staff_id) scopeStaff(c, q.staff_id);
-  if (account?.role === "BARBER" && !account.perms?.calendar) q.staff_id = account.staff_id!;
   const conditions = ["shop_id=?", "date=?"];
   const values: (string | number)[] = [c.get("shopId"), q.date];
   if (q.staff_id) {
@@ -573,7 +601,7 @@ sandbox.get("/bookings", async (c) => {
   )
     .bind(...values, q.limit + 1)
     .all<StoredBooking>();
-  const rows = result.results.slice(0, q.limit);
+  const rows = result.results.slice(0, q.limit).map((b) => redact(account, b));
   // Shop-made bookings keep the email on the customer record; surface it so the calendar can
   // offer "Email" when telling someone their appointment moved.
   const ids = [...new Set(rows.filter((r) => !r.email && r.customer_id).map((r) => r.customer_id!))];
@@ -609,7 +637,10 @@ sandbox.get("/workspace", async (c) => {
   const sid = c.get("shopId");
   const shop = await readShop(c);
   const account = c.get("account");
-  const assigned = ownScope(account, "calendar");
+  // Same calendar for everyone: all columns and all appointments (others' details are hidden for
+  // accounts without "calendar_all"). Only the schedule-review list stays personal.
+  const assigned: string | null = null;
+  const issueScope = ownScope(account, "calendar_all");
   const scoped = (sql: string, extra: unknown[] = []) =>
     c.env.DB.prepare(sql).bind(sid, assigned, assigned, ...extra);
   const result = await c.env.DB.batch([
@@ -654,7 +685,7 @@ sandbox.get("/workspace", async (c) => {
   const services = result[1].results as Service[];
   const hours = result[2].results as Hours[];
   const holidays = result[3].results as Holiday[];
-  const bookings = result[4].results as StoredBooking[];
+  const bookings = (result[4].results as StoredBooking[]).map((b) => redact(account, b));
   const daysOff = result[6].results as StaffDayOff[];
   const rules = result[9].results as StaffServiceRule[];
   const overrides = result[10].results as ScheduleOverride[];
@@ -662,7 +693,7 @@ sandbox.get("/workspace", async (c) => {
   const future = await c.env.DB.prepare(
     "SELECT * FROM bookings WHERE shop_id=? AND (? IS NULL OR staff_id=?) AND start_at>? AND status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') ORDER BY start_at,id",
   )
-    .bind(sid, assigned, assigned, Date.now())
+    .bind(sid, issueScope, issueScope, Date.now())
     .all<StoredBooking>();
   const issues = future.results
     .filter(
@@ -915,7 +946,7 @@ const customerStats = `
   (SELECT MAX(a.last_seen_at) FROM customer_account_links l JOIN customer_accounts a ON a.id=l.account_id WHERE l.shop_id=c.shop_id AND l.customer_id=c.id) AS account_last_seen_at`;
 function customerScope(c: Ctx) {
   const a = c.get("account");
-  return ownScope(a, "calendar");
+  return ownScope(a, "customers_all");
 }
 async function readCustomer(c: Ctx, id: string) {
   const row = await c.env.DB.prepare("SELECT * FROM customers WHERE shop_id=? AND id=?")
@@ -924,6 +955,40 @@ async function readCustomer(c: Ctx, id: string) {
   if (!row) return fail(404, "Customer not found");
   return row;
 }
+// The team bell: events this login is allowed to see, plus per-device push on/off.
+const viewerOf = (c: Ctx) => {
+  const a = c.get("account");
+  if (!a) fail(401, "Sign in first");
+  return { id: a!.id, role: a!.role, staff_id: a!.staff_id, perms: a!.perms as Record<string, boolean | undefined> | undefined };
+};
+sandbox.get("/inbox", async (c) => c.json(await listFor(c.env.DB, c.get("shopId"), viewerOf(c))));
+sandbox.post("/inbox/read", async (c) => {
+  const v = viewerOf(c);
+  await input(c, z.object({}).strict());
+  await markSeen(c.env.DB, c.get("shopId"), v.id);
+  return c.json({ ok: true });
+});
+sandbox.get("/inbox/push", async (c) => {
+  const v = viewerOf(c);
+  const st = staffPushStatus();
+  const endpoint = c.req.query("endpoint");
+  const subscribed = endpoint ? !!(await c.env.DB.prepare("SELECT 1 AS x FROM staff_push_subscriptions WHERE shop_id=? AND account_id=? AND endpoint=?").bind(c.get("shopId"), v.id, endpoint).first()) : false;
+  return c.json({ enabled: st.enabled, public_key: st.public_key, subscribed });
+});
+const staffPushSchema = z.object({ endpoint: z.string().url().max(2000), keys: z.object({ p256dh: z.string().max(300), auth: z.string().max(100) }).strict() }).strict();
+sandbox.post("/inbox/push", async (c) => {
+  const v = viewerOf(c);
+  const b = await input(c, staffPushSchema);
+  await c.env.DB.prepare("INSERT INTO staff_push_subscriptions(id,shop_id,account_id,endpoint,p256dh,auth,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT (shop_id,endpoint) DO UPDATE SET account_id=EXCLUDED.account_id, p256dh=EXCLUDED.p256dh, auth=EXCLUDED.auth, failures=0")
+    .bind(id(), c.get("shopId"), v.id, b.endpoint, b.keys.p256dh, b.keys.auth, Date.now()).run();
+  return c.json({ ok: true }, 201);
+});
+sandbox.delete("/inbox/push", async (c) => {
+  const v = viewerOf(c);
+  const b = await input(c, z.object({ endpoint: z.string().url().max(2000) }).strict());
+  await c.env.DB.prepare("DELETE FROM staff_push_subscriptions WHERE shop_id=? AND account_id=? AND endpoint=?").bind(c.get("shopId"), v.id, b.endpoint).run();
+  return c.json({ ok: true });
+});
 sandbox.get("/customers", async (c) => {
   const parsed = z
     .object({
@@ -992,6 +1057,7 @@ sandbox.get("/customers", async (c) => {
 });
 sandbox.post("/customers", async (c) => {
   const b = await input(c, customerSchema);
+  if (!b.email) fail(400, "Add an email address so they get confirmations");
   const existing = await c.env.DB.prepare("SELECT id, merged_into FROM customers WHERE shop_id=? AND phone=?")
     .bind(c.get("shopId"), b.phone)
     .first<{ id: string; merged_into: string | null }>();
@@ -1228,7 +1294,7 @@ sandbox.get("/waitlist", async (c) => {
   const shop = await shopWithQueue(c, c.get("shopId"));
   await sweep(c, shop);
   const a = c.get("account");
-  const assigned = ownScope(a, "calendar");
+  const assigned = ownScope(a, "calendar_all");
   const statuses = p.data!.status === "ACTIVE" ? ["OPEN", "OFFERED"] : [p.data!.status];
   const rows = await c.env.DB.prepare(
     `${queueSelect} WHERE w.shop_id=? AND w.status IN (${statuses.map(() => "?").join(",")}) AND (? IS NULL OR w.staff_id=? OR w.staff_id IS NULL) AND (? IS NULL OR w.date>=?) ORDER BY w.date, w.created_at LIMIT 200`,
@@ -1818,7 +1884,7 @@ sandbox.get("/reviews", async (c) => {
   const rows = await c.env.DB.prepare(
     "SELECT r.*, s.name AS staff_name, b.date AS visit_date FROM reviews r LEFT JOIN staff s ON s.shop_id=r.shop_id AND s.id=r.staff_id LEFT JOIN bookings b ON b.id=r.booking_id WHERE r.shop_id=? AND (? IS NULL OR r.staff_id=?) ORDER BY r.created_at DESC LIMIT 200",
   )
-    .bind(c.get("shopId"), ownScope(a, "calendar"), ownScope(a, "calendar"))
+    .bind(c.get("shopId"), ownScope(a, "messages"), ownScope(a, "messages"))
     .all<ReviewRow & { staff_name: string | null; visit_date: string }>();
   const agg = await c.env.DB.prepare("SELECT COUNT(*) AS n, AVG(rating) AS avg, SUM(CASE WHEN status='HIDDEN' THEN 1 ELSE 0 END) AS hidden FROM reviews WHERE shop_id=? AND status='PUBLISHED'").bind(c.get("shopId")).first<{ n: number; avg: number | null }>();
   const hidden = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM reviews WHERE shop_id=? AND status='HIDDEN'").bind(c.get("shopId")).first<{ n: number }>();
@@ -3051,11 +3117,13 @@ sandbox.post("/bookings", async (c) => {
   const b = await input(c, bookingSchema);
   // The shop can add an appointment after it happened (a walk-in written up later, a missed
   // entry): any start time is allowed from the shop side. Customers online still can't book the past.
-  const result = await createBooking(c, { ...b, email: "" }, "OWNER", { force: b.force, minStart: 0 });
+  const result = await createBooking(c, b, "OWNER", { force: b.force, minStart: 0 });
+  // A new customer's email goes on their record (existing emails are never overwritten).
+  if (b.email && b.phone) await c.env.DB.prepare("UPDATE customers SET email=?, updated_at=? WHERE shop_id=? AND phone=? AND email='' AND merged_into IS NULL").bind(b.email, Date.now(), c.get("shopId"), b.phone).run().catch(() => {});
   return c.json(result, result.replayed ? 200 : 201);
 });
 sandbox.get("/bookings/:id", async (c) =>
-  c.json({ booking: await readBooking(c, c.req.param("id")) }),
+  c.json({ booking: redact(c.get("account"), await readBooking(c, c.req.param("id"), true)) }),
 );
 sandbox.patch("/bookings/:id/details", async (c) => {
   const body = await input(c, bookingDetailsSchema);

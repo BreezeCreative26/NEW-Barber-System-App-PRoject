@@ -5,6 +5,7 @@
 //
 //   alertOwners(db, shopId, "new_booking", booking, extra)  — fire-and-forget after the customer message
 //   sweepDailySummaries(db, origin, now)                     — 07:00 shop-local, from the 5-minute sweep
+import { recordEvent, type EventKind } from "./staffNotify";
 import type { Database as DB } from "../db/client";
 import type { StoredBooking } from "./domain";
 import { drain, enqueue, fmtDate, fmtTime, msgShop, type MessageTemplate } from "./messaging";
@@ -43,6 +44,8 @@ async function recipients(db: DB, shopId: string, prefs: AlertPrefs): Promise<Re
 const TEMPLATE: Record<Exclude<AlertKind, "daily_summary">, MessageTemplate> = { new_booking: "owner_new_booking", cancelled: "owner_cancelled", no_show: "owner_no_show" };
 
 export async function alertOwners(db: DB, shopId: string, kind: Exclude<AlertKind, "daily_summary">, booking: StoredBooking, opts: { staffName?: string | null; origin: string; extra?: Record<string, string | number> }) {
+  // The bell and push for the team always get the event (the email/text channel setting below only governs messages).
+  await recordEvent(db, shopId, kind as EventKind, booking, opts.staffName).catch(() => {});
   const shop = await msgShop({ env: { DB: db } }, shopId);
   const prefs = prefsOf(shop.notify_json);
   const channel = prefs[kind];

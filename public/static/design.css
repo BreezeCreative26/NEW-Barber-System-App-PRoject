@@ -4149,11 +4149,11 @@ html, body { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
 
 /* Confirmation messages ("Saved.", "Moved…") fade out on their own: 4 s, or 8 s with an Undo. */
 @keyframes foliyo-notice-out { to { opacity: 0; visibility: hidden; height: 0; margin: 0; padding-top: 0; padding-bottom: 0; border-width: 0; overflow: hidden; } }
-.workspace .workspace-success[role="status"]:not([data-keep]), .modal .workspace-success[role="status"]:not([data-keep]) { animation: foliyo-notice-out .35s ease 4s forwards; }
-.workspace .workspace-success[role="status"]:has(.undo-button) { animation-delay: 8s; }
+.workspace .workspace-success:not([data-keep]), .modal .workspace-success:not([data-keep]), .workspace .series-result:not([data-keep]), .workspace .queue-offer-sent:not([data-keep]), .studio-status.workspace-success:not([data-keep]) { animation: foliyo-notice-out .35s ease 4s forwards; }
+.workspace .workspace-success:has(.undo-button) { animation-delay: 8s; }
 .workspace .notice-toast .notice-close { display: inline-grid; place-items: center; width: 24px; height: 24px; margin-left: auto; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; opacity: .7; }
 .workspace .notice-toast .notice-close:hover { opacity: 1; background: rgba(0,0,0,.06); }
-@media (prefers-reduced-motion: reduce) { .workspace .workspace-success[role="status"]:not([data-keep]), .modal .workspace-success[role="status"]:not([data-keep]) { animation-duration: .01s; } }
+@media (prefers-reduced-motion: reduce) { .workspace .workspace-success:not([data-keep]), .modal .workspace-success:not([data-keep]), .workspace .series-result, .workspace .queue-offer-sent { animation-duration: .01s; } }
 
 /* Calendar tab: pin the page so only the timetable scrolls (no rubber-band drag of the whole app). */
 html.calendar-pinned, html.calendar-pinned body { overscroll-behavior: none; }
@@ -4235,3 +4235,20 @@ html.calendar-pinned, html.calendar-pinned body { overscroll-behavior: none; }
 .holiday-table-wrap tr.over td { color: var(--warn); }
 .holiday-year { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; font-size: var(--fs-13); }
 @media (max-width: 640px) { .holiday-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Repeat-booking quick choices (shop form and customer booking) */
+.series-presets, .repeat-choices { display: flex; flex-wrap: wrap; gap: 6px; grid-column: 1 / -1; }
+.series-presets .chip, .repeat-choices .chip {
+  min-height: 40px; padding: 0 var(--s-3); border-radius: var(--r-pill); border: 1px solid var(--line);
+  background: var(--surface); font: inherit; font-size: var(--fs-13); font-weight: 600; color: var(--ink); cursor: pointer;
+}
+.series-presets .chip.active, .repeat-choices .chip.active { background: var(--ollo-soft); border-color: var(--accent); color: var(--accent-dark); }
+.review-repeat { display: grid; gap: 8px; padding: var(--s-3) 0; }
+.review-repeat h3 { margin: 0; font-size: var(--fs-14); display: flex; gap: 6px; align-items: center; }
+.repeat-visits { display: grid; gap: 4px; font-size: var(--fs-13); }
+.repeat-result { margin-top: var(--s-4); padding: var(--s-4); border: 1px solid var(--line); border-radius: var(--r-md, 12px); background: var(--surface); }
+.repeat-result h2 { margin: 0 0 4px; font-size: var(--fs-16, 16px); }
+.notify-push { display: grid; gap: 6px; padding: 0 0 var(--s-3); }
+.notify-push small { color: var(--muted); }
+.notify-list li.unread { box-shadow: inset 3px 0 0 var(--accent); padding-left: 10px; }
+.perm-group { display: grid; gap: 6px; margin-top: var(--s-3); }
+.perm-group > strong { font-size: var(--fs-12); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }

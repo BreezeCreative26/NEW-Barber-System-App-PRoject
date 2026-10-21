@@ -300,3 +300,51 @@ test("a moved booking gets a fresh reminder: the old reminder is retired, an uns
     expect(await marks()).toBe(2);
   } finally { await sql.end(); }
 });
+
+test("team bell: owner sees everything, a barber only their own bookings until granted all notifications", async () => {
+  const { r, w, slug } = await onlineShop("Bell Test Shop");
+  const joinAs = async (staffIndex: number) => {
+    const address = `bell-${crypto.randomUUID().slice(0, 8)}@ollo.test`;
+    const inv = await r.post(base + "/auth/invites", { data: { email: address, role: "BARBER", staff_id: w.staff[staffIndex].id } });
+    expect(inv.status(), await inv.text()).toBe(201);
+    const ctx = await customer();
+    const acc = await ctx.post(base + "/auth/accept", { data: { accept_legal: true, token: (await inv.json()).token, name: "Bell Barber", email: address, password: "Unique fictional test password 438!" } });
+    expect(acc.status(), await acc.text()).toBe(201);
+    return ctx;
+  };
+  const mine = await joinAs(0);
+  const other = await joinAs(1);
+  const c = await customer();
+  const created = await bookOnline(c, slug, w, futureDate(9)); // booked with staff[0]
+  await c.post(`${pub}/manage/${created.manage_token}/cancel`, { data: { version: created.booking.version } });
+
+  const titles = async (ctx: APIRequestContext) => ((await (await ctx.get(base + "/inbox")).json()).events as { title: string }[]).map((e) => e.title);
+  const ownerFeed = await (await r.get(base + "/inbox")).json();
+  expect(ownerFeed.all).toBe(true);
+  expect(ownerFeed.unread).toBeGreaterThanOrEqual(2);
+  expect(await titles(r)).toEqual(expect.arrayContaining(["New booking", "Booking cancelled"]));
+  expect(await titles(mine)).toEqual(expect.arrayContaining(["New booking", "Booking cancelled"]));
+  expect(await titles(other)).toEqual([]);
+
+  // Granting "all notifications" opens the whole feed to that barber.
+  const access = await (await r.get(base + "/auth/access")).json();
+  const otherEmail = (await (await other.get(base + "/auth/me")).json()).account?.email;
+  const member = access.members.find((m: { email: string }) => m.email === otherEmail);
+  const grant = await r.put(base + `/auth/members/${member.id}/permissions`, { data: { calendar: false, insights: false, pay: false, setup: false, all_notifications: true } });
+  expect(grant.status(), await grant.text()).toBe(200);
+  expect(await titles(other)).toEqual(expect.arrayContaining(["New booking"]));
+
+  // Opening the bell marks everything seen for that person only.
+  await r.post(base + "/inbox/read", { data: {} });
+  expect((await (await r.get(base + "/inbox")).json()).unread).toBe(0);
+  expect((await (await mine.get(base + "/inbox")).json()).unread).toBeGreaterThanOrEqual(2);
+});
+
+test("customer repeat booking: every 2 weeks books each free date and lists the rest", async () => {
+  const { w, slug } = await onlineShop("Repeat Test Shop");
+  const c = await customer();
+  const created = await bookOnline(c, slug, w, futureDate(9), 600, { repeat_weeks: 2, repeat_visits: 3 });
+  const rep = (created as unknown as { repeats: { booked: string[]; skipped: unknown[] } }).repeats;
+  expect(rep.booked.length + rep.skipped.length).toBe(3);
+  expect(rep.booked.length).toBeGreaterThanOrEqual(1);
+});

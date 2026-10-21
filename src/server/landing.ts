@@ -205,7 +205,7 @@ export const VERTICALS: Record<"universal" | "barbers" | "salons" | "beauty" | "
     faqH2: "Questions salons ask",
     finalH2: "Join the salons and stylists already running on foliyo.",
     faqs: [
-      { q: "Can I book long colour services with processing time?", a: "Yes. Set a service’s length and any buffer after it, and foliyo blocks exactly the right time in the stylist’s column so nothing overlaps." },
+      { q: "Can I book long colour services with processing time?", a: "Yes. Set the service’s full length, and foliyo blocks exactly the right time in the stylist’s column so nothing overlaps." },
       { q: "Can clients add a treatment or toner when they book?", a: "Yes. Add-ons sit under each service with their own price and time, and the booking adds them up automatically." },
     ],
   }),

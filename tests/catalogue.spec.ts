@@ -323,9 +323,9 @@ test("dated partial shifts replace weekly hours, keep closure precedence, flag b
   const reason = (n: number) =>
     q.slots.find((s: { start_min: number }) => s.start_min === n).reason;
   expect(reason(540)).toBe("Outside working hours");
-  expect(reason(690)).toBe("Lunch break");
+  expect(reason(705)).toBe("Lunch break");
   expect(reason(765)).toBe("");
-  expect(reason(930)).toBe("Outside working hours");
+  expect(reason(945)).toBe("Outside working hours");
   expect((await ws(r)).issues[0].reason).toBe("Outside working hours");
   // Weekly lunch is replaced: 13:00 is now bookable, unlike the seeded weekly break.
   expect(reason(780)).toBe("");
@@ -458,6 +458,7 @@ test("owner edits add-ons, barber pricing and partial shifts; booking items surv
     .getByLabel("Customer name", { exact: true })
     .fill("Combined quote client");
   await page.getByLabel("Mobile number", { exact: true }).fill("07700900123");
+  await page.getByLabel("Email address").fill("new.customer@example.test");
   await page.getByRole("button", { name: "Review appointment" }).click();
   await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
@@ -526,6 +527,7 @@ test("changing add-ons invalidates a selected slot, preserves contact fields and
     .getByLabel("Customer name", { exact: true })
     .fill("Preserved addon draft");
   await page.getByLabel("Mobile number", { exact: true }).fill("07700900123");
+  await page.getByLabel("Email address").fill("new.customer@example.test");
   await page.getByLabel("Long finish", { exact: false }).check();
   await expect(page.getByLabel("Available start time")).toHaveValue("");
   await expect(

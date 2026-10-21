@@ -161,6 +161,7 @@ export function Calendar({
   onOpen,
   onHours,
   onMove,
+  canEdit,
   onMoveBlocked,
   onAction,
   columnMenu,
@@ -184,6 +185,8 @@ export function Calendar({
   onOpen: (booking: StoredBooking) => void;
   onHours?: (staff: Staff, date: string) => void;
   onMove?: (booking: StoredBooking, to: MoveTarget) => Promise<void> | void;
+  // false = this account cannot change that appointment (it can still see it).
+  canEdit?: (booking: StoredBooking) => boolean;
   // A drop that can't happen (past, shop closed, day off…): say why instead of silently snapping back.
   onMoveBlocked?: (booking: StoredBooking, reason: string) => void;
   // Per-barber ⋯ menu. `block` may carry the slot that was right-clicked / chosen.
@@ -447,7 +450,7 @@ export function Calendar({
     void onMove(b, { staffId: live.overStaff, start: live.overStart, override: SOFT_REASONS.has(reason) ? reason : "" });
   }
   function onEventPointerDown(e: ReactPointerEvent<HTMLButtonElement>, b: StoredBooking) {
-    if (!onMove || b.status !== "CONFIRMED" || disabled) return;
+    if (!onMove || b.status !== "CONFIRMED" || disabled || canEdit?.(b) === false) return;
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest(".resize-handle")) return;
     const card = e.currentTarget.getBoundingClientRect();
@@ -768,23 +771,6 @@ export function Calendar({
                       </button>
                     );
                   })}
-                  {dayBookings
-                    .filter((b) => b.staff_id === s.id && b.buffer_min > 0)
-                    .map((b) => (
-                      <div
-                        key={`buffer-${b.id}`}
-                        className="calendar-buffer"
-                        style={{
-                          top:
-                            ((b.start_min + b.duration_min - begin) / 15) *
-                            step,
-                          height: (b.buffer_min / 15) * step,
-                        }}
-                        title={`${time(b.start_min + b.duration_min)}–${time(b.start_min + b.duration_min + b.buffer_min)} · Buffer`}
-                      >
-                        <span>{b.buffer_min} min buffer</span>
-                      </div>
-                    ))}
                   {dayBlocks
                     .filter((k) => k.staff_id === s.id)
                     .map((k) => (
@@ -859,8 +845,8 @@ export function Calendar({
                           ...laneStyle,
                         }}
                         data-resizing={resizing?.id === b.id ? "true" : undefined}
-                        onClick={() => onOpen(b)}
-                        data-draggable={!!onMove && b.status === "CONFIRMED" && !disabled ? "true" : undefined}
+                        onClick={() => { if (!(b as { busy?: number }).busy) onOpen(b); }}
+                        data-draggable={!!onMove && b.status === "CONFIRMED" && !disabled && canEdit?.(b) !== false ? "true" : undefined}
                         onPointerDown={(e) => onEventPointerDown(e, b)}
                         onPointerMove={onEventPointerMove}
                         onPointerUp={onEventPointerUp}
@@ -917,7 +903,7 @@ export function Calendar({
                             })()}
                           </span>
                         )}
-                        {onResize && b.status === "CONFIRMED" && !disabled && (
+                        {onResize && b.status === "CONFIRMED" && !disabled && canEdit?.(b) !== false && (
                           <span
                             className="resize-handle"
                             data-testid="resize-handle"
@@ -976,9 +962,6 @@ export function Calendar({
             </span>
             <span>
               <i className="legend-block" aria-hidden="true" /> Blocked time
-            </span>
-            <span>
-              <i className="legend-buffer" aria-hidden="true" /> Buffer
             </span>
             <span className="legend-note">Card colour = {w.shop.card_colour === "SERVICE" ? "service" : "barber"}</span>
           </div>

@@ -31,8 +31,8 @@ export type Account = {
   // Staff onboarding (non-owners): when they finished the first-sign-in flow; null until then.
   onboarded_at?: number | null;
 };
-export type Perms = { calendar?: boolean; insights?: boolean; pay?: boolean; setup?: boolean };
-export const PERM_KEYS = ["calendar", "insights", "pay", "setup"] as const;
+import { PERM_KEYS, effectivePerms, type Perms } from "./perms";
+export { PERM_KEYS, type Perms };
 export type AppEnv = {
   Bindings: { DB: Database; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string; FOLIYO_ADMIN_EMAILS?: string; OLLO_ADMIN_EMAILS?: string };
   Variables: { shopId: string; actor: string; account: Account | null };
@@ -232,8 +232,7 @@ export async function resolveAccount(
     .first<Account>()
     .then((a) => {
       if (!a) return a;
-      let perms: Perms = {};
-      try { const raw = JSON.parse(a.permissions_json || "{}"); for (const k of PERM_KEYS) if (raw[k] === true) perms[k] = true; } catch { perms = {}; }
+      const perms: Perms = effectivePerms(a.role, a.permissions_json);
       delete a.permissions_json;
       return { ...a, perms };
     });
@@ -830,7 +829,7 @@ accounts.post("/verify-email/resend", async (c) => {
 accounts.put("/members/:id/permissions", async (c) => {
   const a = owner(c);
   if (a instanceof Response) return a;
-  const b = await readInput(c, z.object({ calendar: z.boolean(), insights: z.boolean(), pay: z.boolean(), setup: z.boolean() }).strict());
+  const b = await readInput(c, z.object({ calendar: z.boolean().optional(), ...Object.fromEntries(PERM_KEYS.map((k) => [k, z.boolean().optional()])) }).strict());
   const r = await c.env.DB.prepare("UPDATE app_memberships SET permissions_json=?,version=version+1 WHERE id=? AND shop_id=? AND role IN ('BARBER','RECEPTION','MANAGER')").bind(JSON.stringify(b), c.req.param("id"), a.shop_id).run();
   if (!r.meta.changes) return reject(404, "Team member not found");
   await c.env.DB.batch([event(c, a.shop_id, `user:${a.user_id}`, c.req.param("id"), "MEMBERSHIP_PERMISSIONS_UPDATED")]);

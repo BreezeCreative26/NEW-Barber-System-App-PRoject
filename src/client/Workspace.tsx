@@ -1269,7 +1269,7 @@ function WalkInForm({ w, saved, staffId }: { w: WorkspaceData; saved: EditorProp
       <Field label="Notes (optional)">
         <input name="notes" maxLength={500} />
       </Field>
-      {okMsg && <p role="status">{okMsg}</p>}
+      {okMsg && <p className="workspace-success" role="status">{okMsg}</p>}
     </SaveForm>
   );
 }
@@ -1635,6 +1635,10 @@ export function Workspace() {
   const [dayMenuOpen, setDayMenuOpen] = useState(false);
   const [dayMenuStaff, setDayMenuStaff] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  // Team inbox: what happened (bookings, cancellations, moves, no-shows) for this login only.
+  const [inbox, setInbox] = useState<TeamInbox | null>(null);
+  const loadInbox = () => api<TeamInbox>("/inbox").then(setInbox).catch(() => {});
+
   const [queueOpen, setQueueOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -2012,6 +2016,14 @@ export function Workspace() {
     }
   }
   const w = data;
+  // Same screens for everyone; these decide which features this account can use.
+  const can = (k: string) => !w?.account || w.account.role === "OWNER" || !!(w.account.perms as Record<string, boolean> | undefined)?.[k];
+  useEffect(() => {
+    if (!w) return;
+    loadInbox();
+    const t = window.setInterval(() => { if (!document.hidden) loadInbox(); }, 45000);
+    return () => window.clearInterval(t);
+  }, [!!w]);
   const visibleStaff =
     w?.staff.filter(
       (s) =>
@@ -2043,7 +2055,7 @@ export function Workspace() {
   const activeBookings = filteredBookings.filter(
     (b) => !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
-  const manager = !w?.account || ["OWNER", "MANAGER"].includes(w.account.role) || !!(w.account as { perms?: { setup?: boolean } }).perms?.setup;
+  const manager = !w?.account || w.account.role === "OWNER" || !!(w.account as { perms?: { setup?: boolean } }).perms?.setup;
   const userPref = (() => { try { return (JSON.parse(w?.account?.prefs_json || "{}") as { calendar_density?: string }).calendar_density; } catch { return undefined; } })();
   // Personal workspace look: local copy first (no flash), then the account's saved choice wins.
   useEffect(() => {
@@ -2102,7 +2114,8 @@ export function Workspace() {
   ];
   // Barbers on a phone get their own app: Today (own agenda), Week (own calendar column),
   // Customers (own), My pay, Account. Owners/managers keep the wider set.
-  const barberApp = !!w?.account && w.account.role === "BARBER" && !!w.account.staff_id;
+  // Barbers get the same calendar and menu as everyone else; permissions only switch features.
+  const barberApp = false;
   const phoneNav: NavItem[] = barberApp
     ? [
         { key: "Appointments", label: "Today", icon: "sun" },
@@ -2271,9 +2284,9 @@ export function Workspace() {
             : null
         }
         onWallet={() => setWalletOpen((v) => !v)}
-        queue={w && w.shop.waitlist_enabled !== 0 ? { count: waitlist.length, offered: waitlist.filter((e) => e.status === "OFFERED").length, open: queueOpen } : null}
+        queue={w && w.shop.waitlist_enabled !== 0 && can("waitlist") ? { count: waitlist.length, offered: waitlist.filter((e) => e.status === "OFFERED").length, open: queueOpen } : null}
         onQueue={() => setQueueOpen((v) => !v)}
-        bell={w ? { count: w.issues.length, open: notificationsOpen } : null}
+        bell={w ? { count: w.issues.length + (inbox?.unread ?? 0), open: notificationsOpen } : null}
         onBell={() => setNotificationsOpen((v) => !v)}
         account={
           w
@@ -2354,6 +2367,12 @@ export function Workspace() {
       {w && notificationsOpen && (
         <NotificationsDrawer
           w={w}
+          inbox={inbox}
+          onInbox={loadInbox}
+          onOpenBooking={(id) => {
+            setNotificationsOpen(false);
+            openBooking(id);
+          }}
           onReview={(id) => {
             setNotificationsOpen(false);
             openBooking(id);
@@ -2403,7 +2422,7 @@ export function Workspace() {
           onSelect={goTo}
           fab={{
             label: "New booking",
-            disabled: !w || !online,
+            disabled: !w || !online || !can("book"),
             onClick: () => {
               if (!w) return;
               if (tab !== "Appointments" && !canNavigate()) return;
@@ -2769,6 +2788,7 @@ export function Workspace() {
                       )}
                     </span>
                     <Button
+                      hidden={!can("book")}
                       disabled={!online || stale || loading}
                       onClick={() => setEditor({ kind: "booking" })}
                       data-testid="new-booking"
@@ -2857,6 +2877,7 @@ export function Workspace() {
                     <>
                       {calendarView === "day" && (
                         <Calendar
+                          canEdit={(b) => can("manage_others") || b.staff_id === w.account?.staff_id}
                           w={w}
                           date={date}
                           barber={barber}
@@ -3135,16 +3156,6 @@ export function Workspace() {
                               </Field>
                               <Field label="No-show grace minutes">
                                 <input type="number" name="no_show_grace" min={0} max={120} required defaultValue={w.shop.no_show_grace} />
-                              </Field>
-                              <Field label="Gap between appointments" hint="Time held after every appointment for tidy-up. Off means back-to-back bookings.">
-                                <select name="buffer_min" defaultValue={String(w.shop.buffer_min ?? 10)} data-testid="shop-buffer">
-                                  <option value="0">Off · back to back</option>
-                                  <option value="5">5 minutes</option>
-                                  <option value="10">10 minutes</option>
-                                  <option value="15">15 minutes</option>
-                                  <option value="20">20 minutes</option>
-                                  <option value="30">30 minutes</option>
-                                </select>
                               </Field>
                               <Field label="Who can take payment">
                                 <select name="till_access" defaultValue={w.shop.till_access}>
@@ -3806,7 +3817,7 @@ function ShopSaveForm({ w, saved, label, children }: { w: WorkspaceData; saved: 
             : week0.map((d) => ({ enabled: d.enabled, starts: d.starts, ends: d.ends })),
           deposit_pence: has("deposit") ? Math.round(number(f, "deposit") * 100) : w.shop.deposit_pence,
           cancel_hours: has("cancel_hours") ? number(f, "cancel_hours") : w.shop.cancel_hours,
-          buffer_min: has("buffer_min") ? number(f, "buffer_min") : (w.shop.buffer_min ?? 10),
+          buffer_min: 0,
           card_colour: has("card_colour") ? (text(f, "card_colour") === "SERVICE" ? "SERVICE" : "BARBER") : (w.shop.card_colour || "BARBER"),
           calendar_density: has("calendar_density") ? (["COMPACT", "STANDARD", "LARGE"].includes(text(f, "calendar_density")) ? text(f, "calendar_density") : "STANDARD") : (w.shop.calendar_density || "STANDARD"),
           no_show_grace: has("no_show_grace") ? number(f, "no_show_grace") : w.shop.no_show_grace,
@@ -5132,7 +5143,66 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
 }
 
 // Notifications drawer (bell): schedule issues. The waiting list has its own Queue drawer.
-function NotificationsDrawer({ w, onReview, onClose }: { w: WorkspaceData; onReview: (bookingId: string) => void; onClose: () => void }) {
+type TeamInbox = { events: { id: string; kind: string; title: string; body: string; booking_id: string | null; created_at: number; unread: boolean }[]; unread: number; all: boolean };
+function b64ToBytes(b64: string) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from([...raw].map((ch) => ch.charCodeAt(0)));
+}
+// Push for this person on this device. It follows the same rule as the bell: own bookings only,
+// unless the owner gave them "see all notifications".
+function TeamPushToggle({ all }: { all: boolean }) {
+  const supported = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  const [st, setSt] = useState<{ enabled: boolean; public_key: string; subscribed: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const reg = async () => (await navigator.serviceWorker.getRegistration("/workspace")) || navigator.serviceWorker.register("/sw.js", { scope: "/workspace" });
+  useEffect(() => {
+    if (!supported) return;
+    (async () => {
+      const sub = await (await reg()).pushManager.getSubscription().catch(() => null);
+      setSt(await api<{ enabled: boolean; public_key: string; subscribed: boolean }>(`/inbox/push?endpoint=${encodeURIComponent(sub?.endpoint || "")}`));
+    })().catch(() => {});
+  }, []);
+  if (!supported || !st?.enabled) return null;
+  const toggle = async () => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const rg = await reg();
+      const existing = await rg.pushManager.getSubscription();
+      if (st.subscribed && existing) {
+        await api("/inbox/push", "DELETE", { endpoint: existing.endpoint });
+        await existing.unsubscribe();
+        setSt({ ...st, subscribed: false });
+      } else {
+        if ((await Notification.requestPermission()) !== "granted") throw new Error("Notifications are blocked in this browser. Allow them in the site settings and try again.");
+        const sub = existing || (await rg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(st.public_key) }));
+        await api("/inbox/push", "POST", sub.toJSON());
+        setSt({ ...st, subscribed: true });
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Could not change push notifications");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="notify-push" data-testid="team-push">
+      <Button variant="secondary" onClick={toggle} disabled={busy}>
+        {st.subscribed ? "Turn off push on this device" : "Turn on push on this device"}
+      </Button>
+      <small>{all ? "You get push for every booking in the shop." : "You get push for your own bookings only."}</small>
+      {msg && <small role="alert">{msg}</small>}
+    </div>
+  );
+}
+function NotificationsDrawer({ w, inbox, onInbox, onOpenBooking, onReview, onClose }: { w: WorkspaceData; inbox: TeamInbox | null; onInbox: () => void; onOpenBooking: (bookingId: string) => void; onReview: (bookingId: string) => void; onClose: () => void }) {
+  useEffect(() => {
+    // Opening the bell marks what is listed as seen (the new ones stay highlighted while it is open).
+    const t = window.setTimeout(() => { api("/inbox/read", "POST", {}).then(onInbox).catch(() => {}); }, 1500);
+    return () => window.clearTimeout(t);
+  }, []);
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -5146,7 +5216,7 @@ function NotificationsDrawer({ w, onReview, onClose }: { w: WorkspaceData; onRev
       previous?.focus();
     };
   }, []);
-  const total = w.issues.length;
+  const total = w.issues.length + (inbox?.unread ?? 0);
   return (
     <>
       <div className="drawer-scrim" onClick={onClose} aria-hidden="true" />
@@ -5156,6 +5226,24 @@ function NotificationsDrawer({ w, onReview, onClose }: { w: WorkspaceData; onRev
           <small>{total ? `${total} item${total === 1 ? "" : "s"}` : "All clear"}</small>
           <IconButton name="close" label="Close notifications" onClick={onClose} />
         </h2>
+        <TeamPushToggle all={!!inbox?.all} />
+        {inbox && inbox.events.length > 0 && (
+          <section className="notify-group" aria-label="Recent activity" data-testid="team-events">
+            <h3><Icon name="bell" size={16} /> Recent activity{!inbox.all && <small> · your bookings</small>}</h3>
+            <ul className="notify-list">
+              {inbox.events.map((ev) => (
+                <li key={ev.id} className={ev.unread ? "unread" : ""}>
+                  <div>
+                    <strong>{ev.title}</strong>
+                    <small>{ev.body}</small>
+                    <small>{new Date(ev.created_at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}</small>
+                  </div>
+                  {ev.booking_id && ev.kind !== "cancelled" && <Button variant="secondary" onClick={() => onOpenBooking(ev.booking_id as string)}>Open</Button>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {w.issues.length > 0 ? (
           <section className="notify-group" aria-labelledby="notify-issues-heading">
             <h3 id="notify-issues-heading">
@@ -5177,9 +5265,9 @@ function NotificationsDrawer({ w, onReview, onClose }: { w: WorkspaceData; onRev
               ))}
             </ul>
           </section>
-        ) : (
+        ) : !inbox?.events.length ? (
           <p className="drawer-note left">Nothing needs your attention. The waiting list lives under the hourglass in the top bar.</p>
-        )}
+        ) : null}
       </aside>
     </>
   );
@@ -5463,7 +5551,7 @@ function ShareBooking({ booking, w }: { booking: StoredBooking; w: WorkspaceData
           Open in SMS
         </a>
       </div>
-      {copied && <p role="status">{copied}</p>}
+      {copied && <p className="workspace-success" role="status">{copied}</p>}
     </details>
   );
 }
@@ -5531,7 +5619,7 @@ function OnlineBookingPanel({
           <small>Save with online booking switched on to activate this address.</small>
         )}
       </div>
-      {copied && <p role="status">{copied}</p>}
+      {copied && <p className="workspace-success" role="status">{copied}</p>}
       {!readOnly && (
         <SaveForm
           key={w.shop.version}
@@ -6062,8 +6150,8 @@ function CustomerForm({
             <Field label="Mobile number">
               <input name="phone" type="tel" required defaultValue={customer?.phone} placeholder="07700 900123" autoComplete="off" />
             </Field>
-            <Field label="Email (optional)">
-              <input name="email" type="email" maxLength={254} defaultValue={customer?.email} autoComplete="off" />
+            <Field label={customer?.email ? "Email" : "Email address"}>
+              <input name="email" type="email" required={!customer || !!customer.email} maxLength={254} defaultValue={customer?.email} autoComplete="off" />
             </Field>
             <Field label="Birthday (optional)">
               <input name="birthday" type="date" defaultValue={customer?.birthday || ""} />
@@ -7288,6 +7376,13 @@ function CustomerPicker({
               autoComplete="off"
             />
           </Field>
+          {!!name.trim() && !pickedId && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <Field label="Email address" hint="So they get their confirmation and reminders">
+                <input name="email" type="email" required placeholder="name@example.com" autoComplete="off" data-testid="customer-email" />
+              </Field>
+            </div>
+          )}
         </div>
         {duplicate && (
           <p className="customer-duplicate" role="status">
@@ -7408,6 +7503,7 @@ function BookingForm({
       start_min: Number(start),
       customer_name: text(f, "customer_name") || "Walk-in",
       phone: text(f, "phone"),
+      ...(text(f, "email") ? { email: text(f, "email") } : {}),
       notes: text(f, "notes"),
       source: text(f, "customer_name") ? text(f, "source") : "WALK_IN",
       quote: slots?.quote,
@@ -7567,6 +7663,7 @@ function BookingForm({
               start_min: Number(start),
               customer_name: text(f, "customer_name") || "Walk-in",
               phone: text(f, "phone"),
+              ...(text(f, "email") ? { email: text(f, "email") } : {}),
               notes: text(f, "notes"),
               source: text(f, "customer_name") ? text(f, "source") : "WALK_IN",
               quote: slots.quote,
@@ -7916,7 +8013,7 @@ function BookingForm({
               )}
               <p className="workspace-quote">
                 <strong>{money(slots.price_pence)}</strong> ·{" "}
-                {slots.duration_min} minutes + 10-minute buffer
+                {slots.duration_min} minutes
                 <br />
                 Deposit {money(slots.deposit_policy_pence)} · payable in shop. Cancellation policy: {slots.cancel_hours} hours.
               </p>
@@ -7973,6 +8070,13 @@ function BookingForm({
                 </label>
                 {repeat && (
                   <div className="series-controls">
+                    <div className="series-presets" role="group" aria-label="Quick repeat">
+                      {([[1, "Every week"], [2, "Every 2 weeks"]] as const).map(([n, label]) => (
+                        <button key={n} type="button" className={`chip${intervalWeeks === n ? " active" : ""}`} aria-pressed={intervalWeeks === n} onClick={() => { setIntervalWeeks(n); setSkipDates([]); }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                     <Field label="Every">
                       <select
                         value={intervalWeeks}

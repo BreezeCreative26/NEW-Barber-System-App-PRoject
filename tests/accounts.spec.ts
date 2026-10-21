@@ -212,9 +212,13 @@ test("barber reads and writes are assigned scoped including replay and availabil
     other = await booking(r, w, 1);
   const staff = await accept(await invite(r, w));
   const view = await workspace(staff);
-  expect(view.staff.map((s) => s.id)).toEqual([w.staff[0].id]);
-  expect(view.bookings.map((b) => b.id)).toEqual([own.booking.id]);
-  expect(view.hours.every((h) => h.staff_id === w.staff[0].id)).toBeTruthy();
+  // Same calendar for everyone: every column and every appointment, with other barbers' details hidden.
+  expect(view.staff.map((s) => s.id).sort()).toEqual(w.staff.map((s) => s.id).sort());
+  expect(view.bookings.map((b) => b.id).sort()).toEqual([own.booking.id, other.booking.id].sort());
+  const shownOther = view.bookings.find((b) => b.id === other.booking.id) as any;
+  expect(shownOther.customer_name).toBe("Busy");
+  expect(shownOther.phone).toBe("");
+  expect(view.bookings.find((b) => b.id === own.booking.id)!.customer_name).not.toBe("Busy");
   expect(view.audit).toEqual([]);
   expect((await staff.get(base + `/bookings?date=${date()}`)).status()).toBe(
     200,
@@ -222,17 +226,15 @@ test("barber reads and writes are assigned scoped including replay and availabil
   expect(
     (await (await staff.get(base + `/bookings?date=${date()}`)).json())
       .bookings,
-  ).toHaveLength(1);
+  ).toHaveLength(2);
   expect(
     (
       await staff.get(
         base + `/bookings?date=${date()}&staff_id=${w.staff[1].id}`,
       )
     ).status(),
-  ).toBe(403);
-  expect(
-    (await staff.get(base + `/bookings/${other.booking.id}`)).status(),
-  ).toBe(403);
+  ).toBe(200);
+  expect((await (await staff.get(base + `/bookings/${other.booking.id}`)).json()).booking.customer_name).toBe("Busy");
   expect(
     (await staff.post(base + "/bookings", { data: other.data })).status(),
   ).toBe(403);
@@ -616,12 +618,12 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
         })()
       : await staffNav.locator(".sidebar-item").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") || e.textContent || ""));
     expect(staffLabels.map((t) => t.trim()).filter(Boolean)).toEqual(
-      width < 768 ? ["Today", "Week", "Customers", "My pay", "Account"] : ["Appointments", "Insights", "Customers", "My pay", "Accounts"],
+      width < 768 ? ["Today", "Insights", "Customers", "My pay", "Accounts"] : ["Appointments", "Insights", "Customers", "My pay", "Accounts"],
     );
     const assigned = await (
       await staffPage.request.get(base + "/workspace")
     ).json();
-    expect(assigned.staff.map((s: any) => s.id)).toEqual([w.staff[0].id]);
+    expect(assigned.staff.map((s: any) => s.id).sort()).toEqual(w.staff.map((s: any) => s.id).sort());
     expect(
       (
         await new AxeBuilder({ page: staffPage })
@@ -730,7 +732,7 @@ test("standard demo account: one-click owner/barber sign-in, fixed credentials, 
   const bw = await (await barber.get(base + "/workspace")).json();
   expect(bw.account.role).toBe("BARBER");
   expect(bw.account.email).toBe("jay@demo.test");
-  expect(bw.bookings.every((b: any) => b.staff_id === bw.account.staff_id)).toBe(true);
+  expect(bw.bookings.every((b: any) => b.staff_id === bw.account.staff_id || b.customer_name === "Busy")).toBe(true);
   // Rebuild replaces the shop with a fresh id; the old one is retired and the emails reused.
   const rebuilt = await owner.post(base + "/auth/demo", { data: { rebuild: true } });
   expect(rebuilt.status()).toBe(201);
@@ -803,3 +805,28 @@ function plus(date: string, n: number) {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+
+test("feature permissions: defaults by role, owner switches features per person, calendar stays the same", async () => {
+  const { r, before: w } = await owner();
+  const own = await booking(r, w, 0);
+  const other = await booking(r, w, 1);
+  const staff = await accept(await invite(r, w));
+  const me = (await workspace(staff)).account as any;
+  // Barber defaults: can add and take payment, cannot see others' details, waiting list or exports.
+  expect(me.perms).toMatchObject({ book: true, payments: true, calendar_all: false, manage_others: false, waitlist: true, export: false, setup: false });
+  expect((await staff.get(base + "/notifications")).status()).toBe(403);
+  expect((await staff.post(base + "/customers/import", { data: {} })).status()).toBe(403);
+  const access = await (await r.get(base + "/auth/access")).json();
+  const member = access.members.find((m: any) => m.role === "BARBER");
+  // Switch features on for this barber only.
+  const save = (p: Record<string, boolean>) => r.put(base + `/auth/members/${member.id}/permissions`, { data: p });
+  expect((await save({ calendar_all: true, messages: true, book: false })).status()).toBe(200);
+  const view = await workspace(staff);
+  expect((view.account as any).perms).toMatchObject({ calendar_all: true, messages: true, book: false });
+  expect(view.bookings.find((b) => b.id === other.booking.id)!.customer_name).not.toBe("Busy");
+  expect((await staff.get(base + "/notifications")).status()).toBe(200);
+  expect((await staff.post(base + "/bookings", { data: own.data })).status()).toBe(403);
+  // The owner always has everything.
+  expect(((await workspace(r)).account as any).perms.setup).toBe(true);
+  expect((await save({ nonsense: true } as any)).status()).toBe(400);
+});

@@ -1,3 +1,5 @@
+import { recordEvent } from "./staffNotify";
+import { HTTPException } from "hono/http-exception";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { alertOwners } from "./alerts";
@@ -675,10 +677,15 @@ export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooki
 }
 // Every online booking ends with an account: email is required, and a password may be set in the
 // same step. A signed-in customer's details are trusted from the session.
-const onlineBookingSchema = publicBookingSchema.extend({ password: z.union([z.literal(""), customerPassword]).default("") });
+const onlineBookingSchema = publicBookingSchema.extend({
+  password: z.union([z.literal(""), customerPassword]).default(""),
+  // Optional repeat: every 1, 2 or 4 weeks for 2–12 visits in total (the first one is this booking).
+  repeat_weeks: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional(),
+  repeat_visits: z.number().int().min(2).max(12).optional(),
+});
 pub.post("/shops/:slug/bookings", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug"));
-  const { password, ...b } = await readInput(c, onlineBookingSchema);
+  const { password, repeat_weeks, repeat_visits, ...b } = await readInput(c, onlineBookingSchema);
   // Booking is for members: the signed-in account is the booker. Name/phone/email on the payload are
   // ignored in favour of the account's own, so a session can't book under someone else's details.
   const signedIn = await currentCustomerAccount(c, shop);
@@ -760,6 +767,27 @@ pub.post("/shops/:slug/bookings", async (c) => {
   }
   const sent = result.replayed || booking.deposit_status === "PENDING" ? [] : await notifyBooking(c, shop.id, booking, staff?.name ?? null, "booking_confirmed", token);
   if (!result.replayed && booking.deposit_status !== "PENDING") await alertOwners(c.env.DB, shop.id, "new_booking", booking, { staffName: staff?.name, origin: new URL(c.req.url).origin }).catch(() => 0);
+  // Repeat visits: each later date is checked and booked on its own; any that are unavailable are
+  // listed back so the customer can pick another time. Deposits apply to the first visit only.
+  let repeats: { booked: string[]; skipped: { date: string; reason: string }[] } | null = null;
+  if (!result.replayed && repeat_weeks && repeat_visits && repeat_visits >= 2) {
+    repeats = { booked: [booking.date], skipped: [] };
+    const seriesId = crypto.randomUUID();
+    await c.env.DB.prepare("INSERT INTO booking_series(id,shop_id,staff_id,service_id,customer_name,phone,interval_weeks,start_date,start_min,occurrences,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+      .bind(seriesId, shop.id, booking.staff_id, booking.service_id, booking.customer_name, booking.phone, repeat_weeks, booking.date, bk.start_min, repeat_visits, Date.now()).run().catch(() => {});
+    for (let i = 1; i < repeat_visits; i++) {
+      const d = new Date(`${booking.date}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + i * 7 * repeat_weeks);
+      const date = d.toISOString().slice(0, 10);
+      try {
+        const more = await createBooking(c, { ...bk, date, request_id: crypto.randomUUID(), source: "TEST_BOOKING" }, "ONLINE", { minStart, maxDate, seriesId });
+        repeats.booked.push(more.booking.date);
+        if (booking.deposit_status !== "PENDING") await notifyBooking(c, shop.id, more.booking, staff?.name ?? null, "booking_confirmed", await issueManageToken(c, more.booking)).catch(() => []);
+      } catch (err) {
+        repeats.skipped.push({ date, reason: err instanceof HTTPException ? err.message : "Not available" });
+      }
+    }
+  }
   // Account: create or adopt for this booker, sign the browser in for this shop, and — when no
   // password was chosen — send the one-time "set your password" link with the confirmation.
   let account: { created: boolean; has_password: boolean; email: string } | null = null;
@@ -784,6 +812,7 @@ pub.post("/shops/:slug/bookings", async (c) => {
       sent_to: sent,
       checkout_url: checkoutUrl,
       account,
+      repeats,
     },
     result.replayed ? 200 : 201,
   );
@@ -885,7 +914,7 @@ pub.get("/shops/:slug/group-availability", async (c) => {
       for (let i = 0; i < members.length; i++) {
         const st = ctxs[i].staff.find((x) => x.id === id)!;
         const q = ctxs[i].quotes.get(id)!;
-        // Each visit reserves duration + the shop's 10-minute buffer; the next starts on the following quarter hour.
+        // Each visit reserves its duration; the next starts on the following quarter hour.
         if (cursor % 15 !== 0 || slotFor(shop, ctxs[i], st, date, cursor, minStart)) {
           ok = false;
           break;
@@ -1334,6 +1363,7 @@ export async function moveByCustomer(c: Ctx, shop: Shop, booking: StoredBooking,
   await slotFreed(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-move");
   const after = await readBooking(c, booking.id);
   await notifyBooking(c, shop.id, after, staffName, "booking_moved");
+  await recordEvent(c.env.DB, shop.id, "moved", after, staffName).catch(() => {});
   return {
     booking: customerView(after, shop, staffName),
   };
