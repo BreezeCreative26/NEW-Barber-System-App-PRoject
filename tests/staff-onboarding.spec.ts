@@ -61,8 +61,8 @@ test("owner sets up a barber login from Team; barber onboards on first sign-in",
   await p2.getByTestId("staff-onb-next").click();
   await expect(p2.getByTestId("staff-onb-app")).toBeVisible();
   await p2.getByTestId("staff-onb-finish").click();
-  // Lands in the barber phone app.
-  await expect(p2.getByTestId("barber-home")).toBeVisible({ timeout: 15000 });
+  // Lands in the same calendar as everyone.
+  await expect(p2.getByRole("button", { name: "New booking", exact: true })).toBeVisible({ timeout: 15000 });
   await expect(p2.getByTestId("staff-onboarding")).toHaveCount(0);
   // Profile edits persisted on the staff row and reach the public shop page.
   const me = await (await p2.request.get(base + "/workspace")).json();
@@ -75,7 +75,7 @@ test("owner sets up a barber login from Team; barber onboards on first sign-in",
   expect(pub.staff.find((s: { id: string }) => s.id === free.id)?.title).toBe("Senior barber");
   // Reload: onboarding does not come back.
   await p2.reload();
-  await expect(p2.getByTestId("barber-home")).toBeVisible({ timeout: 15000 });
+  await expect(p2.getByRole("button", { name: "New booking", exact: true })).toBeVisible({ timeout: 15000 });
   await expect(p2.getByTestId("staff-onboarding")).toHaveCount(0);
   expect(errors).toEqual([]);
   await ctx.close();

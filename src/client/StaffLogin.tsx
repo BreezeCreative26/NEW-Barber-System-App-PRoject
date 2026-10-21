@@ -1,6 +1,7 @@
 // Team → <barber> → Login: set up and manage one team member's sign-in by email. Shows the
 // account state (none / invited / active / suspended), sends or resends the invitation from the
 // shop, and lets the owner change role or suspend. The invitee lands in StaffOnboarding.
+import { PERM_DEFS, effectivePerms } from "../server/perms";
 import { useEffect, useState } from "react";
 import { ask } from "./confirm";
 import type { Staff, WorkspaceData } from "../server/domain";
@@ -17,25 +18,27 @@ const ROLE_HINT: Record<string, string> = {
   MANAGER: "Everything except billing and who can sign in.",
   OWNER: "Everything: insights, pay, settings, billing and the team. Each shop has one owner.",
 };
-const PERMS: { key: "calendar" | "insights" | "pay" | "setup" | "all_notifications"; label: string; hint: string }[] = [
-  { key: "calendar", label: "See everyone's calendar and customers", hint: "Otherwise they only see their own." },
-  { key: "insights", label: "See whole-shop insights", hint: "Otherwise they only see their own numbers." },
-  { key: "pay", label: "See pay runs and wallets", hint: "Otherwise they only see their own pay." },
-  { key: "setup", label: "Change services, hours and shop settings", hint: "Never billing or who can sign in." },
-  { key: "all_notifications", label: "See all notifications", hint: "Alerts and push messages for every barber's bookings. Otherwise only their own." },
-];
 function PermissionBoxes({ member, disabled, onSave }: { member: Member; disabled: boolean; onSave: (p: Record<string, boolean>) => void }) {
-  const initial = (() => { try { return JSON.parse(member.permissions_json || "{}") as Record<string, boolean>; } catch { return {}; } })();
-  const [p, setP] = useState<Record<string, boolean>>({ calendar: !!initial.calendar, insights: !!initial.insights, pay: !!initial.pay, setup: !!initial.setup, all_notifications: !!initial.all_notifications });
-  const changed = PERMS.some((x) => !!p[x.key] !== !!initial[x.key]);
+  // What this person can do now: their role's defaults with the owner's changes on top.
+  const initial = effectivePerms(member.role, member.permissions_json) as Record<string, boolean>;
+  const [p, setP] = useState<Record<string, boolean>>(initial);
+  useEffect(() => { setP(initial); }, [member.id, member.role, member.permissions_json]);
+  const changed = PERM_DEFS.some((x) => !!p[x.key] !== !!initial[x.key]);
+  const groups = [...new Set(PERM_DEFS.map((d) => d.group))];
   return (
     <fieldset className="staff-login-perms" data-testid="staff-login-perms">
-      <legend>Extra access for {member.name.split(" ")[0]}</legend>
-      {PERMS.map((x) => (
-        <label key={x.key} className="setup-check">
-          <input type="checkbox" checked={!!p[x.key]} disabled={disabled} onChange={(e) => setP({ ...p, [x.key]: e.target.checked })} data-testid={`perm-${x.key}`} />
-          <span>{x.label}<small className="helper"> {x.hint}</small></span>
-        </label>
+      <legend>What {member.name.split(" ")[0]} can do</legend>
+      <small className="helper">Everyone sees the same calendar. These switches choose which features each account can use.</small>
+      {groups.map((g) => (
+        <div key={g} className="perm-group">
+          <strong>{g}</strong>
+          {PERM_DEFS.filter((x) => x.group === g).map((x) => (
+            <label key={x.key} className="setup-check">
+              <input type="checkbox" checked={!!p[x.key]} disabled={disabled} onChange={(e) => setP({ ...p, [x.key]: e.target.checked })} data-testid={`perm-${x.key}`} />
+              <span>{x.label}<small className="helper"> {x.hint}</small></span>
+            </label>
+          ))}
+        </div>
       ))}
       <Button variant="secondary" disabled={disabled || !changed} onClick={() => onSave(p)} data-testid="perm-save">Save access</Button>
     </fieldset>
@@ -99,7 +102,7 @@ export function StaffLoginPanel({ w, api, staff, onChanged }: { w: WorkspaceData
                 </select>
                 <small className="helper">{ROLE_HINT[member.role]}</small>
               </label>
-              {member.role === "BARBER" && (
+              {(
                 <PermissionBoxes member={member} disabled={busy} onSave={(p) => run(async () => { await api(`/auth/members/${member.id}/permissions`, "PUT", p); return "Access saved. It applies straight away."; })} />
               )}
               <div className="workspace-field">
