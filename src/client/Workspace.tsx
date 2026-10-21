@@ -506,9 +506,9 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
           <Brand />
         )}
         {mode !== "invite" && !shopSlug && (
-          <div className="auth-tabs" role="tablist" aria-label="Sign in or create a shop">
+          <div className="auth-tabs" role="tablist" aria-label={onRoot ? "Find your shop or create one" : "Sign in or create a shop"}>
             <button type="button" role="tab" aria-selected={mode === "signin" || mode === "find"} onClick={() => setMode(onRoot ? "find" : "signin")}>
-              Sign in
+              {onRoot ? "Find your shop" : "Sign in"}
             </button>
             <button type="button" role="tab" aria-selected={mode === "signup"} onClick={() => setMode("signup")}>
               Create your shop
