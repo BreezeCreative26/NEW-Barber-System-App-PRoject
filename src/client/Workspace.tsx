@@ -3136,16 +3136,6 @@ export function Workspace() {
                               <Field label="No-show grace minutes">
                                 <input type="number" name="no_show_grace" min={0} max={120} required defaultValue={w.shop.no_show_grace} />
                               </Field>
-                              <Field label="Gap between appointments" hint="Time held after every appointment for tidy-up. Off means back-to-back bookings.">
-                                <select name="buffer_min" defaultValue={String(w.shop.buffer_min ?? 10)} data-testid="shop-buffer">
-                                  <option value="0">Off · back to back</option>
-                                  <option value="5">5 minutes</option>
-                                  <option value="10">10 minutes</option>
-                                  <option value="15">15 minutes</option>
-                                  <option value="20">20 minutes</option>
-                                  <option value="30">30 minutes</option>
-                                </select>
-                              </Field>
                               <Field label="Who can take payment">
                                 <select name="till_access" defaultValue={w.shop.till_access}>
                                   <option value="OWNER">Shop device only (owner or manager)</option>
@@ -3806,7 +3796,7 @@ function ShopSaveForm({ w, saved, label, children }: { w: WorkspaceData; saved: 
             : week0.map((d) => ({ enabled: d.enabled, starts: d.starts, ends: d.ends })),
           deposit_pence: has("deposit") ? Math.round(number(f, "deposit") * 100) : w.shop.deposit_pence,
           cancel_hours: has("cancel_hours") ? number(f, "cancel_hours") : w.shop.cancel_hours,
-          buffer_min: has("buffer_min") ? number(f, "buffer_min") : (w.shop.buffer_min ?? 10),
+          buffer_min: 0,
           card_colour: has("card_colour") ? (text(f, "card_colour") === "SERVICE" ? "SERVICE" : "BARBER") : (w.shop.card_colour || "BARBER"),
           calendar_density: has("calendar_density") ? (["COMPACT", "STANDARD", "LARGE"].includes(text(f, "calendar_density")) ? text(f, "calendar_density") : "STANDARD") : (w.shop.calendar_density || "STANDARD"),
           no_show_grace: has("no_show_grace") ? number(f, "no_show_grace") : w.shop.no_show_grace,
@@ -7916,7 +7906,7 @@ function BookingForm({
               )}
               <p className="workspace-quote">
                 <strong>{money(slots.price_pence)}</strong> ·{" "}
-                {slots.duration_min} minutes + 10-minute buffer
+                {slots.duration_min} minutes
                 <br />
                 Deposit {money(slots.deposit_policy_pence)} · payable in shop. Cancellation policy: {slots.cancel_hours} hours.
               </p>

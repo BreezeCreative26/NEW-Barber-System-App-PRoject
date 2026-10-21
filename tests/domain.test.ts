@@ -281,9 +281,9 @@ describe("duration and buffer availability", () => {
       duration,
       0,
     );
-  it("blocks closing buffer and lunch", () => {
-    expect(reason(1050)).toBe("Outside working hours");
-    expect(reason(735)).toBe("Lunch break");
+  it("blocks after closing and lunch", () => {
+    expect(reason(1055)).toBe("Outside working hours");
+    expect(reason(745)).toBe("Lunch break");
     expect(reason(810)).toBe("");
   });
   it("requires full gap but allows exact boundary", () => {
@@ -292,13 +292,13 @@ describe("duration and buffer availability", () => {
       staff_id: "one",
       start_at: localInstant("2026-10-12", 600)!,
       end_at: localInstant("2026-10-12", 630)!,
-      buffer_min: 10,
+      buffer_min: 0,
       status: "CONFIRMED",
     } as StoredBooking;
-    expect(reason(630, 30, [b])).toBe("Slot taken");
-    expect(reason(640, 30, [b])).toBe("");
-    expect(reason(565, 30, [b])).toBe("Slot taken");
-    expect(reason(560, 30, [b])).toBe("");
+    expect(reason(615, 30, [b])).toBe("Slot taken");
+    expect(reason(630, 30, [b])).toBe("");
+    expect(reason(575, 30, [b])).toBe("Slot taken");
+    expect(reason(570, 30, [b])).toBe("");
     expect(reason(600, 30, [{ ...b, status: "CANCELLED" }])).toBe("");
   });
 });

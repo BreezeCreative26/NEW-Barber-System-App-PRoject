@@ -666,7 +666,7 @@ function ServiceEditor({ w, api, service, onClose, onSaved, startNewCategory = f
               setState(null);
             }}
           />
-          <p className="workspace-footnote">Changing price or duration affects new quotes only. Buffer stays the shop-wide 10 minutes.</p>
+          <p className="workspace-footnote">Changing price or duration affects new quotes only.</p>
         </form>
       )}
       {tab === "barbers" && service && <RuleMatrix w={w} api={api} service={service} onSaved={() => onSaved(service.id)} />}

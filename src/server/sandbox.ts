@@ -992,6 +992,7 @@ sandbox.get("/customers", async (c) => {
 });
 sandbox.post("/customers", async (c) => {
   const b = await input(c, customerSchema);
+  if (!b.email) fail(400, "Add an email address so they get confirmations");
   const existing = await c.env.DB.prepare("SELECT id, merged_into FROM customers WHERE shop_id=? AND phone=?")
     .bind(c.get("shopId"), b.phone)
     .first<{ id: string; merged_into: string | null }>();
@@ -3051,7 +3052,9 @@ sandbox.post("/bookings", async (c) => {
   const b = await input(c, bookingSchema);
   // The shop can add an appointment after it happened (a walk-in written up later, a missed
   // entry): any start time is allowed from the shop side. Customers online still can't book the past.
-  const result = await createBooking(c, { ...b, email: "" }, "OWNER", { force: b.force, minStart: 0 });
+  const result = await createBooking(c, b, "OWNER", { force: b.force, minStart: 0 });
+  // A new customer's email goes on their record (existing emails are never overwritten).
+  if (b.email && b.phone) await c.env.DB.prepare("UPDATE customers SET email=?, updated_at=? WHERE shop_id=? AND phone=? AND email='' AND merged_into IS NULL").bind(b.email, Date.now(), c.get("shopId"), b.phone).run().catch(() => {});
   return c.json(result, result.replayed ? 200 : 201);
 });
 sandbox.get("/bookings/:id", async (c) =>

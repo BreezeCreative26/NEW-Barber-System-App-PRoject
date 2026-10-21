@@ -323,9 +323,9 @@ test("dated partial shifts replace weekly hours, keep closure precedence, flag b
   const reason = (n: number) =>
     q.slots.find((s: { start_min: number }) => s.start_min === n).reason;
   expect(reason(540)).toBe("Outside working hours");
-  expect(reason(690)).toBe("Lunch break");
+  expect(reason(705)).toBe("Lunch break");
   expect(reason(765)).toBe("");
-  expect(reason(930)).toBe("Outside working hours");
+  expect(reason(945)).toBe("Outside working hours");
   expect((await ws(r)).issues[0].reason).toBe("Outside working hours");
   // Weekly lunch is replaced: 13:00 is now bookable, unlike the seeded weekly break.
   expect(reason(780)).toBe("");

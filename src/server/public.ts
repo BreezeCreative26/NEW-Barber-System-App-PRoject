@@ -885,7 +885,7 @@ pub.get("/shops/:slug/group-availability", async (c) => {
       for (let i = 0; i < members.length; i++) {
         const st = ctxs[i].staff.find((x) => x.id === id)!;
         const q = ctxs[i].quotes.get(id)!;
-        // Each visit reserves duration + the shop's 10-minute buffer; the next starts on the following quarter hour.
+        // Each visit reserves its duration; the next starts on the following quarter hour.
         if (cursor % 15 !== 0 || slotFor(shop, ctxs[i], st, date, cursor, minStart)) {
           ok = false;
           break;

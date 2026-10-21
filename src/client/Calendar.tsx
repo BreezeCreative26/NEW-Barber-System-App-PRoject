@@ -768,23 +768,6 @@ export function Calendar({
                       </button>
                     );
                   })}
-                  {dayBookings
-                    .filter((b) => b.staff_id === s.id && b.buffer_min > 0)
-                    .map((b) => (
-                      <div
-                        key={`buffer-${b.id}`}
-                        className="calendar-buffer"
-                        style={{
-                          top:
-                            ((b.start_min + b.duration_min - begin) / 15) *
-                            step,
-                          height: (b.buffer_min / 15) * step,
-                        }}
-                        title={`${time(b.start_min + b.duration_min)}–${time(b.start_min + b.duration_min + b.buffer_min)} · Buffer`}
-                      >
-                        <span>{b.buffer_min} min buffer</span>
-                      </div>
-                    ))}
                   {dayBlocks
                     .filter((k) => k.staff_id === s.id)
                     .map((k) => (
@@ -976,9 +959,6 @@ export function Calendar({
             </span>
             <span>
               <i className="legend-block" aria-hidden="true" /> Blocked time
-            </span>
-            <span>
-              <i className="legend-buffer" aria-hidden="true" /> Buffer
             </span>
             <span className="legend-note">Card colour = {w.shop.card_colour === "SERVICE" ? "service" : "barber"}</span>
           </div>

@@ -1314,7 +1314,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                   )}
                   <p className="slot-note">
                     <Icon name="clock" size={14} />
-                    {duration} minutes, with a 10-minute buffer between visits.
+                    {duration} minutes.
                     {anyBarber && assigned && slot !== null && (
                       <>
                         {" "}

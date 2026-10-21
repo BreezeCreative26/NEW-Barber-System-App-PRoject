@@ -471,8 +471,8 @@ for (const width of [320, 390, 768, 1024, 1440])
         () => document.documentElement.scrollWidth <= innerWidth + 1,
       ),
     ).toBe(true);
-    await expect(page.locator(".calendar-legend")).toContainText("Buffer");
-    await expect(page.locator(".calendar-buffer")).toHaveCount(4);
+    await expect(page.locator(".calendar-legend")).not.toContainText("Buffer");
+    await expect(page.locator(".calendar-buffer")).toHaveCount(0);
     await expect(page.locator(".calendar-event.compact-event")).toHaveCount(1);
     expect(
       await page.locator(".calendar-event").evaluateAll((events) =>

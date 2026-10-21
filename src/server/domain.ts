@@ -578,7 +578,7 @@ export const shopSchema = z
     cancel_hours: z.number().int().min(0).max(168),
     no_show_grace: z.number().int().min(0).max(120),
     till_access: z.enum(["OWNER", "ALL"]).default("OWNER"),
-    buffer_min: z.number().int().min(0).max(60).refine((n) => n % 5 === 0, "Use 5-minute steps").default(10),
+    buffer_min: z.number().int().min(0).max(60).refine((n) => n % 5 === 0, "Use 5-minute steps").default(0),
     card_colour: z.enum(["BARBER", "SERVICE"]).default("BARBER"),
     calendar_density: z.enum(["COMPACT", "STANDARD", "LARGE"]).default("STANDARD"),
     version,
@@ -959,6 +959,9 @@ const bookingBase = z
     service_id: z.string().uuid(),
     customer_name: name,
     phone: ukMobileOrEmpty,
+    // A new customer's email, so they get confirmations and can sign in. Optional here (walk-ins and
+    // existing customers); the booking form asks for it whenever the customer is new.
+    email: emailSchema.default(""),
     notes: z.string().trim().max(500).default(""),
     date: dateSchema,
     start_min: z
@@ -1503,8 +1506,8 @@ export function localInstant(
   }
   return matches.length === 1 ? matches[0] : null;
 }
-// Buffer after each appointment, from Settings → General (0 = none). Older rows default to 10.
-export const shopBuffer = (shop: Pick<Shop, "buffer_min"> | null | undefined) => (typeof shop?.buffer_min === "number" ? shop.buffer_min : 10);
+// Appointments run back to back: no gap is held after them (the setting was removed).
+export const shopBuffer = (_shop?: Pick<Shop, "buffer_min"> | null) => 0;
 export function slotReason(
   shop: Shop,
   staff: Staff | null,
