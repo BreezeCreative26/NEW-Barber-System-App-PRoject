@@ -101,7 +101,8 @@ test("browser: ⋯ menu blocks time with a reason; the grey card appears; schedu
   await expect(card).toContainText("14:00–15:00");
   // Scheduled team: pick a Monday (Dani doesn't work Mondays in the fixture) and add her.
   const d = new Date(w.today + "T12:00:00Z");
-  do d.setUTCDate(d.getUTCDate() + 1); while (d.getUTCDay() !== 1);
+  d.setUTCDate(d.getUTCDate() + 14); // past the demo data's seeded leave (about five days out)
+  while (d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1);
   await page.getByLabel("Appointment date", { exact: true }).fill(d.toISOString().slice(0, 10));
   const picker = page.getByTestId("team-picker");
   await expect(picker).toContainText("2/3");

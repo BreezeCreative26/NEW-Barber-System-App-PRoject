@@ -187,6 +187,7 @@ const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   terms: s.terms_text ? { text: s.terms_text, version: s.terms_version || 0, updated_at: s.terms_updated_at || 0 } : null,
   channels: {
     sms: (s as { msg_sms?: number }).msg_sms !== 0,
+    code: (s as { msg_sms?: number }).msg_sms !== 0 && (s as { customer_code_signin?: number }).customer_code_signin !== 0,
     email: (s as { msg_email?: number }).msg_email !== 0,
     wa: waAvailable() && (s as { msg_wa?: number }).msg_wa !== 0,
   },

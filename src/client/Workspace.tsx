@@ -4632,7 +4632,7 @@ function AlertsPanel({ smsLive }: { smsLive: boolean }) {
   );
 }
 type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "telnyx" | "twilio" | "clicksend" | "mailbox"; from: string }; wa?: { provider: "infobip" | "mailbox"; sender: string; test_sender: boolean; keyword: string } };
-type Messaging = { msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
+type Messaging = { customer_code_signin?: number; msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
 const CHANNEL_LABEL: Record<string, string> = { SMS: "Text", EMAIL: "Email", WA: "WhatsApp (retired)", PUSH: "Push" };
 type OutboxData = {
   shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; sms_billing?: { unit_pence: number; included_units: number; acknowledged_at: number | null; live: boolean }; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_enabled?: number; waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_mode?: "ORDER" | "EVERYONE"; waitlist_delay_min?: number } };
@@ -4794,6 +4794,20 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
               <Field label="Day-before reminder, hours ahead">
                 <input type="number" min={1} max={72} value={msg.msg_reminder_hours} disabled={!msg.msg_reminders} onChange={(e) => setMsg({ ...msg, msg_reminder_hours: Number(e.target.value) })} data-testid="msg-reminder-hours" />
               </Field>
+            </div>
+            <div className={`chan-card${msg.customer_code_signin !== 0 && msg.msg_sms ? " on" : ""}`} data-testid="chan-code-signin">
+              <div className="chan-head">
+                <span className="chan-ic"><Icon name="lock" size={18} /></span>
+                <span className="chan-text">
+                  <strong>Sign in with a text code</strong>
+                  <small>Customers can get a code by text instead of using a password</small>
+                </span>
+                <label className="switch">
+                  <input type="checkbox" checked={msg.customer_code_signin !== 0} onChange={(e) => setMsg({ ...msg, customer_code_signin: e.target.checked ? 1 : 0 })} aria-label="Sign in with a text code" data-testid="msg-code-signin" />
+                  <span />
+                </label>
+              </div>
+              <p className="chan-body">{msg.msg_sms ? "Each code is one text, billed like any other text. Turn this off and customers sign in with email and password only." : "Needs texts to be switched on. While texts are off, customers sign in with email and password."}</p>
             </div>
           </div>
           <SmsSenderField value={msg.msg_sms_sender} onChange={(v) => setMsg({ ...msg, msg_sms_sender: v })} shopName={w.shop.name} sampleBody={`${w.shop.name}: you're booked — ${w.services[0]?.name || "Haircut"} with ${w.staff[0]?.name.split(" ")[0] || "Sam"}, Fri 12 Sep at 10:30. Ref BRB-0412. Move or cancel: ${location.origin}/m/a1b2c3`} testId="msg-sms-sender" />

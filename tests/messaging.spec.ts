@@ -124,14 +124,16 @@ test("reminders sweep is idempotent: one reminder per booking per window, honour
   const c = await customer();
   // 24h reminder window is (h-1, h] hours ahead. Book something 23.5h from now on a 15-minute grid.
   const target = new Date(Date.now() + 23.5 * 3600000);
-  const date = target.toISOString().slice(0, 10);
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(target);
   if (new Date(date + "T00:00:00Z").getUTCDay() === 0) test.skip(true, "target day is Sunday (shop closed)");
   // Pick the first available slot on that day nearest the target — availability tells us what's open.
   const staff = w.staff[0].id, service = w.services[0].id;
   const avail = await (await c.get(`${pub}/shops/${slug}/availability?date=${date}&staff_id=${staff}&service_id=${service}`)).json();
   const slots: number[] = (avail.slots as { start_min: number; available: boolean }[]).filter((s) => s.available).map((s) => s.start_min);
   test.skip(slots.length === 0, "no open slot on the target day");
-  const wantMin = target.getUTCHours() * 60 + target.getUTCMinutes();
+  // Shop-local minutes (Europe/London), not UTC: they differ by an hour while British Summer Time runs.
+  const londonMin = (t: Date) => { const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(t); return Number(p.find((x) => x.type === "hour")!.value) * 60 + Number(p.find((x) => x.type === "minute")!.value); };
+  const wantMin = londonMin(target);
   const start_min = slots.reduce((best, s) => (Math.abs(s - wantMin) < Math.abs(best - wantMin) ? s : best), slots[0]);
   // Only a window-hit if the slot lands 23–24h ahead; otherwise we still verify idempotency (0 then 0).
   const created = await bookOnline(c, slug, w, date, start_min);
@@ -146,12 +148,14 @@ test("reminders sweep is idempotent: one reminder per booking per window, honour
   expect(reminders.filter((n) => n.channel === "EMAIL").length).toBeLessThanOrEqual(1);
   // The sweep is platform-wide (other shops in parallel tests count too); only assert when the
   // booked slot actually sits inside this shop's 23–24h window.
-  const startsAt = new Date(`${date}T00:00:00Z`).getTime() + start_min * 60000;
+  const noonLondon = new Date(`${date}T12:00:00Z`);
+  const offsetMin = londonMin(noonLondon) - 12 * 60; // 0 in winter, 60 in summer time
+  const startsAt = new Date(`${date}T00:00:00Z`).getTime() + (start_min - offsetMin) * 60000;
   const hoursAhead = (startsAt - Date.now()) / 3600000;
   if (first.reminders.queued > 0 && hoursAhead > 23 && hoursAhead <= 24) {
     expect(reminders.length).toBeGreaterThanOrEqual(1);
     expect(reminders[0].body).toMatch(/tomorrow|reminder|see you/i);
-    expect(reminders[0].body).toContain(`/${slug}/me`);
+    expect(reminders[0].body).toMatch(new RegExp(`${slug}[^ ]*/me`)); // the shop's own address, then /me
   }
   // Reminders off → sweep queues nothing for this shop.
   await r.put(base + "/shop/messaging", { data: { sms_billing_ack: true, msg_sms: 1, msg_email: 1, msg_reminders: 0, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "" } });

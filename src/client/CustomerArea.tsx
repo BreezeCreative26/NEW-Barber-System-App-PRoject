@@ -17,7 +17,7 @@ type Visit = {
   price_pence: number; cancel_hours: number; version: number; can_manage: boolean; late_change: boolean; series_id: string | null; attendee_name?: string; group_id?: string | null; items: { id: string; name: string; price_pence: number }[];
 };
 type Me = {
-  shop: { name: string; slug: string; address: string; timezone: string; currency?: string; cancel_hours: number; lead_time_min: number; today: string; logo_url?: string; brand?: ShopBrand; google_review_url?: string; channels?: { sms: boolean; email: boolean } };
+  shop: { name: string; slug: string; address: string; timezone: string; currency?: string; cancel_hours: number; lead_time_min: number; today: string; logo_url?: string; brand?: ShopBrand; google_review_url?: string; channels?: { sms: boolean; email: boolean; code?: boolean } };
   profile: Profile;
   upcoming: Visit[];
   history: Visit[];
@@ -192,6 +192,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
   // Consent at sign-up. Email reminders come with the account; text reminders are offered only when
   // the shop sends texts (on by default then). Marketing is a separate opt-in, off by default.
   const smsOffered = seed?.channels ? seed.channels.sms : true;
+  const codeOffered = seed?.channels ? seed.channels.code ?? seed.channels.sms : true;
   const [textReminders, setTextReminders] = useState(true);
   const [marketing, setMarketing] = useState(false);
   // The shop's own booking terms (from the shell). Sign-up requires accepting the current version.
@@ -317,7 +318,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
               <Button type="submit" disabled={busy} data-testid="signin-submit">{busy ? "Signing in…" : "Sign in"} <Icon name="arrowRight" size={16} /></Button>
               <div className="ca-links">
                 <button type="button" className="link" onClick={() => go("forgot")} data-testid="signin-forgot">Forgot password?</button>
-                {smsOffered && <button type="button" className="link" onClick={() => go("code")} data-testid="signin-use-code">Text me a code instead</button>}
+                {codeOffered && <button type="button" className="link" onClick={() => go("code")} data-testid="signin-use-code">Text me a code instead</button>}
               </div>
               <p className="ca-switch">New here? <button type="button" className="link" onClick={() => go("register")} data-testid="signin-register">Create an account</button></p>
             </form>

@@ -1,3 +1,4 @@
+import { bootCache } from "./bootCache";
 import { reportRequestError } from "./telemetry";
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
@@ -1320,7 +1321,7 @@ sandbox.get("/notifications", async (c) => {
     notifications: rows.results,
     counts_30d: Object.fromEntries(counts.results.map((r) => [r.status, r.n])),
     providers: providerStatus(),
-    messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "" },
+    messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "", customer_code_signin: (ms as { customer_code_signin?: number }).customer_code_signin ?? 1 },
     // What a text costs the shop and whether the owner has acknowledged texts are billed.
     sms_billing: await smsBilling(c),
     templates: templatesOf(shop),
@@ -1354,6 +1355,8 @@ const messagingSchema = z
     msg_email: z.union([z.literal(0), z.literal(1)]),
     // Older clients omit this; WhatsApp stays on unless the shop switches it off.
     msg_wa: z.union([z.literal(0), z.literal(1)]).default(1),
+    // May customers sign in with a text code? Older clients omit it: stays on.
+    customer_code_signin: z.union([z.literal(0), z.literal(1)]).default(1),
     msg_reminders: z.union([z.literal(0), z.literal(1)]),
     msg_reminder_hours: z.number().int().min(1).max(72),
     msg_reply_to: z.union([z.literal(""), z.string().trim().email().max(120)]),
@@ -1377,9 +1380,10 @@ sandbox.put("/shop/messaging", async (c) => {
   if (b.msg_sms === 1 && !bill.acknowledged_at && !b.sms_billing_ack) fail(409, `Please confirm you understand texts are billed at ${bill.unit_pence}p each.`);
   const ackNow = b.msg_sms === 1 && !bill.acknowledged_at && b.sms_billing_ack ? Date.now() : null;
   await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE shops SET msg_sms=?,msg_email=?,msg_wa=?,msg_reminders=?,msg_reminder_hours=?,msg_reply_to=?,msg_sms_sender=?,version=version+1${ackNow ? ", msg_sms_billing_ack_at=?" : ""} WHERE id=?`).bind(...[b.msg_sms, b.msg_email, b.msg_wa, b.msg_reminders, b.msg_reminder_hours, b.msg_reply_to, b.msg_sms_sender, ...(ackNow ? [ackNow] : []), sid]),
-    audit(c, "shop", sid, "MESSAGING_UPDATED", `SMS ${b.msg_sms ? "on" : "off"}${ackNow ? ` (billing at ${bill.unit_pence}p/text accepted)` : ""}, WhatsApp ${b.msg_wa ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
+    c.env.DB.prepare(`UPDATE shops SET customer_code_signin=?,msg_sms=?,msg_email=?,msg_wa=?,msg_reminders=?,msg_reminder_hours=?,msg_reply_to=?,msg_sms_sender=?,version=version+1${ackNow ? ", msg_sms_billing_ack_at=?" : ""} WHERE id=?`).bind(...[b.customer_code_signin, b.msg_sms, b.msg_email, b.msg_wa, b.msg_reminders, b.msg_reminder_hours, b.msg_reply_to, b.msg_sms_sender, ...(ackNow ? [ackNow] : []), sid]),
+    audit(c, "shop", sid, "MESSAGING_UPDATED", `Customer code sign-in ${b.customer_code_signin ? "on" : "off"}, SMS ${b.msg_sms ? "on" : "off"}${ackNow ? ` (billing at ${bill.unit_pence}p/text accepted)` : ""}, WhatsApp ${b.msg_wa ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
   ]);
+  bootCache.clear(); // customers see the new sign-in options straight away
   const shop_version = (await c.env.DB.prepare("SELECT version FROM shops WHERE id=?").bind(sid).first<{ version: number }>())?.version;
   return c.json({ ok: true, messaging: b, shop_version });
 });

@@ -24,7 +24,7 @@ async function fixture() {
   return { r, c, w, slug: body.slug, shopId: body.shop_id, P: `${pub}/shops/${body.slug}` };
 }
 const dateIn = (days: number) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
-function weekdayAhead(from = 3) {
+function weekdayAhead(from = 21) {
   for (let d = from; d < from + 7; d++) {
     const wd = new Date(dateIn(d) + "T12:00:00Z").getUTCDay();
     if (wd >= 2 && wd <= 5) return dateIn(d);
@@ -147,7 +147,7 @@ test("tell everyone: every matching waiter gets one text with the exact time and
 test("time windows and date ranges: a customer's own from/to and 'any day up to' are respected when matching and when a slot frees", async () => {
   const { r, c, w, P } = await fixture();
   const d1 = weekdayAhead(3);
-  const d2 = weekdayAhead(5) === d1 ? dateIn(6) : weekdayAhead(5);
+  const d2 = weekdayAhead(7); // always later than d1 (a Tue-Fri exists within any 7 days)
   const staff = w.staff[0].id, service = w.services[0].id;
   await settings(r, { waitlist_mode: "ORDER", waitlist_delay_min: 0 });
   // Validation: end before start, half-window, last day before first, out of the booking window.

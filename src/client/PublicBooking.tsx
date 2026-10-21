@@ -32,7 +32,7 @@ export type PublicShop = {
     lead_time_min: number;
     booking_window_days: number;
     version: number;
-    channels?: { sms: boolean; email: boolean; wa: boolean };
+    channels?: { sms: boolean; email: boolean; wa: boolean; code?: boolean };
     // The shop's own booking terms, when set. Customers accept a version; a newer one asks again.
     terms?: { text: string; version: number; updated_at: number } | null;
   };

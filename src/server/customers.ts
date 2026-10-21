@@ -30,6 +30,9 @@ import {
 
 const uid = () => crypto.randomUUID();
 const CODE_TTL = 10 * 60000;
+// Text-code sign-in needs both: texts on for the shop, and the shop allowing code sign-in.
+const codeRefusal = (shop: object) => ((shop as { msg_sms?: number }).msg_sms === 0 ? "sms_off" : (shop as { customer_code_signin?: number }).customer_code_signin === 0 ? "code_signin_off" : "");
+const codeSignInOn = (shop: object) => (shop as { msg_sms?: number }).msg_sms !== 0 && (shop as { customer_code_signin?: number }).customer_code_signin !== 0;
 const SESSION_TTL = 90 * 86400000; // how long a code sign-in lasts (password sign-ins last a year)
 
 type AccountRow = { id: string; phone: string; email: string; name: string; created_at: number; last_seen_at: number; version: number; password_hash?: string; email_verified?: number };
@@ -122,7 +125,7 @@ acct.post("/start", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug")!);
   // A text code is only a real option when the shop sends texts. Otherwise email + password is
   // the way in (the client never shows the button; this guards the API as well).
-  if ((shop as { msg_sms?: number }).msg_sms === 0) fail(409, "sms_off");
+  { const why = codeRefusal(shop); if (why) fail(409, why); }
   const b = await readInput(c, startSchema);
   await throttle(c, "otp-start", `${shop.id}:${clientKey(c)}`, 30);
   await throttle(c, "otp-phone", `${shop.id}:${b.phone}`, 8);
@@ -148,6 +151,7 @@ acct.post("/start", async (c) => {
 // Step 2: verify. Creates the global account on first use and links it to this shop's customer row.
 acct.post("/verify", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug")!);
+  { const why = codeRefusal(shop); if (why) fail(409, why); }
   const b = await readInput(c, verifySchema);
   await throttle(c, "otp-verify", `${shop.id}:${clientKey(c)}`, 60);
   const now = Date.now();
@@ -310,7 +314,7 @@ acct.get("/me", async (c) => {
   const gp = await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ google_review_url: string }>();
   return c.json({
     waiting: waiting.results,
-    shop: { channels: { sms: (shop as { msg_sms?: number }).msg_sms !== 0, email: (shop as { msg_email?: number }).msg_email !== 0 }, name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now), logo_url: shop.logo_url || "", brand: brandOf(shop), google_review_url: gp?.google_review_url || "" },
+    shop: { channels: { sms: (shop as { msg_sms?: number }).msg_sms !== 0, code: codeSignInOn(shop), email: (shop as { msg_email?: number }).msg_email !== 0 }, name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now), logo_url: shop.logo_url || "", brand: brandOf(shop), google_review_url: gp?.google_review_url || "" },
     profile: profileOf(a, cust),
     upcoming,
     history,
