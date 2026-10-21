@@ -18,7 +18,7 @@ import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
 import { brandOf, emailSchema, phoneSchema, type Shop } from "./domain";
-import { digest, passwordHash, readInput, type AppEnv } from "./accounts";
+import { cookies as teamCookies, digest, matches as teamMatches, newSession as teamSession, passwordHash, readInput, type AppEnv } from "./accounts";
 import { audit, fail } from "./sandbox";
 import { drain, enqueue, msgShop } from "./messaging";
 import { clientKey, shopBySlug, throttle, type Ctx } from "./public";
@@ -239,6 +239,18 @@ customerAuth.post("/login", async (c) => {
   await throttle(c, "cust-login-email", `${shop.id}:${b.email}`, 10);
   const account = await byEmail(c, shop.id, b.email);
   if (!(await passwordOk(b.password, account))) {
+    // One sign-in for the whole shop: a team member (owner, manager, barber) typing their team
+    // login here is taken to the admin side instead of being refused.
+    const u = await c.env.DB.prepare("SELECT id,password_hash,password_salt FROM app_users WHERE email=?").bind(b.email).first<{ id: string; password_hash: string; password_salt: string }>();
+    if (u && (await teamMatches(b.password, u))) {
+      const m = await c.env.DB.prepare("SELECT m.id,m.version FROM app_memberships m LEFT JOIN staff t ON t.shop_id=m.shop_id AND t.id=m.staff_id WHERE m.user_id=? AND m.shop_id=? AND m.active=1 AND (m.role='OWNER' OR t.active=1)").bind(u.id, shop.id).first<{ id: string; version: number }>();
+      if (m) {
+        const session = await teamSession(c, m.id, u.password_hash, m.version);
+        await c.env.DB.batch([session.write]);
+        teamCookies(c, session.raw);
+        return c.json({ ok: true, team: true, workspace_url: "/workspace" }, 201);
+      }
+    }
     if (account && !account.password_hash) fail(409, "This account signs in with a mobile code. Use \u201cText me a code\u201d, or set a password from Forgot password.");
     fail(401, "Email or password is not right.");
   }

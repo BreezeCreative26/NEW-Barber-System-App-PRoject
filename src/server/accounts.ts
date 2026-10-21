@@ -167,7 +167,7 @@ export async function passwordHash(password: string, salt: string) {
     .map((n) => n.toString(16).padStart(2, "0"))
     .join("");
 }
-async function matches(
+export async function matches(
   password: string,
   user: { password_hash: string; password_salt: string } | null,
 ) {
@@ -357,6 +357,15 @@ async function issueEmailVerification(
   ];
   return { stmts, token };
 }
+async function mailShopAddresses(c: Ctx, email: string, origin: string) {
+    const rows = await c.env.DB.prepare("SELECT DISTINCT s.id, s.slug, s.name, u.name AS user_name FROM app_users u JOIN app_memberships m ON m.user_id=u.id AND m.active=1 JOIN shops s ON s.id=m.shop_id WHERE u.email=? AND s.slug IS NOT NULL").bind(email).all<{ id: string; slug: string; name: string; user_name: string }>();
+    const now = Date.now();
+    for (const r of rows.results) {
+      const ms = await msgShop(c, r.id);
+      const stmts = enqueue(c.env.DB, ms, { email: email, name: r.user_name }, "shop_address", { shop: r.name, link: `${shopOrigin(r.slug, origin)}/signin` }, { related: { type: "signin_link", id: r.id }, origin, channel: "EMAIL", now, force: true });
+      if (stmts.length) { await c.env.DB.batch(stmts); await drain(c.env.DB, stmts.length, now, { type: "signin_link", id: r.id }).catch(() => {}); }
+    }
+}
 // Root-host sign-in helper: "where do I sign in?". A typed shop address resolves instantly; an
 // email gets the link mailed (never revealed in the response, so addresses can't be enumerated).
 accounts.post("/find-shop", async (c) => {
@@ -368,13 +377,7 @@ accounts.post("/find-shop", async (c) => {
     return c.json(row ? { ok: true, workspace_url: `${shopOrigin(row.slug, origin)}/signin` } : { ok: false, reason: "We couldn't find a shop at that address." });
   }
   if (b.email) {
-    const rows = await c.env.DB.prepare("SELECT DISTINCT s.id, s.slug, s.name, u.name AS user_name FROM app_users u JOIN app_memberships m ON m.user_id=u.id AND m.active=1 JOIN shops s ON s.id=m.shop_id WHERE u.email=? AND s.slug IS NOT NULL").bind(b.email).all<{ id: string; slug: string; name: string; user_name: string }>();
-    const now = Date.now();
-    for (const r of rows.results) {
-      const ms = await msgShop(c, r.id);
-      const stmts = enqueue(c.env.DB, ms, { email: b.email, name: r.user_name }, "shop_address", { shop: r.name, link: `${shopOrigin(r.slug, origin)}/signin` }, { related: { type: "signin_link", id: r.id }, origin, channel: "EMAIL", now, force: true });
-      if (stmts.length) { await c.env.DB.batch(stmts); await drain(c.env.DB, stmts.length, now, { type: "signin_link", id: r.id }).catch(() => {}); }
-    }
+    await mailShopAddresses(c, b.email, origin);
     return c.json({ ok: true, mailed: true });
   }
   return c.json({ ok: false, reason: "Enter your shop address or email." });
@@ -396,7 +399,11 @@ accounts.post("/signup", async (c) => {
   if (c.get("account")) return reject(409, "You are already signed in. Sign out first to create another shop.");
   await throttle(c, "signup", b.email);
   const existing = await c.env.DB.prepare("SELECT 1 AS x FROM app_users WHERE email=?").bind(b.email).first();
-  if (existing) return reject(409, "An account with this email already exists. Sign in instead.");
+  if (existing) {
+    // Never reveal the address on screen; mail the shop sign-in link to the owner instead.
+    await mailShopAddresses(c, b.email, new URL(c.req.url).origin).catch(() => {});
+    return reject(409, "That email already has a foliyo login. We have emailed it a link to its shop's sign-in page. Use a different email to open another shop.");
+  }
   if (b.slug) {
     if (RESERVED_SUBDOMAINS.has(b.slug)) return reject(409, "That address is reserved. Try another.");
     const taken = await c.env.DB.prepare("SELECT 1 AS x FROM shops WHERE slug=?").bind(b.slug).first();
@@ -466,6 +473,8 @@ accounts.post("/login", async (c) => {
   // On a shop's sub-domain only that shop's team can sign in; on the root host (local dev, legacy)
   // the first active membership wins as before.
   const hostSlug = c.req.header(SHOP_HOST_HEADER) || "";
+  // No foliyo-wide sign-in in production: team members sign in on their own shop's address.
+  if (!hostSlug && rootHost() && rootHost() !== "localhost") return reject(403, "Sign in on your shop's own address (yourshop.foliyo.co.uk). Use \"Find your shop\" if you have forgotten it.");
   const m = u
     ? await c.env.DB.prepare(
         `SELECT m.id,m.shop_id,m.version,s.slug FROM app_memberships m JOIN shops s ON s.id=m.shop_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE m.user_id=? AND m.active=1 AND (m.role='OWNER' OR b.active=1)${hostSlug ? " AND s.slug=?" : ""} ORDER BY m.role='OWNER' DESC LIMIT 1`,
