@@ -17,6 +17,11 @@ export type Account = {
   name: string;
   email: string;
   role: "OWNER" | "MANAGER" | "RECEPTION" | "BARBER";
+  // True for the free shop login (no barber profile, not a seat). Its role above is the effective one.
+  shop_account?: boolean;
+  // Extras a shop owner can grant one barber. Owners and managers already have all of these.
+  perms?: Perms;
+  permissions_json?: string;
   staff_id: string | null;
   version: number;
   // Small per-user UI preferences (calendar density …). Raw JSON text; parsed on the client.
@@ -26,6 +31,8 @@ export type Account = {
   // Staff onboarding (non-owners): when they finished the first-sign-in flow; null until then.
   onboarded_at?: number | null;
 };
+export type Perms = { calendar?: boolean; insights?: boolean; pay?: boolean; setup?: boolean };
+export const PERM_KEYS = ["calendar", "insights", "pay", "setup"] as const;
 export type AppEnv = {
   Bindings: { DB: Database; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string; FOLIYO_ADMIN_EMAILS?: string; OLLO_ADMIN_EMAILS?: string };
   Variables: { shopId: string; actor: string; account: Account | null };
@@ -219,10 +226,17 @@ export async function resolveAccount(
   // served on the root host and are unaffected.
   const hostSlug = c.req.header(SHOP_HOST_HEADER) || "";
   return c.env.DB.prepare(
-    `SELECT m.id,m.user_id,m.shop_id,m.role,m.staff_id,m.version,m.prefs_json,m.onboarded_at,u.name,u.email,u.email_verified_at FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id JOIN shops sh ON sh.id=m.shop_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1 AND (m.role='OWNER' OR b.active=1)${hostSlug ? " AND sh.slug=?" : ""}`,
+    `SELECT m.id,m.user_id,m.shop_id,CASE WHEN m.role='SHOP' THEN CASE WHEN EXISTS(SELECT 1 FROM app_memberships o WHERE o.shop_id=m.shop_id AND o.role='OWNER' AND o.active=1) THEN 'RECEPTION' ELSE 'MANAGER' END ELSE m.role END AS role,(m.role='SHOP') AS shop_account,m.staff_id,m.version,m.prefs_json,m.permissions_json,m.onboarded_at,u.name,u.email,u.email_verified_at FROM app_sessions s JOIN app_memberships m ON m.id=s.membership_id JOIN app_users u ON u.id=m.user_id JOIN shops sh ON sh.id=m.shop_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE s.token_hash=? AND s.expires_at>? AND m.active=1 AND (m.role IN ('OWNER','SHOP') OR b.active=1)${hostSlug ? " AND sh.slug=?" : ""}`,
   )
     .bind(...(hostSlug ? [await digest(token), Date.now(), hostSlug] : [await digest(token), Date.now()]))
-    .first<Account>();
+    .first<Account>()
+    .then((a) => {
+      if (!a) return a;
+      let perms: Perms = {};
+      try { const raw = JSON.parse(a.permissions_json || "{}"); for (const k of PERM_KEYS) if (raw[k] === true) perms[k] = true; } catch { perms = {}; }
+      delete a.permissions_json;
+      return { ...a, perms };
+    });
 }
 const email = z.string().trim().toLowerCase().email().max(254);
 const password = z.string().min(12, "Use at least 12 characters").max(128);
@@ -273,7 +287,7 @@ export async function newSession(
   return {
     raw,
     write: c.env.DB.prepare(
-      "INSERT INTO app_sessions(token_hash,membership_id,created_at,expires_at) SELECT ?,m.id,?,? FROM app_memberships m JOIN app_users u ON u.id=m.user_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE m.id=? AND m.version=? AND m.active=1 AND (m.role='OWNER' OR b.active=1) AND (? IS NULL OR u.password_hash=?)",
+      "INSERT INTO app_sessions(token_hash,membership_id,created_at,expires_at) SELECT ?,m.id,?,? FROM app_memberships m JOIN app_users u ON u.id=m.user_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE m.id=? AND m.version=? AND m.active=1 AND (m.role IN ('OWNER','SHOP') OR b.active=1) AND (? IS NULL OR u.password_hash=?)",
     ).bind(
       hash,
       Date.now(),
@@ -319,7 +333,11 @@ const signup = z
     // The shop's address: <slug>.foliyo.co.uk. Chosen at signup so the owner lands on their own
     // sub-domain; unique, validated, reserved words refused. Optional only for legacy callers.
     slug: slugSchema.optional(),
-    name: z.string().trim().min(2).max(100),
+    // Business shops sign up with business details only (the shop login); individuals give their own name.
+    account_type: z.enum(["BUSINESS", "INDIVIDUAL"]).default("BUSINESS"),
+    // true = the free shop login (business details only, no barber profile). Left false by older callers: the signer is the owner with a profile.
+    shop_login: z.boolean().default(false),
+    name: z.string().trim().min(2).max(100).optional(),
     email,
     password,
     timezone: timezone.default("Europe/London"),
@@ -398,6 +416,9 @@ accounts.post("/signup", async (c) => {
   const b = await readInput(c, signup);
   if (c.get("account")) return reject(409, "You are already signed in. Sign out first to create another shop.");
   await throttle(c, "signup", b.email);
+  const business = b.shop_login && b.account_type === "BUSINESS";
+  if (!business && !b.name) return reject(400, "Enter your name");
+  const loginName = business ? b.shop_name : (b.name as string);
   const existing = await c.env.DB.prepare("SELECT 1 AS x FROM app_users WHERE email=?").bind(b.email).first();
   if (existing) {
     // Never reveal the address on screen; mail the shop sign-in link to the owner instead.
@@ -419,16 +440,18 @@ accounts.post("/signup", async (c) => {
   const session = await newSession(c, membership);
   const writes = [
     // Every shop texts under its own name from day one (alphanumeric sender, editable in Settings → Messages).
-    c.env.DB.prepare("INSERT INTO shops(id,name,timezone,kind,email,setup_json,created_at,slug,msg_sms_sender) VALUES(?,?,?,?,?,?,?,?,?)").bind(shop, b.shop_name, b.timezone, b.kind, b.email, JSON.stringify({ step: "shop", done: [], skipped: [], started_at: now }), now, b.slug ?? null, smsSenderFor(b.shop_name)),
-    c.env.DB.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)").bind(user, b.email, b.name, encoded, salt, now),
+    c.env.DB.prepare("INSERT INTO shops(id,name,timezone,kind,email,setup_json,created_at,slug,msg_sms_sender,account_type) VALUES(?,?,?,?,?,?,?,?,?,?)").bind(shop, b.shop_name, b.timezone, b.kind, b.email, JSON.stringify({ step: "shop", done: [], skipped: [], started_at: now }), now, b.slug ?? null, smsSenderFor(b.shop_name), b.account_type),
+    c.env.DB.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)").bind(user, b.email, loginName, encoded, salt, now),
     c.env.DB.prepare("INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?)").bind(shop, user),
-    c.env.DB.prepare("INSERT INTO staff(id,shop_id,name,role,title,start_date) VALUES(?,?,?,?,?,?)").bind(staffId, shop, b.name, "Owner", "Owner & barber", new Date(now).toISOString().slice(0, 10)),
+    // A business shop starts with the free shop login only: no barber profile and no seat. The owner
+    // and barbers are invited afterwards like any team member. An individual is the one barber.
+    ...(business ? [] : [c.env.DB.prepare("INSERT INTO staff(id,shop_id,name,role,title,start_date) VALUES(?,?,?,?,?,?)").bind(staffId, shop, loginName, "Owner", "Owner & barber", new Date(now).toISOString().slice(0, 10))]),
     // The owner's barber profile is not bound to the membership: owners see the whole shop, and a
     // bound profile would block inviting someone else onto it. Linking comes with "my day" later.
-    c.env.DB.prepare("INSERT INTO app_memberships(id,shop_id,user_id,role) VALUES(?,?,?,'OWNER')").bind(membership, shop, user),
+    c.env.DB.prepare("INSERT INTO app_memberships(id,shop_id,user_id,role) VALUES(?,?,?,?)").bind(membership, shop, user, business ? "SHOP" : "OWNER"),
   ];
   // Default week: Mon–Sat 09:00–18:00, closed Sunday (matches the shop defaults).
-  for (let day = 0; day < 7; day++)
+  for (let day = 0; !business && day < 7; day++)
     writes.push(
       c.env.DB.prepare("INSERT INTO staff_hours(shop_id,staff_id,weekday,enabled,starts,ends,break_start,break_end) VALUES(?,?,?,?,540,1080,780,780)").bind(shop, staffId, day, day === 0 ? 0 : 1),
     );
@@ -448,7 +471,7 @@ accounts.post("/signup", async (c) => {
   // fail the signup: the workspace nudge offers a re-send.
   let sandboxToken: string | undefined;
   try {
-    const v = await issueEmailVerification(c, { id: user, email: b.email, name: b.name, shop_id: shop }, "owner_welcome", now);
+    const v = await issueEmailVerification(c, { id: user, email: b.email, name: loginName, shop_id: shop }, "owner_welcome", now);
     await c.env.DB.batch(v.stmts);
     await drain(c.env.DB, 2, now, { type: "email_verify", id: user }).catch(() => {});
     if (providerStatus().email.provider === "mailbox" && demoEnabled(c)) sandboxToken = v.token;
@@ -477,7 +500,7 @@ accounts.post("/login", async (c) => {
   if (!hostSlug && rootHost() && rootHost() !== "localhost") return reject(403, "Sign in on your shop's own address (yourshop.foliyo.co.uk). Use \"Find your shop\" if you have forgotten it.");
   const m = u
     ? await c.env.DB.prepare(
-        `SELECT m.id,m.shop_id,m.version,s.slug FROM app_memberships m JOIN shops s ON s.id=m.shop_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE m.user_id=? AND m.active=1 AND (m.role='OWNER' OR b.active=1)${hostSlug ? " AND s.slug=?" : ""} ORDER BY m.role='OWNER' DESC LIMIT 1`,
+        `SELECT m.id,m.shop_id,m.version,s.slug FROM app_memberships m JOIN shops s ON s.id=m.shop_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE m.user_id=? AND m.active=1 AND (m.role IN ('OWNER','SHOP') OR b.active=1)${hostSlug ? " AND s.slug=?" : ""} ORDER BY m.role='OWNER' DESC LIMIT 1`,
       )
         .bind(...(hostSlug ? [u.id, hostSlug] : [u.id]))
         .first<{ id: string; shop_id: string; version: number; slug: string | null }>()
@@ -531,7 +554,7 @@ accounts.get("/access", async (c) => {
   const a = managerOrOwner(c);
   const [members, invitations] = await c.env.DB.batch([
     c.env.DB.prepare(
-      "SELECT m.id,m.role,m.staff_id,m.active,m.version,m.onboarded_at,u.name,u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? ORDER BY u.name",
+      "SELECT m.id,m.role,m.staff_id,m.active,m.version,m.onboarded_at,m.permissions_json,u.name,u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.role<>'SHOP' ORDER BY u.name",
     ).bind(a.shop_id),
     c.env.DB.prepare(
       "SELECT id,staff_id,email,phone,role,channel,sent_count,last_sent_at,expires_at,accepted_at,revoked,created_at FROM staff_invitations WHERE shop_id=? ORDER BY created_at DESC LIMIT 100",
@@ -584,12 +607,19 @@ accounts.post("/invites", async (c) => {
         email: z.union([z.literal(""), email]).default(""),
         phone: z.string().trim().max(20).default(""),
         staff_id: z.string().uuid(),
-        role: z.enum(["MANAGER", "RECEPTION", "BARBER"]),
+        role: z.enum(["OWNER", "MANAGER", "RECEPTION", "BARBER"]),
         channel: z.enum(["EMAIL", "SMS", "BOTH", "LINK"]).default("EMAIL"),
       })
       .strict(),
   );
   if (b.role === "MANAGER" && a.role !== "OWNER") return reject(403, "Only the owner can invite a manager");
+  if (b.role === "OWNER") {
+    // Only the shop login can name the owner, once. After that, ownership moves only through foliyo support.
+    if (!a.shop_account || a.role !== "MANAGER") return reject(403, "Only the shop login can invite the owner");
+    if (await c.env.DB.prepare("SELECT 1 AS x FROM app_memberships WHERE shop_id=? AND role='OWNER'").bind(a.shop_id).first()) return reject(409, "This shop already has an owner");
+  }
+  if (b.role !== "OWNER" && b.staff_id && (await c.env.DB.prepare("SELECT account_type FROM shops WHERE id=?").bind(a.shop_id).first<{ account_type: string }>())?.account_type === "INDIVIDUAL")
+    return reject(403, "An individual account is just you. Switch to a business account to invite a team.");
   const phone = b.phone ? ukMobile(b.phone) : "";
   if (b.phone && !phone) return reject(400, "Enter a UK mobile number (07… or +447…)");
   if (!b.email && !phone) return reject(400, "Add an email address or a mobile number");
@@ -722,6 +752,8 @@ accounts.post("/accept", async (c) => {
     session.write,
     c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
     c.env.DB.prepare("DELETE FROM account_assertions"),
+    // An invited owner becomes the shop's recorded owner (the contact for billing and alerts).
+    c.env.DB.prepare("INSERT INTO shop_owners(shop_id,user_id) SELECT shop_id,? FROM staff_invitations WHERE id=? AND role='OWNER' ON CONFLICT(shop_id) DO UPDATE SET user_id=EXCLUDED.user_id").bind(user, invite.id),
     event(
       c,
       invite.shop_id,
@@ -793,6 +825,17 @@ accounts.post("/verify-email/resend", async (c) => {
   const ps = providerStatus();
   return c.json({ ok: true, delivery: ps.email.provider === "mailbox" ? [] : ["email"], ...(ps.email.provider === "mailbox" && demoEnabled(c) ? { sandbox_token: v.token } : {}) });
 });
+// Extras for one person (barbers mainly): whole-shop calendar, whole-shop insights, pay runs, setup.
+// Applied live on their next request, so nobody is signed out. Owner only.
+accounts.put("/members/:id/permissions", async (c) => {
+  const a = owner(c);
+  if (a instanceof Response) return a;
+  const b = await readInput(c, z.object({ calendar: z.boolean(), insights: z.boolean(), pay: z.boolean(), setup: z.boolean() }).strict());
+  const r = await c.env.DB.prepare("UPDATE app_memberships SET permissions_json=?,version=version+1 WHERE id=? AND shop_id=? AND role IN ('BARBER','RECEPTION','MANAGER')").bind(JSON.stringify(b), c.req.param("id"), a.shop_id).run();
+  if (!r.meta.changes) return reject(404, "Team member not found");
+  await c.env.DB.batch([event(c, a.shop_id, `user:${a.user_id}`, c.req.param("id"), "MEMBERSHIP_PERMISSIONS_UPDATED")]);
+  return c.json({ ok: true });
+});
 accounts.put("/members/:id", async (c) => {
   const a = owner(c);
   const b = await readInput(
@@ -807,7 +850,7 @@ accounts.put("/members/:id", async (c) => {
   );
   const writes = await c.env.DB.batch([
     c.env.DB.prepare(
-      "UPDATE app_memberships SET role=?,active=?,version=version+1 WHERE id=? AND shop_id=? AND role<>'OWNER' AND version=?",
+      "UPDATE app_memberships SET role=?,active=?,version=version+1 WHERE id=? AND shop_id=? AND role NOT IN ('OWNER','SHOP') AND version=?",
     ).bind(b.role, b.active, c.req.param("id"), a.shop_id, b.version),
     c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
     c.env.DB.prepare("DELETE FROM account_assertions"),

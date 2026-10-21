@@ -43,7 +43,7 @@ export async function ensureCustomer(db: DB, shopId: string): Promise<string> {
   const sub = await subscriptionFor(db, shopId);
   if (sub.stripe_customer_id) return sub.stripe_customer_id;
   const shop = await db.prepare("SELECT name, email, address FROM shops WHERE id=?").bind(shopId).first<{ name: string; email: string; address: string }>();
-  const owner = await db.prepare("SELECT u.name, u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.role='OWNER' AND m.active=1 LIMIT 1").bind(shopId).first<{ name: string; email: string }>();
+  const owner = await db.prepare("SELECT u.name, u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.role IN ('OWNER','SHOP') AND m.active=1 ORDER BY (m.role='OWNER') DESC LIMIT 1").bind(shopId).first<{ name: string; email: string }>();
   const c = await stripe<{ id: string }>("/customers", {
     name: sub.billing_name || shop?.name || "",
     email: sub.billing_email || owner?.email || shop?.email || undefined,

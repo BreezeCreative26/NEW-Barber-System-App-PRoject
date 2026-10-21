@@ -11,7 +11,7 @@ const money = (p: number) => `£${(Math.abs(p) / 100).toFixed(2)}`;
 
 // ---- Owner recipients (owner login email; managers not included for account matters) --------------
 async function ownerOf(db: DB, shopId: string) {
-  return db.prepare("SELECT u.name, u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.role='OWNER' AND m.active=1 LIMIT 1").bind(shopId).first<{ name: string; email: string }>();
+  return db.prepare("SELECT u.name, u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.role IN ('OWNER','SHOP') AND m.active=1 ORDER BY (m.role='OWNER') DESC LIMIT 1").bind(shopId).first<{ name: string; email: string }>();
 }
 async function sendPlatform(db: DB, shopId: string, template: MessageTemplate, vars: Record<string, string | number | null | undefined>, key: string, origin: string, now = Date.now()) {
   const claimed = await db.prepare("INSERT INTO lifecycle_sends(shop_id,key,sent_at) VALUES(?,?,?) ON CONFLICT DO NOTHING").bind(shopId, key, now).run();
@@ -122,7 +122,7 @@ export async function snapshotMrr(db: DB, now = Date.now()) {
 // ---- Broadcasts ------------------------------------------------------------------------------------
 export type Segment = { status?: string[]; trial_ending_days?: number; feature?: string; shop_ids?: string[]; joined_after?: number; joined_before?: number };
 export async function segmentRecipients(db: DB, seg: Segment) {
-  const where: string[] = ["m.role='OWNER'", "m.active=1", "s.suspended_at IS NULL"];
+  const where: string[] = ["(m.role='OWNER' OR (m.role='SHOP' AND NOT EXISTS (SELECT 1 FROM app_memberships o WHERE o.shop_id=s.id AND o.role='OWNER')))", "m.active=1", "s.suspended_at IS NULL"];
   const args: unknown[] = [];
   if (seg.status?.length) { where.push(`ss.status IN (${seg.status.map(() => "?").join(",")})`); args.push(...seg.status); }
   if (seg.trial_ending_days) { where.push("ss.status='TRIAL' AND ss.trial_ends_at BETWEEN ? AND ?"); args.push(Date.now(), Date.now() + seg.trial_ending_days * DAY); }

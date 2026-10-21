@@ -34,6 +34,7 @@ test("signup requires accepting Terms + Privacy + DPA; acceptance is recorded wi
   await expect(page.getByTestId("accept-legal")).toBeVisible();
   await expect(page.getByTestId("accept-legal").getByRole("link", { name: "Data Processing Agreement" })).toHaveAttribute("href", "/legal/dpa");
   await page.fill('input[name="shop_name"]', base.shop_name);
+  await page.getByTestId("signup-type-INDIVIDUAL").click();
   await page.fill('input[name="name"]', base.name);
   await page.fill('input[name="email"]', email);
   await page.fill('input[name="password"]', base.password);

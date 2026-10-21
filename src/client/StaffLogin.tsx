@@ -8,21 +8,45 @@ import { Badge, Button, Icon, Notice } from "./ui";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 type Invite = { id: string; staff_id: string; email: string; phone: string; role: string; channel: string; sent_count: number; last_sent_at: number | null; expires_at: number; accepted_at: number | null; revoked: number };
-type Member = { id: string; name: string; email: string; staff_id: string | null; role: string; active: number; version: number; onboarded_at?: number | null };
+type Member = { id: string; name: string; email: string; staff_id: string | null; role: string; active: number; version: number; onboarded_at?: number | null; permissions_json?: string };
 type Access = { members: Member[]; invitations: Invite[]; providers: { email: { provider: string }; sms: { provider: string } } };
-const ROLE_LABEL: Record<string, string> = { BARBER: "Barber", RECEPTION: "Reception", MANAGER: "Manager" };
+const ROLE_LABEL: Record<string, string> = { BARBER: "Barber", RECEPTION: "Reception", MANAGER: "Manager", OWNER: "Owner" };
 const ROLE_HINT: Record<string, string> = {
   BARBER: "Their own calendar, customers and pay. Can't change settings.",
   RECEPTION: "Everyone's calendar and the till. No pay or settings.",
   MANAGER: "Everything except billing and who can sign in.",
+  OWNER: "Everything: insights, pay, settings, billing and the team. Each shop has one owner.",
 };
+const PERMS: { key: "calendar" | "insights" | "pay" | "setup"; label: string; hint: string }[] = [
+  { key: "calendar", label: "See everyone's calendar and customers", hint: "Otherwise they only see their own." },
+  { key: "insights", label: "See whole-shop insights", hint: "Otherwise they only see their own numbers." },
+  { key: "pay", label: "See pay runs and wallets", hint: "Otherwise they only see their own pay." },
+  { key: "setup", label: "Change services, hours and shop settings", hint: "Never billing or who can sign in." },
+];
+function PermissionBoxes({ member, disabled, onSave }: { member: Member; disabled: boolean; onSave: (p: Record<string, boolean>) => void }) {
+  const initial = (() => { try { return JSON.parse(member.permissions_json || "{}") as Record<string, boolean>; } catch { return {}; } })();
+  const [p, setP] = useState<Record<string, boolean>>({ calendar: !!initial.calendar, insights: !!initial.insights, pay: !!initial.pay, setup: !!initial.setup });
+  const changed = PERMS.some((x) => !!p[x.key] !== !!initial[x.key]);
+  return (
+    <fieldset className="staff-login-perms" data-testid="staff-login-perms">
+      <legend>Extra access for {member.name.split(" ")[0]}</legend>
+      {PERMS.map((x) => (
+        <label key={x.key} className="setup-check">
+          <input type="checkbox" checked={!!p[x.key]} disabled={disabled} onChange={(e) => setP({ ...p, [x.key]: e.target.checked })} data-testid={`perm-${x.key}`} />
+          <span>{x.label}<small className="helper"> {x.hint}</small></span>
+        </label>
+      ))}
+      <Button variant="secondary" disabled={disabled || !changed} onClick={() => onSave(p)} data-testid="perm-save">Save access</Button>
+    </fieldset>
+  );
+}
 async function copy(text: string) { try { await navigator.clipboard.writeText(text); return true; } catch { return false; } }
 
 export function StaffLoginPanel({ w, api, staff, onChanged }: { w: WorkspaceData; api: Api; staff: Staff; onChanged?: () => void }) {
   const [access, setAccess] = useState<Access | null>(null);
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [role, setRole] = useState<"BARBER" | "RECEPTION" | "MANAGER">("BARBER");
+  const [role, setRole] = useState<"BARBER" | "RECEPTION" | "MANAGER" | "OWNER">("BARBER");
   const [alsoText, setAlsoText] = useState(false);
   const [link, setLink] = useState("");
   const [state, setState] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -30,6 +54,8 @@ export function StaffLoginPanel({ w, api, staff, onChanged }: { w: WorkspaceData
   const isOwner = w.account?.role === "OWNER";
   const load = () => api<Access>("/auth/access").then(setAccess).catch((e) => setState({ kind: "error", text: e instanceof Error ? e.message : "Could not load access." }));
   useEffect(() => { load(); }, [staff.id, staff.version]);
+  const shopLogin = !!(w.account as { shop_account?: boolean } | null)?.shop_account;
+  const canNameOwner = shopLogin && !!access && !access.members.some((m) => m.role === "OWNER") && !access.invitations.some((i) => i.role === "OWNER" && !i.accepted_at && !i.revoked && i.expires_at > Date.now());
   const member = access?.members.find((m) => m.staff_id === staff.id);
   const pending = access?.invitations.find((i) => i.staff_id === staff.id && !i.accepted_at && !i.revoked && i.expires_at > Date.now());
   const canSms = access?.providers.sms.provider !== "mailbox";
@@ -72,6 +98,9 @@ export function StaffLoginPanel({ w, api, staff, onChanged }: { w: WorkspaceData
                 </select>
                 <small className="helper">{ROLE_HINT[member.role]}</small>
               </label>
+              {member.role === "BARBER" && (
+                <PermissionBoxes member={member} disabled={busy} onSave={(p) => run(async () => { await api(`/auth/members/${member.id}/permissions`, "PUT", p); return "Access saved. It applies straight away."; })} />
+              )}
               <div className="workspace-field">
                 <span>Access</span>
                 {member.active ? (
@@ -112,6 +141,7 @@ export function StaffLoginPanel({ w, api, staff, onChanged }: { w: WorkspaceData
               <select value={role} onChange={(e) => setRole(e.target.value as typeof role)} data-testid="staff-login-role-new">
                 <option value="BARBER">Barber</option>
                 <option value="RECEPTION">Reception</option>
+                {canNameOwner && <option value="OWNER">Owner</option>}
                 {isOwner && <option value="MANAGER">Manager</option>}
               </select>
               <small className="helper">{ROLE_HINT[role]}</small>

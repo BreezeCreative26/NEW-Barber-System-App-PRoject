@@ -48,8 +48,10 @@ export async function subscriptionFor(db: DB, shopId: string): Promise<Subscript
   const pb = await platformBilling(db);
   const seats = (await db.prepare("SELECT COUNT(*)::int AS n FROM staff WHERE shop_id=? AND active=1").bind(shopId).first<{ n: number }>())?.n || 1;
   const now = Date.now();
+  const kind = (await db.prepare("SELECT account_type FROM shops WHERE id=?").bind(shopId).first<{ account_type: string }>())?.account_type;
+  const planId = kind === "INDIVIDUAL" && (await db.prepare("SELECT 1 AS x FROM plans WHERE id='solo' AND active=1").first()) ? "solo" : "core";
   await db.prepare("INSERT INTO shop_subscriptions(shop_id,plan_id,status,seats,trial_ends_at,created_at,updated_at) VALUES(?,?,'TRIAL',?,?,?,?) ON CONFLICT(shop_id) DO NOTHING")
-    .bind(shopId, "core", Math.max(1, seats), now + pb.trial_days * DAY, now, now).run();
+    .bind(shopId, planId, Math.max(1, seats), now + pb.trial_days * DAY, now, now).run();
   await logBilling(db, shopId, "TRIAL_STARTED", `${pb.trial_days}-day trial started · ${Math.max(1, seats)} seat${seats === 1 ? "" : "s"}`, "system");
   return (await db.prepare("SELECT * FROM shop_subscriptions WHERE shop_id=?").bind(shopId).first<SubscriptionRow>())!;
 }

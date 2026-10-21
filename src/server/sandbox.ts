@@ -117,9 +117,13 @@ export const fail = (
   throw new HTTPException(status, { message });
 };
 const input = readInput;
+// A barber sees only their own work unless the owner granted the matching extra.
+function ownScope(a: { role: string; staff_id: string | null; perms?: Record<string, boolean | undefined> } | null | undefined, perm: "calendar" | "insights" | "pay"): string | null {
+  return a?.role === "BARBER" && !a.perms?.[perm] ? a.staff_id : null;
+}
 function scopeStaff(c: Ctx, staffId: string) {
   const a = c.get("account");
-  if (a?.role === "BARBER" && a.staff_id !== staffId)
+  if (a?.role === "BARBER" && !a.perms?.calendar && a.staff_id !== staffId)
     fail(403, "Assigned barber access only");
 }
 export function audit(
@@ -292,7 +296,9 @@ sandbox.use("*", async (c, next) => {
         /^\/(staff|services|addons|holidays|service-rules|pay-runs)(\/|$)/.test(path));
     if (!(
       operational ||
-      (["OWNER", "MANAGER"].includes(account.role) && setup)
+      (["OWNER", "MANAGER"].includes(account.role) && setup) ||
+      // A barber the owner trusted with setup: services, hours and shop settings, never billing or pay.
+      (account.perms?.setup && setup && !path.startsWith("/billing") && !path.startsWith("/pay-runs") && !path.startsWith("/wallets"))
     ))
       fail(403, "Your account cannot perform this operation");
   }
@@ -366,7 +372,7 @@ sandbox.get("/bookings/range", async (c) => {
   const span = (Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86400000;
   if (span > 31) fail(400, "Range is limited to 31 days");
   const a = c.get("account");
-  const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const assigned = ownScope(a, "calendar");
   const rows = await c.env.DB.prepare(
     "SELECT id,staff_id,service_id,customer_name,service_name,date,start_min,start_at,end_at,duration_min,price_pence,status,channel,source,series_id FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND (? IS NULL OR staff_id=?) ORDER BY date,start_at,id LIMIT 2000",
   )
@@ -381,7 +387,7 @@ sandbox.get("/insights", async (c) => {
   const days = p.data!.days;
   const shop = await readShop(c);
   const a = c.get("account");
-  const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const assigned = ownScope(a, "insights");
   const today = shopToday(shop.timezone);
   const d = new Date(`${today}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() - (days - 1));
@@ -543,7 +549,7 @@ sandbox.get("/bookings", async (c) => {
   const q = parsed.data;
   const account = c.get("account");
   if (q.staff_id) scopeStaff(c, q.staff_id);
-  if (account?.role === "BARBER") q.staff_id = account.staff_id!;
+  if (account?.role === "BARBER" && !account.perms?.calendar) q.staff_id = account.staff_id!;
   const conditions = ["shop_id=?", "date=?"];
   const values: (string | number)[] = [c.get("shopId"), q.date];
   if (q.staff_id) {
@@ -599,7 +605,7 @@ sandbox.get("/workspace", async (c) => {
   const sid = c.get("shopId");
   const shop = await readShop(c);
   const account = c.get("account");
-  const assigned = account?.role === "BARBER" ? account.staff_id : null;
+  const assigned = ownScope(account, "calendar");
   const scoped = (sql: string, extra: unknown[] = []) =>
     c.env.DB.prepare(sql).bind(sid, assigned, assigned, ...extra);
   const result = await c.env.DB.batch([
@@ -905,7 +911,7 @@ const customerStats = `
   (SELECT MAX(a.last_seen_at) FROM customer_account_links l JOIN customer_accounts a ON a.id=l.account_id WHERE l.shop_id=c.shop_id AND l.customer_id=c.id) AS account_last_seen_at`;
 function customerScope(c: Ctx) {
   const a = c.get("account");
-  return a?.role === "BARBER" ? a.staff_id : null;
+  return ownScope(a, "calendar");
 }
 async function readCustomer(c: Ctx, id: string) {
   const row = await c.env.DB.prepare("SELECT * FROM customers WHERE shop_id=? AND id=?")
@@ -1218,7 +1224,7 @@ sandbox.get("/waitlist", async (c) => {
   const shop = await shopWithQueue(c, c.get("shopId"));
   await sweep(c, shop);
   const a = c.get("account");
-  const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const assigned = ownScope(a, "calendar");
   const statuses = p.data!.status === "ACTIVE" ? ["OPEN", "OFFERED"] : [p.data!.status];
   const rows = await c.env.DB.prepare(
     `${queueSelect} WHERE w.shop_id=? AND w.status IN (${statuses.map(() => "?").join(",")}) AND (? IS NULL OR w.staff_id=? OR w.staff_id IS NULL) AND (? IS NULL OR w.date>=?) ORDER BY w.date, w.created_at LIMIT 200`,
@@ -1522,7 +1528,7 @@ sandbox.get("/shop/payments", async (c) => {
   const moved = await c.env.DB.prepare("SELECT COALESCE(SUM(CASE WHEN kind='PAYOUT' AND owner_type='STAFF' THEN amount_pence ELSE 0 END),0)::int AS to_barbers, COALESCE(SUM(CASE WHEN kind='PAYOUT' AND owner_type='SHOP' THEN amount_pence ELSE 0 END),0)::int AS to_shop, COALESCE(SUM(CASE WHEN kind='REVERSAL' THEN -amount_pence ELSE 0 END),0)::int AS reversed FROM transfers WHERE shop_id=? AND created_at>?").bind(shop.id, since).first();
   const accounts = await accountsForShop(c.env.DB, shop.id);
   const staff = (await c.env.DB.prepare("SELECT id,name,role,active FROM staff WHERE shop_id=? ORDER BY sort_order,name").bind(shop.id).all<{ id: string; name: string; role: string; active: number }>()).results;
-  const mine = a?.role === "BARBER" ? a.staff_id : null;
+  const mine = ownScope(a, "pay");
   const shopAcct = accounts.find((x) => x.owner_type === "SHOP") ?? null;
   const policy = await platformPolicy(c.env.DB);
   return c.json({
@@ -1808,7 +1814,7 @@ sandbox.get("/reviews", async (c) => {
   const rows = await c.env.DB.prepare(
     "SELECT r.*, s.name AS staff_name, b.date AS visit_date FROM reviews r LEFT JOIN staff s ON s.shop_id=r.shop_id AND s.id=r.staff_id LEFT JOIN bookings b ON b.id=r.booking_id WHERE r.shop_id=? AND (? IS NULL OR r.staff_id=?) ORDER BY r.created_at DESC LIMIT 200",
   )
-    .bind(c.get("shopId"), a?.role === "BARBER" ? a.staff_id : null, a?.role === "BARBER" ? a.staff_id : null)
+    .bind(c.get("shopId"), ownScope(a, "calendar"), ownScope(a, "calendar"))
     .all<ReviewRow & { staff_name: string | null; visit_date: string }>();
   const agg = await c.env.DB.prepare("SELECT COUNT(*) AS n, AVG(rating) AS avg, SUM(CASE WHEN status='HIDDEN' THEN 1 ELSE 0 END) AS hidden FROM reviews WHERE shop_id=? AND status='PUBLISHED'").bind(c.get("shopId")).first<{ n: number; avg: number | null }>();
   const hidden = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM reviews WHERE shop_id=? AND status='HIDDEN'").bind(c.get("shopId")).first<{ n: number }>();
@@ -1906,6 +1912,8 @@ sandbox.post("/staff", async (c) => {
   const sid = c.get("shopId");
   const staffId = id();
   const shop = await readShop(c);
+  if (b.active && (await c.env.DB.prepare("SELECT 1 AS x FROM shops WHERE id=? AND account_type='INDIVIDUAL'").bind(sid).first()) && (await c.env.DB.prepare("SELECT COUNT(*)::int AS n FROM staff WHERE shop_id=? AND active=1").bind(sid).first<{ n: number }>())!.n >= 1)
+    return fail(403, "An individual account is just you. Switch to a business account to add more barbers.");
   const writes = [
     c.env.DB.prepare(
       "INSERT INTO staff(id,shop_id,name,role,active,title,bio,colour,photo_url,online_visible,skills,instagram,start_date,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -3274,7 +3282,7 @@ sandbox.post("/me/onboarded", async (c) => {
 sandbox.get("/wallet", async (c) => {
   const shop = await readShop(c);
   const a = c.get("account");
-  const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const assigned = ownScope(a, "pay");
   const today = shopToday(shop.timezone);
   const from = dateSchema.safeParse(c.req.query("from")).success ? (c.req.query("from") as string) : today;
   const to = dateSchema.safeParse(c.req.query("to")).success ? (c.req.query("to") as string) : from;
@@ -3518,7 +3526,7 @@ sandbox.get("/wallets.csv", async (c) => {
 });
 sandbox.get("/pay-runs", async (c) => {
   const a = c.get("account");
-  const assigned = a?.role === "BARBER" ? a.staff_id : null;
+  const assigned = ownScope(a, "pay");
   const rows = await c.env.DB.prepare(
     "SELECT * FROM pay_runs WHERE shop_id=? AND (? IS NULL OR staff_id=?) ORDER BY period_from DESC, created_at DESC LIMIT 300",
   )
