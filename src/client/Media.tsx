@@ -6,7 +6,38 @@ import { Button, Icon } from "./ui";
 export type UploadKind = "cover" | "gallery" | "staff" | "logo";
 export const MEDIA_MAX_BYTES = 5 * 1024 * 1024;
 
-export async function uploadPhoto(file: File, kind: UploadKind, alt = ""): Promise<{ id: string; url: string }> {
+// Phone camera shots are big and often carry a rotation flag that other pages ignore. Redraw them
+// upright, at a sensible size, as a JPEG; staff portraits are cropped square around the top-centre
+// so faces stay in frame. If the browser cannot decode the file the original goes up unchanged.
+export async function prepareImage(file: File, kind: UploadKind): Promise<File> {
+  if (kind === "logo" || typeof createImageBitmap !== "function" || typeof document === "undefined") return file;
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const square = kind === "staff";
+    const max = square ? 800 : 1800;
+    let sx = 0, sy = 0, sw = bmp.width, sh = bmp.height;
+    if (square) {
+      const side = Math.min(bmp.width, bmp.height);
+      sx = Math.round((bmp.width - side) / 2);
+      sy = bmp.height > bmp.width ? Math.round((bmp.height - side) * 0.25) : 0;
+      sw = sh = side;
+    }
+    const scale = Math.min(1, max / Math.max(sw, sh));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(sw * scale));
+    canvas.height = Math.max(1, Math.round(sh * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    bmp.close?.();
+    const blob: Blob | null = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.88));
+    if (!blob) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch { return file; }
+}
+
+export async function uploadPhoto(original: File, kind: UploadKind, alt = ""): Promise<{ id: string; url: string }> {
+  const file = await prepareImage(original, kind);
   if (file.size > MEDIA_MAX_BYTES) throw new Error("Photos must be 5 MB or smaller.");
   if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("Only JPEG, PNG or WebP photos are accepted.");
   const fd = new FormData();
@@ -28,7 +59,7 @@ export function PhotoUpload({ kind, onUploaded, label = "Upload photo", multiple
       <input
         ref={input}
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
         multiple={multiple}
         hidden
         data-testid={testId ? `${testId}-input` : undefined}

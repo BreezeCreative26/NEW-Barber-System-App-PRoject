@@ -32,7 +32,7 @@ type Recipient = { name: string; email?: string; phone?: string };
 // be anyone's). Managers: login email only.
 async function recipients(db: DB, shopId: string, prefs: AlertPrefs): Promise<Recipient[]> {
   const shop = await db.prepare("SELECT phone, phone_verified_at FROM shops WHERE id=?").bind(shopId).first<{ phone: string; phone_verified_at: number | null }>();
-  const rows = (await db.prepare("SELECT u.name,u.email,m.role FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.active=1 AND m.role IN ('OWNER','MANAGER')").bind(shopId).all<{ name: string; email: string; role: string }>()).results;
+  const rows = (await db.prepare("SELECT u.name,u.email,m.role FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.active=1 AND m.role IN ('OWNER','SHOP','MANAGER')").bind(shopId).all<{ name: string; email: string; role: string }>()).results;
   const out: Recipient[] = [];
   for (const r of rows) {
     if (r.role === "OWNER") out.push({ name: r.name, email: r.email, phone: shop?.phone_verified_at ? shop.phone : undefined });

@@ -1,3 +1,4 @@
+import { OwnerInviteBanner } from "./OwnerInvite";
 import { cancelOptions } from "./cancelChoices";
 import {
   useEffect,
@@ -390,6 +391,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
   const [mode, setMode] = useState<AuthMode>(initial);
   const [findState, setFindState] = useState<{ error?: string; mailed?: boolean } | null>(null);
   const [kind, setKind] = useState<"BARBER" | "HAIR" | "SALON">("BARBER");
+  const [accountType, setAccountType] = useState<"BUSINESS" | "INDIVIDUAL">("BUSINESS");
   // Shop address (<slug>.foliyo.co.uk). Suggested from the shop name until the owner edits it.
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
@@ -532,7 +534,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
           {mode === "invite"
             ? peekError || (peek?.email_fixed ? "Choose a password. Your login is the email the invitation went to." : "Enter the email you'd like to sign in with and choose a password.")
             : mode === "signup"
-              ? "Your shop, your team and online booking in a few minutes. You'll be added as the first person on the team."
+              ? (accountType === "BUSINESS" ? "Your shop, your team and online booking in a few minutes. Start with your business details; the owner and barbers come next." : "Your shop and online booking in a few minutes. You are the only person on the account.")
               : mode === "forgot"
                 ? "Enter your login email. We'll send a link to choose a new password — it works for 30 minutes."
                 : mode === "reset"
@@ -570,7 +572,9 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
                   r = await api<{ workspace_url?: string; cross_host_session?: boolean }>("/auth/signup", "POST", {
                     shop_name: text(f, "shop_name"),
                     slug: address,
-                    name: text(f, "name"),
+                    account_type: accountType,
+                    shop_login: accountType === "BUSINESS",
+                    ...(accountType === "INDIVIDUAL" ? { name: text(f, "name") } : {}),
                     email: text(f, "email"),
                     password: text(f, "password"),
                     timezone: tz,
@@ -600,6 +604,11 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
         >
           {mode === "signup" && (
             <>
+              <div className="auth-kind" role="radiogroup" aria-label="Account type" data-testid="signup-account-type">
+                <button type="button" role="radio" aria-checked={accountType === "BUSINESS"} onClick={() => setAccountType("BUSINESS")} data-testid="signup-type-BUSINESS">Business</button>
+                <button type="button" role="radio" aria-checked={accountType === "INDIVIDUAL"} onClick={() => setAccountType("INDIVIDUAL")} data-testid="signup-type-INDIVIDUAL">Just me</button>
+              </div>
+              <p className="helper">{accountType === "BUSINESS" ? "Includes a free shop login for the front desk and one free barber seat. Everyone else you invite adds a seat, and each person signs in on their own device." : "One person and one login, priced as a single barber seat. No team."}</p>
               <Field label="Shop name">
                 <input name="shop_name" autoComplete="organization" required minLength={2} maxLength={100} placeholder="e.g. Fade Society" onChange={(e) => { if (!slugTouched) setSlug(slugify(e.target.value)); }} />
               </Field>
@@ -618,7 +627,7 @@ function AuthScreen({ token = "", onDone }: { token?: string; onDone: () => Prom
               </div>
             </>
           )}
-          {(mode === "signup" || mode === "invite") && (
+          {(mode === "invite" || (mode === "signup" && accountType === "INDIVIDUAL")) && (
             <Field label="Your name">
               <input name="name" autoComplete="name" required minLength={2} maxLength={100} />
             </Field>
@@ -850,7 +859,7 @@ function AccountSettings({
             </Field>
           </SaveForm>
         </section>}
-        {showTeam && account.role === "OWNER" && (
+        {showTeam && (account.role === "OWNER" || (!!(account as { shop_account?: boolean }).shop_account && account.role === "MANAGER")) && (
           <section className="workspace-panel">
             <h3>Invite staff</h3>
             <p>
@@ -916,7 +925,7 @@ function AccountSettings({
           </section>
         )}
       </div>
-      {showTeam && account.role === "OWNER" && (
+      {showTeam && (account.role === "OWNER" || (!!(account as { shop_account?: boolean }).shop_account && account.role === "MANAGER")) && (
         <section className="workspace-panel">
           <h3>Team access</h3>
           <Button
@@ -2020,7 +2029,7 @@ export function Workspace() {
   const activeBookings = filteredBookings.filter(
     (b) => !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
-  const manager = !w?.account || ["OWNER", "MANAGER"].includes(w.account.role);
+  const manager = !w?.account || ["OWNER", "MANAGER"].includes(w.account.role) || !!(w.account as { perms?: { setup?: boolean } }).perms?.setup;
   const userPref = (() => { try { return (JSON.parse(w?.account?.prefs_json || "{}") as { calendar_density?: string }).calendar_density; } catch { return undefined; } })();
   // Personal workspace look: local copy first (no flash), then the account's saved choice wins.
   useEffect(() => {
@@ -2201,7 +2210,7 @@ export function Workspace() {
       </div>
     );
   // First sign-in for invited staff: a short shop-branded onboarding before the workspace.
-  const staffOnboarding = !!w && !inviteToken && !!w.account && w.account.role !== "OWNER" && !(w.account as { onboarded_at?: number | null }).onboarded_at && !staffOnbDone;
+  const staffOnboarding = !!w && !inviteToken && !!w.account && w.account.role !== "OWNER" && !(w.account as { shop_account?: boolean }).shop_account && !(w.account as { onboarded_at?: number | null }).onboarded_at && !staffOnbDone;
   // Shop setup is its own window: no top bar, no sidebar — the shop's logo and the steps, nothing else.
   if (w && !inviteToken && manager && setupOpen)
     return (
@@ -2455,6 +2464,9 @@ export function Workspace() {
           )}
           {!w && !needsSession && !error && (
             <p role="status">Loading local workspace…</p>
+          )}
+          {w && !inviteToken && !setupOpen && w.account && (w.account as { shop_account?: boolean }).shop_account && w.account.role === "MANAGER" && (
+            <OwnerInviteBanner api={api} onDone={() => refresh({ background: true })} />
           )}
           {w && !inviteToken && !setupOpen && w.account && !w.account.email_verified_at && (tab !== "Appointments" || !manager) && (
             <VerifyEmailNudge email={w.account.email} onVerified={() => refresh({ background: true })} />
@@ -3023,7 +3035,7 @@ export function Workspace() {
                   refresh={refresh}
                   initialSelected={focusBarber}
                   initialTab={focusBarberTab}
-                  canEdit={!w.account || ["OWNER", "MANAGER"].includes(w.account.role)}
+                  canEdit={!w.account || ["OWNER", "MANAGER"].includes(w.account.role) || !!(w.account as { perms?: { setup?: boolean } }).perms?.setup}
                   onHours={(item) => setEditor({ kind: "hours", item })}
                   onDaysOff={(item) => setEditor({ kind: "daysOff", item })}
                   onOverrides={(item) => setEditor({ kind: "overrides", item })}
@@ -6865,8 +6877,9 @@ function OverrideEditor({
               enabled,
               starts: minute(text(f, "starts")),
               ends: minute(text(f, "ends")),
-              break_start: minute(text(f, "break_start")),
-              break_end: minute(text(f, "break_end")),
+              ...(f.get("has_break") && f.get("break_start")
+                ? { break_start: minute(text(f, "break_start")), break_end: minute(text(f, "break_end")) }
+                : { break_start: minute(text(f, "starts")), break_end: minute(text(f, "starts")) }),
               reason: text(f, "reason"),
               ...(o ? { version: o.version } : {}),
             },
@@ -6894,25 +6907,7 @@ function OverrideEditor({
         />
         Working this day (untick for a day off)
       </label>
-      <div className="workspace-form-grid">
-        {(["starts", "ends", "break_start", "break_end"] as const).map(
-          (key, i) => (
-            <Field
-              key={key}
-              label={
-                ["Starts", "Finishes", "Break from", "Break until"][i]
-              }
-            >
-              <input
-                name={key}
-                type="time"
-                required
-                defaultValue={clock(base[key])}
-              />
-            </Field>
-          ),
-        )}
-      </div>
+      <DayHoursInputs base={base} />
       <Field label="Why (shows in the audit)">
         <input
           name="reason"
@@ -8254,5 +8249,29 @@ function ImportCustomers({ onClose, onDone }: { onClose: () => void; onDone: () 
         )}
       </div>
     </div>
+  );
+}
+
+// Start, finish and an optional break. Untick "Has a break" and the break times are ignored.
+function DayHoursInputs({ base }: { base: { starts: number; ends: number; break_start: number; break_end: number } }) {
+  const [hasBreak, setHasBreak] = useState(base.break_end > base.break_start);
+  const fallbackStart = Math.min(base.ends - 30, Math.max(base.starts, 12 * 60 + 45));
+  return (
+    <>
+      <div className="workspace-form-grid">
+        <Field label="Starts"><input name="starts" type="time" step={900} required defaultValue={clock(base.starts)} /></Field>
+        <Field label="Finishes"><input name="ends" type="time" step={900} required defaultValue={clock(base.ends)} /></Field>
+      </div>
+      <label className="workspace-check">
+        <input name="has_break" type="checkbox" checked={hasBreak} onChange={(e) => setHasBreak(e.target.checked)} data-testid="day-has-break" />
+        Has a break
+      </label>
+      {hasBreak && (
+        <div className="workspace-form-grid">
+          <Field label="Break from"><input name="break_start" type="time" step={900} required defaultValue={clock(base.break_end > base.break_start ? base.break_start : fallbackStart)} /></Field>
+          <Field label="Break until"><input name="break_end" type="time" step={900} required defaultValue={clock(base.break_end > base.break_start ? base.break_end : fallbackStart + 30)} /></Field>
+        </div>
+      )}
+    </>
   );
 }

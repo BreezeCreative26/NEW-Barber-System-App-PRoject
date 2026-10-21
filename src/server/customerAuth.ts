@@ -243,7 +243,7 @@ customerAuth.post("/login", async (c) => {
     // login here is taken to the admin side instead of being refused.
     const u = await c.env.DB.prepare("SELECT id,password_hash,password_salt FROM app_users WHERE email=?").bind(b.email).first<{ id: string; password_hash: string; password_salt: string }>();
     if (u && (await teamMatches(b.password, u))) {
-      const m = await c.env.DB.prepare("SELECT m.id,m.version FROM app_memberships m LEFT JOIN staff t ON t.shop_id=m.shop_id AND t.id=m.staff_id WHERE m.user_id=? AND m.shop_id=? AND m.active=1 AND (m.role='OWNER' OR t.active=1)").bind(u.id, shop.id).first<{ id: string; version: number }>();
+      const m = await c.env.DB.prepare("SELECT m.id,m.version FROM app_memberships m LEFT JOIN staff t ON t.shop_id=m.shop_id AND t.id=m.staff_id WHERE m.user_id=? AND m.shop_id=? AND m.active=1 AND (m.role IN ('OWNER','SHOP') OR t.active=1)").bind(u.id, shop.id).first<{ id: string; version: number }>();
       if (m) {
         const session = await teamSession(c, m.id, u.password_hash, m.version);
         await c.env.DB.batch([session.write]);

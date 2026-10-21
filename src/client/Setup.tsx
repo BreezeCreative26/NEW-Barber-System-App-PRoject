@@ -293,12 +293,14 @@ function StepServices({ w, api, refresh, data, setNotice, setError, goTo, onNext
         {w.services.length ? `You have ${w.services.length} service${w.services.length === 1 ? "" : "s"} already. ` : ""}
         Tick the ones you offer and fix the prices — typical {KIND_LABEL[kind].toLowerCase()} figures to start from. Add-ons, per-barber prices and photos live in Services.
       </p>
+      <datalist id="setup-cats">{[...new Set([...menu.map((m) => m.category), ...w.services.map((x) => (x as { category?: string }).category || "")].filter(Boolean))].map((c) => <option key={c} value={c} />)}</datalist>
+      <p className="helper">Categories group services on your booking page. Type a new one to make your own.</p>
       <ul className="setup-menu" data-testid="setup-starter-menu">
         {rows.map((r) => (
           <li key={r.i} data-have={r.have} data-picked={picked.has(r.i)}>
             <label className="setup-menu-pick"><input type="checkbox" checked={picked.has(r.i) || r.have} disabled={r.have} onChange={(e) => { const n = new Set(picked); e.target.checked ? n.add(r.i) : n.delete(r.i); setPicked(n); }} /><span className="sr-only">{r.name}</span></label>
             <input className="setup-menu-name" value={r.name} disabled={r.have} onChange={(e) => setEdits({ ...edits, [r.i]: { ...edits[r.i], name: e.target.value } })} aria-label="Service name" />
-            <span className="setup-menu-cat">{r.category}</span>
+            <input className="setup-menu-cat" list="setup-cats" value={r.category} maxLength={40} disabled={r.have} onChange={(e) => setEdits({ ...edits, [r.i]: { ...edits[r.i], category: e.target.value } })} aria-label="Category" data-testid="setup-service-category" />
             <label className="setup-menu-num"><input type="number" min={5} step={5} value={r.duration_min} disabled={r.have} onChange={(e) => setEdits({ ...edits, [r.i]: { ...edits[r.i], duration_min: Number(e.target.value) } })} aria-label="Minutes" /><span>min</span></label>
             <label className="setup-menu-num"><span>£</span><input type="number" min={0} step={0.5} value={(r.price_pence / 100).toFixed(2)} disabled={r.have} onChange={(e) => setEdits({ ...edits, [r.i]: { ...edits[r.i], price_pence: Math.round(Number(e.target.value) * 100) } })} aria-label="Price" /></label>
             {r.have && <Badge tone="good">Added</Badge>}

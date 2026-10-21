@@ -66,6 +66,7 @@ test("sign up from the landing page → guided setup opens; leaving it shows the
   await page.getByTestId("landing-cta-header").click();
   const email = `landing-${crypto.randomUUID().slice(0, 8)}@example.test`;
   await page.getByLabel("Shop name").fill("Landing Test Barbers");
+  await page.getByTestId("signup-type-INDIVIDUAL").click();
   await page.getByLabel("Your name").fill("Lee Landing");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill("a-long-passphrase-123");

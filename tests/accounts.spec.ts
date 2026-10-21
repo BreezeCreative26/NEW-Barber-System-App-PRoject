@@ -87,6 +87,7 @@ const mutations = [
   ["POST", "/invites/:id/revoke"],
   ["POST", "/accept"],
   ["PUT", "/members/:id"],
+  ["PUT", "/members/:id/permissions"],
   ["POST", "/forgot"],
   ["POST", "/reset"],
   ["POST", "/password"],
@@ -531,7 +532,6 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     await page.getByLabel("Shop name").fill("UI Signup Shop");
     // Web address is suggested from the name; make it unique per run.
     await page.getByTestId("signup-slug").locator("input").fill(`ui-signup-${crypto.randomUUID().slice(0, 6)}`);
-    await page.getByLabel("Your name", { exact: true }).fill("Fictional UI Owner");
     await page.getByLabel("Email", { exact: true }).fill(email());
     await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByTestId("accept-legal").locator("input").check();
@@ -543,8 +543,10 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
       page.getByRole("button", { name: "New booking", exact: true }),
     ).toBeVisible();
     await expect(page).toHaveURL(origin + "/workspace");
+    // A business signup is the free shop login: no barber profile yet. Add the first barber.
+    expect((await (await page.request.get(base + "/workspace")).json()).staff).toHaveLength(0);
+    await page.request.post(base + "/staff", { data: { name: "Fictional UI Owner", role: "Barber" }, headers: { Origin: origin } });
     const w = await (await page.request.get(base + "/workspace")).json();
-    // Signup made the owner the first barber.
     expect(w.staff.map((s: any) => s.name)).toEqual(["Fictional UI Owner"]);
     await section(page, "Accounts");
     await expect(

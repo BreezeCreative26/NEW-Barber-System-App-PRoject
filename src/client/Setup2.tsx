@@ -25,12 +25,15 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
   const [link, setLink] = useState<{ staff: string; url: string; sent: string[] } | null>(null);
   const { busy, run } = useBusy();
   const isOwner = w.account?.role === "OWNER";
+  const shopLogin = !!(w.account as { shop_account?: boolean } | null)?.shop_account;
   const loadAccess = () => api<Access>("/auth/access").then(setAccess).catch(() => setAccess(null));
   useEffect(() => { loadAccess(); }, []);
   const team = w.staff.filter((s) => s.active);
   const memberFor = (s: Staff) => access?.members.find((m) => m.staff_id === s.id);
   const pendingFor = (s: Staff) => access?.invitations.find((i) => i.staff_id === s.id && !i.accepted_at && !i.revoked && i.expires_at > Date.now());
   const me = access?.members.find((m) => m.role === "OWNER");
+  const ownerNamed = !!access && (access.members.some((m) => m.role === "OWNER") || access.invitations.some((i) => i.role === "OWNER" && !i.accepted_at && !i.revoked && i.expires_at > Date.now()));
+  const canNameOwner = shopLogin && !!access && !ownerNamed;
   async function addBarber() {
     if (adding.name.trim().length < 2) return;
     await api("/staff", "POST", { name: adding.name.trim(), role: adding.role || "Barber" });
@@ -56,8 +59,13 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
   const canEmail = access?.providers.email.provider !== "mailbox";
   return (
     <div className="setup-wiz-card">
-      <p className="setup-wiz-lead">Add everyone who takes bookings. Invite them when you're ready — they get their own login and see only their own column.</p>
+      <p className="setup-wiz-lead">
+        {shopLogin
+          ? "This shop login stays at the front desk and is free. Add the owner first, then your barbers: each gets a profile and signs in on their own device. One seat is included in your plan; each extra person adds a seat."
+          : "Add everyone who takes bookings. Invite them when you're ready — they get their own login and see only their own column."}
+      </p>
       <ul className="setup-team" data-testid="setup-team-list">
+        {team.length === 0 && <li className="setup-team-empty"><div className="setup-team-who"><strong>No one yet</strong><span>Add the owner below to get started.</span></div></li>}
         {team.map((s) => {
           const m = memberFor(s), p = pendingFor(s);
           const isMe = me && (s.role === "Owner" || s.title === "Owner & barber") && !m;
@@ -88,7 +96,7 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
                     <F label="Mobile"><input type="tel" inputMode="tel" value={inv.phone} onChange={(e) => setInv({ ...inv, phone: e.target.value })} placeholder="07700 900123" data-testid="invite-phone" /></F>
                     <F label="Role" hint={ROLE_HINT[inv.role]}>
                       <select value={inv.role} onChange={(e) => setInv({ ...inv, role: e.target.value })}>
-                        <option value="BARBER">Barber</option><option value="RECEPTION">Reception</option>{isOwner && <option value="MANAGER">Manager</option>}
+                        {canNameOwner && <option value="OWNER">Owner</option>}<option value="BARBER">Barber</option><option value="RECEPTION">Reception</option>{isOwner && <option value="MANAGER">Manager</option>}
                       </select>
                     </F>
                     <F label="Send by">
@@ -123,7 +131,7 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
         <Button type="submit" variant="secondary" disabled={busy || adding.name.trim().length < 2} data-testid="setup-add-staff"><Icon name="plus" size={14} /> Add</Button>
       </form>
       <p className="helper">Hours, photos, skills and pay for each person are in <button type="button" className="linklike" onClick={() => goTo("Team")}>Team</button>.</p>
-      <StepActions busy={busy} nextLabel="Continue" onNext={onNext} onSkip={onSkip} skipLabel="It's just me" />
+      <StepActions busy={busy} nextLabel="Continue" onNext={onNext} onSkip={onSkip} skipLabel={shopLogin ? "Do this later" : "It's just me"} />
     </div>
   );
 }

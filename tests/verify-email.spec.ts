@@ -5,6 +5,7 @@ test("signup → welcome email in outbox (as foliyo) → nudge → confirm on /v
   const email = `verify-${Date.now()}@example.com`;
   await page.goto(origin + "/signup");
   await page.fill('input[name="shop_name"]', "Verify Test Shop");
+  await page.getByTestId("signup-type-INDIVIDUAL").click();
   await page.fill('input[name="name"]', "Vera Owner");
   await page.fill('input[name="email"]', email);
   await page.fill('input[name="password"]', "Passw0rd!passw0rd");

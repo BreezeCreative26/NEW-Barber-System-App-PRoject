@@ -7,7 +7,6 @@ test("shop setup: signup → 9-step onboarding → go live; invite accepted by S
   await page.goto(origin + "/signup");
   await page.getByTestId("signup-kind-HAIR").click();
   await page.fill('input[name="shop_name"]', "Wizard Test Shop");
-  await page.fill('input[name="name"]', "Wanda Owner");
   const email = `wiz-${Date.now()}@example.com`;
   await page.fill('input[name="email"]', email);
   await page.fill('input[name="password"]', "Passw0rd!passw0rd");

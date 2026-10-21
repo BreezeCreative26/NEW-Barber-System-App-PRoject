@@ -258,7 +258,7 @@ admin.post("/shops/:id/impersonate", async (c) => {
   const shopId = c.req.param("id");
   const b = await body(c, z.object({ reason: reasonSchema }).strict());
   const db = c.env.DB;
-  const m = await db.prepare("SELECT m.id, m.version FROM app_memberships m WHERE m.shop_id=? AND m.role='OWNER' AND m.active=1 LIMIT 1").bind(shopId).first<{ id: string; version: number }>();
+  const m = await db.prepare("SELECT m.id, m.version FROM app_memberships m WHERE m.shop_id=? AND m.role IN ('OWNER','SHOP') AND m.active=1 ORDER BY (m.role='OWNER') DESC LIMIT 1").bind(shopId).first<{ id: string; version: number }>();
   if (!m) fail(404, "This shop has no active owner account");
   const raw = uid() + uid();
   const now = Date.now();
@@ -509,7 +509,7 @@ admin.post("/shops/:id/signin-link", async (c) => {
   const shopId = c.req.param("id");
   const b = await body(c, z.object({ reason: reasonSchema, reveal: z.boolean().optional() }).strict());
   const db = c.env.DB;
-  const m = await db.prepare("SELECT m.id, u.name, u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.role='OWNER' AND m.active=1 LIMIT 1").bind(shopId).first<{ id: string; name: string; email: string }>();
+  const m = await db.prepare("SELECT m.id, u.name, u.email FROM app_memberships m JOIN app_users u ON u.id=m.user_id WHERE m.shop_id=? AND m.role IN ('OWNER','SHOP') AND m.active=1 ORDER BY (m.role='OWNER') DESC LIMIT 1").bind(shopId).first<{ id: string; name: string; email: string }>();
   if (!m) fail(404, "This shop has no active owner account");
   const raw = uid().replace(/-/g, "") + uid().replace(/-/g, "");
   const now = Date.now();
