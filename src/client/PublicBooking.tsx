@@ -1390,7 +1390,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                     <div className="customer-fields">
                       <label>
                         <span id="booking-email-label">Email address</span>
-                        <input aria-labelledby="booking-email-label" required type="email" name="email" autoComplete="email" value={login.email} onChange={(e) => { setLogin((d) => ({ ...d, email: e.target.value })); setErrors((c) => ({ ...c, email: "" })); }} aria-invalid={!!errors.email} aria-describedby={errors.email ? "booking-email-error" : undefined} data-testid="signin-email" />
+                        <input aria-labelledby="booking-email-label" required type="email" name="email" autoComplete="username" value={login.email} onChange={(e) => { setLogin((d) => ({ ...d, email: e.target.value })); setErrors((c) => ({ ...c, email: "" })); }} aria-invalid={!!errors.email} aria-describedby={errors.email ? "booking-email-error" : undefined} data-testid="signin-email" />
                         {errors.email && <span className="field-error" id="booking-email-error">{errors.email}</span>}
                       </label>
                       <label>

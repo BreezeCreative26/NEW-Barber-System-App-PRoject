@@ -313,8 +313,8 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
                 <span>Email</span>
                 <input type="email" inputMode="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="signin-email" />
               </label>
-              <PasswordFields confirm={false} />
-              <Err />
+              {PasswordFields({ confirm: false })}
+              {Err()}
               <Button type="submit" disabled={busy} data-testid="signin-submit">{busy ? "Signing in…" : "Sign in"} <Icon name="arrowRight" size={16} /></Button>
               <div className="ca-links">
                 <button type="button" className="link" onClick={() => go("forgot")} data-testid="signin-forgot">Forgot password?</button>
@@ -332,7 +332,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
               <label><span>Your name</span><input type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required minLength={2} data-testid="register-name" /></label>
               <label><span>Mobile number</span><input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07700 900123" required data-testid="register-phone" /><small className="ca-hint">{smsOffered ? "For your booking and text reminders." : "So the shop can reach you about your booking."}</small></label>
               <label><span>Email</span><input type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="register-email" /><small className="ca-hint">You'll sign in with this. Confirmations and reminders come here too.</small></label>
-              <PasswordFields confirm />
+              {PasswordFields({ confirm: true })}
               <div className="ca-consent" data-testid="register-consent">
                 {smsOffered && (
                   <label className="ca-check">
@@ -353,7 +353,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
                 {terms && termsOpen && <div className="ca-terms-text">{terms.text.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}</div>}
                 <small className="ca-hint">By creating an account you agree to the <a href="/legal/terms" target="_blank" rel="noopener">terms</a> and <a href="/legal/privacy" target="_blank" rel="noopener">privacy notice</a>. Booking messages always come by email{smsOffered ? "; texts are your choice" : ""}.</small>
               </div>
-              <Err />
+              {Err()}
               <Button type="submit" disabled={busy} data-testid="register-submit">{busy ? "Creating…" : "Create account"} <Icon name="arrowRight" size={16} /></Button>
               <p className="ca-switch">Already have one? <button type="button" className="link" onClick={() => go("login")}>Sign in</button></p>
             </form>
@@ -362,7 +362,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
           {mode === "forgot" && (
             <form onSubmit={forgot} className="ca-form" data-testid="forgot-form">
               <label><span>Email</span><input type="email" inputMode="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="forgot-email" /></label>
-              <Err />
+              {Err()}
               <div className="ca-form-actions">
                 <Button variant="ghost" onClick={() => go("login")}>Back</Button>
                 <Button type="submit" disabled={busy} data-testid="forgot-submit">{busy ? "Sending…" : "Send reset link"}</Button>
@@ -383,8 +383,8 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
 
           {mode === "reset" && (
             <form onSubmit={reset} className="ca-form" data-testid="reset-form">
-              <PasswordFields confirm />
-              <Err />
+              {PasswordFields({ confirm: true })}
+              {Err()}
               <Button type="submit" disabled={busy} data-testid="reset-submit">{busy ? "Saving…" : isWelcome ? "Set password and sign in" : "Save new password"}</Button>
             </form>
           )}
@@ -392,7 +392,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
           {mode === "code" && (
             <form onSubmit={startCode} className="ca-form" data-testid="code-form">
               <label><span>Mobile number</span><input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07700 900123" required data-testid="signin-phone" /></label>
-              <Err />
+              {Err()}
               <div className="ca-form-actions">
                 <Button variant="ghost" onClick={() => go("login")}>Back</Button>
                 <Button type="submit" disabled={busy} data-testid="signin-send">{busy ? "Sending…" : "Send code"} <Icon name="arrowRight" size={16} /></Button>
@@ -411,7 +411,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
                 <span>6-digit code</span>
                 <input ref={codeRef} type="text" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} required data-testid="signin-code" />
               </label>
-              <Err />
+              {Err()}
               <div className="ca-form-actions">
                 <Button variant="ghost" onClick={() => { go("code"); setCode(""); }}>Different number</Button>
                 <Button type="submit" disabled={busy || code.length !== 6} data-testid="signin-verify">{busy ? "Checking…" : "Sign in"}</Button>
@@ -422,7 +422,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
             <form onSubmit={complete} className="ca-form" data-testid="complete-form">
               <label><span>Your name</span><input type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required minLength={2} data-testid="complete-name" /></label>
               <label><span>Email</span><input type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="complete-email" /><small className="ca-hint">You'll sign in with this. Confirmations and reminders come here too.</small></label>
-              <PasswordFields confirm />
+              {PasswordFields({ confirm: true })}
               <div className="ca-consent" data-testid="complete-consent">
                 {smsOffered && (
                   <label className="ca-check">
@@ -443,7 +443,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
                 {terms && termsOpen && <div className="ca-terms-text">{terms.text.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}</div>}
                 <small className="ca-hint">By continuing you agree to the <a href="/legal/terms" target="_blank" rel="noopener">terms</a> and <a href="/legal/privacy" target="_blank" rel="noopener">privacy notice</a>.</small>
               </div>
-              <Err />
+              {Err()}
               <Button type="submit" disabled={busy} data-testid="complete-submit">{busy ? "Saving…" : "Finish and continue"} <Icon name="arrowRight" size={16} /></Button>
             </form>
           )}
