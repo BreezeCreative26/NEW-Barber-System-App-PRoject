@@ -273,6 +273,21 @@ export function AppointmentPanel({
           <p className="panel-subtitle">
             {longDate(booking.date)} · {booking.duration_min} min · ref {`BRB-${String(booking.sequence).padStart(4, "0")}`}
           </p>
+          {/* The everyday changes, right under the title so they're seen without scrolling. */}
+          {["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && (
+            <div className="panel-quick" role="group" aria-label="Change this appointment" data-testid="panel-quick">
+              {booking.status === "CONFIRMED" && (
+                <button type="button" className="panel-quick-btn" onClick={goMove} disabled={!!busy} data-testid="quick-reschedule"><Icon name="calendar" size={16} /> Reschedule</button>
+              )}
+              {onItems && payments.filter((p) => !p.voided_at).length === 0 && (
+                <button type="button" className="panel-quick-btn" onClick={() => setEditingItems(true)} disabled={!!busy} data-testid="quick-change-service"><Icon name="scissors" size={16} /> Change service</button>
+              )}
+              {booking.status === "CONFIRMED" && (isPast || !noShowEarly) && (
+                <button type="button" className="panel-quick-btn" onClick={() => setConfirm({ status: "NO_SHOW" })} disabled={!!busy} data-testid="quick-no-show"><Icon name="userRound" size={16} /> No-show</button>
+              )}
+              <button type="button" className="panel-quick-btn danger" onClick={() => setConfirm({ status: "CANCELLED" })} disabled={!!busy} data-testid="quick-cancel"><Icon name="close" size={16} /> Cancel</button>
+            </div>
+          )}
         </header>
 
         <div className="panel-body">
@@ -427,7 +442,7 @@ export function AppointmentPanel({
               )}
             </div>
             <p className="panel-meta">
-              {booking.deposit_status === "PAID" ? `Deposit ${money(booking.deposit_paid_pence ?? 0)} paid by card` : booking.deposit_status === "REFUNDED" ? `Deposit ${money(booking.deposit_paid_pence ?? 0)} refunded` : `Deposit policy ${money(booking.deposit_policy_pence)}`} · cancel window {booking.cancel_hours_snapshot}h · booked {when(booking.created_at)}
+              {booking.deposit_status === "PAID" ? `Deposit ${money(booking.deposit_paid_pence ?? 0)} paid by card` : booking.deposit_status === "REFUNDED" ? `Deposit ${money(booking.deposit_paid_pence ?? 0)} refunded` : booking.deposit_status === "PENDING" ? `Deposit ${money(booking.deposit_policy_pence)} waiting for card payment` : "Paid in the shop"} · cancel window {booking.cancel_hours_snapshot}h · booked {when(booking.created_at)}
             </p>
           </section>
 
@@ -574,11 +589,6 @@ export function AppointmentPanel({
                 </Button>
               )}
               {booking.status === "CONFIRMED" && onPickSlot && <Button variant="secondary" onClick={guarded(onPickSlot)} data-testid="pick-slot"><Icon name="calendar" size={16} /> Move on timetable</Button>}
-              {booking.status === "CONFIRMED" && <Button variant={onPickSlot ? "ghost" : "secondary"} onClick={goMove}>Reschedule</Button>}
-              <Button variant="ghost" onClick={() => setConfirm({ status: "CANCELLED" })}>Cancel</Button>
-              {booking.status === "CONFIRMED" && (isPast || !noShowEarly) && (
-                <Button variant="ghost" onClick={() => setConfirm({ status: "NO_SHOW" })}>No-show</Button>
-              )}
             </>
           )}
           {booking.status === "COMPLETED" && outstanding > 0 && canTakePayment && onCheckout && !checkout && (

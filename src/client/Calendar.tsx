@@ -1,3 +1,4 @@
+import { calmScroll } from "./calendarScroll";
 import {
   useEffect,
   useLayoutEffect,
@@ -229,6 +230,11 @@ export function Calendar({
   const compact = useCompact();
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    return calmScroll(el, () => !!(dragRef.current?.armed || resizeRef.current));
+  }, []);
+  useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60000);
     return () => clearInterval(timer);
   }, []);
@@ -359,7 +365,6 @@ export function Calendar({
     if (!s.active) return "Inactive barber";
     if (closed) return "Shop closed";
     if (leave) return "Day off";
-    if (date < today || (date === today && start <= currentMinute)) return "Past time";
     if (!shift?.enabled) return "Off duty";
     if (start < Math.max(dayHours.starts, shift.starts) || start >= Math.min(dayHours.ends, shift.ends)) return "Outside hours";
     if (start >= shift.break_start && start < shift.break_end) return "Break";
@@ -662,9 +667,7 @@ export function Calendar({
                       ? "Shop closed"
                       : leave
                         ? "Day off"
-                        : date < today || (date === today && start <= currentMinute)
-                          ? "Past time"
-                          : !shift?.enabled
+                        : !shift?.enabled
                             ? "Off duty"
                             : start < Math.max(dayHours.starts, shift.starts) ||
                                 start >= Math.min(dayHours.ends, shift.ends)
@@ -1198,9 +1201,6 @@ export function WeekView({
       ))}
       {!staff.length && (
         <p className="calendar-empty">No active barbers match this filter.</p>
-      )}
-      {bookings && bookings.length === 0 && staff.length > 0 && (
-        <p className="calendar-footnote">No appointments saved for this week yet.</p>
       )}
     </div>
   );

@@ -22,6 +22,7 @@ import { alertOwners } from "./alerts";
 import { createBooking, fail } from "./sandbox";
 import type { AppEnv } from "./accounts";
 import { cancelByCustomer, customerView, limits, notifyBooking, rangeContext, shopBySlug, slotFor, throttle, type BrandedShop, type Ctx } from "./public";
+import { paymentPolicy } from "./stripe";
 import { dayStarts, dueAtBooking, ref, shopDay, shopToday, shopWeek, weekday, type Service, type Shop, type Staff, type StoredBooking } from "./domain";
 import { enqueue, drain, msgShop } from "./messaging";
 
@@ -183,7 +184,7 @@ voice.get("/:slug/info", async (c) => {
     barbers: staff.map((s) => ({ id: s.id, name: s.name, role: s.title || s.role })),
     policies: {
       cancellation: `${shop.cancel_hours} hours' notice to cancel or move`,
-      deposit: shop.deposit_pence ? `${money(shop.deposit_pence, shop.currency)} deposit on some services, payable in the shop or online` : "no deposit",
+      deposit: paymentPolicy(shop).line,
       booking_window: `up to ${shop.booking_window_days} days ahead`,
       lead_time: `at least ${shop.lead_time_min} minutes before the appointment`,
     },
@@ -278,12 +279,12 @@ voice.post("/:slug/book", async (c) => {
     await alertOwners(c.env.DB, shop.id, "new_booking", booking, { staffName: barber.name, origin: new URL(c.req.url).origin }).catch(() => 0);
     if (b.conversation_id) await c.env.DB.prepare("UPDATE voice_calls SET booking_id=? WHERE shop_id=? AND conversation_id=?").bind(booking.id, shop.id, b.conversation_id).run().catch(() => null);
     const price = money(booking.price_pence, shop.currency);
-    const deposit = dueAtBooking(shop, service as Service, booking.price_pence);
+    const deposit = 0; // phone bookings never take a card payment, so the visit is paid in the shop
     return c.json({
       ok: true,
       booking: customerView(booking, shop, barber.name),
       reference: ref(booking),
-      say: `Booked: ${service.name} with ${barber.name.split(" ")[0]} on ${spokenDate(date)} at ${spokenTime(start_min)}, ${price}${deposit ? ` with a ${money(deposit, shop.currency)} deposit payable in the shop` : ""}. Reference ${ref(booking)}.${sent.length ? ` A confirmation is on its way by ${sent.map((s) => (s === "WA" ? "WhatsApp" : s === "SMS" ? "text" : "email")).join(" and ")}.` : ""}`,
+      say: `Booked: ${service.name} with ${barber.name.split(" ")[0]} on ${spokenDate(date)} at ${spokenTime(start_min)}, ${price}${deposit ? ` with a ${money(deposit, shop.currency)} deposit` : ", paid in the shop on the day"}. Reference ${ref(booking)}.${sent.length ? ` A confirmation is on its way by ${sent.map((s) => (s === "WA" ? "WhatsApp" : s === "SMS" ? "text" : "email")).join(" and ")}.` : ""}`,
       sent_to: sent,
     }, 201);
   } catch (err) {

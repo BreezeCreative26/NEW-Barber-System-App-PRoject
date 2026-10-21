@@ -80,7 +80,7 @@ const BARBER_FAQS: Faq[] = [
   { q: "Do my customers need an app?", a: "No. They book from your link in any browser, get a text or email with a private link, and can move or cancel from there." },
   { q: "Can I bring my existing customers over?", a: "Yes — import a CSV from your old system in Settings → Customers and their history comes with them." },
   { q: "Do barbers get their own login?", a: "Yes. Invite each barber; they see their own day, take payments at the chair, block their own time and watch their wallet." },
-  { q: "What about deposits and no‑shows?", a: "Set a deposit, ask for full prepayment, or let people pay at the chair — shop‑wide or per service. No‑shows can be charged; refunds are automatic when you cancel on them." },
+  { q: "What about deposits and no‑shows?", a: "Set a deposit, ask for full prepayment, or let people pay at the chair — one choice for the whole shop, and customers see exactly that when they book. No‑shows can be charged; refunds are automatic when you cancel on them." },
   { q: "What does it really cost?", a: "£24.99 a month, which includes your first barber. Each extra chair is £7.99 — so a three-chair shop pays £40.97. Texts are 6p, email is free. Card payments are optional at 2.2% + 20p all in; leave them off and pay nothing. The AI Concierge is an optional £49 a month. Nothing per booking, no commission, and you can see exactly what you’ve used in your settings." },
   { q: "Is my data safe?", a: "Hosted in the EU, encrypted in transit, backed up daily. You can export everything at any time." },
 ];
@@ -96,7 +96,7 @@ const UNIVERSAL_FAQS: Faq[] = [
   { q: "Do my customers need an app?", a: "No. They book from your link in any browser, get a text or email with a private link, and can move or cancel from there." },
   { q: "Can I bring my existing customers over?", a: "Yes — import a CSV from your old system in Settings → Customers and their history comes with them." },
   { q: "Does each team member get their own login?", a: "Yes. Invite each person; they see their own day, take payments, block their own time and watch their earnings." },
-  { q: "What about deposits and no‑shows?", a: "Set a deposit, ask for full prepayment, or let people pay on the day — business‑wide or per service. No‑shows can be charged; refunds are automatic when you cancel on them." },
+  { q: "What about deposits and no‑shows?", a: "Set a deposit, ask for full prepayment, or let people pay on the day — one choice for the whole business, and customers see exactly that when they book. No‑shows can be charged; refunds are automatic when you cancel on them." },
   { q: "What does it really cost?", a: "£24.99 a month, which includes your first team member. Each extra seat is £7.99 — so a team of three pays £40.97. Texts are 6p, email is free. Card payments are optional at 2.2% + 20p all in; leave them off and pay nothing. The AI Concierge is an optional £49 a month. Nothing per booking, no commission." },
   { q: "Is my data safe?", a: "Hosted in the EU, encrypted in transit, backed up daily. You can export everything at any time." },
 ];
@@ -253,7 +253,7 @@ export const VERTICALS: Record<"universal" | "barbers" | "salons" | "beauty" | "
     faqH2: "Questions tattoo studios ask",
     finalH2: "Join the tattoo and piercing studios already running on foliyo.",
     faqs: [
-      { q: "Can I take a deposit when someone books?", a: "Yes. Set a deposit per service — a fixed amount or a percentage — or ask for full prepayment. It’s taken at booking and shown on the appointment and the final bill." },
+      { q: "Can I take a deposit when someone books?", a: "Yes. Set a deposit for the shop or ask for full prepayment. It’s taken at booking and shown on the appointment and the final bill." },
       { q: "Can I book long sessions and keep notes on the design?", a: "Yes. Services can be as long as you need, and each client has private notes and history only your team can see." },
     ],
   }),

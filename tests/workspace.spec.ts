@@ -332,9 +332,8 @@ function future() {
 }
 async function enter(page: Page) {
   await enterNewShop(page, "Matte workflow test");
-  await expect(
-    page.getByText("Nothing booked."),
-  ).toBeVisible();
+  // An empty day shows the empty timetable (no "Nothing booked." line any more).
+  await expect(page.locator(".timetable-slot").first()).toBeVisible();
 }
 async function save(page: Page) {
   await page

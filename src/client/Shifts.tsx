@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { Staff, StaffDayOff, Holiday, ScheduleOverride, WorkspaceData } from "../server/domain";
 import { Button, Icon, Notice, StatusPill, Avatar } from "./ui";
 import { time, shopWeekOf } from "./fixtures";
+import { HolidayTable, KIND_LABEL } from "./Holidays";
 
 // Shifts: the roster by date. Day = one row per barber with status, hours, break, blocks and
 // utilisation; Week = barber × day grid; Leave = upcoming days off and closures. Every edit goes
@@ -18,6 +19,9 @@ type Props = {
   onRemoveDayOff: (d: StaffDayOff) => void;
   onRemoveHoliday: (h: Holiday) => void;
   onOpenBooking: (id: string) => void;
+  api?: <T>(path: string, method?: string, body?: unknown) => Promise<T>;
+  isOwner?: boolean;
+  onRefresh?: () => void;
 };
 
 const wd = (d: string) => new Date(d + "T12:00:00Z").getUTCDay();
@@ -44,7 +48,7 @@ export function dayState(w: WorkspaceData, s: Staff, date: string): DayState {
   return { kind: "in", starts: h.starts, ends: h.ends, break_start: h.break_start, break_end: h.break_end, dated: o };
 }
 
-export function Shifts({ w, date, onDate, onEditDay, onDayOff, onWeekly, onHoliday, onRemoveDayOff, onRemoveHoliday, onOpenBooking }: Props) {
+export function Shifts({ w, date, onDate, onEditDay, onDayOff, onWeekly, onHoliday, onRemoveDayOff, onRemoveHoliday, onOpenBooking, api, isOwner, onRefresh }: Props) {
   const [view, setView] = useState<"day" | "week" | "leave">("day");
   const staff = useMemo(() => w.staff.filter((s) => s.active), [w.staff]);
   const weekStart = useMemo(() => { const d = wd(date); return plus(date, -((d + 6) % 7)); }, [date]); // Monday
@@ -199,7 +203,7 @@ export function Shifts({ w, date, onDate, onEditDay, onDayOff, onWeekly, onHolid
                 const n = s ? booked(s, d.date).length : 0;
                 return (
                   <li key={d.id}>
-                    <div><strong>{s?.name ?? "—"}</strong> · {nice(d.date)}<br /><small>{d.reason}</small>{n > 0 && <small className="shifts-warn"> · {n} appointment{n === 1 ? "" : "s"} still booked</small>}</div>
+                    <div><strong>{s?.name ?? "—"}</strong> · {nice(d.date)}<br /><small>{KIND_LABEL[d.kind ?? "HOLIDAY"]} · {d.reason}</small>{n > 0 && <small className="shifts-warn"> · {n} appointment{n === 1 ? "" : "s"} still booked</small>}</div>
                     <Button variant="ghost" onClick={() => onRemoveDayOff(d)}>Remove</Button>
                   </li>
                 );
@@ -219,6 +223,7 @@ export function Shifts({ w, date, onDate, onEditDay, onDayOff, onWeekly, onHolid
             </ul>
             <Button variant="secondary" onClick={onHoliday}><Icon name="plus" size={16} /> Add closure</Button>
           </div>
+          {api && <HolidayTable w={w} api={api} isOwner={!!isOwner} onSaved={() => onRefresh?.()} />}
           <Notice>Adding leave or a closure that lands on booked appointments asks you what to do with each customer before anything is saved.</Notice>
         </div>
       )}

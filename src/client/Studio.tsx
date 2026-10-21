@@ -10,9 +10,11 @@ import type {
 } from "../server/domain";
 import { Avatar, Badge, Button, Icon, Notice } from "./ui";
 import { money, time, currencySymbol } from "./fixtures";
-import { PayTermsForm, PayRuns, payFormOf, summariseTerms, type PayForm } from "./Pay";
+import { PayTermsForm, PayRuns, PayHistory, payFormOf, periodBounds, summariseTerms, type PayForm } from "./Pay";
+import type { PayRunInput } from "../server/domain";
 import { BarberPayoutCard } from "./Payouts";
 import { PhotoUpload } from "./Media";
+import { HolidayTracker } from "./Holidays";
 import { StaffLoginPanel } from "./StaffLogin";
 import type { PayRun } from "../server/domain";
 
@@ -888,6 +890,15 @@ function BarberEditor({
   useEffect(() => {
     if (tab === "pay") loadPayRuns();
   }, [tab, staff?.version]);
+  // Last complete period's figures, so the pay form can show "last period with these terms" live.
+  const [paySample, setPaySample] = useState<PayRunInput | null>(null);
+  useEffect(() => {
+    if (tab !== "pay" || !staff) return;
+    const b = periodBounds(staff.pay_period, w.today, -1);
+    api<{ input: PayRunInput }>(`/pay-runs/preview?staff_id=${staff.id}&from=${b.from}&to=${b.to}`)
+      .then((r) => setPaySample(r.input))
+      .catch(() => setPaySample(null));
+  }, [tab, staff?.id, staff?.version]);
   const { guarded, notice } = useLeaveGuard("barber-editor");
   const setTab = (t: typeof tab) => guarded(() => setTabRaw(t))();
   const [form, setForm] = useState(() => staffForm(staff));
@@ -1091,6 +1102,7 @@ function BarberEditor({
             <Button variant="ghost" onClick={() => onDaysOff(staff)}>Days off ({w.days_off.filter((d) => d.staff_id === staff.id && d.date >= w.today).length})</Button>
             <Button variant="ghost" onClick={() => onOverrides(staff)}>Dated hours ({w.schedule_overrides.filter((o) => o.staff_id === staff.id && o.date >= w.today).length})</Button>
           </div>
+          <HolidayTracker w={w} staff={staff} api={api} canEdit={canEdit} onSaved={() => onSaved(staff.id)} />
           <Notice>Hours, leave and dated shifts feed availability immediately. Existing appointments outside new hours are flagged for review, never cancelled.</Notice>
         </div>
       )}
@@ -1126,13 +1138,14 @@ function BarberEditor({
                 <p className="workspace-footnote">How {staff.name.split(" ")[0]} is paid. Existing pay runs keep the terms they were calculated with.</p>
               </div>
             </div>
-            <PayTermsForm form={form as PayForm} setForm={(f) => setForm({ ...form, ...f })} disabled={!canEdit} />
+            <PayTermsForm form={form as PayForm} setForm={(f) => setForm({ ...form, ...f })} disabled={!canEdit} sample={paySample} barber={staff.name.split(" ")[0]} />
             {canEdit && (
               <div className="panel-actions-row">
                 <Button type="submit" disabled={busy || locked || !dirty} data-testid="save-pay-terms">{busy ? "Saving…" : "Save pay terms"}</Button>
               </div>
             )}
             <StatusLine state={state} />
+            <PayHistory api={api} staffId={staff.id} version={staff.version} />
           </form>
           <section className="workspace-section-heading compact">
             <div>

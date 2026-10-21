@@ -11,9 +11,8 @@ function day(offset = 5) {
 }
 async function enter(page: Page) {
   await enterNewShop(page, "Calendar UI shop");
-  await expect(
-    page.getByText("Nothing booked."),
-  ).toBeVisible();
+  // An empty day shows the empty timetable (no "Nothing booked." line any more).
+  await expect(page.locator(".timetable-slot").first()).toBeVisible();
 }
 
 test("day reads page deterministic ties, reject invalid queries and isolate tenants beyond the legacy 500 cap", async () => {
@@ -417,10 +416,9 @@ test("E1 unavailable chair time distinguishes past, leave, breaks and shop closu
   await enter(page);
   const w = await (await page.request.get(base + "/workspace")).json();
   await page.getByLabel("Appointment date", { exact: true }).fill(day(-2));
-  await expect(page.locator(".timetable-slot:enabled")).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: /09:00,.*Past time/ }),
-  ).toHaveCount(2);
+  // Past days aren't greyed out: the shop can add visits after the fact.
+  await expect(page.locator(".timetable-slot:enabled").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /Past time/ })).toHaveCount(0);
   const result = await page.request.post(
     base + `/staff/${w.staff[0].id}/days-off`,
     {
