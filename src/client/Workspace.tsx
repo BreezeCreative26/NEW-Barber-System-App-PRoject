@@ -1269,7 +1269,7 @@ function WalkInForm({ w, saved, staffId }: { w: WorkspaceData; saved: EditorProp
       <Field label="Notes (optional)">
         <input name="notes" maxLength={500} />
       </Field>
-      {okMsg && <p role="status">{okMsg}</p>}
+      {okMsg && <p className="workspace-success" role="status">{okMsg}</p>}
     </SaveForm>
   );
 }
@@ -1635,6 +1635,10 @@ export function Workspace() {
   const [dayMenuOpen, setDayMenuOpen] = useState(false);
   const [dayMenuStaff, setDayMenuStaff] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  // Team inbox: what happened (bookings, cancellations, moves, no-shows) for this login only.
+  const [inbox, setInbox] = useState<TeamInbox | null>(null);
+  const loadInbox = () => api<TeamInbox>("/inbox").then(setInbox).catch(() => {});
+
   const [queueOpen, setQueueOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -2012,6 +2016,12 @@ export function Workspace() {
     }
   }
   const w = data;
+  useEffect(() => {
+    if (!w) return;
+    loadInbox();
+    const t = window.setInterval(() => { if (!document.hidden) loadInbox(); }, 45000);
+    return () => window.clearInterval(t);
+  }, [!!w]);
   const visibleStaff =
     w?.staff.filter(
       (s) =>
@@ -2273,7 +2283,7 @@ export function Workspace() {
         onWallet={() => setWalletOpen((v) => !v)}
         queue={w && w.shop.waitlist_enabled !== 0 ? { count: waitlist.length, offered: waitlist.filter((e) => e.status === "OFFERED").length, open: queueOpen } : null}
         onQueue={() => setQueueOpen((v) => !v)}
-        bell={w ? { count: w.issues.length, open: notificationsOpen } : null}
+        bell={w ? { count: w.issues.length + (inbox?.unread ?? 0), open: notificationsOpen } : null}
         onBell={() => setNotificationsOpen((v) => !v)}
         account={
           w
@@ -2354,6 +2364,12 @@ export function Workspace() {
       {w && notificationsOpen && (
         <NotificationsDrawer
           w={w}
+          inbox={inbox}
+          onInbox={loadInbox}
+          onOpenBooking={(id) => {
+            setNotificationsOpen(false);
+            openBooking(id);
+          }}
           onReview={(id) => {
             setNotificationsOpen(false);
             openBooking(id);
@@ -5122,7 +5138,66 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
 }
 
 // Notifications drawer (bell): schedule issues. The waiting list has its own Queue drawer.
-function NotificationsDrawer({ w, onReview, onClose }: { w: WorkspaceData; onReview: (bookingId: string) => void; onClose: () => void }) {
+type TeamInbox = { events: { id: string; kind: string; title: string; body: string; booking_id: string | null; created_at: number; unread: boolean }[]; unread: number; all: boolean };
+function b64ToBytes(b64: string) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from([...raw].map((ch) => ch.charCodeAt(0)));
+}
+// Push for this person on this device. It follows the same rule as the bell: own bookings only,
+// unless the owner gave them "see all notifications".
+function TeamPushToggle({ all }: { all: boolean }) {
+  const supported = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  const [st, setSt] = useState<{ enabled: boolean; public_key: string; subscribed: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const reg = async () => (await navigator.serviceWorker.getRegistration("/workspace")) || navigator.serviceWorker.register("/sw.js", { scope: "/workspace" });
+  useEffect(() => {
+    if (!supported) return;
+    (async () => {
+      const sub = await (await reg()).pushManager.getSubscription().catch(() => null);
+      setSt(await api<{ enabled: boolean; public_key: string; subscribed: boolean }>(`/inbox/push?endpoint=${encodeURIComponent(sub?.endpoint || "")}`));
+    })().catch(() => {});
+  }, []);
+  if (!supported || !st?.enabled) return null;
+  const toggle = async () => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const rg = await reg();
+      const existing = await rg.pushManager.getSubscription();
+      if (st.subscribed && existing) {
+        await api("/inbox/push", "DELETE", { endpoint: existing.endpoint });
+        await existing.unsubscribe();
+        setSt({ ...st, subscribed: false });
+      } else {
+        if ((await Notification.requestPermission()) !== "granted") throw new Error("Notifications are blocked in this browser. Allow them in the site settings and try again.");
+        const sub = existing || (await rg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(st.public_key) }));
+        await api("/inbox/push", "POST", sub.toJSON());
+        setSt({ ...st, subscribed: true });
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Could not change push notifications");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="notify-push" data-testid="team-push">
+      <Button variant="secondary" onClick={toggle} disabled={busy}>
+        {st.subscribed ? "Turn off push on this device" : "Turn on push on this device"}
+      </Button>
+      <small>{all ? "You get push for every booking in the shop." : "You get push for your own bookings only."}</small>
+      {msg && <small role="alert">{msg}</small>}
+    </div>
+  );
+}
+function NotificationsDrawer({ w, inbox, onInbox, onOpenBooking, onReview, onClose }: { w: WorkspaceData; inbox: TeamInbox | null; onInbox: () => void; onOpenBooking: (bookingId: string) => void; onReview: (bookingId: string) => void; onClose: () => void }) {
+  useEffect(() => {
+    // Opening the bell marks what is listed as seen (the new ones stay highlighted while it is open).
+    const t = window.setTimeout(() => { api("/inbox/read", "POST", {}).then(onInbox).catch(() => {}); }, 1500);
+    return () => window.clearTimeout(t);
+  }, []);
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -5136,7 +5211,7 @@ function NotificationsDrawer({ w, onReview, onClose }: { w: WorkspaceData; onRev
       previous?.focus();
     };
   }, []);
-  const total = w.issues.length;
+  const total = w.issues.length + (inbox?.unread ?? 0);
   return (
     <>
       <div className="drawer-scrim" onClick={onClose} aria-hidden="true" />
@@ -5146,6 +5221,24 @@ function NotificationsDrawer({ w, onReview, onClose }: { w: WorkspaceData; onRev
           <small>{total ? `${total} item${total === 1 ? "" : "s"}` : "All clear"}</small>
           <IconButton name="close" label="Close notifications" onClick={onClose} />
         </h2>
+        <TeamPushToggle all={!!inbox?.all} />
+        {inbox && inbox.events.length > 0 && (
+          <section className="notify-group" aria-label="Recent activity" data-testid="team-events">
+            <h3><Icon name="bell" size={16} /> Recent activity{!inbox.all && <small> · your bookings</small>}</h3>
+            <ul className="notify-list">
+              {inbox.events.map((ev) => (
+                <li key={ev.id} className={ev.unread ? "unread" : ""}>
+                  <div>
+                    <strong>{ev.title}</strong>
+                    <small>{ev.body}</small>
+                    <small>{new Date(ev.created_at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}</small>
+                  </div>
+                  {ev.booking_id && ev.kind !== "cancelled" && <Button variant="secondary" onClick={() => onOpenBooking(ev.booking_id as string)}>Open</Button>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {w.issues.length > 0 ? (
           <section className="notify-group" aria-labelledby="notify-issues-heading">
             <h3 id="notify-issues-heading">
@@ -5167,9 +5260,9 @@ function NotificationsDrawer({ w, onReview, onClose }: { w: WorkspaceData; onRev
               ))}
             </ul>
           </section>
-        ) : (
+        ) : !inbox?.events.length ? (
           <p className="drawer-note left">Nothing needs your attention. The waiting list lives under the hourglass in the top bar.</p>
-        )}
+        ) : null}
       </aside>
     </>
   );
@@ -5453,7 +5546,7 @@ function ShareBooking({ booking, w }: { booking: StoredBooking; w: WorkspaceData
           Open in SMS
         </a>
       </div>
-      {copied && <p role="status">{copied}</p>}
+      {copied && <p className="workspace-success" role="status">{copied}</p>}
     </details>
   );
 }
@@ -5521,7 +5614,7 @@ function OnlineBookingPanel({
           <small>Save with online booking switched on to activate this address.</small>
         )}
       </div>
-      {copied && <p role="status">{copied}</p>}
+      {copied && <p className="workspace-success" role="status">{copied}</p>}
       {!readOnly && (
         <SaveForm
           key={w.shop.version}
@@ -7279,9 +7372,11 @@ function CustomerPicker({
             />
           </Field>
           {!!name.trim() && !pickedId && (
-            <Field label="Email address" hint="So they get their confirmation and reminders">
-              <input name="email" type="email" required placeholder="name@example.com" autoComplete="off" data-testid="customer-email" />
-            </Field>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <Field label="Email address" hint="So they get their confirmation and reminders">
+                <input name="email" type="email" required placeholder="name@example.com" autoComplete="off" data-testid="customer-email" />
+              </Field>
+            </div>
           )}
         </div>
         {duplicate && (

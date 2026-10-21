@@ -169,6 +169,9 @@ const mutationContracts: [string, string, number?][] = [
   ["POST", "/billing/features/:key"],
   ["PUT", "/billing/contact"],
   ["PUT", "/me/prefs"],
+  ["POST", "/inbox/read"],
+  ["POST", "/inbox/push", 400],
+  ["DELETE", "/inbox/push", 400],
   ["PUT", "/me/profile", 409],
   ["POST", "/me/onboarded"],
   ["PUT", "/shop/reviews"],
@@ -504,7 +507,7 @@ test("simultaneous overlapping booking requests admit one winner and preserve id
     ).status(),
   ).toBe(409);
   expect(
-    (await r.post(base + "/bookings", { data: payload(w, 570) })).status(),
+    (await r.post(base + "/bookings", { data: payload(w, 555) })).status(),
   ).toBe(409);
   expect(
     (await r.post(base + "/bookings", { data: payload(w, 585) })).status(),

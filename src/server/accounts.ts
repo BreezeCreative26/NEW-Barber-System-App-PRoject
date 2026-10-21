@@ -31,8 +31,8 @@ export type Account = {
   // Staff onboarding (non-owners): when they finished the first-sign-in flow; null until then.
   onboarded_at?: number | null;
 };
-export type Perms = { calendar?: boolean; insights?: boolean; pay?: boolean; setup?: boolean };
-export const PERM_KEYS = ["calendar", "insights", "pay", "setup"] as const;
+export type Perms = { calendar?: boolean; insights?: boolean; pay?: boolean; setup?: boolean; all_notifications?: boolean };
+export const PERM_KEYS = ["calendar", "insights", "pay", "setup", "all_notifications"] as const;
 export type AppEnv = {
   Bindings: { DB: Database; APP_MODE?: string; ALLOWED_ORIGINS?: string; DEMO_ENABLED?: string; FOLIYO_ADMIN_EMAILS?: string; OLLO_ADMIN_EMAILS?: string };
   Variables: { shopId: string; actor: string; account: Account | null };
@@ -830,7 +830,7 @@ accounts.post("/verify-email/resend", async (c) => {
 accounts.put("/members/:id/permissions", async (c) => {
   const a = owner(c);
   if (a instanceof Response) return a;
-  const b = await readInput(c, z.object({ calendar: z.boolean(), insights: z.boolean(), pay: z.boolean(), setup: z.boolean() }).strict());
+  const b = await readInput(c, z.object({ calendar: z.boolean(), insights: z.boolean(), pay: z.boolean(), setup: z.boolean(), all_notifications: z.boolean().default(false) }).strict());
   const r = await c.env.DB.prepare("UPDATE app_memberships SET permissions_json=?,version=version+1 WHERE id=? AND shop_id=? AND role IN ('BARBER','RECEPTION','MANAGER')").bind(JSON.stringify(b), c.req.param("id"), a.shop_id).run();
   if (!r.meta.changes) return reject(404, "Team member not found");
   await c.env.DB.batch([event(c, a.shop_id, `user:${a.user_id}`, c.req.param("id"), "MEMBERSHIP_PERMISSIONS_UPDATED")]);

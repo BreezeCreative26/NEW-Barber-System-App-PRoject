@@ -69,6 +69,7 @@ async function bookingDraft(page: Page, name = "Recovery test client") {
   await page.getByLabel("Available start time").selectOption("540");
   await page.getByLabel("Customer name", { exact: true }).fill(name);
   await page.getByLabel("Mobile number", { exact: true }).fill("07700900123");
+  await page.getByLabel("Email address").fill("new.customer@example.test");
   return date;
 }
 
@@ -134,6 +135,7 @@ test("availability network retry and stale quote refresh keep contact details", 
   ).toBeVisible();
   await page.getByLabel("Customer name", { exact: true }).fill("Quote test client");
   await page.getByLabel("Mobile number", { exact: true }).fill("07700900123");
+  await page.getByLabel("Email address").fill("new.customer@example.test");
   await page.unroute("**/api/app/availability?**");
   await page.getByRole("button", { name: "Retry availability" }).click();
   await page
@@ -417,6 +419,7 @@ test("saved setup and appointment workflow survives reload, move and completion"
   await page.getByLabel("Available start time").selectOption("540");
   await page.getByLabel("Customer name", { exact: true }).fill("Morgan Fictional");
   await page.getByLabel("Mobile number", { exact: true }).fill("07700 900123");
+  await page.getByLabel("Email address").fill("new.customer@example.test");
   await page.getByRole("button", { name: "Review appointment" }).click();
   await expect(
     page.getByText("Ready to save:", { exact: false }),
@@ -691,6 +694,7 @@ test("customers tab: filters, add customer with tags, profile stats, picker in b
   await page.getByRole("button", { name: "Add customer" }).click();
   await page.getByLabel("Full name").fill("Fresh Face");
   await page.getByLabel("Mobile number").fill("07700 900 321");
+  await page.getByLabel("Email address").fill("new.customer@example.test");
   await page.getByLabel("Add tag").fill("Student");
   await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "Add customer", exact: true }).last().click();

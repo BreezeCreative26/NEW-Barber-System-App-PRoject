@@ -1,3 +1,4 @@
+import { recordEvent } from "./staffNotify";
 import { HTTPException } from "hono/http-exception";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
@@ -1362,6 +1363,7 @@ export async function moveByCustomer(c: Ctx, shop: Shop, booking: StoredBooking,
   await slotFreed(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-move");
   const after = await readBooking(c, booking.id);
   await notifyBooking(c, shop.id, after, staffName, "booking_moved");
+  await recordEvent(c.env.DB, shop.id, "moved", after, staffName).catch(() => {});
   return {
     booking: customerView(after, shop, staffName),
   };

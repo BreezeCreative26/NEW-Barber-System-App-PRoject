@@ -135,6 +135,7 @@ test("timetable click prefills saved booking; reschedule and cancellation update
     .getByLabel("Customer name", { exact: true })
     .fill("Calendar saved client");
   await page.getByLabel("Mobile number", { exact: true }).fill("07700900123");
+  await page.getByLabel("Email address").fill("new.customer@example.test");
   await page
     .getByRole("button", { name: "Review appointment", exact: true })
     .click();
@@ -322,7 +323,7 @@ test("E1 keyboard slot navigation skips bookings and breaks, restores focus and 
   await page.keyboard.press("ArrowDown");
   await expect(page.locator(".timetable-slot:focus")).toHaveAttribute(
     "data-minute",
-    "615",
+    "600",
   );
   await page.keyboard.press("ArrowRight");
   await expect(page.locator(".timetable-slot:focus")).toHaveAttribute(
@@ -331,7 +332,7 @@ test("E1 keyboard slot navigation skips bookings and breaks, restores focus and 
   );
   await expect(page.locator(".timetable-slot:focus")).toHaveAttribute(
     "data-minute",
-    "645",
+    "630",
   );
   await page.keyboard.press("End");
   await expect(page.locator(".timetable-slot:focus")).toHaveAttribute(
@@ -341,7 +342,7 @@ test("E1 keyboard slot navigation skips bookings and breaks, restores focus and 
   await page.keyboard.press("Home");
   await expect(page.locator(".timetable-slot:focus")).toHaveAttribute(
     "data-minute",
-    "645",
+    "555",
   );
   await page
     .locator('.timetable-slot[data-column="1"][data-minute="750"]')
@@ -358,13 +359,13 @@ test("E1 keyboard slot navigation skips bookings and breaks, restores focus and 
   );
   await page.keyboard.press("Home");
   const cell = page.locator(
-    '.timetable-slot[data-column="1"][data-minute="645"]',
+    '.timetable-slot[data-column="1"][data-minute="555"]',
   );
-  await expect(page.locator(".calendar-slot-context")).toContainText("10:45");
+  await expect(page.locator(".calendar-slot-context")).toContainText("09:15");
   await page.keyboard.press("Enter");
-  await expect(page.getByLabel("Available start time")).toHaveValue("645");
+  await expect(page.getByLabel("Available start time")).toHaveValue("555");
   await expect(page.getByLabel("Timetable starting point")).toContainText(
-    "10:45",
+    "09:15",
   );
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
@@ -917,6 +918,7 @@ test("standing booking: repeat controls preview every date, conflicts must be sk
   await timeSelect.selectOption("600");
   await dialog.getByLabel("Customer name", { exact: true }).fill("Standing Regular");
   await dialog.getByLabel("Mobile number", { exact: true }).fill("07700900555");
+  await dialog.getByLabel("Email address").fill("new.customer@example.test");
   // Repeat controls are only offered for a new booking.
   const repeat = dialog.getByLabel("Repeat this appointment at the same time");
   await repeat.check();

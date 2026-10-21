@@ -87,6 +87,7 @@ import { agentPrompt, newSecret, voiceEndpoints, voiceOf, voiceSettingsSchema } 
 import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import QRCode from "qrcode";
 import setup from "./setup";
+import { listFor, markSeen, staffPushStatus } from "./staffNotify";
 import { ALERT_KINDS, DEFAULT_PREFS, alertOwners, prefsOf, type AlertPrefs } from "./alerts";
 import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
@@ -248,6 +249,9 @@ sandbox.use("*", async (c, next) => {
       (method === "GET" && path === "/pay-runs/export.csv") ||
       (method === "POST" && path === "/pay-runs/bulk") ||
       (method === "PUT" && path === "/me/prefs") ||
+      (method === "GET" && [ "/inbox", "/inbox/push" ].includes(path)) ||
+      (method === "POST" && [ "/inbox/read", "/inbox/push" ].includes(path)) ||
+      (method === "DELETE" && path === "/inbox/push") ||
       (method === "PUT" && path === "/me/profile") ||
       (method === "POST" && path === "/me/onboarded") ||
       (method === "POST" && path === "/media") ||
@@ -924,6 +928,40 @@ async function readCustomer(c: Ctx, id: string) {
   if (!row) return fail(404, "Customer not found");
   return row;
 }
+// The team bell: events this login is allowed to see, plus per-device push on/off.
+const viewerOf = (c: Ctx) => {
+  const a = c.get("account");
+  if (!a) fail(401, "Sign in first");
+  return { id: a!.id, role: a!.role, staff_id: a!.staff_id, perms: a!.perms as Record<string, boolean | undefined> | undefined };
+};
+sandbox.get("/inbox", async (c) => c.json(await listFor(c.env.DB, c.get("shopId"), viewerOf(c))));
+sandbox.post("/inbox/read", async (c) => {
+  const v = viewerOf(c);
+  await input(c, z.object({}).strict());
+  await markSeen(c.env.DB, c.get("shopId"), v.id);
+  return c.json({ ok: true });
+});
+sandbox.get("/inbox/push", async (c) => {
+  const v = viewerOf(c);
+  const st = staffPushStatus();
+  const endpoint = c.req.query("endpoint");
+  const subscribed = endpoint ? !!(await c.env.DB.prepare("SELECT 1 AS x FROM staff_push_subscriptions WHERE shop_id=? AND account_id=? AND endpoint=?").bind(c.get("shopId"), v.id, endpoint).first()) : false;
+  return c.json({ enabled: st.enabled, public_key: st.public_key, subscribed });
+});
+const staffPushSchema = z.object({ endpoint: z.string().url().max(2000), keys: z.object({ p256dh: z.string().max(300), auth: z.string().max(100) }).strict() }).strict();
+sandbox.post("/inbox/push", async (c) => {
+  const v = viewerOf(c);
+  const b = await input(c, staffPushSchema);
+  await c.env.DB.prepare("INSERT INTO staff_push_subscriptions(id,shop_id,account_id,endpoint,p256dh,auth,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT (shop_id,endpoint) DO UPDATE SET account_id=EXCLUDED.account_id, p256dh=EXCLUDED.p256dh, auth=EXCLUDED.auth, failures=0")
+    .bind(id(), c.get("shopId"), v.id, b.endpoint, b.keys.p256dh, b.keys.auth, Date.now()).run();
+  return c.json({ ok: true }, 201);
+});
+sandbox.delete("/inbox/push", async (c) => {
+  const v = viewerOf(c);
+  const b = await input(c, z.object({ endpoint: z.string().url().max(2000) }).strict());
+  await c.env.DB.prepare("DELETE FROM staff_push_subscriptions WHERE shop_id=? AND account_id=? AND endpoint=?").bind(c.get("shopId"), v.id, b.endpoint).run();
+  return c.json({ ok: true });
+});
 sandbox.get("/customers", async (c) => {
   const parsed = z
     .object({

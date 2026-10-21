@@ -17,15 +17,16 @@ const ROLE_HINT: Record<string, string> = {
   MANAGER: "Everything except billing and who can sign in.",
   OWNER: "Everything: insights, pay, settings, billing and the team. Each shop has one owner.",
 };
-const PERMS: { key: "calendar" | "insights" | "pay" | "setup"; label: string; hint: string }[] = [
+const PERMS: { key: "calendar" | "insights" | "pay" | "setup" | "all_notifications"; label: string; hint: string }[] = [
   { key: "calendar", label: "See everyone's calendar and customers", hint: "Otherwise they only see their own." },
   { key: "insights", label: "See whole-shop insights", hint: "Otherwise they only see their own numbers." },
   { key: "pay", label: "See pay runs and wallets", hint: "Otherwise they only see their own pay." },
   { key: "setup", label: "Change services, hours and shop settings", hint: "Never billing or who can sign in." },
+  { key: "all_notifications", label: "See all notifications", hint: "Alerts and push messages for every barber's bookings. Otherwise only their own." },
 ];
 function PermissionBoxes({ member, disabled, onSave }: { member: Member; disabled: boolean; onSave: (p: Record<string, boolean>) => void }) {
   const initial = (() => { try { return JSON.parse(member.permissions_json || "{}") as Record<string, boolean>; } catch { return {}; } })();
-  const [p, setP] = useState<Record<string, boolean>>({ calendar: !!initial.calendar, insights: !!initial.insights, pay: !!initial.pay, setup: !!initial.setup });
+  const [p, setP] = useState<Record<string, boolean>>({ calendar: !!initial.calendar, insights: !!initial.insights, pay: !!initial.pay, setup: !!initial.setup, all_notifications: !!initial.all_notifications });
   const changed = PERMS.some((x) => !!p[x.key] !== !!initial[x.key]);
   return (
     <fieldset className="staff-login-perms" data-testid="staff-login-perms">
