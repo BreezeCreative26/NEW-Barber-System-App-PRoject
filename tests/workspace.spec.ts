@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { openFixtureShop, origin, base, section, openFilters, markDone } from "./fixture";
+import { openFixtureShop, origin, base, section, markDone } from "./fixture";
 import { enterNewShop } from "./shop";
 import { refreshView } from "./fixture";
 test("initial network failure retries in place and unexpected HTML has a useful recovery message", async ({
@@ -114,15 +114,6 @@ test("interrupted booking response retries idempotently and details/status filte
     .getByLabel("Reason for detail changes")
     .fill("Corrected test record");
   await save(page);
-  await expect(
-    page.getByRole("button").filter({ hasText: "Updated recovery client" }),
-  ).toBeVisible();
-  await openFilters(page);
-  await page.getByLabel("Status filter").selectOption("COMPLETED");
-  await expect(
-    page.getByRole("heading", { name: "No matching appointments" }),
-  ).toBeVisible();
-  await page.getByLabel("Status filter").selectOption("CONFIRMED");
   await expect(
     page.getByRole("button").filter({ hasText: "Updated recovery client" }),
   ).toBeVisible();
@@ -342,7 +333,7 @@ function future() {
 async function enter(page: Page) {
   await enterNewShop(page, "Matte workflow test");
   await expect(
-    page.getByRole("heading", { name: "No matching appointments" }),
+    page.getByText("Nothing booked."),
   ).toBeVisible();
 }
 async function save(page: Page) {

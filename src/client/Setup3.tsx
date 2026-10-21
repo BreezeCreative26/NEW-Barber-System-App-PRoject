@@ -1,3 +1,4 @@
+import { cancelOptions } from "./cancelChoices";
 // Onboarding steps added with the full-screen flow: Brand (logo, cover, colour — with the real shop
 // page as the preview) and Booking rules & terms (notice, window, cancellation, house terms).
 import { useEffect, useState } from "react";
@@ -177,7 +178,7 @@ export function StepTerms({ w, api, refresh, setNotice, setError, onNext, onSkip
           <small className="helper">How far into the future the calendar opens.</small>
         </label>
         <label className="workspace-field"><span>Free cancellation until</span>
-          <select value={cancel} onChange={(e) => setCancel(Number(e.target.value))} data-testid="setup-cancel"><option value={0}>Any time</option><option value={2}>2 hours before</option><option value={12}>12 hours before</option><option value={24}>24 hours before</option><option value={48}>48 hours before</option></select>
+          <select value={cancel} onChange={(e) => setCancel(Number(e.target.value))} data-testid="setup-cancel">{cancelOptions(cancel)}</select>
           <small className="helper">After this, any deposit is kept.</small>
         </label>
       </div>

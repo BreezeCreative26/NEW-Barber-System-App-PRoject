@@ -35,8 +35,8 @@ test("day off with appointments: resolver lists clashes with suggestions; move +
   const b = await book(page, staff.id, svc.id, day, 840, "Bob Clash");
 
   await page.getByLabel("Appointment date", { exact: true }).fill(day);
-  const heading = page.locator(".staff-column-heading").filter({ hasText: staff.name });
-  await heading.getByTestId("staff-menu").click();
+  await page.getByTestId("day-menu-button").click();
+  await page.getByTestId("day-menu").getByLabel("Barber").selectOption({ label: staff.name });
   await page.getByRole("menuitem", { name: /Day off/ }).click();
   const dlg = page.getByRole("dialog");
   await dlg.locator('[name="date"]').fill(day);

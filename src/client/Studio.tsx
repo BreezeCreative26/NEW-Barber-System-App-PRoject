@@ -637,15 +637,6 @@ function ServiceEditor({ w, api, service, onClose, onSaved, startNewCategory = f
               </span>
               <label className="switch"><input type="checkbox" checked={!!form.online_bookable} onChange={(e) => setForm({ ...form, online_bookable: e.target.checked ? 1 : 0 })} aria-label="Bookable online" /><span /></label>
             </div>
-            <label className="workspace-field">
-              <span>Payment when booked online</span>
-              <select value={form.payment_mode ?? ""} onChange={(e) => setForm({ ...form, payment_mode: (e.target.value || null) as "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" | null })} data-testid="service-payment-mode">
-                <option value="">Shop default (Settings → Payments)</option>
-                <option value="DEPOSIT">Deposit at booking</option>
-                <option value="PREPAY">Pay in full at booking</option>
-                <option value="PAY_AT_VISIT">Pay at the visit</option>
-              </select>
-            </label>
             <div className="switch-row">
               <span>
                 <strong>Mark as popular</strong>

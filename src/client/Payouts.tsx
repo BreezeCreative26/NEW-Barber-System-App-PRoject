@@ -238,15 +238,24 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
         >
           <h3>Policy</h3>
           <div className="workspace-form-grid">
-            <label className="workspace-field">
-              <span>How customers pay when booking online</span>
-              <select data-testid="payment-mode" value={form.payment_mode} onChange={(e) => setForm({ ...form, payment_mode: e.target.value as "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" })}>
-                <option value="DEPOSIT">Deposit — {money(data!.settings.deposit_pence)} now, the rest at the chair</option>
-                <option value="PREPAY">Pay in full — whole price by card at booking</option>
-                <option value="PAY_AT_VISIT">Pay at the visit — nothing taken online</option>
-              </select>
-              <small className="workspace-footnote">Shop default. Any service can override it in Services → edit → Payment.</small>
-            </label>
+            <fieldset className="workspace-field" data-testid="pay-where">
+              <legend>How the shop takes payment</legend>
+              <label className="workspace-toggle">
+                <input type="radio" name="pay-where" data-testid="pay-where-online" checked={form.payment_mode !== "PAY_AT_VISIT"} onChange={() => setForm({ ...form, payment_mode: form.payment_mode === "PAY_AT_VISIT" ? "DEPOSIT" : form.payment_mode })} />
+                <span><strong>Online payments</strong><small>Customers pay by card when they book.</small></span>
+              </label>
+              <label className="workspace-toggle">
+                <input type="radio" name="pay-where" data-testid="pay-where-store" checked={form.payment_mode === "PAY_AT_VISIT"} onChange={() => setForm({ ...form, payment_mode: "PAY_AT_VISIT", deposits_online: 0 })} />
+                <span><strong>Pay in store</strong><small>No online payments. Customers pay at the shop.</small></span>
+              </label>
+              {form.payment_mode !== "PAY_AT_VISIT" && (
+                <select data-testid="payment-mode" aria-label="How much is taken online" value={form.payment_mode} onChange={(e) => setForm({ ...form, payment_mode: e.target.value as "PREPAY" | "DEPOSIT" })}>
+                  <option value="DEPOSIT">Deposit — {money(data!.settings.deposit_pence)} now, the rest at the chair</option>
+                  <option value="PREPAY">Pay in full — whole price by card at booking</option>
+                </select>
+              )}
+              <small className="workspace-footnote">Applies to every service in the shop.</small>
+            </fieldset>
             <label className="workspace-toggle">
               <input type="checkbox" data-testid="deposits-online" checked={form.deposits_online === 1} disabled={!live} onChange={(e) => setForm({ ...form, deposits_online: e.target.checked ? 1 : 0 })} />
               <span>

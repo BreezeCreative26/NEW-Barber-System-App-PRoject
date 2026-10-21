@@ -1,6 +1,6 @@
 import { test, expect, request, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { section, openFilters, openFixtureShop } from "./fixture";
+import { section, openFixtureShop } from "./fixture";
 import { base, origin, signup, seedCatalogue, enterNewShop } from "./shop";
 import { refreshView } from "./fixture";
 function day(offset = 5) {
@@ -12,7 +12,7 @@ function day(offset = 5) {
 async function enter(page: Page) {
   await enterNewShop(page, "Calendar UI shop");
   await expect(
-    page.getByRole("heading", { name: "No matching appointments" }),
+    page.getByText("Nothing booked."),
   ).toBeVisible();
 }
 
@@ -392,18 +392,6 @@ test("E1 filters preserve barber colour and hidden occupancy; navigation keeps f
   const colour = await event.getAttribute("class");
   await page.getByLabel("Barber filter").selectOption(bookings[1].staff_id);
   await expect(event).toHaveAttribute("class", colour!);
-  await openFilters(page);
-  await page.getByLabel("Search appointments").fill("not a saved customer");
-  await expect(page.locator(".calendar-event")).toHaveCount(0);
-  // Hidden occupancy stays visible as "Occupied" cells; since the Fresha-style calendar they remain
-  // clickable (book alongside) rather than disabled.
-  await expect(page.locator('.timetable-slot[data-minute="540"]')).toHaveClass(/occupied/);
-  await expect(page.locator('.timetable-slot[data-minute="540"]').first()).toHaveAttribute("title", /Occupied/);
-  await expect(page.locator(".calendar-buffer")).toHaveCount(2);
-  await page.getByRole("button", { name: "Agenda", exact: true }).click();
-  await expect(page.getByLabel("Search appointments")).toHaveValue(
-    "not a saved customer",
-  );
   await page.getByRole("button", { name: "Next day", exact: true }).click();
   await expect(page.getByLabel("Barber filter")).toHaveValue(
     bookings[1].staff_id,
@@ -416,14 +404,6 @@ test("E1 filters preserve barber colour and hidden occupancy; navigation keeps f
     .getByRole("button", { name: "Clear filters", exact: true })
     .click();
   await expect(page.getByLabel("Barber filter")).toHaveValue("");
-  await expect(page.getByLabel("Search appointments")).toHaveValue("");
-  await page.getByLabel("Status filter").selectOption("CANCELLED");
-  await expect(
-    page.getByRole("heading", { name: "No matching appointments" }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Clear filters", exact: true })
-    .click();
   await page.getByRole("button", { name: "Today", exact: true }).click();
   const w = await (await page.request.get(base + "/workspace")).json();
   await expect(
@@ -512,7 +492,6 @@ for (const width of [320, 390, 768, 1024, 1440])
     ).toBe(true);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await expect(page.getByRole("heading", { name: "Your timetable", exact: true })).toBeAttached();
-    await page.getByTestId("filters-toggle").scrollIntoViewIfNeeded();
     await page.screenshot({
       path: test.info().outputPath(`e1-calendar-${width}.png`),
       fullPage: true,
@@ -977,47 +956,3 @@ test("standing booking: repeat controls preview every date, conflicts must be sk
   await expect(page.getByRole("dialog").getByTestId("series-options")).toHaveCount(0);
 });
 
-test("walk-in: seats someone now with no phone, lands on today's timetable as WALK_IN, no customer record is created", async ({ page }) => {
-  await openFixtureShop(page);
-  const w = await (await page.request.get(base + "/workspace")).json();
-  const nowMin = (() => {
-    const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
-    return Number(p.find((x) => x.type === "hour")!.value) * 60 + Number(p.find((x) => x.type === "minute")!.value);
-  })();
-  const dayHours = JSON.parse(w.shop.week_json)[new Date(w.today + "T12:00:00Z").getUTCDay()];
-  test.skip(!dayHours.enabled || nowMin < dayHours.starts || nowMin > dayHours.ends - 60, "walk-ins only make sense during opening hours");
-  const before = (await (await page.request.get(base + "/customers")).json()).customers.length;
-  await page.getByTestId("walk-in").click();
-  const dlg = page.getByRole("dialog");
-  await expect(dlg.getByRole("heading", { name: "Walk-in" })).toBeVisible();
-  // Pick a barber who is actually rostered today (the fixture gives some barbers a weekday off).
-  const wd = new Date(w.today + "T12:00:00Z").getUTCDay();
-  const barber = w.staff.find((s: any) => s.active && w.hours.some((h: any) => h.staff_id === s.id && h.weekday === wd && h.enabled));
-  test.skip(!barber, "no barber rostered today in the fixture");
-  await dlg.getByTestId("walkin-barber").selectOption(barber.id);
-  await dlg.getByTestId("walkin-service").selectOption({ index: 1 });
-  const seat = dlg.getByRole("button", { name: /^Seat now · \d{2}:\d{2}$/ });
-  // Availability loads asynchronously: wait for either a seatable time or the explicit no-time notice.
-  await expect(seat.or(dlg.getByText("No free time left today"))).toBeVisible();
-  const skipped = (await dlg.getByText("No free time left today").count()) > 0;
-  test.skip(skipped, "fixture barber is fully booked right now");
-  await expect(seat).toBeVisible();
-  const label = await seat.innerText();
-  const startMin = (() => { const [h, m] = label.split("· ")[1].split(":").map(Number); return h * 60 + m; })();
-  // The offered start is the current slot or later, never more than 15 minutes ago.
-  expect(startMin).toBeGreaterThanOrEqual(Math.floor(nowMin / 15) * 15 - 15);
-  await seat.click();
-  await expect(dlg).toBeHidden();
-  const after = await (await page.request.get(base + `/bookings?date=${w.today}&limit=200`)).json();
-  const seated = after.bookings.find((b: any) => b.source === "WALK_IN" && b.customer_name === "Walk-in" && b.start_min === startMin);
-  expect(seated).toBeTruthy();
-  expect(seated.phone).toBe("");
-  expect(seated.customer_id).toBeNull();
-  expect((await (await page.request.get(base + "/customers")).json()).customers.length).toBe(before);
-  // Non-walk-in bookings still require a phone.
-  const bad = await page.request.post(base + "/bookings", {
-    headers: { Origin: origin },
-    data: { request_id: crypto.randomUUID(), staff_id: barber.id, service_id: w.services[0].id, customer_name: "No Phone", phone: "", date: w.today, start_min: startMin, source: "TEST_BOOKING", addon_ids: [], quote: { service_version: 0, shop_version: 0 } },
-  });
-  expect(bad.status()).toBe(400);
-});

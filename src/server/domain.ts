@@ -4,7 +4,8 @@ import { z } from "zod";
 export type PaymentMode = "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT";
 export const PAYMENT_MODES: PaymentMode[] = ["PREPAY", "DEPOSIT", "PAY_AT_VISIT"];
 export function paymentModeFor(shop: Pick<Shop, "payment_mode">, service?: Pick<Service, "payment_mode"> | null): PaymentMode {
-  return (service?.payment_mode as PaymentMode | null | undefined) || shop.payment_mode || "DEPOSIT";
+  void service; // One choice for the whole shop: online payments or pay in store. Services never override it.
+  return shop.payment_mode || "DEPOSIT";
 }
 // Amount due up front for a visit (what deposit_policy_pence records). Mirrors ollo_due_at_booking().
 export function dueAtBooking(shop: Pick<Shop, "payment_mode" | "deposit_pence">, service: Pick<Service, "payment_mode"> | null | undefined, pricePence: number): number {
@@ -492,7 +493,7 @@ export const serviceSchema = z
     description: z.string().trim().max(400).default(""),
     colour: colourSchema.default("sage"),
     online_bookable: active.default(1),
-    payment_mode: z.enum(["PREPAY", "DEPOSIT", "PAY_AT_VISIT"]).nullable().default(null),
+    payment_mode: z.any().optional().transform(() => null),
     popular: active.default(0),
     sort_order: z.number().int().min(0).max(999).default(0),
   })

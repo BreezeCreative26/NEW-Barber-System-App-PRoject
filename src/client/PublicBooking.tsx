@@ -753,7 +753,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const duration = chosenSlot?.duration_min ?? availability?.duration_min ?? est.duration;
   // Payment mode: the chosen service may override the shop's default.
   const payMode: "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" =
-    (shop.services.find((s) => s.id === service)?.payment_mode as "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" | null | undefined) || shop.shop.payment_mode || "DEPOSIT";
+    (shop.shop.payment_mode as "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" | null | undefined) || "DEPOSIT";
   const deposit = payMode === "PREPAY" ? price : payMode === "PAY_AT_VISIT" ? 0 : Math.min(shop.shop.deposit_pence, price);
   const depositOnline = !!shop.shop.deposit_online && deposit > 0;
   const upfrontLabel = payMode === "PREPAY" ? "Pay now" : "Deposit";

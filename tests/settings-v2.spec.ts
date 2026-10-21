@@ -26,7 +26,7 @@ test("split shop forms: saving one section keeps every other setting intact", as
   await openFixtureShop(page);
   const before = (await (await page.request.get(base + "/workspace")).json()).shop;
   await section(page, "Settings/calendar");
-  await page.getByLabel("Cancellation policy hours").fill("36");
+  await page.getByLabel("Free cancellation until").selectOption("36");
   await page.getByRole("button", { name: "Save policies", exact: true }).click();
   await expect(page.getByRole("status").first()).toContainText(/Saved/);
   const after = (await (await page.request.get(base + "/workspace")).json()).shop;
