@@ -227,7 +227,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
     if (resetToken) history.replaceState(null, "", location.pathname);
     onDone();
   };
-  const login = (e: FormEvent) => { e.preventDefault(); run(async () => { await api(`${A}/login`, "POST", { email, password }); finish(); }, "Could not sign in."); };
+  const login = (e: FormEvent) => { e.preventDefault(); run(async () => { const r = await api<{ team?: boolean; workspace_url?: string }>(`${A}/login`, "POST", { email, password }); if (r?.team) { window.location.assign(r.workspace_url || "/workspace"); return; } finish(); }, "Could not sign in."); };
   const register = (e: FormEvent) => {
     e.preventDefault();
     if (password !== password2) { setError("The two passwords don't match."); return; }

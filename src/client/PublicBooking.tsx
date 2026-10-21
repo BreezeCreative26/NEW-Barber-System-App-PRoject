@@ -591,7 +591,10 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     setAuthBusy(true);
     try {
       if (authMode === "register") await api(`/shops/${encodeURIComponent(slug)}/account/register`, "POST", { name: reg.name.trim(), phone: reg.phone, email: reg.email.trim(), password: reg.password, marketing_opt_in: regMarketing ? 1 : 0, contact_pref: smsOffered && regTexts ? "AUTO" : "EMAIL", accept_terms_version: termsVersion });
-      else await api(`/shops/${encodeURIComponent(slug)}/account/login`, "POST", { email: login.email.trim(), password: login.password });
+      else {
+        const r = await api<{ team?: boolean; workspace_url?: string }>(`/shops/${encodeURIComponent(slug)}/account/login`, "POST", { email: login.email.trim(), password: login.password });
+        if (r?.team) { window.location.assign(r.workspace_url || "/workspace"); return; }
+      }
       if (authMode === "register" && !(smsOffered && regTexts)) setContactPref("EMAIL");
       await loadSession();
       go(4);
