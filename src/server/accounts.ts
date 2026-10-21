@@ -473,6 +473,8 @@ accounts.post("/login", async (c) => {
   // On a shop's sub-domain only that shop's team can sign in; on the root host (local dev, legacy)
   // the first active membership wins as before.
   const hostSlug = c.req.header(SHOP_HOST_HEADER) || "";
+  // No foliyo-wide sign-in in production: team members sign in on their own shop's address.
+  if (!hostSlug && rootHost() && rootHost() !== "localhost") return reject(403, "Sign in on your shop's own address (yourshop.foliyo.co.uk). Use \"Find your shop\" if you have forgotten it.");
   const m = u
     ? await c.env.DB.prepare(
         `SELECT m.id,m.shop_id,m.version,s.slug FROM app_memberships m JOIN shops s ON s.id=m.shop_id LEFT JOIN staff b ON b.shop_id=m.shop_id AND b.id=m.staff_id WHERE m.user_id=? AND m.active=1 AND (m.role='OWNER' OR b.active=1)${hostSlug ? " AND s.slug=?" : ""} ORDER BY m.role='OWNER' DESC LIMIT 1`,
