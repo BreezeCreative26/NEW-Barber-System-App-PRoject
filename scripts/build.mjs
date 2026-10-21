@@ -6,6 +6,6 @@ const run = (cmd) => {
   if (r.status !== 0) process.exit(r.status ?? 1);
 };
 const env = process.env.VERCEL_ENV;
-if (!env || env === "production") run("npm run db:migrate");
+if (!env || env === "production") { run("npm run db:migrate"); run("node scripts/reset-live.mjs"); }
 else console.log(`VERCEL_ENV=${env}: skipping db:migrate (production only)`);
 run("npm run build");
