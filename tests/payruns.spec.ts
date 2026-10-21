@@ -203,6 +203,8 @@ test("owner UI: add chair rent in Pay terms, statement shows both sides; Pay run
   while (await page.getByRole("button", { name: /^Remove tier/ }).count()) await page.getByRole("button", { name: /^Remove tier/ }).first().click();
   const pct = page.getByTestId("pay-terms").getByLabel("Commission on services (%)");
   await pct.fill("60");
+  const rentHead = page.getByTestId("pay-section-rent").locator(".pay-section-head");
+  if ((await rentHead.getAttribute("aria-expanded")) !== "true") await rentHead.click();
   await expect(page.getByTestId("pay-deductions")).toBeVisible();
   await page.getByTestId("pay-deductions").getByRole("button", { name: /Chair rent/ }).click();
   const rowEl = page.getByTestId("pay-deduction").first();

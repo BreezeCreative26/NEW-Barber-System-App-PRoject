@@ -7,6 +7,7 @@ import { money, datePlus } from "./fixtures";
 import { PAY_MODELS, PayStatement, payFormOf, resultOfRun, summariseTerms, describeDeduction } from "./Pay";
 import { BarberPayoutCard } from "./Payouts";
 import { WalletsPanel } from "./Wallets";
+import { HolidayTracker } from "./Holidays";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 const fmt = (d: string) => new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(d + "T12:00:00Z"));
@@ -113,6 +114,9 @@ export function MyPay({ w, api }: { w: WorkspaceData; api: Api }) {
           {preview ? <PayStatement barber={first} terms={preview.terms} input={preview.input} result={preview.result} adjustments={[]} split={{ card: preview.split?.card_service_pence ?? 0, cash: preview.split?.cash_service_pence ?? 0 }} showOwner={showOwner} /> : <p className="workspace-footnote">Calculating…</p>}
           <p className="workspace-footnote">Live estimate from what's been recorded at checkout. Your statement is final once the owner creates the pay run.</p>
         </div>
+      </div>
+      <div className="workspace-panel">
+        <HolidayTracker w={w} staff={me} canEdit={false} own />
       </div>
       <div className="workspace-panel">
         <h3>Statements</h3>

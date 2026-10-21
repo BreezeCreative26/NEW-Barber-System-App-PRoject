@@ -751,9 +751,11 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const price = chosenSlot?.price_pence ?? (anyBarber ? est.price : availability?.price_pence ?? est.price);
   const priceTo = chosenSlot?.price_pence ?? (anyBarber ? est.priceTo : price);
   const duration = chosenSlot?.duration_min ?? availability?.duration_min ?? est.duration;
-  // Payment mode: the chosen service may override the shop's default.
-  const payMode: "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" =
-    (shop.shop.payment_mode as "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" | null | undefined) || "DEPOSIT";
+  // Payment follows the shop's one choice. If card payments aren't switched on, everything is paid
+  // in the shop, so we never mention a deposit that can't be taken.
+  const payMode: "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" = !shop.shop.deposit_online
+    ? "PAY_AT_VISIT"
+    : (shop.shop.payment_mode as "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" | null | undefined) || "DEPOSIT";
   const deposit = payMode === "PREPAY" ? price : payMode === "PAY_AT_VISIT" ? 0 : Math.min(shop.shop.deposit_pence, price);
   const depositOnline = !!shop.shop.deposit_online && deposit > 0;
   const upfrontLabel = payMode === "PREPAY" ? "Pay now" : "Deposit";
@@ -1555,7 +1557,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                     {availability?.cancel_hours ?? shop.shop.cancel_hours} hours ahead. You’ll get a
                     manage link after confirming.{" "}
                     {payMode === "PAY_AT_VISIT"
-                      ? "Nothing to pay now — settle up in the shop."
+                      ? "Nothing is taken online. You pay in the shop on the day."
                       : payMode === "PREPAY"
                         ? depositOnline
                           ? `The full ${money(deposit)} is taken by card next; it's refunded if you cancel in time.`
@@ -1821,9 +1823,7 @@ function ConfirmationCard({
               ? `${money(booking.deposit_paid_pence ?? 0)} refunded to your card.`
               : booking.deposit_status === "PENDING"
                 ? `${booking.deposit_policy_pence >= booking.price_pence ? "Payment" : "Deposit"} ${money(booking.deposit_policy_pence)} due by card to secure this time.`
-                : booking.deposit_policy_pence > 0
-                  ? `Pay in the shop · deposit policy ${money(booking.deposit_policy_pence)}.`
-                  : "Pay in the shop."}
+                : "Pay in the shop on the day. Nothing has been taken online."}
         </p>
       </section>
       {link ? (
@@ -2069,7 +2069,13 @@ export function ManageBooking({ token }: { token: string }) {
               </p>
             ))}
             <p>
-              Total {money(booking.price_pence)} · pay in the shop. Cancellation policy{" "}
+              Total {money(booking.price_pence)} ·{" "}
+              {booking.deposit_status === "PAID"
+                ? (booking.deposit_paid_pence ?? 0) >= booking.price_pence
+                  ? "paid in full by card"
+                  : `${money(booking.deposit_paid_pence ?? 0)} deposit paid, ${money(booking.price_pence - (booking.deposit_paid_pence ?? 0))} to pay in the shop`
+                : "pay in the shop"}
+              . Cancellation policy{" "}
               {booking.cancel_hours} hours.
             </p>
           </section>

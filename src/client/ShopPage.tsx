@@ -15,7 +15,7 @@ export type SectionVariants = Partial<{ hero: string; next: string; services: st
 export type ElementStyles = Record<string, { bg?: string; fg?: string }>;
 export type PageDesign = { accent: string; theme?: ShopTheme; primary_hex?: string; secondary_hex?: string; variants?: SectionVariants; element_styles?: ElementStyles; logo_tone?: string };
 export type PageData = {
-  shop: { id: string; name: string; address: string; slug: string; timezone: string; currency?: string; opens: number; closes: number; deposit_pence: number; cancel_hours: number; lead_time_min: number; booking_window_days: number };
+  shop: { id: string; name: string; address: string; slug: string; timezone: string; currency?: string; opens: number; closes: number; deposit_pence: number; cancel_hours: number; lead_time_min: number; booking_window_days: number; deposit_online?: boolean; payment_mode?: string | null; payment?: { mode: string; deposit_pence: number; line: string } };
   page: { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme?: ShopTheme; logo_tone?: "light" | "dark" | "colour" | ""; primary_hex?: string; secondary_hex?: string; variants?: SectionVariants; element_styles?: ElementStyles; copy?: PageCopy; google_review_url?: string; published: number };
   staff: { id: string; name: string; role: string; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[];
   services: { id: string; name: string; category: string; duration_min: number; price_pence: number; description?: string; colour?: string; popular?: number }[];
@@ -547,11 +547,15 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
               <li>
                 <Icon name="calendar" size={15} /> Online bookings need {shop.lead_time_min >= 60 ? `${Math.round(shop.lead_time_min / 60)} hour${shop.lead_time_min >= 120 ? "s" : ""}` : `${shop.lead_time_min} minutes`}' notice and open up to {shop.booking_window_days} days ahead.
               </li>
-              {shop.deposit_pence > 0 && (
-                <li>
-                  <Icon name="wallet" size={15} /> Deposit policy {money(shop.deposit_pence)}, payable in the shop.
-                </li>
-              )}
+              <li data-testid="payment-policy">
+                <Icon name="wallet" size={15} />{" "}
+                {shop.payment?.line ??
+                  (!shop.deposit_online || shop.payment_mode === "PAY_AT_VISIT"
+                    ? "Pay in the shop on the day. No payment is taken online."
+                    : shop.payment_mode === "PREPAY"
+                      ? "The full price is taken by card when you book."
+                      : `A ${money(shop.deposit_pence)} deposit is taken by card when you book. The rest is paid in the shop.`)}
+              </li>
               {page.policy_text && <li className="sp-policy-text">{page.policy_text}</li>}
             </ul>
           </section>

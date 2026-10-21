@@ -44,7 +44,7 @@ import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, pushFor, waAvai
 import { currentAccount as currentCustomerAccount, customerPassword, ensureAccount, openSession as openCustomerSession, sendWelcome } from "./customerAuth";
 import { autoOffer, slotFreed, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
 import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
-import { createDepositSession, depositView, depositsOnline, expireHolds, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
+import { createDepositSession, depositView, depositsOnline, paymentPolicy, expireHolds, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
 import { shopUrl } from "./hosts";
 import {
   audit,
@@ -175,6 +175,7 @@ const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   // True when the deposit is taken by card at booking time (shop toggle + Stripe configured).
   deposit_online: depositsOnline(s),
   payment_mode: s.payment_mode ?? "DEPOSIT",
+  payment: paymentPolicy(s),
   deposit_hold_min: s.deposit_hold_min ?? 15,
   cancel_hours: s.cancel_hours,
   lead_time_min: s.lead_time_min,
@@ -657,7 +658,12 @@ export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooki
     service: booking.service_name, barber: (staffName || "us").split(" ")[0], date: fmtDate(booking.date), time: fmtTime(booking.start_min), ref: ref(booking),
     address: shop.address, link, book_link: shopUrl(shop.slug!, "/book", origin), cancel_hours: booking.cancel_hours_snapshot,
     price: new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.price_pence / 100),
-    deposit_note: booking.deposit_policy_pence > 0 ? `deposit ${new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(booking.deposit_policy_pence / 100)} payable in the shop` : "pay in the shop",
+    // What this customer actually owes in the shop: paid in full, deposit paid, or all on the day.
+    deposit_note: booking.deposit_status === "PAID"
+      ? (booking.deposit_paid_pence ?? 0) >= booking.price_pence
+        ? "paid in full by card"
+        : `deposit ${new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format((booking.deposit_paid_pence ?? 0) / 100)} paid, the rest in the shop`
+      : "pay in the shop",
   };
   const channels = channelsFor(shop, to, "AUTO", template === "booking_confirmed");
   const opts = { related: { type: "booking", id: booking.id }, origin };

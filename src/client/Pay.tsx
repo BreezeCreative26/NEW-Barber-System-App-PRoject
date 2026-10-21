@@ -1,8 +1,8 @@
 // Pay terms + pay runs for one barber. Terms are saved on the staff record (PUT /staff/:id);
 // pay runs are calculated server-side from the payments ledger and the terms in force.
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { askText } from "./confirm";
-import { withLegacyRent, type Deduction, type PayModel, type PayPeriod, type PayRun, type Staff, type WorkspaceData } from "../server/domain";
+import { calculatePayRun, withLegacyRent, type Deduction, type PayModel, type PayPeriod, type PayRun, type PayRunInput, type PayTerms, type Staff, type WorkspaceData } from "../server/domain";
 import { Button, Icon, Notice, StatusPill } from "./ui";
 import { money, datePlus, currencySymbol } from "./fixtures";
 
@@ -67,10 +67,16 @@ export const DEDUCTION_PRESETS: { key: string; label: string; make: (period: Pay
   { key: "chair", label: "Chair rent", make: (p) => ({ label: "Chair rent", kind: "FIXED", amount_pence: 15000, pct_x100: 0, cadence: p === "MONTHLY" ? "MONTHLY" : "WEEKLY", proration: "FULL", waive_on_leave: 0, active: 1 }) },
   { key: "room", label: "Room rent", make: () => ({ label: "Room rent", kind: "FIXED", amount_pence: 60000, pct_x100: 0, cadence: "MONTHLY", proration: "BY_DAYS", waive_on_leave: 0, active: 1 }) },
   { key: "pct", label: "% of takings", make: () => ({ label: "Supplies", kind: "PERCENT_OF_TAKINGS", amount_pence: 0, pct_x100: 500, cadence: "PER_RUN", proration: "FULL", waive_on_leave: 0, active: 1 }) },
+  { key: "day", label: "Rent per day", make: () => ({ label: "Day rent", kind: "FIXED", amount_pence: 2500, pct_x100: 0, cadence: "DAILY", day_basis: "ROSTERED", proration: "FULL", waive_on_leave: 0, active: 1 }) },
   { key: "other", label: "Other deduction", make: () => ({ label: "", kind: "FIXED", amount_pence: 0, pct_x100: 0, cadence: "PER_RUN", proration: "FULL", waive_on_leave: 0, active: 1 }) },
 ];
+const CADENCE_WORD: Record<Deduction["cadence"], string> = { DAILY: "a day", WEEKLY: "a week", FORTNIGHTLY: "a fortnight", MONTHLY: "a month", PER_RUN: "per run" };
+const BASIS_WORD: Record<NonNullable<Deduction["day_basis"]>, string> = { ROSTERED: "on days they're on the rota", BOOKED: "on days they have bookings", EVERY_DAY: "every day" };
 export function describeDeduction(d: Deduction) {
-  if (d.kind === "FIXED") return `${money(d.amount_pence)} ${d.cadence === "PER_RUN" ? "per run" : d.cadence === "WEEKLY" ? "a week" : d.cadence === "FORTNIGHTLY" ? "a fortnight" : "a month"}${d.cadence !== "PER_RUN" ? (d.proration === "BY_DAYS" ? ", prorated by day" : ", whole periods") : ""}${d.waive_on_leave ? ", waived on leave" : ""}`;
+  if (d.kind === "FIXED") {
+    if (d.cadence === "DAILY") return `${money(d.amount_pence)} a day, ${BASIS_WORD[d.day_basis ?? "ROSTERED"]}${d.day_basis === "EVERY_DAY" && d.waive_on_leave ? ", not on leave days" : ""}`;
+    return `${money(d.amount_pence)} ${CADENCE_WORD[d.cadence]}${d.cadence !== "PER_RUN" ? (d.proration === "BY_DAYS" ? ", part periods by the day" : ", whole periods") : ""}${d.waive_on_leave && d.cadence !== "PER_RUN" ? ", waived on leave" : ""}`;
+  }
   return `${(d.pct_x100 / 100).toFixed(d.pct_x100 % 100 ? 2 : 0)}% of ${d.kind === "PERCENT_OF_TAKINGS" ? "sales" : "the barber's share"}`;
 }
 
@@ -92,27 +98,35 @@ export function summariseTerms(f: PayForm) {
   }
 }
 
+// A collapsible section with a one-line summary, so the whole set-up reads at a glance.
+function Section({ title, summary, open, onToggle, children, testId }: { title: string; summary: string; open: boolean; onToggle: () => void; children: ReactNode; testId?: string }) {
+  return (
+    <section className={`pay-section ${open ? "open" : ""}`} data-testid={testId}>
+      <button type="button" className="pay-section-head" aria-expanded={open} onClick={onToggle}>
+        <span className="pay-section-title">{title}</span>
+        <span className="pay-section-summary">{summary}</span>
+        <Icon name={open ? "up" : "down"} size={16} />
+      </button>
+      {open && <div className="pay-section-body">{children}</div>}
+    </section>
+  );
+}
+
 function DeductionsEditor({ form, set }: { form: PayForm; set: <K extends keyof PayForm>(k: K, v: PayForm[K]) => void }) {
   const upd = (i: number, patch: Partial<Deduction>) => set("deductions", form.deductions.map((d, j) => (j === i ? { ...d, ...patch } : d)));
   const ownerPct = form.pay_model === "COMMISSION" && !form.commission_tiers.length ? 100 - form.commission_pct : null;
   return (
     <div className="pay-deductions" data-testid="pay-deductions">
-      <div className="workspace-section-heading compact">
-        <div>
-          <strong>Deductions & rent</strong>
-          <p className="workspace-footnote">
-            Taken off the barber's pay on every run and owed to the business.{ownerPct != null ? ` Their ${form.commission_pct}% split already leaves the owner ${ownerPct}% of sales.` : ""}
-          </p>
-        </div>
-        <div className="admin-actions">
-          {DEDUCTION_PRESETS.map((p) => (
-            <Button key={p.key} variant="ghost" disabled={form.deductions.length >= 10} onClick={() => set("deductions", [...form.deductions, { id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, ...p.make(form.pay_period) }])}>
-              <Icon name="plus" size={14} /> {p.label}
-            </Button>
-          ))}
-        </div>
+      <p className="workspace-footnote">
+        Taken off the barber's pay each run and owed to the shop.{ownerPct != null ? ` Their ${form.commission_pct}% split already leaves the shop ${ownerPct}% of sales.` : ""}
+      </p>
+      <div className="admin-actions">
+        {DEDUCTION_PRESETS.map((p) => (
+          <Button key={p.key} variant="ghost" disabled={form.deductions.length >= 10} onClick={() => set("deductions", [...form.deductions, { id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, ...p.make(form.pay_period) }])}>
+            <Icon name="plus" size={14} /> {p.label}
+          </Button>
+        ))}
       </div>
-      {form.deductions.length === 0 && <p className="muted">None — the barber keeps their full share.</p>}
       {form.deductions.map((d, i) => (
         <div className={`pay-deduction-row ${d.active ? "" : "off"}`} key={d.id} data-testid="pay-deduction">
           <label className="workspace-field"><span>Label</span><input value={d.label} maxLength={60} placeholder="e.g. Chair rent" onChange={(e) => upd(i, { label: e.target.value })} /></label>
@@ -127,18 +141,29 @@ function DeductionsEditor({ form, set }: { form: PayForm; set: <K extends keyof 
             <>
               <label className="workspace-field narrow"><span>Amount ({currencySymbol()})</span><input type="number" min={0} step="0.01" value={pounds(d.amount_pence)} onChange={(e) => upd(i, { amount_pence: pence(e.target.value) })} /></label>
               <label className="workspace-field"><span>Per</span>
-                <select value={d.cadence} onChange={(e) => upd(i, { cadence: e.target.value as Deduction["cadence"] })}>
-                  <option value="WEEKLY">Week</option><option value="FORTNIGHTLY">Fortnight</option><option value="MONTHLY">Month</option><option value="PER_RUN">Pay run</option>
+                <select value={d.cadence} onChange={(e) => upd(i, { cadence: e.target.value as Deduction["cadence"], ...(e.target.value === "DAILY" && !d.day_basis ? { day_basis: "ROSTERED" as const } : {}) })}>
+                  <option value="DAILY">Day</option><option value="WEEKLY">Week</option><option value="FORTNIGHTLY">Fortnight</option><option value="MONTHLY">Month</option><option value="PER_RUN">Pay run</option>
                 </select>
               </label>
-              {d.cadence !== "PER_RUN" && (
-                <label className="workspace-field"><span>When periods differ</span>
-                  <select value={d.proration} onChange={(e) => upd(i, { proration: e.target.value as Deduction["proration"] })}>
-                    <option value="BY_DAYS">Prorate by day</option><option value="FULL">Charge whole periods</option>
+              {d.cadence === "DAILY" && (
+                <label className="workspace-field"><span>Which days</span>
+                  <select value={d.day_basis ?? "ROSTERED"} onChange={(e) => upd(i, { day_basis: e.target.value as Deduction["day_basis"] })} data-testid="day-basis">
+                    <option value="ROSTERED">Rota days</option>
+                    <option value="BOOKED">Booked days</option>
+                    <option value="EVERY_DAY">Every day</option>
                   </select>
                 </label>
               )}
-              {d.cadence !== "PER_RUN" && <label className="setup-check pay-deduction-check"><input type="checkbox" checked={!!d.waive_on_leave} onChange={(e) => upd(i, { waive_on_leave: e.target.checked ? 1 : 0 })} /><span>Waive on approved leave</span></label>}
+              {d.cadence !== "PER_RUN" && d.cadence !== "DAILY" && (
+                <label className="workspace-field"><span>Part periods</span>
+                  <select value={d.proration} onChange={(e) => upd(i, { proration: e.target.value as Deduction["proration"] })}>
+                    <option value="BY_DAYS">Charge by the day</option><option value="FULL">Charge whole periods</option>
+                  </select>
+                </label>
+              )}
+              {d.cadence !== "PER_RUN" && (d.cadence !== "DAILY" || d.day_basis === "EVERY_DAY") && (
+                <label className="setup-check pay-deduction-check"><input type="checkbox" checked={!!d.waive_on_leave} onChange={(e) => upd(i, { waive_on_leave: e.target.checked ? 1 : 0 })} /><span>Waive on approved leave</span></label>
+              )}
             </>
           ) : (
             <label className="workspace-field narrow"><span>Rate (%)</span><input type="number" min={0} max={100} step="0.01" value={d.pct_x100 ? (d.pct_x100 / 100).toString() : ""} onChange={(e) => upd(i, { pct_x100: Math.max(0, Math.min(10000, Math.round(Number(e.target.value) * 100) || 0)) })} /></label>
@@ -151,55 +176,49 @@ function DeductionsEditor({ form, set }: { form: PayForm; set: <K extends keyof 
   );
 }
 
-export function PayTermsForm({ form, setForm, disabled }: { form: PayForm; setForm: (f: PayForm) => void; disabled?: boolean }) {
+// Pay set-up, slimmed into four short sections. Each shows a one-line summary when closed; the
+// "last period" line underneath re-runs the real pay maths on the edited terms before saving.
+export function PayTermsForm({ form, setForm, disabled, sample, barber }: { form: PayForm; setForm: (f: PayForm) => void; disabled?: boolean; sample?: PayRunInput | null; barber?: string }) {
   const set = <K extends keyof PayForm>(k: K, v: PayForm[K]) => setForm({ ...form, [k]: v });
+  const [open, setOpen] = useState<Record<string, boolean>>(() => ({
+    how: true,
+    tiers: form.commission_tiers.length > 0,
+    rent: form.deductions.length > 0 || form.pay_model === "CHAIR_RENT",
+    more: false,
+  }));
+  const toggle = (k: string) => setOpen((o) => ({ ...o, [k]: !o[k] }));
+  const model = PAY_MODELS.find((m) => m.key === form.pay_model)!;
+  const active = form.deductions.filter((d) => d.active);
+  const rentSummary = active.length ? active.map((d) => `${d.label || "Deduction"} ${describeDeduction(d).split(",")[0]}`).join(" · ") : "None";
+  const tierSummary = form.commission_tiers.length ? form.commission_tiers.map((t, i) => (i === 0 ? `${t.pct}%` : `${t.pct}% above ${money(t.from_pence)}`)).join(" · ") : `None, flat ${form.commission_pct}%`;
+  const showTiers = form.pay_model === "COMMISSION";
+  let previewLine = "";
+  if (sample && (sample.service_pence > 0 || sample.hours_x100 > 0 || (sample.working_days ?? 0) > 0)) {
+    const r = calculatePayRun({ ...form, commission_tiers: showTiers ? form.commission_tiers : [] } as PayTerms, sample);
+    previewLine = `${money(sample.service_pence)} sales → ${money(r.net_pence)} to ${barber ?? "them"}, ${money(r.owed_to_business_pence)} to the shop`;
+  }
   return (
     <fieldset disabled={disabled} className="studio-fieldset pay-terms" data-testid="pay-terms">
-      <div className="pay-models" role="radiogroup" aria-label="Pay model">
-        {PAY_MODELS.map((m) => (
-          <button
-            key={m.key}
-            type="button"
-            role="radio"
-            aria-checked={form.pay_model === m.key}
-            className="pay-model"
-            onClick={() => set("pay_model", m.key)}
-          >
-            <b>{m.label}</b>
-            <small>{m.blurb}</small>
-          </button>
-        ))}
-      </div>
-      <div className="workspace-form-grid three">
-        <label className="workspace-field">
-          <span>Pay period</span>
-          <select value={form.pay_period} onChange={(e) => set("pay_period", e.target.value as PayPeriod)}>
-            {PERIODS.map((p) => (
-              <option key={p.key} value={p.key}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="workspace-field">
-          <span>Employment</span>
-          <select value={form.employment} onChange={(e) => set("employment", e.target.value as PayForm["employment"])}>
-            <option value="SELF_EMPLOYED">Self-employed (invoices the shop)</option>
-            <option value="EMPLOYED">Employed (payroll)</option>
-          </select>
-        </label>
-        <label className="workspace-field">
-          <span>Tips kept by barber (%)</span>
-          <input type="number" min={0} max={100} value={form.tip_share_pct} onChange={(e) => set("tip_share_pct", Math.max(0, Math.min(100, Number(e.target.value) || 0)))} />
-        </label>
-      </div>
-      {(form.pay_model === "COMMISSION" || form.pay_model === "HYBRID") && (
+      <p className="pay-summary" data-testid="pay-summary">
+        <Icon name="wallet" size={14} /> {summariseTerms(form)} · tips {form.tip_share_pct}% to barber
+      </p>
+      <Section title="How they're paid" summary={`${model.label}, ${form.pay_period.toLowerCase()}, ${form.employment === "EMPLOYED" ? "employed" : "self-employed"}`} open={open.how} onToggle={() => toggle("how")} testId="pay-section-how">
+        <div className="pay-models" role="radiogroup" aria-label="Pay model">
+          {PAY_MODELS.map((m) => (
+            <button key={m.key} type="button" role="radio" aria-checked={form.pay_model === m.key} className="pay-model" title={m.blurb} onClick={() => { set("pay_model", m.key); if (m.key === "CHAIR_RENT") setOpen((o) => ({ ...o, rent: true })); }}>
+              <b>{m.label}</b>
+            </button>
+          ))}
+        </div>
+        <p className="workspace-footnote pay-model-blurb">{model.blurb}</p>
         <div className="workspace-form-grid three">
-          <label className="workspace-field">
-            <span>Commission on services (%)</span>
-            <input type="number" min={0} max={100} value={form.commission_pct} onChange={(e) => set("commission_pct", Math.max(0, Math.min(100, Number(e.target.value) || 0)))} disabled={form.commission_tiers.length > 0} />
-            {form.commission_tiers.length > 0 && <small className="field-hint">Tiers below replace the flat rate.</small>}
-          </label>
+          {(form.pay_model === "COMMISSION" || form.pay_model === "HYBRID") && (
+            <label className="workspace-field">
+              <span>Commission on services (%)</span>
+              <input type="number" min={0} max={100} value={form.commission_pct} onChange={(e) => set("commission_pct", Math.max(0, Math.min(100, Number(e.target.value) || 0)))} />
+              {showTiers && form.commission_tiers.length > 0 && <small className="field-hint">Not used while tiers are set.</small>}
+            </label>
+          )}
           {form.pay_model === "HYBRID" && (
             <>
               <label className="workspace-field">
@@ -212,20 +231,59 @@ export function PayTermsForm({ form, setForm, disabled }: { form: PayForm; setFo
               </label>
             </>
           )}
+          {form.pay_model === "HOURLY" && (
+            <label className="workspace-field">
+              <span>Hourly rate ({currencySymbol()})</span>
+              <input type="number" min={0} step="0.01" value={pounds(form.hourly_pence)} onChange={(e) => set("hourly_pence", pence(e.target.value))} />
+              <small className="field-hint">Hours come from the rota, less days off, closures and breaks.</small>
+            </label>
+          )}
+          {form.pay_model === "SALARY" && (
+            <label className="workspace-field">
+              <span>Salary per period ({currencySymbol()})</span>
+              <input type="number" min={0} step="0.01" value={pounds(form.base_pence)} onChange={(e) => set("base_pence", pence(e.target.value))} />
+            </label>
+          )}
           <label className="workspace-field">
-            <span>Product / retail commission (%)</span>
-            <input type="number" min={0} max={100} value={form.product_commission_pct} onChange={(e) => set("product_commission_pct", Math.max(0, Math.min(100, Number(e.target.value) || 0)))} />
-            <small className="field-hint">Recorded for when retail sales are added; not used in pay runs yet.</small>
+            <span>Pay period</span>
+            <select value={form.pay_period} onChange={(e) => set("pay_period", e.target.value as PayPeriod)}>
+              {PERIODS.map((p) => (
+                <option key={p.key} value={p.key}>{p.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="workspace-field">
+            <span>Employment</span>
+            <select value={form.employment} onChange={(e) => set("employment", e.target.value as PayForm["employment"])}>
+              <option value="SELF_EMPLOYED">Self-employed</option>
+              <option value="EMPLOYED">Employed (payroll)</option>
+            </select>
+          </label>
+          <label className="workspace-field">
+            <span>Tips kept by barber (%)</span>
+            <input type="number" min={0} max={100} value={form.tip_share_pct} onChange={(e) => set("tip_share_pct", Math.max(0, Math.min(100, Number(e.target.value) || 0)))} />
           </label>
         </div>
-      )}
-      {form.pay_model === "COMMISSION" && (
-        <div className="pay-tiers">
-          <div className="workspace-section-heading compact">
-            <div>
-              <strong>Tiered commission (optional)</strong>
-              <p className="workspace-footnote">Marginal bands on the period's service takings, e.g. 40% to {money(100000)} then 50% above.</p>
-            </div>
+      </Section>
+      {showTiers && (
+        <Section title="Commission tiers" summary={tierSummary} open={open.tiers} onToggle={() => toggle("tiers")} testId="pay-section-tiers">
+          <div className="pay-tiers">
+            <p className="workspace-footnote">Each rate applies only to takings in its band, e.g. 40% up to {money(100000)}, then 50% on the rest.</p>
+            {form.commission_tiers.map((t, i) => (
+              <div className="pay-tier-row" key={i}>
+                <label className="workspace-field">
+                  <span>{i === 0 ? `From ${money(0)}` : `From ${currencySymbol()} takings`}</span>
+                  <input type="number" min={0} step="0.01" value={i === 0 ? "0" : pounds(t.from_pence)} disabled={i === 0} onChange={(e) => set("commission_tiers", form.commission_tiers.map((x, j) => (j === i ? { ...x, from_pence: pence(e.target.value) } : x)))} />
+                </label>
+                <label className="workspace-field">
+                  <span>Rate (%)</span>
+                  <input type="number" min={0} max={100} value={t.pct} onChange={(e) => set("commission_tiers", form.commission_tiers.map((x, j) => (j === i ? { ...x, pct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) } : x)))} />
+                </label>
+                <Button variant="ghost" aria-label={`Remove tier ${i + 1}`} onClick={() => set("commission_tiers", form.commission_tiers.filter((_, j) => j !== i))}>
+                  <Icon name="close" size={14} />
+                </Button>
+              </div>
+            ))}
             {form.commission_tiers.length < 6 && (
               <Button
                 variant="ghost"
@@ -240,49 +298,69 @@ export function PayTermsForm({ form, setForm, disabled }: { form: PayForm; setFo
               </Button>
             )}
           </div>
-          {form.commission_tiers.map((t, i) => (
-            <div className="pay-tier-row" key={i}>
-              <label className="workspace-field">
-                <span>{i === 0 ? `From ${money(0)}` : `From ${currencySymbol()} takings`}</span>
-                <input type="number" min={0} step="0.01" value={i === 0 ? "0" : pounds(t.from_pence)} disabled={i === 0} onChange={(e) => set("commission_tiers", form.commission_tiers.map((x, j) => (j === i ? { ...x, from_pence: pence(e.target.value) } : x)))} />
-              </label>
-              <label className="workspace-field">
-                <span>Rate (%)</span>
-                <input type="number" min={0} max={100} value={t.pct} onChange={(e) => set("commission_tiers", form.commission_tiers.map((x, j) => (j === i ? { ...x, pct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) } : x)))} />
-              </label>
-              <Button variant="ghost" aria-label={`Remove tier ${i + 1}`} onClick={() => set("commission_tiers", form.commission_tiers.filter((_, j) => j !== i))}>
-                <Icon name="close" size={14} />
-              </Button>
-            </div>
-          ))}
-        </div>
+        </Section>
       )}
-      <DeductionsEditor form={form} set={set} />
-      {form.pay_model === "HOURLY" && (
+      <Section title="Rent and deductions" summary={rentSummary} open={open.rent} onToggle={() => toggle("rent")} testId="pay-section-rent">
+        <DeductionsEditor form={form} set={set} />
+      </Section>
+      <Section title="Notes and retail" summary={form.pay_notes ? form.pay_notes.slice(0, 60) + (form.pay_notes.length > 60 ? "…" : "") : form.product_commission_pct ? `${form.product_commission_pct}% on retail` : "None"} open={open.more} onToggle={() => toggle("more")} testId="pay-section-more">
         <div className="workspace-form-grid">
           <label className="workspace-field">
-            <span>Hourly rate ({currencySymbol()})</span>
-            <input type="number" min={0} step="0.01" value={pounds(form.hourly_pence)} onChange={(e) => set("hourly_pence", pence(e.target.value))} />
-            <small className="field-hint">Hours come from the roster (weekly hours + dated shifts, less leave, closures and breaks).</small>
+            <span>Product / retail commission (%)</span>
+            <input type="number" min={0} max={100} value={form.product_commission_pct} onChange={(e) => set("product_commission_pct", Math.max(0, Math.min(100, Number(e.target.value) || 0)))} />
+            <small className="field-hint">Saved for when retail sales are added. Not used in pay runs yet.</small>
           </label>
         </div>
+        <label className="workspace-field">
+          <span>Notes for pay runs (optional)</span>
+          <textarea rows={2} maxLength={600} value={form.pay_notes} onChange={(e) => set("pay_notes", e.target.value)} placeholder="e.g. rent due Mondays" />
+        </label>
+      </Section>
+      {previewLine && (
+        <p className="pay-preview-line" data-testid="pay-terms-preview">
+          <Icon name="trend" size={14} /> Last period with these terms: {previewLine}
+        </p>
       )}
-      {form.pay_model === "SALARY" && (
-        <div className="workspace-form-grid">
-          <label className="workspace-field">
-            <span>Salary per period ({currencySymbol()})</span>
-            <input type="number" min={0} step="0.01" value={pounds(form.base_pence)} onChange={(e) => set("base_pence", pence(e.target.value))} />
-          </label>
-        </div>
-      )}
-      <label className="workspace-field">
-        <span>Notes for pay runs (optional)</span>
-        <textarea rows={2} maxLength={600} value={form.pay_notes} onChange={(e) => set("pay_notes", e.target.value)} placeholder="e.g. rent due Mondays; holiday pay accrues at 12.07%" />
-      </label>
-      <p className="pay-summary" data-testid="pay-summary">
-        <Icon name="wallet" size={14} /> {summariseTerms(form)} · tips {form.tip_share_pct}% to barber
-      </p>
     </fieldset>
+  );
+}
+
+// Every change to this barber's pay, newest first, with what it was before and after.
+export function PayHistory({ api, staffId, version }: { api: Api; staffId: string; version: number }) {
+  const [items, setItems] = useState<{ id: string; actor: string; reason: string; created_at: number }[] | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    api<{ items: { id: string; actor: string; reason: string; created_at: number }[] }>(`/staff/${staffId}/pay-history`)
+      .then((r) => setItems(r.items))
+      .catch(() => setItems([]));
+  }, [staffId, version]);
+  if (!items || !items.length) return null;
+  const shown = open ? items : items.slice(0, 1);
+  return (
+    <section className="pay-history-log" data-testid="pay-history-log">
+      <h4>Pay changes</h4>
+      <ul>
+        {shown.map((i) => {
+          const m = /^Before: (.*)\. After: (.*)\.$/.exec(i.reason);
+          return (
+            <li key={i.id}>
+              <small>{new Date(i.created_at).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })} · {i.actor}</small>
+              {m ? (
+                <>
+                  <span><b>Was</b> {m[1]}</span>
+                  <span><b>Now</b> {m[2]}</span>
+                </>
+              ) : (
+                <span>{i.reason}</span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {items.length > 1 && (
+        <Button variant="ghost" onClick={() => setOpen(!open)}>{open ? "Show latest only" : `Show all ${items.length} changes`}</Button>
+      )}
+    </section>
   );
 }
 
@@ -295,7 +373,7 @@ type Preview = {
   settlement?: { transfer_pence: number; shop_transfer_pence: number; reserve_pence: number; cash_residual_pence: number };
   payouts_ready?: boolean;
 };
-function periodBounds(period: PayPeriod, today: string, offset = 0) {
+export function periodBounds(period: PayPeriod, today: string, offset = 0) {
   if (period === "MONTHLY") {
     const d = new Date(today + "T12:00:00Z");
     d.setUTCMonth(d.getUTCMonth() + offset, 1);

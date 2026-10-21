@@ -49,9 +49,9 @@ test("API: shop can double-book and book outside hours with force; customers can
     const o = await book(page, jay.id, svc.id, date, outside.start_min, quote, "Early Bird", true);
     expect(o.status, JSON.stringify(o.body)).toBe(201);
   }
-  // Past time is never overridable.
+  // The shop can add a visit in the past (recorded after the fact; no message goes out).
   const past = await book(page, jay.id, svc.id, w.today, 0, quote, "Time Traveller", true);
-  expect(past.status).toBe(409);
+  expect(past.status, JSON.stringify(past.body)).toBe(201);
   // Reschedule onto the occupied slot: refused, then forced, and the audit says so.
   const b = forced.body.booking;
   const dur = b.duration_min as number;

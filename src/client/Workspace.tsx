@@ -27,11 +27,12 @@ import type {
 import { Brand, Button, Icon, IconButton, Modal, Notice, Badge, Avatar, TopBar, Sidebar, readSidebarCollapsed, TabBar, StatusPill, type NavItem } from "./ui";
 import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio, type BarberTab } from "./Studio";
-import { Calendar, WeekStrip, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
+import { Calendar, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { BlockDialog } from "./BlockDialog";
 import { PayRunsPage, MyPay } from "./PayRunsPage";
 import { DENSITIES, DENSITY_PRESETS, resolveDensity, usePhone, writeLocalPrefs, type Density } from "./calendarDensity";
 import { Shifts } from "./Shifts";
+import { HolidayTracker, KIND_LABEL } from "./Holidays";
 import { BillingPanel } from "./Billing";
 import { ConflictResolver, ConflictOutcome, type Preview as ConflictPreview, type Decision as ConflictDecision, type Outcome as ConflictOutcomeRow, type ScheduleChange } from "./ConflictResolver";
 import { WalletDrawer } from "./Wallet";
@@ -1566,12 +1567,25 @@ export function Workspace() {
   // until the next change or 20 s pass.
   const [undo, setUndo] = useState<{ label: string; run: () => Promise<void> } | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
+  // Confirmation messages clear themselves: 4 s, or 8 s while an Undo is on offer.
+  useEffect(() => {
+    if (!notice) return;
+    const t = window.setTimeout(() => setNotice(""), undo ? 8000 : 4000);
+    return () => window.clearTimeout(t);
+  }, [notice, undo]);
   useEffect(() => {
     if (!undo) return;
     const t = window.setTimeout(() => setUndo(null), 20000);
     return () => window.clearTimeout(t);
   }, [undo]);
   const [tab, setTab] = useState("Appointments");
+  // On the calendar the timetable is the only thing that scrolls: the page itself is pinned so a
+  // drag past the top or bottom of the timetable (or on the toolbar) never moves the whole screen.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("calendar-pinned", tab === "Appointments");
+    return () => root.classList.remove("calendar-pinned");
+  }, [tab]);
   // Settings is split into clear sections; the URL hash remembers the open one (#settings/payments).
   // Phone: settings groups collapse; the group holding the open tab is always expanded.
   const [openGroup, setOpenGroup] = useState<string>("");
@@ -2434,8 +2448,9 @@ export function Workspace() {
             </div>
           )}
           {notice && (
-            <p className="workspace-success" role="status">
-              {notice}
+            <p className="workspace-success notice-toast" role="status" key={notice} data-testid="workspace-notice">
+              <span>{notice}</span>
+              <button type="button" className="notice-close" aria-label="Dismiss" onClick={() => { setNotice(""); setUndo(null); }}><Icon name="close" size={14} /></button>
               {undo && (
                 <button
                   type="button"
@@ -2819,7 +2834,6 @@ export function Workspace() {
                       </Button>
                     )}
                   </div>
-                  {date && calendarView !== "week" && <WeekStrip date={date} onDate={setDate} />}
                   {calendarView === "week" && date ? (
                     <WeekView
                       w={w}
@@ -2976,8 +2990,7 @@ export function Workspace() {
                           }
                         />
                       )}
-                      {(calendarView === "agenda" ||
-                        filteredBookings.length === 0) && (
+                      {calendarView === "agenda" && (
                         <BookingList
                           bookings={filteredBookings}
                           w={w}
@@ -3024,6 +3037,9 @@ export function Workspace() {
                   onRemoveDayOff={(item) => setEditor({ kind: "removeDayOff", item })}
                   onRemoveHoliday={(item) => setEditor({ kind: "removeHoliday", item })}
                   onOpenBooking={openBooking}
+                  api={api}
+                  isOwner={!w.account || w.account.role === "OWNER"}
+                  onRefresh={() => refresh().catch(() => {})}
                 />
               )}
               {tab === "Pay" && <PayRunsPage w={w} api={api} onOpenBarber={(sid) => { setFocusBarber(sid); setFocusBarberTab("pay"); setTab("Team"); }} />}
@@ -3111,7 +3127,7 @@ export function Workspace() {
                           <h2>Booking policies</h2>
                           <ShopSaveForm w={w} saved={saved} label="Save policies">
                             <div className="workspace-form-grid">
-                              <Field label={`Deposit (${currencySymbol(w.shop.currency || "GBP")}) · shown to customers, payable in the shop`}>
+                              <Field label={`Deposit (${currencySymbol(w.shop.currency || "GBP")}) · taken by card when they book`}>
                                 <input type="number" name="deposit" min={0} max={100} step="0.01" required defaultValue={w.shop.deposit_pence / 100} />
                               </Field>
                               <Field label="Free cancellation until">
@@ -3722,7 +3738,7 @@ function BusinessDetailsPanel({ w, refresh }: { w: WorkspaceData; refresh: () =>
     <>
       <section className="workspace-panel">
         <h2>Shop</h2>
-        {savedAt > 0 && <p className="workspace-success" role="status" data-testid="biz-saved">Saved. Customers see the new details straight away.</p>}
+        {savedAt > 0 && <p key={savedAt} className="workspace-success" role="status" data-testid="biz-saved">Saved. Customers see the new details straight away.</p>}
         <SaveForm
           key={w.shop.version}
           label="Save business details"
@@ -4827,7 +4843,7 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
             </Field>
           </div>
           {test.result && (
-            <p className="workspace-success" role="status" data-testid="test-result">
+            <p className="workspace-success" role="status" data-testid="test-result" data-keep>
               {test.result}
             </p>
           )}
@@ -6248,7 +6264,7 @@ function BookingList({
       ))}
     </div>
   ) : (
-    <p className="calendar-empty" role="status">Nothing booked.</p>
+    null
   );
 }
 
@@ -6479,21 +6495,18 @@ function WorkspaceEditor({
       )}
       {e.kind === "daysOff" && (
         <>
-          <Notice>
-            Full-day leave overrides weekly hours for this barber only. Existing
-            appointments stay saved and are flagged for review. Partial-day
-            overrides are not available yet.
-          </Notice>
+          <HolidayTracker w={w} staff={e.item} canEdit={false} />
           <section className="workspace-day-off-list">
-            <h3>Saved days off</h3>
-            {w.days_off.filter((d) => d.staff_id === e.item.id).length ===
-              0 && <p>No saved days off.</p>}
+            <h3>Upcoming days off</h3>
+            {w.days_off.filter((d) => d.staff_id === e.item.id && d.date >= w.today).length ===
+              0 && <p>None booked.</p>}
             {w.days_off
-              .filter((d) => d.staff_id === e.item.id)
+              .filter((d) => d.staff_id === e.item.id && d.date >= w.today)
               .map((d) => (
                 <article className="workspace-closure" key={d.id}>
                   <strong>{d.date}</strong>
                   <p>{d.reason}</p>
+                  <small>{KIND_LABEL[d.kind ?? "HOLIDAY"]}</small>
                   <Button variant="ghost" onClick={() => onRemoveDayOff(d)}>
                     Remove {d.date}
                   </Button>
@@ -6504,13 +6517,33 @@ function WorkspaceEditor({
             label="Save day off"
             onSave={(f) =>
               guardedSave(
-                { kind: "day_off", staff_id: e.item.id, change: { date: text(f, "date"), reason: text(f, "reason") } },
-                `${e.item.name.split(" ")[0]} off on ${new Date(text(f, "date") + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`,
+                {
+                  kind: "day_off",
+                  staff_id: e.item.id,
+                  change: {
+                    date: text(f, "date"),
+                    reason: text(f, "reason") || KIND_LABEL[text(f, "kind") || "HOLIDAY"],
+                    kind: text(f, "kind") || "HOLIDAY",
+                    ...(text(f, "to") && text(f, "to") !== text(f, "date") ? { to: text(f, "to") } : {}),
+                  },
+                },
+                `${e.item.name.split(" ")[0]} off ${text(f, "to") && text(f, "to") !== text(f, "date") ? `from ${new Date(text(f, "date") + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} to ${new Date(text(f, "to") + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}` : `on ${new Date(text(f, "date") + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`}`,
               )
             }
           >
+            <Field label="Type">
+              <select name="kind" defaultValue="HOLIDAY">
+                <option value="HOLIDAY">Holiday (uses allowance)</option>
+                <option value="SICK">Sick</option>
+                <option value="UNPAID">Unpaid</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </Field>
             <Field label="Day off date">
               <input type="date" name="date" required defaultValue={date} />
+            </Field>
+            <Field label="Last day (for more than one day)">
+              <input type="date" name="to" />
             </Field>
             <Field label="Day off reason">
               <input
@@ -6521,6 +6554,7 @@ function WorkspaceEditor({
                 placeholder="Annual leave"
               />
             </Field>
+            <p className="workspace-footnote">For more than one day, only the days they normally work are booked off, so a week away uses 5 days, not 7. Existing appointments are flagged for you to sort out first.</p>
           </SaveForm>
         </>
       )}
@@ -6660,8 +6694,8 @@ function WorkspaceEditor({
               {e.item.email && <> · {e.item.email}</>} · {e.item.notes || "No notes"}
             </p>
             <Notice>
-              Service snapshot retained. Deposit policy:{" "}
-              {money(e.item.deposit_policy_pence)}; no payment collected.
+              Service snapshot retained.{" "}
+              {e.item.deposit_status === "PAID" ? `${money(e.item.deposit_paid_pence ?? 0)} paid by card.` : "Paid in the shop."}
               Cancellation policy snapshot: {e.item.cancel_hours_snapshot}{" "}
               hours. Owner test overrides require a reason.
             </Notice>
@@ -8243,7 +8277,7 @@ function ImportCustomers({ onClose, onDone }: { onClose: () => void; onDone: () 
         )}
         {result && (
           <div className="import-result" data-testid="import-result">
-            <p className="workspace-success" role="status"><Icon name="check" size={16} /> Imported: {result.created} added, {result.updated} updated. {result.skipped} were already here, {result.invalid} couldn't be read.</p>
+            <p className="workspace-success" role="status" data-keep><Icon name="check" size={16} /> Imported: {result.created} added, {result.updated} updated. {result.skipped} were already here, {result.invalid} couldn't be read.</p>
             <div className="workspace-form-actions"><Button onClick={onDone}>Done</Button></div>
           </div>
         )}

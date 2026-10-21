@@ -206,7 +206,7 @@ export function StepMessages({ w, api, refresh, data, setNotice, setError, onNex
       <div className="setup-test">
         <Button variant="secondary" disabled={busy || !shop.phone || (needsAck && !ack)} onClick={() => run(() => sendTest("SMS"), setError)} data-testid="setup-test-sms"><Icon name="phone" size={14} /> Text me a test</Button>
         <Button variant="secondary" disabled={busy} onClick={() => run(() => sendTest("EMAIL"), setError)} data-testid="setup-test-email"><Icon name="message" size={14} /> Email me a test</Button>
-        {test && <p className={test.ok ? "workspace-success" : "workspace-error"} role="status" data-testid="setup-test-result">{test.note}</p>}
+        {test && <p className={test.ok ? "workspace-success" : "workspace-error"} role="status" data-testid="setup-test-result" data-keep>{test.note}</p>}
         {!shop.phone && <small className="helper">Add the shop mobile in step 1 to test texts.</small>}
       </div>
       {needsAck && !ack && <p className="helper" data-testid="setup-sms-ack-hint">Tick the box above to switch texts on, or untick "Send texts" to continue without them.</p>}
@@ -367,7 +367,7 @@ export function StepPayments({ w, api, refresh, data, setNotice, setError, goTo,
       {mode !== "PAY_AT_VISIT" && (
         <div className="setup-connect" data-testid="setup-connect">
           {!stripeOn ? (
-            <p className="helper"><Icon name="lock" size={14} /> Card payments aren't switched on for this deployment yet. Your policy is saved; deposits show as "payable in the shop" until they are.</p>
+            <p className="helper"><Icon name="lock" size={14} /> Card payments aren't connected yet. Until they are, customers are told to pay in the shop on the day, and no deposit is mentioned.</p>
           ) : connected ? (
             <p className="workspace-success">Card payments are connected. {mode === "DEPOSIT" ? `Deposits of ${money(Math.round(deposit * 100))}` : "Full payment"} will be taken at booking.</p>
           ) : (

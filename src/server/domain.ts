@@ -31,6 +31,7 @@ export type Shop = {
   online_booking: number;
   lead_time_min: number;
   booking_window_days: number;
+  leave_year_start?: string; // MM-DD the holiday year starts (default 01-01)
   // Shop booking terms. Customers accept a version; a newer version asks again on the next booking.
   terms_text?: string;
   terms_version?: number;
@@ -103,7 +104,10 @@ export function weekEnvelope(week: ShopDay[]) {
 export type PayModel = "COMMISSION" | "CHAIR_RENT" | "HOURLY" | "SALARY" | "HYBRID";
 export type PayPeriod = "WEEKLY" | "FORTNIGHTLY" | "MONTHLY";
 export type DeductionKind = "FIXED" | "PERCENT_OF_TAKINGS" | "PERCENT_OF_STAFF_SHARE";
-export type DeductionCadence = "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | "PER_RUN";
+export type DeductionCadence = "DAILY" | "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | "PER_RUN";
+// Daily rent: which days count. ROSTERED = days they are on the rota (days off and closures don't
+// count), BOOKED = days they actually took a payment, EVERY_DAY = every calendar day in the run.
+export type DayBasis = "ROSTERED" | "BOOKED" | "EVERY_DAY";
 export type Deduction = {
   id: string;
   label: string;
@@ -114,6 +118,7 @@ export type Deduction = {
   proration: "FULL" | "BY_DAYS";
   waive_on_leave: 0 | 1;
   active: 0 | 1;
+  day_basis?: DayBasis;   // DAILY only
 };
 export type PayTerms = {
   pay_model: PayModel;
@@ -170,6 +175,8 @@ export type Staff = {
   id: string;
   shop_id: string;
   name: string;
+  holiday_allowance_x2?: number; // half days (56 = 28 days); 0 = not set
+  holiday_carry_x2?: number;
   role: string;
   active: number;
   version: number;
@@ -277,6 +284,7 @@ export type StaffDayOff = {
   staff_id: string;
   date: string;
   reason: string;
+  kind?: DayOffKind;
   created_at: number;
 };
 export type StaffBlock = {
@@ -473,7 +481,8 @@ export const staffSchema = z
         kind: z.enum(["FIXED", "PERCENT_OF_TAKINGS", "PERCENT_OF_STAFF_SHARE"]),
         amount_pence: z.number().int().min(0).max(10000000).default(0),
         pct_x100: z.number().int().min(0).max(10000).default(0),
-        cadence: z.enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY", "PER_RUN"]).default("WEEKLY"),
+        cadence: z.enum(["DAILY", "WEEKLY", "FORTNIGHTLY", "MONTHLY", "PER_RUN"]).default("WEEKLY"),
+        day_basis: z.enum(["ROSTERED", "BOOKED", "EVERY_DAY"]).optional(),
         proration: z.enum(["FULL", "BY_DAYS"]).default("BY_DAYS"),
         waive_on_leave: z.union([z.literal(0), z.literal(1)]).default(0),
         active: z.union([z.literal(0), z.literal(1)]).default(1),
@@ -916,9 +925,27 @@ export const addonIdsSchema = z
 export const holidaySchema = z
   .object({ date: dateSchema, label: z.string().trim().min(2).max(100) })
   .strict();
+export const DAY_OFF_KINDS = ["HOLIDAY", "SICK", "UNPAID", "OTHER"] as const;
+export type DayOffKind = (typeof DAY_OFF_KINDS)[number];
+// A day off, or a run of days ("to" = last day, up to 31 days). Holidays count against the barber's
+// allowance; sick, unpaid and other days are recorded but don't use it up.
 export const dayOffSchema = z
-  .object({ date: dateSchema, reason: z.string().trim().min(3).max(100) })
+  .object({
+    date: dateSchema,
+    to: dateSchema.optional(),
+    reason: z.string().trim().min(3).max(100),
+    kind: z.enum(DAY_OFF_KINDS).default("HOLIDAY"),
+  })
+  .strict()
+  .refine((v) => !v.to || v.to >= v.date, { message: "The last day can't be before the first day", path: ["to"] })
+  .refine((v) => !v.to || (Date.parse(v.to) - Date.parse(v.date)) / 86400000 <= 31, { message: "Add up to 31 days at a time", path: ["to"] });
+export const holidayAllowanceSchema = z
+  .object({
+    allowance_days: z.number().min(0).max(365).refine((v) => Number.isInteger(v * 2), "Use whole or half days"),
+    carry_days: z.number().min(0).max(365).refine((v) => Number.isInteger(v * 2), "Use whole or half days").default(0),
+  })
   .strict();
+export const leaveYearSchema = z.object({ leave_year_start: z.string().regex(/^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, "Pick a month and day") }).strict();
 // UK mobile, normalised. Walk-ins may leave it empty (checked at the object level).
 export const ukMobileOrEmpty = z
   .string()
@@ -1195,13 +1222,36 @@ export function payTermsOf(s: Staff): PayTerms {
     pay_notes: s.pay_notes,
   };
 }
+// One plain sentence for a set of pay terms, used for the pay-change history ("before" and "after").
+export function payTermsLine(t: PayTerms) {
+  const gb = (p: number) => `£${(p / 100).toFixed(p % 100 ? 2 : 0)}`;
+  const per = t.pay_period.toLowerCase();
+  const main =
+    t.pay_model === "COMMISSION"
+      ? t.commission_tiers.length
+        ? `commission ${t.commission_tiers.map((x, i) => (i === 0 && x.from_pence === 0 ? `${x.pct}%` : `${x.pct}% above ${gb(x.from_pence)}`)).join(", ")}`
+        : `${t.commission_pct}% commission`
+      : t.pay_model === "CHAIR_RENT"
+        ? "keeps all takings"
+        : t.pay_model === "HOURLY"
+          ? `${gb(t.hourly_pence)} an hour`
+          : t.pay_model === "SALARY"
+            ? `${gb(t.base_pence)} salary`
+            : `${gb(t.base_pence)} base + ${t.commission_pct}% above ${gb(t.commission_threshold_pence)}`;
+  const word: Record<DeductionCadence, string> = { DAILY: "a day", WEEKLY: "a week", FORTNIGHTLY: "a fortnight", MONTHLY: "a month", PER_RUN: "a run" };
+  const ded = (t.deductions ?? [])
+    .filter((d) => d.active)
+    .map((d) => (d.kind === "FIXED" ? `${d.label} ${gb(d.amount_pence)} ${word[d.cadence]}${d.cadence === "DAILY" ? ` (${d.day_basis === "BOOKED" ? "days with bookings" : d.day_basis === "EVERY_DAY" ? "every day" : "days on the rota"})` : ""}` : `${d.label} ${(d.pct_x100 / 100).toString()}%`));
+  return `${main}, paid ${per}, tips ${t.tip_share_pct}%${ded.length ? `, less ${ded.join(", ")}` : ""}`;
+}
 // Commission on service takings. Tiers are marginal bands on the period's takings
 // (e.g. 40% to £1,000, 50% above). Flat % when no tiers are set.
 export function commissionFor(terms: PayTerms, servicePence: number) {
   const eligible = Math.max(0, servicePence - (terms.pay_model === "HYBRID" ? terms.commission_threshold_pence : 0));
   if (!terms.commission_tiers.length) return Math.round((eligible * terms.commission_pct) / 100);
-  let total = 0;
   const tiers = [...terms.commission_tiers].sort((a, b) => a.from_pence - b.from_pence);
+  // Takings below the first band (if it doesn't start at zero) earn the flat rate, not nothing.
+  let total = Math.round((Math.min(eligible, tiers[0].from_pence) * terms.commission_pct) / 100);
   for (let i = 0; i < tiers.length; i++) {
     const from = tiers[i].from_pence;
     const to = tiers[i + 1]?.from_pence ?? Number.POSITIVE_INFINITY;
@@ -1221,11 +1271,24 @@ export function commissionFor(terms: PayTerms, servicePence: number) {
 //   adjustments      one-off ± lines (bonus, late fee, deposit refund recovery)
 //   owed_to_staff    staff_share + tips_share − deductions + adjustments          (net_pence)
 //   owed_to_business owner_share + deductions − adjustments
-export type PayRunInput = { service_pence: number; tips_pence: number; visits: number; hours_x100: number; periods: number; days?: number; leave_days?: number; working_days?: number };
+//   days             calendar days in the run; leave_days = days off that fell on rostered days;
+//   working_days     rostered days actually worked (days off and closures removed);
+//   booked_days      days with at least one payment taken.
+export type PayRunInput = { service_pence: number; tips_pence: number; visits: number; hours_x100: number; periods: number; days?: number; leave_days?: number; working_days?: number; booked_days?: number };
 export type DeductionLine = { label: string; pence: number; detail: string; id?: string };
-const CADENCE_DAYS: Record<DeductionCadence, number> = { WEEKLY: 7, FORTNIGHTLY: 14, MONTHLY: 365 / 12, PER_RUN: 0 };
+const CADENCE_DAYS: Record<DeductionCadence, number> = { DAILY: 1, WEEKLY: 7, FORTNIGHTLY: 14, MONTHLY: 365 / 12, PER_RUN: 0 };
+const CADENCE_WORD: Record<DeductionCadence, string> = { DAILY: "day", WEEKLY: "week", FORTNIGHTLY: "fortnight", MONTHLY: "month", PER_RUN: "run" };
+const gbp = (p: number) => `£${(p / 100).toFixed(2)}`;
+const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+// Whole periods when a run lines up with the cadence (a calendar month is 28–31 days; that is one
+// month, not 1.02 of one), otherwise the exact fraction.
+function cadenceUnits(days: number, unit: number) {
+  const raw = days / unit;
+  const whole = Math.round(raw);
+  return whole >= 1 && Math.abs(raw - whole) < 0.12 ? whole : raw;
+}
 export function deductionLines(terms: PayTerms, input: PayRunInput, staffShare: number, tipShare: number): DeductionLine[] {
-  const days = Math.max(1, input.days ?? input.periods * (terms.pay_period === "WEEKLY" ? 7 : terms.pay_period === "FORTNIGHTLY" ? 14 : 30));
+  const days = Math.max(1, input.days ?? Math.round(input.periods * PERIOD_DAYS[terms.pay_period]));
   const leave = Math.max(0, Math.min(days, input.leave_days ?? 0));
   const out: DeductionLine[] = [];
   for (const d of terms.deductions ?? []) {
@@ -1234,16 +1297,30 @@ export function deductionLines(terms: PayTerms, input: PayRunInput, staffShare: 
       let pence: number;
       let detail: string;
       if (d.cadence === "PER_RUN") { pence = d.amount_pence; detail = "per run"; }
-      else {
+      else if (d.cadence === "DAILY") {
+        // Charged per day. Rostered days already leave out days off, and booked days only count days
+        // they worked, so only "every day" needs the leave waiver.
+        const basis = d.day_basis ?? "ROSTERED";
+        const count = basis === "BOOKED" ? (input.booked_days ?? 0) : basis === "ROSTERED" ? (input.working_days ?? days - leave) : days;
+        const charged = basis === "EVERY_DAY" && d.waive_on_leave ? Math.max(0, count - leave) : count;
+        pence = Math.round(d.amount_pence * charged);
+        const what = basis === "BOOKED" ? "booked day" : basis === "ROSTERED" ? "rostered day" : "day";
+        detail = `${plural(charged, what)} at ${gbp(d.amount_pence)}`;
+        if (basis === "EVERY_DAY" && d.waive_on_leave && leave > 0) detail += ` · ${plural(leave, "leave day")} not charged`;
+        out.push({ id: d.id, label: d.label, pence, detail });
+        continue;
+      } else {
         const unit = CADENCE_DAYS[d.cadence];
-        const units = d.proration === "FULL" ? Math.max(1, Math.round(days / unit)) : days / unit;
+        const units = d.proration === "FULL" ? Math.max(1, Math.round(days / unit)) : cadenceUnits(days, unit);
         pence = Math.round(d.amount_pence * units);
-        detail = d.proration === "FULL" ? `${Math.max(1, Math.round(days / unit))} × ${d.cadence.toLowerCase()}` : `${days} day${days === 1 ? "" : "s"} at £${(d.amount_pence / 100).toFixed(2)}/${d.cadence === "WEEKLY" ? "wk" : d.cadence === "FORTNIGHTLY" ? "fortnight" : "mo"}`;
+        detail = d.proration === "FULL" || Number.isInteger(units)
+          ? `${plural(Math.max(1, Math.round(units)), CADENCE_WORD[d.cadence])} at ${gbp(d.amount_pence)}`
+          : `${plural(days, "day")} of ${gbp(d.amount_pence)} a ${CADENCE_WORD[d.cadence]}`;
       }
       if (d.waive_on_leave && leave > 0 && d.cadence !== "PER_RUN") {
         const waived = Math.round((pence * leave) / days);
         pence -= waived;
-        detail += ` · ${leave} leave day${leave === 1 ? "" : "s"} waived (−£${(waived / 100).toFixed(2)})`;
+        detail += ` · ${plural(leave, "leave day")} waived (−${gbp(waived)})`;
       }
       out.push({ id: d.id, label: d.label, pence, detail });
     } else if (d.kind === "PERCENT_OF_TAKINGS") {

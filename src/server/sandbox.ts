@@ -52,6 +52,9 @@ import {
   payRunCreateSchema,
   payRunUpdateSchema,
   payTermsOf,
+  payTermsLine,
+  holidayAllowanceSchema,
+  leaveYearSchema,
   type PayTerms,
   calculatePayRun,
   periodsCovered,
@@ -281,7 +284,8 @@ sandbox.use("*", async (c, next) => {
       // The setup wizard (owner/manager): its own routes enforce the role again.
       path.startsWith("/setup") ||
       (["PUT", "DELETE"].includes(method) && path === "/shop/page/draft") ||
-      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/reviews", "/shop/waitlist", "/shop/messaging", "/shop/payments", "/shop/alerts", "/shop/voice"].includes(path)) ||
+      (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/reviews", "/shop/waitlist", "/shop/messaging", "/shop/payments", "/shop/alerts", "/shop/voice", "/shop/leave-year"].includes(path)) ||
+      (method === "GET" && /^\/staff\/[^/]+\/pay-history$/.test(path)) ||
       (method === "GET" && (path === "/shop/alerts" || path.startsWith("/shop/voice"))) ||
       (method === "GET" && ["/wallets", "/wallets.csv"].includes(path)) ||
       (method === "POST" && path === "/shop/voice/rotate") ||
@@ -1950,6 +1954,14 @@ sandbox.put("/staff/:id", async (c) => {
       if (cur && cur.role !== b.role) fail(403, "Only the shop owner can change a role");
     }
   }
+  // Pay changes are logged with a before/after line so there's a record of what each barber was
+  // agreed and when it changed.
+  const prior = await c.env.DB.prepare("SELECT * FROM staff WHERE id=? AND shop_id=?").bind(c.req.param("id"), c.get("shopId")).first<Staff>();
+  const payBefore = prior ? payTermsLine(payTermsOf(prior)) : "";
+  const payAfter = prior
+    ? payTermsLine(payTermsOf({ ...prior, ...b, commission_tiers: JSON.stringify(b.commission_tiers), deductions_json: JSON.stringify(b.deductions), skills: JSON.stringify(b.skills) } as unknown as Staff))
+    : "";
+  const payChanged = !!prior && payBefore !== payAfter;
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
@@ -1993,8 +2005,36 @@ sandbox.put("/staff/:id", async (c) => {
       true,
     ),
   );
+  if (payChanged) await audit(c, "staff_pay", c.req.param("id"), "PAY_TERMS_CHANGED", `Before: ${payBefore}. After: ${payAfter}.`).run();
   const seats = await syncSeats(c.env.DB, c.get("shopId"), c.get("actor"), { name: b.name, added: !!b.active }).catch(() => null);
   return c.json({ ok: true, seats });
+});
+// Holiday allowance for one barber (owner and managers). Stored in half days.
+sandbox.put("/staff/:id/holiday-allowance", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const b = await input(c, holidayAllowanceSchema);
+  const res = await c.env.DB.prepare("UPDATE staff SET holiday_allowance_x2=?, holiday_carry_x2=? WHERE shop_id=? AND id=?")
+    .bind(Math.round(b.allowance_days * 2), Math.round(b.carry_days * 2), c.get("shopId"), c.req.param("id"))
+    .run();
+  if (!res.meta.changes) fail(404, "Barber not found");
+  await audit(c, "staff", c.req.param("id"), "HOLIDAY_ALLOWANCE_SET", `${b.allowance_days} days a year${b.carry_days ? `, ${b.carry_days} carried over` : ""}.`).run();
+  return c.json({ ok: true });
+});
+// When the shop's holiday year starts (owner only). Default 1 January.
+sandbox.put("/shop/leave-year", async (c) => {
+  requireRole(c, ["OWNER"]);
+  const b = await input(c, leaveYearSchema);
+  await c.env.DB.prepare("UPDATE shops SET leave_year_start=? WHERE id=?").bind(b.leave_year_start, c.get("shopId")).run();
+  await audit(c, "shop", c.get("shopId"), "LEAVE_YEAR_SET", `Holiday year starts ${b.leave_year_start}.`).run();
+  return c.json({ ok: true });
+});
+// Pay-change history for one barber (owner and managers).
+sandbox.get("/staff/:id/pay-history", async (c) => {
+  requireRole(c, ["OWNER", "MANAGER"]);
+  const rows = await c.env.DB.prepare(
+    "SELECT id,actor,reason,created_at FROM audit_events WHERE shop_id=? AND entity_type='staff_pay' AND entity_id=? ORDER BY created_at DESC, id DESC LIMIT 50",
+  ).bind(c.get("shopId"), c.req.param("id")).all<{ id: string; actor: string; reason: string; created_at: number }>();
+  return c.json({ items: rows.results });
 });
 sandbox.put("/staff/:id/hours", async (c) => {
   const b = await input(c, hoursSchema);
@@ -2042,6 +2082,33 @@ sandbox.put("/staff/:id/hours", async (c) => {
   if (!result[0].meta.changes) fail(409, "record_changed");
   return c.json({ ok: true });
 });
+// The dates a day-off entry covers. A single date is always recorded; for a run of days only the
+// days the barber would normally work count (so a week's holiday uses 5 days, not 7), skipping
+// shop closures and days already marked off.
+async function dayOffDates(c: Ctx, staffId: string, b: { date: string; to?: string }) {
+  const to = b.to ?? b.date;
+  const sid = c.get("shopId");
+  const [shop, hours, overrides, closed, existing] = await Promise.all([
+    readShop(c),
+    c.env.DB.prepare("SELECT * FROM staff_hours WHERE shop_id=? AND staff_id=?").bind(sid, staffId).all<Hours>(),
+    c.env.DB.prepare("SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, b.date, to).all<ScheduleOverride>(),
+    c.env.DB.prepare("SELECT date FROM holidays WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, b.date, to).all<{ date: string }>(),
+    c.env.DB.prepare("SELECT date FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, b.date, to).all<{ date: string }>(),
+  ]);
+  const taken = new Set(existing.results.map((r) => r.date));
+  if (to === b.date) {
+    if (taken.has(b.date)) fail(409, "They already have that day off");
+    return [b.date];
+  }
+  const out: string[] = [];
+  for (let d = b.date; d <= to; d = datePlusServer(d, 1)) {
+    if (taken.has(d) || closed.results.some((h) => h.date === d) || !shopDay(shop, weekday(d)).enabled) continue;
+    const h = effectiveHours(hours.results.find((x) => x.weekday === weekday(d)) ?? null, overrides.results.find((o) => o.date === d) ?? null);
+    if (h?.enabled) out.push(d);
+  }
+  if (!out.length) fail(400, "They aren't rostered on any of those days");
+  return out;
+}
 sandbox.post("/staff/:id/days-off", async (c) => {
   const body = await input(c, dayOffSchema);
   const staffId = c.req.param("id");
@@ -2051,24 +2118,20 @@ sandbox.post("/staff/:id/days-off", async (c) => {
     .bind(c.get("shopId"), staffId)
     .first();
   if (!staff) fail(404, "Barber not found");
+  const dates = await dayOffDates(c, staffId, body);
   const leaveId = id();
   await c.env.DB.batch([
-    c.env.DB.prepare(
-      "INSERT INTO staff_days_off(id,shop_id,staff_id,date,reason,created_at) VALUES(?,?,?,?,?,?)",
-    ).bind(
-      leaveId,
-      c.get("shopId"),
-      staffId,
-      body.date,
-      body.reason,
-      Date.now(),
+    ...dates.map((d, i) =>
+      c.env.DB.prepare(
+        "INSERT INTO staff_days_off(id,shop_id,staff_id,date,reason,kind,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING",
+      ).bind(i === 0 ? leaveId : id(), c.get("shopId"), staffId, d, body.reason, body.kind, Date.now()),
     ),
     audit(
       c,
       "staff_day_off",
       leaveId,
       "DAY_OFF_ADDED",
-      `${staffId}: ${body.date} — ${body.reason}. Review existing appointments.`,
+      `${staffId}: ${dates.length === 1 ? dates[0] : `${dates.length} days, ${dates[0]} to ${dates.at(-1)}`} — ${body.reason} (${body.kind.toLowerCase()}). Review existing appointments.`,
     ),
   ]);
   return c.json({ id: leaveId }, 201);
@@ -2612,9 +2675,12 @@ sandbox.post("/schedule/apply", async (c) => {
     changeId = operation;
   } else if (change.kind === "day_off") {
     changeId = id();
+    const dates = await dayOffDates(c, change.staff_id, change.change);
     await c.env.DB.batch([
-      c.env.DB.prepare("INSERT INTO staff_days_off(id,shop_id,staff_id,date,reason,created_at) VALUES(?,?,?,?,?,?)").bind(changeId, sid, change.staff_id, change.change.date, change.change.reason, Date.now()),
-      audit(c, "staff_day_off", changeId, "DAY_OFF_ADDED", `${staffName}: ${change.change.date} — ${change.change.reason}. ${body.decisions.length} appointment decision(s) applied.`),
+      ...dates.map((d, i) =>
+        c.env.DB.prepare("INSERT INTO staff_days_off(id,shop_id,staff_id,date,reason,kind,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING").bind(i === 0 ? changeId : id(), sid, change.staff_id, d, change.change.reason, change.change.kind, Date.now()),
+      ),
+      audit(c, "staff_day_off", changeId, "DAY_OFF_ADDED", `${staffName}: ${dates.length === 1 ? dates[0] : `${dates.length} days, ${dates[0]} to ${dates.at(-1)}`} — ${change.change.reason} (${change.change.kind.toLowerCase()}). ${body.decisions.length} appointment decision(s) applied.`),
     ]);
   } else if (change.kind === "holiday") {
     changeId = id();
@@ -2919,6 +2985,8 @@ export async function createBooking(
     quote.duration_min,
     data.service.name,
     quote.price_pence,
+    // The policy amount is always recorded (the database checks it against the shop's settings);
+    // whether it is actually taken online is decided by deposit_status, not this number.
     dueAtBooking(data.shop, data.service, quote.price_pence),
     data.shop.cancel_hours,
     b.source,
@@ -2961,7 +3029,7 @@ export async function createBooking(
           ? options.depositHoldMin
             ? `Customer booked online. Slot held ${options.depositHoldMin} min for the deposit.`
             : "Customer booked online. Deposit payable in the shop; confirmation queued."
-          : (b.source === "WALK_IN" ? "Walk-in seated." : "Appointment saved by the shop.") + (overridden ? ` Overrode: ${reason}.` : ""),
+          : (b.source === "WALK_IN" ? "Walk-in seated." : start < now ? "Added after the visit by the shop. No message sent." : "Appointment saved by the shop.") + (overridden ? ` Overrode: ${reason}.` : ""),
       ),
     ]);
   } catch (err) {
@@ -2981,8 +3049,9 @@ sandbox.post("/bookings", async (c) => {
   const ent = await entitlements(c.env.DB, c.get("shopId")).catch(() => null);
   if (ent?.readOnly) fail(402, ent.reasons[0] || "Your foliyo account needs attention before new bookings can be made");
   const b = await input(c, bookingSchema);
-  // Walk-ins are seated in the current slot: allow a start up to 15 minutes ago.
-  const result = await createBooking(c, { ...b, email: "" }, "OWNER", { force: b.force, ...(b.source === "WALK_IN" ? { minStart: Date.now() - 15 * 60000 } : {}) });
+  // The shop can add an appointment after it happened (a walk-in written up later, a missed
+  // entry): any start time is allowed from the shop side. Customers online still can't book the past.
+  const result = await createBooking(c, { ...b, email: "" }, "OWNER", { force: b.force, minStart: 0 });
   return c.json(result, result.replayed ? 200 : 201);
 });
 sandbox.get("/bookings/:id", async (c) =>
@@ -3361,26 +3430,39 @@ export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: strin
   if (!staff) return fail(404, "Barber not found");
   const holidays = (await db.prepare("SELECT date FROM holidays WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, from, to).all<{ date: string }>()).results.map((h) => h.date);
   const off = new Set(offRows.results.map((r) => r.date));
-  // Rostered minutes across the period (weekly hours + dated overrides, less leave/closures/breaks).
+  // Rostered minutes across the period (weekly hours + dated overrides, less leave/closures/breaks),
+  // plus the day counts daily rent uses: days they worked on the rota, and days off that landed on a
+  // day they would have worked (a day off on their usual day off isn't "leave" for rent purposes).
   let minutes = 0;
+  let working_days = 0;
+  let leave_days = 0;
   for (let d = from; d <= to; d = datePlusServer(d, 1)) {
     const day = shopDay(shop, weekday(d));
-    if (off.has(d) || holidays.includes(d) || !day.enabled) continue;
+    if (holidays.includes(d) || !day.enabled) continue;
     const h = effectiveHours(hoursRows.results.find((x) => x.weekday === weekday(d)) ?? null, overrideRows.results.find((o) => o.date === d) ?? null);
     if (!h?.enabled) continue;
-    minutes += Math.max(0, Math.min(h.ends, day.ends) - Math.max(h.starts, day.starts)) - Math.max(0, h.break_end - h.break_start);
+    if (off.has(d)) {
+      leave_days += 1;
+      continue;
+    }
+    working_days += 1;
+    const breakMin = h.break_end > h.break_start ? h.break_end - h.break_start : 0;
+    minutes += Math.max(0, Math.max(0, Math.min(h.ends, day.ends) - Math.max(h.starts, day.starts)) - breakMin);
   }
+  const booked = await db
+    .prepare("SELECT COUNT(DISTINCT date) AS n FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL")
+    .bind(sid, staffId, from, to)
+    .first<{ n: number }>();
+  const booked_days = Number(booked?.n ?? 0);
   const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
   const terms = payTermsOf(staff);
   const periods = periodsCovered(terms.pay_period, days);
-  // Approved leave in the period (whole days; half days count 0.5 once the leave model is in).
-  const leave_days = offRows.results.reduce((n, r) => n + ((r as { half?: string }).half ? 0.5 : 1), 0);
   // Deposit refunds caused by re-pricing a visit below the deposit: recovered from the barber here.
   const openAdj = (await db.prepare("SELECT * FROM booking_adjustments WHERE shop_id=? AND staff_id=? AND pay_run_id IS NULL AND date<=?").bind(sid, staffId, to).all<BookingAdjustment>()).results;
   return {
     staff,
     terms,
-    input: { service_pence: pay?.service ?? 0, tips_pence: pay?.tips ?? 0, visits: pay?.visits ?? 0, hours_x100: Math.round((minutes / 60) * 100), periods, days, leave_days },
+    input: { service_pence: pay?.service ?? 0, tips_pence: pay?.tips ?? 0, visits: pay?.visits ?? 0, hours_x100: Math.round((minutes / 60) * 100), periods, days, leave_days, working_days, booked_days },
     auto_adjustments: openAdj.map((a) => ({ label: a.label, pence: a.pence, adjustment_id: a.id })),
   };
 }
@@ -3655,13 +3737,14 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     body.date,
     body.start_min,
     b.duration_min,
-    Date.now(),
+    0, // the shop may move an appointment into the past (recording when it really happened)
     b.id,
     data.daysOff,
     data.blocks,
   );
   const moveInstant = localInstant(body.date, body.start_min, data.shop.timezone);
-  const overridden = !!reason && body.force && overridable(reason) && moveInstant !== null && moveInstant >= Date.now();
+  const movedToPast = moveInstant !== null && moveInstant < Date.now();
+  const overridden = !!reason && body.force && overridable(reason) && moveInstant !== null;
   if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
   const start = localInstant(body.date, body.start_min, data.shop.timezone)!;
   await checkVersionUpdate(
@@ -3684,7 +3767,8 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
   );
   await slotFreed(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "move");
   const after = await readBooking(c, b.id);
-  const notice = await noticeMove(c, b, after, body.notify);
+  // Nobody is told about a time that has already gone.
+  const notice = await noticeMove(c, b, after, movedToPast ? false : body.notify);
   return c.json({ booking: after, notify: notice });
 });
 // Tell the customer their appointment moved. The message is held for MOVE_HOLD_MS so the shop's

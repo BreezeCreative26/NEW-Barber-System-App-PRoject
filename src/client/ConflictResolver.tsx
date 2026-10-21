@@ -20,7 +20,7 @@ export type Outcome = { booking_id: string; action: string; ok: boolean; note: s
 export type ScheduleChange =
   | { kind: "override"; staff_id: string; override_id?: string; change: Record<string, unknown> }
   | { kind: "weekly"; staff_id: string; change: Record<string, unknown> }
-  | { kind: "day_off"; staff_id: string; change: { date: string; reason: string } }
+  | { kind: "day_off"; staff_id: string; change: { date: string; reason: string; to?: string; kind?: string } }
   | { kind: "holiday"; change: { date: string; label: string } };
 
 const longDate = (d: string) => new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });

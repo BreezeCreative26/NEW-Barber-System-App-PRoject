@@ -47,6 +47,18 @@ export function depositsOnline(shop: Pick<Shop, "deposits_online" | "deposit_pen
   return true;
 }
 
+// The one sentence customers see about paying, everywhere (shop page, booking, manage page,
+// messages). It follows the shop's single choice, and if online payments were chosen but card
+// payments aren't actually connected, it says "pay in the shop" rather than promise a deposit.
+export type PaymentPolicy = { mode: "IN_STORE" | "DEPOSIT" | "FULL"; deposit_pence: number; line: string };
+export function paymentPolicy(shop: Pick<Shop, "deposits_online" | "deposit_pence" | "stripe_account_id" | "payment_mode" | "currency">): PaymentPolicy {
+  const fmt = (p: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(p / 100);
+  const mode = shop.payment_mode ?? "DEPOSIT";
+  if (mode === "PAY_AT_VISIT" || !depositsOnline(shop)) return { mode: "IN_STORE", deposit_pence: 0, line: "Pay in the shop on the day. No payment is taken online." };
+  if (mode === "PREPAY") return { mode: "FULL", deposit_pence: 0, line: "The full price is taken by card when you book." };
+  return { mode: "DEPOSIT", deposit_pence: shop.deposit_pence, line: `A ${fmt(shop.deposit_pence)} deposit is taken by card when you book. The rest is paid in the shop.` };
+}
+
 class StripeError extends Error {
   constructor(message: string, public status: number, public code = "") {
     super(message);

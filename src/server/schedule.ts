@@ -109,7 +109,8 @@ function patch(roster: Roster, change: ScheduleChange): Roster {
     r.hours = r.hours.filter((h) => h.staff_id !== change.staff_id);
     for (const row of change.change.rows) r.hours.push({ shop_id: r.shop.id, staff_id: change.staff_id, ...row } as Hours);
   } else if (change.kind === "day_off") {
-    r.daysOff.push({ id: "preview", shop_id: r.shop.id, staff_id: change.staff_id, date: change.change.date, reason: change.change.reason, created_at: Date.now() });
+    for (let d = change.change.date; d <= (change.change.to ?? change.change.date); d = plusDays(d, 1))
+      r.daysOff.push({ id: "preview", shop_id: r.shop.id, staff_id: change.staff_id, date: d, reason: change.change.reason, kind: change.change.kind, created_at: Date.now() });
   } else if (change.kind === "holiday") {
     r.holidays.push({ id: "preview", shop_id: r.shop.id, date: change.change.date, label: change.change.label });
   } else if (change.kind === "shop_week") {
@@ -132,7 +133,8 @@ function reasonFor(r: Roster, b: StoredBooking, now: number, excludeBlocks = fal
 
 // Dates a change can touch: a dated change → that day; a pattern change → the horizon.
 function window(change: ScheduleChange, today: string): { from: string; to: string } {
-  if (change.kind === "override" || change.kind === "day_off" || change.kind === "holiday") return { from: change.change.date, to: change.change.date };
+  if (change.kind === "day_off") return { from: change.change.date, to: change.change.to ?? change.change.date };
+  if (change.kind === "override" || change.kind === "holiday") return { from: change.change.date, to: change.change.date };
   return { from: today, to: plusDays(today, HORIZON_DAYS) };
 }
 
@@ -305,7 +307,9 @@ export const describeChange = (change: ScheduleChange, staffName?: string): stri
   switch (change.kind) {
     case "override": return change.change.enabled ? `${who}'s hours on ${fmtDate(change.change.date)} changed to ${fmtTime(change.change.starts)}–${fmtTime(change.change.ends)}` : `${who} is off on ${fmtDate(change.change.date)}`;
     case "weekly": return `${who}'s weekly hours changed`;
-    case "day_off": return `${who} is off on ${fmtDate(change.change.date)} (${change.change.reason})`;
+    case "day_off": return change.change.to && change.change.to !== change.change.date
+      ? `${who} is off from ${fmtDate(change.change.date)} to ${fmtDate(change.change.to)} (${change.change.reason})`
+      : `${who} is off on ${fmtDate(change.change.date)} (${change.change.reason})`;
     case "holiday": return `the shop is closed on ${fmtDate(change.change.date)} (${change.change.label})`;
     case "shop_week": return "the shop's opening hours changed";
   }
