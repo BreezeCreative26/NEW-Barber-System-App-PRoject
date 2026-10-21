@@ -352,7 +352,7 @@ export function landingPage(origin: string, v: Vertical = VERTICALS.universal) {
       <a href="#faq">FAQ</a>
     </nav>
     <div class="l-header-cta">
-      <a class="l-signin" href="/signin">Sign in</a>
+      <a class="l-signin" href="/signin">Find your shop</a>
       <a class="l-btn l-btn-outline" href="/signup" data-testid="landing-cta-header">Start Free Trial</a>
     </div>
   </div>
