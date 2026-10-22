@@ -283,6 +283,7 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && ["/series/preview", "/series"].includes(path)) ||
       (method === "POST" && /^\/series\/[^/]+\/(cancel|reschedule)$/.test(path)) ||
       (method === "GET" && /^\/bookings\/[^/]+\/timeline$/.test(path)) ||
+      (method === "GET" && /^\/customers\/[^/]+\/messages$/.test(path)) ||
       (method === "POST" && /^\/bookings\/[^/]+\/manage-link$/.test(path)) ||
       (method === "POST" && /^\/bookings\/[^/]+\/notify-flush$/.test(path)) ||
       (method === "POST" && /^\/waitlist\/[^/]+\/status$/.test(path)) ||
@@ -1183,6 +1184,27 @@ sandbox.get("/customers/:id", async (c) => {
     favourite_staff_id: (byBarber.results[0] as { staff_id?: string } | undefined)?.staff_id ?? null,
     favourite_service: (byService.results[0] as { name?: string } | undefined)?.name ?? null,
   });
+});
+// Every text and email sent to one customer (matched by their bookings and by their phone and
+// email, so older messages show too). Same visibility rules as the customer record itself.
+sandbox.get("/customers/:id/messages", async (c) => {
+  const a = c.get("account");
+  const assigned = customerScope(c);
+  const cust = await readCustomer(c, c.req.param("id"));
+  const target = cust.merged_into ?? cust.id;
+  if (assigned) {
+    const mine = await c.env.DB.prepare("SELECT 1 AS x FROM bookings WHERE shop_id=? AND customer_id=? AND staff_id=? LIMIT 1").bind(c.get("shopId"), target, assigned).first();
+    if (!mine) fail(404, "Customer not found");
+  }
+  const rows = await c.env.DB.prepare(
+    `SELECT n.id,n.channel,n.recipient,n.template,n.body,n.subject,n.status,n.error,n.created_at,n.sent_at FROM notifications n
+     WHERE n.shop_id=? AND n.channel IN ('SMS','EMAIL') AND (
+       n.recipient IN (?,?) OR LOWER(n.recipient)=LOWER(NULLIF(?, ''))
+       OR n.related_id IN (SELECT id FROM bookings WHERE shop_id=? AND customer_id=?))
+     ORDER BY n.created_at DESC LIMIT 100`,
+  ).bind(c.get("shopId"), cust.phone, cust.phone.replace(/^0/, "+44"), cust.email || "", c.get("shopId"), target).all<{ recipient: string }>();
+  const hide = !can(a, "customer_contact");
+  return c.json({ messages: rows.results.map((m) => (hide ? { ...m, recipient: "" } : m)) });
 });
 sandbox.put("/customers/:id", async (c) => {
   const b = await input(c, customerSchema);

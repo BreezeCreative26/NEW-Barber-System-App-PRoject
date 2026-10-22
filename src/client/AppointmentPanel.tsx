@@ -143,6 +143,8 @@ export function AppointmentPanel({
   children?: ReactNode;
 }) {
   const [editingItems, setEditingItems] = useState(false);
+  // Everyday view shows only this visit; customer stats, standing options and history sit behind "More".
+  const [more, setMore] = useState(false);
   const ref = useRef<HTMLElement>(null);
   const [confirm, setConfirm] = useState<null | { status: string; series?: boolean }>(null);
   const [reason, setReason] = useState("");
@@ -279,9 +281,6 @@ export function AppointmentPanel({
               {booking.status === "CONFIRMED" && (
                 <button type="button" className="panel-quick-btn" onClick={goMove} disabled={!!busy} data-testid="quick-reschedule"><Icon name="calendar" size={16} /> Reschedule</button>
               )}
-              {onItems && payments.filter((p) => !p.voided_at).length === 0 && (
-                <button type="button" className="panel-quick-btn" onClick={() => setEditingItems(true)} disabled={!!busy} data-testid="quick-change-service"><Icon name="scissors" size={16} /> Change service</button>
-              )}
               {booking.status === "CONFIRMED" && (isPast || !noShowEarly) && (
                 <button type="button" className="panel-quick-btn" onClick={() => setConfirm({ status: "NO_SHOW" })} disabled={!!busy} data-testid="quick-no-show"><Icon name="userRound" size={16} /> No-show</button>
               )}
@@ -313,7 +312,7 @@ export function AppointmentPanel({
                 </Button>
               )}
             </div>
-            {customer ? (
+            {customer && !more ? null : customer ? (
               <>
                 <dl className="panel-stats">
                   <div><dt>Visits</dt><dd>{customer.visits}</dd></div>
@@ -330,11 +329,11 @@ export function AppointmentPanel({
                 )}
                 {customer.notes && <p className="panel-customer-notes">{customer.notes}</p>}
               </>
-            ) : timeline ? (
+            ) : more && timeline ? (
               <p className="workspace-footnote">No customer record linked.</p>
-            ) : (
+            ) : more ? (
               <p className="workspace-footnote" aria-busy="true">Loading customer…</p>
-            )}
+            ) : null}
           </section>
 
           {/* Appointment details */}
@@ -441,13 +440,13 @@ export function AppointmentPanel({
                 <p className={booking.notes ? "" : "muted"}>{booking.notes || "No notes yet."}</p>
               )}
             </div>
-            <p className="panel-meta">
+            {more && <p className="panel-meta">
               {booking.deposit_status === "PAID" ? `Deposit ${money(booking.deposit_paid_pence ?? 0)} paid by card` : booking.deposit_status === "REFUNDED" ? `Deposit ${money(booking.deposit_paid_pence ?? 0)} refunded` : booking.deposit_status === "PENDING" ? `Deposit ${money(booking.deposit_policy_pence)} waiting for card payment` : "Paid in the shop"} · cancel window {booking.cancel_hours_snapshot}h · booked {when(booking.created_at)}
-            </p>
+            </p>}
           </section>
 
           {/* Standing series */}
-          {booking.series_id && timeline && (
+          {more && booking.series_id && timeline && (
             <section className="panel-card panel-series" aria-label="Standing booking">
               <div className="panel-notes-head">
                 <strong><Icon name="repeat" size={14} /> Standing booking</strong>
@@ -550,7 +549,8 @@ export function AppointmentPanel({
           {children}
 
           {/* Timeline */}
-          <section className="panel-card panel-timeline" aria-label="Appointment history">
+          <button type="button" className="panel-more-toggle" aria-expanded={more} onClick={() => setMore(!more)} data-testid="panel-more-toggle">{more ? "Show less" : "More: customer details, standing booking, history"}</button>
+          {more && <section className="panel-card panel-timeline" aria-label="Appointment history">
             <strong>History</strong>
             {timelineError && <p className="workspace-error" role="alert">{timelineError}</p>}
             {!timeline && !timelineError && <p className="workspace-footnote">Loading history…</p>}
@@ -568,7 +568,7 @@ export function AppointmentPanel({
                 ))}
               </ol>
             )}
-          </section>
+          </section>}
         </div>
 
         {/* Sticky contextual actions */}

@@ -4665,6 +4665,7 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
   const [filter, setFilter] = useState<"" | "SENT" | "FAILED" | "QUEUED">("");
   const [preview, setPreview] = useState<{ subject: string; html: string; body: string; channel: string } | null>(null);
   const [copied, setCopied] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const load = () =>
     api<OutboxData>(`/notifications?limit=60${filter ? `&status=${filter}` : ""}`)
       .then((d) => {
@@ -4953,6 +4954,20 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
       {show === "alerts" && data && <AlertsPanel smsLive={smsLive} />}
       {show === "ai" && data && <VoicePanel timezone={w.shop.timezone} />}
       {show === "messages" && (
+        <section className="history-row" data-testid="history-row">
+          <div>
+            <h3>Message history</h3>
+            <p className="workspace-footnote">{data ? `Last 30 days: ${c30.SENT || 0} sent · ${c30.FAILED || 0} failed · ${(c30.QUEUED || 0) + (c30.SENDING || 0)} waiting.` : "Loading…"} Each customer's own messages are on their record, under Messages.</p>
+          </div>
+          <Button variant="secondary" onClick={() => setHistoryOpen(true)} data-testid="open-history">
+            View history{(c30.FAILED || 0) > 0 ? ` (${c30.FAILED} failed)` : ""}
+          </Button>
+        </section>
+      )}
+      {show === "messages" && historyOpen && (
+      <div className="drawer-scrim history-scrim" onClick={(e) => e.target === e.currentTarget && setHistoryOpen(false)}>
+      <aside className="drawer history-drawer" aria-label="Message history">
+      <Button variant="ghost" className="history-close" onClick={() => setHistoryOpen(false)} aria-label="Close message history"><Icon name="x" size={16} /></Button>
       <div className="outbox" data-testid="outbox">
         <div className="outbox-head">
           <h3>
@@ -5000,6 +5015,8 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
             </li>
           ))}
         </ul>
+      </div>
+      </aside>
       </div>
       )}
       {preview && (
@@ -5773,7 +5790,9 @@ function CustomersPanel({
   const [importing, setImporting] = useState(false);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [profileError, setProfileError] = useState("");
-  const [profileTab, setProfileTab] = useState<"history" | "details" | "notes">("history");
+  const [profileTab, setProfileTab] = useState<"history" | "messages" | "details" | "notes">("history");
+  const [custMsgs, setCustMsgs] = useState<{ id: string; channel: string; recipient: string; template: string; body: string; subject: string; status: string; error: string; created_at: number; sent_at: number | null }[] | null>(null);
+  const [openMsg, setOpenMsg] = useState("");
   const [reload, setReload] = useState(0);
   const sequence = useRef(0);
   const canEdit = !w.account || ["OWNER", "MANAGER", "RECEPTION"].includes(w.account.role);
@@ -6026,9 +6045,27 @@ function CustomersPanel({
               </div>
               <div className="segmented" aria-label="Customer sections">
                 <button type="button" aria-pressed={profileTab === "history"} onClick={() => setProfileTab("history")}>History</button>
+                <button type="button" aria-pressed={profileTab === "messages"} onClick={() => { setProfileTab("messages"); if (!custMsgs) api<{ messages: NonNullable<typeof custMsgs> }>(`/customers/${profile.customer.id}/messages`).then((r) => setCustMsgs(r.messages)).catch(() => setCustMsgs([])); }} data-testid="customer-messages-tab">Messages</button>
                 <button type="button" aria-pressed={profileTab === "notes"} onClick={() => setProfileTab("notes")}>Notes & tags</button>
                 <button type="button" aria-pressed={profileTab === "details"} onClick={() => setProfileTab("details")}>Details</button>
               </div>
+              {profileTab === "messages" && (
+                <div className="customer-messages" data-testid="customer-messages">
+                  {!custMsgs && <p className="workspace-footnote">Loading messages…</p>}
+                  {custMsgs && custMsgs.length === 0 && <p className="workspace-footnote">No texts or emails sent to this customer yet.</p>}
+                  <ul className="outbox-list">
+                    {custMsgs?.map((n) => (
+                      <li key={n.id} data-status={n.status} data-testid="customer-message-row">
+                        <button type="button" className="customer-message-head" onClick={() => setOpenMsg(openMsg === n.id ? "" : n.id)} aria-expanded={openMsg === n.id}>
+                          <StatusPill tone={n.status === "SENT" ? "good" : n.status === "FAILED" ? "warn" : "note"}>{n.status === "SENT" ? "Sent" : n.status === "FAILED" ? "Failed" : n.status === "SKIPPED" ? "Not sent" : "Waiting"}</StatusPill>
+                          <span>{n.channel === "SMS" ? "Text" : "Email"} · {MSG_LABELS[n.template] ?? TEMPLATE_LABELS[n.template]?.label ?? n.template} · {new Date(n.sent_at || n.created_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: w.shop.timezone || "Europe/London" })}</span>
+                        </button>
+                        {openMsg === n.id && <p className="customer-message-body">{n.subject ? <strong>{n.subject}<br /></strong> : null}{n.body}{n.error ? <small className="workspace-error"> {n.error}</small> : null}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {profileTab === "history" && (
                 <ol className="customer-history" aria-label="Visit history">
                   {profile.bookings.map((b) => (

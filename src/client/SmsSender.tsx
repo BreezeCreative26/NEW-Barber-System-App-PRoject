@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icon } from "./ui";
 import { SENDER_MAX, checkSender, suggestSenders } from "./smsSenderRules";
 export { SENDER_MAX, checkSender, suggestSenders };
@@ -101,5 +101,26 @@ export function SmsBillingAck({
         <small>Every text we send for you (confirmations, reminders, codes) is added to your invoice the same day, with the date and who it went to. A busy chair sends roughly 60–80 texts a month — about £5–£6. Emails are free.</small>
       </span>
     </label>
+  );
+}
+
+type SeatInfo = { plan: { monthly_pence: number; included_seats: number; seat_pence: number; name: string }; seats: { used: number; included: number } };
+const gbp = (p: number) => `£${(p / 100).toFixed(2)}`;
+
+/** Says, before the click, whether adding a barber adds a monthly charge and what the new total is. */
+export function SeatChargeNote({ api, adding = 1, testId = "seat-charge" }: { api: <T>(path: string, method?: string, body?: unknown) => Promise<T>; adding?: number; testId?: string }) {
+  const [info, setInfo] = useState<SeatInfo | null>(null);
+  useEffect(() => { api<{ entitlements: SeatInfo }>("/billing").then((r) => setInfo(r.entitlements)).catch(() => setInfo(null)); }, []);
+  if (!info) return null;
+  const { plan, seats } = info;
+  const extra = Math.max(0, seats.used + adding - plan.included_seats) - Math.max(0, seats.used - plan.included_seats);
+  const total = plan.monthly_pence + Math.max(0, seats.used + adding - plan.included_seats) * plan.seat_pence;
+  return (
+    <p className={`seat-charge${extra > 0 ? " charged" : ""}`} data-testid={testId}>
+      <Icon name={extra > 0 ? "alert" : "check"} size={14} />{" "}
+      {extra > 0
+        ? <>Your plan includes {plan.included_seats} barber{plan.included_seats === 1 ? "" : "s"}. Adding this barber adds <strong>{gbp(plan.seat_pence * extra)} a month</strong>, charged pro rata from today. Your new monthly total is <strong>{gbp(total)}</strong>.</>
+        : <>This barber is included in your plan at no extra cost. Each barber after {plan.included_seats} adds {gbp(plan.seat_pence)} a month.</>}
+    </p>
   );
 }
