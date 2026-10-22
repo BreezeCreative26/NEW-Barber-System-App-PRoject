@@ -54,3 +54,62 @@ test("shop announcement: shop-branded email, mobiles only for texts, opt-out sti
   const list = await (await r.get(base + "/announcements")).json();
   expect(list.campaigns.length).toBe(2);
 });
+
+test("campaign types: placeholders block sending, win-back picks lapsed customers, scheduled sends wait and can be stopped", async () => {
+  const { r, shop_id } = await newShop("Kind Cuts");
+  const w = await (await r.get(base + "/workspace")).json();
+  const slug = `kind-${crypto.randomUUID().slice(0, 10)}`;
+  expect((await r.put(base + "/shop/online", { data: { slug, online_booking: 1, lead_time_min: 60, booking_window_days: 42, version: w.shop.version } })).status()).toBe(200);
+  const csv = "Name,Phone,Email\nOld Customer,07700 900111,old@c.test\nRecent Customer,07700 900222,recent@c.test\nNever Came,07700 900333,never@c.test\n";
+  expect((await r.post(base + "/customers/import", { data: { csv } })).status()).toBe(201);
+  const day = 86400000;
+  const w2 = await (await r.get(base + "/workspace")).json();
+  const service = w2.services[0];
+  const d0 = new Date(); d0.setUTCDate(d0.getUTCDate() + 8); if (d0.getUTCDay() === 0) d0.setUTCDate(d0.getUTCDate() + 1);
+  let slot = 540;
+  const mk = async (email: string, phone: string, daysAgo: number) => {
+    const res = await r.post(base + "/bookings", { data: { request_id: crypto.randomUUID(), staff_id: w2.staff[0].id, service_id: service.id, date: d0.toISOString().slice(0, 10), start_min: (slot += 60), customer_name: "Test Person", phone, source: "TEST_BOOKING", quote: { service_version: service.version, shop_version: w2.shop.version } } });
+    expect(res.status(), await res.text()).toBe(201);
+    const id = (await res.json()).booking.id as string;
+    const cid = psql(`select id from customers where shop_id='${shop_id}' and email='${email}'`);
+    const start = Date.now() - daysAgo * day;
+    psql(`set session_replication_role=replica; update bookings set customer_id='${cid}', status='COMPLETED', start_at=${start}, end_at=${start + 1800000}, date='${new Date(start).toISOString().slice(0, 10)}' where id='${id}'`);
+  };
+  await mk("old@c.test", "07700900111", 120);
+  await mk("recent@c.test", "07700900222", 10);
+
+  const presets = (await (await r.get(base + "/announcements")).json()).presets;
+  expect(presets.map((p: { kind: string }) => p.kind)).toEqual(["launch", "offer", "quiet", "winback", "hours", "service", "custom"]);
+
+  const lapsed = await (await r.post(base + "/announcements/preview", { data: { kind: "winback", channel: "EMAIL", audience: "LAPSED" } })).json();
+  expect(lapsed.email).toBe(1);
+  const recent = await (await r.post(base + "/announcements/preview", { data: { kind: "quiet", channel: "EMAIL", audience: "RECENT" } })).json();
+  expect(recent.email).toBe(1);
+  const all = await (await r.post(base + "/announcements/preview", { data: { kind: "launch", channel: "EMAIL", audience: "ALL" } })).json();
+  expect(all.email).toBe(3);
+
+  // The offer starter text still has [brackets]: it cannot be sent until they are filled in.
+  const offer = presets.find((p: { kind: string }) => p.kind === "offer").copy;
+  const pv = await (await r.post(base + "/announcements/preview", { data: { kind: "offer", channel: "EMAIL", audience: "ALL", ...offer } })).json();
+  expect(pv.problems.join(" ")).toContain("[bracketed]");
+  const blocked = await r.post(base + "/announcements/send", { data: { kind: "offer", channel: "EMAIL", audience: "ALL", ...offer, confirm: true } });
+  expect(blocked.status()).toBe(400);
+  // A custom campaign needs words of its own.
+  const empty = await r.post(base + "/announcements/send", { data: { kind: "custom", channel: "EMAIL", audience: "ALL", confirm: true } });
+  expect(empty.status()).toBe(400);
+
+  // Scheduled: queued for later, not sent now, and can be stopped.
+  const later = Date.now() + 2 * day;
+  const sent = await r.post(base + "/announcements/send", { data: { kind: "custom", channel: "EMAIL", audience: "ALL", subject: "Hello", body: "A note from {shop}.", send_at: later, confirm: true } });
+  expect(sent.status(), await sent.text()).toBe(200);
+  const q = psql(`select count(*) from notifications where shop_id='${shop_id}' and template='shop_announcement' and status='QUEUED'`);
+  expect(Number(q)).toBe(3);
+  const camp = (await (await r.get(base + "/announcements")).json()).campaigns[0];
+  expect(camp.kind).toBe("custom");
+  expect(camp.scheduled_for).toBeGreaterThan(Date.now());
+  const stop = await (await r.post(base + `/announcements/${camp.id}/cancel`)).json();
+  expect(stop.stopped).toBe(3);
+  expect(Number(psql(`select count(*) from notifications where shop_id='${shop_id}' and template='shop_announcement' and status='QUEUED'`))).toBe(0);
+  const past = await r.post(base + "/announcements/send", { data: { kind: "custom", channel: "EMAIL", audience: "ALL", subject: "Hi", body: "Hi", send_at: Date.now() + 90 * day, confirm: true } });
+  expect(past.status()).toBe(400);
+});

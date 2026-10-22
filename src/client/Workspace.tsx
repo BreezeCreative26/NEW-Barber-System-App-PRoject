@@ -1,5 +1,5 @@
 import { OwnerInviteBanner } from "./OwnerInvite";
-import { ShopAnnounce } from "./ShopAnnounce";
+import { ShopMarketing } from "./ShopMarketing";
 import { cancelOptions } from "./cancelChoices";
 import {
   useEffect,
@@ -1045,6 +1045,7 @@ const COMMON_TIMEZONES = [
 const TAB_TITLES: Record<string, string> = { Pay: "Pay runs", MyPay: "My pay" };
 // One-line purpose per section, shown under the title. Sections without a line show none.
 const SECTION_BLURB: Record<string, string> = {
+  Marketing: "Emails and texts to your own customers, in your shop's name.",
   Pay: "Everyone's pay for a period — sales, deductions, what each side is owed. Create drafts together, approve one by one.",
   MyPay: "Your deal, this period so far, and every statement.",
   Shifts: "Who's in, when, and what's booked against it. Changes that land on appointments ask you what to do with each one.",
@@ -2111,6 +2112,7 @@ export function Workspace() {
           { key: "Shifts", label: "Shifts", icon: "clock" },
           { key: "Pay", label: "Pay runs", icon: "payrun" },
           { key: "Services", label: "Services", icon: "scissors" },
+          { key: "Marketing", label: "Marketing", icon: "megaphone" },
           { key: "Website", label: "Website", icon: "globe" },
           { key: "Settings", label: "Settings", icon: "settings" },
           { key: "Audit", label: "Audit", icon: "shield" },
@@ -3071,6 +3073,7 @@ export function Workspace() {
                   onRefresh={() => refresh().catch(() => {})}
                 />
               )}
+              {tab === "Marketing" && <ShopMarketing />}
               {tab === "Pay" && <PayRunsPage w={w} api={api} onOpenBarber={(sid) => { setFocusBarber(sid); setFocusBarberTab("pay"); setTab("Team"); }} />}
               {tab === "MyPay" && <MyPay w={w} api={api} />}
               {tab === "Team" && (
@@ -5856,7 +5859,6 @@ function CustomersPanel({
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [announcing, setAnnouncing] = useState(false);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [profileError, setProfileError] = useState("");
   const [profileTab, setProfileTab] = useState<"history" | "messages" | "details" | "notes">("history");
@@ -5935,18 +5937,12 @@ function CustomersPanel({
                   <Icon name="download" size={16} /> Import
                 </Button>
               )}
-              {canMerge && (
-                <Button variant="secondary" onClick={() => setAnnouncing(true)} data-testid="announce-customers">
-                  <Icon name="megaphone" size={16} /> Tell customers
-                </Button>
-              )}
               <Button onClick={() => setAdding(true)}>
                 <Icon name="plus" size={16} /> Add customer
               </Button>
             </div>
           )}
         </div>
-        {announcing && <ShopAnnounce onClose={() => setAnnouncing(false)} />}
         {importing && <ImportCustomers onClose={() => setImporting(false)} onDone={() => { setImporting(false); setReload((n) => n + 1); }} />}
         <div className="customers-toolbar">
           <label className="customers-search">
