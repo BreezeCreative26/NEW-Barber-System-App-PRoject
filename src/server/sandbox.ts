@@ -90,6 +90,7 @@ import setup from "./setup";
 import { PERM_DEFS, type PermKey } from "./perms";
 import { listFor, markSeen, staffPushStatus } from "./staffNotify";
 import { ALERT_KINDS, DEFAULT_PREFS, alertOwners, prefsOf, type AlertPrefs } from "./alerts";
+import { mountShopCampaigns } from "./shopCampaigns";
 import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
 import { accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, type ConnectedAccount } from "./payouts";
@@ -260,6 +261,7 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && path === "/pay-runs/bulk") ||
       (method === "PUT" && path === "/me/prefs") ||
       (method === "GET" && [ "/inbox", "/inbox/push" ].includes(path)) ||
+      (path === "/announcements" || path.startsWith("/announcements/")) ||
       (method === "POST" && [ "/inbox/read", "/inbox/push" ].includes(path)) ||
       (method === "DELETE" && path === "/inbox/push") ||
       (method === "PUT" && path === "/me/profile") ||
@@ -1910,6 +1912,7 @@ sandbox.post("/bookings/:id/manage-link", async (c) => {
   return c.json({ token: raw, path: `/manage/${raw}` }, 201);
 });
 // ---- Reviews (Settings → Reviews): read, hide/show, reply. Words are the customer's. ----
+mountShopCampaigns(sandbox as never, { input: input as never, requireRole: requireRole as never, fail: fail as never });
 sandbox.get("/reviews", async (c) => {
   const a = c.get("account");
   const rows = await c.env.DB.prepare(

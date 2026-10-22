@@ -1,4 +1,5 @@
 import { OwnerInviteBanner } from "./OwnerInvite";
+import { ShopAnnounce } from "./ShopAnnounce";
 import { cancelOptions } from "./cancelChoices";
 import {
   useEffect,
@@ -5857,6 +5858,7 @@ function CustomersPanel({
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [announcing, setAnnouncing] = useState(false);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [profileError, setProfileError] = useState("");
   const [profileTab, setProfileTab] = useState<"history" | "messages" | "details" | "notes">("history");
@@ -5935,12 +5937,18 @@ function CustomersPanel({
                   <Icon name="download" size={16} /> Import
                 </Button>
               )}
+              {canMerge && (
+                <Button variant="secondary" onClick={() => setAnnouncing(true)} data-testid="announce-customers">
+                  <Icon name="megaphone" size={16} /> Tell customers
+                </Button>
+              )}
               <Button onClick={() => setAdding(true)}>
                 <Icon name="plus" size={16} /> Add customer
               </Button>
             </div>
           )}
         </div>
+        {announcing && <ShopAnnounce onClose={() => setAnnouncing(false)} />}
         {importing && <ImportCustomers onClose={() => setImporting(false)} onDone={() => { setImporting(false); setReload((n) => n + 1); }} />}
         <div className="customers-toolbar">
           <label className="customers-search">

@@ -50,7 +50,7 @@ export const MESSAGE_TEMPLATES = [
   "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_open", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
   "verify_contact", "password_reset", "account_welcome", "account_reset", "shop_address", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
   "invoice", "credit_note", "owner_signin_link", "trial_ending", "trial_ended", "payment_overdue", "account_readonly", "broadcast", "admin_alert_digest",
-  "owner_welcome", "email_verify", "google_review",
+  "owner_welcome", "email_verify", "google_review", "shop_announcement",
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
 
@@ -301,6 +301,14 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         lines: [`${String(v.number).startsWith("your") ? "Your subscription" : `Invoice ${v.number}`}${v.amount ? ` (${v.amount})` : ""} is still unpaid after the ${v.grace_days}-day grace period, so new bookings for ${v.shop} are paused.`, "Your team can still sign in and see everything. Settle the invoice and bookings resume straight away.", "Something wrong with the invoice? Reply to this email and we'll sort it."],
         cta: { label: "Pay now", href: String(v.link) },
       };
+    case "shop_announcement":
+      return {
+        sms: String(v.sms || ""),
+        subject: String(v.subject),
+        heading: String(v.heading || v.subject),
+        lines: String(v.body || "").split(/\n{2,}/).map((p) => p.trim()).filter(Boolean),
+        cta: v.cta_url ? { label: String(v.cta_label || "Book online"), href: String(v.cta_url) } : undefined,
+      };
     case "broadcast":
       return {
         sms: `${s}: ${v.subject}${v.cta_url ? ` ${v.cta_url}` : ""}`,
@@ -394,7 +402,7 @@ const PLATFORM_WORDMARK_WHITE = "/static/brand/png/foliyo-wordmark-white-800.png
 export function platformSender(shop: MsgShop, pb: { company_name?: string; company_address?: string; company_email?: string }): MsgShop {
   return { ...shop, name: pb.company_name || "foliyo", logo_url: PLATFORM_LOGO, accent: "ollo", theme_json: "{}", address: pb.company_address || "", email: pb.company_email || "", phone: "" };
 }
-export function emailHtml(shop: { name: string; address?: string; slug?: string | null }, brand: ShopBrand, origin: string, r: Rendered, footer: { phone?: string; email?: string; unsubscribe?: string }) {
+export function emailHtml(shop: { name: string; address?: string; slug?: string | null }, brand: ShopBrand, origin: string, r: Rendered, footer: { phone?: string; email?: string; unsubscribe?: string }, shopOnly = false) {
   // A custom primary colour from the website builder wins over the named accent.
   const a = brand.primary_hex ? { bg: brand.primary_hex, ink: inkOn(brand.primary_hex) } : EMAIL_ACCENTS[brand.accent] || EMAIL_ACCENTS.ollo;
   const F = "-apple-system,Segoe UI,Inter,Arial,sans-serif";
@@ -407,7 +415,7 @@ export function emailHtml(shop: { name: string; address?: string; slug?: string 
   const tone = brand.logo_tone || "";
   // Platform emails (billing, owner lifecycle) carry the foliyo lockup as their mark and no shop
   // logo on the other side; shop emails put foliyo on the left and the shop's own mark on the right.
-  const platform = brand.logo_url === PLATFORM_LOGO;
+  const platform = brand.logo_url === PLATFORM_LOGO || shopOnly; // shopOnly: no foliyo mark at all (customer-facing announcements)
   const bandDark = brand.logo_url ? (tone === "light" ? true : tone === "dark" || tone === "colour" ? false : dark) : false;
   const band = bandDark ? { bg: "#17181e", ink: "#f3f2ee", sub: "#a7a9b3" } : { bg: "#ffffff", ink: "#14151a", sub: "#6b6f7a" };
   const logoSrc = brand.logo_url ? (brand.logo_url.startsWith("http") ? brand.logo_url : origin + brand.logo_url) : "";
@@ -448,6 +456,8 @@ export type EnqueueOpts = {
   sendAt?: number;
   // Shown in the shop's message log while the row waits (status_note).
   note?: string;
+  // Customer announcements: the shop's own look with no foliyo mark, and an unsubscribe link in the footer.
+  shopOnly?: boolean; unsubscribe?: string;
 };
 
 // Channel choice. Customer preference first, then SMS, then email. AUTO = SMS if there's a mobile,
@@ -482,7 +492,7 @@ export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageT
   const now = opts.now ?? Date.now();
   const brand = brandOf(shop);
   const r = copyFor(template, { first: to.name, ...vars }, shop);
-  const html = emailHtml(shop, brand, opts.origin, r, { phone: shop.phone, email: shop.email });
+  const html = emailHtml(shop, brand, opts.origin, r, { phone: shop.phone, email: shop.email, unsubscribe: opts.unsubscribe }, !!opts.shopOnly);
   const out = [];
   const chosen = channelsFor(shop, to, opts.channel || "AUTO", both, opts.force, template);
   for (let channel of chosen) {

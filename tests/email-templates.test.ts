@@ -57,6 +57,7 @@ const V: Record<MessageTemplate, Record<string, string | number>> = {
   admin_alert_digest: { count: 2, items: "‼ Stripe webhook failing for 2 h\n! 3 shops with overdue invoices", link: `${origin}/admin/alerts` },
   owner_welcome: { link: `${origin}/verify?token=tok_verify`, shop: shop.name, trial_days: 14 },
   email_verify: { link: `${origin}/verify?token=tok_verify`, email: "dana@northline.example" },
+  shop_announcement: { sms: "Hi Alex, Northline now takes bookings online: https://x.test Reply STOP to opt out.", subject: "Book online with Northline", heading: "Book your next visit online", body: "Northline now has online booking.", cta_label: "Book online", cta_url: `${origin}/book` },
 };
 // Which templates go out as the platform (foliyo) rather than the shop.
 const PLATFORM = new Set<MessageTemplate>(["invoice", "credit_note", "owner_signin_link", "trial_ending", "trial_ended", "payment_overdue", "account_readonly", "broadcast", "admin_alert_digest", "owner_welcome"]);
