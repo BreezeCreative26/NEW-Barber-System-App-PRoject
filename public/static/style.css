@@ -8350,7 +8350,7 @@ li[data-done="true"] .setup-wiz-num { background: var(--good); color: #fff; bord
 .history-row p { margin: 0; }
 .history-scrim { position: fixed; inset: 0; background: rgba(11, 11, 12, 0.45); z-index: 80; display: flex; justify-content: flex-end; }
 .history-drawer { position: relative; width: min(520px, 100vw); height: 100%; background: #fff; padding: 20px 18px 24px; overflow-y: auto; box-shadow: -8px 0 32px rgba(0,0,0,.18); }
-.history-close { position: absolute; top: 10px; right: 10px; }
+.history-close { position: absolute; top: 10px; right: 10px; z-index: 2; }
 .customer-message-head { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: none; border: 0; padding: 10px 0; cursor: pointer; font: inherit; min-height: 44px; }
 .customer-message-body { margin: 0 0 10px; padding: 10px 12px; background: #f6f6f6; border-radius: 10px; white-space: pre-wrap; font-size: 14px; }
 .customer-messages .outbox-list { list-style: none; margin: 0; padding: 0; }
@@ -8389,3 +8389,78 @@ li[data-done="true"] .setup-wiz-num { background: var(--good); color: #fff; bord
   .week-person .week-card { padding: 2px 3px; font-size: 10px; }
   .week-person .week-card small { display: none; }
 }
+.review-ask { border: 1px solid var(--line, #e5e5e5); border-radius: 14px; padding: 14px 16px; margin: 14px 0; }
+.review-ask h3 { margin: 0 0 4px; font-size: 15px; }
+.price-tag { font-style: normal; font-size: 12px; font-weight: 600; background: #fff6e0; border: 1px solid #f0d58a; border-radius: 999px; padding: 1px 8px; margin-left: 6px; }
+.review-ack { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; font-size: 13px; margin-top: 8px; }
+.reviews-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border: 1px solid var(--line, #e2e2e2); border-radius: 999px; background: #fff; font: inherit; cursor: pointer; }
+.reviews-chip b { font-size: 14px; }
+.reviews-chip small { font-size: 12px; color: #595959; }
+.reviews-chip svg { color: #e0a800; }
+@media (max-width: 900px) { .reviews-chip small { display: none; } }
+.review-people { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 14px; }
+.review-people button { display: inline-flex; align-items: baseline; gap: 8px; min-height: 44px; padding: 6px 14px; border: 1px solid var(--line, #e2e2e2); border-radius: 12px; background: #fff; font: inherit; cursor: pointer; align-items: center; }
+.review-people button b { font-size: 18px; }
+.review-people button span { font-size: 13px; color: #444; }
+.review-people button[aria-pressed="true"] { background: #0b0b0c; color: #fff; border-color: #0b0b0c; }
+.review-people button[aria-pressed="true"] span { color: #ddd; }
+.reviews-drawer { width: min(640px, 100vw); }
+
+/* Photo editor */
+.photo-editor-scrim { position: fixed; inset: 0; z-index: 140; background: rgba(11, 11, 12, 0.6); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.photo-editor { background: #fff; border-radius: 20px; padding: 20px; width: min(380px, 100%); display: flex; flex-direction: column; align-items: center; gap: 12px; max-height: 100%; overflow-y: auto; }
+.photo-editor h2 { margin: 0; font-size: 18px; align-self: flex-start; }
+.photo-editor .workspace-footnote { margin: 0; align-self: flex-start; }
+.photo-stage { position: relative; border-radius: 16px; overflow: hidden; background: #111; touch-action: none; cursor: grab; }
+.photo-stage:active { cursor: grabbing; }
+.photo-stage canvas, .photo-stage video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.photo-stage-ring { position: absolute; inset: 0; pointer-events: none; border-radius: 16px; background: radial-gradient(circle at center, transparent 0, transparent 68%, rgba(11,11,12,0.55) 68.5%); box-shadow: inset 0 0 0 2px rgba(255,255,255,.7); }
+.photo-stage-wait { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 13px; }
+.photo-zoom { display: flex; align-items: center; gap: 12px; width: 100%; font-size: 13px; }
+.photo-zoom input { flex: 1; accent-color: #00e8b0; height: 32px; }
+.photo-editor-tools, .photo-editor-actions { display: flex; gap: 8px; width: 100%; justify-content: center; flex-wrap: wrap; }
+.photo-editor-actions { justify-content: flex-end; }
+
+/* ---- Premium form controls (all screens) ---------------------------------------------------
+   One look for every dropdown, tick box and radio. Browsers with customisable selects get a
+   rounded, animated menu; others get the same closed control with a clean chevron. */
+:root { --ctl-accent: #0b0b0c; }
+input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color: var(--ctl-accent); }
+button, [role="button"], select, summary, label.switch { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.workspace select:not([multiple]):not(.plain), .ca-form select, .group-member select {
+  appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 36px; text-overflow: ellipsis;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23595959' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; background-size: 16px;
+}
+.toolbar-select select, .select-with-icon select { background-image: none !important; }
+.workspace select:not([multiple]):hover { border-color: #b9b9b9; }
+@supports (appearance: base-select) {
+  .workspace select:not([multiple]):not(.plain), .ca-form select, .group-member select, .workspace select:not([multiple]):not(.plain)::picker(select) { appearance: base-select; }
+  .workspace select:not([multiple]):not(.plain), .ca-form select, .group-member select { background-image: none; padding-right: 12px; }
+  select::picker-icon { color: #595959; transition: rotate .2s ease; }
+  select:open::picker-icon { rotate: 180deg; }
+  select::picker(select) {
+    border: 1px solid var(--line, #e2e2e2); border-radius: 14px; padding: 6px; margin-block: 6px; background: #fff;
+    box-shadow: 0 18px 44px rgba(11, 11, 12, 0.18); max-height: min(60vh, 360px);
+    opacity: 0; transform: translateY(-4px) scale(.98); transition: opacity .16s ease, transform .16s ease, overlay .16s allow-discrete, display .16s allow-discrete;
+  }
+  select:open::picker(select) { opacity: 1; transform: none; }
+  @starting-style { select:open::picker(select) { opacity: 0; transform: translateY(-4px) scale(.98); } }
+  select option { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 12px; border-radius: 9px; font: inherit; font-size: 14px; color: #0b0b0c; cursor: pointer; }
+  select option:hover, select option:focus-visible { background: #f2f2f2; outline: 0; }
+  select option:checked { background: rgba(0, 232, 176, 0.16); font-weight: 600; }
+  select option::checkmark { color: #008a69; order: 2; margin-left: auto; }
+}
+@media (prefers-reduced-motion: reduce) { select::picker(select), select::picker-icon { transition: none !important; } }
+
+/* Text-only buttons keep their look but get a full-size tap area. */
+button.linklike { min-height: 36px; padding: 0 6px; display: inline-flex; align-items: center; }
+@media (pointer: coarse) { button.linklike { min-height: 44px; padding: 0 10px; } }
+.web-launch-hover { white-space: nowrap; }
+.reviews-drawer, .history-drawer { box-sizing: border-box; padding: 52px 20px 24px; }
+.reviews-drawer > *, .history-drawer > * { max-width: 100%; box-sizing: border-box; }
+.reviews-drawer .workspace-card { margin: 0; width: 100%; }
+.reviews-drawer .workspace-card { border: 0; box-shadow: none; padding: 0; background: transparent; }
+.seat-charge > svg { flex: 0 0 auto; margin-top: 3px; }
+.photo-editor .photo-zoom { flex-direction: row; align-items: center; gap: 12px; }
+.photo-editor .photo-zoom input[type="range"] { min-height: 0; height: 28px; padding: 0; border: 0; box-shadow: none; background: transparent; }

@@ -46,6 +46,9 @@ export type Shop = {
   // Default timetable density for people who haven't chosen their own.
   calendar_density?: "COMPACT" | "STANDARD" | "LARGE";
   google_review_nudge?: number;
+  review_ask_email?: number;
+  review_ask_sms?: number;
+  msg_sms_billing_ack_at?: number | null;
   version: number;
   // Online deposits (Model A — the shop's own Stripe account).
   stripe_account_id?: string;

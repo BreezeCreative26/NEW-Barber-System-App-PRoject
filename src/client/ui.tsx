@@ -7,6 +7,7 @@ import {
 } from "react";
 import {
   ArrowDownToLine,
+  Camera,
   Rows3,
   ArrowLeft,
   ArrowRight,
@@ -143,6 +144,7 @@ const icons: Record<string, LucideIcon> = {
   more: MoreHorizontal,
   package: Package,
   plus: Plus,
+  camera: Camera,
   refresh: RefreshCw,
   repeat: Repeat,
   scissors: Scissors,
@@ -491,6 +493,8 @@ export function TopBar({
   onWallet,
   onQueue,
   onBell,
+  reviews,
+  onReviews,
   onAccount,
   onMenu,
   menuOpen = false,
@@ -511,6 +515,8 @@ export function TopBar({
   onWallet?: () => void;
   onQueue?: () => void;
   onBell?: () => void;
+  reviews?: { average: number | null; count: number; open?: boolean } | null;
+  onReviews?: () => void;
   onAccount?: () => void;
   children?: ReactNode;
 }) {
@@ -550,6 +556,13 @@ export function TopBar({
           <span className="chip-ic"><Icon name="hourglass" size={15} /></span>
           <span><b>{queue.count}</b><small>{queue.offered ? `${queue.offered} offered` : "waiting"}</small></span>
           {queue.offered > 0 && <span className="presence-dot offer-dot" aria-hidden="true" />}
+        </button>
+      )}
+      {reviews && (
+        <button type="button" className="reviews-chip" onClick={onReviews} aria-expanded={reviews.open ? "true" : "false"} aria-label={`Reviews: ${reviews.average ? `${reviews.average} out of 5 from ${reviews.count}` : "none yet"}`} data-testid="reviews-chip">
+          <Icon name="star" size={15} />
+          <b>{reviews.average ?? "–"}</b>
+          <small>Reviews</small>
         </button>
       )}
       {bell && (

@@ -2,6 +2,7 @@
 // /api/app/media and hands back the /media/<id> path to store in the existing URL field.
 import { useRef, useState } from "react";
 import { Button, Icon } from "./ui";
+import { PhotoEditor } from "./PhotoEditor";
 
 export type UploadKind = "cover" | "gallery" | "staff" | "logo";
 export const MEDIA_MAX_BYTES = 5 * 1024 * 1024;
@@ -54,6 +55,22 @@ export function PhotoUpload({ kind, onUploaded, label = "Upload photo", multiple
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Portraits go through the crop editor first; "Take photo" opens the camera.
+  const [editing, setEditing] = useState<{ file: File | null } | null>(null);
+  const edit = kind === "staff" && !multiple;
+  async function send(files: File[]) {
+    setBusy(true);
+    setError("");
+    try {
+      const urls: string[] = [];
+      for (const f of files) urls.push((await uploadPhoto(f, kind)).url);
+      onUploaded(urls);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <span className="photo-upload">
       <input
@@ -67,22 +84,19 @@ export function PhotoUpload({ kind, onUploaded, label = "Upload photo", multiple
           const files = Array.from(e.target.files || []);
           e.target.value = "";
           if (!files.length) return;
-          setBusy(true);
-          setError("");
-          try {
-            const urls: string[] = [];
-            for (const f of files) urls.push((await uploadPhoto(f, kind)).url);
-            onUploaded(urls);
-          } catch (err) {
-            setError(err instanceof Error ? err.message : "Upload failed.");
-          } finally {
-            setBusy(false);
-          }
+          if (edit) { setEditing({ file: files[0] }); return; }
+          await send(files);
         }}
       />
       <Button variant="secondary" disabled={busy} onClick={() => input.current?.click()} data-testid={testId}>
         <Icon name="imagePlus" size={15} /> {busy ? "Uploading…" : label}
       </Button>
+      {edit && (
+        <Button variant="secondary" disabled={busy} onClick={() => setEditing({ file: null })} data-testid={testId ? `${testId}-camera` : undefined}>
+          <Icon name="camera" size={15} /> Take photo
+        </Button>
+      )}
+      {editing && <PhotoEditor file={editing.file} onCancel={() => setEditing(null)} onDone={(f) => { setEditing(null); send([f]); }} />}
       {error && (
         <small className="photo-upload-error" role="alert">
           {error}

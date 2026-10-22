@@ -117,10 +117,12 @@ export function SeatChargeNote({ api, adding = 1, testId = "seat-charge" }: { ap
   const total = plan.monthly_pence + Math.max(0, seats.used + adding - plan.included_seats) * plan.seat_pence;
   return (
     <p className={`seat-charge${extra > 0 ? " charged" : ""}`} data-testid={testId}>
-      <Icon name={extra > 0 ? "alert" : "check"} size={14} />{" "}
+      <Icon name={extra > 0 ? "alert" : "check"} size={14} />
+      <span>
       {extra > 0
         ? <>Your plan includes {plan.included_seats} barber{plan.included_seats === 1 ? "" : "s"}. Adding this barber adds <strong>{gbp(plan.seat_pence * extra)} a month</strong>, charged pro rata from today. Your new monthly total is <strong>{gbp(total)}</strong>.</>
         : <>This barber is included in your plan at no extra cost. Each barber after {plan.included_seats} adds {gbp(plan.seat_pence)} a month.</>}
+      </span>
     </p>
   );
 }

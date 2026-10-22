@@ -876,18 +876,27 @@ sandbox.delete("/shop/page/draft", async (c) => {
 });
 // Reviews: ask happy customers (4–5★ in-app) to repeat it on Google. Needs the Google link on the page.
 sandbox.put("/shop/reviews", async (c) => {
-  const b = await input(c, z.object({ google_review_nudge: z.union([z.literal(0), z.literal(1)]), version: z.number().int().min(0) }).strict());
+  const b = await input(c, z.object({ google_review_nudge: z.union([z.literal(0), z.literal(1)]), review_ask_email: z.union([z.literal(0), z.literal(1)]).optional(), review_ask_sms: z.union([z.literal(0), z.literal(1)]).optional(), sms_billing_ack: z.boolean().optional(), version: z.number().int().min(0) }).strict());
   const sid = c.get("shopId");
+  const cur = await c.env.DB.prepare("SELECT review_ask_email, review_ask_sms, msg_sms_billing_ack_at FROM shops WHERE id=?").bind(sid).first<{ review_ask_email: number; review_ask_sms: number; msg_sms_billing_ack_at: number | null }>();
+  const askEmail = b.review_ask_email ?? cur?.review_ask_email ?? 1;
+  const askSms = b.review_ask_sms ?? cur?.review_ask_sms ?? 0;
+  let ackAt: number | null = null;
+  if (askSms === 1 && !(await c.env.DB.prepare("SELECT 1 AS x FROM shops WHERE id=? AND msg_sms=1").bind(sid).first())) fail(409, "Turn on texts for your shop first (Settings → Messages).");
+  if (askSms === 1 && !cur?.msg_sms_billing_ack_at) {
+    if (!b.sms_billing_ack) fail(409, "Please confirm you understand texts are billed at 8p each.");
+    ackAt = Date.now();
+  }
   if (b.google_review_nudge) {
     const page = await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(sid).first<{ google_review_url: string }>();
     if (!page?.google_review_url) fail(409, "Add your Google review link first (Settings → Shop page → Reviews).");
   }
   await checkVersionUpdate(
     c,
-    c.env.DB.prepare("UPDATE shops SET google_review_nudge=?,version=version+1 WHERE id=? AND version=?").bind(b.google_review_nudge, sid, b.version),
-    audit(c, "shop", sid, "SHOP_UPDATED", `Google review follow-up ${b.google_review_nudge ? "on" : "off"}.`, true),
+    c.env.DB.prepare(`UPDATE shops SET google_review_nudge=?,review_ask_email=?,review_ask_sms=?${ackAt ? ",msg_sms_billing_ack_at=?" : ""},version=version+1 WHERE id=? AND version=?`).bind(...[b.google_review_nudge, askEmail, askSms, ...(ackAt ? [ackAt] : []), sid, b.version]),
+    audit(c, "shop", sid, "SHOP_UPDATED", `Review requests: email ${askEmail ? "on" : "off"}, text ${askSms ? "on" : "off"}; Google follow-up ${b.google_review_nudge ? "on" : "off"}.`, true),
   );
-  const shop = await c.env.DB.prepare("SELECT version, google_review_nudge FROM shops WHERE id=?").bind(sid).first<{ version: number; google_review_nudge: number }>();
+  const shop = await c.env.DB.prepare("SELECT version, google_review_nudge, review_ask_email, review_ask_sms FROM shops WHERE id=?").bind(sid).first<{ version: number; google_review_nudge: number; review_ask_email: number; review_ask_sms: number }>();
   return c.json({ ok: true, shop });
 });
 sandbox.put("/shop/online", async (c) => {
@@ -1908,9 +1917,16 @@ sandbox.get("/reviews", async (c) => {
   )
     .bind(c.get("shopId"), ownScope(a, "messages"), ownScope(a, "messages"))
     .all<ReviewRow & { staff_name: string | null; visit_date: string }>();
-  const agg = await c.env.DB.prepare("SELECT COUNT(*) AS n, AVG(rating) AS avg, SUM(CASE WHEN status='HIDDEN' THEN 1 ELSE 0 END) AS hidden FROM reviews WHERE shop_id=? AND status='PUBLISHED'").bind(c.get("shopId")).first<{ n: number; avg: number | null }>();
-  const hidden = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM reviews WHERE shop_id=? AND status='HIDDEN'").bind(c.get("shopId")).first<{ n: number }>();
-  return c.json({ reviews: rows.results, summary: { count: agg?.n ?? 0, average: agg?.n ? Math.round((agg.avg ?? 0) * 10) / 10 : null, hidden: hidden?.n ?? 0 } });
+  const scope = ownScope(a, "messages");
+  const agg = await c.env.DB.prepare("SELECT COUNT(*) AS n, AVG(rating) AS avg FROM reviews WHERE shop_id=? AND status='PUBLISHED' AND (? IS NULL OR staff_id=?)").bind(c.get("shopId"), scope, scope).first<{ n: number; avg: number | null }>();
+  const hidden = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM reviews WHERE shop_id=? AND status='HIDDEN' AND (? IS NULL OR staff_id=?)").bind(c.get("shopId"), scope, scope).first<{ n: number }>();
+  const per = await c.env.DB.prepare("SELECT r.staff_id, s.name, COUNT(*) AS n, AVG(r.rating) AS avg, SUM(CASE WHEN r.rating<=2 THEN 1 ELSE 0 END) AS low FROM reviews r LEFT JOIN staff s ON s.shop_id=r.shop_id AND s.id=r.staff_id WHERE r.shop_id=? AND r.status='PUBLISHED' AND (? IS NULL OR r.staff_id=?) GROUP BY r.staff_id, s.name ORDER BY AVG(r.rating) DESC").bind(c.get("shopId"), scope, scope).all<{ staff_id: string; name: string | null; n: number; avg: number; low: number }>();
+  return c.json({
+    reviews: rows.results,
+    summary: { count: agg?.n ?? 0, average: agg?.n ? Math.round((agg.avg ?? 0) * 10) / 10 : null, hidden: hidden?.n ?? 0 },
+    by_staff: per.results.map((r) => ({ staff_id: r.staff_id, name: r.name || "Unassigned", count: r.n, average: Math.round(r.avg * 10) / 10, low: r.low })),
+    scope: scope ? "own" : "all",
+  });
 });
 async function readReview(c: Ctx, id: string) {
   const r = await c.env.DB.prepare("SELECT * FROM reviews WHERE shop_id=? AND id=?").bind(c.get("shopId"), id).first<ReviewRow>();

@@ -1635,6 +1635,8 @@ export function Workspace() {
   const [dayMenuOpen, setDayMenuOpen] = useState(false);
   const [dayMenuStaff, setDayMenuStaff] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [reviewsOpen, setReviewsOpen] = useState(false);
+  const [ratingChip, setRatingChip] = useState<{ average: number | null; count: number } | null>(null);
   // Team inbox: what happened (bookings, cancellations, moves, no-shows) for this login only.
   const [inbox, setInbox] = useState<TeamInbox | null>(null);
   const loadInbox = () => api<TeamInbox>("/inbox").then(setInbox).catch(() => {});
@@ -2015,6 +2017,10 @@ export function Workspace() {
     }
   }
   const w = data;
+  useEffect(() => {
+    if (!w || reviewsOpen) return;
+    api<{ summary: { average: number | null; count: number } }>("/reviews").then((r) => setRatingChip(r.summary)).catch(() => setRatingChip(null));
+  }, [!!w, reviewsOpen]);
   // Same screens for everyone; these decide which features this account can use.
   const can = (k: string) => !w?.account || w.account.role === "OWNER" || !!(w.account.perms as Record<string, boolean> | undefined)?.[k];
   useEffect(() => {
@@ -2287,6 +2293,8 @@ export function Workspace() {
         onQueue={() => setQueueOpen((v) => !v)}
         bell={w ? { count: w.issues.length + (inbox?.unread ?? 0), open: notificationsOpen } : null}
         onBell={() => setNotificationsOpen((v) => !v)}
+        reviews={w && ratingChip ? { ...ratingChip, open: reviewsOpen } : null}
+        onReviews={() => setReviewsOpen((v) => !v)}
         account={
           w
             ? {
@@ -2362,6 +2370,14 @@ export function Workspace() {
             openBooking(id);
           }}
         />
+      )}
+      {w && reviewsOpen && (
+        <div className="drawer-scrim history-scrim" onClick={(e) => e.target === e.currentTarget && setReviewsOpen(false)}>
+          <aside className="drawer history-drawer reviews-drawer" aria-label="Reviews" data-testid="reviews-drawer">
+            <Button variant="ghost" className="history-close" onClick={() => setReviewsOpen(false)} aria-label="Close reviews"><Icon name="close" size={16} /></Button>
+            <ReviewsPanel w={w} />
+          </aside>
+        </div>
       )}
       {w && notificationsOpen && (
         <NotificationsDrawer
@@ -3195,9 +3211,9 @@ export function Workspace() {
                     )}
                     {settingsTab === "reviews" && (
                       <>
-                        <header className="settings-head"><h2>Reviews &amp; Google</h2><p>Ratings customers leave in foliyo, your replies, and turning happy customers into Google reviews.</p></header>
+                        <header className="settings-head"><h2>Reviews &amp; Google</h2><p>How customers are asked for a review, and how happy ones reach Google.</p></header>
                         <GoogleReviewsPanel w={w} />
-                        <ReviewsPanel w={w} />
+                        <p className="workspace-footnote">Ratings and replies live under the star Reviews button at the top of the screen.</p>
                       </>
                     )}
                     {settingsTab === "waitlist" && (
@@ -3865,6 +3881,9 @@ function GoogleReviewsPanel({ w }: { w: WorkspaceData }) {
   const [page, setPage] = useState<{ google_review_url: string; version: number } | null>(null);
   const [url, setUrl] = useState("");
   const [nudge, setNudge] = useState<number>(w.shop.google_review_nudge ?? 0);
+  const [askEmail, setAskEmail] = useState<number>(w.shop.review_ask_email ?? 1);
+  const [askSms, setAskSms] = useState<number>(w.shop.review_ask_sms ?? 0);
+  const [ack, setAck] = useState(false);
   const [state, setState] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -3893,6 +3912,19 @@ function GoogleReviewsPanel({ w }: { w: WorkspaceData }) {
       const r = await api<{ page: Record<string, unknown> }>("/shop/page", "PUT", body);
       setPage({ google_review_url: String(r.page.google_review_url || ""), version: Number(r.page.version ?? 0) });
       setState({ kind: "ok", text: url.trim() ? "Google link saved. It shows in your shop page footer and after a 4–5★ rating." : "Google link removed." });
+    } catch (err) {
+      setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
+    } finally { setBusy(false); }
+  }
+  async function saveAsk(patch: { google_review_nudge?: number; review_ask_email?: number; review_ask_sms?: number }, okText: string) {
+    setBusy(true); setState(null);
+    try {
+      // Read the live version first: saving the Google link bumps the workspace behind this panel.
+      const live = (await api<{ shop: { version: number } }>("/workspace")).shop.version;
+      const r = await api<{ shop: { version: number; google_review_nudge: number; review_ask_email: number; review_ask_sms: number } }>("/shop/reviews", "PUT", { google_review_nudge: nudge, review_ask_email: askEmail, review_ask_sms: askSms, ...patch, ...(patch.review_ask_sms === 1 ? { sms_billing_ack: ack } : {}), version: live });
+      setNudge(r.shop.google_review_nudge); setAskEmail(r.shop.review_ask_email); setAskSms(r.shop.review_ask_sms);
+      w.shop.version = r.shop.version;
+      setState({ kind: "ok", text: okText });
     } catch (err) {
       setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
     } finally { setBusy(false); }
@@ -3930,10 +3962,41 @@ function GoogleReviewsPanel({ w }: { w: WorkspaceData }) {
           )}
         </div>
       </form>
+      <div className="review-ask" data-testid="review-ask">
+        <h3>Ask for a review after every visit</h3>
+        <p className="workspace-footnote">When a visit is marked complete, the customer gets one message with a link to rate it inside your shop page. Four and five star ratings are then shown your Google link.</p>
+        <div className="workspace-switch-row">
+          <span>
+            <strong>By email</strong>
+            <small>Free. Sent from your shop with your logo.</small>
+          </span>
+          <label className="switch">
+            <input type="checkbox" checked={!!askEmail} disabled={busy} onChange={(e) => saveAsk({ review_ask_email: e.target.checked ? 1 : 0 }, e.target.checked ? "Review requests will go out by email." : "Review requests by email are off.")} aria-label="Ask for reviews by email" data-testid="review-ask-email" />
+            <span />
+          </label>
+        </div>
+        <div className="workspace-switch-row">
+          <span>
+            <strong>By text <em className="price-tag">8p per text</em></strong>
+            <small>Added to your monthly invoice. For example, 100 visits a month is £8.00.</small>
+          </span>
+          <label className="switch">
+            <input type="checkbox" checked={!!askSms} disabled={busy || (!askSms && !ack && !w.shop.msg_sms_billing_ack_at)} onChange={(e) => saveAsk({ review_ask_sms: e.target.checked ? 1 : 0 }, e.target.checked ? "Review requests will also go out by text, at 8p each." : "Review requests by text are off.")} aria-label="Ask for reviews by text" data-testid="review-ask-sms" />
+            <span />
+          </label>
+        </div>
+        {!askSms && !w.shop.msg_sms_billing_ack_at && (
+          <label className="sms-bill-ack review-ack">
+            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} data-testid="review-ask-ack" />
+            <span>I understand each text costs 8p and is added to my monthly invoice. Tick this, then switch on texts above.</span>
+          </label>
+        )}
+        {!askEmail && !askSms && <p className="workspace-footnote">Both are off, so customers are not asked. They can still rate from their booking link.</p>}
+      </div>
       <div className="workspace-switch-row">
         <span>
-          <strong>Follow up happy customers by text</strong>
-          <small>One message after a 4–5★ rating, from your shop, with the Google link. Never sent twice for the same visit.</small>
+          <strong>Follow up happy customers with your Google link</strong>
+          <small>One message after a 4–5★ rating, by the channels you chose above, with the Google link. Never sent twice for the same visit.</small>
         </span>
         <label className="switch">
           <input type="checkbox" checked={!!nudge} disabled={busy || !page?.google_review_url} onChange={(e) => toggleNudge(e.target.checked)} aria-label="Follow up happy customers by text" data-testid="google-review-nudge" />
@@ -4338,13 +4401,14 @@ const TEMPLATE_LABELS: Record<string, { label: string; hint: string }> = {
 // Settings → Reviews: everything customers have left, hide/show and a public reply.
 type ReviewRowView = { id: string; rating: number; body: string; display_name: string; status: "PUBLISHED" | "HIDDEN"; reply: string; reply_at: number | null; version: number; created_at: number; service_name: string; staff_name: string | null; visit_date: string };
 function ReviewsPanel({ w }: { w: WorkspaceData }) {
-  const [data, setData] = useState<{ reviews: ReviewRowView[]; summary: { count: number; average: number | null; hidden: number } } | null>(null);
+  const [data, setData] = useState<{ reviews: ReviewRowView[]; summary: { count: number; average: number | null; hidden: number }; by_staff?: { staff_id: string; name: string; count: number; average: number; low: number }[]; scope?: "all" | "own" } | null>(null);
+  const [who, setWho] = useState("");
   const [error, setError] = useState("");
   const [replying, setReplying] = useState<{ id: string; text: string } | null>(null);
   const [filter, setFilter] = useState<"ALL" | "PUBLISHED" | "HIDDEN">("ALL");
   const canModerate = !w.account || ["OWNER", "MANAGER"].includes(w.account.role);
   const load = () =>
-    api<{ reviews: ReviewRowView[]; summary: { count: number; average: number | null; hidden: number } }>("/reviews")
+    api<NonNullable<typeof data>>("/reviews")
       .then((r) => {
         setData(r);
         setError("");
@@ -4363,7 +4427,7 @@ function ReviewsPanel({ w }: { w: WorkspaceData }) {
       if ((e as ApiError).status === 409) load();
     }
   }
-  const rows = (data?.reviews || []).filter((r) => filter === "ALL" || r.status === filter);
+  const rows = (data?.reviews || []).filter((r) => (filter === "ALL" || r.status === filter) && (!who || (r as { staff_id?: string }).staff_id === who));
   const stars = (n: number) => (
     <span className="stars" role="img" aria-label={`${n} out of 5`}>
       {[1, 2, 3, 4, 5].map((i) => (
@@ -4398,11 +4462,25 @@ function ReviewsPanel({ w }: { w: WorkspaceData }) {
         </div>
       </header>
       {error && <Notice tone="warning">{error}</Notice>}
+      {data && data.by_staff && data.by_staff.length > 0 && (
+        <div className="review-people" data-testid="review-people" role="group" aria-label="Ratings by barber">
+          {data.by_staff.length > 1 && (
+            <button type="button" aria-pressed={!who} onClick={() => setWho("")}>
+              <b>{data.summary.average ?? "–"}</b><span>Everyone · {data.summary.count}</span>
+            </button>
+          )}
+          {data.by_staff.map((p) => (
+            <button type="button" key={p.staff_id} aria-pressed={data.by_staff!.length === 1 || who === p.staff_id} onClick={() => setWho(who === p.staff_id ? "" : p.staff_id)} data-testid="review-person">
+              <b>{p.average}</b><span>{p.name.split(" ")[0]} · {p.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {!data ? (
         <p className="muted">Loading…</p>
       ) : rows.length === 0 ? (
         <p className="muted" data-testid="reviews-empty">
-          No reviews yet. Customers are asked for one after each completed visit (see the outbox above).
+          No reviews yet. Customers are asked for one after each completed visit. Turn this on or off in Settings → Reviews & Google.
         </p>
       ) : (
         <ul className="review-admin-list">
