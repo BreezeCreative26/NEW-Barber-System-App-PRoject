@@ -82,7 +82,7 @@ import { billingSummary, entitlements, setFeature, syncSeats, hasFeature, featur
 import { runningStatement, statementCsv } from "./statement";
 import { billingLive, cardSetupSession, paymentMethodSummary, portalSession } from "./stripeBilling";
 import { applyDecisions, changeSchema, decisionSchema, describeChange, previewChange, type ScheduleChange } from "./schedule";
-import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, pushFor, sweepReminders, MESSAGE_TEMPLATES, type Recipient } from "./messaging";
+import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, pushFor, sweepReminders, reminderSteps, MESSAGE_TEMPLATES, type Recipient } from "./messaging";
 import { agentPrompt, newSecret, voiceEndpoints, voiceOf, voiceSettingsSchema } from "./voice";
 import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import QRCode from "qrcode";
@@ -1430,7 +1430,7 @@ sandbox.get("/notifications", async (c) => {
     notifications: rows.results,
     counts_30d: Object.fromEntries(counts.results.map((r) => [r.status, r.n])),
     providers: providerStatus(),
-    messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "", customer_code_signin: (ms as { customer_code_signin?: number }).customer_code_signin ?? 1 },
+    messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reminder_steps: reminderSteps(ms).join(","), msg_quiet_on: ms.msg_quiet_on ?? 1, msg_quiet_start: ms.msg_quiet_start ?? 1260, msg_quiet_end: ms.msg_quiet_end ?? 480, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "", customer_code_signin: (ms as { customer_code_signin?: number }).customer_code_signin ?? 1 },
     // What a text costs the shop and whether the owner has acknowledged texts are billed.
     sms_billing: await smsBilling(c),
     templates: templatesOf(shop),
@@ -1468,6 +1468,11 @@ const messagingSchema = z
     customer_code_signin: z.union([z.literal(0), z.literal(1)]).default(1),
     msg_reminders: z.union([z.literal(0), z.literal(1)]),
     msg_reminder_hours: z.number().int().min(1).max(72),
+    // Reminder schedule (up to three "hours before" values) and quiet hours. Older clients omit them: left as they are.
+    msg_reminder_steps: z.string().trim().regex(/^(\d{1,2}(,\d{1,2}){0,2})?$/, "Up to three whole numbers of hours").optional(),
+    msg_quiet_on: z.union([z.literal(0), z.literal(1)]).optional(),
+    msg_quiet_start: z.number().int().min(0).max(1439).optional(),
+    msg_quiet_end: z.number().int().min(0).max(1439).optional(),
     msg_reply_to: z.union([z.literal(""), z.string().trim().email().max(120)]),
     msg_sms_sender: z.string().trim().max(11).regex(/^[A-Za-z0-9 ]*$/, "Letters and numbers only"),
     // Owner confirms texts are billed per message (shown with the rate). Required the first time SMS is switched on.
@@ -1488,7 +1493,10 @@ sandbox.put("/shop/messaging", async (c) => {
   // Switching texts on is a commitment to pay per text: the owner must tick the acknowledgement once.
   if (b.msg_sms === 1 && !bill.acknowledged_at && !b.sms_billing_ack) fail(409, `Please confirm you understand texts are billed at ${bill.unit_pence}p each.`);
   const ackNow = b.msg_sms === 1 && !bill.acknowledged_at && b.sms_billing_ack ? Date.now() : null;
+  const stepsClean = b.msg_reminder_steps === undefined ? undefined : reminderSteps({ msg_reminder_steps: b.msg_reminder_steps, msg_reminder_hours: 0 }).join(",");
+  if (b.msg_reminder_steps && b.msg_reminder_steps.split(",").some((x) => Number(x) < 1 || Number(x) > 72)) fail(400, "Reminders can be 1 to 72 hours before the visit.");
   await c.env.DB.batch([
+    ...(stepsClean === undefined && b.msg_quiet_on === undefined ? [] : [c.env.DB.prepare("UPDATE shops SET msg_reminder_steps=COALESCE(?,msg_reminder_steps), msg_quiet_on=COALESCE(?,msg_quiet_on), msg_quiet_start=COALESCE(?,msg_quiet_start), msg_quiet_end=COALESCE(?,msg_quiet_end) WHERE id=?").bind(b.msg_reminder_steps === "" ? "" : stepsClean ?? null, b.msg_quiet_on ?? null, b.msg_quiet_start ?? null, b.msg_quiet_end ?? null, sid)]),
     c.env.DB.prepare(`UPDATE shops SET customer_code_signin=?,msg_sms=?,msg_email=?,msg_wa=?,msg_reminders=?,msg_reminder_hours=?,msg_reply_to=?,msg_sms_sender=?,version=version+1${ackNow ? ", msg_sms_billing_ack_at=?" : ""} WHERE id=?`).bind(...[b.customer_code_signin, b.msg_sms, b.msg_email, b.msg_wa, b.msg_reminders, b.msg_reminder_hours, b.msg_reply_to, b.msg_sms_sender, ...(ackNow ? [ackNow] : []), sid]),
     audit(c, "shop", sid, "MESSAGING_UPDATED", `Customer code sign-in ${b.customer_code_signin ? "on" : "off"}, SMS ${b.msg_sms ? "on" : "off"}${ackNow ? ` (billing at ${bill.unit_pence}p/text accepted)` : ""}, WhatsApp ${b.msg_wa ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
   ]);

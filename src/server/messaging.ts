@@ -36,7 +36,7 @@ type DB = Database;
 const uid = () => crypto.randomUUID();
 
 export type MsgShop = Shop & {
-  msg_sms?: number; msg_email?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reply_to?: string; msg_sms_sender?: string;
+  msg_sms?: number; msg_email?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reminder_steps?: string; msg_quiet_on?: number; msg_quiet_start?: number; msg_quiet_end?: number; timezone?: string; msg_reply_to?: string; msg_sms_sender?: string;
   notify_json?: string;
   msg_wa?: number;
   logo_url?: string; accent?: string; theme_json?: string; logo_tone?: string;
@@ -487,12 +487,16 @@ export function channelsFor(shop: MsgShop, to: Recipient, prefer: Channel | "AUT
 }
 const WA_CAPABLE = new Set<MessageTemplate>(["booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon", "signin_code", "verify_contact", "waitlist_offer", "waitlist_open", "pay_link", "staff_invite", "password_reset"]);
 
+// Emails to a shop's customers carry the shop's look only, no foliyo mark. Owner, staff and billing
+// emails stay foliyo-branded.
+const CUSTOMER_FACING = new Set<MessageTemplate>(["booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon", "signin_code", "waitlist_joined", "waitlist_offer", "waitlist_open", "waitlist_booked", "waitlist_released", "review_request", "google_review", "test_message", "pay_link", "verify_contact", "password_reset", "account_welcome", "account_reset", "shop_announcement"]);
+
 // Returns prepared statements so callers can batch them with their own writes.
 export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageTemplate, vars: MessageVars, opts: EnqueueOpts, both = template === "booking_confirmed") {
   const now = opts.now ?? Date.now();
   const brand = brandOf(shop);
   const r = copyFor(template, { first: to.name, ...vars }, shop);
-  const html = emailHtml(shop, brand, opts.origin, r, { phone: shop.phone, email: shop.email, unsubscribe: opts.unsubscribe }, !!opts.shopOnly);
+  const html = emailHtml(shop, brand, opts.origin, r, { phone: shop.phone, email: shop.email, unsubscribe: opts.unsubscribe }, opts.shopOnly ?? CUSTOMER_FACING.has(template));
   const out = [];
   const chosen = channelsFor(shop, to, opts.channel || "AUTO", both, opts.force, template);
   for (let channel of chosen) {
@@ -711,6 +715,26 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
   return { claimed: due.results.length, sent, failed, retried };
 }
 
+// The reminder schedule: hours before the visit, longest first, at most three. Empty means the classic pair.
+export function reminderSteps(shop: { msg_reminder_hours?: number; msg_reminder_steps?: string }) {
+  const parsed = String(shop.msg_reminder_steps || "").split(",").map((x) => Math.round(Number(x))).filter((n) => n >= 1 && n <= 72);
+  const list = parsed.length ? parsed : [shop.msg_reminder_hours || 24, 2];
+  return [...new Set(list)].sort((a, b) => b - a).slice(0, 3);
+}
+// If "now" falls inside the shop's quiet hours (local time), the moment they end; otherwise now.
+export function quietUntil(shop: { msg_quiet_on?: number; msg_quiet_start?: number; msg_quiet_end?: number; timezone?: string }, now: number) {
+  if ((shop.msg_quiet_on ?? 1) !== 1) return now;
+  const start = shop.msg_quiet_start ?? 1260, end = shop.msg_quiet_end ?? 480;
+  if (start === end) return now;
+  let parts: Intl.DateTimeFormatPart[];
+  try { parts = new Intl.DateTimeFormat("en-GB", { timeZone: shop.timezone || "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(now)); } catch { return now; }
+  const mins = Number(parts.find((p) => p.type === "hour")!.value) * 60 + Number(parts.find((p) => p.type === "minute")!.value);
+  const inside = start < end ? mins >= start && mins < end : mins >= start || mins < end;
+  if (!inside) return now;
+  const wait = (end - mins + 1440) % 1440 || 1440;
+  return now + wait * 60000 - (now % 60000);
+}
+
 // ---- Reminders -----------------------------------------------------------------
 // Queue "tomorrow" reminders for confirmed visits starting within [h-1h, h] hours from now (h =
 // shop's msg_reminder_hours), and "soon" reminders 2h before. Unique index makes this idempotent.
@@ -720,11 +744,14 @@ export async function sweepReminders(db: DB, origin: string, now = Date.now()) {
     .all<MsgShop & { map_url: string }>();
   let queued = 0;
   for (const shop of shops.results) {
-    const h = shop.msg_reminder_hours || 24;
-    const windows: { template: MessageTemplate; from: number; to: number }[] = [
-      { template: "booking_reminder", from: now + (h - 1) * 3600000, to: now + h * 3600000 },
-      { template: "booking_reminder_soon", from: now + 90 * 60000, to: now + 120 * 60000 },
-    ];
+    const steps = reminderSteps(shop);
+    const windows: { template: MessageTemplate; mark: string; from: number; to: number; hours: number }[] = steps.map((hrs, i) => {
+      const template: MessageTemplate = hrs <= 3 ? "booking_reminder_soon" : "booking_reminder";
+      // Two steps can share a template; the mark carries the hours so each one is claimed once.
+      const dup = steps.findIndex((x) => (x <= 3) === (hrs <= 3)) !== i;
+      const span = hrs <= 3 ? 30 * 60000 : 3600000;
+      return { template, mark: dup ? `${template}@${hrs}` : template, from: now + hrs * 3600000 - span, to: now + hrs * 3600000, hours: hrs };
+    });
     for (const w of windows) {
       const rows = await db
         .prepare(
@@ -732,19 +759,22 @@ export async function sweepReminders(db: DB, origin: string, now = Date.now()) {
            WHERE b.shop_id=? AND b.status='CONFIRMED' AND b.start_at>? AND b.start_at<=? AND (b.phone<>'' OR b.email<>'')
            AND NOT EXISTS (SELECT 1 FROM reminder_marks m WHERE m.shop_id=b.shop_id AND m.booking_id=b.id AND m.template=? AND m.start_at=b.start_at)`,
         )
-        .bind(shop.id, w.from, w.to, w.template)
+        .bind(shop.id, w.from, w.to, w.mark)
         .all<{ id: string; start_at: number; customer_name: string; attendee_name: string; phone: string; email: string; service_name: string; staff_name: string | null; date: string; start_min: number; token_hash: string | null; price_pence: number }>();
       for (const b of rows.results) {
         // Claim this reminder for this booking at this start time; a move changes the time, so it earns a new one.
-        const claim = await db.prepare("INSERT INTO reminder_marks(shop_id,booking_id,template,start_at,created_at) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING").bind(shop.id, b.id, w.template, b.start_at, now).run();
+        const claim = await db.prepare("INSERT INTO reminder_marks(shop_id,booking_id,template,start_at,created_at) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING").bind(shop.id, b.id, w.mark, b.start_at, now).run();
         if (!claim.meta.changes) continue;
         // The manage link needs the raw token, which we don't store. Reminders link to /<slug>/me
         // (one-time code sign-in) — always valid, and the customer sees every visit there.
         const link = shopUrl(shop.slug!, "/me", origin);
+        // Quiet hours: hold the reminder until the shop's morning; if that would be too close to the visit, skip it.
+        const sendAt = quietUntil(shop, now);
+        if (sendAt > now && sendAt > b.start_at - 15 * 60000) continue;
         const stmts = enqueue(db, shop, { name: b.attendee_name || b.customer_name, phone: b.phone, email: b.email }, w.template, {
           service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], date: fmtDate(b.date), time: fmtTime(b.start_min), ref: b.id.slice(0, 6).toUpperCase(),
           address: shop.address, link, map_link: shop.map_url || (shop.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.address)}` : link),
-        }, { related: { type: "booking", id: b.id }, origin, now }, false);
+        }, { related: { type: "booking", id: b.id }, origin, now, sendAt: sendAt > now ? sendAt : undefined }, false);
         if (stmts.length) { await db.batch(stmts); queued += stmts.length; }
       }
     }
