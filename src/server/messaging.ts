@@ -776,3 +776,18 @@ export async function msgShop(c: Ctx | { env: { DB: DB } }, shopId: string): Pro
   ).bind(shopId).first<MsgShop>();
   return row!;
 }
+
+// ---- Direct sends (platform marketing) -------------------------------------------------------
+// Sent straight through the providers, outside any shop's message history and never billed to a shop.
+export function renderPlatformEmail(shell: MsgShop, pb: { company_name?: string; company_address?: string; company_email?: string }, origin: string, r: { subject: string; heading: string; lines: string[]; cta?: { label: string; href: string }; footnote?: string }, unsubscribe: string) {
+  const sender = platformSender(shell, pb);
+  return emailHtml(sender, brandOf(sender), origin, { sms: "", ...r }, { email: pb.company_email, unsubscribe });
+}
+export async function deliverDirect(db: DB, m: { channel: "SMS" | "EMAIL"; to: string; subject?: string; body: string; html?: string; fromName: string; replyTo?: string }): Promise<{ ok: true; provider: string; id: string } | { ok: false; provider: string; error: string; permanent?: boolean }> {
+  const row: Row = { id: uid(), shop_id: "", channel: m.channel, recipient: m.to, template: "marketing", body: m.body, subject: m.subject || "", html: m.html || "", attempts: 1, shop_name: m.fromName, msg_reply_to: m.replyTo || "", msg_sms_sender: smsSenderFor(m.fromName), msg_sms: 1 };
+  try {
+    return m.channel === "EMAIL" ? await sendEmail(row) : await sendSms(row, db);
+  } catch (e) {
+    return { ok: false, provider: m.channel === "EMAIL" ? "resend" : "sms", error: e instanceof Error ? e.message : "network error" };
+  }
+}

@@ -627,6 +627,7 @@ test("appointment side panel: contextual actions, note, series ops, customer lin
   const panel = page.getByTestId("appointment-panel");
   await expect(panel).toBeVisible();
   await expect(panel.getByRole("heading", { level: 2 })).toContainText("Panel Client");
+  await panel.getByTestId("panel-more-toggle").click();
   await expect(panel.locator(".panel-timeline li")).toHaveCount(1);
   // Desktop: drawer on the right, calendar still visible behind.
   const box = await panel.boundingBox();
@@ -652,6 +653,7 @@ test("appointment side panel: contextual actions, note, series ops, customer lin
   expect(seriesVisit).toBeTruthy();
   await page.getByLabel("Appointment date", { exact: true }).fill(seriesVisit.date);
   await page.getByRole("button", { name: new RegExp(seriesVisit.customer_name) }).first().click();
+  await panel.getByTestId("panel-more-toggle").click();
   await expect(panel.getByText("Standing", { exact: true })).toBeVisible();
   await expect(panel.locator(".series-strip li")).toHaveCount(5);
   await panel.getByRole("button", { name: "Cancel series" }).click();
@@ -666,8 +668,8 @@ test("appointment side panel: contextual actions, note, series ops, customer lin
   await expect(panel).toBeHidden();
   // Phone: bottom sheet, full width.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "Agenda", exact: true }).click();
-  await page.locator(".workspace-booking-row").first().click();
+  await page.getByRole("button", { name: "Week", exact: true }).click();
+  await page.locator(".week-card").first().click();
   await expect(panel).toBeVisible();
   const sheet = await panel.boundingBox();
   expect(sheet!.width).toBeGreaterThanOrEqual(380);

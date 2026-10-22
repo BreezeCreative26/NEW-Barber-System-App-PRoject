@@ -253,7 +253,9 @@ test("browser: queue chip → drawer → offer a time → copy message; bell kee
   await expect(panel).toBeVisible();
   // The outbox lives in Settings → Messages; the drawer link lands on Waiting list.
   await page.getByTestId("settings-tab-messages").click();
+  await page.getByTestId("open-history").click();
   await expect(page.getByTestId("waitlist-settings").getByTestId("outbox").getByTestId("outbox-row").first()).toContainText(/Sent/i);
+  await page.getByLabel("Close message history").click();
   await page.getByTestId("settings-tab-waitlist").click();
   await panel.getByTestId("template-waitlist_released").fill("Sorry {first}, that one went. Still holding your place at {shop} for {date}.");
   await panel.getByTestId("save-waitlist-settings").click();

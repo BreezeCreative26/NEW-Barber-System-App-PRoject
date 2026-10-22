@@ -4,7 +4,7 @@ import type { Staff } from "../server/domain";
 import { Badge, Button, Icon } from "./ui";
 import { money } from "./fixtures";
 import { F, StepActions, useBusy, type StepProps } from "./Setup";
-import { SmsBillingAck, SmsSenderField, suggestSenders } from "./SmsSender";
+import { SeatChargeNote, SmsBillingAck, SmsSenderField, suggestSenders } from "./SmsSender";
 
 type Invite = { id: string; staff_id: string; email: string; phone: string; role: string; channel: string; sent_count: number; last_sent_at: number | null; expires_at: number; accepted_at: number | null; revoked: number };
 type Member = { id: string; name: string; email: string; staff_id: string | null; role: string; active: number };
@@ -126,6 +126,7 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
         })}
       </ul>
       <form className="setup-add" onSubmit={(e) => { e.preventDefault(); run(addBarber, setError); }}>
+        {canNameOwner || team.length > 0 ? <SeatChargeNote api={api} testId="setup-seat-charge" /> : null}
         <F label="Add someone"><input value={adding.name} onChange={(e) => setAdding({ ...adding, name: e.target.value })} placeholder="Their name" maxLength={100} data-testid="setup-add-name" /></F>
         <F label="Job title"><input value={adding.role} onChange={(e) => setAdding({ ...adding, role: e.target.value })} placeholder="Barber" maxLength={50} list="setup-roles" /><datalist id="setup-roles"><option value="Barber" /><option value="Senior barber" /><option value="Stylist" /><option value="Colourist" /><option value="Apprentice" /><option value="Nail tech" /><option value="Receptionist" /></datalist></F>
         <Button type="submit" variant="secondary" disabled={busy || adding.name.trim().length < 2} data-testid="setup-add-staff"><Icon name="plus" size={14} /> Add</Button>

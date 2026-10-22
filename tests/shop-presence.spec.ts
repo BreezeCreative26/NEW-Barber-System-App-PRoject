@@ -258,7 +258,7 @@ test("browser: shop page shows photos, hero rating and reviews (axe clean); owne
   await page.getByTestId("wed-publish").click();
   await expect(page.getByTestId("wed-publish")).toHaveText("Published", { timeout: 10000 });
   await page.getByTestId("wed-close").click();
-  await section(page, "Settings/reviews");
+  await page.getByTestId("reviews-chip").click();
   // Reviews panel: hide the first shown review, reply to it.
   const reviews = page.getByTestId("reviews-panel");
   await reviews.scrollIntoViewIfNeeded();

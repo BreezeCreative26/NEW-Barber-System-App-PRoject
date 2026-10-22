@@ -514,9 +514,9 @@ for (const width of [320, 390, 768, 1024, 1440])
         document.documentElement.style.zoom = "";
       });
     }
-    await page.getByRole("button", { name: "Agenda", exact: true }).click();
+    await page.getByRole("button", { name: "Week", exact: true }).click();
     await page.screenshot({
-      path: test.info().outputPath(`e1-agenda-${width}.png`),
+      path: test.info().outputPath(`e1-week-${width}.png`),
       fullPage: true,
     });
     expect(errors).toEqual([]);
@@ -865,12 +865,14 @@ test("week view shows the seven-day load per barber, drills into a day, and open
   await expect(page.getByText(/^Week of /)).toBeVisible();
   // Seven day heads, every card present, each barber row counts its own visits.
   await expect(week.locator(".week-day-head")).toHaveCount(7);
-  await expect(week.locator(".week-card")).toHaveCount(4);
-  await expect(week.locator(".week-row").first()).toContainText("2 this week");
-  await expect(week.locator(".week-row").nth(1)).toContainText("2 this week");
+  // One person's week at a time: 2 visits each, and the people toggle switches between them.
+  await expect(week.locator(".week-card")).toHaveCount(2);
+  await expect(week.locator(".week-person-title")).toContainText("2 appointments this week");
+  await week.getByTestId("week-people").locator("button[aria-pressed=false]").first().click();
+  await expect(week.locator(".week-card")).toHaveCount(2);
   // The chosen day head announces its load and links to the timetable.
   const head = week.locator(".week-day-head.chosen");
-  await expect(head).toHaveAttribute("aria-label", /4 appointments, \d+% booked/);
+  await expect(head).toHaveAttribute("aria-label", /\d+ appointments, \d+% booked/);
   // Opening a card opens the same appointment dialog as the day view.
   await week.locator(".week-card").first().click();
   const dialog = page.getByRole("dialog");

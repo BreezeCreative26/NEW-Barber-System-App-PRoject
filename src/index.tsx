@@ -1,3 +1,4 @@
+import { marketingPublic } from "./server/marketing";
 import { bootCache } from "./server/bootCache";
 import { Hono, type Context } from "hono";
 
@@ -129,6 +130,7 @@ app.route("/api/public", pub);
 app.route("/api/voice", voice);
 app.route("/api/admin", admin);
 app.route("/api/admin-public", adminPublic);
+app.route("/u", marketingPublic);
 app.get("/pay-run/:id", (c) => adminPublic.fetch(new Request(new URL(`/pay-run/${c.req.param("id")}${new URL(c.req.url).search}`, c.req.url), c.req.raw), c.env));
 // Printable invoice / credit note (token in the query string; emailed to billing contacts).
 app.get("/invoice/:id", (c) => adminPublic.fetch(new Request(new URL(`/invoice/${c.req.param("id")}${new URL(c.req.url).search}`, c.req.url), c.req.raw), c.env));

@@ -1126,7 +1126,8 @@ export async function googleReviewFollowUp(c: Ctx, shop: Shop, booking: StoredBo
   if (shop.google_review_nudge) {
     const already = await c.env.DB.prepare("SELECT 1 AS x FROM notifications WHERE shop_id=? AND template='google_review' AND related_type='booking' AND related_id=?").bind(shop.id, booking.id).first();
     if (!already) {
-      const ms = await msgShop(c, shop.id);
+      const ms0 = await msgShop(c, shop.id);
+      const ms = { ...ms0, msg_sms: (ms0 as { review_ask_sms?: number }).review_ask_sms === 1 ? ms0.msg_sms : 0, msg_email: (ms0 as { review_ask_email?: number }).review_ask_email !== 0 ? ms0.msg_email : 0 } as typeof ms0;
       const staff = booking.staff_id ? await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(shop.id, booking.staff_id).first<{ name: string }>() : null;
       const stmts = enqueue(c.env.DB, ms, { name: booking.attendee_name || booking.customer_name, phone: booking.phone, email: booking.email, pref: booking.contact_pref }, "google_review", { rating, service: booking.service_name, barber: (staff?.name || "us").split(" ")[0], link }, { related: { type: "booking", id: booking.id }, origin: new URL(c.req.url).origin, now: Date.now() });
       if (stmts.length) { await c.env.DB.batch(stmts); await drain(c.env.DB, stmts.length, Date.now(), { type: "booking", id: booking.id }).catch(() => null); }

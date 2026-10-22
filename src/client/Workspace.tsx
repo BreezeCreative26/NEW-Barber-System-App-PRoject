@@ -1635,6 +1635,8 @@ export function Workspace() {
   const [dayMenuOpen, setDayMenuOpen] = useState(false);
   const [dayMenuStaff, setDayMenuStaff] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [reviewsOpen, setReviewsOpen] = useState(false);
+  const [ratingChip, setRatingChip] = useState<{ average: number | null; count: number } | null>(null);
   // Team inbox: what happened (bookings, cancellations, moves, no-shows) for this login only.
   const [inbox, setInbox] = useState<TeamInbox | null>(null);
   const loadInbox = () => api<TeamInbox>("/inbox").then(setInbox).catch(() => {});
@@ -1679,7 +1681,6 @@ export function Workspace() {
         ArrowRight: 'button[aria-label="Next day"], button[aria-label="Next week"]',
         d: '.segmented button[aria-label="Day timetable"]',
         w: '.segmented button[aria-label="Week"]',
-        a: '.segmented button[aria-label="Agenda"]',
         n: '[data-testid="new-booking"]',
         f: '[data-testid="calendar-fullscreen"]',
       };
@@ -2016,6 +2017,10 @@ export function Workspace() {
     }
   }
   const w = data;
+  useEffect(() => {
+    if (!w || reviewsOpen) return;
+    api<{ summary: { average: number | null; count: number } }>("/reviews").then((r) => setRatingChip(r.summary)).catch(() => setRatingChip(null));
+  }, [!!w, reviewsOpen]);
   // Same screens for everyone; these decide which features this account can use.
   const can = (k: string) => !w?.account || w.account.role === "OWNER" || !!(w.account.perms as Record<string, boolean> | undefined)?.[k];
   useEffect(() => {
@@ -2288,6 +2293,8 @@ export function Workspace() {
         onQueue={() => setQueueOpen((v) => !v)}
         bell={w ? { count: w.issues.length + (inbox?.unread ?? 0), open: notificationsOpen } : null}
         onBell={() => setNotificationsOpen((v) => !v)}
+        reviews={w && ratingChip ? { ...ratingChip, open: reviewsOpen } : null}
+        onReviews={() => setReviewsOpen((v) => !v)}
         account={
           w
             ? {
@@ -2363,6 +2370,14 @@ export function Workspace() {
             openBooking(id);
           }}
         />
+      )}
+      {w && reviewsOpen && (
+        <div className="drawer-scrim history-scrim" onClick={(e) => e.target === e.currentTarget && setReviewsOpen(false)}>
+          <aside className="drawer history-drawer reviews-drawer" aria-label="Reviews" data-testid="reviews-drawer">
+            <Button variant="ghost" className="history-close" onClick={() => setReviewsOpen(false)} aria-label="Close reviews"><Icon name="close" size={16} /></Button>
+            <ReviewsPanel w={w} />
+          </aside>
+        </div>
       )}
       {w && notificationsOpen && (
         <NotificationsDrawer
@@ -2633,7 +2648,7 @@ export function Workspace() {
                         <Icon name="right" />
                       </Button>
                     </span>
-                    <span className="toolbar-select">
+                    <span className="toolbar-select" hidden={calendarView === "week"}>
                       <Icon name="users" size={15} />
                       <select aria-label="Barber filter" value={barber} onChange={(e) => setBarber(e.target.value)}>
                         <option value="">All barbers</option>
@@ -2734,20 +2749,11 @@ export function Workspace() {
                       <button
                         type="button"
                         aria-pressed={calendarView === "week"}
-                        onClick={() => setCalendarView("week")}
+                        onClick={() => { setCalendarView("week"); if (!barber || !w.staff.some((x) => x.active && x.id === barber)) setBarber(w.staff.find((x) => x.active && x.id === w.account?.staff_id)?.id || w.staff.find((x) => x.active)?.id || ""); }}
                         aria-label="Week"
                       >
                         <Icon name="dashboard" size={16} />
                         <span className="toolbar-label">Week</span>
-                      </button>
-                      <button
-                        type="button"
-                        aria-pressed={calendarView === "agenda"}
-                        onClick={() => setCalendarView("agenda")}
-                        aria-label="Agenda"
-                      >
-                        <Icon name="list" size={16} />
-                        <span className="toolbar-label">Agenda</span>
                       </button>
                     </div>
                     <Button
@@ -2866,6 +2872,7 @@ export function Workspace() {
                         setCalendarView("day");
                       }}
                       onOpen={openBooking}
+                      onBarber={setBarber}
                     />
                   ) : !dayReady ? (
                     <p role="status" className="calendar-empty">
@@ -3204,9 +3211,9 @@ export function Workspace() {
                     )}
                     {settingsTab === "reviews" && (
                       <>
-                        <header className="settings-head"><h2>Reviews &amp; Google</h2><p>Ratings customers leave in foliyo, your replies, and turning happy customers into Google reviews.</p></header>
+                        <header className="settings-head"><h2>Reviews &amp; Google</h2><p>How customers are asked for a review, and how happy ones reach Google.</p></header>
                         <GoogleReviewsPanel w={w} />
-                        <ReviewsPanel w={w} />
+                        <p className="workspace-footnote">Ratings and replies live under the star Reviews button at the top of the screen.</p>
                       </>
                     )}
                     {settingsTab === "waitlist" && (
@@ -3874,6 +3881,9 @@ function GoogleReviewsPanel({ w }: { w: WorkspaceData }) {
   const [page, setPage] = useState<{ google_review_url: string; version: number } | null>(null);
   const [url, setUrl] = useState("");
   const [nudge, setNudge] = useState<number>(w.shop.google_review_nudge ?? 0);
+  const [askEmail, setAskEmail] = useState<number>(w.shop.review_ask_email ?? 1);
+  const [askSms, setAskSms] = useState<number>(w.shop.review_ask_sms ?? 0);
+  const [ack, setAck] = useState(false);
   const [state, setState] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -3902,6 +3912,19 @@ function GoogleReviewsPanel({ w }: { w: WorkspaceData }) {
       const r = await api<{ page: Record<string, unknown> }>("/shop/page", "PUT", body);
       setPage({ google_review_url: String(r.page.google_review_url || ""), version: Number(r.page.version ?? 0) });
       setState({ kind: "ok", text: url.trim() ? "Google link saved. It shows in your shop page footer and after a 4–5★ rating." : "Google link removed." });
+    } catch (err) {
+      setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
+    } finally { setBusy(false); }
+  }
+  async function saveAsk(patch: { google_review_nudge?: number; review_ask_email?: number; review_ask_sms?: number }, okText: string) {
+    setBusy(true); setState(null);
+    try {
+      // Read the live version first: saving the Google link bumps the workspace behind this panel.
+      const live = (await api<{ shop: { version: number } }>("/workspace")).shop.version;
+      const r = await api<{ shop: { version: number; google_review_nudge: number; review_ask_email: number; review_ask_sms: number } }>("/shop/reviews", "PUT", { google_review_nudge: nudge, review_ask_email: askEmail, review_ask_sms: askSms, ...patch, ...(patch.review_ask_sms === 1 ? { sms_billing_ack: ack } : {}), version: live });
+      setNudge(r.shop.google_review_nudge); setAskEmail(r.shop.review_ask_email); setAskSms(r.shop.review_ask_sms);
+      w.shop.version = r.shop.version;
+      setState({ kind: "ok", text: okText });
     } catch (err) {
       setState({ kind: "error", text: err instanceof Error ? err.message : "Could not save." });
     } finally { setBusy(false); }
@@ -3939,10 +3962,41 @@ function GoogleReviewsPanel({ w }: { w: WorkspaceData }) {
           )}
         </div>
       </form>
+      <div className="review-ask" data-testid="review-ask">
+        <h3>Ask for a review after every visit</h3>
+        <p className="workspace-footnote">When a visit is marked complete, the customer gets one message with a link to rate it inside your shop page. Four and five star ratings are then shown your Google link.</p>
+        <div className="workspace-switch-row">
+          <span>
+            <strong>By email</strong>
+            <small>Free. Sent from your shop with your logo.</small>
+          </span>
+          <label className="switch">
+            <input type="checkbox" checked={!!askEmail} disabled={busy} onChange={(e) => saveAsk({ review_ask_email: e.target.checked ? 1 : 0 }, e.target.checked ? "Review requests will go out by email." : "Review requests by email are off.")} aria-label="Ask for reviews by email" data-testid="review-ask-email" />
+            <span />
+          </label>
+        </div>
+        <div className="workspace-switch-row">
+          <span>
+            <strong>By text <em className="price-tag">8p per text</em></strong>
+            <small>Added to your monthly invoice. For example, 100 visits a month is £8.00.</small>
+          </span>
+          <label className="switch">
+            <input type="checkbox" checked={!!askSms} disabled={busy || (!askSms && !ack && !w.shop.msg_sms_billing_ack_at)} onChange={(e) => saveAsk({ review_ask_sms: e.target.checked ? 1 : 0 }, e.target.checked ? "Review requests will also go out by text, at 8p each." : "Review requests by text are off.")} aria-label="Ask for reviews by text" data-testid="review-ask-sms" />
+            <span />
+          </label>
+        </div>
+        {!askSms && !w.shop.msg_sms_billing_ack_at && (
+          <label className="sms-bill-ack review-ack">
+            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} data-testid="review-ask-ack" />
+            <span>I understand each text costs 8p and is added to my monthly invoice. Tick this, then switch on texts above.</span>
+          </label>
+        )}
+        {!askEmail && !askSms && <p className="workspace-footnote">Both are off, so customers are not asked. They can still rate from their booking link.</p>}
+      </div>
       <div className="workspace-switch-row">
         <span>
-          <strong>Follow up happy customers by text</strong>
-          <small>One message after a 4–5★ rating, from your shop, with the Google link. Never sent twice for the same visit.</small>
+          <strong>Follow up happy customers with your Google link</strong>
+          <small>One message after a 4–5★ rating, by the channels you chose above, with the Google link. Never sent twice for the same visit.</small>
         </span>
         <label className="switch">
           <input type="checkbox" checked={!!nudge} disabled={busy || !page?.google_review_url} onChange={(e) => toggleNudge(e.target.checked)} aria-label="Follow up happy customers by text" data-testid="google-review-nudge" />
@@ -4347,13 +4401,14 @@ const TEMPLATE_LABELS: Record<string, { label: string; hint: string }> = {
 // Settings → Reviews: everything customers have left, hide/show and a public reply.
 type ReviewRowView = { id: string; rating: number; body: string; display_name: string; status: "PUBLISHED" | "HIDDEN"; reply: string; reply_at: number | null; version: number; created_at: number; service_name: string; staff_name: string | null; visit_date: string };
 function ReviewsPanel({ w }: { w: WorkspaceData }) {
-  const [data, setData] = useState<{ reviews: ReviewRowView[]; summary: { count: number; average: number | null; hidden: number } } | null>(null);
+  const [data, setData] = useState<{ reviews: ReviewRowView[]; summary: { count: number; average: number | null; hidden: number }; by_staff?: { staff_id: string; name: string; count: number; average: number; low: number }[]; scope?: "all" | "own" } | null>(null);
+  const [who, setWho] = useState("");
   const [error, setError] = useState("");
   const [replying, setReplying] = useState<{ id: string; text: string } | null>(null);
   const [filter, setFilter] = useState<"ALL" | "PUBLISHED" | "HIDDEN">("ALL");
   const canModerate = !w.account || ["OWNER", "MANAGER"].includes(w.account.role);
   const load = () =>
-    api<{ reviews: ReviewRowView[]; summary: { count: number; average: number | null; hidden: number } }>("/reviews")
+    api<NonNullable<typeof data>>("/reviews")
       .then((r) => {
         setData(r);
         setError("");
@@ -4372,7 +4427,7 @@ function ReviewsPanel({ w }: { w: WorkspaceData }) {
       if ((e as ApiError).status === 409) load();
     }
   }
-  const rows = (data?.reviews || []).filter((r) => filter === "ALL" || r.status === filter);
+  const rows = (data?.reviews || []).filter((r) => (filter === "ALL" || r.status === filter) && (!who || (r as { staff_id?: string }).staff_id === who));
   const stars = (n: number) => (
     <span className="stars" role="img" aria-label={`${n} out of 5`}>
       {[1, 2, 3, 4, 5].map((i) => (
@@ -4407,11 +4462,25 @@ function ReviewsPanel({ w }: { w: WorkspaceData }) {
         </div>
       </header>
       {error && <Notice tone="warning">{error}</Notice>}
+      {data && data.by_staff && data.by_staff.length > 0 && (
+        <div className="review-people" data-testid="review-people" role="group" aria-label="Ratings by barber">
+          {data.by_staff.length > 1 && (
+            <button type="button" aria-pressed={!who} onClick={() => setWho("")}>
+              <b>{data.summary.average ?? "–"}</b><span>Everyone · {data.summary.count}</span>
+            </button>
+          )}
+          {data.by_staff.map((p) => (
+            <button type="button" key={p.staff_id} aria-pressed={data.by_staff!.length === 1 || who === p.staff_id} onClick={() => setWho(who === p.staff_id ? "" : p.staff_id)} data-testid="review-person">
+              <b>{p.average}</b><span>{p.name.split(" ")[0]} · {p.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {!data ? (
         <p className="muted">Loading…</p>
       ) : rows.length === 0 ? (
         <p className="muted" data-testid="reviews-empty">
-          No reviews yet. Customers are asked for one after each completed visit (see the outbox above).
+          No reviews yet. Customers are asked for one after each completed visit. Turn this on or off in Settings → Reviews & Google.
         </p>
       ) : (
         <ul className="review-admin-list">
@@ -4665,6 +4734,7 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
   const [filter, setFilter] = useState<"" | "SENT" | "FAILED" | "QUEUED">("");
   const [preview, setPreview] = useState<{ subject: string; html: string; body: string; channel: string } | null>(null);
   const [copied, setCopied] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const load = () =>
     api<OutboxData>(`/notifications?limit=60${filter ? `&status=${filter}` : ""}`)
       .then((d) => {
@@ -4953,6 +5023,20 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
       {show === "alerts" && data && <AlertsPanel smsLive={smsLive} />}
       {show === "ai" && data && <VoicePanel timezone={w.shop.timezone} />}
       {show === "messages" && (
+        <section className="history-row" data-testid="history-row">
+          <div>
+            <h3>Message history</h3>
+            <p className="workspace-footnote">{data ? `Last 30 days: ${c30.SENT || 0} sent · ${c30.FAILED || 0} failed · ${(c30.QUEUED || 0) + (c30.SENDING || 0)} waiting.` : "Loading…"} Each customer's own messages are on their record, under Messages.</p>
+          </div>
+          <Button variant="secondary" onClick={() => setHistoryOpen(true)} data-testid="open-history">
+            View history{(c30.FAILED || 0) > 0 ? ` (${c30.FAILED} failed)` : ""}
+          </Button>
+        </section>
+      )}
+      {show === "messages" && historyOpen && (
+      <div className="drawer-scrim history-scrim" onClick={(e) => e.target === e.currentTarget && setHistoryOpen(false)}>
+      <aside className="drawer history-drawer" aria-label="Message history">
+      <Button variant="ghost" className="history-close" onClick={() => setHistoryOpen(false)} aria-label="Close message history"><Icon name="x" size={16} /></Button>
       <div className="outbox" data-testid="outbox">
         <div className="outbox-head">
           <h3>
@@ -5000,6 +5084,8 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
             </li>
           ))}
         </ul>
+      </div>
+      </aside>
       </div>
       )}
       {preview && (
@@ -5773,7 +5859,9 @@ function CustomersPanel({
   const [importing, setImporting] = useState(false);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [profileError, setProfileError] = useState("");
-  const [profileTab, setProfileTab] = useState<"history" | "details" | "notes">("history");
+  const [profileTab, setProfileTab] = useState<"history" | "messages" | "details" | "notes">("history");
+  const [custMsgs, setCustMsgs] = useState<{ id: string; channel: string; recipient: string; template: string; body: string; subject: string; status: string; error: string; created_at: number; sent_at: number | null }[] | null>(null);
+  const [openMsg, setOpenMsg] = useState("");
   const [reload, setReload] = useState(0);
   const sequence = useRef(0);
   const canEdit = !w.account || ["OWNER", "MANAGER", "RECEPTION"].includes(w.account.role);
@@ -6026,9 +6114,27 @@ function CustomersPanel({
               </div>
               <div className="segmented" aria-label="Customer sections">
                 <button type="button" aria-pressed={profileTab === "history"} onClick={() => setProfileTab("history")}>History</button>
+                <button type="button" aria-pressed={profileTab === "messages"} onClick={() => { setProfileTab("messages"); if (!custMsgs) api<{ messages: NonNullable<typeof custMsgs> }>(`/customers/${profile.customer.id}/messages`).then((r) => setCustMsgs(r.messages)).catch(() => setCustMsgs([])); }} data-testid="customer-messages-tab">Messages</button>
                 <button type="button" aria-pressed={profileTab === "notes"} onClick={() => setProfileTab("notes")}>Notes & tags</button>
                 <button type="button" aria-pressed={profileTab === "details"} onClick={() => setProfileTab("details")}>Details</button>
               </div>
+              {profileTab === "messages" && (
+                <div className="customer-messages" data-testid="customer-messages">
+                  {!custMsgs && <p className="workspace-footnote">Loading messages…</p>}
+                  {custMsgs && custMsgs.length === 0 && <p className="workspace-footnote">No texts or emails sent to this customer yet.</p>}
+                  <ul className="outbox-list">
+                    {custMsgs?.map((n) => (
+                      <li key={n.id} data-status={n.status} data-testid="customer-message-row">
+                        <button type="button" className="customer-message-head" onClick={() => setOpenMsg(openMsg === n.id ? "" : n.id)} aria-expanded={openMsg === n.id}>
+                          <StatusPill tone={n.status === "SENT" ? "good" : n.status === "FAILED" ? "warn" : "note"}>{n.status === "SENT" ? "Sent" : n.status === "FAILED" ? "Failed" : n.status === "SKIPPED" ? "Not sent" : "Waiting"}</StatusPill>
+                          <span>{n.channel === "SMS" ? "Text" : "Email"} · {MSG_LABELS[n.template] ?? TEMPLATE_LABELS[n.template]?.label ?? n.template} · {new Date(n.sent_at || n.created_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: w.shop.timezone || "Europe/London" })}</span>
+                        </button>
+                        {openMsg === n.id && <p className="customer-message-body">{n.subject ? <strong>{n.subject}<br /></strong> : null}{n.body}{n.error ? <small className="workspace-error"> {n.error}</small> : null}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {profileTab === "history" && (
                 <ol className="customer-history" aria-label="Visit history">
                   {profile.bookings.map((b) => (

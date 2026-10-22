@@ -15,6 +15,7 @@ import { providerStatus, enqueue, drain, msgShop, platformSender } from "./messa
 import { raiseAlert, segmentRecipients, sendBroadcast, snapshotMrr, sweepPlatform, type Segment } from "./lifecycle";
 import { payRunStatementHtml, applyDunning, invoiceHtml, invoiceStats, issueCreditNote, issueManualInvoice, issuePeriodInvoice, markPaid, markUncollectible, prevPeriodKey, runPeriodClose, sendInvoice, voidInvoice, type InvoiceRow } from "./invoicing";
 import { stripeStatus } from "./stripe";
+import { mountMarketing } from "./marketing";
 
 type Role = "SUPER" | "SUPPORT" | "FINANCE";
 type Admin = { user_id: string; role: Role; name: string; email: string };
@@ -596,6 +597,8 @@ admin.get("/export/usage.csv", async (c) => {
   const rows = (await c.env.DB.prepare("SELECT s.name AS shop, u.feature_key, SUM(u.quantity)::int AS quantity, MAX(u.unit_pence) AS unit_pence, (SUM(u.quantity)*MAX(u.unit_pence))::int AS gross_pence FROM usage_events u JOIN shops s ON s.id=u.shop_id WHERE u.period_key=? GROUP BY s.name, u.feature_key ORDER BY s.name, u.feature_key").bind(period).all<Record<string, unknown>>()).results;
   return download(c, `ollo-usage-${period}.csv`, csv(rows, ["shop", "feature_key", "quantity", "unit_pence", "gross_pence"]));
 });
+
+mountMarketing(admin, { need, audit: audit as never, fail: fail as never });
 
 // ---- Broadcasts ------------------------------------------------------------------------------------
 const segmentSchema = z.object({ status: z.array(z.enum(["TRIAL", "ACTIVE", "PAST_DUE", "PAUSED", "CANCELLED"])).optional(), trial_ending_days: z.number().int().min(1).max(60).optional(), feature: z.string().optional(), shop_ids: z.array(z.string()).max(500).optional(), joined_after: z.number().int().optional(), joined_before: z.number().int().optional() }).strict();

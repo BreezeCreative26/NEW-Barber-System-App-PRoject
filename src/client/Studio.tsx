@@ -1,5 +1,6 @@
 // Service studio and barber studio: catalogue presentation, per-barber matrix and
 // team profiles. All writes go through the existing versioned sandbox routes.
+import { SeatChargeNote } from "./SmsSender";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   Service,
@@ -963,6 +964,7 @@ function BarberEditor({
         </div>
       )}
       {tab === "login" && staff && canEdit && <StaffLoginPanel w={w} api={api} staff={staff} onChanged={() => onSaved(staff.id)} />}
+      {tab === "profile" && !staff && <SeatChargeNote api={api} />}
       {tab === "profile" && (
         <form
           className="studio-form"

@@ -347,7 +347,13 @@ export async function queueReviewRequest(c: Ctx, shopId: string, bookingId: stri
   const hasAccount = !!(await c.env.DB.prepare("SELECT 1 FROM customer_accounts WHERE shop_id=? AND phone=? AND password_hash<>''").bind(shop.id, b.phone).first());
   const link = hasAccount || !raw ? shopUrl(shop.slug!, `/me?visit=${encodeURIComponent(bookingId)}`, new URL(c.req.url).origin) : shopUrl(shop.slug!, `/manage/${raw}`, new URL(c.req.url).origin);
   const body = render(templatesOf(shop).review_request, { first: (b.attendee_name || b.customer_name).split(" ")[0], shop: shop.name, service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], link });
-  await queueMessage(c, shop, b, "review_request", body, { type: "booking", id: bookingId }).run();
+  // Review asks follow their own switches: email is free, text is billed so it is opt-in.
+  const flags = shop as unknown as { review_ask_sms?: number; review_ask_email?: number; msg_sms?: number; msg_email?: number };
+  const askSms = flags.review_ask_sms === 1 && (flags.msg_sms ?? 1) === 1;
+  const askEmail = flags.review_ask_email !== 0 && (flags.msg_email ?? 1) === 1;
+  const sendTo = { phone: askSms ? b.phone : "", email: askEmail ? b.email : "" };
+  if (!sendTo.phone && !sendTo.email) return null;
+  await queueMessage(c, shop, sendTo, "review_request", body, { type: "booking", id: bookingId }).run();
   await drainSoon(c, 2, { type: "booking", id: bookingId });
   return body;
 }

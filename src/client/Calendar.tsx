@@ -977,8 +977,8 @@ export function Calendar({
             Change how much of the day fits on screen with the density control (Compact / Standard / Large) in the toolbar.
           </p>
           <p className="calendar-shortcuts" aria-label="Keyboard shortcuts">
-            <kbd>T</kbd> today · <kbd>←</kbd> <kbd>→</kbd> previous / next · <kbd>D</kbd> <kbd>W</kbd> <kbd>A</kbd> day, week,
-            agenda · <kbd>N</kbd> new booking · <kbd>F</kbd> full screen · <kbd>/</kbd> search · <kbd>Esc</kbd> close
+            <kbd>T</kbd> today · <kbd>←</kbd> <kbd>→</kbd> previous / next · <kbd>D</kbd> <kbd>W</kbd> day, week ·
+            <kbd>N</kbd> new booking · <kbd>F</kbd> full screen · <kbd>/</kbd> search · <kbd>Esc</kbd> close
           </p>
         </details>
       </footer>
@@ -1045,6 +1045,7 @@ export function WeekView({
   loading,
   onDay,
   onOpen,
+  onBarber,
 }: {
   w: WorkspaceData;
   date: string;
@@ -1053,13 +1054,17 @@ export function WeekView({
   loading: boolean;
   onDay: (date: string) => void;
   onOpen: (id: string) => void;
+  onBarber: (id: string) => void;
 }) {
   const monday = datePlus(
     date,
     -((new Date(date + "T12:00:00Z").getUTCDay() + 6) % 7),
   );
   const days = Array.from({ length: 7 }, (_, i) => datePlus(monday, i));
-  const staff = w.staff.filter((s) => s.active && (!barber || s.id === barber));
+  const everyone = w.staff.filter((s) => s.active);
+  // One person at a time: their whole week as a time grid.
+  const person = everyone.find((s) => s.id === barber) || everyone.find((s) => s.id === w.account?.staff_id) || everyone[0];
+  const staff = person ? [person] : [];
   const active = (b: RangeBooking) =>
     !["CANCELLED", "NO_SHOW"].includes(b.status);
   const rostered = (staffId: string, d: string) => {
@@ -1083,16 +1088,35 @@ export function WeekView({
   };
   const colour = (i: number) => staff[i]?.colour || ["sage", "sand", "blue", "clay"][i % 4];
   const cardColour = (i: number, b: { service_id?: string }) => (w.shop.card_colour === "SERVICE" ? w.services.find((x) => x.id === b.service_id)?.colour || colour(i) : colour(i));
+  const s = person;
+  const dayRanges = days.map((d) => shopDayOf(w.shop, d)).filter((x) => x.enabled);
+  const mine = (bookings || []).filter((b) => s && b.staff_id === s.id && active(b) && days.includes(b.date));
+  let gridStart = Math.floor(Math.min(...dayRanges.map((x) => x.starts), ...mine.map((b) => b.start_min), 24 * 60) / 60) * 60;
+  let gridEnd = Math.ceil(Math.max(...dayRanges.map((x) => x.ends), ...mine.map((b) => b.start_min + b.duration_min), 0) / 60) * 60;
+  if (!isFinite(gridStart) || gridStart >= gridEnd) { gridStart = 9 * 60; gridEnd = 18 * 60; }
+  const hours: number[] = [];
+  for (let m = gridStart; m < gridEnd; m += 60) hours.push(m);
+  const PX = 56; // pixels per hour
+  const total = ((gridEnd - gridStart) / 60) * PX;
   return (
-    <div className="week-view" aria-busy={loading}>
+    <div className="week-view week-person" aria-busy={loading}>
+      {everyone.length > 1 && (
+        <div className="week-people" role="group" aria-label="Whose week" data-testid="week-people">
+          {everyone.map((p, n) => (
+            <button type="button" key={p.id} aria-pressed={p.id === s?.id} onClick={() => onBarber(p.id)} data-testid={`week-person-${p.id}`}>
+              <Avatar initials={p.name.split(" ").map((x) => x[0]).join("").slice(0, 2)} colour={p.colour || ["sage", "sand", "blue", "clay"][n % 4]} src={p.photo_url} />
+              <span>{p.name.split(" ")[0]}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {s && <p className="week-person-title"><strong>{s.name}</strong> · {mine.length} appointment{mine.length === 1 ? "" : "s"} this week</p>}
       <div className="week-view-head">
         <span className="week-view-corner" aria-hidden="true" />
         {days.map((d) => {
-          const dayBookings = (bookings || []).filter(
-            (b) => b.date === d && active(b),
-          );
+          const dayBookings = mine.filter((b) => b.date === d);
           const booked = dayBookings.reduce((n, b) => n + b.duration_min, 0);
-          const open = staff.reduce((n, s) => n + rostered(s.id, d), 0);
+          const open = s ? rostered(s.id, d) : 0;
           const pct = open ? Math.min(100, Math.round((booked / open) * 100)) : 0;
           const isToday = d === w.today;
           return (
@@ -1102,89 +1126,51 @@ export function WeekView({
               className={`week-day-head ${d === date ? "chosen" : ""} ${open ? "" : "closed"}`}
               onClick={() => onDay(d)}
               aria-label={`${new Intl.DateTimeFormat("en-GB", { dateStyle: "full" }).format(new Date(d + "T12:00:00Z"))}, ${
-                open ? `${dayBookings.length} appointments, ${pct}% booked` : "closed"
+                open ? `${dayBookings.length} appointments, ${pct}% booked` : "not working"
               }. Open day timetable.`}
             >
-              <span>
-                {isToday
-                  ? "Today"
-                  : new Intl.DateTimeFormat("en-GB", { weekday: "short" }).format(
-                      new Date(d + "T12:00:00Z"),
-                    )}
-              </span>
+              <span>{isToday ? "Today" : new Intl.DateTimeFormat("en-GB", { weekday: "short" }).format(new Date(d + "T12:00:00Z"))}</span>
               <strong>{d.slice(-2)}</strong>
-              <small>
-                {open ? `${dayBookings.length} · ${pct}%` : "Closed"}
-              </small>
-              <i
-                className="week-load"
-                style={{ "--load": `${pct}%` } as CSSProperties}
-                aria-hidden="true"
-              />
+              <small>{open ? `${dayBookings.length} · ${pct}%` : "Off"}</small>
+              <i className="week-load" style={{ "--load": `${pct}%` } as CSSProperties} aria-hidden="true" />
             </button>
           );
         })}
       </div>
-      {staff.map((s, i) => (
-        <div className="week-row" key={s.id}>
-          <div className="week-row-label">
-            <Avatar
-              initials={s.name
-                .split(" ")
-                .map((p) => p[0])
-                .join("")
-                .slice(0, 2)}
-              colour={colour(i)}
-              src={s.photo_url}
-            />
-            <div>
-              <strong>{s.name}</strong>
-              <small>
-                {(bookings || []).filter(
-                  (b) => b.staff_id === s.id && active(b) && days.includes(b.date),
-                ).length}{" "}
-                this week
-              </small>
-            </div>
+      {s && (
+        <div className="week-grid" style={{ height: total } as CSSProperties} data-testid="week-grid">
+          <div className="week-hours" aria-hidden="true">
+            {hours.map((m) => (
+              <span key={m} style={{ top: ((m - gridStart) / 60) * PX }}>{time(m)}</span>
+            ))}
           </div>
           {days.map((d) => {
-            const cell = (bookings || [])
-              .filter((b) => b.staff_id === s.id && b.date === d && active(b))
-              .sort((a, b) => a.start_min - b.start_min);
             const off = rostered(s.id, d) === 0;
+            const cell = mine.filter((b) => b.date === d).sort((a, b) => a.start_min - b.start_min);
             return (
-              <div
-                className={`week-cell ${off ? "off" : ""}`}
-                key={d}
-                role="group"
-                aria-label={`${s.name}, ${d}${off ? ", not working" : ""}`}
-              >
-                {off && !cell.length && <span className="week-off">—</span>}
+              <div className={`week-col ${off ? "off" : ""} ${d === w.today ? "today" : ""}`} key={d} role="group" aria-label={`${s.name}, ${d}${off ? ", not working" : ""}`}>
+                {hours.map((m) => <i className="week-line" key={m} style={{ top: ((m - gridStart) / 60) * PX }} aria-hidden="true" />)}
+                {off && !cell.length && <span className="week-off">Not working</span>}
                 {cell.map((b) => (
                   <button
                     type="button"
-                    className={`week-card ${cardColour(i, b)} ${b.status === "COMPLETED" ? "done" : ""}`}
+                    className={`week-card ${cardColour(0, b)} ${b.status === "COMPLETED" ? "done" : ""}`}
                     key={b.id}
-                    style={{ "--span": Math.max(1, Math.round(b.duration_min / 15)) } as CSSProperties}
+                    style={{ top: ((b.start_min - gridStart) / 60) * PX, height: Math.max(24, (b.duration_min / 60) * PX - 2) } as CSSProperties}
                     onClick={() => onOpen(b.id)}
                     title={`${time(b.start_min)} ${b.customer_name} · ${b.service_name} · ${money(b.price_pence)}`}
                   >
                     <strong>{time(b.start_min)}{b.channel === "ONLINE" && <i className="week-card-dot" aria-label="Booked online" />}</strong>
                     <span className="week-card-name">{b.customer_name}</span>
-                    <small>
-                      {b.service_name}
-                      {b.series_id ? " ↻" : ""}
-                    </small>
+                    <small>{b.service_name}{b.series_id ? " ↻" : ""}</small>
                   </button>
                 ))}
               </div>
             );
           })}
         </div>
-      ))}
-      {!staff.length && (
-        <p className="calendar-empty">No active barbers match this filter.</p>
       )}
+      {!staff.length && <p className="calendar-empty">No active barbers yet.</p>}
     </div>
   );
 }

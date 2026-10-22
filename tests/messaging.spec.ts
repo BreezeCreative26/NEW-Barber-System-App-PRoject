@@ -242,6 +242,7 @@ test("browser: Settings → Messages shows provider status, saves channel settin
   await testForm.getByTestId("test-to").fill("owner-ui@example.test");
   await testForm.getByTestId("send-test").click();
   await expect(page.getByTestId("test-result")).toContainText(/sent|queued|preview|mailbox/i);
+  await page.getByTestId("open-history").click();
   const row = page.locator("[data-status]").filter({ hasText: "owner-ui@example.test" }).first();
   await expect(row).toBeVisible();
   await row.getByTestId("preview-email").click();

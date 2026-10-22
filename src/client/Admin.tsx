@@ -3,6 +3,7 @@ import { Button, Icon, Modal, Notice, Rail, StatusPill } from "./ui";
 import { money } from "./fixtures";
 import { AdminCatalogue, AdminInvoices, AdminOps, AdminTeam } from "./AdminMore";
 import { AdminAlerts, AdminBroadcasts, Exports, Trend } from "./AdminGrowth";
+import { AdminMarketing } from "./AdminMarketing";
 
 // foliyo master admin. Separate shell (ink on cream) so it is never mistaken for a shop workspace.
 // Sections: Overview · Shops (list → detail with subscription, features, invoices, usage, messaging,
@@ -27,6 +28,7 @@ const SECTIONS = [
   { key: "invoices", label: "Invoices", icon: "file" },
   { key: "alerts", label: "Alerts", icon: "bell" },
   { key: "broadcasts", label: "Broadcasts", icon: "send" },
+  { key: "marketing", label: "Marketing", icon: "megaphone" },
   { key: "ops", label: "Ops", icon: "sliders" },
   { key: "team", label: "Team", icon: "shield" },
 ];
@@ -60,6 +62,7 @@ export function Admin() {
           {section === "invoices" && <AdminInvoices me={me} onShop={(id) => { setSection("shops"); setShopId(id); }} />}
           {section === "alerts" && <AdminAlerts onShop={(id) => { setSection("shops"); setShopId(id); }} />}
           {section === "broadcasts" && <AdminBroadcasts me={me} />}
+          {section === "marketing" && <AdminMarketing me={me} />}
           {section === "ops" && <AdminOps onShop={(id) => { setSection("shops"); setShopId(id); }} />}
           {section === "team" && <AdminTeam me={me} />}
         </main>
