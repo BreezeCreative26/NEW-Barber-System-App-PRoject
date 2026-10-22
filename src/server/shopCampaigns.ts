@@ -13,13 +13,39 @@ import { normaliseUk, smsWindowOpen } from "./marketing";
 type Ctx = Context<any>;
 type Helpers = { input: <T>(c: Ctx, s: z.ZodType<T>) => Promise<T>; requireRole: (c: Ctx, roles: string[]) => void; fail: (status: 400 | 403 | 404 | 409, message: string) => never };
 
-export const SHOP_DEFAULTS = {
-  subject: "Book online with {shop}",
-  heading: "Book your next visit online",
-  body: "{shop} now has online booking. You can book, change or cancel an appointment any time, and we will remind you before each visit.\n\nMake your free account in under a minute and your details will be ready for next time.",
-  cta_label: "Book online",
-  sms_body: "Hi {first}, {shop} now takes bookings online. Book and manage your appointments any time: {link}",
-};
+export type Kind = "launch" | "offer" | "quiet" | "winback" | "hours" | "service" | "custom";
+type Copy = { subject: string; heading: string; body: string; cta_label: string; sms_body: string };
+// Starting points. Anything in [square brackets] must be replaced before it can be sent.
+export const PRESETS: { kind: Kind; title: string; blurb: string; audience: "ALL" | "OPTED_IN" | "RECENT" | "LAPSED"; channel: "SMS" | "EMAIL" | "BOTH"; copy: Copy }[] = [
+  { kind: "launch", title: "We take bookings online", blurb: "Tell customers about your new booking page.", audience: "ALL", channel: "EMAIL",
+    copy: { subject: "Book online with {shop}", heading: "Book your next visit online", cta_label: "Book online",
+      body: "{shop} now has online booking. You can book, change or cancel an appointment any time, and we will remind you before each visit.\n\nMake your free account in under a minute and your details will be ready for next time.",
+      sms_body: "Hi {first}, {shop} now takes bookings online. Book and manage your appointments any time: {link}" } },
+  { kind: "offer", title: "Special offer", blurb: "A deal or discount for your customers.", audience: "OPTED_IN", channel: "BOTH",
+    copy: { subject: "An offer from {shop}", heading: "A little something from us", cta_label: "Book now",
+      body: "We have an offer for our customers: [describe your offer].\n\nIt runs until [end date]. Book online and mention it when you arrive.",
+      sms_body: "Hi {first}, {shop} has an offer: [describe your offer], until [end date]. Book here: {link}" } },
+  { kind: "quiet", title: "Fill quiet days", blurb: "Free slots this week? Let people know.", audience: "RECENT", channel: "BOTH",
+    copy: { subject: "A few free slots at {shop}", heading: "We have space this week", cta_label: "See free times",
+      body: "We have a few free appointments coming up and would love to see you.\n\nPick a time that suits you and book in under a minute.",
+      sms_body: "Hi {first}, {shop} has a few free slots this week. Grab one here: {link}" } },
+  { kind: "winback", title: "We miss you", blurb: "Bring back people who have not visited in a while.", audience: "LAPSED", channel: "BOTH",
+    copy: { subject: "We miss you at {shop}", heading: "It has been a while", cta_label: "Book your next visit",
+      body: "It has been a couple of months since your last visit to {shop}, and we would love to see you again.\n\nBook your next appointment online in under a minute.",
+      sms_body: "Hi {first}, it has been a while since your last visit to {shop}. Book your next one here: {link}" } },
+  { kind: "hours", title: "Opening hours change", blurb: "Holidays, new hours or a temporary closure.", audience: "RECENT", channel: "EMAIL",
+    copy: { subject: "Opening hours at {shop}", heading: "A change to our opening hours", cta_label: "Book online",
+      body: "We are changing our opening hours: [describe the change and dates].\n\nYou can see free times and book online any time.",
+      sms_body: "Hi {first}, a change at {shop}: [describe the change and dates]. Book online: {link}" } },
+  { kind: "service", title: "New service", blurb: "Introduce something new on your menu.", audience: "ALL", channel: "EMAIL",
+    copy: { subject: "New at {shop}: [service name]", heading: "Something new at {shop}", cta_label: "Book it now",
+      body: "We now offer [service name] for [price]. [One line about what it is and who it is for.]\n\nBook it online at a time that suits you.",
+      sms_body: "Hi {first}, new at {shop}: [service name] for [price]. Book here: {link}" } },
+  { kind: "custom", title: "Write your own", blurb: "Start from a blank page.", audience: "ALL", channel: "EMAIL",
+    copy: { subject: "", heading: "", body: "", cta_label: "Book online", sms_body: "" } },
+];
+export const SHOP_DEFAULTS = PRESETS[0].copy;
+const PLACEHOLDER = /\[[^\]\n]{2,60}\]/;
 
 const uid = () => crypto.randomUUID().replace(/-/g, "").slice(0, 24);
 const token = () => Array.from(crypto.getRandomValues(new Uint8Array(18))).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -37,7 +63,9 @@ export function nextSmsWindow(now: number) {
 type Cust = { id: string; name: string; phone: string; email: string; contact_pref: string; unsub_token: string | null };
 const fields = z.object({
   channel: z.enum(["SMS", "EMAIL", "BOTH"]),
-  audience: z.enum(["ALL", "OPTED_IN"]).default("ALL"),
+  kind: z.enum(["launch", "offer", "quiet", "winback", "hours", "service", "custom"]).default("launch"),
+  audience: z.enum(["ALL", "OPTED_IN", "RECENT", "LAPSED"]).default("ALL"),
+  send_at: z.number().int().optional(),
   subject: z.string().trim().max(150).default(""),
   heading: z.string().trim().max(150).default(""),
   body: z.string().trim().max(3000).default(""),
@@ -45,10 +73,28 @@ const fields = z.object({
   cta_label: z.string().trim().max(40).default(""),
 }).strict();
 type Fields = z.infer<typeof fields>;
-const withDefaults = (f: Fields): Fields => ({ ...f, subject: f.subject || SHOP_DEFAULTS.subject, heading: f.heading || SHOP_DEFAULTS.heading, body: f.body || SHOP_DEFAULTS.body, sms_body: f.sms_body || SHOP_DEFAULTS.sms_body, cta_label: f.cta_label || SHOP_DEFAULTS.cta_label });
+const withDefaults = (f: Fields): Fields => {
+  const d = (PRESETS.find((p) => p.kind === f.kind) ?? PRESETS[0]).copy;
+  return { ...f, subject: f.subject || d.subject, heading: f.heading || d.heading, body: f.body || d.body, sms_body: f.sms_body || d.sms_body, cta_label: f.cta_label || d.cta_label || "Book online" };
+};
+// What is missing or unfinished for the channels chosen; empty means it can go.
+function problems(f: Fields) {
+  const out: string[] = [];
+  if (f.channel !== "SMS" && (!f.subject.trim() || !f.body.trim())) out.push("Add a subject and a message for the email.");
+  if (f.channel !== "EMAIL" && !f.sms_body.trim()) out.push("Add a message for the text.");
+  const text = [f.channel !== "SMS" ? f.subject + f.heading + f.body : "", f.channel !== "EMAIL" ? f.sms_body : ""].join(" ");
+  if (PLACEHOLDER.test(text)) out.push("Replace the [bracketed] parts with your own words first.");
+  return out;
+}
 
 async function audience(db: DB, shopId: string, f: Fields, shop: MsgShop) {
-  const rows = (await db.prepare("SELECT id,name,phone,email,contact_pref,unsub_token FROM customers WHERE shop_id=? AND merged_into IS NULL AND announce_unsub_at IS NULL AND contact_pref<>'NONE' AND (?='ALL' OR marketing_opt_in=1) ORDER BY created_at").bind(shopId, f.audience).all<Cust>()).results;
+  const DAY = 86400000, now = Date.now();
+  const visit = "SELECT 1 FROM bookings b WHERE b.shop_id=c.shop_id AND b.customer_id=c.id AND b.status IN ('COMPLETED','CHECKED_IN')";
+  const rows = (await db.prepare(`SELECT c.id,c.name,c.phone,c.email,c.contact_pref,c.unsub_token FROM customers c WHERE c.shop_id=? AND c.merged_into IS NULL AND c.announce_unsub_at IS NULL AND c.contact_pref<>'NONE'
+      AND (?='ALL' OR (?='OPTED_IN' AND c.marketing_opt_in=1)
+        OR (?='RECENT' AND EXISTS (${visit} AND b.start_at>?))
+        OR (?='LAPSED' AND EXISTS (${visit}) AND NOT EXISTS (${visit} AND b.start_at>?)))
+      ORDER BY c.created_at`).bind(shopId, f.audience, f.audience, f.audience, now - 90 * DAY, f.audience, now - 60 * DAY).all<Cust>()).results;
   const optedOut = new Set((await db.prepare("SELECT phone FROM wa_optouts").all<{ phone: string }>()).results.map((r) => r.phone));
   const wantSms = f.channel !== "EMAIL" && (shop.msg_sms ?? 1) === 1;
   const wantEmail = f.channel !== "SMS" && (shop.msg_email ?? 1) === 1;
@@ -69,9 +115,10 @@ export async function sendAnnouncement(db: DB, shop: MsgShop, f: Fields, origin:
   const a = await audience(db, shop.id, f, shop);
   const id = uid();
   const link = shopUrl(shop.slug!, "/book", origin);
-  const sendAt = nextSmsWindow(now);
-  await db.prepare("INSERT INTO shop_campaigns(id,shop_id,name,channel,audience,subject,heading,body,sms_body,cta_label,sms_count,email_count,sent_by,created_at,send_after) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-    .bind(id, shop.id, f.subject.slice(0, 80), f.channel, f.audience, f.subject, f.heading, f.body, f.sms_body, f.cta_label, a.sms.length, a.email.length, by, now, sendAt).run();
+  const startAt = Math.max(now, f.send_at ?? 0);
+  const sendAt = nextSmsWindow(startAt);
+  await db.prepare("INSERT INTO shop_campaigns(id,shop_id,name,channel,audience,subject,heading,body,sms_body,cta_label,sms_count,email_count,sent_by,created_at,send_after,kind,scheduled_for) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+    .bind(id, shop.id, f.subject.slice(0, 80), f.channel, f.audience, f.subject, f.heading, f.body, f.sms_body, f.cta_label, a.sms.length, a.email.length, by, now, sendAt, f.kind, startAt > now + 60000 ? startAt : 0).run();
   const tokenOf = async (c: Cust) => {
     if (c.unsub_token) return c.unsub_token;
     const t = token();
@@ -84,18 +131,18 @@ export async function sendAnnouncement(db: DB, shop: MsgShop, f: Fields, origin:
     const v = { first: first(c.name), shop: shop.name, link };
     let text = merge(f.sms_body, v).trim();
     if (!/\bSTOP\b/i.test(text)) text += " Reply STOP to opt out.";
-    stmts.push(...enqueue(db, shop, { name: first(c.name), phone: c.e164 }, "shop_announcement", { sms: text, subject: "", heading: "", body: "" }, { related: { type: "announce", id: `${id}:${c.id}` }, origin, channel: "SMS", now, sendAt, force: false, note: sendAt > now ? "Held until texts can go out (09:00 to 20:00, Monday to Saturday)" : "" }));
+    stmts.push(...enqueue(db, shop, { name: first(c.name), phone: c.e164 }, "shop_announcement", { sms: text, subject: "", heading: "", body: "" }, { related: { type: "announce", id: `${id}:${c.id}` }, origin, channel: "SMS", now, sendAt, force: false, note: startAt > now + 60000 ? "Scheduled" : sendAt > now ? "Held until texts can go out (09:00 to 20:00, Monday to Saturday)" : "" }));
     if (stmts.length >= 200) await flush();
   }
   for (const c of a.email) {
     const v = { first: first(c.name), shop: shop.name, link };
     const unsub = shopUrl(shop.slug!, `/u/c/${await tokenOf(c)}`, origin);
-    stmts.push(...enqueue(db, shop, { name: first(c.name), email: c.email }, "shop_announcement", { sms: merge(f.sms_body, v), subject: merge(f.subject, v), heading: merge(f.heading, v), body: merge(f.body, v), cta_label: f.cta_label, cta_url: link }, { related: { type: "announce", id: `${id}:${c.id}` }, origin, channel: "EMAIL", now, force: false, shopOnly: true, unsubscribe: unsub }));
+    stmts.push(...enqueue(db, shop, { name: first(c.name), email: c.email }, "shop_announcement", { sms: merge(f.sms_body, v), subject: merge(f.subject, v), heading: merge(f.heading, v), body: merge(f.body, v), cta_label: f.cta_label, cta_url: link }, { related: { type: "announce", id: `${id}:${c.id}` }, origin, channel: "EMAIL", now, sendAt: startAt > now ? startAt : undefined, force: false, shopOnly: true, unsubscribe: unsub }));
     if (stmts.length >= 200) await flush();
   }
   await flush();
   // Emails start at once; the usual sweep carries on with the rest.
-  await drain(db, 40, now).catch(() => {});
+  if (startAt <= now + 60000) await drain(db, 40, now).catch(() => {});
   return { id, sms: a.sms.length, email: a.email.length };
 }
 
@@ -119,7 +166,7 @@ export function mountShopCampaigns(app: Hono<any>, h: Helpers) {
               (SELECT COUNT(*)::int FROM notifications n WHERE n.shop_id=k.shop_id AND n.related_type='announce' AND n.related_id LIKE k.id||':%' AND n.status IN ('QUEUED','SENDING')) AS waiting
          FROM shop_campaigns k WHERE k.shop_id=? ORDER BY k.created_at DESC LIMIT 30`).bind(shop.id).all()).results;
     return c.json({
-      campaigns: rows, defaults: SHOP_DEFAULTS, link: shop.slug ? shopUrl(shop.slug, "/book", origin(c)) : "",
+      campaigns: rows, defaults: SHOP_DEFAULTS, presets: PRESETS, link: shop.slug ? shopUrl(shop.slug, "/book", origin(c)) : "",
       sms_on: (shop.msg_sms ?? 1) === 1, email_on: (shop.msg_email ?? 1) === 1, sms_acked: acked, sms_pence: 8, sms_window_open: smsWindowOpen(), has_page: !!shop.slug,
     });
   });
@@ -139,6 +186,7 @@ export function mountShopCampaigns(app: Hono<any>, h: Helpers) {
     const r = copyFor("shop_announcement", { sms: smsText, subject: merge(f.subject, v), heading: merge(f.heading, v), body: merge(f.body, v), cta_label: f.cta_label, cta_url: link }, shop);
     const html = emailHtml(shop, brandOf(shop), origin(c), r, { phone: shop.phone, email: shop.email, unsubscribe: shopUrl(shop.slug, "/u/c/preview", origin(c)) }, true);
     return c.json({
+      problems: problems(f),
       customers: a.total, sms: a.sms.length, email: a.email.length, landline: a.landline, no_contact: a.noContact,
       sms_text: smsText, sms_length: smsText.length, email_subject: r.subject, email_html: f.channel === "SMS" ? null : html,
       cost_pence: a.sms.length * 8, sms_window_open: smsWindowOpen(),
@@ -160,12 +208,23 @@ export function mountShopCampaigns(app: Hono<any>, h: Helpers) {
     return c.json({ ok: true, sent_to: to });
   });
 
+  app.post("/announcements/:id/cancel", async (c) => {
+    gate(c);
+    const sid = c.get("shopId") as string, id = c.req.param("id");
+    const own = await c.env.DB.prepare("SELECT id FROM shop_campaigns WHERE id=? AND shop_id=?").bind(id, sid).first();
+    if (!own) h.fail(404, "Campaign not found.");
+    const r = await c.env.DB.prepare("UPDATE notifications SET status='SKIPPED', status_note='Campaign cancelled' WHERE shop_id=? AND related_type='announce' AND related_id LIKE ? AND status='QUEUED'").bind(sid, id + ":%").run();
+    return c.json({ ok: true, stopped: r.meta.changes });
+  });
+
   app.post("/announcements/send", async (c) => {
     gate(c);
     const b = await h.input(c, fields.extend({ confirm: z.boolean(), sms_ack: z.boolean().optional() }).strict());
     const { confirm: _c, sms_ack: _a, ...rest } = b;
     const f = withDefaults(rest as Fields);
     if (!b.confirm) h.fail(400, "Please confirm these are your own customers.");
+    const pr = problems(f); if (pr.length) h.fail(400, pr[0]);
+    if (f.send_at && (f.send_at < Date.now() - 60000 || f.send_at > Date.now() + 60 * 86400000)) h.fail(400, "Pick a time within the next 60 days.");
     const { shop, acked } = await shopInfo(c);
     if (!shop.slug) h.fail(409, "Set your shop address first so customers have a page to book on.");
     if (f.channel !== "EMAIL" && (shop.msg_sms ?? 1) !== 1) h.fail(409, "Texts are switched off for your shop (Settings, Messages).");
