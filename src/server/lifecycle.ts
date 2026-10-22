@@ -1,6 +1,7 @@
 // Platform lifecycle: the messages foliyo sends shop owners as their account moves (trial ending,
 // trial ended, payment overdue, read-only), alerts foliyo staff should see, broadcasts, and the daily
 // MRR snapshot. Everything runs from the 5-minute sweep (`maybeSweep`) so no cron is needed.
+import { drainMarketing } from "./marketing";
 import type { Database as DB } from "../db/client";
 import { estimate, platformBilling } from "./billing";
 import { drain, enqueue, msgShop, platformSender, providerStatus, type MessageTemplate } from "./messaging";
@@ -170,5 +171,6 @@ export async function sweepPlatform(db: DB, origin: string, now = Date.now()) {
   await sweepAlerts(db, now).catch(() => {});
   const emailed = await emailAlerts(db, origin, now).catch(() => 0);
   const snap = await snapshotMrr(db, now).catch(() => null);
+  await drainMarketing(db, origin, { now }).catch(() => null);
   return { lifecycle, alerts_emailed: emailed, snapshot: snap?.day ?? null };
 }

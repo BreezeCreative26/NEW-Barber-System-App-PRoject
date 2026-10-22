@@ -8,6 +8,8 @@ import {
 import {
   ArrowDownToLine,
   Camera,
+  Megaphone,
+  Upload,
   Rows3,
   ArrowLeft,
   ArrowRight,
@@ -145,6 +147,8 @@ const icons: Record<string, LucideIcon> = {
   package: Package,
   plus: Plus,
   camera: Camera,
+  megaphone: Megaphone,
+  upload: Upload,
   refresh: RefreshCw,
   repeat: Repeat,
   scissors: Scissors,
