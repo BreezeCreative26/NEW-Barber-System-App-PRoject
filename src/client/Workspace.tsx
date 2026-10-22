@@ -1388,28 +1388,25 @@ type Editor =
   | { kind: "holiday" }
   | { kind: "removeHoliday"; item: Holiday };
 
-type SettingsTabKey = "general" | "hours" | "calendar" | "booking" | "page" | "reviews" | "messages" | "waitlist" | "alerts" | "ai" | "payments" | "billing" | "team" | "security" | "audit";
-type SettingsGroup = "Business" | "Bookings" | "Website" | "Customers" | "Team" | "Account";
-// Settings information architecture. Six groups, each a short list of focused tabs; every shop
-// field in the schema is reachable from exactly one place here.
+type SettingsTabKey = "general" | "calendar" | "booking" | "payments" | "page" | "reviews" | "messages" | "alerts" | "team" | "security" | "billing";
+type SettingsGroup = "Business" | "Bookings" | "Website" | "Customers" | "Account";
+// Settings information architecture: eleven tabs in five groups, one home for every setting.
+// Older deep links (#settings/hours and so on) still land in the tab that now holds that panel.
+const SETTINGS_ALIAS: Record<string, SettingsTabKey> = { hours: "general", waitlist: "booking", ai: "alerts", audit: "security" };
 const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: string; group: SettingsGroup; owner?: boolean }[] = [
-  { key: "general", label: "Business details", hint: "Name, contact, legal, currency", icon: "settings", group: "Business" },
-  { key: "hours", label: "Hours & closures", hint: "Opening times, holidays", icon: "clock", group: "Business" },
-  { key: "calendar", label: "Diary & policies", hint: "Deposits, notice, density", icon: "calendar", group: "Business" },
-  { key: "booking", label: "Online booking", hint: "Link, window, terms", icon: "globe", group: "Bookings" },
-  { key: "waitlist", label: "Waiting list", hint: "Optional · freed slots, who gets told", icon: "bell", group: "Bookings" },
+  { key: "general", label: "Business & hours", hint: "Name, contact, opening times, closures", icon: "settings", group: "Business" },
+  { key: "calendar", label: "Diary & policies", hint: "Notice, cancellations, density", icon: "calendar", group: "Business" },
+  { key: "booking", label: "Online booking", hint: "Link, window, terms, waiting list", icon: "globe", group: "Bookings" },
   { key: "payments", label: "Payments & deposits", hint: "Cards, payouts, pay runs", icon: "card", group: "Bookings" },
   { key: "page", label: "Design & content", hint: "Logo, colours, sections", icon: "image", group: "Website" },
-  { key: "reviews", label: "Reviews & Google", hint: "Ratings, replies, Google link", icon: "star", group: "Website" },
-  { key: "messages", label: "Messages & reminders", hint: "Texts, email, push, outbox", icon: "message", group: "Customers" },
-  { key: "alerts", label: "Owner alerts", hint: "What you hear about, and how", icon: "bell", group: "Customers" },
-  { key: "ai", label: "AI receptionist", hint: "Phone answering", icon: "phone", group: "Customers" },
-  { key: "team", label: "Members & access", hint: "Roles, invitations, sign-in", icon: "users", group: "Team" },
-  { key: "security", label: "Your account", hint: "Password, sessions", icon: "shield", group: "Account" },
+  { key: "reviews", label: "Reviews & Google", hint: "Ratings, replies, review requests", icon: "star", group: "Website" },
+  { key: "messages", label: "Messages & reminders", hint: "Texts, email, reminders, outbox", icon: "message", group: "Customers" },
+  { key: "alerts", label: "Alerts & phone", hint: "Owner alerts, AI receptionist", icon: "bell", group: "Customers" },
+  { key: "team", label: "Team & access", hint: "Roles, invitations, sign-in", icon: "users", group: "Account" },
+  { key: "security", label: "Your account", hint: "Password, sessions, activity log", icon: "shield", group: "Account" },
   { key: "billing", label: "Your foliyo plan", hint: "Plan, usage, invoices", icon: "file", group: "Account", owner: true },
-  { key: "audit", label: "Activity log", hint: "Who changed what, when", icon: "list", group: "Account" },
 ];
-const SETTINGS_GROUPS: SettingsGroup[] = ["Business", "Bookings", "Website", "Customers", "Team", "Account"];
+const SETTINGS_GROUPS: SettingsGroup[] = ["Business", "Bookings", "Website", "Customers", "Account"];
 
 
 // Shown when foliyo support opened this workspace from the admin panel (cookie set by /api/admin/…/impersonate).
@@ -1590,9 +1587,11 @@ export function Workspace() {
   // Settings is split into clear sections; the URL hash remembers the open one (#settings/payments).
   // Phone: settings groups collapse; the group holding the open tab is always expanded.
   const [openGroup, setOpenGroup] = useState<string>("");
+  const inTab = (k: string) => (SETTINGS_ALIAS[k] ?? k) === settingsTab;
   const [settingsTab, setSettingsTab] = useState<SettingsTabKey>(() => {
     const m = /^#settings\/(\w+)$/.exec(location.hash);
-    return (m && SETTINGS_TABS.some((t) => t.key === m[1]) ? (m[1] as SettingsTabKey) : "general");
+    const k = m ? (SETTINGS_ALIAS[m[1]] ?? m[1]) : "";
+    return (SETTINGS_TABS.some((t) => t.key === k) ? (k as SettingsTabKey) : "general");
   });
   useEffect(() => {
     if (tab === "Settings") history.replaceState(null, "", `${location.pathname}#settings/${settingsTab}`);
@@ -2413,7 +2412,7 @@ export function Workspace() {
           }}
           onOpenSettings={() => {
             setQueueOpen(false);
-            setSettingsTab("waitlist");
+            setSettingsTab("booking");
             setTab("Settings");
           }}
           onClose={() => setQueueOpen(false)}
@@ -2534,7 +2533,7 @@ export function Workspace() {
               <section className="getting-started" data-testid="getting-started">
                 <div className="getting-started-head">
                   <strong>Getting started</strong>
-                  <span>{setupDone ? "Nearly there." : done ? `${done} of 7 steps done.` : `Get ${w.shop.name} live in a few minutes.`}</span>
+                  <span>{setupDone ? "Nearly there." : done ? `${done} of 9 steps done.` : `Get ${w.shop.name} live in a few minutes.`}</span>
                 </div>
                 <ul className="getting-started-list">
                   {!setupDone && (
@@ -3117,13 +3116,13 @@ export function Workspace() {
                     ))}
                   </nav>
                   <div className="settings-body" id={`settings-${settingsTab}`} role="tabpanel">
-                    {settingsTab === "general" && (
+                    {inTab("general") && (
                       <>
                         <header className="settings-head"><h2>Business details</h2><p>Who you are and how to reach you. Customers see the name, address and contact on every page and message; the legal details appear on receipts and your terms.</p></header>
                         <BusinessDetailsPanel w={w} refresh={async () => { await refresh(); }} />
                       </>
                     )}
-                    {settingsTab === "hours" && (
+                    {inTab("hours") && (
                       <>
                         <header className="settings-head"><h2>Hours &amp; closures</h2><p>When the shop is open, and dated closures like bank holidays. Each team member has their own hours under Team.</p></header>
                         <section className="workspace-panel">
@@ -3149,7 +3148,7 @@ export function Workspace() {
                         </section>
                       </>
                     )}
-                    {settingsTab === "calendar" && (
+                    {inTab("calendar") && (
                       <>
                         <header className="settings-head"><h2>Calendar &amp; workspace</h2><p>Booking policies, how the diary looks, and who can take payment.</p></header>
                         <section className="workspace-panel">
@@ -3197,69 +3196,69 @@ export function Workspace() {
                         <WorkspaceLookPanel w={w} />
                       </>
                     )}
-                    {settingsTab === "booking" && (
+                    {inTab("booking") && (
                       <>
                         <header className="settings-head"><h2>Online booking</h2><p>Your public booking link, notice periods, and the customer-facing pages.</p></header>
                         <OnlineBookingPanel w={w} saved={saved} />
                         <CustomerPagesPanel w={w} onOpenBooking={openBooking} />
                       </>
                     )}
-                    {settingsTab === "page" && (
+                    {inTab("page") && (
                       <>
                         <header className="settings-head"><h2>Shop page</h2><p>How your business looks to the public: photos, theme and content, with a live preview.</p></header>
                         <WebsiteLauncher w={w} onOpen={() => openEditor(true)} />
                       </>
                     )}
-                    {settingsTab === "reviews" && (
+                    {inTab("reviews") && (
                       <>
                         <header className="settings-head"><h2>Reviews &amp; Google</h2><p>How customers are asked for a review, and how happy ones reach Google.</p></header>
                         <GoogleReviewsPanel w={w} />
                         <p className="workspace-footnote">Ratings and replies live under the star Reviews button at the top of the screen.</p>
                       </>
                     )}
-                    {settingsTab === "waitlist" && (
+                    {inTab("waitlist") && (
                       <>
                         <header className="settings-head"><h2>Waiting list</h2><p>What happens when a time frees up: who is told, how long you wait first, and the wording.</p></header>
                         <WaitlistSettingsPanel w={w} show="waitlist" />
                       </>
                     )}
-                    {settingsTab === "messages" && (
+                    {inTab("messages") && (
                       <>
                         <header className="settings-head"><h2>Messages</h2><p>Text and email channels, reminders, a test send, and every message with its delivery status.</p></header>
                         <WaitlistSettingsPanel w={w} show="messages" />
                       </>
                     )}
-                    {settingsTab === "alerts" && (
+                    {inTab("alerts") && (
                       <>
                         <header className="settings-head"><h2>Owner alerts</h2><p>What you and your managers hear about — new bookings, cancellations, no-shows, the morning summary — and how.</p></header>
                         <WaitlistSettingsPanel w={w} show="alerts" />
                       </>
                     )}
-                    {settingsTab === "ai" && (
+                    {inTab("ai") && (
                       <>
                         <header className="settings-head"><h2>AI receptionist</h2><p>Answers the phone when you can't, books into the same diary, and tells you who to call back.</p></header>
                         <WaitlistSettingsPanel w={w} show="ai" />
                       </>
                     )}
-                    {settingsTab === "payments" && (
+                    {inTab("payments") && (
                       <>
                         <header className="settings-head"><h2>Payments</h2><p>Card payments, deposits, payouts and pay runs.</p></header>
                         <PaymentsPanel api={api} canEdit={manager} isOwner={!w.account || w.account.role === "OWNER"} />
                       </>
                     )}
-                    {settingsTab === "team" && (
+                    {inTab("team") && (
                       <>
                         <header className="settings-head"><h2>Members &amp; access</h2><p>Who can sign in, what they can do, and pending invitations. Team members sign in at <code>{location.host}/staff</code>.</p></header>
                         <AccountSettings w={w} onDone={accountChanged} slice="team" />
                       </>
                     )}
-                    {settingsTab === "security" && (
+                    {inTab("security") && (
                       <>
                         <header className="settings-head"><h2>Your account</h2><p>Your sign-in details and sessions.</p></header>
                         <AccountSettings w={w} onDone={accountChanged} slice="me" />
                       </>
                     )}
-                    {settingsTab === "audit" && (
+                    {inTab("audit") && (
                       <>
                         <header className="settings-head"><h2>Activity log</h2><p>The latest 200 changes in this shop, newest first. Append-only.</p></header>
                         <section className="workspace-panel">
@@ -3276,7 +3275,7 @@ export function Workspace() {
                         </section>
                       </>
                     )}
-                    {settingsTab === "billing" && (
+                    {inTab("billing") && (
                       <>
                         <header className="settings-head"><h2>Your foliyo plan</h2><p>Plan, seats, usage and invoices. Prices are what you pay — no VAT is added.</p></header>
                         <BillingPanel api={api} isOwner={!w.account || w.account.role === "OWNER"} onOpenOutbox={() => setSettingsTab("messages")} />

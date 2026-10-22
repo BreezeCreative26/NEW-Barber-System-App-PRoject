@@ -4,17 +4,17 @@ import { test, expect, request } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { base, origin, openFixtureShop, section } from "./fixture";
 
-const SECTIONS = ["general", "hours", "calendar", "booking", "page", "reviews", "waitlist", "messages", "alerts", "ai", "payments", "billing"];
+const SECTIONS = ["general", "calendar", "booking", "payments", "page", "reviews", "messages", "alerts", "team", "security", "billing"];
 
 test("every settings section opens, is grouped, and passes axe", async ({ page }) => {
   await openFixtureShop(page);
   await section(page, "Settings");
   const nav = page.getByRole("navigation", { name: "Settings sections" });
-  for (const g of ["Business", "Bookings", "Website", "Customers", "Team", "Account"]) await expect(nav.getByText(g, { exact: true })).toBeVisible();
+  for (const g of ["Business", "Bookings", "Website", "Customers", "Account"]) await expect(nav.getByText(g, { exact: true })).toBeVisible();
   for (const key of SECTIONS) {
     await page.getByTestId(`settings-tab-${key}`).click();
     await expect(page.getByTestId(`settings-tab-${key}`)).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator(".settings-head h2")).toBeVisible();
+    await expect(page.locator(".settings-head h2").first()).toBeVisible();
     expect(page.url()).toContain(`#settings/${key}`);
   }
   await page.getByTestId("settings-tab-general").click();
@@ -36,7 +36,7 @@ test("split shop forms: saving one section keeps every other setting intact", as
   expect(after.calendar_density).toBe(before.calendar_density);
   expect(after.deposit_pence).toBe(before.deposit_pence);
   // Hours section saves the week only.
-  await section(page, "Settings/hours");
+  await section(page, "Settings/general");
   await page.getByRole("button", { name: "Save hours", exact: true }).click();
   await expect(page.getByRole("status").first()).toContainText(/Saved/);
   const after2 = (await (await page.request.get(base + "/workspace")).json()).shop;
@@ -117,4 +117,13 @@ test("workspace accent is personal and persists across reloads", async ({ page }
   const slug = (await (await page.request.get(base + "/workspace")).json()).shop.slug as string;
   await page.goto(`/${slug}`);
   await expect(page.locator("html")).not.toHaveClass(/ws-accent-ocean/);
+});
+
+test("settings: eleven tabs in five groups, with hours, waiting list, AI and activity log inside their parents", async ({ page }) => {
+  await openFixtureShop(page);
+  await section(page, "Settings/general");
+  await expect(page.locator('[role="tab"][data-testid^="settings-tab-"]')).toHaveCount(11);
+  await expect(page.locator(".settings-nav-group")).toHaveCount(5);
+  // Hours now live with the business details.
+  await expect(page.getByRole("button", { name: "Save hours", exact: true })).toBeVisible();
 });
