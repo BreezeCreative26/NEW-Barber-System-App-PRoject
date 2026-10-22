@@ -113,3 +113,33 @@ test("campaign types: placeholders block sending, win-back picks lapsed customer
   const past = await r.post(base + "/announcements/send", { data: { kind: "custom", channel: "EMAIL", audience: "ALL", subject: "Hi", body: "Hi", send_at: Date.now() + 90 * day, confirm: true } });
   expect(past.status()).toBe(400);
 });
+
+test("campaign CSV: uploaded people join one campaign, duplicates and opted-out people are left out, their unsubscribe link works", async () => {
+  const { r, shop_id } = await newShop("List Cuts");
+  const w = await (await r.get(base + "/workspace")).json();
+  const slug = `lst-${crypto.randomUUID().slice(0, 10)}`;
+  expect((await r.put(base + "/shop/online", { data: { slug, online_booking: 1, lead_time_min: 60, booking_window_days: 42, version: w.shop.version } })).status()).toBe(200);
+  await r.post(base + "/customers/import", { data: { csv: "Name,Phone,Email\nDan Smith,07700 900123,dan@cust.test\n" } });
+
+  const csv = "Name,Mobile,Email\nDan Smith,07700 900123,dan@cust.test\nNew Person,07700 900555,new@list.test\nMail Only,,mail@list.test\nNo Details,,\n";
+  const up = await (await r.post(base + "/announcements/contacts", { data: { csv } })).json();
+  expect(up.added).toBe(3);
+  const again = await (await r.post(base + "/announcements/contacts", { data: { csv } })).json();
+  expect(again.ids.sort()).toEqual(up.ids.sort());
+
+  const only = await (await r.post(base + "/announcements/preview", { data: { channel: "BOTH", audience: "NONE", contact_ids: up.ids } })).json();
+  expect(only.customers).toBe(3);
+  expect(only.sms).toBe(2);
+  expect(only.email).toBe(3);
+  const mixed = await (await r.post(base + "/announcements/preview", { data: { channel: "BOTH", audience: "ALL", contact_ids: up.ids } })).json();
+  expect(mixed.customers).toBe(3); // Dan is not counted twice
+  const sent = await r.post(base + "/announcements/send", { data: { channel: "EMAIL", audience: "NONE", contact_ids: up.ids, confirm: true } });
+  expect(sent.status(), await sent.text()).toBe(200);
+  const tok = psql(`select unsub_token from shop_campaign_contacts where shop_id='${shop_id}' and email='mail@list.test'`);
+  const hostH = { Host: `${slug}.localhost:3000` };
+  expect(await (await r.get(`${origin}/u/c/${tok}`, { headers: hostH })).text()).toContain("Unsubscribe me");
+  expect(await (await r.post(`${origin}/u/c/${tok}`, { headers: hostH })).text()).toContain("You are unsubscribed");
+  const after = await (await r.post(base + "/announcements/preview", { data: { channel: "BOTH", audience: "NONE", contact_ids: up.ids } })).json();
+  expect(after.customers).toBe(2);
+
+});

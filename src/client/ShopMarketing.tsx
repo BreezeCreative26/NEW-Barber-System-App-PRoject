@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Icon } from "./ui";
 
-type Audience = "ALL" | "OPTED_IN" | "RECENT" | "LAPSED";
+type Audience = "ALL" | "OPTED_IN" | "RECENT" | "LAPSED" | "NONE";
 type Channel = "SMS" | "EMAIL" | "BOTH";
 type Preset = { kind: string; title: string; blurb: string; audience: Audience; channel: Channel; copy: { subject: string; heading: string; body: string; cta_label: string; sms_body: string } };
 type Campaign = { id: string; name: string; kind: string; channel: string; created_at: number; scheduled_for: number; sms_count: number; email_count: number; sent: number; failed: number; waiting: number };
@@ -23,6 +23,7 @@ const AUDIENCES: { v: Audience; label: string; hint: string }[] = [
   { v: "ALL", label: "All my customers", hint: "Everyone you have contact details for" },
   { v: "RECENT", label: "Recent customers", hint: "Visited in the last 3 months" },
   { v: "LAPSED", label: "Not seen in a while", hint: "Visited before, but not in the last 2 months" },
+  { v: "NONE", label: "Only the list I upload", hint: "Nobody from your customer list, just the people in your CSV" },
   { v: "OPTED_IN", label: "Agreed to marketing", hint: "Only people who ticked the box" },
 ];
 const KIND_ICON: Record<string, string> = { launch: "globe", offer: "star", quiet: "calendar", winback: "users", hours: "clock", service: "scissors", custom: "edit" };
@@ -74,7 +75,9 @@ export function ShopMarketing() {
 
 function Composer({ info, preset, onBack }: { info: Info; preset: Preset; onBack: () => void }) {
   const first: Channel = preset.channel === "SMS" && !info.sms_on ? "EMAIL" : preset.channel === "BOTH" && !info.sms_on ? "EMAIL" : preset.channel === "EMAIL" && !info.email_on ? "SMS" : preset.channel;
-  const [f, setF] = useState({ kind: preset.kind, channel: first, audience: preset.audience, ...preset.copy });
+  const [f, setF] = useState({ kind: preset.kind, channel: first, audience: preset.audience, contact_ids: [] as string[], ...preset.copy });
+  const [list, setList] = useState<{ name: string; added: number; skipped: number; with_mobile: number; with_email: number } | null>(null);
+  const [upBusy, setUpBusy] = useState(false);
   const [when_, setWhen] = useState<"now" | "later">("now");
   const [at, setAt] = useState(localInput(Date.now() + 24 * 3600000));
   const [prev, setPrev] = useState<Prev | null>(null);
@@ -97,6 +100,17 @@ function Composer({ info, preset, onBack }: { info: Info; preset: Preset; onBack
   const blocked = (prev?.problems.length ?? 0) > 0;
   const laterBad = when_ === "later" && !(new Date(at).getTime() > Date.now());
 
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    setUpBusy(true); setErr("");
+    try {
+      const csv = await file.text();
+      const r = await call<{ ids: string[]; added: number; skipped: number; with_mobile: number; with_email: number }>("/announcements/contacts", "POST", { csv });
+      if (!r.added) throw new Error("No names, mobile numbers or email addresses found in that file.");
+      setList({ name: file.name, added: r.added, skipped: r.skipped, with_mobile: r.with_mobile, with_email: r.with_email });
+      set("contact_ids", r.ids);
+    } catch (e) { setErr((e as Error).message); } finally { setUpBusy(false); }
+  }
   async function test() {
     setBusy(true); setErr(""); setNote("");
     try { const r = await call<{ sent_to: string }>("/announcements/test", "POST", { ...f }); setNote(`Test email sent to ${r.sent_to}.`); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
@@ -146,6 +160,21 @@ function Composer({ info, preset, onBack }: { info: Info; preset: Preset; onBack
               {when_ === "later" && <input type="datetime-local" value={at} min={localInput(Date.now())} onChange={(e) => setAt(e.target.value)} aria-label="Send at" data-testid="mkt-at" />}
             </div>
           </section>
+          <section className="workspace-panel" data-testid="mkt-upload">
+            <h3>Add people from a CSV</h3>
+            <p className="workspace-footnote">A spreadsheet saved as CSV with a name, mobile number and email address for each person. They join this campaign only, on top of the customers chosen above.</p>
+            {list ? (
+              <div className="mkt-file">
+                <div><b>{list.added} people added</b><small>{list.name} · {list.with_mobile} mobiles · {list.with_email} emails{list.skipped ? ` · ${list.skipped} skipped` : ""}</small></div>
+                <Button variant="ghost" onClick={() => { setList(null); set("contact_ids", []); }} data-testid="mkt-list-remove">Remove</Button>
+              </div>
+            ) : (
+              <label className="mkt-drop">
+                <input type="file" accept=".csv,text/csv,text/plain" onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ""; }} data-testid="mkt-csv" />
+                <Icon name="upload" size={18} /> {upBusy ? "Reading..." : "Choose a CSV file"}
+              </label>
+            )}
+          </section>
           {f.channel !== "SMS" && (
             <section className="workspace-panel">
               <h3>Email</h3>
@@ -170,7 +199,7 @@ function Composer({ info, preset, onBack }: { info: Info; preset: Preset; onBack
             {prev && (
               <>
                 <div className="mkt-tiles">
-                  <div><b>{prev.customers}</b><span>customers</span></div>
+                  <div><b>{prev.customers}</b><span>people</span></div>
                   <div><b>{prev.email}</b><span>emails</span></div>
                   <div><b>{prev.sms}</b><span>texts</span></div>
                   <div><b>{gbp(prev.cost_pence)}</b><span>text cost</span></div>

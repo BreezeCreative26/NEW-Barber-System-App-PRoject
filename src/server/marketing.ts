@@ -443,13 +443,16 @@ const page = (title: string, body: string) => `<!doctype html><html lang="en"><h
 marketingPublic.get("/c/:token", async (c) => {
   c.header("Cache-Control", "no-store");
   const t = c.req.param("token");
-  const ct = t === "preview" ? { announce_unsub_at: null, name: "" } : await c.env.DB.prepare("SELECT announce_unsub_at FROM customers WHERE unsub_token=?").bind(t).first<{ announce_unsub_at: number | null }>();
+  const ct = t === "preview" ? { announce_unsub_at: null, name: "" } : (await c.env.DB.prepare("SELECT announce_unsub_at FROM customers WHERE unsub_token=?").bind(t).first<{ announce_unsub_at: number | null }>()) ?? (await c.env.DB.prepare("SELECT unsub_at AS announce_unsub_at FROM shop_campaign_contacts WHERE unsub_token=?").bind(t).first<{ announce_unsub_at: number | null }>());
   if (!ct) return c.html(page("Unsubscribe", "<h1>Link not recognised</h1><p>This unsubscribe link is not valid. You can also reply STOP to any text from us.</p>"), 404);
   if (ct.announce_unsub_at) return c.html(page("Unsubscribed", "<h1>You are unsubscribed</h1><p>You will not get any more announcements from this shop. Booking reminders for your appointments are not affected.</p>"));
   return c.html(page("Unsubscribe", `<h1>Stop these messages?</h1><p>Confirm and this shop will not send you any more announcements. Reminders for your own appointments will carry on.</p><form method="post"><button type="submit">Unsubscribe me</button></form>`));
 });
 marketingPublic.post("/c/:token", async (c) => {
-  if (c.req.param("token") !== "preview") await c.env.DB.prepare("UPDATE customers SET announce_unsub_at=COALESCE(announce_unsub_at,?) WHERE unsub_token=?").bind(Date.now(), c.req.param("token")).run();
+  if (c.req.param("token") !== "preview") {
+    await c.env.DB.prepare("UPDATE customers SET announce_unsub_at=COALESCE(announce_unsub_at,?) WHERE unsub_token=?").bind(Date.now(), c.req.param("token")).run();
+    await c.env.DB.prepare("UPDATE shop_campaign_contacts SET unsub_at=COALESCE(unsub_at,?) WHERE unsub_token=?").bind(Date.now(), c.req.param("token")).run();
+  }
   c.header("Cache-Control", "no-store");
   return c.html(page("Unsubscribed", "<h1>You are unsubscribed</h1><p>You will not get any more announcements from this shop. Reminders for your own appointments are not affected.</p>"));
 });
