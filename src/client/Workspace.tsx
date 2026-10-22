@@ -1,4 +1,5 @@
 import { OwnerInviteBanner } from "./OwnerInvite";
+import { ShopAnnounce } from "./ShopAnnounce";
 import { cancelOptions } from "./cancelChoices";
 import {
   useEffect,
@@ -4717,7 +4718,7 @@ function AlertsPanel({ smsLive }: { smsLive: boolean }) {
   );
 }
 type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "telnyx" | "twilio" | "clicksend" | "mailbox"; from: string }; wa?: { provider: "infobip" | "mailbox"; sender: string; test_sender: boolean; keyword: string } };
-type Messaging = { customer_code_signin?: number; msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
+type Messaging = { customer_code_signin?: number; msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reminder_steps?: string; msg_quiet_on?: number; msg_quiet_start?: number; msg_quiet_end?: number; msg_reply_to: string; msg_sms_sender: string };
 const CHANNEL_LABEL: Record<string, string> = { SMS: "Text", EMAIL: "Email", WA: "WhatsApp (retired)", PUSH: "Push" };
 type OutboxData = {
   shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; sms_billing?: { unit_pence: number; included_units: number; acknowledged_at: number | null; live: boolean }; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_enabled?: number; waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_mode?: "ORDER" | "EVERYONE"; waitlist_delay_min?: number } };
@@ -4869,7 +4870,7 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
                 <span className="chan-ic"><Icon name="bell" size={18} /></span>
                 <span className="chan-text">
                   <strong>Reminders</strong>
-                  <small>The day before, and a short one two hours before</small>
+                  <small>Choose when customers are reminded, up to three times</small>
                 </span>
                 <label className="switch">
                   <input type="checkbox" checked={!!msg.msg_reminders} onChange={(e) => setMsg({ ...msg, msg_reminders: e.target.checked ? 1 : 0 })} aria-label="Reminders" data-testid="msg-reminders" />
@@ -4877,9 +4878,7 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
                 </label>
               </div>
               <p className="chan-body">Fewer no-shows. Reminders go by text when texts are on, otherwise by email.</p>
-              <Field label="Day-before reminder, hours ahead">
-                <input type="number" min={1} max={72} value={msg.msg_reminder_hours} disabled={!msg.msg_reminders} onChange={(e) => setMsg({ ...msg, msg_reminder_hours: Number(e.target.value) })} data-testid="msg-reminder-hours" />
-              </Field>
+              <ReminderSchedule msg={msg} setMsg={setMsg} />
             </div>
             <div className={`chan-card${msg.customer_code_signin !== 0 && msg.msg_sms ? " on" : ""}`} data-testid="chan-code-signin">
               <div className="chan-head">
@@ -5857,6 +5856,7 @@ function CustomersPanel({
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [announcing, setAnnouncing] = useState(false);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [profileError, setProfileError] = useState("");
   const [profileTab, setProfileTab] = useState<"history" | "messages" | "details" | "notes">("history");
@@ -5935,12 +5935,18 @@ function CustomersPanel({
                   <Icon name="download" size={16} /> Import
                 </Button>
               )}
+              {canMerge && (
+                <Button variant="secondary" onClick={() => setAnnouncing(true)} data-testid="announce-customers">
+                  <Icon name="megaphone" size={16} /> Tell customers
+                </Button>
+              )}
               <Button onClick={() => setAdding(true)}>
                 <Icon name="plus" size={16} /> Add customer
               </Button>
             </div>
           )}
         </div>
+        {announcing && <ShopAnnounce onClose={() => setAnnouncing(false)} />}
         {importing && <ImportCustomers onClose={() => setImporting(false)} onDone={() => { setImporting(false); setReload((n) => n + 1); }} />}
         <div className="customers-toolbar">
           <label className="customers-search">
@@ -8492,6 +8498,52 @@ function ImportCustomers({ onClose, onDone }: { onClose: () => void; onDone: () 
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Reminder schedule: up to three reminders, each "hours before the visit", plus quiet hours.
+const STEP_CHOICES = [72, 48, 24, 12, 4, 3, 2, 1];
+const stepLabel = (h: number) => (h % 24 === 0 && h >= 24 ? `${h / 24} day${h === 24 ? "" : "s"} before` : `${h} hour${h === 1 ? "" : "s"} before`);
+const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+const toMin = (v: string) => { const [h, m] = v.split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+function ReminderSchedule({ msg, setMsg }: { msg: Messaging; setMsg: (m: Messaging) => void }) {
+  const steps = (msg.msg_reminder_steps || `${msg.msg_reminder_hours},2`).split(",").map(Number).filter(Boolean);
+  const off = !msg.msg_reminders;
+  const write = (list: number[]) => {
+    const clean = [...new Set(list)].sort((a, b) => b - a).slice(0, 3);
+    setMsg({ ...msg, msg_reminder_steps: clean.join(","), msg_reminder_hours: clean.find((h) => h > 3) ?? msg.msg_reminder_hours });
+  };
+  const quietOn = msg.msg_quiet_on !== 0;
+  return (
+    <div className="rem-sched" data-testid="reminder-schedule">
+      <p className="chan-body" style={{ margin: "8px 0 6px" }}><strong>When to remind</strong></p>
+      <div className="rem-steps">
+        {steps.map((h) => (
+          <span key={h} className="rem-chip">
+            {stepLabel(h)}
+            <button type="button" aria-label={`Remove the ${stepLabel(h)} reminder`} disabled={off || steps.length <= 1} onClick={() => write(steps.filter((x) => x !== h))}>x</button>
+          </span>
+        ))}
+      </div>
+      {steps.length < 3 && (
+        <Field label="Add a reminder">
+          <select value="" disabled={off} onChange={(e) => { if (e.target.value) write([...steps, Number(e.target.value)]); }} data-testid="reminder-add">
+            <option value="">Choose a time</option>
+            {STEP_CHOICES.filter((h) => !steps.includes(h)).map((h) => <option key={h} value={h}>{stepLabel(h)}</option>)}
+          </select>
+        </Field>
+      )}
+      <div className="rem-quiet-head">
+        <label className="rem-quiet-toggle"><input type="checkbox" checked={quietOn} disabled={off} onChange={(e) => setMsg({ ...msg, msg_quiet_on: e.target.checked ? 1 : 0 })} data-testid="quiet-on" /> <strong>Quiet hours</strong></label>
+        <small>No reminders overnight. They wait until the morning instead.</small>
+      </div>
+      {quietOn && !off && (
+        <div className="rem-quiet">
+          <Field label="From"><input type="time" value={hhmm(msg.msg_quiet_start ?? 1260)} onChange={(e) => setMsg({ ...msg, msg_quiet_start: toMin(e.target.value) })} data-testid="quiet-start" /></Field>
+          <Field label="Until"><input type="time" value={hhmm(msg.msg_quiet_end ?? 480)} onChange={(e) => setMsg({ ...msg, msg_quiet_end: toMin(e.target.value) })} data-testid="quiet-end" /></Field>
+        </div>
+      )}
     </div>
   );
 }

@@ -439,6 +439,20 @@ export function mountMarketing(admin: Hono<any>, h: H) {
 // ---- Public unsubscribe page (no sign-in): /u/:token -------------------------------------------
 export const marketingPublic = new Hono<{ Bindings: { DB: DB } }>();
 const page = (title: string, body: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><style>body{margin:0;font:16px/1.5 -apple-system,Segoe UI,Inter,Arial,sans-serif;background:#f6f6f4;color:#0b0b0c;display:grid;min-height:100vh;place-items:center;padding:20px}main{background:#fff;border-radius:20px;padding:32px;max-width:420px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.06)}h1{font-size:22px;margin:0 0 8px}p{color:#444}button{font:inherit;font-weight:600;background:#00e8b0;color:#0b0b0c;border:0;border-radius:12px;padding:14px 20px;width:100%;cursor:pointer;min-height:48px}</style></head><body><main>${body}</main></body></html>`;
+// Customers of a shop unsubscribing from that shop's announcements.
+marketingPublic.get("/c/:token", async (c) => {
+  c.header("Cache-Control", "no-store");
+  const t = c.req.param("token");
+  const ct = t === "preview" ? { announce_unsub_at: null, name: "" } : await c.env.DB.prepare("SELECT announce_unsub_at FROM customers WHERE unsub_token=?").bind(t).first<{ announce_unsub_at: number | null }>();
+  if (!ct) return c.html(page("Unsubscribe", "<h1>Link not recognised</h1><p>This unsubscribe link is not valid. You can also reply STOP to any text from us.</p>"), 404);
+  if (ct.announce_unsub_at) return c.html(page("Unsubscribed", "<h1>You are unsubscribed</h1><p>You will not get any more announcements from this shop. Booking reminders for your appointments are not affected.</p>"));
+  return c.html(page("Unsubscribe", `<h1>Stop these messages?</h1><p>Confirm and this shop will not send you any more announcements. Reminders for your own appointments will carry on.</p><form method="post"><button type="submit">Unsubscribe me</button></form>`));
+});
+marketingPublic.post("/c/:token", async (c) => {
+  if (c.req.param("token") !== "preview") await c.env.DB.prepare("UPDATE customers SET announce_unsub_at=COALESCE(announce_unsub_at,?) WHERE unsub_token=?").bind(Date.now(), c.req.param("token")).run();
+  c.header("Cache-Control", "no-store");
+  return c.html(page("Unsubscribed", "<h1>You are unsubscribed</h1><p>You will not get any more announcements from this shop. Reminders for your own appointments are not affected.</p>"));
+});
 marketingPublic.get("/:token", async (c) => {
   const ct = await c.env.DB.prepare("SELECT unsubscribed_at FROM marketing_contacts WHERE unsub_token=?").bind(c.req.param("token")).first<{ unsubscribed_at: number | null }>();
   c.header("Cache-Control", "no-store");

@@ -227,14 +227,16 @@ test("browser: Settings → Messages shows provider status, saves channel settin
 
   // Toggle reminders hours and save.
   const form = page.getByTestId("messaging-form");
-  await form.getByTestId("msg-reminder-hours").fill("48");
+  // Default schedule is 1 day and 2 hours before; add a 2 day one.
+  await form.getByTestId("reminder-add").selectOption("48");
+  await form.getByTestId("quiet-start").fill("22:00");
   // First save with texts on: accept the per-text price.
   const ack = form.getByTestId("msg-sms-billing-ack");
   if (await ack.count()) await ack.locator("input").check();
   await form.getByTestId("save-messaging").click();
-  await expect(form.getByTestId("msg-reminder-hours")).toHaveValue("48");
   const saved = await (await page.request.get(base + "/notifications")).json();
-  expect(saved.messaging.msg_reminder_hours).toBe(48);
+  await expect.poll(async () => (await (await page.request.get(base + "/notifications")).json()).messaging.msg_reminder_steps).toBe("48,24,2");
+  expect(saved.messaging.msg_quiet_start).toBe(1320);
 
   // Send a test email; it appears in the outbox with a preview.
   const testForm = page.getByTestId("test-message-form");
@@ -348,4 +350,28 @@ test("customer repeat booking: every 2 weeks books each free date and lists the 
   const rep = (created as unknown as { repeats: { booked: string[]; skipped: unknown[] } }).repeats;
   expect(rep.booked.length + rep.skipped.length).toBe(3);
   expect(rep.booked.length).toBeGreaterThanOrEqual(1);
+});
+
+test("reminder schedule and quiet hours save, come back sorted, and reject bad values", async () => {
+  const { r } = await onlineShop("Schedule Shop");
+  const get = async () => (await (await r.get(base + "/notifications")).json()).messaging;
+  const m0 = await get();
+  expect(m0.msg_reminder_steps).toBe("24,2");
+  expect(m0.msg_quiet_on).toBe(1);
+  expect(m0.msg_quiet_start).toBe(1260);
+  expect(m0.msg_quiet_end).toBe(480);
+  const body = { msg_sms: m0.msg_sms, msg_email: 1, msg_reminders: 1, msg_reminder_hours: 24, msg_reply_to: "", msg_sms_sender: "", msg_wa: 1, customer_code_signin: 1 };
+  const ok = await r.put(base + "/shop/messaging", { data: { ...body, msg_sms: 0, msg_reminder_steps: "2,48,24", msg_quiet_on: 1, msg_quiet_start: 1320, msg_quiet_end: 540 } });
+  expect(ok.status(), await ok.text()).toBe(200);
+  const m1 = await get();
+  expect(m1.msg_reminder_steps).toBe("48,24,2");
+  expect(m1.msg_quiet_start).toBe(1320);
+  expect(m1.msg_quiet_end).toBe(540);
+  const bad = await r.put(base + "/shop/messaging", { data: { ...body, msg_sms: 0, msg_reminder_steps: "100" } });
+  expect(bad.status()).toBe(400);
+  const bad2 = await r.put(base + "/shop/messaging", { data: { ...body, msg_sms: 0, msg_reminder_steps: "1,2,3,4" } });
+  expect(bad2.status()).toBe(400);
+  // Older clients that leave the new fields out do not reset them.
+  expect((await r.put(base + "/shop/messaging", { data: { ...body, msg_sms: 0 } })).status()).toBe(200);
+  expect((await get()).msg_reminder_steps).toBe("48,24,2");
 });

@@ -8501,3 +8501,23 @@ button.linklike { min-height: 36px; padding: 0 6px; display: inline-flex; align-
 .mk-grid > .workspace-panel { grid-template-columns: minmax(0, 1fr); }
 .mk-grid .workspace-panel > * { min-width: 0; }
 @media (max-width: 600px) { .admin-me small { display: none; } .admin-me { gap: 8px; } .admin-me span { white-space: nowrap; } }
+.sa .mk-fieldset { border: 0; padding: 0; margin: 14px 0 0; display: grid; gap: 10px; min-width: 0; }
+.sa .mk-fieldset legend { font-weight: 700; font-size: 14px; padding: 0; margin-bottom: 6px; }
+.sa .mk-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sa .mk-tiles b { font-size: 20px; }
+.sa .workspace-field input, .sa .workspace-field textarea, .sa .workspace-field select { font-weight: 500; }
+.sa .mk-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.sa .mk-list small { color: #595959; display: block; }
+@media (max-width: 900px) { .sa .mk-grid { grid-template-columns: minmax(0, 1fr); } }
+.rem-steps { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.rem-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; border-radius: 999px; background: #f1f1f1; font-size: 13px; font-weight: 600; }
+.rem-chip button { width: 24px; height: 24px; border-radius: 50%; border: 0; background: #0b0b0c; color: #fff; font-size: 12px; cursor: pointer; }
+.rem-chip button:disabled { opacity: .35; cursor: default; }
+.rem-quiet { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.rem-quiet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #eee; }
+.rem-quiet-head > span { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.rem-quiet-head small { color: #595959; font-size: 12px; }
+.rem-quiet { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.rem-quiet input[type=time] { min-width: 0; width: 100%; }
+.rem-quiet-head { display: grid; gap: 4px; }
+.rem-quiet-toggle { display: inline-flex; align-items: center; gap: 8px; }
