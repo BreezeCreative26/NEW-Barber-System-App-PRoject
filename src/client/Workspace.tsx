@@ -1679,7 +1679,6 @@ export function Workspace() {
         ArrowRight: 'button[aria-label="Next day"], button[aria-label="Next week"]',
         d: '.segmented button[aria-label="Day timetable"]',
         w: '.segmented button[aria-label="Week"]',
-        a: '.segmented button[aria-label="Agenda"]',
         n: '[data-testid="new-booking"]',
         f: '[data-testid="calendar-fullscreen"]',
       };
@@ -2633,7 +2632,7 @@ export function Workspace() {
                         <Icon name="right" />
                       </Button>
                     </span>
-                    <span className="toolbar-select">
+                    <span className="toolbar-select" hidden={calendarView === "week"}>
                       <Icon name="users" size={15} />
                       <select aria-label="Barber filter" value={barber} onChange={(e) => setBarber(e.target.value)}>
                         <option value="">All barbers</option>
@@ -2734,20 +2733,11 @@ export function Workspace() {
                       <button
                         type="button"
                         aria-pressed={calendarView === "week"}
-                        onClick={() => setCalendarView("week")}
+                        onClick={() => { setCalendarView("week"); if (!barber || !w.staff.some((x) => x.active && x.id === barber)) setBarber(w.staff.find((x) => x.active && x.id === w.account?.staff_id)?.id || w.staff.find((x) => x.active)?.id || ""); }}
                         aria-label="Week"
                       >
                         <Icon name="dashboard" size={16} />
                         <span className="toolbar-label">Week</span>
-                      </button>
-                      <button
-                        type="button"
-                        aria-pressed={calendarView === "agenda"}
-                        onClick={() => setCalendarView("agenda")}
-                        aria-label="Agenda"
-                      >
-                        <Icon name="list" size={16} />
-                        <span className="toolbar-label">Agenda</span>
                       </button>
                     </div>
                     <Button
@@ -2866,6 +2856,7 @@ export function Workspace() {
                         setCalendarView("day");
                       }}
                       onOpen={openBooking}
+                      onBarber={setBarber}
                     />
                   ) : !dayReady ? (
                     <p role="status" className="calendar-empty">

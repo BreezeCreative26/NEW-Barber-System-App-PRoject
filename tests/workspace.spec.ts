@@ -668,8 +668,8 @@ test("appointment side panel: contextual actions, note, series ops, customer lin
   await expect(panel).toBeHidden();
   // Phone: bottom sheet, full width.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "Agenda", exact: true }).click();
-  await page.locator(".workspace-booking-row").first().click();
+  await page.getByRole("button", { name: "Week", exact: true }).click();
+  await page.locator(".week-card").first().click();
   await expect(panel).toBeVisible();
   const sheet = await panel.boundingBox();
   expect(sheet!.width).toBeGreaterThanOrEqual(380);
