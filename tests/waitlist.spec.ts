@@ -256,7 +256,7 @@ test("browser: queue chip → drawer → offer a time → copy message; bell kee
   await page.getByTestId("open-history").click();
   await expect(page.getByTestId("waitlist-settings").getByTestId("outbox").getByTestId("outbox-row").first()).toContainText(/Sent/i);
   await page.getByLabel("Close message history").click();
-  await page.getByTestId("settings-tab-waitlist").click();
+  await page.getByTestId("settings-tab-booking").click();
   await panel.getByTestId("template-waitlist_released").fill("Sorry {first}, that one went. Still holding your place at {shop} for {date}.");
   await panel.getByTestId("save-waitlist-settings").click();
   await expect(panel.getByRole("status")).toContainText("Saved");
