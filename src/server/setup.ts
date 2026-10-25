@@ -253,15 +253,23 @@ setup.get("/starter", async (c) => {
 const starterRow = z.object({ name: z.string().trim().min(1).max(80), category: z.string().trim().max(40).default(""), duration_min: z.number().int().min(5).max(480), price_pence: z.number().int().min(0).max(100000), popular: z.boolean().default(false) });
 setup.post("/starter", async (c) => {
   requireManager(c);
-  const b = await readInput(c, z.object({ services: z.array(starterRow).min(1).max(40) }).strict());
+  const b = await readInput(c, z.object({ services: z.array(starterRow).min(1).max(40), offered_by: z.array(z.string().uuid()).max(50).default([]) }).strict());
   const shop = await readShop(c);
   const existing = new Set(((await c.env.DB.prepare("SELECT lower(name) AS n FROM services WHERE shop_id=?").bind(shop.id).all<{ n: string }>()).results).map((r) => r.n));
   const rows = b.services.filter((s) => !existing.has(s.name.toLowerCase()));
+  const ids = rows.map(() => uid());
+  const mine = b.offered_by.length ? (await c.env.DB.prepare(`SELECT id FROM staff WHERE shop_id=? AND id IN (${b.offered_by.map(() => "?").join(",")})`).bind(shop.id, ...b.offered_by).all<{ id: string }>()).results.map((r) => r.id) : [];
   const stmts = rows.map((s, i) =>
     c.env.DB.prepare("INSERT INTO services(id,shop_id,name,category,duration_min,price_pence,active,description,colour,online_bookable,popular,sort_order,payment_mode) VALUES(?,?,?,?,?,?,1,'','sage',1,?,?,NULL)")
-      .bind(uid(), shop.id, s.name, s.category, s.duration_min, s.price_pence, s.popular ? 1 : 0, existing.size + i),
+      .bind(ids[i], shop.id, s.name, s.category, s.duration_min, s.price_pence, s.popular ? 1 : 0, existing.size + i),
   );
-  if (stmts.length) await c.env.DB.batch([...stmts, audit(c, "shop", shop.id, "STARTER_MENU_ADDED", `${rows.length} services added from the starter menu.`)]);
+  // A barber offers a service only once ticked. Here the owner ticked "who does these?" explicitly.
+  for (const [i] of rows.entries())
+    for (const st of mine)
+      stmts.push(c.env.DB.prepare("INSERT INTO staff_service_rules(shop_id,staff_id,service_id,enabled) VALUES(?,?,?,1) ON CONFLICT DO NOTHING").bind(shop.id, st, ids[i]));
+  const cats = [...new Set(rows.map((r) => r.category.trim()).filter((n) => n.length >= 2))];
+  const catStmts = cats.map((n) => c.env.DB.prepare("INSERT INTO service_categories(id,shop_id,name,sort_order) SELECT ?,?,?,COALESCE(MAX(sort_order)+1,0) FROM service_categories WHERE shop_id=? ON CONFLICT (shop_id,name) DO NOTHING").bind(uid(), shop.id, n, shop.id));
+  if (stmts.length) await c.env.DB.batch([...catStmts, ...stmts, audit(c, "shop", shop.id, "STARTER_MENU_ADDED", `${rows.length} services added from the starter menu.`)]);
   return c.json({ added: rows.length, skipped: b.services.length - rows.length }, 201);
 });
 

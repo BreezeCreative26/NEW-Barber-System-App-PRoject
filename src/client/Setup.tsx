@@ -234,12 +234,13 @@ function StepHours({ w, api, refresh, data, setError, onNext, onSkip }: StepProp
       week: days.map((d) => ({ enabled: d.enabled, starts: d.starts, ends: d.ends })),
       deposit_pence: w.shop.deposit_pence, cancel_hours: w.shop.cancel_hours, no_show_grace: w.shop.no_show_grace, till_access: w.shop.till_access, version: w.shop.version,
     });
+    if (JSON.stringify(days) !== JSON.stringify(week) && w.staff.some((x) => x.active && x.follows_shop_hours)) await api("/staff/follow-shop-hours/apply", "POST", {});
     if (closeBank) for (const [date, name] of upcoming) if (!already.has(date)) await api("/holidays", "POST", { date, label: name }).catch(() => {});
     await refresh();
   }
   return (
     <div className="setup-wiz-card">
-      <p className="setup-wiz-lead">When the shop is open. Each barber gets these hours to start with; change theirs individually from Team.</p>
+      <p className="setup-wiz-lead">When the shop is open. Barbers you add after this start on these hours. Set a barber's own hours on their page in Team.</p>
       <div className="setup-hours">
         {order.map((i) => {
           const d = days[i];
@@ -281,6 +282,8 @@ function StepServices({ w, api, refresh, data, setNotice, setError, goTo, onNext
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [edits, setEdits] = useState<Record<number, Partial<Starter>>>({});
   const { busy, run } = useBusy();
+  const team = w.staff.filter((s) => s.active);
+  const [by, setBy] = useState<Set<string>>(() => new Set(team.map((s) => s.id)));
   useEffect(() => {
     api<{ menu: Starter[] }>(`/setup/starter?kind=${kind}`).then((r) => { setMenu(r.menu); setPicked(new Set(r.menu.map((_, i) => i).filter((i) => r.menu[i].popular || w.services.length === 0))); }).catch((e) => setError(e.message));
   }, [kind]);
@@ -291,7 +294,7 @@ function StepServices({ w, api, refresh, data, setNotice, setError, goTo, onNext
     <div className="setup-wiz-card">
       <p className="setup-wiz-lead">
         {w.services.length ? `You have ${w.services.length} service${w.services.length === 1 ? "" : "s"} already. ` : ""}
-        Tick the ones you offer and fix the prices — typical {KIND_LABEL[kind].toLowerCase()} figures to start from. Add-ons, per-barber prices and photos live in Services.
+        Tick the ones you offer and fix the prices — typical {KIND_LABEL[kind].toLowerCase()} figures to start from. Next you choose who does them. Add-ons and photos live in Services.
       </p>
       <datalist id="setup-cats">{[...new Set([...menu.map((m) => m.category), ...w.services.map((x) => (x as { category?: string }).category || "")].filter(Boolean))].map((c) => <option key={c} value={c} />)}</datalist>
       <p className="helper">Categories group services on your booking page. Type a new one to make your own.</p>
@@ -307,10 +310,19 @@ function StepServices({ w, api, refresh, data, setNotice, setError, goTo, onNext
           </li>
         ))}
       </ul>
+      {chosen.length > 0 && team.length > 0 && (
+        <fieldset className="setup-offered-by" data-testid="setup-offered-by">
+          <legend>Who does these?</legend>
+          <p className="helper">Services are off for a barber until ticked. You can set each barber's own prices on their page in Team.</p>
+          {team.map((s) => (
+            <label key={s.id}><input type="checkbox" checked={by.has(s.id)} onChange={(e) => { const n = new Set(by); e.target.checked ? n.add(s.id) : n.delete(s.id); setBy(n); }} /> {s.name}</label>
+          ))}
+        </fieldset>
+      )}
       <p className="helper">Something missing? <button type="button" className="linklike" onClick={() => goTo("Services")}>Add it in Services</button> — this page will still be here.</p>
       <StepActions busy={busy} nextLabel={chosen.length ? `Add ${chosen.length} and continue` : "Continue"} onNext={() => run(async () => {
         if (chosen.length) {
-          const r = await api<{ added: number }>("/setup/starter", "POST", { services: chosen.map(({ name, category, duration_min, price_pence, popular }) => ({ name, category, duration_min, price_pence, popular: !!popular })) });
+          const r = await api<{ added: number }>("/setup/starter", "POST", { services: chosen.map(({ name, category, duration_min, price_pence, popular }) => ({ name, category, duration_min, price_pence, popular: !!popular })), offered_by: [...by] });
           setNotice(`${r.added} service${r.added === 1 ? "" : "s"} added.`);
           await refresh();
         }

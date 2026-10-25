@@ -56,14 +56,23 @@ describe("authoritative catalogue items and dated hours", () => {
   });
   it("rejects duplicate, inactive and unlinked add-ons", () => {
     expect(() =>
-      calculateQuote(service, null, [a], links, [a.id, a.id]),
+      calculateQuote(service, { ...rule, price_pence: null, duration_min: null }, [a], links, [a.id, a.id]),
     ).toThrow("addon_unavailable");
     expect(() =>
-      calculateQuote(service, null, [{ ...a, active: 0 }], links, [a.id]),
+      calculateQuote(service, { ...rule, price_pence: null, duration_min: null }, [{ ...a, active: 0 }], links, [a.id]),
     ).toThrow("addon_unavailable");
-    expect(() => calculateQuote(service, null, [a], [], [a.id])).toThrow(
+    expect(() => calculateQuote(service, { ...rule, price_pence: null, duration_min: null }, [a], [], [a.id])).toThrow(
       "addon_unavailable",
     );
+  });
+  it("treats a barber with no rule as not offering the service (off until ticked)", () => {
+    expect(() => calculateQuote(service, null, [], [], [])).toThrow("service_ineligible");
+    expect(() => calculateQuote(service, undefined as never, [], [], [])).toThrow("service_ineligible");
+  });
+  it("uses the barber's fixed price and nothing else", () => {
+    const q = calculateQuote(service, { ...rule, price_pence: 4000, duration_min: null }, [], [], []);
+    expect(q.price_pence).toBe(4000);
+    expect(q.duration_min).toBe(30);
   });
   it("rejects disabled service eligibility and restores catalogue defaults with nulls", () => {
     expect(() =>

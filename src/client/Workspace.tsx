@@ -1,3 +1,4 @@
+import { offersService } from "./offers";
 import { OwnerInviteBanner } from "./OwnerInvite";
 import { ShopMarketing } from "./ShopMarketing";
 import { DomainPanel } from "./DomainPanel";
@@ -1175,7 +1176,7 @@ function WalkInForm({ w, saved, staffId }: { w: WorkspaceData; saved: EditorProp
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [okMsg, setOkMsg] = useState("");
-  const offered = (sid: string, svc: string) => !w.service_rules.some((r) => r.staff_id === sid && r.service_id === svc && !r.enabled);
+  const offered = (sid: string, svc: string) => offersService(w.service_rules, sid, svc);
   useEffect(() => {
     if (!staff || !service) {
       setSlots(null);
@@ -1585,11 +1586,6 @@ export function Workspace() {
   const [tab, setTab] = useState("Appointments");
   // On the calendar the timetable is the only thing that scrolls: the page itself is pinned so a
   // drag past the top or bottom of the timetable (or on the toolbar) never moves the whole screen.
-  useEffect(() => {
-    const root = document.documentElement;
-    root.classList.toggle("calendar-pinned", tab === "Appointments");
-    return () => root.classList.remove("calendar-pinned");
-  }, [tab]);
   // Settings is split into clear sections; the URL hash remembers the open one (#settings/payments).
   // Phone: settings groups collapse; the group holding the open tab is always expanded.
   const [openGroup, setOpenGroup] = useState<string>("");
@@ -1640,6 +1636,16 @@ export function Workspace() {
   const [dayMenuStaff, setDayMenuStaff] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [reviewsOpen, setReviewsOpen] = useState(false);
+  // Only while the calendar is actually on screen: not on the sign-in / invite pages (where the
+  // default tab is "Appointments" but there is no calendar, so a pinned page cannot scroll at all
+  // on a phone), and not in the setup window, website editor or a barber's first-run welcome.
+  const calendarShowing = !!data?.account && !inviteToken && tab === "Appointments" && !setupOpen && !editorOpen
+    && !(data.account.role !== "OWNER" && !(data.account as { shop_account?: boolean }).shop_account && !(data.account as { onboarded_at?: number | null }).onboarded_at && !staffOnbDone);
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("calendar-pinned", calendarShowing);
+    return () => root.classList.remove("calendar-pinned");
+  }, [calendarShowing]);
   const [ratingChip, setRatingChip] = useState<{ average: number | null; count: number } | null>(null);
   // Team inbox: what happened (bookings, cancellations, moves, no-shows) for this login only.
   const [inbox, setInbox] = useState<TeamInbox | null>(null);
@@ -2256,7 +2262,7 @@ export function Workspace() {
         <header className="welcome-top">
           <span className="welcome-shop">
             {w.logo_url ? <img className={`welcome-logo${w.logo_tone ? ` tone-${w.logo_tone}` : ""}`} src={w.logo_url} alt="" /> : <span className="welcome-logo welcome-logo-text" aria-hidden="true">{w.shop.name.trim().charAt(0).toUpperCase()}</span>}
-            <span className="welcome-shop-text"><b>{w.shop.name}</b><small>Setting up · {w.account?.name || "Owner"}</small></span>
+            <span className="welcome-shop-text"><b>{w.shop.name}</b><small>Setting up · {(w.account as { shop_account?: boolean } | undefined)?.shop_account ? "Shop login" : w.account?.name || "Owner"}</small></span>
           </span>
           <span className="welcome-powered">Powered by <Brand /></span>
         </header>
@@ -2733,9 +2739,9 @@ export function Workspace() {
                                 {list.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                               </select>
                             </label>
-                            <button type="button" role="menuitem" onClick={() => act("hours")}><Icon name="clock" size={14} /> Edit today's hours</button>
+                            {manager && <button type="button" role="menuitem" onClick={() => act("hours")}><Icon name="clock" size={14} /> Edit today's hours</button>}
                             <button type="button" role="menuitem" disabled={date < w.today} onClick={() => act("block")}><Icon name="blocked" size={14} /> Block time…</button>
-                            <button type="button" role="menuitem" onClick={() => act("dayOff")}><Icon name="sun" size={14} /> Day off</button>
+                            {manager && <button type="button" role="menuitem" onClick={() => act("dayOff")}><Icon name="sun" size={14} /> Day off</button>}
                           </div>
                         );
                       })()}
@@ -2931,6 +2937,7 @@ export function Workspace() {
                           }}
                           team={barber ? undefined : new Set(team[date] ?? [])}
                           columnMenu={false}
+                          canSetHours={manager}
                           onAction={(action, staffMember, at) => {
                             if (action === "hours") setEditor({ kind: "override", item: staffMember, override: w.schedule_overrides.find((o) => o.staff_id === staffMember.id && o.date === date) });
                             else if (action === "block") setEditor({ kind: "block", item: staffMember, at });
@@ -3824,16 +3831,19 @@ function ShopSaveForm({ w, saved, label, children }: { w: WorkspaceData; saved: 
     <SaveForm
       key={w.shop.version}
       label={label}
-      onSave={(f) => {
+      onSave={async (f) => {
         const has = (k: string) => f.has(k);
-        return saved("/shop", "PUT", {
+        const weekBody = has("starts_0") || has("open_0") || has("ends_0")
+          ? days.map((_, i) => ({ enabled: f.get(`open_${i}`) ? 1 : 0, starts: minute(text(f, `starts_${i}`) || "09:00"), ends: minute(text(f, `ends_${i}`) || "18:00") }))
+          : week0.map((d) => ({ enabled: d.enabled, starts: d.starts, ends: d.ends }));
+        const weekChanged = JSON.stringify(weekBody) !== JSON.stringify(week0.map((d) => ({ enabled: d.enabled, starts: d.starts, ends: d.ends })));
+        const followers = w.staff.filter((s) => s.active && s.follows_shop_hours);
+        const result = await saved("/shop", "PUT", {
           name: has("name") ? text(f, "name") : w.shop.name,
           address: has("address") ? text(f, "address") : w.shop.address,
           timezone: has("timezone") ? text(f, "timezone") : w.shop.timezone,
           currency: has("currency") ? text(f, "currency") || "GBP" : w.shop.currency || "GBP",
-          week: has("starts_0") || has("open_0") || has("ends_0")
-            ? days.map((_, i) => ({ enabled: f.get(`open_${i}`) ? 1 : 0, starts: minute(text(f, `starts_${i}`) || "09:00"), ends: minute(text(f, `ends_${i}`) || "18:00") }))
-            : week0.map((d) => ({ enabled: d.enabled, starts: d.starts, ends: d.ends })),
+          week: weekBody,
           deposit_pence: has("deposit") ? Math.round(number(f, "deposit") * 100) : w.shop.deposit_pence,
           cancel_hours: has("cancel_hours") ? number(f, "cancel_hours") : w.shop.cancel_hours,
           buffer_min: 0,
@@ -3843,6 +3853,13 @@ function ShopSaveForm({ w, saved, label, children }: { w: WorkspaceData; saved: 
           till_access: has("till_access") ? (text(f, "till_access") === "ALL" ? "ALL" : "OWNER") : w.shop.till_access,
           version: w.shop.version,
         });
+        if (weekChanged && followers.length) {
+          const names = followers.map((s) => s.name.split(" ")[0]);
+          const list = names.length > 3 ? `${names.slice(0, 3).join(", ")} and ${names.length - 3} more` : names.join(" and ");
+          if (await ask({ title: `Update ${followers.length} barber${followers.length === 1 ? "" : "s"} to the new shop hours?`, body: `${list} ${followers.length === 1 ? "works" : "work"} the shop's opening hours. Anyone with their own set hours is left alone. Bookings outside the new hours are not cancelled.`, confirm: "Update their hours", cancel: "Leave as they are" }))
+            await saved("/staff/follow-shop-hours/apply", "POST", {});
+        }
+        return result;
       }}
     >
       {children}
@@ -5738,11 +5755,14 @@ function OnlineBookingPanel({
             })
           }
         >
-          <Field label="Public address (letters, numbers, hyphens)">
+          <Field label={w.shop.slug ? "Public address (set at signup, can't be changed)" : "Public address (letters, numbers, hyphens)"}>
             <input
               name="slug"
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
+              value={w.shop.slug || slug}
+              readOnly={!!w.shop.slug}
+              aria-readonly={!!w.shop.slug}
+              data-testid="online-slug"
+              onChange={(e) => { if (!w.shop.slug) setSlug(e.target.value); }}
               required
               minLength={3}
               maxLength={40}
@@ -7582,18 +7602,12 @@ function BookingForm({
             (s) =>
               s.id === rebook.service_id &&
               s.active &&
-              !w.service_rules.some(
-                (r) =>
-                  r.staff_id === staff && r.service_id === s.id && !r.enabled,
-              ),
+              offersService(w.service_rules, staff, s.id),
           )?.id || ""
         : w.services.find(
             (s) =>
               s.active &&
-              !w.service_rules.some(
-                (r) =>
-                  r.staff_id === staff && r.service_id === s.id && !r.enabled,
-              ),
+              offersService(w.service_rules, staff, s.id),
           )?.id || ""),
   );
   const [addonIds, setAddonIds] = useState<string[]>([]);
@@ -7953,20 +7967,10 @@ function BookingForm({
                     <option
                       key={s.id}
                       value={s.id}
-                      disabled={w.service_rules.some(
-                        (r) =>
-                          r.staff_id === staff &&
-                          r.service_id === s.id &&
-                          !r.enabled,
-                      )}
+                      disabled={!offersService(w.service_rules, staff, s.id)}
                     >
                       {s.name}
-                      {w.service_rules.some(
-                        (r) =>
-                          r.staff_id === staff &&
-                          r.service_id === s.id &&
-                          !r.enabled,
-                      )
+                      {!offersService(w.service_rules, staff, s.id)
                         ? " (not offered)"
                         : ""}
                     </option>

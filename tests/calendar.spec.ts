@@ -1,7 +1,7 @@
 import { test, expect, request, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { section, openFixtureShop } from "./fixture";
-import { base, origin, signup, seedCatalogue, enterNewShop } from "./shop";
+import { base, origin, signup, seedCatalogue, enterNewShop, offerEverything } from "./shop";
 import { refreshView } from "./fixture";
 function day(offset = 5) {
   const d = new Date();
@@ -189,23 +189,23 @@ test("barber rule matrix: multi-row draft saves together, revert is explicit and
   await page.getByTestId("team-card").first().click();
   const barber = (await editor.getByRole("heading", { level: 2 }).textContent())!.trim();
   await editor
-    .getByRole("button", { name: "Services & pricing", exact: true })
+    .getByRole("button", { name: "Services", exact: true })
     .click();
   await page.getByLabel(`${barber} price for Signature cut`).fill("33");
   await page.getByLabel(`${barber} price for Skin fade`).fill("39");
-  await page.getByRole("button", { name: "Revert", exact: true }).click();
+  await page.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(page.getByLabel(`${barber} price for Skin fade`)).toHaveValue("");
   await page.getByLabel(`${barber} price for Signature cut`).fill("33");
   await page.getByLabel(`${barber} price for Skin fade`).fill("39");
   await page
-    .getByRole("button", { name: "Save barber rules", exact: true })
+    .getByRole("button", { name: "Save changes", exact: true })
     .click();
   await expect(editor.getByRole("status")).toContainText("saved");
   await page.reload();
   await section(page, "Team");
   await page.getByTestId("team-card").first().click();
   await editor
-    .getByRole("button", { name: "Services & pricing", exact: true })
+    .getByRole("button", { name: "Services", exact: true })
     .click();
   await expect(page.getByLabel(`${barber} price for Skin fade`)).toHaveValue("39");
   await expect(page.getByLabel(`${barber} price for Signature cut`)).toHaveValue("33");
@@ -281,6 +281,7 @@ async function populateCalendar(page: Page) {
     });
     expect(created.status()).toBe(201);
     const id = (await created.json()).id;
+    await offerEverything(page.request, headers);
     const w = await (await page.request.get(base + "/workspace")).json();
     const service = w.services.find((s: any) => s.id === id);
     const result = await page.request.post(base + "/bookings", {

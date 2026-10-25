@@ -164,6 +164,7 @@ export function Calendar({
   canEdit,
   onMoveBlocked,
   onAction,
+  canSetHours = true,
   columnMenu,
   onBlock,
   onRemoveBlock,
@@ -191,6 +192,8 @@ export function Calendar({
   onMoveBlocked?: (booking: StoredBooking, reason: string) => void;
   // Per-barber ⋯ menu. `block` may carry the slot that was right-clicked / chosen.
   onAction?: (action: StaffAction, staff: Staff, at?: number) => void;
+  /** Hours and days off are set by owners and managers; barbers see them but get no edit controls. */
+  canSetHours?: boolean;
   columnMenu?: boolean;
   onBlock?: (block: StaffBlock) => void;
   onRemoveBlock?: (block: StaffBlock) => void;
@@ -587,7 +590,7 @@ export function Calendar({
                       {money(taken)} · {mine.length} visit{mine.length === 1 ? "" : "s"}
                     </span>
                   </div>
-                  {onHours && (() => {
+                  {onHours && canSetHours && (() => {
                     const ov = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date);
                     const wk = w.hours.find((h) => h.staff_id === s.id && h.weekday === weekdayOf);
                     const sh = ov ?? wk;
@@ -614,15 +617,19 @@ export function Calendar({
                       </button>
                       {menu === s.id && (
                         <div className="staff-menu-list" role="menu" aria-label={`${s.name} day actions`}>
-                          <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("hours", s); }}>
-                            <Icon name="clock" size={14} /> Edit today's hours
-                          </button>
+                          {canSetHours && (
+                            <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("hours", s); }}>
+                              <Icon name="clock" size={14} /> Edit today's hours
+                            </button>
+                          )}
                           <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("block", s); }} disabled={date < today}>
                             <Icon name="blocked" size={14} /> Block time…
                           </button>
-                          <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("dayOff", s); }}>
-                            <Icon name="sun" size={14} /> Day off
-                          </button>
+                          {canSetHours && (
+                            <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("dayOff", s); }}>
+                              <Icon name="sun" size={14} /> Day off
+                            </button>
+                          )}
                           <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("walkIn", s); }} disabled={date !== today}>
                             <Icon name="footprints" size={14} /> Add walk-in
                           </button>
