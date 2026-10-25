@@ -471,7 +471,7 @@ accounts.post("/signup", async (c) => {
   // fail the signup: the workspace nudge offers a re-send.
   let sandboxToken: string | undefined;
   try {
-    const v = await issueEmailVerification(c, { id: user, email: b.email, name: loginName, shop_id: shop }, "owner_welcome", now);
+    const v = await issueEmailVerification(c, { id: user, email: b.email, name: business ? "" : loginName, shop_id: shop }, "owner_welcome", now);
     await c.env.DB.batch(v.stmts);
     await drain(c.env.DB, 2, now, { type: "email_verify", id: user }).catch(() => {});
     if (providerStatus().email.provider === "mailbox" && demoEnabled(c)) sandboxToken = v.token;
@@ -820,7 +820,7 @@ accounts.post("/verify-email/resend", async (c) => {
     c.header("Retry-After", "60");
     return reject(429, "A confirmation email went out less than a minute ago. Check your inbox (and spam), then try again.");
   }
-  const v = await issueEmailVerification(c, { id: a.user_id, email: a.email, name: a.name, shop_id: a.shop_id }, a.role === "OWNER" ? "owner_welcome" : "email_verify", now);
+  const v = await issueEmailVerification(c, { id: a.user_id, email: a.email, name: a.shop_account ? "" : a.name, shop_id: a.shop_id }, a.role === "OWNER" ? "owner_welcome" : "email_verify", now);
   await c.env.DB.batch(v.stmts);
   await drain(c.env.DB, 2, now, { type: "email_verify", id: a.user_id }).catch(() => {});
   const ps = providerStatus();
@@ -893,9 +893,11 @@ accounts.post("/forgot", async (c) => {
     // msgShop's `phone` is the public shop-page number; the verified owner mobile lives on shops.
     const own = user.role === "OWNER" ? await c.env.DB.prepare("SELECT phone, phone_verified_at FROM shops WHERE id=?").bind(user.shop_id).first<{ phone: string; phone_verified_at: number | null }>() : null;
     const ownerPhone = own?.phone_verified_at ? own.phone : "";
+    // A shop login is named after the shop, so there is no first name to greet.
+    const greet = user.role === "SHOP" ? "" : user.name;
     const stmts = [
-      ...enqueue(c.env.DB, shop, { email: b.email, name: user.name }, "password_reset", { link }, { related: { type: "password_reset", id: user.id }, origin, channel: "EMAIL", now, force: true }),
-      ...(ownerPhone ? enqueue(c.env.DB, shop, { phone: ownerPhone, name: user.name }, "password_reset", { link }, { related: { type: "password_reset", id: user.id }, origin, channel: "SMS", now, force: true }) : []),
+      ...enqueue(c.env.DB, shop, { email: b.email, name: greet }, "password_reset", { link }, { related: { type: "password_reset", id: user.id }, origin, channel: "EMAIL", now, force: true }),
+      ...(ownerPhone ? enqueue(c.env.DB, shop, { phone: ownerPhone, name: greet }, "password_reset", { link }, { related: { type: "password_reset", id: user.id }, origin, channel: "SMS", now, force: true }) : []),
     ];
     await c.env.DB.batch([
       c.env.DB.prepare("UPDATE password_resets SET used_at=? WHERE user_id=? AND used_at IS NULL").bind(now, user.id),

@@ -907,10 +907,13 @@ sandbox.put("/shop/reviews", async (c) => {
 });
 sandbox.put("/shop/online", async (c) => {
   const b = await input(c, onlineBookingSchema);
-  if (RESERVED_SUBDOMAINS.has(b.slug)) fail(409, "That address is reserved. Try another.");
   // Terms: any change to the wording is a new version. Customers who accepted an older version are
   // asked to accept again the next time they book; clearing the text stops asking altogether.
-  const cur = await c.env.DB.prepare("SELECT terms_text, terms_version FROM shops WHERE id=?").bind(c.get("shopId")).first<{ terms_text: string; terms_version: number }>();
+  const cur = await c.env.DB.prepare("SELECT slug, terms_text, terms_version FROM shops WHERE id=?").bind(c.get("shopId")).first<{ slug: string | null; terms_text: string; terms_version: number }>();
+  // The web address is chosen once, at signup. After that it is fixed: links, QR codes, the app
+  // icon and every customer's saved booking page depend on it. (Platform staff change it directly.)
+  if (cur?.slug && cur.slug !== b.slug) fail(409, "Your web address is fixed once your shop is created. Contact support if it needs to change.");
+  if (!cur?.slug && RESERVED_SUBDOMAINS.has(b.slug)) fail(409, "That address is reserved. Try another.");
   const termsText = b.terms_text ?? cur?.terms_text ?? "";
   const termsChanged = termsText !== (cur?.terms_text ?? "");
   const termsVersion = termsChanged ? (termsText ? (cur?.terms_version ?? 0) + 1 : 0) : (cur?.terms_version ?? 0);
