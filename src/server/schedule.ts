@@ -31,6 +31,7 @@ import {
   type StaffDayOff,
   type StaffServiceRule,
   type StoredBooking,
+  offers,
 } from "./domain";
 import { channelsFor, enqueue, fmtDate, fmtTime, msgShop, drain } from "./messaging";
 import { refundDeposit } from "./stripe";
@@ -121,7 +122,7 @@ function patch(roster: Roster, change: ScheduleChange): Roster {
 
 function reasonFor(r: Roster, b: StoredBooking, now: number, excludeBlocks = false): string {
   const staff = r.staff.find((s) => s.id === b.staff_id) ?? null;
-  if (r.rules.some((x) => x.staff_id === b.staff_id && x.service_id === b.service_id && !x.enabled)) return "Barber no longer offers this service";
+  if (!offers(r.rules, b.staff_id, b.service_id)) return "Barber no longer offers this service";
   const hours = effectiveHours(
     r.hours.find((h) => h.staff_id === b.staff_id && h.weekday === weekday(b.date)) ?? null,
     r.overrides.find((o) => o.staff_id === b.staff_id && o.date === b.date) ?? null,
@@ -142,7 +143,7 @@ function suggest(r: Roster, b: StoredBooking, max = 3): Suggestion[] {
   const out: Suggestion[] = [];
   const buf = 0; // slotReason applies the shop buffer itself
   void buf;
-  const others = r.staff.filter((s) => s.active && s.id !== b.staff_id && !r.rules.some((x) => x.staff_id === s.id && x.service_id === b.service_id && !x.enabled));
+  const others = r.staff.filter((s) => s.active && s.id !== b.staff_id && offers(r.rules, s.id, b.service_id));
   const tryDay = (staff: Staff, date: string, fromMin: number) => {
     const hours = effectiveHours(r.hours.find((h) => h.staff_id === staff.id && h.weekday === weekday(date)) ?? null, r.overrides.find((o) => o.staff_id === staff.id && o.date === date) ?? null);
     const dayBookings = r.bookings.filter((x) => x.staff_id === staff.id && x.date === date && x.id !== b.id);

@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { openFixtureShop, origin, base, section, markDone } from "./fixture";
-import { enterNewShop } from "./shop";
+import { enterNewShop, offerEverything } from "./shop";
 import { refreshView } from "./fixture";
 test("initial network failure retries in place and unexpected HTML has a useful recovery message", async ({
   page,
@@ -273,9 +273,9 @@ test("dated staff leave survives reload, flags saved appointments and can be rem
   await card.click();
   await page
     .getByTestId("barber-editor")
-    .getByRole("button", { name: "Schedule", exact: true })
+    .getByRole("button", { name: "Hours", exact: true })
     .click();
-  await page.getByRole("button", { name: /^Days off/ }).click();
+  await page.getByTestId("hub-add-dayoff").click();
   await page.getByLabel("Day off date").fill(date);
   await page.getByLabel("Day off reason").fill("Fictional test leave");
   await page.getByRole("button", { name: "Save day off", exact: true }).click();
@@ -296,23 +296,21 @@ test("dated staff leave survives reload, flags saved appointments and can be rem
   await card.click();
   await page
     .getByTestId("barber-editor")
-    .getByRole("button", { name: "Schedule", exact: true })
+    .getByRole("button", { name: "Hours", exact: true })
     .click();
-  await page.getByRole("button", { name: /^Days off/ }).click();
-  await expect(
-    page.getByText("Fictional test leave", { exact: true }),
-  ).toBeVisible();
+  // Saved leave shows in the barber's "Coming up" list without opening anything.
+  await expect(page.getByTestId("hub-coming").getByText("Fictional test leave", { exact: true })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.screenshot({
     path: "docs/evidence/staff-days-off.png",
     fullPage: true,
   });
   await page
-    .getByRole("button", { name: `Remove ${date}`, exact: true })
+    .getByTestId("hub-coming")
+    .getByRole("button", { name: /^Remove Day off on/ })
     .click();
-  await page
-    .getByRole("button", { name: "Confirm removal", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(page.getByTestId("hub-coming-empty")).toBeVisible();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(
     page.getByText("Barber has a day off.", { exact: false }),
@@ -356,24 +354,23 @@ test("saved setup and appointment workflow survives reload, move and completion"
   await expect(page.getByRole("heading", { name: "Casey Test" })).toBeVisible();
   await page
     .getByTestId("barber-editor")
-    .getByRole("button", { name: "Schedule", exact: true })
+    .getByRole("button", { name: "Hours", exact: true })
     .click();
-  await page.getByRole("button", { name: "Edit weekly hours" }).click();
-  const monday = page.getByRole("dialog").getByRole("group", { name: "Monday" });
-  const breakToggle = monday.getByRole("checkbox", { name: "Break" });
+  // Hours are edited in place on the barber's Hours tab and saved from one bar.
+  const hub = page.getByTestId("barber-hours");
+  const breakToggle = hub.getByRole("checkbox", { name: "Monday break" });
   if (!(await breakToggle.isChecked())) await breakToggle.check();
-  await page.getByLabel("Monday break start", { exact: true }).fill("12:00");
-  await page.getByLabel("Monday break end", { exact: true }).fill("12:30");
+  await hub.getByLabel("Monday break start", { exact: true }).fill("12:00");
+  await hub.getByLabel("Monday break end", { exact: true }).fill("12:30");
   // Copy Monday to all keeps each day's Working flag but mirrors the times and break.
-  await page.getByTestId("copy-monday").click();
-  await expect(page.getByLabel("Friday break start", { exact: true })).toHaveValue("12:00");
-  await save(page);
-  const strip = page.getByRole("list", { name: "Weekly hours" });
-  await expect(strip).toContainText("12:00");
+  await page.getByTestId("hours-copy-monday").click();
+  await expect(hub.getByLabel("Friday break start", { exact: true })).toHaveValue("12:00");
+  await page.getByTestId("hours-save").click();
+  await expect(page.getByTestId("hours-saved")).toBeVisible();
   // Turning a break off saves as no break (start == end).
-  await page.getByRole("button", { name: "Edit weekly hours" }).click();
-  await page.getByRole("dialog").getByRole("group", { name: "Tuesday" }).getByRole("checkbox", { name: "Break" }).uncheck();
-  await save(page);
+  await hub.getByRole("checkbox", { name: "Tuesday break" }).uncheck();
+  await page.getByTestId("hours-save").click();
+  await expect(page.getByTestId("hours-saved")).toBeVisible();
   const hrs = (await (await page.request.get(base + "/workspace")).json()).hours as { weekday: number; break_start: number; break_end: number; staff_id: string }[];
   const casey = (await (await page.request.get(base + "/workspace")).json()).staff.find((x: any) => x.name === "Casey Test");
   const tue = hrs.find((h) => h.staff_id === casey.id && h.weekday === 2)!;
@@ -386,6 +383,8 @@ test("saved setup and appointment workflow survives reload, move and completion"
   await page.getByLabel("Price (£)", { exact: true }).fill("19.50");
   await page.getByRole("button", { name: "Create service", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Test tidy-up" })).toBeVisible();
+  // Casey is new and the service is new: nobody offers it until it is ticked.
+  await offerEverything(page.request, { Origin: origin });
   await section(page, "Settings");
   await page
     .getByLabel("Shop name", { exact: true })
@@ -784,7 +783,10 @@ test("service studio and barber studio: create with presentation flags, matrix f
   await serviceEditor.getByRole("button", { name: "Barbers & pricing", exact: true }).click();
   const w = await (await page.request.get(base + "/workspace")).json();
   const [a, b] = w.staff.filter((s: { active: number }) => s.active);
-  await page.getByLabel(`${a.name} offers Studio hot towel finish`).uncheck();
+  // A new service is off for every barber until ticked.
+  await expect(page.getByLabel(`${a.name} offers Studio hot towel finish`)).not.toBeChecked();
+  await expect(page.getByLabel(`${b.name} offers Studio hot towel finish`)).not.toBeChecked();
+  await page.getByLabel(`${b.name} offers Studio hot towel finish`).check();
   await page.getByLabel(`${b.name} price for Studio hot towel finish`).fill("16");
   await expect(page.getByLabel(`${a.name} price for Studio hot towel finish`)).toBeDisabled();
   await page.getByRole("button", { name: "Save barber rules", exact: true }).click();
@@ -840,12 +842,10 @@ test("service studio and barber studio: create with presentation flags, matrix f
   expect(skills).not.toContain(suggested);
   expect(skills).toContain("Studio test skill");
   // Tabs: schedule strip + editors, services matrix from the barber side, performance, upcoming.
-  await barberEditor.getByRole("button", { name: "Schedule", exact: true }).click();
-  await expect(page.getByRole("list", { name: "Weekly hours" })).toBeVisible();
-  await page.getByRole("button", { name: "Edit weekly hours" }).click();
-  await expect(page.getByRole("dialog")).toContainText("weekly hours");
-  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
-  await barberEditor.getByRole("button", { name: "Services & pricing", exact: true }).click();
+  await barberEditor.getByRole("button", { name: "Hours", exact: true }).click();
+  await expect(page.getByTestId("barber-hours")).toBeVisible();
+  await expect(page.getByTestId("hours-day-1")).toBeVisible();
+  await barberEditor.getByRole("button", { name: "Services", exact: true }).click();
   await expect(page.getByLabel(`${b.name} price for Studio hot towel finish`)).toHaveValue("16");
   await barberEditor.getByRole("button", { name: "Performance", exact: true }).click();
   await expect(barberEditor.getByRole("group", { name: "Period" }).or(barberEditor.locator(".segmented[aria-label='Period']"))).toBeVisible();

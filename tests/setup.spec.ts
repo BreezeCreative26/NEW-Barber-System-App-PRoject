@@ -1,5 +1,5 @@
 import { test, expect, request } from "@playwright/test";
-import { registerCustomer } from "./shop";
+import { registerCustomer, offerEverything } from "./shop";
 const origin = "http://localhost:3000";
 test("shop setup: signup → 9-step onboarding → go live; invite accepted by SMS+email link; forgot/reset password", async ({ page }) => {
   page.on("pageerror", (e) => console.log("PAGEERROR", e.message));
@@ -141,6 +141,7 @@ test("owner alerts: new online booking and no-show land in the outbox for the ow
   expect((await r.put(base + "/shop/alerts", { data: { ...prefs.prefs, no_show: "EMAIL" } })).status()).toBe(200);
   // Service + online.
   await r.post(base + "/services", { data: { name: "Haircut", duration_min: 30, price_pence: 2000, category: "Hair" } });
+  await offerEverything(r);
   const w = await (await r.get(base + "/workspace")).json();
   const slug = "alert-" + Date.now().toString(36);
   expect((await r.put(base + "/shop/online", { data: { slug, online_booking: 1, lead_time_min: 0, booking_window_days: 42, version: w.shop.version } })).status()).toBe(200);

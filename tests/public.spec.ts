@@ -520,7 +520,7 @@ test("any-barber availability assigns the least-loaded eligible barber and /next
   expect(open.every((s: { barbers: number }) => s.barbers >= 1)).toBe(true);
   // Disabling the service for barber 1 removes them from any-barber results.
   const rule = await r.put(base + `/staff/${w.staff[1].id}/services/${service}`, {
-    data: { enabled: 0, price_pence: null, duration_min: null, version: 0 },
+    data: { enabled: 0, price_pence: null, duration_min: null, version: 1 },
   });
   expect(rule.status(), await rule.text()).toBe(200);
   const only = await (

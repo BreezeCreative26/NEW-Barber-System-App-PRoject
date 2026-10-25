@@ -1,3 +1,4 @@
+import { offersService } from "./offers";
 import { Boot } from "./boot";
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import type { BookingItem } from "../server/domain";
@@ -389,9 +390,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     if (customer && step === 3) setStep(4);
   }, [!!customer, step]);
   const eligible = (staffId: string, serviceId: string) =>
-    !shop?.service_rules.some(
-      (r) => r.staff_id === staffId && r.service_id === serviceId && !r.enabled,
-    );
+    !!shop && offersService(shop.service_rules, staffId, serviceId);
   const barbers = shop?.staff.filter((s) => eligible(s.id, service)) || [];
   useEffect(() => {
     if (!shop) return;

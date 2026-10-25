@@ -38,7 +38,7 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
     if (adding.name.trim().length < 2) return;
     await api("/staff", "POST", { name: adding.name.trim(), role: adding.role || "Barber" });
     setAdding({ name: "", role: "Barber" });
-    setNotice(`${adding.name.trim()} added with the shop's hours.`);
+    setNotice(`${adding.name.trim()} added with the shop's hours. Next tick the services they do in Team.`);
     await refresh();
   }
   async function sendInvite(s: Staff) {
@@ -131,7 +131,7 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
         <F label="Job title"><input value={adding.role} onChange={(e) => setAdding({ ...adding, role: e.target.value })} placeholder="Barber" maxLength={50} list="setup-roles" /><datalist id="setup-roles"><option value="Barber" /><option value="Senior barber" /><option value="Stylist" /><option value="Colourist" /><option value="Apprentice" /><option value="Nail tech" /><option value="Receptionist" /></datalist></F>
         <Button type="submit" variant="secondary" disabled={busy || adding.name.trim().length < 2} data-testid="setup-add-staff"><Icon name="plus" size={14} /> Add</Button>
       </form>
-      <p className="helper">Hours, photos, skills and pay for each person are in <button type="button" className="linklike" onClick={() => goTo("Team")}>Team</button>.</p>
+      <p className="helper">New people start on the shop's hours with no services ticked. Open <button type="button" className="linklike" onClick={() => goTo("Team")}>Team</button> to set each person's hours, tick the services they do and give them their own prices.</p>
       <StepActions busy={busy} nextLabel="Continue" onNext={onNext} onSkip={onSkip} skipLabel={shopLogin ? "Do this later" : "It's just me"} />
     </div>
   );
@@ -143,7 +143,7 @@ type SmsBilling = { unit_pence: number; included_units: number; acknowledged_at:
 export function StepMessages({ w, api, refresh, data, setNotice, setError, onNext, onSkip }: StepProps) {
   const shop = w.shop as typeof w.shop & { phone?: string; email?: string; msg_sms?: number; msg_email?: number; msg_wa?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reply_to?: string; msg_sms_sender?: string };
   const suggested = suggestSenders(shop.name)[0] || "";
-  const [m, setM] = useState<Msg>({ msg_sms: shop.msg_sms ?? 1, msg_email: shop.msg_email ?? 1, msg_wa: shop.msg_wa ?? 1, msg_reminders: shop.msg_reminders ?? 1, msg_reminder_hours: shop.msg_reminder_hours ?? 24, msg_reply_to: shop.msg_reply_to || shop.email || "", msg_sms_sender: shop.msg_sms_sender || suggested });
+  const [m, setM] = useState<Msg>({ msg_sms: shop.msg_sms ?? 1, msg_email: shop.msg_email ?? 1, msg_wa: shop.msg_wa ?? 0, msg_reminders: shop.msg_reminders ?? 1, msg_reminder_hours: shop.msg_reminder_hours ?? 24, msg_reply_to: shop.msg_reply_to || shop.email || "", msg_sms_sender: shop.msg_sms_sender || suggested });
   const [bill, setBill] = useState<SmsBilling | null>(null);
   const [ack, setAck] = useState(false);
   const [test, setTest] = useState<{ channel: string; ok: boolean; note: string } | null>(null);
@@ -229,8 +229,11 @@ export function StepOnline({ w, api, refresh, setNotice, setError, goTo, onNext,
     if (!w.shop.slug) api<{ slug: string }>("/setup/slug/suggest").then((r) => { if (!slug) setSlug(r.slug); }).catch(() => {});
     else api<typeof share>("/setup/share").then(setShare).catch(() => {});
   }, []);
+  // The address is chosen once, at signup, and never changes after that (customers, QR codes and
+  // links all rely on it). Only a shop that somehow has none yet can still pick one here.
+  const fixed = !!w.shop.slug;
   useEffect(() => {
-    if (!slug) { setCheck(null); return; }
+    if (!slug || fixed) { setCheck(null); return; }
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => api<{ ok: boolean; reason: string }>(`/setup/slug?slug=${encodeURIComponent(slug)}`).then(setCheck).catch(() => setCheck(null)), 250);
   }, [slug]);
@@ -246,6 +249,14 @@ export function StepOnline({ w, api, refresh, setNotice, setError, goTo, onNext,
     <div className="setup-wiz-card">
       <p className="setup-wiz-lead">Your booking link. Put it in your Instagram bio, on Google, on the window. Customers pick a barber, a service and a time, and get a text.</p>
       <div className="setup-slug">
+        {fixed ? (
+          <F label="Web address" hint="Chosen when you signed up — it stays the same so your links and QR codes always work.">
+            <div className="setup-slug-input setup-slug-fixed" data-testid="setup-slug-fixed" data-ok>
+              <span data-testid="setup-slug">{share?.page ? share.page.replace(/^https?:\/\//, "").replace(/\/$/, "") : `${location.host}/book/${w.shop.slug}`}</span>
+              <Icon name="check" size={16} />
+            </div>
+          </F>
+        ) : (
         <F label="Web address" hint={check?.reason || (check?.ok ? "Available" : " ")}>
           <div className="setup-slug-input" data-ok={check?.ok} data-bad={check ? !check.ok : undefined}>
             <span>{location.host}/book/</span>
@@ -253,6 +264,7 @@ export function StepOnline({ w, api, refresh, setNotice, setError, goTo, onNext,
             {check?.ok && <Icon name="check" size={16} />}
           </div>
         </F>
+        )}
         <div className="setup-grid-2">
           <F label="Shortest notice" hint="How close to the time someone can book."><select value={lead} onChange={(e) => setLead(Number(e.target.value))}><option value={0}>Right up to the slot</option><option value={30}>30 minutes</option><option value={60}>1 hour</option><option value={120}>2 hours</option><option value={1440}>A day</option></select></F>
           <F label="How far ahead" hint="How many days into the future the calendar opens."><select value={window_} onChange={(e) => setWindow(Number(e.target.value))}><option value={14}>2 weeks</option><option value={28}>4 weeks</option><option value={42}>6 weeks</option><option value={90}>3 months</option></select></F>
@@ -273,7 +285,7 @@ export function StepOnline({ w, api, refresh, setNotice, setError, goTo, onNext,
           </div>
         </div>
       )}
-      <StepActions busy={busy} nextLabel={live ? "Continue" : ready && check?.ok ? "Go live and continue" : "Save address and continue"} onNext={() => run(async () => { if (slug && (check?.ok || slug === w.shop.slug)) await save(ready && (live || !!check?.ok)); await onNext(); }, setError)} onSkip={onSkip}>
+      <StepActions busy={busy} nextLabel={live ? "Continue" : ready && (fixed || check?.ok) ? "Go live and continue" : "Save address and continue"} onNext={() => run(async () => { if (slug && (fixed || check?.ok)) await save(ready && (live || fixed || !!check?.ok)); await onNext(); }, setError)} onSkip={onSkip}>
         {live && <Button variant="ghost" disabled={busy} onClick={() => run(() => save(false), setError)}>Switch off</Button>}
       </StepActions>
     </div>

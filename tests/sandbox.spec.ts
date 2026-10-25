@@ -127,6 +127,11 @@ const mutationContracts: [string, string, number?][] = [
   ["DELETE", "/staff/:id/blocks/:blockId"],
   ["POST", "/services"],
   ["POST", "/services/categories/rename"],
+  ["POST", "/service-categories"],
+  ["PUT", "/service-categories/order"],
+  ["PUT", "/service-categories/:id"],
+  ["DELETE", "/service-categories/:id"],
+  ["POST", "/staff/follow-shop-hours/apply", 200],
   ["PUT", "/services/:id"],
   ["POST", "/addons"],
   ["PUT", "/addons/:id"],
@@ -1050,21 +1055,25 @@ test("catalogue profiles: barber/service presentation fields validate, persist, 
   expect(matrix.status(), await matrix.text()).toBe(200);
   latest = await workspace(r);
   expect(latest.service_rules.find((x) => x.staff_id === jay.id && x.service_id === svcA.id)).toMatchObject({ enabled: 1, price_pence: 3300, duration_min: null });
-  expect(latest.service_rules.find((x) => x.staff_id === jay.id && x.service_id === svcB.id)).toMatchObject({ enabled: 0 });
+  // Off means "no row": a barber offers a service only while an enabled row exists.
+  expect(latest.service_rules.some((x) => x.staff_id === jay.id && x.service_id === svcB.id)).toBe(false);
   const reset = await r.put(base + "/service-rules", {
     data: { rules: [{ staff_id: jay.id, service_id: svcA.id, enabled: 1, price_pence: null, duration_min: null }] },
   });
   expect(reset.status()).toBe(200);
   latest = await workspace(r);
-  expect(latest.service_rules.some((x) => x.staff_id === jay.id && x.service_id === svcA.id)).toBe(false);
-  expect(latest.service_rules.some((x) => x.staff_id === jay.id && x.service_id === svcB.id)).toBe(true);
+  // Ticked with no price of their own: still offered, at the shop price (row kept, no override).
+  expect(latest.service_rules.find((x) => x.staff_id === jay.id && x.service_id === svcA.id)).toMatchObject({ enabled: 1, price_pence: null, duration_min: null });
+  expect(latest.service_rules.some((x) => x.staff_id === jay.id && x.service_id === svcB.id)).toBe(false);
   expect(latest.audit.some((a) => a.action === "SERVICE_RULES_UPDATED")).toBe(true);
   // Cross-tenant: another shop cannot address this shop's barber or service.
+  const foreignBefore = (await other.get(base + "/workspace").then((x) => x.json())).service_rules;
   const foreign = await other.put(base + "/service-rules", {
     data: { rules: [{ staff_id: jay.id, service_id: svcA.id, enabled: 0, price_pence: null, duration_min: null }] },
   });
   expect(foreign.status()).toBe(404);
-  expect((await other.get(base + "/workspace").then((x) => x.json())).service_rules).toHaveLength(0);
+  expect((await other.get(base + "/workspace").then((x) => x.json())).service_rules).toEqual(foreignBefore);
+  expect(foreignBefore.some((x: { staff_id: string }) => x.staff_id === jay.id)).toBe(false);
   // Validation: empty list, bad price, duplicate pairs.
   expect((await r.put(base + "/service-rules", { data: { rules: [] } })).status()).toBe(400);
   expect(

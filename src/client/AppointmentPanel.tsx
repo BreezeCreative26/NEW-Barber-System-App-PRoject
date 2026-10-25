@@ -1,5 +1,6 @@
 // Appointment side panel: right-hand drawer on desktop, bottom sheet on phones.
 // The calendar stays visible behind it so the owner can compare or move visits.
+import { offersService } from "./offers";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ask } from "./confirm";
 import type { StoredBooking, WorkspaceData, BookingItem, Payment } from "../server/domain";
@@ -635,7 +636,7 @@ function EditItems({
   onCancel: () => void;
   onSave: (body: { service_id: string; addon_ids: string[]; service_price_pence?: number; service_duration_min?: number; addon_prices: Record<string, number>; reason: string; version: number; force?: boolean }) => Promise<{ refunded_pence: number } | void>;
 }) {
-  const offered = (svc: string) => !w.service_rules.some((r) => r.staff_id === booking.staff_id && r.service_id === svc && !r.enabled);
+  const offered = (svc: string) => offersService(w.service_rules, booking.staff_id, svc);
   const services = w.services.filter((s) => s.active && (offered(s.id) || s.id === booking.service_id));
   const catalogue = (svcId: string) => {
     const s = w.services.find((x) => x.id === svcId)!;

@@ -78,7 +78,7 @@ test("Google reviews: link saves to the page, shows in the footer and after a 4â
   const today = w.shop.today || new Date().toISOString().slice(0, 10);
   // Pick a completed visit that has not been reviewed yet (the fixture seeds reviews on some).
   const reviewed = new Set(((await (await r.get(base + "/reviews")).json()).reviews as { booking_id: string }[]).map((x) => x.booking_id));
-  const done = (w.bookings as { id: string; status: string; date: string; phone: string }[]).find((b) => b.status === "COMPLETED" && b.date <= today && !reviewed.has(b.id));
+  const done = (w.bookings as { id: string; status: string; date: string; phone: string; email: string }[]).find((b) => b.status === "COMPLETED" && b.date <= today && !!b.email && !reviewed.has(b.id));
   test.skip(!done, "fixture has no unreviewed completed visit");
   const issued = await r.post(base + `/bookings/${done!.id}/manage-link`, { headers: { Origin: origin }, data: {} });
   expect([200, 201]).toContain(issued.status());

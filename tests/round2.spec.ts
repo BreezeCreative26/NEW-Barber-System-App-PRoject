@@ -42,7 +42,7 @@ test("holiday: allowance, a week off books only rostered days, tracker counts it
   await page.reload();
   await page.getByRole("button", { name: "Team", exact: true }).first().click();
   await page.getByTestId("team-card").filter({ hasText: "Jay Carter" }).click();
-  await page.getByRole("button", { name: "Schedule", exact: true }).click();
+  await page.getByRole("button", { name: "Hours", exact: true }).click();
   const tracker = page.getByTestId("holiday-tracker");
   await expect(tracker).toBeVisible();
   await expect(tracker.getByTestId("holiday-booked")).toHaveText(`${mine.length} days`);
@@ -92,8 +92,8 @@ test("the 'saved' notice clears itself", async ({ page }) => {
   await enterNewShop(page, "Notice shop");
   await page.getByRole("button", { name: "Team", exact: true }).first().click();
   await page.getByTestId("team-card").filter({ hasText: "Marcus Reed" }).click();
-  await page.getByRole("button", { name: "Schedule", exact: true }).click();
-  await page.getByRole("button", { name: /^Days off/ }).click();
+  await page.getByRole("button", { name: "Hours", exact: true }).click();
+  await page.getByTestId("hub-add-dayoff").click();
   const w = await (await page.request.get(base + "/workspace")).json();
   await page.getByLabel("Day off date").fill(plus(nextMonday(w.today), 1));
   await page.getByLabel("Day off reason").fill("Dentist");

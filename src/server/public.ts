@@ -38,7 +38,7 @@ import {
   parseCopy,
   brandOf,
   type ShopBrand,
- shopDay, shopWeek, dayStarts,
+ shopDay, shopWeek, dayStarts, isOffered,
 } from "./domain";
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
 import customerAccounts from "./customers";
@@ -204,7 +204,7 @@ pub.get("/shops/:slug", async (c) => {
       "SELECT id,name,role,title,bio,colour,photo_url,skills,instagram FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name",
     ).bind(sid),
     c.env.DB.prepare(
-      "SELECT id,name,category,duration_min,price_pence,version,description,colour,popular,payment_mode FROM services WHERE shop_id=? AND active=1 AND online_bookable=1 ORDER BY popular DESC,sort_order,category,name",
+      "SELECT s.id,s.name,s.category,s.duration_min,s.price_pence,s.version,s.description,s.colour,s.popular,s.payment_mode FROM services s LEFT JOIN service_categories k ON k.shop_id=s.shop_id AND k.name=s.category WHERE s.shop_id=? AND s.active=1 AND s.online_bookable=1 ORDER BY COALESCE(k.sort_order,9999),s.category,s.popular DESC,s.sort_order,s.name",
     ).bind(sid),
     c.env.DB.prepare(
       "SELECT id,name,price_pence,duration_min FROM addons WHERE shop_id=? AND active=1 ORDER BY name",
@@ -271,7 +271,7 @@ export async function rangeContext(
   const staff = (r[0].results as Staff[]).filter(
     (s) =>
       (!staffIds || staffIds.includes(s.id)) &&
-      rules.find((x) => x.staff_id === s.id)?.enabled !== 0,
+      rules.find((x) => x.staff_id === s.id)?.enabled === 1,
   );
   if (!staff.length) fail(staffIds ? 404 : 409, staffIds ? "Barber is not available" : "service_ineligible");
   const quotes = new Map(
@@ -340,7 +340,7 @@ pub.get("/shops/:slug/page", async (c) => {
   const [page, staff, services, hours, holidays, daysOff, reviews] = await Promise.all([
     c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>(),
     c.env.DB.prepare("SELECT id,name,role,title,bio,colour,photo_url,skills,instagram FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name").bind(sid).all(),
-    c.env.DB.prepare("SELECT id,name,category,duration_min,price_pence,description,colour,popular FROM services WHERE shop_id=? AND active=1 AND online_bookable=1 ORDER BY popular DESC,sort_order,category,name").bind(sid).all(),
+    c.env.DB.prepare("SELECT s.id,s.name,s.category,s.duration_min,s.price_pence,s.description,s.colour,s.popular FROM services s LEFT JOIN service_categories k ON k.shop_id=s.shop_id AND k.name=s.category WHERE s.shop_id=? AND s.active=1 AND s.online_bookable=1 ORDER BY COALESCE(k.sort_order,9999),s.category,s.popular DESC,s.sort_order,s.name").bind(sid).all(),
     c.env.DB.prepare("SELECT staff_id,weekday,enabled,starts,ends FROM staff_hours WHERE shop_id=?").bind(sid).all<{ staff_id: string; weekday: number; enabled: number; starts: number; ends: number }>(),
     c.env.DB.prepare("SELECT date,label FROM holidays WHERE shop_id=? AND date>=? ORDER BY date LIMIT 6").bind(sid, shopToday(shop.timezone)).all<{ date: string; label: string }>(),
     c.env.DB.prepare("SELECT staff_id,date FROM staff_days_off WHERE shop_id=? AND date>=? AND date<=?").bind(sid, shopToday(shop.timezone), datePlus(shopToday(shop.timezone), 14)).all<{ staff_id: string; date: string }>(),
@@ -1324,7 +1324,7 @@ export async function moveByCustomer(c: Ctx, shop: Shop, booking: StoredBooking,
     booking.service_id,
     body.date,
   );
-  if (data.rule?.enabled === 0) fail(409, "service_ineligible");
+  if (!isOffered(data.rule)) fail(409, "service_ineligible");
   const reason = slotReason(
     data.shop,
     data.staff,

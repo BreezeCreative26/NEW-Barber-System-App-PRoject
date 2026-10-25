@@ -98,7 +98,8 @@ test("add-ons and barber overrides persist, protect tenants and keep immutable b
   const s = w.services.find((s) => s.name === "Signature cut")!,
     staff = w.staff[0];
   const id = await addon(a, w);
-  const rule = { enabled: 1, price_pence: 3300, duration_min: 25, version: 0 };
+  // Fixture rows already exist (ticked at version 1), so updates carry that version.
+  const rule = { enabled: 1, price_pence: 3300, duration_min: 25, version: 1 };
   expect(
     (
       await a.put(base + `/staff/${staff.id}/services/${s.id}`, { data: rule })
@@ -185,7 +186,7 @@ test("add-ons and barber overrides persist, protect tenants and keep immutable b
   expect(
     (
       await a.put(base + `/staff/${staff.id}/services/${s.id}`, {
-        data: { enabled: 1, price_pence: null, duration_min: null, version: 1 },
+        data: { enabled: 1, price_pence: null, duration_min: null, version: 2 },
       })
     ).status(),
   ).toBe(200);
@@ -257,7 +258,7 @@ test("aggregate duration locks overlaps, rejects stale quote and eligibility cha
   expect(rejected.status()).toBe(409);
   expect((await rejected.json()).error).toBe("quote_changed");
   await r.put(base + `/staff/${staff.id}/services/${s.id}`, {
-    data: { enabled: 0, price_pence: null, duration_min: null, version: 0 },
+    data: { enabled: 0, price_pence: null, duration_min: null, version: 1 },
   });
   expect((await quote(r, w, [])).status()).toBe(409);
   const after = await ws(r);
@@ -414,15 +415,15 @@ test("owner edits add-ons, barber pricing and partial shifts; booking items surv
   const editor = page.getByTestId("barber-editor");
   await page.getByTestId("team-card").filter({ hasText: "Jay Carter" }).click();
   await editor
-    .getByRole("button", { name: "Services & pricing", exact: true })
+    .getByRole("button", { name: "Services", exact: true })
     .click();
   await page.getByLabel("Jay Carter price for Signature cut").fill("33");
   await page.getByLabel("Jay Carter duration for Signature cut").fill("25");
   await page
-    .getByRole("button", { name: "Save barber rules", exact: true })
+    .getByRole("button", { name: "Save changes", exact: true })
     .click();
   await expect(editor.getByRole("status")).toContainText("saved");
-  await editor.getByRole("button", { name: "Schedule", exact: true }).click();
+  await editor.getByRole("button", { name: "Hours", exact: true }).click();
   await page.getByRole("button", { name: /^Dated hours/ }).click();
   await page
     .getByRole("button", { name: "Add dated hours", exact: true })
@@ -586,14 +587,14 @@ for (const width of [390, 1440])
       .filter({ hasText: "Jay Carter" })
       .click();
     await editor
-      .getByRole("button", { name: "Services & pricing", exact: true })
+      .getByRole("button", { name: "Services", exact: true })
       .click();
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await page.screenshot({
       path: testInfo.outputPath("barber-rules.png"),
       fullPage: true,
     });
-    await editor.getByRole("button", { name: "Schedule", exact: true }).click();
+    await editor.getByRole("button", { name: "Hours", exact: true }).click();
     await page.getByRole("button", { name: /^Dated hours/ }).click();
     await page
       .getByRole("button", { name: "Add dated hours", exact: true })

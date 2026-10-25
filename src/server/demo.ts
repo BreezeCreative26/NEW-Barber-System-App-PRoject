@@ -138,6 +138,9 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
         ).bind(shopId, b.id, day, b.hours.includes(day) ? 1 : 0, day === 6 ? 540 : 570, day === 6 ? 960 : 1080, 780, 810),
       );
   }
+  [...new Set(services.map((x) => x.category))].forEach((name, i) =>
+    s.push(db.prepare("INSERT INTO service_categories(id,shop_id,name,sort_order) VALUES(?,?,?,?) ON CONFLICT DO NOTHING").bind(uid(), shopId, name, i)),
+  );
   for (const sv of services)
     s.push(
       db.prepare("INSERT INTO services(id,shop_id,name,category,duration_min,price_pence,colour,popular,description,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?)")
@@ -148,10 +151,18 @@ export async function buildDemo(c: Ctx, options: DemoOptions = {}): Promise<Seed
     for (const i of a.services)
       s.push(db.prepare("INSERT INTO addon_services(shop_id,addon_id,service_id) VALUES(?,?,?)").bind(shopId, a.id, services[i].id));
   }
-  // Marcus doesn't do shaves; Dani charges more for the full works and is quicker on beards.
-  s.push(db.prepare("INSERT INTO staff_service_rules(shop_id,staff_id,service_id,enabled) VALUES(?,?,?,0)").bind(shopId, staff[1].id, services[5].id));
-  s.push(db.prepare("INSERT INTO staff_service_rules(shop_id,staff_id,service_id,enabled,price_pence) VALUES(?,?,?,1,6000)").bind(shopId, staff[2].id, services[7].id));
-  s.push(db.prepare("INSERT INTO staff_service_rules(shop_id,staff_id,service_id,enabled,duration_min) VALUES(?,?,?,1,15)").bind(shopId, staff[2].id, services[4].id));
+  // Everyone offers everything except: Marcus doesn't do shaves; Dani charges more for the full works
+  // and is quicker on beards. (A barber only offers a service once it is ticked, so tick them all here.)
+  const special = new Map<string, { enabled: number; price?: number; duration?: number }>([
+    [`${staff[1].id}:${services[5].id}`, { enabled: 0 }],
+    [`${staff[2].id}:${services[7].id}`, { enabled: 1, price: 6000 }],
+    [`${staff[2].id}:${services[4].id}`, { enabled: 1, duration: 15 }],
+  ]);
+  for (const b of staff)
+    for (const sv of services) {
+      const o = special.get(`${b.id}:${sv.id}`) ?? { enabled: 1 };
+      s.push(db.prepare("INSERT INTO staff_service_rules(shop_id,staff_id,service_id,enabled,price_pence,duration_min) VALUES(?,?,?,?,?,?)").bind(shopId, b.id, sv.id, o.enabled, o.price ?? null, o.duration ?? null));
+    }
   // Barber account for Jay via a pre-accepted invitation (trigger requires one).
   const inviteId = uid();
   s.push(

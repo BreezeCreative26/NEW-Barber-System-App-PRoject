@@ -1,5 +1,6 @@
 // Service studio and barber studio: catalogue presentation, per-barber matrix and
 // team profiles. All writes go through the existing versioned sandbox routes.
+import { offersService } from "./offers";
 import { SeatChargeNote } from "./SmsSender";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
@@ -15,7 +16,7 @@ import { PayTermsForm, PayRuns, PayHistory, payFormOf, periodBounds, summariseTe
 import type { PayRunInput } from "../server/domain";
 import { BarberPayoutCard } from "./Payouts";
 import { PhotoUpload } from "./Media";
-import { HolidayTracker } from "./Holidays";
+import { BarberHoursPanel, BarberServicesPanel, summariseWeek } from "./BarberHub";
 import { StaffLoginPanel } from "./StaffLogin";
 import type { PayRun } from "../server/domain";
 
@@ -130,6 +131,14 @@ function useLeaveGuard(rootId: string) {
   return { guarded, notice };
 }
 
+/** "£25 – £40" across what a barber offers, using their own fixed prices. */
+function offeringRange(w: WorkspaceData, staffId: string, offered: Service[]): string {
+  const prices = offered.map((s) => w.service_rules.find((r) => r.staff_id === staffId && r.service_id === s.id)?.price_pence ?? s.price_pence);
+  const lo = Math.min(...prices);
+  const hi = Math.max(...prices);
+  return lo === hi ? money(lo) : `${money(lo)} – ${money(hi)}`;
+}
+
 // ---------- Per-barber matrix (shared by both studios) ----------
 type MatrixRow = { staff_id: string; service_id: string; enabled: number; price_pence: number | null; duration_min: number | null };
 export function RuleMatrix({
@@ -151,7 +160,7 @@ export function RuleMatrix({
       : w.services.filter((s) => s.active).map((s) => ({ staff_id: staff!.id, service_id: s.id }));
     return pairs.map((p) => {
       const r = w.service_rules.find((x) => x.staff_id === p.staff_id && x.service_id === p.service_id);
-      return { ...p, enabled: r ? r.enabled : 1, price_pence: r?.price_pence ?? null, duration_min: r?.duration_min ?? null };
+      return { ...p, enabled: r ? r.enabled : 0, price_pence: r?.price_pence ?? null, duration_min: r?.duration_min ?? null };
     });
   }, [w, service?.id, staff?.id]);
   const [draft, setDraft] = useState<MatrixRow[]>(rows);
@@ -258,7 +267,7 @@ export function RuleMatrix({
       </table>
       <div className="matrix-footer">
         <p className="workspace-footnote">
-          Blank price/duration = catalogue default{service ? ` (${money(service.price_pence)} · ${service.duration_min} min)` : ""}. Turning a service off flags future appointments for review; it never cancels them.
+          A service is off for a barber until it is ticked. A price here is that barber's fixed price; blank means the shop price{service ? ` (${money(service.price_pence)} · ${service.duration_min} min)` : ""}. Turning a service off flags future appointments for review; it never cancels them.
         </p>
         <div className="panel-actions-row">
           <Button type="submit" disabled={!dirty || busy}>{busy ? "Saving…" : "Save barber rules"}</Button>
@@ -325,7 +334,7 @@ export function ServiceStudio({
     }
     return [...seen.entries()];
   }, [w.services, query, showInactive]);
-  const offers = (s: Service) => w.staff.filter((b) => b.active && !w.service_rules.some((r) => r.staff_id === b.id && r.service_id === s.id && !r.enabled));
+  const offers = (s: Service) => w.staff.filter((b) => b.active && offersService(w.service_rules, b.id, s.id));
   const selectedService = selected && selected !== "new" ? w.services.find((s) => s.id === selected) || null : null;
   const upcoming = (s: Service) => w.bookings.filter((b) => b.service_id === s.id && ["CONFIRMED", "CHECKED_IN"].includes(b.status)).length;
   return (
@@ -492,7 +501,7 @@ function ServiceEditor({ w, api, service, onClose, onSaved, startNewCategory = f
   const [busy, setBusy] = useState(false);
   const [state, setState] = useState<LineState>(null);
   const categories = [...new Set(w.services.map((s) => s.category))];
-  const offering = service ? w.staff.filter((b) => b.active && !w.service_rules.some((r) => r.staff_id === b.id && r.service_id === service.id && !r.enabled)) : [];
+  const offering = service ? w.staff.filter((b) => b.active && offersService(w.service_rules, b.id, service.id)) : [];
   const priceRange = service
     ? w.service_rules.filter((r) => r.service_id === service.id && r.enabled && r.price_pence !== null).map((r) => r.price_pence as number)
     : [];
@@ -933,7 +942,8 @@ function BarberEditor({
   const hours = staff ? w.hours.filter((h) => h.staff_id === staff.id) : [];
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const mine = perf?.barbers.find((b) => b.staff_id === staff?.id);
-  const offering = staff ? w.services.filter((s) => s.active && !w.service_rules.some((r) => r.staff_id === staff.id && r.service_id === s.id && !r.enabled)) : [];
+  const offering = staff ? w.services.filter((s) => s.active && offersService(w.service_rules, staff.id, s.id)) : [];
+  const nextBooking = staff ? w.bookings.filter((b) => b.staff_id === staff.id && b.start_at > w.now && ["CONFIRMED", "CHECKED_IN"].includes(b.status)).sort((a, b) => a.start_at - b.start_at)[0] : undefined;
   const regulars = staff ? new Set(w.bookings.filter((b) => b.staff_id === staff.id && b.status === "COMPLETED").map((b) => b.phone)).size : 0;
   return (
     <section id="barber-editor" className="workspace-panel studio-detail" aria-labelledby="barber-editor-heading" data-testid="barber-editor">
@@ -953,10 +963,35 @@ function BarberEditor({
         </div>
       </header>
       {staff && (
+        <ul className="hub-overview" aria-label="Overview" data-testid="barber-overview">
+          <li>
+            <button type="button" onClick={() => setTab("schedule")} data-testid="overview-hours">
+              <small>Works</small>
+              <strong>{summariseWeek(hours)}</strong>
+              {staff.follows_shop_hours ? <em>Follows shop hours</em> : null}
+            </button>
+          </li>
+          <li className={offering.length === 0 ? "warn" : ""}>
+            <button type="button" onClick={() => setTab("services")} data-testid="overview-services">
+              <small>Offers</small>
+              <strong>{offering.length === 0 ? "Nothing ticked yet" : `${offering.length} of ${w.services.filter((s) => s.active).length} services`}</strong>
+              {offering.length > 0 && <em>{offeringRange(w, staff.id, offering)}</em>}
+            </button>
+          </li>
+          <li>
+            <button type="button" onClick={() => setTab("upcoming")} data-testid="overview-next">
+              <small>Next visit</small>
+              <strong>{nextBooking ? `${nextBooking.date === w.today ? "Today" : nextBooking.date.slice(8) + "/" + nextBooking.date.slice(5, 7)} ${time(nextBooking.start_min)}` : "Nothing booked"}</strong>
+              {nextBooking && <em>{nextBooking.customer_name}</em>}
+            </button>
+          </li>
+        </ul>
+      )}
+      {staff && (
         <div className="segmented" aria-label="Barber sections">
           <button type="button" aria-pressed={tab === "profile"} onClick={() => setTab("profile")}>Profile</button>
-          <button type="button" aria-pressed={tab === "schedule"} onClick={() => setTab("schedule")}>Schedule</button>
-          <button type="button" aria-pressed={tab === "services"} onClick={() => setTab("services")}>Services & pricing</button>
+          <button type="button" aria-pressed={tab === "schedule"} onClick={() => setTab("schedule")}>Hours</button>
+          <button type="button" aria-pressed={tab === "services"} onClick={() => setTab("services")}>Services</button>
           <button type="button" aria-pressed={tab === "pay"} onClick={() => setTab("pay")}>Pay</button>
           <button type="button" aria-pressed={tab === "performance"} onClick={() => setTab("performance")}>Performance</button>
           <button type="button" aria-pressed={tab === "upcoming"} onClick={() => setTab("upcoming")}>Upcoming</button>
@@ -1080,35 +1115,9 @@ function BarberEditor({
         </form>
       )}
       {tab === "schedule" && staff && (
-        <div className="studio-schedule">
-          <ul className="hours-strip" aria-label="Weekly hours">
-            {[1, 2, 3, 4, 5, 6, 0].map((d) => {
-              const h = hours.find((x) => x.weekday === d);
-              return (
-                <li key={d} className={h?.enabled ? "" : "off"}>
-                  <strong>{days[d]}</strong>
-                  {h?.enabled ? (
-                    <>
-                      <span>{time(h.starts)}–{time(h.ends)}</span>
-                      {h.break_end > h.break_start && <small>break {time(h.break_start)}</small>}
-                    </>
-                  ) : (
-                    <span>Off</span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-          <div className="panel-actions-row">
-            <Button variant="secondary" onClick={() => onHours(staff)}>Edit weekly hours</Button>
-            <Button variant="ghost" onClick={() => onDaysOff(staff)}>Days off ({w.days_off.filter((d) => d.staff_id === staff.id && d.date >= w.today).length})</Button>
-            <Button variant="ghost" onClick={() => onOverrides(staff)}>Dated hours ({w.schedule_overrides.filter((o) => o.staff_id === staff.id && o.date >= w.today).length})</Button>
-          </div>
-          <HolidayTracker w={w} staff={staff} api={api} canEdit={canEdit} onSaved={() => onSaved(staff.id)} />
-          <Notice>Hours, leave and dated shifts feed availability immediately. Existing appointments outside new hours are flagged for review, never cancelled.</Notice>
-        </div>
+        <BarberHoursPanel w={w} api={api} staff={staff} canEdit={canEdit} onSaved={() => onSaved(staff.id)} onDaysOff={onDaysOff} onOverrides={onOverrides} />
       )}
-      {tab === "services" && staff && <RuleMatrix w={w} api={api} staff={staff} onSaved={() => onSaved(staff.id)} />}
+      {tab === "services" && staff && <BarberServicesPanel w={w} api={api} staff={staff} canEdit={canEdit} onSaved={() => onSaved(staff.id)} />}
       {tab === "pay" && staff && (
         <div className="studio-pay">
           <form
