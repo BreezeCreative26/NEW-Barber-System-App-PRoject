@@ -1,3 +1,6 @@
+> **Retired.** foliyo no longer uses WhatsApp. Customers are messaged by text and email, and nothing
+> below needs setting up. This page is kept only as a record of how the old integration worked.
+
 # WhatsApp (Infobip, one foliyo sender)
 
 Customers pick **Text / WhatsApp / Email** on the booking form ("How should we message you?").

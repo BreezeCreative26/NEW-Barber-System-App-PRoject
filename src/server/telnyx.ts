@@ -16,6 +16,7 @@
 //   (same wa_optouts table WhatsApp uses, so a STOP is honoured on every channel).
 import { verify as edVerify } from "node:crypto";
 import type { Database as DB } from "../db/client";
+import { suppressPhone } from "./consent";
 
 type Env = Record<string, string | undefined>;
 const env = (): Env => (typeof process !== "undefined" ? (process.env as Env) : {});
@@ -47,6 +48,7 @@ export async function telnyxSend(to: string, body: string, opts: { alphaSender?:
     if (from) payload.from = from;
     const res = await fetch("https://api.telnyx.com/v2/messages", {
       method: "POST",
+      signal: AbortSignal.timeout(15000),
       headers: { Authorization: `Bearer ${e.TELNYX_API_KEY}`, "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(payload),
     });
@@ -110,8 +112,12 @@ export async function applyTelnyxEvent(db: DB, body: unknown, now = Date.now()):
     const phone = (p.from?.phone_number || "").replace(/\D/g, "");
     const text = (p.text || "").trim();
     if (!phone) return "ignored";
-    if (STOP.test(text)) await db.prepare("INSERT INTO wa_optouts(phone,reason,created_at) VALUES(?,?,?) ON CONFLICT(phone) DO NOTHING").bind(phone, text.slice(0, 40), now).run();
-    else if (START.test(text)) await db.prepare("DELETE FROM wa_optouts WHERE phone=?").bind(phone).run();
+    if (STOP.test(text)) {
+      await db.prepare("INSERT INTO wa_optouts(phone,reason,created_at) VALUES(?,?,?) ON CONFLICT(phone) DO NOTHING").bind(phone, text.slice(0, 40), now).run();
+      // STOP also ends marketing for that number everywhere. START only lets texts through again:
+      // it never turns marketing back on (only the customer's own tick in the app does).
+      await suppressPhone(db, phone, now);
+    } else if (START.test(text)) await db.prepare("DELETE FROM wa_optouts WHERE phone=?").bind(phone).run();
     // Store the reply against the shop that last texted this number (same as WhatsApp inbound).
     const national = phone.startsWith("44") ? `0${phone.slice(2)}` : phone;
     const last = await db

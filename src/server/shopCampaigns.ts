@@ -9,6 +9,7 @@ import type { Database as DB } from "../db/client";
 import { enqueue, msgShop, drain, type MsgShop } from "./messaging";
 import { shopUrl } from "./hosts";
 import { normaliseUk, smsWindowOpen, extractContacts } from "./marketing";
+import { HELD_BACK_SQL } from "./consent";
 
 type Ctx = Context<any>;
 type Helpers = { input: <T>(c: Ctx, s: z.ZodType<T>) => Promise<T>; requireRole: (c: Ctx, roles: string[]) => void; fail: (status: 400 | 403 | 404 | 409, message: string) => never };
@@ -91,7 +92,7 @@ function problems(f: Fields) {
 async function audience(db: DB, shopId: string, f: Fields, shop: MsgShop) {
   const DAY = 86400000, now = Date.now();
   const visit = "SELECT 1 FROM bookings b WHERE b.shop_id=c.shop_id AND b.customer_id=c.id AND b.status IN ('COMPLETED','CHECKED_IN')";
-  let rows = (await db.prepare(`SELECT c.id,c.name,c.phone,c.email,c.contact_pref,c.unsub_token FROM customers c WHERE c.shop_id=? AND c.merged_into IS NULL AND c.announce_unsub_at IS NULL AND c.contact_pref<>'NONE'
+  let rows = (await db.prepare(`SELECT c.id,c.name,c.phone,c.email,c.contact_pref,c.unsub_token FROM customers c WHERE c.shop_id=? AND c.merged_into IS NULL AND NOT ${HELD_BACK_SQL}
       AND (?='ALL' OR (?='OPTED_IN' AND c.marketing_opt_in=1)
         OR (?='RECENT' AND EXISTS (${visit} AND b.start_at>?))
         OR (?='LAPSED' AND EXISTS (${visit}) AND NOT EXISTS (${visit} AND b.start_at>?)))
@@ -102,7 +103,7 @@ async function audience(db: DB, shopId: string, f: Fields, shop: MsgShop) {
     const blockedSet = new Set<string>();
     const have = new Set(rows.flatMap((r) => [normaliseUk(r.phone || "")?.e164 || "", (r.email || "").toLowerCase()]).filter(Boolean));
     const ex = (await db.prepare("SELECT id,name,phone,email,unsub_token FROM shop_campaign_contacts WHERE shop_id=? AND unsub_at IS NULL AND id = ANY(?::text[]) ORDER BY created_at").bind(shopId, f.contact_ids).all<{ id: string; name: string; phone: string; email: string; unsub_token: string }>()).results;
-    const blocked = (await db.prepare("SELECT phone,email FROM customers WHERE shop_id=? AND (announce_unsub_at IS NOT NULL OR contact_pref='NONE')").bind(shopId).all<{ phone: string; email: string }>()).results;
+    const blocked = (await db.prepare(`SELECT c.phone,c.email FROM customers c WHERE c.shop_id=? AND ${HELD_BACK_SQL}`).bind(shopId).all<{ phone: string; email: string }>()).results;
     for (const b of blocked) { const n = b.phone ? normaliseUk(b.phone)?.e164 : ""; if (n) blockedSet.add(n); if (b.email) blockedSet.add(b.email.toLowerCase()); }
     for (const e of ex) {
       const p = e.phone ? normaliseUk(e.phone)?.e164 || "" : "";
@@ -123,7 +124,8 @@ async function audience(db: DB, shopId: string, f: Fields, shop: MsgShop) {
     if (wantEmail && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(r.email || "")) { email.push(r); any = true; }
     if (!any) noContact++;
   }
-  return { total: rows.length, sms, email, landline, noContact, extra: extraCount };
+  const held = (await db.prepare(`SELECT COUNT(*)::int AS n FROM customers c WHERE c.shop_id=? AND c.merged_into IS NULL AND c.erased_at IS NULL AND ${HELD_BACK_SQL}`).bind(shopId).first<{ n: number }>())?.n ?? 0;
+  return { total: rows.length, sms, email, landline, noContact, extra: extraCount, held };
 }
 
 export async function sendAnnouncement(db: DB, shop: MsgShop, f: Fields, origin: string, by: string, now = Date.now()) {
@@ -203,7 +205,7 @@ export function mountShopCampaigns(app: Hono<any>, h: Helpers) {
     const html = emailHtml(shop, brandOf(shop), origin(c), r, { phone: shop.phone, email: shop.email, unsubscribe: shopUrl(shop.slug, "/u/c/preview", origin(c)) }, true);
     return c.json({
       problems: problems(f),
-      customers: a.total, extra: a.extra, sms: a.sms.length, email: a.email.length, landline: a.landline, no_contact: a.noContact,
+      customers: a.total, extra: a.extra, held_back: a.held, sms: a.sms.length, email: a.email.length, landline: a.landline, no_contact: a.noContact,
       sms_text: smsText, sms_length: smsText.length, email_subject: r.subject, email_html: f.channel === "SMS" ? null : html,
       cost_pence: a.sms.length * 8, sms_window_open: smsWindowOpen(),
     });

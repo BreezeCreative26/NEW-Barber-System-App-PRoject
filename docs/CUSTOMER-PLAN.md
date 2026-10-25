@@ -92,7 +92,7 @@ After a completed visit the customer gets a "How was it?" link (from the reminde
 - **Loyalty** — stamp card (every Nth cut free) or points; redeem at checkout.
 - **Gift vouchers** — buy online, redeem as VOUCHER tender (already a tender type).
 - **Image uploads** — R2 bucket for covers/gallery/barber photos instead of URLs.
-- **Custom domain** per shop (`bookings.theirshop.co.uk` → `/<slug>`).
+- **Custom domain** per shop (`book.theirshop.co.uk`): built, off by default per shop. One flow connects the booking site (Vercel) and the email sender (Resend); see `docs/GO_LIVE.md` section 3b.
 - **Multi-language** — page copy in en-GB first; structure allows more.
 
 ## Build order

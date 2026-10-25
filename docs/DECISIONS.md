@@ -182,3 +182,15 @@ Re-check provider documentation during the implementation spike; links are archi
 
 - 2026-09-14: Captured user-approved SaaS/PWA and Model A decisions; established proposed architecture and unresolved launch scope; no implementation claims.
 - 2026-10-20: **Customer accounts are per shop (user decision).** A customer account belongs to exactly one shop and lives on that shop's own subdomain. The same person at two shops has two accounts with separate passwords, sessions, visits and push subscriptions. Email and mobile are unique within a shop, not across foliyo. The sign-in cookie is host-only (`__Host-fc-<shop>`, no Domain, one name per shop); the old shared `ollo_customer` cookie is ignored and cleared. Migration `0040_customer_accounts_per_shop.sql` splits any existing multi-shop account into one copy per shop. Proven by `tests/customer-per-shop.spec.ts`. Owner/team sessions are unchanged (one email = one shop).
+
+## Marketing consent is strict (2026-10-25)
+
+A shop may tell its old customers about the move to the new system, and the marketing tools stay in place. The rules are in `src/server/consent.ts` and nowhere else:
+
+- **Held back, never sent:** anyone who has unsubscribed or replied STOP, has contact preference "none", or has an app account and has not ticked "offers and news".
+- **Only the customer can switch marketing on:** by ticking the box at sign-up or in their profile. Staff ticks, CSV imports and re-uploads can never override an opt-out (staff can always record a "no").
+- **Any "no" sticks:** app untick, unsubscribe link, STOP (all shops, all channels), staff untick. START restores booking texts but never marketing.
+- **Checked twice:** when the audience is built and again at the moment each queued message is sent, so scheduled sends respect later opt-outs.
+- **Proof:** every change is written to `marketing_consent_log` (IN/OUT, source, time).
+- **Email:** marketing email carries one-click `List-Unsubscribe` headers (RFC 8058).
+- **Open point:** imported customers with no app account and no recorded choice are still in "All my customers". Switch to opted-in-only if the shop owner wants that stricter basis.

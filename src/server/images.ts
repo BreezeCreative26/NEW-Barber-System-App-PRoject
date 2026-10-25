@@ -104,7 +104,10 @@ export async function shopIcon(size: 192 | 512, logo: Uint8Array | null, name: s
   } catch { /* keep the caller's plate */ }
   try {
     const inner = Math.round(size * 0.62); // 19% padding each side keeps the logo inside the maskable safe zone
-    const logoBuf = await sharp(Buffer.from(logo), { failOn: "none" }).resize({ width: inner, height: inner, fit: "inside", withoutEnlargement: false }).png().toBuffer({ resolveWithObject: true });
+    // Cut away empty margins first so a wide wordmark fills the square instead of floating small in it.
+    let mark: Buffer = Buffer.from(logo);
+    try { mark = await sharp(mark, { failOn: "none" }).trim({ threshold: 12 }).png().toBuffer(); } catch { /* nothing to trim, or not trimmable: use as is */ }
+    const logoBuf = await sharp(mark, { failOn: "none" }).resize({ width: inner, height: inner, fit: "inside", withoutEnlargement: false }).png().toBuffer({ resolveWithObject: true });
     const left = Math.round((size - logoBuf.info.width) / 2), top = Math.round((size - logoBuf.info.height) / 2);
     const out = await sharp({ create: { width: size, height: size, channels: 4, background: bg } }).composite([{ input: logoBuf.data, left, top }]).png().toBuffer();
     return new Uint8Array(out);

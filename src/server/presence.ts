@@ -154,6 +154,8 @@ export const townOf = (address: string) => {
 
 export type HeadInput = {
   origin: string;
+  /** The shop's own live domain, if any: it is the one real address for the page. */
+  customDomain?: string | null;
   shop: Shop;
   page: ShopPage;
   week: { weekday: number; open: boolean; starts?: number; ends?: number }[];
@@ -164,8 +166,8 @@ export type HeadInput = {
 
 export function shopPageHead(i: HeadInput) {
   // The shop's own address is the one real URL for its page (the /<slug> form on the root only redirects).
-  const url = shopUrl(i.shop.slug || "", "/", i.origin);
-  const bookUrl = shopUrl(i.shop.slug || "", "/book", i.origin);
+  const url = i.customDomain ? `https://${i.customDomain}/` : shopUrl(i.shop.slug || "", "/", i.origin);
+  const bookUrl = i.customDomain ? `https://${i.customDomain}/book` : shopUrl(i.shop.slug || "", "/book", i.origin);
   const town = townOf(i.shop.address);
   const title = `${i.shop.name} · ${town ? `Barbers in ${town}` : "Book online"}`;
   const description = (i.page.strapline || i.page.about || `${i.shop.name}${i.shop.address ? `, ${i.shop.address}` : ""}. Book your next visit online.`).slice(0, 160);

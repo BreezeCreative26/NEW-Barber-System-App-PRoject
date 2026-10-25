@@ -91,12 +91,14 @@ import { PERM_DEFS, type PermKey } from "./perms";
 import { listFor, markSeen, staffPushStatus } from "./staffNotify";
 import { ALERT_KINDS, DEFAULT_PREFS, alertOwners, prefsOf, type AlertPrefs } from "./alerts";
 import { mountShopCampaigns } from "./shopCampaigns";
+import { mountDomains } from "./domains";
 import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
 import { accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, type ConnectedAccount } from "./payouts";
 import { walletsCsv, walletsSummary } from "./wallets";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
 import { RESERVED_SUBDOMAINS, shopUrl } from "./hosts";
+import { setMarketingChoice } from "./consent";
 import accounts, {
   ACCOUNT_COOKIE,
   resolveAccount,
@@ -300,6 +302,8 @@ sandbox.use("*", async (c, next) => {
     const setup =
       // The setup wizard (owner/manager): its own routes enforce the role again.
       path.startsWith("/setup") ||
+      // Own web address: the routes themselves are owner-only.
+      path === "/domain" || path === "/domain/check" ||
       (["PUT", "DELETE"].includes(method) && path === "/shop/page/draft") ||
       (method === "PUT" && ["/shop", "/shop/online", "/shop/page", "/shop/reviews", "/shop/waitlist", "/shop/messaging", "/shop/payments", "/shop/alerts", "/shop/voice", "/shop/leave-year"].includes(path)) ||
       (method === "GET" && /^\/staff\/[^/]+\/pay-history$/.test(path)) ||
@@ -967,6 +971,8 @@ async function readCustomer(c: Ctx, id: string) {
   if (!row) return fail(404, "Customer not found");
   return row;
 }
+// What the shop sees as "agreed to marketing": a recorded unsubscribe / STOP overrides an old tick.
+const marketingOn = (r: { marketing_opt_in: number; announce_unsub_at?: number | null }) => (r.marketing_opt_in === 1 && !r.announce_unsub_at ? 1 : 0);
 // The team bell: events this login is allowed to see, plus per-device push on/off.
 const viewerOf = (c: Ctx) => {
   const a = c.get("account");
@@ -1052,7 +1058,7 @@ sandbox.get("/customers", async (c) => {
   if (sort === "next") binds.push(now, now);
   binds.push(limit);
   const rows = await c.env.DB.prepare(
-    `SELECT c.id, c.name, c.phone, c.email, c.tags, c.notes, c.preferred_staff_id, c.birthday, c.marketing_opt_in, c.contact_pref, c.version, c.created_at, ${customerStats},
+    `SELECT c.id, c.name, c.phone, c.email, c.tags, c.notes, c.preferred_staff_id, c.birthday, (CASE WHEN c.marketing_opt_in=1 AND c.announce_unsub_at IS NULL THEN 1 ELSE 0 END) AS marketing_opt_in, (c.announce_unsub_at IS NOT NULL OR EXISTS (SELECT 1 FROM customer_account_links l WHERE l.shop_id=c.shop_id AND l.customer_id=c.id)) AS marketing_locked, c.contact_pref, c.version, c.created_at, ${customerStats},
       (SELECT b2.staff_id FROM bookings b2 WHERE b2.shop_id=c.shop_id AND b2.customer_id=c.id AND b2.status='COMPLETED' GROUP BY b2.staff_id ORDER BY COUNT(*) DESC, MAX(b2.start_at) DESC LIMIT 1) AS favourite_staff_id,
       (SELECT b3.service_name FROM bookings b3 WHERE b3.shop_id=c.shop_id AND b3.customer_id=c.id AND b3.status='COMPLETED' GROUP BY b3.service_name ORDER BY COUNT(*) DESC, MAX(b3.start_at) DESC LIMIT 1) AS favourite_service
      FROM customers c
@@ -1131,7 +1137,7 @@ sandbox.post("/customers/import", async (c) => {
              notes=CASE WHEN ?<>'' AND POSITION(? IN notes)=0 THEN TRIM(BOTH E'\n' FROM notes || E'\n' || ?) ELSE notes END,
              tags=(SELECT COALESCE(jsonb_agg(DISTINCT t), '[]'::jsonb)::text FROM jsonb_array_elements_text(tags::jsonb || ?::jsonb) AS t),
              birthday=COALESCE(birthday, ?),
-             marketing_opt_in=GREATEST(marketing_opt_in, ?),
+             marketing_opt_in=CASE WHEN announce_unsub_at IS NULL AND NOT EXISTS (SELECT 1 FROM customer_account_links l WHERE l.shop_id=customers.shop_id AND l.customer_id=customers.id) THEN GREATEST(marketing_opt_in, ?) ELSE marketing_opt_in END,
              version=version+1, updated_at=?
            WHERE shop_id=? AND id=?`,
         ).bind(r.email, r.notes, r.notes, r.notes, JSON.stringify(r.tags), r.birthday || null, r.marketing_opt_in, now, c.get("shopId"), r.existing_id),
@@ -1160,7 +1166,7 @@ sandbox.get("/customers/:id", async (c) => {
   const target = cust.merged_into ?? cust.id;
   const [profile, bookings, byBarber, byService] = await Promise.all([
     c.env.DB.prepare(
-      `SELECT c.*, ${customerStats},
+      `SELECT c.*, (c.announce_unsub_at IS NOT NULL OR EXISTS (SELECT 1 FROM customer_account_links l WHERE l.shop_id=c.shop_id AND l.customer_id=c.id)) AS marketing_locked, ${customerStats},
         AVG(CASE WHEN b.status='COMPLETED' THEN b.price_pence END) AS avg_spend_pence
        FROM customers c LEFT JOIN bookings b ON b.shop_id=c.shop_id AND b.customer_id=c.id AND (? IS NULL OR b.staff_id=?)
        WHERE c.shop_id=? AND c.id=? GROUP BY c.id`,
@@ -1186,7 +1192,7 @@ sandbox.get("/customers/:id", async (c) => {
   for (const b of bookings.results) if (b.status === "COMPLETED") parts[b.start_min < 720 ? "morning" : b.start_min < 1020 ? "afternoon" : "evening"]++;
   const preferred_daypart = completed.length ? (Object.entries(parts).sort((a, b) => b[1] - a[1])[0][0]) : null;
   return c.json({
-    customer: profile,
+    customer: { ...profile, marketing_opt_in: marketingOn(profile) },
     bookings: bookings.results,
     barbers: byBarber.results,
     services: byService.results,
@@ -1234,15 +1240,27 @@ sandbox.put("/customers/:id", async (c) => {
   if (current.tags !== JSON.stringify(b.tags)) changes.push("tags");
   if ((current.birthday || "") !== b.birthday) changes.push("birthday");
   if ((current.preferred_staff_id || "") !== b.preferred_staff_id) changes.push("preferred barber");
-  if (current.marketing_opt_in !== b.marketing_opt_in) changes.push("marketing preference");
+  // Marketing is the customer's choice. Staff may record "no" at any time, and may record "yes" only for a
+  // customer who has no app account and has never unsubscribed. Otherwise only the customer can switch it on.
+  const wasOn = marketingOn(current) === 1;
+  const wantOn = b.marketing_opt_in === 1;
+  if (wasOn !== wantOn) {
+    changes.push("marketing preference");
+    if (wantOn) {
+      const locked = await c.env.DB.prepare("SELECT 1 AS x FROM customer_account_links WHERE shop_id=? AND customer_id=?").bind(c.get("shopId"), current.id).first();
+      if (locked || current.announce_unsub_at) fail(409, "This customer has opted out or manages their own marketing choice in the app. Only they can switch offers and news back on.");
+    }
+  }
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE customers SET name=?,phone=?,email=?,notes=?,tags=?,birthday=?,preferred_staff_id=?,marketing_opt_in=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
-    ).bind(b.name, b.phone, b.email, b.notes, JSON.stringify(b.tags), b.birthday || null, b.preferred_staff_id || null, b.marketing_opt_in, Date.now(), c.get("shopId"), current.id, b.version),
+      "UPDATE customers SET name=?,phone=?,email=?,notes=?,tags=?,birthday=?,preferred_staff_id=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
+    ).bind(b.name, b.phone, b.email, b.notes, JSON.stringify(b.tags), b.birthday || null, b.preferred_staff_id || null, Date.now(), c.get("shopId"), current.id, b.version),
     audit(c, "customer", current.id, "CUSTOMER_UPDATED", changes.length ? `Changed ${changes.join(", ")}.` : "No field changes.", true),
   );
-  return c.json({ customer: await readCustomer(c, current.id) });
+  if (wasOn !== wantOn) await setMarketingChoice(c.env.DB, c.get("shopId"), current.id, wantOn, "staff");
+  const saved = await readCustomer(c, current.id);
+  return c.json({ customer: { ...saved, marketing_opt_in: marketingOn(saved) } });
 });
 // Right to erasure (UK GDPR Art. 17). Bookings, payments and pay runs are financial records the
 // shop must keep, and the database forbids deleting them — so every *personal* field is blanked
@@ -1264,7 +1282,7 @@ sandbox.post("/customers/:id/erase", async (c) => {
   if ((upcoming?.n ?? 0) > 0) fail(409, `This customer has ${upcoming!.n} upcoming appointment(s). Cancel them first so they are not left without a way to be contacted.`);
   const stmts: D1PreparedStatement[] = [
     c.env.DB.prepare("SELECT set_config('ollo.erase', '1', true)"),
-    c.env.DB.prepare("UPDATE customers SET name='Erased customer', phone=?, email='', notes='', tags='[]', birthday=NULL, preferred_staff_id=NULL, marketing_opt_in=0, erased_at=?, version=version+1, updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(tomb, now, now, sid, current.id, b.version),
+    c.env.DB.prepare("UPDATE customers SET name='Erased customer', phone=?, email='', notes='', tags='[]', birthday=NULL, preferred_staff_id=NULL, marketing_opt_in=0, announce_unsub_at=COALESCE(announce_unsub_at,?), erased_at=?, version=version+1, updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(tomb, now, now, now, sid, current.id, b.version),
     c.env.DB.prepare("INSERT INTO account_assertions(ok) VALUES(changes())"),
     c.env.DB.prepare("DELETE FROM account_assertions"),
     c.env.DB.prepare("UPDATE bookings SET customer_name='Erased customer', phone=?, email='', attendee_name='', notes='' WHERE shop_id=? AND (customer_id=? OR phone=?)").bind(tomb, sid, current.id, phone),
@@ -1921,6 +1939,7 @@ sandbox.post("/bookings/:id/manage-link", async (c) => {
 });
 // ---- Reviews (Settings → Reviews): read, hide/show, reply. Words are the customer's. ----
 mountShopCampaigns(sandbox as never, { input: input as never, requireRole: requireRole as never, fail: fail as never });
+mountDomains(sandbox as never, { input: input as never, requireRole: requireRole as never, fail: fail as never, audit: audit as never });
 sandbox.get("/reviews", async (c) => {
   const a = c.get("account");
   const rows = await c.env.DB.prepare(

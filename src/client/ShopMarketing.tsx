@@ -8,7 +8,7 @@ type Channel = "SMS" | "EMAIL" | "BOTH";
 type Preset = { kind: string; title: string; blurb: string; audience: Audience; channel: Channel; copy: { subject: string; heading: string; body: string; cta_label: string; sms_body: string } };
 type Campaign = { id: string; name: string; kind: string; channel: string; created_at: number; scheduled_for: number; sms_count: number; email_count: number; sent: number; failed: number; waiting: number };
 type Info = { campaigns: Campaign[]; presets: Preset[]; link: string; sms_on: boolean; email_on: boolean; sms_acked: boolean; sms_pence: number; has_page: boolean };
-type Prev = { problems: string[]; customers: number; sms: number; email: number; landline: number; no_contact: number; sms_text: string; sms_length: number; email_html: string | null; cost_pence: number; sms_window_open: boolean };
+type Prev = { problems: string[]; customers: number; sms: number; email: number; landline: number; no_contact: number; sms_text: string; sms_length: number; email_html: string | null; cost_pence: number; sms_window_open: boolean; held_back?: number };
 
 async function call<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const r = await fetch(`/api/app${path}`, { method, credentials: "same-origin", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
@@ -24,7 +24,7 @@ const AUDIENCES: { v: Audience; label: string; hint: string }[] = [
   { v: "RECENT", label: "Recent customers", hint: "Visited in the last 3 months" },
   { v: "LAPSED", label: "Not seen in a while", hint: "Visited before, but not in the last 2 months" },
   { v: "NONE", label: "Only the list I upload", hint: "Nobody from your customer list, just the people in your CSV" },
-  { v: "OPTED_IN", label: "Agreed to marketing", hint: "Only people who ticked the box" },
+  { v: "OPTED_IN", label: "Agreed to marketing", hint: "Only people who ticked the box themselves" },
 ];
 const KIND_ICON: Record<string, string> = { launch: "globe", offer: "star", quiet: "calendar", winback: "users", hours: "clock", service: "scissors", custom: "edit" };
 const localInput = (t: number) => { const d = new Date(t); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
@@ -162,7 +162,7 @@ function Composer({ info, preset, onBack }: { info: Info; preset: Preset; onBack
           </section>
           <section className="workspace-panel" data-testid="mkt-upload">
             <h3>Add people from a CSV</h3>
-            <p className="workspace-footnote">A spreadsheet saved as CSV with a name, mobile number and email address for each person. They join this campaign only, on top of the customers chosen above.</p>
+            <p className="workspace-footnote">A spreadsheet saved as CSV with a name, mobile number and email address for each person. They are for this campaign only: they are not added to your customer list, and they stay out of your customers, bookings and reports.</p>
             {list ? (
               <div className="mkt-file">
                 <div><b>{list.added} people added</b><small>{list.name} · {list.with_mobile} mobiles · {list.with_email} emails{list.skipped ? ` · ${list.skipped} skipped` : ""}</small></div>
@@ -204,6 +204,7 @@ function Composer({ info, preset, onBack }: { info: Info; preset: Preset; onBack
                   <div><b>{prev.sms}</b><span>texts</span></div>
                   <div><b>{gbp(prev.cost_pence)}</b><span>text cost</span></div>
                 </div>
+                {(prev.held_back ?? 0) > 0 && <p className="workspace-footnote" data-testid="mkt-held-back">{plural(prev.held_back!, "customer")} left out because they opted out of marketing. They stay out until they switch it back on themselves.</p>}
                 {prev.no_contact > 0 && <p className="workspace-footnote">{plural(prev.no_contact, "customer")} without a usable {f.channel === "SMS" ? "mobile number" : f.channel === "EMAIL" ? "email" : "mobile or email"} will be skipped.</p>}
                 {f.channel !== "EMAIL" && <div className="mkt-sms"><span>{prev.sms_text}</span></div>}
                 {prev.email_html && <iframe className="mkt-email" title="Email preview" srcDoc={prev.email_html} sandbox="" />}

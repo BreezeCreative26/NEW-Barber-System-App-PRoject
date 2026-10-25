@@ -25,6 +25,7 @@ import { cancelByCustomer, customerView, limits, notifyBooking, rangeContext, sh
 import { paymentPolicy } from "./stripe";
 import { dayStarts, dueAtBooking, ref, shopDay, shopToday, shopWeek, weekday, type Service, type Shop, type Staff, type StoredBooking } from "./domain";
 import { enqueue, drain, msgShop } from "./messaging";
+import { teamUrl } from "./hosts";
 
 // webhook_secret = ElevenLabs' HMAC secret (wsec_…) for the post-call webhook; that webhook cannot
 // send our bearer, so it is verified by signature instead.
@@ -336,7 +337,7 @@ voice.post("/:slug/callback", async (c) => {
   const owner = await c.env.DB.prepare("SELECT u.email FROM shop_owners o JOIN app_users u ON u.id=o.user_id WHERE o.shop_id=?").bind(shop.id).first<{ email: string }>();
   const sh = shop as Shop & { phone?: string; phone_verified_at?: number | null };
   const to = { name: "there", email: owner?.email || "", phone: sh.phone_verified_at ? sh.phone : "" };
-  const stmts = enqueue(c.env.DB, ms, to, "owner_callback", { customer: b.data.name || "A caller", phone: ukPhone(b.data.phone) || b.data.phone, note: b.data.note, link: `${new URL(c.req.url).origin}/workspace` }, { related: { type: "voice_call", id }, origin: new URL(c.req.url).origin, force: true }, true);
+  const stmts = enqueue(c.env.DB, ms, to, "owner_callback", { customer: b.data.name || "A caller", phone: ukPhone(b.data.phone) || b.data.phone, note: b.data.note, link: teamUrl(ms.slug, new URL(c.req.url).origin) }, { related: { type: "voice_call", id }, origin: new URL(c.req.url).origin, force: true }, true);
   if (stmts.length) { await c.env.DB.batch(stmts); await drain(c.env.DB, stmts.length, now, { type: "voice_call", id }).catch(() => 0); }
   return c.json({ ok: true, say: `I've passed that to the team at ${shop.name}; they'll call ${b.data.name || "you"} back${b.data.phone ? ` on ${b.data.phone}` : ""}.` });
 });

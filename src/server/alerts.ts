@@ -8,6 +8,7 @@
 import { recordEvent, type EventKind } from "./staffNotify";
 import type { Database as DB } from "../db/client";
 import type { StoredBooking } from "./domain";
+import { teamUrl } from "./hosts";
 import { drain, enqueue, fmtDate, fmtTime, msgShop, type MessageTemplate } from "./messaging";
 
 export type AlertKind = "new_booking" | "cancelled" | "no_show" | "daily_summary";
@@ -57,7 +58,7 @@ export async function alertOwners(db: DB, shopId: string, kind: Exclude<AlertKin
     customer: booking.attendee_name || booking.customer_name, service: booking.service_name, barber: (opts.staffName || "the team").split(" ")[0],
     date: fmtDate(booking.date), time: fmtTime(booking.start_min), ref: `BRB-${booking.id.slice(0, 4).toUpperCase()}`,
     deposit: booking.deposit_status === "PAID" ? `${money(booking.deposit_paid_pence ?? 0)} paid` : booking.deposit_status === "REFUNDED" ? "refunded" : "",
-    link: `${opts.origin}/workspace`, ...opts.extra,
+    link: teamUrl(shop.slug, opts.origin), ...opts.extra,
   };
   const now = Date.now();
   const stmts = to.flatMap((r) => [
@@ -94,7 +95,7 @@ export async function sweepDailySummaries(db: DB, origin: string, now = Date.now
     // Rough free-slot count: 30-minute slots across the shop day minus booked ones.
     const span = Math.max(0, (shop.closes - shop.opens) / 30);
     const gaps = Math.max(0, Math.round(span - rows.length));
-    const vars = { date: fmtDate(d), count: rows.length, first_time: fmtTime(rows[0].start_min), last_time: fmtTime(rows[rows.length - 1].start_min), online, walkin: rows.length - online, gaps, deposits: deposits ? money(deposits) : "", link: `${origin}/workspace` };
+    const vars = { date: fmtDate(d), count: rows.length, first_time: fmtTime(rows[0].start_min), last_time: fmtTime(rows[rows.length - 1].start_min), online, walkin: rows.length - online, gaps, deposits: deposits ? money(deposits) : "", link: teamUrl(shop.slug, origin) };
     const ch = prefs.daily_summary;
     const stmts = to.flatMap((r) => [
       ...(ch === "EMAIL" || ch === "BOTH" ? enqueue(db, shop, { name: r.name, email: r.email }, "owner_daily_summary", vars, { related: { type: "summary", id: `${s.id}:${d}` }, origin, channel: "EMAIL", now, force: true }) : []),

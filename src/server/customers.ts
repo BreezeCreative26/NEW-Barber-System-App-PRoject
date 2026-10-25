@@ -27,6 +27,7 @@ import {
   throttle,
   type Ctx,
 } from "./public";
+import { setMarketingChoice } from "./consent";
 
 const uid = () => crypto.randomUUID();
 const CODE_TTL = 10 * 60000;
@@ -102,7 +103,8 @@ const profileOf = (a: AccountRow, cust: Customer) => ({
   email: cust.email || a.email,
   birthday: cust.birthday || "",
   preferred_staff_id: cust.preferred_staff_id || "",
-  marketing_opt_in: cust.marketing_opt_in,
+  // What is really happening: an unsubscribe or STOP counts as "no" even if the old box was ticked.
+  marketing_opt_in: cust.marketing_opt_in === 1 && !cust.announce_unsub_at ? 1 : 0,
   // Older records may say WA (WhatsApp, retired) or SMS: both mean "text" to the customer.
   contact_pref: cust.contact_pref === "EMAIL" ? "EMAIL" : cust.contact_pref === "NONE" ? "NONE" : "AUTO",
   notes: cust.notes,
@@ -339,10 +341,12 @@ acct.put("/profile", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE customers SET name=?,email=?,birthday=?,preferred_staff_id=?,marketing_opt_in=?,contact_pref=?,notes=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
-    ).bind(b.name, b.email, b.birthday || null, b.preferred_staff_id || null, b.marketing_opt_in, b.contact_pref ?? (cust.contact_pref === "EMAIL" ? "EMAIL" : cust.contact_pref === "NONE" ? "NONE" : "AUTO"), b.notes, now, shop.id, cust.id, b.version),
+      "UPDATE customers SET name=?,email=?,birthday=?,preferred_staff_id=?,contact_pref=?,notes=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
+    ).bind(b.name, b.email, b.birthday || null, b.preferred_staff_id || null, b.contact_pref ?? (cust.contact_pref === "EMAIL" ? "EMAIL" : cust.contact_pref === "NONE" ? "NONE" : "AUTO"), b.notes, now, shop.id, cust.id, b.version),
     audit(c, "customer", cust.id, "CUSTOMER_PROFILE_SELF_UPDATED", "Customer updated their own profile online.", true),
   );
+  // The customer's own choice, applied last so it is the final word (and logged).
+  await setMarketingChoice(c.env.DB, shop.id, cust.id, !!b.marketing_opt_in, "app_profile", now);
   await c.env.DB.prepare("UPDATE customer_accounts SET name=?,email=?,version=version+1 WHERE id=?").bind(b.name, b.email, a.id).run();
   const fresh = (await c.env.DB.prepare("SELECT * FROM customers WHERE shop_id=? AND id=?").bind(shop.id, cust.id).first<Customer>())!;
   return c.json({ profile: profileOf({ ...a, name: b.name, email: b.email }, fresh) });

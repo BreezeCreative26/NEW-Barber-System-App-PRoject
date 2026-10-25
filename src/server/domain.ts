@@ -422,6 +422,7 @@ export type Customer = {
   birthday: string | null;
   preferred_staff_id: string | null;
   marketing_opt_in: number;
+  announce_unsub_at?: number | null;
   contact_pref?: "AUTO" | "SMS" | "WA" | "EMAIL" | "NONE";
   merged_into: string | null;
   version: number;

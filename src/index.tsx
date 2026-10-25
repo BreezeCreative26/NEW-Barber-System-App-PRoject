@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { brandOf, type Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { shopManifest } from "./server/customerAuth";
-import { SHOP_HOST_HEADER, shopOrigin, shopUrl } from "./server/hosts";
+import { CUSTOM_HOST_HEADER, SHOP_HOST_HEADER, shopOrigin, shopUrl } from "./server/hosts";
 import { shopIcon } from "./server/images";
 import { currentBuild, entryTags, shopAssetList } from "./server/assets";
 import { drain, maybeSweep, providerStatus, sweepReminders } from "./server/messaging";
@@ -431,7 +431,7 @@ app.get("/:slug", async (c, next) => {
     "Content-Security-Policy",
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
-  const head = shopPageHead({ origin: publicOrigin(c), shop, ...data });
+  const head = shopPageHead({ origin: publicOrigin(c), customDomain: c.req.header(CUSTOM_HOST_HEADER) || null, shop, ...data });
   let dark = false;
   try { dark = (JSON.parse(data.page.theme_json || "{}") as { mode?: string }).mode === "dark"; } catch { /* light */ }
   return c.html(shell(head.html + shopAppHead(slug, onShopHost(c, slug), dark), { name: shop.name, slug, logo_url: data.page.logo_url || undefined, dark, accent: data.page.accent, theme_json: data.page.theme_json, logo_tone: data.page.logo_tone || "", sms: (shop as { msg_sms?: number }).msg_sms !== 0, code: (shop as { customer_code_signin?: number }).customer_code_signin !== 0, email: (shop as { msg_email?: number }).msg_email !== 0, terms: shop.terms_text ? { text: shop.terms_text, version: shop.terms_version || 0 } : null }));

@@ -64,6 +64,15 @@ export function shopOrigin(slug: string, fallbackOrigin: string): string {
   const proto = root === "localhost" || root.endsWith(".localhost") || /^\d/.test(root) ? "http" : "https";
   return `${proto}://${slug}.${root}${rootPort()}`;
 }
+// Where a shop's team works: its own address, never the platform host (which has no sign-in) and
+// never whichever host happened to serve the request that queued the email (a customer booking on
+// shop A must not make shop B's morning summary link to A). Falls back to the given origin when
+// the shop has no slug or the platform has no root host (local dev).
+export function teamUrl(slug: string | null | undefined, fallbackOrigin: string, path = "/workspace"): string {
+  return `${slug ? shopOrigin(slug, fallbackOrigin) : fallbackOrigin}${path}`;
+}
+// A shop's own domain (verified by domains.ts). Always https: browsers and Vercel require it.
+export const customOrigin = (domain: string) => `https://${domain}`;
 export function platformOrigin(fallbackOrigin: string): string {
   const root = rootHost();
   if (!root) return fallbackOrigin;
@@ -110,23 +119,51 @@ export function rootRedirectFor(pathname: string, isShopSlug: (s: string) => Pro
 // historical path routes and tag the request so link builders know the shop host. Returns the
 // request to hand to Hono, or a redirect Response (root-host shop paths → the sub-domain).
 export const SHOP_HOST_HEADER = "x-foliyo-shop-host";
-export async function routeByHost(req: Request, isShopSlug: (s: string) => Promise<boolean>): Promise<Request | Response> {
-  const info = hostInfo(req.headers.get("x-forwarded-host") || req.headers.get("host") || undefined, req.url);
+// Set when the visitor arrived on the shop's own domain rather than <slug>.<root>.
+export const CUSTOM_HOST_HEADER = "x-foliyo-custom-host";
+export type CustomHosts = { slugByHost: (host: string) => Promise<string | null>; domainBySlug: (slug: string) => Promise<string | null> };
+// Team pages and sign-in always live on the foliyo address; a shop's own domain is for customers.
+const STAFF_PATH = /^\/(workspace|signin|staff|forgot|reset|verify)(\/|$)/;
+// Customer pages that move to the shop's own domain once it is live (GET only; APIs and payment returns stay put).
+const CUSTOMER_PAGE = /^\/(?:$|book\/?$|me\/?$|manage\/|offer\/)/;
+export async function routeByHost(req: Request, isShopSlug: (s: string) => Promise<boolean>, custom?: CustomHosts): Promise<Request | Response> {
+  const rawHost = req.headers.get("x-forwarded-host") || req.headers.get("host") || undefined;
+  const info = hostInfo(rawHost, req.url);
   const u = new URL(req.url);
-  if (info.slug) {
-    const to = rewritePath(info.slug, u.pathname);
+  const host = stripPort((rawHost || u.host).toLowerCase());
+  const tag = (slug: string, isCustom: boolean) => {
+    const to = rewritePath(slug, u.pathname);
     const headers = new Headers(req.headers);
-    headers.set(SHOP_HOST_HEADER, info.slug);
-    if (to && to !== u.pathname) u.pathname = to;
-    return new Request(u.toString(), { method: req.method, headers, body: req.body, redirect: "manual", // @ts-expect-error duplex is required by undici for streamed bodies
+    headers.set(SHOP_HOST_HEADER, slug);
+    if (isCustom) headers.set(CUSTOM_HOST_HEADER, host); else headers.delete(CUSTOM_HOST_HEADER);
+    const url = new URL(u.toString());
+    if (to && to !== u.pathname) url.pathname = to;
+    return new Request(url.toString(), { method: req.method, headers, body: req.body, redirect: "manual", // @ts-expect-error duplex is required by undici for streamed bodies
       duplex: "half" });
+  };
+  if (info.slug) {
+    // The shop has its own live domain: its customer pages live there now.
+    if (custom && req.method === "GET" && CUSTOMER_PAGE.test(u.pathname)) {
+      const d = await custom.domainBySlug(info.slug);
+      if (d) return Response.redirect(`${customOrigin(d)}${u.pathname}${u.search}`, 301);
+    }
+    return tag(info.slug, false);
+  }
+  // Not a foliyo address: is it a shop's own domain?
+  if (custom && info.root && host && host !== info.root && host !== `www.${info.root}` && !host.endsWith(`.${info.root}`)) {
+    const slug = await custom.slugByHost(host);
+    if (slug) {
+      if (STAFF_PATH.test(u.pathname) && req.method === "GET") return Response.redirect(`${shopOrigin(slug, u.origin)}${u.pathname}${u.search}`, 302);
+      return tag(slug, true);
+    }
   }
   // Root host in production: shop paths move to the sub-domain (GET only; APIs stay put).
   if (info.root && req.method === "GET" && !u.pathname.startsWith("/api/")) {
     const hit = await rootRedirectFor(u.pathname, isShopSlug);
     if (hit) {
       const [slug, path] = hit.split("|");
-      return Response.redirect(`${shopOrigin(slug, u.origin)}${path === "/" ? "/" : path}${u.search}`, 301);
+      const d = custom ? await custom.domainBySlug(slug) : null;
+      return Response.redirect(`${d ? customOrigin(d) : shopOrigin(slug, u.origin)}${path === "/" ? "/" : path}${u.search}`, 301);
     }
   }
   return req;

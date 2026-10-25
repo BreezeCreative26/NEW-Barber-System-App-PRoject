@@ -6,9 +6,11 @@ import { Button, Icon } from "./ui";
 
 type Stats = { contacts: number; with_mobile: number; with_email: number; with_both: number; landline_only: number; email_only: number; no_contact_details: number; duplicates_merged: number; bad_numbers: number; bad_emails: number };
 type Preview = { rows_read: number; stats: Stats; contacts: { name: string; business: string; phone: string; landline: string; email: string; notes: string[] }[]; contacts_total: number; problems: { row: number; text: string; why: string }[]; already_in_system: number; unsubscribed: number; headers: string[] | null };
-type Campaign = { id: string; name: string; channel: "SMS" | "EMAIL" | "BOTH"; list_name: string; subject: string; heading: string; body: string; sms_body: string; cta_label: string; cta_url: string; why: string; status: string; recipients: number; sent: number; failed: number; queued: number; created_at: number };
+type Campaign = { id: string; name: string; channel: "SMS" | "EMAIL" | "BOTH"; list_name: string; subject: string; heading: string; body: string; sms_body: string; cta_label: string; cta_url: string; why: string; status: string; selected?: number; recipients: number; sent: number; failed: number; queued: number; created_at: number };
 type Overview = { totals: { contacts: number; mobiles: number; emails: number; unsubscribed: number }; lists: { name: string; contacts: number }[]; campaigns: Campaign[]; defaults: Record<string, string>; sms_window_open: boolean };
 type Audience = { sms: number; email: number; contacts: number; sms_text: string; sms_length: number; email_html: string | null; email_subject: string | null; sms_window_open: boolean };
+
+type Person = { id: string; list_name: string; name: string; business: string; phone: string; email: string; landline: string; unsubscribed_at: number | null; unsub_reason: string };
 
 const n = (v: number) => v.toLocaleString("en-GB");
 const smsParts = (len: number) => (len <= 160 ? 1 : Math.ceil(len / 153));
@@ -17,6 +19,9 @@ export function AdminMarketing({ me }: { me: { role: string } }) {
   const [tab, setTab] = useState<"contacts" | "campaigns">("contacts");
   const [ov, setOv] = useState<Overview | null>(null);
   const [err, setErr] = useState("");
+  // People ticked in the contacts table. Carried into a new campaign so "pick people, then message them" is one flow.
+  const [picked, setPicked] = useState<string[]>([]);
+  const [startNew, setStartNew] = useState(false);
   const load = () => adminApi<Overview>("/marketing/overview").then(setOv).catch((e) => setErr(e instanceof Error ? e.message : "Could not load"));
   useEffect(() => { void load(); }, []);
   if (me.role !== "SUPER") return <section className="admin-section"><h1>Marketing</h1><p className="workspace-footnote">Only super admins can use marketing.</p></section>;
@@ -36,13 +41,13 @@ export function AdminMarketing({ me }: { me: { role: string } }) {
         <button type="button" role="tab" aria-pressed={tab === "contacts"} onClick={() => setTab("contacts")} data-testid="mk-tab-contacts">Contacts</button>
         <button type="button" role="tab" aria-pressed={tab === "campaigns"} onClick={() => setTab("campaigns")} data-testid="mk-tab-campaigns">Campaigns</button>
       </div>
-      {ov && tab === "contacts" && <Contacts ov={ov} reload={load} />}
-      {ov && tab === "campaigns" && <Campaigns ov={ov} reload={load} />}
+      {ov && tab === "contacts" && <Contacts ov={ov} reload={load} picked={picked} setPicked={setPicked} onStart={() => { setStartNew(true); setTab("campaigns"); }} />}
+      {ov && tab === "campaigns" && <Campaigns ov={ov} reload={load} picked={picked} setPicked={setPicked} startNew={startNew} clearStart={() => setStartNew(false)} />}
     </section>
   );
 }
 
-function Contacts({ ov, reload }: { ov: Overview; reload: () => Promise<unknown> }) {
+function Contacts({ ov, reload, picked, setPicked, onStart }: { ov: Overview; reload: () => Promise<unknown>; picked: string[]; setPicked: (v: string[]) => void; onStart: () => void }) {
   const [csv, setCsv] = useState("");
   const [fileName, setFileName] = useState("");
   const [pv, setPv] = useState<Preview | null>(null);
@@ -78,6 +83,7 @@ function Contacts({ ov, reload }: { ov: Overview; reload: () => Promise<unknown>
     <div className="mk-grid">
       <div className="workspace-panel">
         <h3>Upload a list</h3>
+        <p className="workspace-footnote" data-testid="mk-apart-note"><b>Marketing only.</b> People in these lists are not customers or accounts. They never appear in any shop, and the only thing that happens to them is the message you choose to send.</p>
         <p className="workspace-footnote">Any CSV works: with or without headings, in any column order. The engine finds mobile numbers in every spelling, email addresses, names and business names, removes duplicates, and tells you what it could not use.</p>
         <div
           className={`mk-drop${drag ? " over" : ""}`}
@@ -145,12 +151,109 @@ function Contacts({ ov, reload }: { ov: Overview; reload: () => Promise<unknown>
         </ul>
         <p className="workspace-footnote">People who unsubscribe or reply STOP are never contacted again, even if they appear in a later upload.</p>
       </div>
+      <ContactTable ov={ov} reload={reload} picked={picked} setPicked={setPicked} onStart={onStart} />
     </div>
   );
 }
 
-function Campaigns({ ov, reload }: { ov: Overview; reload: () => Promise<unknown> }) {
-  const [open, setOpen] = useState<string | "new" | null>(null);
+const PAGE = 50;
+function ContactTable({ ov, reload, picked, setPicked, onStart }: { ov: Overview; reload: () => Promise<unknown>; picked: string[]; setPicked: (v: string[]) => void; onStart: () => void }) {
+  const [q, setQ] = useState("");
+  const [list, setList] = useState("");
+  const [has, setHas] = useState("");
+  const [status, setStatus] = useState("active");
+  const [page, setPage] = useState(0);
+  const [rows, setRows] = useState<Person[]>([]);
+  const [total, setTotal] = useState(0);
+  const [active, setActive] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const chosen = new Set(picked);
+  const qs = (extra: string) => `/marketing/contacts?q=${encodeURIComponent(q.trim())}&list=${encodeURIComponent(list)}&has=${has}&status=${status}${extra}`;
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setBusy(true); setErr("");
+      adminApi<{ contacts: Person[]; total: number; active: number }>(qs(`&limit=${PAGE}&offset=${page * PAGE}`))
+        .then((r) => { setRows(r.contacts); setTotal(r.total); setActive(r.active); })
+        .catch((e) => setErr(e instanceof Error ? e.message : "Could not load contacts"))
+        .finally(() => setBusy(false));
+    }, 200);
+    return () => clearTimeout(t);
+  }, [q, list, has, status, page, ov.totals.contacts]);
+  useEffect(() => { setPage(0); }, [q, list, has, status]);
+
+  const pageIds = rows.filter((r) => !r.unsubscribed_at).map((r) => r.id);
+  const allOnPage = pageIds.length > 0 && pageIds.every((id) => chosen.has(id));
+  const toggle = (id: string) => setPicked(chosen.has(id) ? picked.filter((x) => x !== id) : [...picked, id]);
+  const togglePage = () => setPicked(allOnPage ? picked.filter((id) => !pageIds.includes(id)) : [...new Set([...picked, ...pageIds])]);
+  async function selectAll() {
+    setBusy(true); setErr("");
+    try { const r = await adminApi<{ ids: string[] }>(qs("&ids=1")); setPicked([...new Set([...picked, ...r.ids])]); }
+    catch (e) { setErr(e instanceof Error ? e.message : "Could not select everyone"); } finally { setBusy(false); }
+  }
+  const pages = Math.max(1, Math.ceil(total / PAGE));
+
+  return (
+    <div className="workspace-panel mk-all" data-testid="mk-contacts-panel">
+      <div className="mk-head"><h3>All contacts <small>{n(ov.totals.contacts)} in total</small></h3></div>
+      <div className="mk-filters">
+        <input type="search" placeholder="Search name, business, number or email" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search contacts" data-testid="mk-search" />
+        <select value={list} onChange={(e) => setList(e.target.value)} aria-label="List" data-testid="mk-filter-list">
+          <option value="">All lists</option>
+          {ov.lists.map((l) => <option key={l.name} value={l.name}>{l.name || "Unnamed"} ({n(l.contacts)})</option>)}
+        </select>
+        <select value={has} onChange={(e) => setHas(e.target.value)} aria-label="Has" data-testid="mk-filter-has">
+          <option value="">Mobile or email</option>
+          <option value="mobile">Has a mobile</option>
+          <option value="email">Has an email</option>
+          <option value="both">Has both</option>
+        </select>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status" data-testid="mk-filter-status">
+          <option value="active">Can be contacted</option>
+          <option value="optout">Opted out</option>
+          <option value="">Everyone</option>
+        </select>
+      </div>
+      {err && <p className="workspace-error" role="alert">{err}</p>}
+      <div className="mk-selbar" data-testid="mk-selbar">
+        <span><b data-testid="mk-picked-count">{n(picked.length)}</b> selected</span>
+        {total > 0 && active > pageIds.length && <Button variant="ghost" onClick={selectAll} disabled={busy} data-testid="mk-select-all">Select all {n(active)} who match</Button>}
+        {picked.length > 0 && <Button variant="ghost" onClick={() => setPicked([])} data-testid="mk-clear">Clear</Button>}
+        <Button onClick={onStart} disabled={picked.length === 0} data-testid="mk-start-campaign">Message {n(picked.length)} {picked.length === 1 ? "person" : "people"}</Button>
+      </div>
+      <div className="mk-table-wrap">
+        <table className="mk-table" data-testid="mk-contacts-table">
+          <thead><tr>
+            <th><input type="checkbox" checked={allOnPage} onChange={togglePage} disabled={pageIds.length === 0} aria-label="Select everyone on this page" data-testid="mk-select-page" /></th>
+            <th>Name</th><th>Business</th><th>Mobile</th><th>Email</th><th>List</th><th></th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className={r.unsubscribed_at ? "mk-optout" : ""}>
+                <td><input type="checkbox" checked={chosen.has(r.id)} onChange={() => toggle(r.id)} disabled={!!r.unsubscribed_at} aria-label={`Select ${r.name || r.email || r.phone}`} data-testid="mk-row-check" /></td>
+                <td>{r.name || "–"}</td><td>{r.business || "–"}</td>
+                <td>{r.phone || (r.landline ? `${r.landline} (landline)` : "–")}</td><td>{r.email || "–"}</td>
+                <td>{r.list_name || "–"}</td>
+                <td>{r.unsubscribed_at ? <span className="admin-flag">opted out</span> : <Button variant="ghost" onClick={async () => { if (confirm(`Stop contacting ${r.name || r.email || r.phone}? This cannot be undone here.`)) { await adminApi(`/marketing/contacts/${r.id}/unsubscribe`, "POST"); setPicked(picked.filter((x) => x !== r.id)); await reload(); } }}>Opt out</Button>}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && !busy && <tr><td colSpan={7} className="workspace-footnote">{ov.totals.contacts === 0 ? "No contacts yet. Upload a CSV above." : "Nobody matches that search."}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div className="mk-pager">
+        <span className="workspace-footnote">{total === 0 ? "0 people" : `${n(page * PAGE + 1)}–${n(Math.min(total, (page + 1) * PAGE))} of ${n(total)}`}</span>
+        <Button variant="ghost" onClick={() => setPage(page - 1)} disabled={page === 0 || busy} data-testid="mk-prev">Previous</Button>
+        <Button variant="ghost" onClick={() => setPage(page + 1)} disabled={page + 1 >= pages || busy} data-testid="mk-next">Next</Button>
+      </div>
+    </div>
+  );
+}
+
+function Campaigns({ ov, reload, picked, setPicked, startNew, clearStart }: { ov: Overview; reload: () => Promise<unknown>; picked: string[]; setPicked: (v: string[]) => void; startNew: boolean; clearStart: () => void }) {
+  const [open, setOpen] = useState<string | "new" | null>(startNew ? "new" : null);
+  useEffect(() => { if (startNew) clearStart(); }, []);
   return (
     <div>
       {open === null && (
@@ -161,7 +264,7 @@ function Campaigns({ ov, reload }: { ov: Overview; reload: () => Promise<unknown
             {ov.campaigns.map((c) => (
               <li key={c.id}>
                 <button type="button" onClick={() => setOpen(c.id)}>
-                  <span><strong>{c.name}</strong><small>{c.list_name || "All lists"} · {c.channel === "BOTH" ? "Text and email" : c.channel === "SMS" ? "Text" : "Email"}</small></span>
+                  <span><strong>{c.name}</strong><small>{c.selected ? `${n(c.selected)} hand-picked` : c.list_name || "All lists"} · {c.channel === "BOTH" ? "Text and email" : c.channel === "SMS" ? "Text" : "Email"}</small></span>
                   <span className={`mk-status ${c.status.toLowerCase()}`}>{c.status === "DRAFT" ? "Draft" : c.status === "SENDING" ? `Sending · ${n(c.queued)} left` : c.status === "PAUSED" ? "Paused" : "Done"}</span>
                   {c.status !== "DRAFT" && <small>{n(c.sent)} sent{c.failed ? ` · ${n(c.failed)} failed` : ""}</small>}
                 </button>
@@ -170,12 +273,12 @@ function Campaigns({ ov, reload }: { ov: Overview; reload: () => Promise<unknown
           </ul>
         </>
       )}
-      {open !== null && <Composer ov={ov} id={open === "new" ? null : open} onClose={async () => { setOpen(null); await reload(); }} />}
+      {open !== null && <Composer ov={ov} id={open === "new" ? null : open} initialPicked={open === "new" ? picked : []} onClose={async (done) => { if (done) setPicked([]); setOpen(null); await reload(); }} />}
     </div>
   );
 }
 
-function Composer({ ov, id, onClose }: { ov: Overview; id: string | null; onClose: () => void }) {
+function Composer({ ov, id, initialPicked, onClose }: { ov: Overview; id: string | null; initialPicked: string[]; onClose: (done?: boolean) => void }) {
   const D = ov.defaults;
   const existing = id ? ov.campaigns.find((c) => c.id === id) : null;
   const [f, setF] = useState({
@@ -184,6 +287,9 @@ function Composer({ ov, id, onClose }: { ov: Overview; id: string | null; onClos
     cta_label: existing?.cta_label ?? D.cta_label, cta_url: existing?.cta_url ?? `${location.origin}/signup`, why: existing?.why ?? D.why,
   });
   const [cid, setCid] = useState<string | null>(id);
+  // Hand-picked people for this campaign. Empty means "the whole list chosen above".
+  const [sel, setSel] = useState<string[]>(initialPicked);
+  useEffect(() => { if (id) adminApi<{ ids: string[] }>(`/marketing/campaigns/${id}/contacts`).then((r) => setSel(r.ids)).catch(() => {}); }, []);
   const [aud, setAud] = useState<Audience | null>(null);
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
@@ -199,9 +305,11 @@ function Composer({ ov, id, onClose }: { ov: Overview; id: string | null; onClos
   async function save(): Promise<string | null> {
     setErr(""); setBusy(true);
     try {
-      if (cid) { await adminApi(`/marketing/campaigns/${cid}`, "PUT", f); return cid; }
-      const r = await adminApi<{ id: string }>("/marketing/campaigns", "POST", f);
-      setCid(r.id); return r.id;
+      let k = cid;
+      if (k) await adminApi(`/marketing/campaigns/${k}`, "PUT", f);
+      else { const r = await adminApi<{ id: string }>("/marketing/campaigns", "POST", f); k = r.id; setCid(k); }
+      if (!locked) await adminApi(`/marketing/campaigns/${k}/contacts`, "PUT", { contact_ids: sel });
+      return k;
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not save"); return null; } finally { setBusy(false); }
   }
   async function review() {
@@ -221,14 +329,14 @@ function Composer({ ov, id, onClose }: { ov: Overview; id: string | null; onClos
     try {
       const r = await adminApi<{ queued: { sms: number; email: number } }>(`/marketing/campaigns/${cid}/send`, "POST", { confirm: ok });
       setNote(`Started. ${n(r.queued.email)} emails and ${n(r.queued.sms)} texts are going out. Texts only send 09:00 to 20:00 UK time, Monday to Saturday.`);
-      onClose();
+      onClose(true);
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not send"); } finally { setBusy(false); }
   }
   const smsLen = (f.sms_body.replace(/\{link\}/g, f.cta_url || "https://foliyo.co.uk/signup").replace(/\{first\}/g, "Sam").length) + (/stop/i.test(f.sms_body) ? 0 : 23);
 
   return (
     <div className="mk-composer">
-      <div className="mk-head"><Button variant="ghost" onClick={onClose}><Icon name="left" size={14} /> All campaigns</Button>
+      <div className="mk-head"><Button variant="ghost" onClick={() => onClose()}><Icon name="left" size={14} /> All campaigns</Button>
         {existing && existing.status !== "DRAFT" && <span className={`mk-status ${existing.status.toLowerCase()}`}>{existing.status.toLowerCase()}</span>}</div>
       <div className="mk-grid">
         <div className="workspace-panel">
@@ -236,10 +344,15 @@ function Composer({ ov, id, onClose }: { ov: Overview; id: string | null; onClos
             <label className="workspace-field"><span>Campaign name</span><input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="Kent barbers, October" data-testid="mk-name" /></label>
             <div className="workspace-form-grid two">
               <label className="workspace-field"><span>Send to</span>
+                {sel.length > 0 ? (
+                  <span className="mk-picked" data-testid="mk-picked-note"><b>{n(sel.length)} hand-picked {sel.length === 1 ? "person" : "people"}</b>
+                    {!locked && <Button variant="ghost" onClick={() => setSel([])} data-testid="mk-use-list">Use a whole list instead</Button>}</span>
+                ) : (
                 <select value={f.list_name} onChange={(e) => set("list_name", e.target.value)} data-testid="mk-list">
                   <option value="">All lists</option>
                   {ov.lists.map((l) => <option key={l.name} value={l.name}>{l.name} ({n(l.contacts)})</option>)}
-                </select></label>
+                </select>
+                )}</label>
               <div className="workspace-field"><span>How</span>
                 <div className="segmented" role="group" aria-label="Channel">
                   {(["SMS", "EMAIL", "BOTH"] as const).map((c) => <button type="button" key={c} aria-pressed={f.channel === c} onClick={() => set("channel", c)} data-testid={`mk-channel-${c}`}>{c === "SMS" ? "Text" : c === "EMAIL" ? "Email" : "Both"}</button>)}

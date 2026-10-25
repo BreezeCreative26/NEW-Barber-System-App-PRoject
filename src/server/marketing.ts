@@ -12,6 +12,7 @@ import type { Database as DB } from "../db/client";
 import { parseCsv } from "./import";
 import { platformBilling } from "./billing";
 import { deliverDirect, msgShop, renderPlatformEmail } from "./messaging";
+import { setMarketingChoice } from "./consent";
 
 const uid = () => crypto.randomUUID();
 const token = () => (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
@@ -206,7 +207,12 @@ async function optedOutPhone(db: DB, phone: string) {
 }
 
 export async function audience(db: DB, c: Campaign) {
-  const rows = (await db.prepare("SELECT id, phone, email FROM marketing_contacts WHERE unsubscribed_at IS NULL AND (?='' OR list_name=?)").bind(c.list_name, c.list_name).all<{ id: string; phone: string; email: string }>()).results;
+  // Hand-picked people win over the list; opted-out people are always dropped.
+  const picked = ((await db.prepare("SELECT COUNT(*)::int AS n FROM marketing_campaign_contacts WHERE campaign_id=?").bind(c.id).first<{ n: number }>())?.n ?? 0) > 0;
+  const rows = (picked
+    ? await db.prepare("SELECT id, phone, email FROM marketing_contacts WHERE unsubscribed_at IS NULL AND id IN (SELECT contact_id FROM marketing_campaign_contacts WHERE campaign_id=?)").bind(c.id).all<{ id: string; phone: string; email: string }>()
+    : await db.prepare("SELECT id, phone, email FROM marketing_contacts WHERE unsubscribed_at IS NULL AND (?='' OR list_name=?)").bind(c.list_name, c.list_name).all<{ id: string; phone: string; email: string }>()
+  ).results;
   const opted = new Set((await db.prepare("SELECT phone FROM wa_optouts").all<{ phone: string }>()).results.map((r) => r.phone));
   const sms = c.channel !== "EMAIL" ? rows.filter((r) => r.phone && !opted.has(r.phone.replace(/\D/g, ""))) : [];
   const email = c.channel !== "SMS" ? rows.filter((r) => r.email) : [];
@@ -272,7 +278,7 @@ export function mountMarketing(admin: Hono<any>, h: H) {
     const [tot, lists, campaigns] = await Promise.all([
       db.prepare("SELECT COUNT(*)::int AS contacts, COUNT(*) FILTER (WHERE phone<>'' AND unsubscribed_at IS NULL)::int AS mobiles, COUNT(*) FILTER (WHERE email<>'' AND unsubscribed_at IS NULL)::int AS emails, COUNT(*) FILTER (WHERE unsubscribed_at IS NOT NULL)::int AS unsubscribed FROM marketing_contacts").first(),
       db.prepare("SELECT list_name AS name, COUNT(*)::int AS contacts FROM marketing_contacts GROUP BY list_name ORDER BY MAX(created_at) DESC").all(),
-      db.prepare("SELECT c.*, (SELECT COUNT(*)::int FROM marketing_sends s WHERE s.campaign_id=c.id AND s.status='SENT') AS sent, (SELECT COUNT(*)::int FROM marketing_sends s WHERE s.campaign_id=c.id AND s.status='FAILED') AS failed, (SELECT COUNT(*)::int FROM marketing_sends s WHERE s.campaign_id=c.id AND s.status='QUEUED') AS queued FROM marketing_campaigns c ORDER BY c.created_at DESC LIMIT 30").all(),
+      db.prepare("SELECT c.*, (SELECT COUNT(*)::int FROM marketing_campaign_contacts x WHERE x.campaign_id=c.id) AS selected, (SELECT COUNT(*)::int FROM marketing_sends s WHERE s.campaign_id=c.id AND s.status='SENT') AS sent, (SELECT COUNT(*)::int FROM marketing_sends s WHERE s.campaign_id=c.id AND s.status='FAILED') AS failed, (SELECT COUNT(*)::int FROM marketing_sends s WHERE s.campaign_id=c.id AND s.status='QUEUED') AS queued FROM marketing_campaigns c ORDER BY c.created_at DESC LIMIT 30").all(),
     ]);
     return c.json({ totals: tot, lists: lists.results, campaigns: campaigns.results, defaults: DEFAULT_COPY, sms_window_open: smsWindowOpen() });
   });
@@ -323,12 +329,28 @@ export function mountMarketing(admin: Hono<any>, h: H) {
     return c.json({ ok: true, created, updated, skipped, stats: r.stats });
   });
 
+  // The full contact list: searchable, filterable, paged. `ids=1` returns just the ids of everyone
+  // who matches (and can be contacted), so "select all N" works beyond the page on screen.
   admin.get("/marketing/contacts", async (c) => {
     guard(c);
     const q = `%${(c.req.query("q") || "").toLowerCase()}%`;
     const list = c.req.query("list") || "";
-    const rows = (await (c.env.DB as DB).prepare("SELECT id,list_name,name,business,phone,email,landline,unsubscribed_at,unsub_reason,created_at FROM marketing_contacts WHERE (?='' OR list_name=?) AND (LOWER(name||' '||business||' '||phone||' '||email) LIKE ?) ORDER BY created_at DESC LIMIT 100").bind(list, list, q).all()).results;
-    return c.json({ contacts: rows });
+    const status = c.req.query("status") || "";
+    const has = c.req.query("has") || "";
+    const where = "(?='' OR list_name=?) AND LOWER(name||' '||business||' '||phone||' '||email) LIKE ? AND (?='' OR (?='active' AND unsubscribed_at IS NULL) OR (?='optout' AND unsubscribed_at IS NOT NULL)) AND (?='' OR (?='mobile' AND phone<>'') OR (?='email' AND email<>'') OR (?='both' AND phone<>'' AND email<>''))";
+    const binds = [list, list, q, status, status, status, has, has, has, has];
+    const db = c.env.DB as DB;
+    if (c.req.query("ids") === "1") {
+      const ids = (await db.prepare(`SELECT id FROM marketing_contacts WHERE unsubscribed_at IS NULL AND ${where} ORDER BY created_at DESC, id LIMIT 20000`).bind(...binds).all<{ id: string }>()).results.map((r) => r.id);
+      return c.json({ ids });
+    }
+    const limit = Math.min(200, Math.max(1, Number(c.req.query("limit")) || 50));
+    const offset = Math.max(0, Number(c.req.query("offset")) || 0);
+    const [rows, tot] = await Promise.all([
+      db.prepare(`SELECT id,list_name,name,business,phone,email,landline,unsubscribed_at,unsub_reason,created_at FROM marketing_contacts WHERE ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`).bind(...binds, limit, offset).all(),
+      db.prepare(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE unsubscribed_at IS NULL)::int AS active FROM marketing_contacts WHERE ${where}`).bind(...binds).first<{ total: number; active: number }>(),
+    ]);
+    return c.json({ contacts: rows.results, total: tot?.total ?? 0, active: tot?.active ?? 0, limit, offset });
   });
   admin.post("/marketing/contacts/:id/unsubscribe", async (c) => {
     guard(c);
@@ -366,8 +388,29 @@ export function mountMarketing(admin: Hono<any>, h: H) {
   });
   admin.delete("/marketing/campaigns/:id", async (c) => {
     guard(c);
+    await (c.env.DB as DB).prepare("DELETE FROM marketing_campaign_contacts WHERE campaign_id=? AND campaign_id IN (SELECT id FROM marketing_campaigns WHERE id=? AND status='DRAFT')").bind(c.req.param("id"), c.req.param("id")).run();
     await (c.env.DB as DB).prepare("DELETE FROM marketing_campaigns WHERE id=? AND status='DRAFT'").bind(c.req.param("id")).run();
     return c.json({ ok: true });
+  });
+  // Hand-picked recipients: replace the saved selection (empty = go back to the whole list).
+  admin.put("/marketing/campaigns/:id/contacts", async (c) => {
+    guard(c);
+    const b = await input(c);
+    const db = c.env.DB as DB;
+    const id = c.req.param("id");
+    const cur = await db.prepare("SELECT status FROM marketing_campaigns WHERE id=?").bind(id).first<{ status: string }>();
+    if (!cur) h.fail(404, "Campaign not found");
+    if (cur!.status !== "DRAFT") h.fail(409, "Only drafts can change who they go to");
+    const ids = Array.isArray(b.contact_ids) ? b.contact_ids.filter((x: unknown) => typeof x === "string").slice(0, 20000) : [];
+    await db.prepare("DELETE FROM marketing_campaign_contacts WHERE campaign_id=?").bind(id).run();
+    if (ids.length) await db.prepare("INSERT INTO marketing_campaign_contacts(campaign_id,contact_id) SELECT ?, id FROM marketing_contacts WHERE unsubscribed_at IS NULL AND id = ANY(?::text[]) ON CONFLICT DO NOTHING").bind(id, ids).run();
+    const n = (await db.prepare("SELECT COUNT(*)::int AS n FROM marketing_campaign_contacts WHERE campaign_id=?").bind(id).first<{ n: number }>())?.n ?? 0;
+    return c.json({ ok: true, selected: n });
+  });
+  admin.get("/marketing/campaigns/:id/contacts", async (c) => {
+    guard(c);
+    const ids = (await (c.env.DB as DB).prepare("SELECT contact_id FROM marketing_campaign_contacts WHERE campaign_id=?").bind(c.req.param("id")).all<{ contact_id: string }>()).results.map((r) => r.contact_id);
+    return c.json({ ids });
   });
   // Who would get it, and a rendered preview, before anything is sent.
   admin.get("/marketing/campaigns/:id/audience", async (c) => {
@@ -450,11 +493,12 @@ marketingPublic.get("/c/:token", async (c) => {
 });
 marketingPublic.post("/c/:token", async (c) => {
   if (c.req.param("token") !== "preview") {
-    await c.env.DB.prepare("UPDATE customers SET announce_unsub_at=COALESCE(announce_unsub_at,?) WHERE unsub_token=?").bind(Date.now(), c.req.param("token")).run();
+    const who = await c.env.DB.prepare("SELECT id, shop_id FROM customers WHERE unsub_token=?").bind(c.req.param("token")).first<{ id: string; shop_id: string }>();
+    if (who) await setMarketingChoice(c.env.DB, who.shop_id, who.id, false, "email_link");
     await c.env.DB.prepare("UPDATE shop_campaign_contacts SET unsub_at=COALESCE(unsub_at,?) WHERE unsub_token=?").bind(Date.now(), c.req.param("token")).run();
   }
   c.header("Cache-Control", "no-store");
-  return c.html(page("Unsubscribed", "<h1>You are unsubscribed</h1><p>You will not get any more announcements from this shop. Reminders for your own appointments are not affected.</p>"));
+  return c.html(page("Unsubscribed", "<h1>You are unsubscribed</h1><p>You will not get any more offers or news from this shop. Reminders for your own appointments are not affected. If you change your mind you can switch offers and news back on in your account at any time.</p>"));
 });
 marketingPublic.get("/:token", async (c) => {
   const ct = await c.env.DB.prepare("SELECT unsubscribed_at FROM marketing_contacts WHERE unsub_token=?").bind(c.req.param("token")).first<{ unsubscribed_at: number | null }>();
