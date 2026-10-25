@@ -28,8 +28,10 @@ import { telnyxFrom, telnyxOn, telnyxSend } from "./telnyx";
 import { sweepPlatform } from "./lifecycle";
 import { sweepWaitlistPlatform } from "./waitlist";
 import { pushToAccount, accountForPhone, type PushPayload } from "./push";
+import { announcementSuppressed } from "./consent";
 import { sendWhatsApp, waLive, waPayload, waStatus } from "./whatsapp";
 import { shopUrl } from "./hosts";
+import { mailDomainSql, sweepDomains, toCustomerDomain, webDomainSql } from "./domains";
 
 type Ctx = Context<AppEnv>;
 type DB = Database;
@@ -521,12 +523,22 @@ export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageT
 // ---- Providers -----------------------------------------------------------------
 type Env = Record<string, string | undefined>;
 const env = (): Env => (typeof process !== "undefined" ? (process.env as Env) : {});
-export type ProviderStatus = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "telnyx" | "twilio" | "clicksend" | "mailbox"; from: string }; wa: ReturnType<typeof waStatus> };
+export type ProviderStatus = { email: { provider: "resend" | "mailbox"; from: string; customer_ready: boolean; warning: string }; sms: { provider: "telnyx" | "twilio" | "clicksend" | "mailbox"; from: string }; wa: ReturnType<typeof waStatus> };
 const clicksendOn = (e: Record<string, string | undefined>) => !!(e.CLICKSEND_USERNAME && e.CLICKSEND_API_KEY);
+// Resend only delivers to anyone other than the account owner from a verified domain. With a key but
+// no MAIL_FROM (or its shared onboarding@resend.dev test sender) every customer address is refused,
+// so "live" is not the same as "customers get it". customer_ready is the honest flag.
+export const isTestSender = (from: string) => !from.trim() || /@resend\.dev>?\s*$/i.test(from.trim());
+export function emailStatus(e: Record<string, string | undefined>): ProviderStatus["email"] {
+  if (!e.RESEND_API_KEY) return { provider: "mailbox", from: "", customer_ready: false, warning: "No email provider is connected: messages go to the preview mailbox, not to customers." };
+  const from = e.MAIL_FROM || "";
+  if (isTestSender(from)) return { provider: "resend", from, customer_ready: false, warning: "MAIL_FROM is not set to an address on a domain verified in Resend. Resend will only deliver to its account owner, so customers will not receive emails." };
+  return { provider: "resend", from, customer_ready: true, warning: "" };
+}
 export function providerStatus(): ProviderStatus {
   const e = env();
   return {
-    email: e.RESEND_API_KEY ? { provider: "resend", from: e.MAIL_FROM || "" } : { provider: "mailbox", from: "" },
+    email: emailStatus(e),
     sms: telnyxOn(e)
       ? { provider: "telnyx", from: telnyxFrom(e) }
       : clicksendOn(e)
@@ -536,9 +548,18 @@ export function providerStatus(): ProviderStatus {
   };
 }
 
-type Row = { id: string; shop_id: string; channel: Channel; recipient: string; template: string; body: string; subject: string; html: string; attempts: number; shop_name: string; msg_reply_to: string; msg_sms_sender: string; msg_sms?: number };
+type Row = { shop_slug?: string | null; custom_web_domain?: string | null; custom_mail_domain?: string | null; related_type?: string; related_id?: string; id: string; shop_id: string; channel: Channel; recipient: string; template: string; body: string; subject: string; html: string; attempts: number; shop_name: string; msg_reply_to: string; msg_sms_sender: string; msg_sms?: number };
 type Delivery = { ok: true; provider: string; id: string } | { ok: false; provider: string; error: string; permanent?: boolean };
 
+const PROVIDER_TIMEOUT_MS = 15000;
+// Marketing email carries the one-click unsubscribe header (RFC 8058) so Gmail/Outlook show their own
+// "Unsubscribe" button. The link is the same /u/... page the footer points at.
+function listUnsubscribe(row: Row): { headers?: Record<string, string> } {
+  if (row.template !== "shop_announcement" && row.template !== "marketing") return {};
+  const m = (row.html || "").match(/https?:\/\/[^"'\s<>]+\/u\/(?:c\/)?([A-Za-z0-9_-]{8,})/);
+  if (!m || /^(preview|test)$/.test(m[1])) return {};
+  return { headers: { "List-Unsubscribe": `<${m[0]}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } };
+}
 async function sendEmail(row: Row): Promise<Delivery> {
   const e = env();
   if (!e.RESEND_API_KEY) return { ok: true, provider: "mailbox", id: `mbx_${uid().slice(0, 8)}` };
@@ -546,15 +567,32 @@ async function sendEmail(row: Row): Promise<Delivery> {
   // delivers (and only to the account owner's inbox). Set MAIL_FROM once DNS is in place.
   // MAIL_FROM may be a bare address or "Name <address>"; the shop's name always becomes the display name.
   const fromAddr = (e.MAIL_FROM || "onboarding@resend.dev").match(/<([^>]+)>/)?.[1]?.trim() || (e.MAIL_FROM || "onboarding@resend.dev").trim();
-  const from = `${row.shop_name.replace(/["<>]/g, "")} <${fromAddr}>`;
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${e.RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: [row.recipient], subject: row.subject, html: row.html, text: row.body, ...(row.msg_reply_to ? { reply_to: row.msg_reply_to } : {}) }),
-  });
-  const j = (await res.json().catch(() => ({}))) as { id?: string; message?: string; name?: string };
-  if (res.ok && j.id) return { ok: true, provider: "resend", id: j.id };
-  return { ok: false, provider: "resend", error: `${res.status} ${j.message || j.name || "send failed"}`, permanent: res.status === 422 || res.status === 403 };
+  const name = row.shop_name.replace(/["<>]/g, "");
+  // A shop whose own domain is verified in Resend sends from bookings@<its domain>. If Resend refuses that
+  // sender (record removed, domain suspended) the message still goes, from foliyo's address, rather than being lost.
+  const senders = row.custom_mail_domain ? [`${name} <bookings@${row.custom_mail_domain}>`, `${name} <${fromAddr}>`] : [`${name} <${fromAddr}>`];
+  let last: Delivery = { ok: false, provider: "resend", error: "send failed" };
+  for (const from of senders) {
+    // RESEND_API_URL / CLICKSEND_API_URL exist so a staging run can point at a stub and prove the whole
+    // path end to end without sending real mail; unset in production.
+    const res = await fetch(e.RESEND_API_URL || "https://api.resend.com/emails", {
+      method: "POST",
+      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+      headers: { Authorization: `Bearer ${e.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to: [row.recipient], subject: row.subject, html: row.html, text: row.body, ...(row.msg_reply_to ? { reply_to: row.msg_reply_to } : {}), ...listUnsubscribe(row) }),
+    });
+    const j = (await res.json().catch(() => ({}))) as { id?: string; message?: string; name?: string };
+    if (res.ok && j.id) return { ok: true, provider: "resend", id: j.id };
+    // 422 = this recipient/payload is bad: retrying cannot help. 403 is usually OUR setup (sender domain
+    // not verified, testing-only sender): keep the message and retry once it is fixed rather than
+    // throwing every customer's confirmation away.
+    const msg = `${res.status} ${j.message || j.name || "send failed"}`;
+    last = { ok: false, provider: "resend", error: msg, permanent: res.status === 422 || (res.status === 400 && /invalid.*(email|address)|to.*address/i.test(msg)) };
+    // Only a sender problem is worth trying the next sender for; a bad recipient fails the same way everywhere.
+    if (!(res.status === 403 || (res.status === 422 && /from|domain|sender|verified/i.test(msg)))) return last;
+    if (from === senders[senders.length - 1]) break;
+  }
+  return last;
 }
 
 // E.164 for UK numbers written locally (07… → +447…). Other countries must already be +CC.
@@ -567,14 +605,15 @@ export function toE164(phone: string, defaultCountry = "GB"): string | null {
 }
 async function sendSms(row: Row, db?: DB): Promise<Delivery> {
   const e = env();
+  // A STOP reply is honoured platform-wide, on every SMS provider, before we spend a message.
+  if (db) {
+    const num = toE164(row.recipient);
+    if (num && (await db.prepare("SELECT 1 AS x FROM wa_optouts WHERE phone=?").bind(num.replace(/\D/g, "")).first()))
+      return { ok: false, provider: telnyxOn(e) ? "telnyx" : "sms", error: "Customer opted out of texts (replied STOP)", permanent: true };
+  }
   if (telnyxOn(e)) {
     const to = toE164(row.recipient);
     if (!to) return { ok: false, provider: "telnyx", error: "Not a valid mobile number", permanent: true };
-    // A STOP reply (SMS or WhatsApp) is honoured platform-wide before we spend a message.
-    if (db) {
-      const opted = await db.prepare("SELECT 1 AS x FROM wa_optouts WHERE phone=?").bind(to.replace(/\D/g, "")).first();
-      if (opted) return { ok: false, provider: "telnyx", error: "Customer opted out of texts (replied STOP)", permanent: true };
-    }
     // Shops that never set a sender still text under their own name, not a bare number.
     return telnyxSend(to, row.body, { alphaSender: row.msg_sms_sender || smsSenderFor(row.shop_name), e });
   }
@@ -587,6 +626,7 @@ async function sendSms(row: Row, db?: DB): Promise<Delivery> {
   else form.set("From", row.msg_sms_sender || e.TWILIO_FROM!);
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${e.TWILIO_ACCOUNT_SID}/Messages.json`, {
     method: "POST",
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     headers: { Authorization: `Basic ${btoa(`${e.TWILIO_ACCOUNT_SID}:${e.TWILIO_AUTH_TOKEN}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
     body: form,
   });
@@ -605,8 +645,9 @@ async function sendClickSend(row: Row, e: Record<string, string>): Promise<Deliv
   const from = (row.msg_sms_sender || e.CLICKSEND_FROM || "").replace(/[^A-Za-z0-9 ]/g, "").slice(0, 11).trim();
   const message: Record<string, string> = { source: "ollo", to, body: row.body.slice(0, 918) };
   if (from) message.from = from;
-  const res = await fetch("https://rest.clicksend.com/v3/sms/send", {
+  const res = await fetch(e.CLICKSEND_API_URL || "https://rest.clicksend.com/v3/sms/send", {
     method: "POST",
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     headers: { Authorization: `Basic ${btoa(`${e.CLICKSEND_USERNAME}:${e.CLICKSEND_API_KEY}`)}`, "Content-Type": "application/json" },
     body: JSON.stringify({ messages: [message] }),
   });
@@ -665,7 +706,7 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
   // Claim due rows. Rows stuck in SENDING for >10 min (crashed worker) are reclaimed.
   const due = await db
     .prepare(
-      `SELECT n.id,n.shop_id,n.channel,n.recipient,n.template,n.body,n.subject,n.html,n.attempts,s.name AS shop_name,s.msg_reply_to,s.msg_sms_sender,s.msg_sms
+      `SELECT n.id,n.shop_id,n.channel,n.recipient,n.template,n.body,n.subject,n.html,n.attempts,n.related_type,n.related_id,s.name AS shop_name,s.slug AS shop_slug,s.msg_reply_to,s.msg_sms_sender,s.msg_sms,${webDomainSql(now)},${mailDomainSql(now)}
        FROM notifications n JOIN shops s ON s.id=n.shop_id
        WHERE ((n.status='QUEUED' AND (n.next_attempt_at IS NULL OR n.next_attempt_at<=?)) OR (n.status='SENDING' AND n.next_attempt_at<=?))
          AND (? IS NULL OR (n.related_type=? AND n.related_id=?))
@@ -677,6 +718,21 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
   for (const row of due.results) {
     const claim = await db.prepare("UPDATE notifications SET status='SENDING', next_attempt_at=?, attempts=attempts+1 WHERE id=? AND status IN ('QUEUED','SENDING')").bind(now, row.id).run();
     if (!claim.meta.changes) continue; // someone else took it
+    // Marketing is re-checked at the moment of sending: someone who opted out after it was queued or
+    // scheduled is never messaged.
+    if (row.template === "shop_announcement" && row.related_type === "announce") {
+      const contactId = (row.related_id || "").split(":")[1];
+      if (contactId && (await announcementSuppressed(db, row.shop_id, contactId))) {
+        await db.prepare("UPDATE notifications SET status='SKIPPED', status_note='Skipped: opted out of marketing' WHERE id=?").bind(row.id).run();
+        continue;
+      }
+    }
+    // Shops with their own live web address: customers' links point there (staff links never move).
+    if (row.custom_web_domain) {
+      const fb = process.env.APP_ORIGIN || "";
+      row.html = toCustomerDomain(row.html, row.shop_slug, row.custom_web_domain, fb);
+      row.body = toCustomerDomain(row.body, row.shop_slug, row.custom_web_domain, fb);
+    }
     const attempt = row.attempts + 1;
     let d: Delivery;
     try {
@@ -800,10 +856,12 @@ export async function maybeSweep(db: DB, origin: string, intervalMs = 5 * 60000,
   // Waiting list: freed slots parked for the shop's delay are released here for every shop, so the
   // "tell the next customer after N minutes" promise holds even when nobody opens the queue.
   const waitlist = await sweepWaitlistPlatform(db, origin, now).catch(() => 0);
+  // Shops' own domains: finish pending verifications and notice a record that has since broken.
+  const domains = await sweepDomains(db, now).catch(() => 0);
   // Retention: delivered/skipped/failed rows older than 180 days go; the outbox shows 30 days and the
   // audit trail keeps the fact a message was sent. Anything still QUEUED is never touched.
   await db.prepare("DELETE FROM notifications WHERE status IN ('SENT','SKIPPED','FAILED') AND created_at < ?").bind(now - 180 * 86400000).run().catch(() => null);
-  return { reminders, drained, holds_released: holds.length, pay_runs: runs, summaries, platform, waitlist };
+  return { reminders, drained, holds_released: holds.length, pay_runs: runs, summaries, platform, waitlist, domains };
 }
 
 export const fmtDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });

@@ -6,6 +6,7 @@ import { getDb } from "../../src/db/client";
 import { getStore } from "../../src/db/storage";
 import { report, telemetryStatus } from "../../src/server/telemetry";
 import { routeByHost } from "../../src/server/hosts";
+import { hostLookup } from "../../src/server/domains";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,7 +79,7 @@ const handle = async (incoming: Request) => {
   const path = new URL(incoming.url).pathname;
   if (path === "/api/diag") return diag(incoming);
   try {
-    const routed = await routeByHost(incoming, isShopSlug);
+    const routed = await routeByHost(incoming, isShopSlug, hostLookup(env().DB));
     if (routed instanceof Response) return routed;
     const req = routed;
     return await app.fetch(req, env());

@@ -1,3 +1,5 @@
+> **Note (2026-10-25):** WhatsApp has been dropped, so the WhatsApp lines and rates below no longer apply. All customer messaging is text and email.
+
 # Unit economics — what one shop costs foliyo to run
 
 Reference shop: **3 barbers, 6 days/week, ~10 cuts each per day ≈ 780 bookings/month**, 70% booked

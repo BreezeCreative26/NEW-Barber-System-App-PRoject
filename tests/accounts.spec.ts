@@ -584,7 +584,7 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     });
     const staffPage = await staffContext.newPage();
     await staffPage.goto(link);
-    await expect(staffPage).toHaveURL(origin + "/workspace");
+    await expect(staffPage).toHaveURL(/^http:\/\/([a-z0-9-]+\.)?localhost:3000\/workspace$/); // staff land on the shop's own address
     // The invite card names the shop and the address is fixed to the one invited.
     await expect(staffPage.getByTestId("invite-peek")).toContainText("UI Signup Shop");
     await expect(staffPage.getByLabel("Email", { exact: true })).toHaveValue(staffEmail);
@@ -620,9 +620,8 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
     expect(staffLabels.map((t) => t.trim()).filter(Boolean)).toEqual(
       width < 768 ? ["Today", "Insights", "Customers", "My pay", "Accounts"] : ["Appointments", "Insights", "Customers", "My pay", "Accounts"],
     );
-    const assigned = await (
-      await staffPage.request.get(base + "/workspace")
-    ).json();
+    // From inside the page: the staff session lives on the shop's own address.
+    const assigned = await staffPage.evaluate(() => fetch("/api/app/workspace", { credentials: "same-origin" }).then((r) => r.json()));
     expect(assigned.staff.map((s: any) => s.id).sort()).toEqual(w.staff.map((s: any) => s.id).sort());
     expect(
       (

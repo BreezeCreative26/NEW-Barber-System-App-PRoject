@@ -44,6 +44,13 @@ function PermissionBoxes({ member, disabled, onSave }: { member: Member; disable
     </fieldset>
   );
 }
+// The team's sign-in address: the shop's own host. The platform root comes from the page (it can be
+// foliyo.co.uk, where "last two labels" would wrongly give co.uk), else the current host.
+function staffAddress(slug: string | null | undefined) {
+  const root = document.querySelector<HTMLMetaElement>('meta[name="foliyo-root"]')?.content || "";
+  if (!slug || !root || /^(localhost|\d+\.\d+\.\d+\.\d+)(:\d+)?$/.test(root)) return `${location.host}/staff`;
+  return `${slug}.${root.replace(/^www\./, "")}/staff`;
+}
 async function copy(text: string) { try { await navigator.clipboard.writeText(text); return true; } catch { return false; } }
 
 export function StaffLoginPanel({ w, api, staff, onChanged }: { w: WorkspaceData; api: Api; staff: Staff; onChanged?: () => void }) {
@@ -92,7 +99,7 @@ export function StaffLoginPanel({ w, api, staff, onChanged }: { w: WorkspaceData
             <h3>{member.name}</h3>
             <p><Icon name="message" size={14} /> {member.email} · {ROLE_LABEL[member.role] || member.role}{member.onboarded_at ? "" : " · hasn't finished onboarding yet"}</p>
           </header>
-          <p className="helper">Signs in at <b>{w.shop.slug ? `${w.shop.slug}.${location.host.split(".").slice(-2).join(".")}/staff` : `${location.host}/staff`}</b> with their email and password. Forgotten password? They use "Forgot password" on that page — nothing for you to do.</p>
+          <p className="helper">Signs in at <b>{staffAddress(w.shop.slug)}</b> with their email and password. Forgotten password? They use "Forgot password" on that page — nothing for you to do.</p>
           {isOwner && (
             <div className="staff-login-controls">
               <label className="workspace-field">

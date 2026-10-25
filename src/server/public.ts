@@ -673,7 +673,10 @@ export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooki
   if (!stmts.length) return [];
   await c.env.DB.batch(stmts);
   await drain(c.env.DB, stmts.length, Date.now(), { type: "booking", id: booking.id }).catch(() => {});
-  return channels;
+  // Only claim a channel the provider accepted. A row still QUEUED is retrying (the cron keeps at it)
+  // and one that FAILED never went: telling the customer "we've emailed you" in either case is a lie.
+  const done = await c.env.DB.prepare("SELECT DISTINCT channel FROM notifications WHERE shop_id=? AND related_type='booking' AND related_id=? AND template=? AND status='SENT'").bind(shopId, booking.id, template).all<{ channel: Channel }>().catch(() => null);
+  return done ? channels.filter((ch) => done.results.some((r) => r.channel === ch)) : channels;
 }
 // Every online booking ends with an account: email is required, and a password may be set in the
 // same step. A signed-in customer's details are trusted from the session.

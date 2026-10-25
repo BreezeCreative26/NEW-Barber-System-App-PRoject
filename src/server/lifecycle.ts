@@ -4,6 +4,7 @@
 import { drainMarketing } from "./marketing";
 import type { Database as DB } from "../db/client";
 import { estimate, platformBilling } from "./billing";
+import { teamUrl } from "./hosts";
 import { drain, enqueue, msgShop, platformSender, providerStatus, type MessageTemplate } from "./messaging";
 
 const uid = () => crypto.randomUUID();
@@ -21,7 +22,9 @@ async function sendPlatform(db: DB, shopId: string, template: MessageTemplate, v
   if (!owner?.email) return false;
   const shop = await msgShop({ env: { DB: db } }, shopId);
   const pb = await platformBilling(db);
-  const stmts = enqueue(db, platformSender(shop, pb), { email: owner.email, name: owner.name }, template, { shop: shop.name, ...vars }, { related: { type: "lifecycle", id: `${shopId}:${key}` }, origin, channel: "EMAIL", now, force: true });
+  // Workspace links go to the shop's own address (the platform host has no sign-in).
+  const link = typeof vars.link === "string" && vars.link.startsWith(`${origin}/workspace`) ? teamUrl(shop.slug, origin, vars.link.slice(origin.length)) : vars.link;
+  const stmts = enqueue(db, platformSender(shop, pb), { email: owner.email, name: owner.name }, template, { shop: shop.name, ...vars, link }, { related: { type: "lifecycle", id: `${shopId}:${key}` }, origin, channel: "EMAIL", now, force: true });
   if (stmts.length) { await db.batch(stmts); await drain(db, stmts.length, now, { type: "lifecycle", id: `${shopId}:${key}` }).catch(() => {}); }
   return true;
 }
@@ -71,6 +74,7 @@ export async function sweepAlerts(db: DB, now = Date.now()) {
   // Provider down (all channels mailbox in production).
   const ps = providerStatus();
   if (process.env.NODE_ENV === "production" && ps.email.provider === "mailbox") await raiseAlert(db, "PROVIDER", "CRIT", null, "Email provider not configured in production", "RESEND_API_KEY is missing — invoices, resets and reminders are not being delivered.", "provider:email", now);
+  if (process.env.NODE_ENV === "production" && ps.email.provider === "resend" && !ps.email.customer_ready) await raiseAlert(db, "PROVIDER", "CRIT", null, "Customer email will not deliver", ps.email.warning, "provider:email-sender", now);
   // Stuck queue.
   const stuck = (await db.prepare("SELECT COUNT(*)::int AS n FROM notifications WHERE status='QUEUED' AND created_at<?").bind(now - 2 * 3600000).first<{ n: number }>())?.n ?? 0;
   if (stuck > 20) await raiseAlert(db, "QUEUE_STUCK", "WARN", null, `${stuck} messages queued for over 2 hours`, "The sweep may not be running, or the provider is rejecting sends.", "queue:stuck", now);

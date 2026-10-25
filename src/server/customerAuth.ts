@@ -24,6 +24,7 @@ import { drain, enqueue, msgShop } from "./messaging";
 import { clientKey, shopBySlug, throttle, type Ctx } from "./public";
 import { pushStatus } from "./push";
 import { shopUrl, sessionCookieDomain } from "./hosts";
+import { setMarketingChoice } from "./consent";
 
 // Cookie name carries the shop, and the `__Host-` prefix makes browsers refuse any Domain=, so a
 // customer's session can never be sent to (or overwritten by) another shop's subdomain.
@@ -199,6 +200,8 @@ export async function recordConsent(c: Ctx, shop: Shop, account: AccountRow, v: 
   }
   await c.env.DB.prepare("INSERT INTO customer_account_links(account_id,shop_id,customer_id,linked_at) VALUES(?,?,?,?) ON CONFLICT (account_id,shop_id) DO UPDATE SET customer_id=EXCLUDED.customer_id, linked_at=EXCLUDED.linked_at")
     .bind(account.id, shop.id, cust.id, now).run();
+  // Their own tick (or no tick) at sign-up is the choice. Logged, and from here on only they can change it.
+  await setMarketingChoice(c.env.DB, shop.id, cust.id, v.marketing_opt_in === 1, "app_signup", now);
 }
 
 export const customerAuth = new Hono<AppEnv>();

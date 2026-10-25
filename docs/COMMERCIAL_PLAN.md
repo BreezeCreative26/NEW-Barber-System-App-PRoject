@@ -1,3 +1,5 @@
+> **Note (2026-10-25):** WhatsApp has been dropped, so the WhatsApp lines and rates below no longer apply. All customer messaging is text and email.
+
 # foliyo — Commercial Build Plan: Scheduling Conflicts, Billing, Master Admin, Staff Photos
 
 Status: **approved for build** (owner instruction: "plan this in comprehensive commercial detail", standing auto-approve).

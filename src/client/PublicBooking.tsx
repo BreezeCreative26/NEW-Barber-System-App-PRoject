@@ -1392,7 +1392,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                         )}
                         <label className="booking-check">
                           <input type="checkbox" checked={regMarketing} onChange={(e) => setRegMarketing(e.target.checked)} data-testid="booking-marketing" />
-                          <span>Send me offers and news from {shop.shop.name}</span>
+                          <span>Send me offers and news from {shop.shop.name} (optional, you can change this any time in your account)</span>
                         </label>
                       </div>
                       {termsDue && (

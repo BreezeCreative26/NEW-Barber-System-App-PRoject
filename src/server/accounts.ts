@@ -8,7 +8,7 @@ import type { Database } from "../db/client";
 import { z } from "zod";
 import { demoRoute } from "./demo";
 import { slugSchema, smsSenderFor } from "./domain";
-import { RESERVED_SUBDOMAINS, SHOP_HOST_HEADER, rootHost, sessionCookieDomain, shopOrigin } from "./hosts";
+import { RESERVED_SUBDOMAINS, SHOP_HOST_HEADER, rootHost, sessionCookieDomain, shopOrigin, teamUrl } from "./hosts";
 
 export type Account = {
   id: string;
@@ -362,8 +362,9 @@ async function issueEmailVerification(
 ): Promise<{ stmts: ReturnType<typeof enqueue>; token: string }> {
   const token = uid() + uid();
   const origin = new URL(c.req.url).origin;
-  const link = `${origin}/verify?token=${token}`;
   const shop = await msgShop(c, user.shop_id);
+  // On the shop's own address, so "Back to your workspace" lands where this person signs in.
+  const link = teamUrl(shop.slug, origin, `/verify?token=${token}`);
   const pb = kind === "owner_welcome" ? await platformBilling(c.env.DB) : null;
   const sender = pb ? platformSender(shop, pb) : shop;
   const vars = kind === "owner_welcome" ? { link, shop: shop.name, trial_days: pb!.trial_days } : { link, email: user.email };
@@ -571,8 +572,9 @@ const ukMobile = (raw: string) => {
 };
 // Link returned to the owner's UI for copying. Built on the request origin (the owner is already
 // on their shop's host in production, so it matches the emailed link there).
-async function inviteLink(c: Ctx, _shopId: string, token: string) {
-  return `${new URL(c.req.url).origin}/workspace?invite=${token}`;
+async function inviteLink(c: Ctx, shopId: string, token: string) {
+  const ms = await msgShop(c, shopId);
+  return teamUrl(ms.slug, new URL(c.req.url).origin, `/workspace?invite=${token}`);
 }
 // Deliver (or re-deliver) an invitation on the requested channel. Returns what actually went out.
 async function sendInvite(c: Ctx, shopId: string, inviterUserId: string, inv: { id: string; email: string; phone: string; role: string; channel: string }, token: string) {

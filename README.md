@@ -130,7 +130,8 @@ accent). foliyo never appears in a customer's inbox.
 | Env var | Purpose |
 | --- | --- |
 | `RESEND_API_KEY`, `MAIL_FROM` | Email via Resend. `MAIL_FROM` must be on a domain verified in Resend; unset → `onboarding@resend.dev`, which only delivers to the Resend account owner. |
-| `CLICKSEND_USERNAME`, `CLICKSEND_API_KEY`, `CLICKSEND_FROM` | SMS via ClickSend (preferred). `CLICKSEND_FROM` = optional 11-char alphanumeric default sender. |
+| `TELNYX_API_KEY`, `TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM`, `TELNYX_PUBLIC_KEY` | SMS via Telnyx (what production uses). `TELNYX_FROM` is an E.164 number on the messaging profile; `TELNYX_PUBLIC_KEY` verifies webhooks. |
+| `CLICKSEND_USERNAME`, `CLICKSEND_API_KEY`, `CLICKSEND_FROM` | SMS via ClickSend (fallback if Telnyx is not set). `CLICKSEND_FROM` = optional 11-char alphanumeric default sender. |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` **or** `TWILIO_MESSAGING_SERVICE_SID` | SMS via Twilio (used only when ClickSend is not configured) |
 | `CRON_SECRET` | Protects `GET /api/cron/messages` (Vercel Cron sends it as `Authorization: Bearer …`) |
 

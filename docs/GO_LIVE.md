@@ -66,6 +66,30 @@ ollosoftwareio@gmail.com** — customers won't get them.
 
 Tell me the domain and I'll write the exact records into this file.
 
+## 3b. A shop's own web address (optional, per shop)
+
+A shop can book customers on its own domain (`book.theirshop.co.uk`) and send its emails from
+`bookings@theirshop.co.uk`, under the shop's name. It is one flow in Settings > Your web address: the shop
+types its domain, sees the DNS records to add where it bought the domain, and everything switches over by itself
+once those are found. Until then customers keep using the foliyo address, so nothing breaks in between.
+
+**Switching it on (platform):** set these in Vercel, then redeploy.
+
+| Variable | Value |
+|---|---|
+| `DOMAINS_VERCEL_TOKEN` | A Vercel token that can manage this project's domains |
+| `DOMAINS_VERCEL_PROJECT_ID` | The project id (or `VERCEL_PROJECT_ID`) |
+| `DOMAINS_VERCEL_TEAM_ID` | The team id, if the project belongs to a team |
+| `DOMAINS_RESEND_KEY` | A **full-access** Resend key. The send-only key used for `RESEND_API_KEY` cannot manage domains |
+
+**Per shop:** off until foliyo grants it: Admin > the shop > Features > `custom_domain` > Grant (or later, make it part of a plan or add-on by setting `in_plan`). Without the grant the shop sees a locked screen.
+
+**What happens automatically:** a 5-minute check (the same sweep that sends messages) re-reads both providers. When the web address and the email domain are each verified, that half switches on: the booking site is served on the domain, the foliyo address redirects customer pages there, and customer emails use the new links; when the email domain is verified, mail goes from `bookings@<domain>`. If Resend ever refuses that sender the email is sent from foliyo's address instead of being lost. Live domains are re-checked every few hours, so a removed DNS record falls back to the foliyo address.
+
+**Always on the foliyo address:** staff sign-in, the workspace and all staff links (`<slug>.foliyo.co.uk`). Customers' sign-in cookies belong to the domain they used, so customers who signed in on the old address sign in once on the new one.
+
+**Limits to know:** Vercel and Resend both cap the number of domains per plan; check them before granting many shops. Real DNS and provider verification cannot be tested locally: `tests/support/provider-stub.mjs` stands in for both providers (see the header of `tests/custom-domain.spec.ts`). Before the first real shop, test once with a domain you own.
+
 ## 4. ClickSend
 
 - Balance is £1.96 — about 40 texts. Top up at dashboard.clicksend.com → Billing before onboarding
@@ -119,16 +143,20 @@ reminders and the 07:00 summaries go out even on a quiet morning.
 - [ ] Fill `COMPANY` in `src/server/legal.ts`: registered company name + number, registered office, privacy mailbox (create `privacy@…`), ICO registration number.
 - [ ] **Register with the ICO** (data-protection fee, ~£40–60/yr for most small companies) — required for any UK company processing personal data.
 - [ ] Have a solicitor review `/legal/terms`, `/legal/privacy`, `/legal/dpa`, `/legal/cookies`. They are drafted to UK GDPR / DPA 2018 / PECR shape but are not legal advice. Bump `LEGAL_VERSIONS` when the wording changes — owners are re-asked on next sign-in.
-- [ ] Confirm each sub-processor's DPA is signed/accepted in its dashboard (Stripe, Supabase, Vercel, Resend, ClickSend, Infobip, ElevenLabs) — Schedule 1 of the DPA relies on them.
+- [ ] Confirm each sub-processor's DPA is signed/accepted in its dashboard (Stripe, Supabase, Vercel, Resend, Telnyx, ElevenLabs) — Schedule 1 of the DPA relies on them.
 - [ ] Decide a breach-response owner and write the runbook (who is told, within what time, by whom). Privacy Policy promises 72 h.
 
-## 7. WhatsApp (Infobip) — pending your account setup
+## 7. WhatsApp (Infobip): not used
 
-Credential received is an **Infobip** API key. Account: balance **€0.00**; only WhatsApp sender is
-Infobip's shared **test** number `+44 7860 088970` (keyword `OLLOSOFTWAREIO`, stock templates only).
-To go real:
-1. portal.infobip.com → Billing → add funds (WhatsApp ≈ €0.03–0.05 per UK conversation).
-2. Channels → WhatsApp → **Register sender**: a number not on personal WhatsApp (Infobip can sell a
-   virtual UK number), display name "foliyo", Meta Business verification (company docs; 1–5 days).
-3. Tell me the sender number; I submit foliyo's templates for approval via API and switch `INFOBIP_WA_SENDER`.
-Until then the app runs WhatsApp in "try it" mode against the test sender.
+WhatsApp is **retired**. We are not setting up an Infobip sender or Meta template approval, and
+there is nothing to do here. Customers are messaged by text and email. A customer record that still
+says WhatsApp as its preference falls back to text. `/api/health` shows `wa.provider: "mailbox"`,
+which is expected and sends nothing. The old code and `docs/WHATSAPP.md` are kept for reference only.
+
+## Status (2026-10-25)
+
+- [x] **Live messaging (read from `/api/health`):** email via Resend from `hello@foliyo.co.uk` (Resend DKIM, SPF and DMARC records are published for `foliyo.co.uk`); texts via **Telnyx** from `+447874483391` (this replaces the ClickSend setup described in sections 2 and 4). Check Telnyx balance and UK number approval in Mission Control.
+- [x] `CRON_SECRET` set: `/api/cron/messages` refuses unauthenticated calls; Vercel Cron runs it every 5 minutes.
+- [x] WhatsApp dropped (section 7).
+- [ ] Confirm in the Resend dashboard that `foliyo.co.uk` shows **Verified**; check `/api/health` shows `messaging.email.customer_ready: true` once PR #38 is deployed.
+- [ ] Consider tightening DMARC from `p=none` once real mail is arriving.

@@ -1,5 +1,6 @@
 import { OwnerInviteBanner } from "./OwnerInvite";
 import { ShopMarketing } from "./ShopMarketing";
+import { DomainPanel } from "./DomainPanel";
 import { cancelOptions } from "./cancelChoices";
 import {
   useEffect,
@@ -1389,7 +1390,7 @@ type Editor =
   | { kind: "holiday" }
   | { kind: "removeHoliday"; item: Holiday };
 
-type SettingsTabKey = "general" | "hours" | "calendar" | "booking" | "page" | "reviews" | "messages" | "waitlist" | "alerts" | "ai" | "payments" | "billing" | "team" | "security" | "audit";
+type SettingsTabKey = "general" | "hours" | "calendar" | "booking" | "domain" | "page" | "reviews" | "messages" | "waitlist" | "alerts" | "ai" | "payments" | "billing" | "team" | "security" | "audit";
 type SettingsGroup = "Business" | "Bookings" | "Website" | "Customers" | "Team" | "Account";
 // Settings information architecture. Six groups, each a short list of focused tabs; every shop
 // field in the schema is reachable from exactly one place here.
@@ -1398,6 +1399,7 @@ const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: s
   { key: "hours", label: "Hours & closures", hint: "Opening times, holidays", icon: "clock", group: "Business" },
   { key: "calendar", label: "Diary & policies", hint: "Deposits, notice, density", icon: "calendar", group: "Business" },
   { key: "booking", label: "Online booking", hint: "Link, window, terms", icon: "globe", group: "Bookings" },
+  { key: "domain", label: "Your web address", hint: "Your own domain, emails from it", icon: "globe", group: "Website", owner: true },
   { key: "waitlist", label: "Waiting list", hint: "Optional · freed slots, who gets told", icon: "bell", group: "Bookings" },
   { key: "payments", label: "Payments & deposits", hint: "Cards, payouts, pay runs", icon: "card", group: "Bookings" },
   { key: "page", label: "Design & content", hint: "Logo, colours, sections", icon: "image", group: "Website" },
@@ -3207,6 +3209,12 @@ export function Workspace() {
                         <CustomerPagesPanel w={w} onOpenBooking={openBooking} />
                       </>
                     )}
+                    {settingsTab === "domain" && (
+                      <>
+                        <header className="settings-head"><h2>Your web address</h2><p>Let customers book on your own domain, and send their emails from it.</p></header>
+                        <DomainPanel api={api} isOwner={!w.account || w.account.role === "OWNER"} />
+                      </>
+                    )}
                     {settingsTab === "page" && (
                       <>
                         <header className="settings-head"><h2>Shop page</h2><p>How your business looks to the public: photos, theme and content, with a live preview.</p></header>
@@ -4720,7 +4728,7 @@ function AlertsPanel({ smsLive }: { smsLive: boolean }) {
     </form>
   );
 }
-type Providers = { email: { provider: "resend" | "mailbox"; from: string }; sms: { provider: "telnyx" | "twilio" | "clicksend" | "mailbox"; from: string }; wa?: { provider: "infobip" | "mailbox"; sender: string; test_sender: boolean; keyword: string } };
+type Providers = { email: { provider: "resend" | "mailbox"; from: string; customer_ready?: boolean; warning?: string }; sms: { provider: "telnyx" | "twilio" | "clicksend" | "mailbox"; from: string }; wa?: { provider: "infobip" | "mailbox"; sender: string; test_sender: boolean; keyword: string } };
 type Messaging = { customer_code_signin?: number; msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reminder_steps?: string; msg_quiet_on?: number; msg_quiet_start?: number; msg_quiet_end?: number; msg_reply_to: string; msg_sms_sender: string };
 const CHANNEL_LABEL: Record<string, string> = { SMS: "Text", EMAIL: "Email", WA: "WhatsApp (retired)", PUSH: "Push" };
 type OutboxData = {
@@ -4811,7 +4819,9 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
   const fmtWhen = (ms: number) => new Date(ms).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: w.shop.timezone || "Europe/London" });
   const tone: Record<string, "good" | "next" | "paid" | "warn" | "note"> = { SENT: "good", QUEUED: "next", SENDING: "next", FAILED: "warn", SKIPPED: "note" };
   const smsLive = data ? data.providers.sms.provider !== "mailbox" : false;
-  const live = data ? data.providers.email.provider === "resend" || smsLive : false;
+  const emailLive = data ? data.providers.email.provider === "resend" && data.providers.email.customer_ready !== false : false;
+  const emailBlocked = data ? data.providers.email.provider === "resend" && data.providers.email.customer_ready === false : false;
+  const live = data ? emailLive || smsLive : false;
   const c30 = data?.counts_30d || {};
   return (
     <section className="workspace-panel" aria-labelledby="waitlist-settings-heading" data-testid="waitlist-settings">
@@ -4823,10 +4833,15 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
         </div>
         {data && (
           <StatusPill tone={live ? "good" : "note"} data-testid="messaging-status">
-            {live ? `Live · ${[data.providers.email.provider === "resend" && "email", smsLive && "SMS"].filter(Boolean).join(" + ")}` : "Preview mode · nothing is sent"}
+            {live ? `Live · ${[emailLive && "email", smsLive && "SMS"].filter(Boolean).join(" + ")}` : "Preview mode · nothing is sent"}
           </StatusPill>
         )}
       </div>
+      )}
+      {show === "messages" && data && emailBlocked && (
+        <p className="workspace-footnote" role="alert" data-testid="messaging-email-blocked">
+          Email is connected but not set up to reach customers yet. {data.providers.email.warning} Texts are unaffected.
+        </p>
       )}
       {show === "messages" && data && !live && (
         <p className="workspace-footnote" data-testid="messaging-preview-note">
@@ -5803,6 +5818,7 @@ type CustomerRow = {
   preferred_staff_id: string | null;
   birthday: string | null;
   marketing_opt_in: number;
+  marketing_locked?: number | boolean;
   version: number;
   created_at: number;
   visits: number;
@@ -6272,10 +6288,15 @@ function CustomerForm({
                 ))}
               </select>
             </Field>
-            <label className="customer-check">
-              <input type="checkbox" name="marketing_opt_in" defaultChecked={!!customer?.marketing_opt_in} />
-              Happy to receive shop news (record only; nothing is sent)
+            <label className="customer-check" data-testid="customer-marketing">
+              <input type="checkbox" name="marketing_opt_in" defaultChecked={!!customer?.marketing_opt_in} disabled={!!customer?.marketing_locked && !customer?.marketing_opt_in} />
+              This customer has agreed to offers and news from the shop
             </label>
+            <p className="muted" data-testid="customer-marketing-note">
+              {customer?.marketing_locked && !customer?.marketing_opt_in
+                ? "They have opted out or manage this themselves in the app, so only they can switch it back on."
+                : "Untick any time to stop marketing to them. Once someone has opted out, only they can opt back in."}
+            </p>
           </div>
         )}
         {(notesOnly || !customer) && (

@@ -342,7 +342,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
                 )}
                 <label className="ca-check">
                   <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} data-testid="register-marketing" />
-                  <span>Send me offers and news from {shopName || "the shop"}</span>
+                  <span>Send me offers and news from {shopName || "the shop"} (optional, you can change this any time)</span>
                 </label>
                 {terms && (
                   <label className="ca-check" data-testid="register-terms">
@@ -432,7 +432,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
                 )}
                 <label className="ca-check">
                   <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} />
-                  <span>Send me offers and news from {shopName || "the shop"}</span>
+                  <span>Send me offers and news from {shopName || "the shop"} (optional, you can change this any time)</span>
                 </label>
                 {terms && (
                   <label className="ca-check">
@@ -984,6 +984,7 @@ function ProfileForm({ me, A, onSaved, onDeleted }: { me: Me; A: string; onSaved
             <input type="checkbox" checked={!!form.marketing_opt_in} onChange={(e) => set("marketing_opt_in", e.target.checked ? 1 : 0)} data-testid="profile-marketing" />
             <span>Send me offers and news from {me.shop.name}</span>
           </label>
+          <small className="ca-hint" data-testid="profile-marketing-hint">Optional, and you are in control: untick this and save, and {me.shop.name} will not send you offers or news. You can switch it back on whenever you like. Reminders for your appointments are separate.</small>
           <small className="ca-hint">Booking confirmations and reminders always come by email to {form.email || p.email || "your email"}. Notifications on this device are under Your app.</small>
         </fieldset>
         {error && (
