@@ -70,11 +70,12 @@ import {
   type Shop,
   type Staff,
   type Service,
+  type ServiceCategory,
   type Hours,
   type StoredBooking,
   type Holiday,
   type AuditEvent,
- shopBuffer, colourSchema, imageRef } from "./domain";
+ shopBuffer, colourSchema, imageRef, isOffered, offers, categorySchema } from "./domain";
 
 import { slotFreed, makeOffer, matchesFor, rangeDates, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { logoTone, optimiseImage } from "./images";
@@ -318,7 +319,7 @@ sandbox.use("*", async (c, next) => {
       (["GET", "POST", "PUT"].includes(method) && path.startsWith("/billing")) ||
       (method === "DELETE" && /^\/media\/[^/]+$/.test(path)) ||
       (["POST", "PUT", "DELETE"].includes(method) &&
-        /^\/(staff|services|addons|holidays|service-rules|pay-runs)(\/|$)/.test(path));
+        /^\/(staff|services|service-categories|addons|holidays|service-rules|pay-runs)(\/|$)/.test(path));
     // Feature permissions: the same screens for everyone, with these switched per account.
     const needs = featureFor(method, path);
     if (needs && !can(account, needs)) fail(403, "Your account does not have access to this feature");
@@ -687,6 +688,7 @@ sandbox.get("/workspace", async (c) => {
     ),
     c.env.DB.prepare("SELECT logo_url, logo_tone FROM shop_pages WHERE shop_id=?").bind(sid),
     scoped("SELECT * FROM staff_blocks WHERE shop_id=? AND (? IS NULL OR staff_id=?) AND date>=? ORDER BY date,start_min", [shopToday(shop.timezone)]),
+    c.env.DB.prepare("SELECT * FROM service_categories WHERE shop_id=? ORDER BY sort_order,name").bind(sid),
   ]);
   const staff = result[0].results as Staff[];
   const services = result[1].results as Service[];
@@ -709,12 +711,7 @@ sandbox.get("/workspace", async (c) => {
         !["CANCELLED", "NO_SHOW", "COMPLETED"].includes(b.status),
     )
     .flatMap((b) => {
-      const reason = rules.some(
-        (r) =>
-          r.staff_id === b.staff_id &&
-          r.service_id === b.service_id &&
-          !r.enabled,
-      )
+      const reason = !offers(rules, b.staff_id, b.service_id)
         ? "Barber no longer offers this service"
         : slotReason(
             shop,
@@ -763,6 +760,7 @@ sandbox.get("/workspace", async (c) => {
     addons: result[7].results as Addon[],
     addon_links: result[8].results as AddonLink[],
     service_rules: rules,
+    service_categories: (result[13]?.results ?? []) as ServiceCategory[],
     schedule_overrides: overrides,
     today: shopToday(shop.timezone),
     now: Date.now(),
@@ -1466,6 +1464,13 @@ const requireRole = (c: Ctx, roles: string[]) => {
   const a = c.get("account");
   if (a && !roles.includes(a.role)) fail(403, "Owner or manager required");
 };
+// Working hours, days off, dated hours and shop closures are set by owners and managers (or a
+// teammate the owner trusted with "setup"). A barber sees their own hours but cannot change them.
+function requireScheduleManager(c: Ctx) {
+  const a = c.get("account");
+  if (a && !["OWNER", "MANAGER"].includes(a.role) && !a.perms?.setup)
+    fail(403, "Working hours are set by the owner or a manager");
+}
 // WhatsApp replies from customers (matched to this shop by the last message we sent them).
 sandbox.get("/notifications/inbound", async (c) => {
   const rows = await c.env.DB.prepare(
@@ -2057,7 +2062,7 @@ sandbox.post("/staff", async (c) => {
     return fail(403, "An individual account is just you. Switch to a business account to add more barbers.");
   const writes = [
     c.env.DB.prepare(
-      "INSERT INTO staff(id,shop_id,name,role,active,title,bio,colour,photo_url,online_visible,skills,instagram,start_date,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO staff(id,shop_id,name,role,active,title,bio,colour,photo_url,online_visible,skills,instagram,start_date,sort_order,follows_shop_hours) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)",
     ).bind(staffId, sid, b.name, b.role, b.active, b.title, b.bio, b.colour, b.photo_url, b.online_visible, JSON.stringify(b.skills), b.instagram.replace(/^@/, ""), b.start_date || null, b.sort_order),
   ];
   for (let day = 0; day < 7; day++)
@@ -2179,8 +2184,8 @@ sandbox.put("/staff/:id/hours", async (c) => {
   const staffId = c.req.param("id");
   const writes = [
     c.env.DB.prepare(
-      "UPDATE staff SET version=version+1 WHERE shop_id=? AND id=? AND version=?",
-    ).bind(sid, staffId, b.version),
+      "UPDATE staff SET version=version+1, follows_shop_hours=? WHERE shop_id=? AND id=? AND version=?",
+    ).bind(b.follow ? 1 : 0, sid, staffId, b.version),
   ];
   // Conditional UPSERTs all use the new version plus an operation-specific audit row as the guard.
   const operation = id();
@@ -2218,6 +2223,27 @@ sandbox.put("/staff/:id/hours", async (c) => {
   const result = await c.env.DB.batch(writes);
   if (!result[0].meta.changes) fail(409, "record_changed");
   return c.json({ ok: true });
+});
+// After the shop's opening hours change: copy them onto every barber who follows the shop's hours
+// (new barbers do, until someone gives them their own). Shift times only; each barber's break stays.
+// Appointments left outside the new hours are flagged for review by the workspace, never cancelled.
+sandbox.post("/staff/follow-shop-hours/apply", async (c) => {
+  requireScheduleManager(c);
+  const sid = c.get("shopId");
+  const shop = await readShop(c);
+  const rows = (await c.env.DB.prepare("SELECT id FROM staff WHERE shop_id=? AND active=1 AND follows_shop_hours=1").bind(sid).all<{ id: string }>()).results;
+  const writes: D1PreparedStatement[] = [];
+  for (const s of rows)
+    for (let day = 0; day < 7; day++) {
+      const d = shopDay(shop, day);
+      writes.push(
+        c.env.DB.prepare(
+          "UPDATE staff_hours SET enabled=?,starts=?,ends=?,break_start=CASE WHEN break_end>break_start AND break_start>=? AND break_end<=? THEN break_start ELSE ? END,break_end=CASE WHEN break_end>break_start AND break_start>=? AND break_end<=? THEN break_end ELSE ? END WHERE shop_id=? AND staff_id=? AND weekday=?",
+        ).bind(d.enabled, d.starts, d.ends, d.starts, d.ends, d.starts, d.starts, d.ends, d.starts, sid, s.id, day),
+      );
+    }
+  if (writes.length) await c.env.DB.batch([...writes, audit(c, "shop", sid, "HOURS_APPLIED_TO_TEAM", `Shop opening hours applied to ${rows.length} barber${rows.length === 1 ? "" : "s"} who follow them.`)]);
+  return c.json({ ok: true, applied: rows.length });
 });
 // The dates a day-off entry covers. A single date is always recorded; for a run of days only the
 // days the barber would normally work count (so a week's holiday uses 5 days, not 7), skipping
@@ -2318,7 +2344,7 @@ sandbox.post("/staff/:id/blocks/preview", async (c) => {
       const date = datePlusServer(b.date, dayOffset);
       for (const s of staffRows) {
         const data = await availabilityContext(c, s.id, a.service_id, date).catch(() => null);
-        if (!data || data.rule?.enabled === 0) continue;
+        if (!data || !isOffered(data.rule)) continue;
         const blocks = s.id === staffId ? [...data.blocks, { staff_id: staffId, date: b.date, start_min: b.start_min, end_min: b.end_min }] : data.blocks;
         for (let m = dayOffset === 0 ? a.start_min : Math.max(data.shop.opens, 0); m < 1440; m += 15) {
           if (!slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, date, m, a.duration_min, Date.now(), a.id, data.daysOff, blocks)) {
@@ -2425,10 +2451,16 @@ sandbox.delete("/staff/:id/days-off/:leaveId", async (c) => {
   return c.json({ ok: true });
 });
 
+// A category row for this name, created at the end of the list when it does not exist yet.
+const ensureCategory = (c: Ctx, name: string) =>
+  c.env.DB.prepare(
+    "INSERT INTO service_categories(id,shop_id,name,sort_order) SELECT ?,?,?,COALESCE(MAX(sort_order)+1,0) FROM service_categories WHERE shop_id=? ON CONFLICT (shop_id,name) DO NOTHING",
+  ).bind(id(), c.get("shopId"), name, c.get("shopId"));
 sandbox.post("/services", async (c) => {
   const b = await input(c, serviceSchema);
   const serviceId = id();
   await c.env.DB.batch([
+    ensureCategory(c, b.category),
     c.env.DB.prepare(
       "INSERT INTO services(id,shop_id,name,category,duration_min,price_pence,active,description,colour,online_bookable,popular,sort_order,payment_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
     ).bind(
@@ -2459,15 +2491,67 @@ sandbox.post("/services/categories/rename", async (c) => {
   );
   if (b.from === b.to) return c.json({ ok: true, renamed: 0 });
   const sid = c.get("shopId");
+  const clash = await c.env.DB.prepare("SELECT 1 AS x FROM service_categories WHERE shop_id=? AND lower(name)=lower(?) AND name<>?").bind(sid, b.to, b.from).first();
+  if (clash) fail(409, "You already have a category with that name");
   const r = await c.env.DB.batch([
     c.env.DB.prepare("UPDATE services SET category=?, version=version+1 WHERE shop_id=? AND category=?").bind(b.to, sid, b.from),
-    audit(c, "service", sid, "CATEGORY_RENAMED", `"${b.from}" → "${b.to}"`, true),
+    c.env.DB.prepare("UPDATE service_categories SET name=? WHERE shop_id=? AND name=?").bind(b.to, sid, b.from),
+    audit(c, "service", sid, "CATEGORY_RENAMED", `"${b.from}" → "${b.to}"`),
   ]);
   return c.json({ ok: true, renamed: r[0].meta.changes ?? 0 });
+});
+// Categories are real records: they have an order and can exist before any service is in them.
+sandbox.post("/service-categories", async (c) => {
+  const b = await input(c, categorySchema);
+  const sid = c.get("shopId");
+  if (await c.env.DB.prepare("SELECT 1 AS x FROM service_categories WHERE shop_id=? AND lower(name)=lower(?)").bind(sid, b.name).first())
+    fail(409, "You already have a category with that name");
+  const catId = id();
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO service_categories(id,shop_id,name,description,sort_order) SELECT ?,?,?,?,COALESCE(MAX(sort_order)+1,0) FROM service_categories WHERE shop_id=?").bind(catId, sid, b.name, b.description, sid),
+    audit(c, "service", sid, "CATEGORY_CREATED", b.name),
+  ]);
+  return c.json({ id: catId }, 201);
+});
+sandbox.put("/service-categories/order", async (c) => {
+  const b = await input(c, z.object({ ids: z.array(z.string().uuid()).min(1).max(100) }).strict());
+  const sid = c.get("shopId");
+  await c.env.DB.batch([
+    ...b.ids.map((cid, i) => c.env.DB.prepare("UPDATE service_categories SET sort_order=? WHERE shop_id=? AND id=?").bind(i, sid, cid)),
+    audit(c, "service", sid, "CATEGORIES_REORDERED", `${b.ids.length} categories`),
+  ]);
+  return c.json({ ok: true });
+});
+sandbox.put("/service-categories/:id", async (c) => {
+  const b = await input(c, categorySchema);
+  const sid = c.get("shopId");
+  const cur = await c.env.DB.prepare("SELECT * FROM service_categories WHERE shop_id=? AND id=?").bind(sid, c.req.param("id")).first<ServiceCategory>();
+  if (!cur) fail(404, "Category not found");
+  if (cur!.name !== b.name && (await c.env.DB.prepare("SELECT 1 AS x FROM service_categories WHERE shop_id=? AND lower(name)=lower(?) AND id<>?").bind(sid, b.name, cur!.id).first()))
+    fail(409, "You already have a category with that name");
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE services SET category=?, version=version+1 WHERE shop_id=? AND category=?").bind(b.name, sid, cur!.name),
+    c.env.DB.prepare("UPDATE service_categories SET name=?, description=? WHERE shop_id=? AND id=?").bind(b.name, b.description, sid, cur!.id),
+    audit(c, "service", sid, "CATEGORY_UPDATED", `"${cur!.name}" → "${b.name}"`),
+  ]);
+  return c.json({ ok: true });
+});
+sandbox.delete("/service-categories/:id", async (c) => {
+  const sid = c.get("shopId");
+  const cur = await c.env.DB.prepare("SELECT * FROM service_categories WHERE shop_id=? AND id=?").bind(sid, c.req.param("id")).first<ServiceCategory>();
+  if (!cur) fail(404, "Category not found");
+  const n = await c.env.DB.prepare("SELECT COUNT(*)::int AS n FROM services WHERE shop_id=? AND category=?").bind(sid, cur!.name).first<{ n: number }>();
+  if (n && n.n > 0) fail(409, "Move or delete the services in this category first");
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM service_categories WHERE shop_id=? AND id=?").bind(sid, cur!.id),
+    audit(c, "service", sid, "CATEGORY_DELETED", cur!.name),
+  ]);
+  return c.json({ ok: true });
 });
 sandbox.put("/services/:id", async (c) => {
   const b = await input(c, serviceSchema);
   if (b.version === undefined) fail(400, "version is required");
+  await ensureCategory(c, b.category).run();
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
@@ -2569,7 +2653,8 @@ async function saveAddon(c: Ctx, addonId: string, editing: boolean) {
 sandbox.post("/addons", (c) => saveAddon(c, id(), false));
 sandbox.put("/addons/:id", (c) => saveAddon(c, c.req.param("id"), true));
 // Service studio matrix: save every barber's rule for a service (or every service for a barber) at once.
-// Rules with no override and enabled=1 are removed (back to shop default).
+// A barber offers a service only when ticked: a rule that is "off" is simply removed (same as never
+// ticked); "on" rows are kept, with an optional fixed price (and time) for that barber.
 sandbox.put("/service-rules", async (c) => {
   const b = await input(c, ruleMatrixSchema);
   const sid = c.get("shopId");
@@ -2580,7 +2665,7 @@ sandbox.put("/service-rules", async (c) => {
   await validateServiceLinks(c, serviceIds);
   const statements: D1PreparedStatement[] = [];
   for (const r of b.rules) {
-    const isDefault = r.enabled === 1 && r.price_pence === null && r.duration_min === null;
+    const isDefault = r.enabled !== 1;
     statements.push(
       isDefault
         ? c.env.DB.prepare("DELETE FROM staff_service_rules WHERE shop_id=? AND staff_id=? AND service_id=?").bind(sid, r.staff_id, r.service_id)
@@ -2777,16 +2862,16 @@ sandbox.put("/billing/contact", async (c) => {
 // carry out the per-appointment decisions (move / keep / cancel / waitlist / later) in one go.
 sandbox.post("/schedule/preview", async (c) => {
   const change = await input(c, changeSchema);
-  if ("staff_id" in change) { scopeStaff(c, change.staff_id); await requireStaff(c, change.staff_id); }
-  else requireRole(c, ["OWNER", "MANAGER"]);
+  requireScheduleManager(c);
+  if ("staff_id" in change) await requireStaff(c, change.staff_id);
   const shop = await readShop(c);
   return c.json(await previewChange(c.env.DB, shop, shopToday(shop.timezone), change));
 });
 sandbox.post("/schedule/apply", async (c) => {
   const body = await input(c, z.object({ change: changeSchema, decisions: z.array(decisionSchema).max(200).default([]) }).strict());
   const change = body.change;
-  if ("staff_id" in change) { scopeStaff(c, change.staff_id); await requireStaff(c, change.staff_id); }
-  else requireRole(c, ["OWNER", "MANAGER"]);
+  requireScheduleManager(c);
+  if ("staff_id" in change) await requireStaff(c, change.staff_id);
   const sid = c.get("shopId");
   const shop = await readShop(c);
   const staffName = "staff_id" in change ? (await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(sid, change.staff_id).first<{ name: string }>())?.name : undefined;
@@ -2803,7 +2888,7 @@ sandbox.post("/schedule/apply", async (c) => {
     await checkVersionUpdate(c, write, audit(c, "schedule_override", changeId, change.override_id ? "DATED_HOURS_UPDATED" : "DATED_HOURS_CREATED", `${b.date}: ${b.reason}. ${body.decisions.length} appointment decision(s) applied.`, true));
   } else if (change.kind === "weekly") {
     const b = change.change;
-    const writes = [c.env.DB.prepare("UPDATE staff SET version=version+1 WHERE shop_id=? AND id=? AND version=?").bind(sid, change.staff_id, b.version)];
+    const writes = [c.env.DB.prepare("UPDATE staff SET version=version+1, follows_shop_hours=? WHERE shop_id=? AND id=? AND version=?").bind(b.follow ? 1 : 0, sid, change.staff_id, b.version)];
     const operation = id();
     writes.push(c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) SELECT ?,?,?,?,?,?,?,? WHERE changes()>0").bind(operation, sid, "staff", change.staff_id, "HOURS_UPDATED", c.get("actor"), `Weekly hours changed; ${body.decisions.length} appointment decision(s) applied.`, Date.now()));
     for (const row of b.rows) writes.push(c.env.DB.prepare("UPDATE staff_hours SET enabled=?,starts=?,ends=?,break_start=?,break_end=? WHERE shop_id=? AND staff_id=? AND weekday=? AND EXISTS(SELECT 1 FROM audit_events WHERE id=? AND shop_id=?)").bind(row.enabled, row.starts, row.ends, row.break_start, row.break_end, sid, change.staff_id, row.weekday, operation, sid));
@@ -2952,7 +3037,7 @@ sandbox.get("/availability", async (c) => {
   const booking = p.booking_id ? await readBooking(c, p.booking_id) : null;
   if (booking && booking.service_id !== p.service_id)
     fail(400, "Rescheduling must use the original service");
-  if (data.rule?.enabled === 0) fail(409, "service_ineligible");
+  if (!isOffered(data.rule)) fail(409, "service_ineligible");
   const quote = booking
     ? {
         items: JSON.parse(booking.items_json) as BookingItem[],
@@ -3230,7 +3315,7 @@ sandbox.patch("/bookings/:id/items", async (c) => {
   if (paid) fail(409, "This visit has been paid; adjust it as a refund instead");
   const data = await availabilityContext(c, b.staff_id, body.service_id, b.date);
   if (!data.service.active) fail(409, "service_unavailable");
-  if (data.rule?.enabled === 0) fail(409, "service_ineligible");
+  if (!isOffered(data.rule)) fail(409, "service_ineligible");
   const quote = calculateQuote(data.service, data.rule, data.addons, data.links, body.addon_ids);
   const items: BookingItem[] = quote.items.map((it, i) => {
     if (i === 0)
@@ -3866,7 +3951,7 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     b.service_id,
     body.date,
   );
-  if (data.rule?.enabled === 0) fail(409, "service_ineligible");
+  if (!isOffered(data.rule)) fail(409, "service_ineligible");
   const reason = slotReason(
     data.shop,
     data.staff,
@@ -4071,7 +4156,7 @@ sandbox.post("/series/:id/reschedule", async (c) => {
     const date = d.toISOString().slice(0, 10);
     try {
       const data = await availabilityContext(c, body.staff_id, b.service_id, date);
-      if (data.rule?.enabled === 0) throw new Error("service_ineligible");
+      if (!isOffered(data.rule)) throw new Error("service_ineligible");
       const reason = slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, date, body.start_min, b.duration_min, Date.now(), b.id, data.daysOff, data.blocks);
       if (reason) throw new Error(reason);
       const start = localInstant(date, body.start_min, data.shop.timezone)!;

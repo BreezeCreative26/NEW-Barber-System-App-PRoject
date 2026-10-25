@@ -1,3 +1,4 @@
+import { offersService } from "./offers";
 import { OwnerInviteBanner } from "./OwnerInvite";
 import { ShopMarketing } from "./ShopMarketing";
 import { DomainPanel } from "./DomainPanel";
@@ -1175,7 +1176,7 @@ function WalkInForm({ w, saved, staffId }: { w: WorkspaceData; saved: EditorProp
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [okMsg, setOkMsg] = useState("");
-  const offered = (sid: string, svc: string) => !w.service_rules.some((r) => r.staff_id === sid && r.service_id === svc && !r.enabled);
+  const offered = (sid: string, svc: string) => offersService(w.service_rules, sid, svc);
   useEffect(() => {
     if (!staff || !service) {
       setSlots(null);
@@ -2738,9 +2739,9 @@ export function Workspace() {
                                 {list.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                               </select>
                             </label>
-                            <button type="button" role="menuitem" onClick={() => act("hours")}><Icon name="clock" size={14} /> Edit today's hours</button>
+                            {manager && <button type="button" role="menuitem" onClick={() => act("hours")}><Icon name="clock" size={14} /> Edit today's hours</button>}
                             <button type="button" role="menuitem" disabled={date < w.today} onClick={() => act("block")}><Icon name="blocked" size={14} /> Block time…</button>
-                            <button type="button" role="menuitem" onClick={() => act("dayOff")}><Icon name="sun" size={14} /> Day off</button>
+                            {manager && <button type="button" role="menuitem" onClick={() => act("dayOff")}><Icon name="sun" size={14} /> Day off</button>}
                           </div>
                         );
                       })()}
@@ -2936,6 +2937,7 @@ export function Workspace() {
                           }}
                           team={barber ? undefined : new Set(team[date] ?? [])}
                           columnMenu={false}
+                          canSetHours={manager}
                           onAction={(action, staffMember, at) => {
                             if (action === "hours") setEditor({ kind: "override", item: staffMember, override: w.schedule_overrides.find((o) => o.staff_id === staffMember.id && o.date === date) });
                             else if (action === "block") setEditor({ kind: "block", item: staffMember, at });
@@ -7590,18 +7592,12 @@ function BookingForm({
             (s) =>
               s.id === rebook.service_id &&
               s.active &&
-              !w.service_rules.some(
-                (r) =>
-                  r.staff_id === staff && r.service_id === s.id && !r.enabled,
-              ),
+              offersService(w.service_rules, staff, s.id),
           )?.id || ""
         : w.services.find(
             (s) =>
               s.active &&
-              !w.service_rules.some(
-                (r) =>
-                  r.staff_id === staff && r.service_id === s.id && !r.enabled,
-              ),
+              offersService(w.service_rules, staff, s.id),
           )?.id || ""),
   );
   const [addonIds, setAddonIds] = useState<string[]>([]);
@@ -7961,20 +7957,10 @@ function BookingForm({
                     <option
                       key={s.id}
                       value={s.id}
-                      disabled={w.service_rules.some(
-                        (r) =>
-                          r.staff_id === staff &&
-                          r.service_id === s.id &&
-                          !r.enabled,
-                      )}
+                      disabled={!offersService(w.service_rules, staff, s.id)}
                     >
                       {s.name}
-                      {w.service_rules.some(
-                        (r) =>
-                          r.staff_id === staff &&
-                          r.service_id === s.id &&
-                          !r.enabled,
-                      )
+                      {!offersService(w.service_rules, staff, s.id)
                         ? " (not offered)"
                         : ""}
                     </option>

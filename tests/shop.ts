@@ -37,6 +37,15 @@ export async function signup(r: APIRequestContext, name = "API test shop", addre
   return { email: address, shop_id: (await res.json()).shop_id as string };
 }
 
+// A barber offers a service only once it is ticked. Fixtures tick every barber x service pair.
+export async function offerEverything(r: APIRequestContext, headers: Record<string, string> = {}) {
+  const w = await (await r.get(base + "/workspace")).json();
+  const rules = (w.staff as { id: string; active: number }[]).filter((s) => s.active).flatMap((s) =>
+    (w.services as { id: string; active: number }[]).filter((x) => x.active).map((x) => ({ staff_id: s.id, service_id: x.id, enabled: 1, price_pence: null, duration_min: null })));
+  const res = await r.put(base + "/service-rules", { headers, data: { rules } });
+  expect(res.status(), await res.text()).toBe(200);
+}
+
 export async function seedCatalogue(r: APIRequestContext) {
   const w = await (await r.get(base + "/workspace")).json();
   // Signup created one barber profile named after the owner; rename it to the classic first
@@ -57,6 +66,7 @@ export async function seedCatalogue(r: APIRequestContext) {
     expect(res.status(), await res.text()).toBe(201);
   }
   await setFixtureHours(r);
+  await offerEverything(r);
 }
 
 // One call: new context (same-origin header), signup, seeded catalogue.
@@ -87,6 +97,7 @@ export async function enterNewShop(page: Page, name = "UI test shop") {
   ])
     expect((await r.post(base + "/services", { headers: { Origin: origin }, data: { ...s, category: "Hair" } })).status()).toBe(201);
   await setFixtureHours(r, { Origin: origin });
+  await offerEverything(r, { Origin: origin });
   await page.goto("/workspace");
   await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
 }

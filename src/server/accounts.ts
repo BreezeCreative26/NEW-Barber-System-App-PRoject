@@ -445,7 +445,7 @@ accounts.post("/signup", async (c) => {
     c.env.DB.prepare("INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?)").bind(shop, user),
     // A business shop starts with the free shop login only: no barber profile and no seat. The owner
     // and barbers are invited afterwards like any team member. An individual is the one barber.
-    ...(business ? [] : [c.env.DB.prepare("INSERT INTO staff(id,shop_id,name,role,title,start_date) VALUES(?,?,?,?,?,?)").bind(staffId, shop, loginName, "Owner", "Owner & barber", new Date(now).toISOString().slice(0, 10))]),
+    ...(business ? [] : [c.env.DB.prepare("INSERT INTO staff(id,shop_id,name,role,title,start_date,follows_shop_hours) VALUES(?,?,?,?,?,?,1)").bind(staffId, shop, loginName, "Owner", "Owner & barber", new Date(now).toISOString().slice(0, 10))]),
     // The owner's barber profile is not bound to the membership: owners see the whole shop, and a
     // bound profile would block inviting someone else onto it. Linking comes with "my day" later.
     c.env.DB.prepare("INSERT INTO app_memberships(id,shop_id,user_id,role) VALUES(?,?,?,?)").bind(membership, shop, user, business ? "SHOP" : "OWNER"),

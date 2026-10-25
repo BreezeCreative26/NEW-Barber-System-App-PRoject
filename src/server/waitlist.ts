@@ -148,7 +148,7 @@ export async function matchesFor(c: Ctx, shop: Shop & ShopQueueSettings, entry0:
   if (!service) return [];
   const rules = r[7].results as StaffServiceRule[];
   const pending = new Set((r[10].results as { staff_id: string; start_min: number }[]).map((o) => `${o.staff_id}:${o.start_min}`));
-  const staff = (r[0].results as Staff[]).filter((s) => (!entry.staff_id || s.id === entry.staff_id) && rules.find((x) => x.staff_id === s.id)?.enabled !== 0);
+  const staff = (r[0].results as Staff[]).filter((s) => (!entry.staff_id || s.id === entry.staff_id) && rules.find((x) => x.staff_id === s.id)?.enabled === 1);
   const minStart = now + shop.lead_time_min * 60000;
   const out: { staff_id: string; staff_name: string; start_min: number; price_pence: number; duration_min: number }[] = [];
   for (const st of staff) {

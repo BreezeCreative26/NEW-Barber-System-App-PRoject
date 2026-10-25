@@ -3,6 +3,7 @@
 // bio, Instagram, skills — what customers see) → Your week (hours + services the owner set, read
 // only, with "ask the owner" pointers) → Get the app (add to home screen). Finishing stamps
 // app_memberships.onboarded_at so it never shows again; "Skip" does the same.
+import { offersService } from "./offers";
 import { useEffect, useMemo, useState } from "react";
 import type { WorkspaceData } from "../server/domain";
 import { Avatar, Button, Icon } from "./ui";
@@ -44,7 +45,7 @@ export function StaffOnboarding({ w, api, refresh, onDone, logoUrl }: { w: Works
   useEffect(() => { window.scrollTo({ top: 0 }); }, [step]);
 
   const myHours = useMemo(() => w.hours.filter((h) => h.staff_id === account.staff_id), [w.hours, account.staff_id]);
-  const myServices = useMemo(() => w.services.filter((s) => s.active && !w.service_rules.some((r) => r.staff_id === account.staff_id && r.service_id === s.id && !r.enabled)), [w.services, w.service_rules, account.staff_id]);
+  const myServices = useMemo(() => w.services.filter((s) => s.active && offersService(w.service_rules, account.staff_id as string, s.id)), [w.services, w.service_rules, account.staff_id]);
 
   async function run(fn: () => Promise<void>) {
     setBusy(true); setError("");

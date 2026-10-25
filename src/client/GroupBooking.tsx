@@ -1,6 +1,7 @@
 // Group booking: two to four people booked together on one day — "together" (same start, one barber
 // each) or "back to back" (one barber, one after another). Every member becomes an ordinary visit
 // under the same guards; partial failures are shown honestly.
+import { offersService } from "./offers";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { PublicShop, BookingCustomer } from "./PublicBooking";
 import { Avatar, Button, Icon, Notice } from "./ui";
@@ -48,7 +49,7 @@ export function GroupBooking({ shop, slug, customer, onExit }: { shop: PublicSho
   const request = useRef({ key: crypto.randomUUID(), payload: "" });
   const heading = useRef<HTMLHeadingElement>(null);
 
-  const eligible = (staffId: string, serviceId: string) => !shop.service_rules.some((r) => r.staff_id === staffId && r.service_id === serviceId && !r.enabled);
+  const eligible = (staffId: string, serviceId: string) => offersService(shop.service_rules, staffId, serviceId);
   const barbersFor = (serviceId: string) => shop.staff.filter((s) => eligible(s.id, serviceId));
   const key = members.map((m) => `${m.service}:${m.staff}:${[...m.addons].sort().join(",")}`).join(";");
   useEffect(() => {

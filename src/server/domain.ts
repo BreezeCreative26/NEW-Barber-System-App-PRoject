@@ -205,7 +205,10 @@ export type Staff = {
   employment: "SELF_EMPLOYED" | "EMPLOYED";
   pay_notes: string;
   deductions_json?: string;
+  /** 1 = this barber works the shop's opening hours; a change to those hours can be applied to them in one go. */
+  follows_shop_hours?: number;
 };
+export type ServiceCategory = { id: string; shop_id: string; name: string; description: string; sort_order: number };
 export type Service = {
   id: string;
   shop_id: string;
@@ -380,6 +383,7 @@ export type WorkspaceData = {
   addons: Addon[];
   addon_links: AddonLink[];
   service_rules: StaffServiceRule[];
+  service_categories: ServiceCategory[];
   schedule_overrides: ScheduleOverride[];
   hours: Hours[];
   holidays: Holiday[];
@@ -493,6 +497,12 @@ export const staffSchema = z
       }).strict())
       .max(10)
       .default([]),
+  })
+  .strict();
+export const categorySchema = z
+  .object({
+    name: z.string().trim().min(2).max(40),
+    description: z.string().trim().max(200).default(""),
   })
   .strict();
 export const serviceSchema = z
@@ -892,6 +902,8 @@ export const hoursRowSchema = z
 export const hoursSchema = z
   .object({
     version,
+    // 1 = these are the shop's hours and the barber keeps following them; absent/0 = their own hours.
+    follow: active.optional(),
     rows: z
       .array(hoursRowSchema)
       .length(7)
@@ -1413,6 +1425,11 @@ export function effectiveHours(
 ): Hours | null {
   return override ? { ...override, weekday: weekday(override.date) } : weekly;
 }
+// A barber offers a service only when someone has ticked it: no rule row means "not offered".
+export function offers(rules: StaffServiceRule[], staffId: string, serviceId?: string): boolean {
+  return rules.some((r) => r.staff_id === staffId && (serviceId === undefined || r.service_id === serviceId) && r.enabled === 1);
+}
+export const isOffered = (rule: StaffServiceRule | null | undefined): boolean => !!rule && rule.enabled === 1;
 export function calculateQuote(
   service: Service,
   rule: StaffServiceRule | null,
@@ -1421,7 +1438,7 @@ export function calculateQuote(
   ids: string[],
 ) {
   if (!service.active) throw new Error("service_unavailable");
-  if (rule?.enabled === 0) throw new Error("service_ineligible");
+  if (!isOffered(rule)) throw new Error("service_ineligible");
   if (new Set(ids).size !== ids.length || ids.length > 10)
     throw new Error("addon_unavailable");
   const items: BookingItem[] = [
