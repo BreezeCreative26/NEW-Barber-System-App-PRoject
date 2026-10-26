@@ -990,6 +990,8 @@ const bookingBase = z
     addon_ids: addonIdsSchema.default([]),
     customer_id: z.string().regex(/^[0-9a-f-]{32,36}$/).optional(),
     force: z.boolean().default(false),
+    // Phone / in-person bookings: send the customer their confirmation (default yes). Walk-ins never are.
+    notify: z.boolean().default(true),
     quote: z
       .object({ service_version: version, shop_version: version })
       .strict(),
@@ -1414,6 +1416,8 @@ export const statusSchema = z
       "NO_SHOW",
     ]),
     reason: z.string().trim().max(300).default(""),
+    // Cancelling: tell the customer (default yes). Ignored for every other status.
+    notify: z.boolean().default(true),
     version,
   })
   .strict();

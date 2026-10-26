@@ -89,7 +89,8 @@ import { StripeError, depositsOnline, expireHolds, expireSession, platformBalanc
 import QRCode from "qrcode";
 import setup from "./setup";
 import { PERM_DEFS, type PermKey } from "./perms";
-import { listFor, markSeen, staffPushStatus } from "./staffNotify";
+import { listFor, markSeen, recordEvent, staffPushStatus } from "./staffNotify";
+import { notifyBooking } from "./public";
 import { ALERT_KINDS, DEFAULT_PREFS, alertOwners, prefsOf, type AlertPrefs } from "./alerts";
 import { mountShopCampaigns } from "./shopCampaigns";
 import { mountDomains } from "./domains";
@@ -556,6 +557,9 @@ sandbox.post("/series", async (c) => {
       failed.push({ date: t.date, reason: err instanceof HTTPException ? err.message : String(err).slice(0, 60) });
     }
   }
+  // The customer is told once, about the first visit, not once per visit; the barber's bell hears of each.
+  if (single.notify && single.source !== "WALK_IN" && created[0] && created[0].start_at > Date.now()) await tellCustomer(c, created[0], "booking_confirmed");
+  for (const bk of created) if (bk.start_at > Date.now() && single.source !== "WALK_IN") await bellFor(c, "new_booking", bk);
   await c.env.DB.batch([
     audit(c, "series", seriesId, "SERIES_CREATED", `${created.length} standing appointments every ${b.interval_weeks} week(s); ${failed.length} failed.`),
   ]);
@@ -3102,6 +3106,7 @@ sandbox.get("/availability", async (c) => {
 export async function createBooking(
   c: Ctx,
   b: Omit<z.infer<typeof publicBookingSchema>, "attendee_name" | "contact_pref"> & {
+    notify?: boolean;
     source: "TEST_BOOKING" | "WALK_IN";
     attendee_name?: string;
     contact_pref?: "AUTO" | "SMS" | "WA" | "EMAIL";
@@ -3113,7 +3118,7 @@ export async function createBooking(
   // `force` is a shop-side decision, not part of what the customer asked for, so it stays out of the hash.
   // contact_pref is how we talk to the customer, not what they booked: like `force` it stays out
   // of the idempotency hash so an older client (no picker) replays cleanly.
-  const { addon_ids, email, customer_id, attendee_name, force: _force, contact_pref: _pref, ...originalPayload } = b as typeof b & { customer_id?: string; attendee_name?: string; force?: boolean; contact_pref?: string };
+  const { addon_ids, email, customer_id, attendee_name, force: _force, contact_pref: _pref, notify: _notify, ...originalPayload } = b as typeof b & { customer_id?: string; attendee_name?: string; force?: boolean; contact_pref?: string; notify?: boolean };
   const contactPref = b.contact_pref && ["SMS", "WA", "EMAIL"].includes(b.contact_pref) ? b.contact_pref : "AUTO";
   const requestHash = await hash(
     JSON.stringify({
@@ -3266,6 +3271,23 @@ export async function createBooking(
   }
   return { booking: await readBooking(c, bookingId), replayed: false };
 }
+// Tell the customer about something the shop did to their booking. Customers with a saved preference
+// (or "no messages") are respected; the email on the customer record is used when the booking has none.
+async function tellCustomer(c: Ctx, b: StoredBooking, template: "booking_confirmed" | "booking_cancelled") {
+  if (!b.phone && !b.email) return [];
+  const row = b.customer_id ? await c.env.DB.prepare("SELECT email FROM customers WHERE shop_id=? AND id=?").bind(c.get("shopId"), b.customer_id).first<{ email: string | null }>() : null;
+  const booking = { ...b, email: b.email || row?.email || "" };
+  const staff = await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(c.get("shopId"), b.staff_id).first<{ name: string }>();
+  return notifyBooking(c as never, c.get("shopId"), booking, staff?.name ?? null, template).catch(() => []);
+}
+// The bell for the booked barber and the team when the shop (not the barber themself) changes their diary.
+async function bellFor(c: Ctx, kind: "new_booking" | "cancelled", b: StoredBooking) {
+  const a = c.get("account");
+  // An owner or manager changing their own diary doesn't need telling; a barber's change always reaches the team.
+  if (a?.staff_id && a.staff_id === b.staff_id && ["OWNER", "MANAGER"].includes(a.role)) return;
+  const staff = await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(c.get("shopId"), b.staff_id).first<{ name: string }>();
+  await recordEvent(c.env.DB, c.get("shopId"), kind, b, staff?.name ?? null, "shop").catch(() => {});
+}
 sandbox.post("/bookings", async (c) => {
   // Read-only accounts (trial ended, overdue, paused) can look but not book.
   const ent = await entitlements(c.env.DB, c.get("shopId")).catch(() => null);
@@ -3276,7 +3298,14 @@ sandbox.post("/bookings", async (c) => {
   const result = await createBooking(c, b, "OWNER", { force: b.force, minStart: 0 });
   // A new customer's email goes on their record (existing emails are never overwritten).
   if (b.email && b.phone) await c.env.DB.prepare("UPDATE customers SET email=?, updated_at=? WHERE shop_id=? AND phone=? AND email='' AND merged_into IS NULL").bind(b.email, Date.now(), c.get("shopId"), b.phone).run().catch(() => {});
-  return c.json(result, result.replayed ? 200 : 201);
+  // A booking made by the shop for a future visit: the customer gets their confirmation (unless the
+  // shop untick it, it is a walk-in, or it is written up after the fact) and the barber's bell rings.
+  let notified: string[] = [];
+  if (!result.replayed && b.source !== "WALK_IN" && result.booking.start_at > Date.now()) {
+    if (b.notify) notified = await tellCustomer(c, result.booking, "booking_confirmed");
+    await bellFor(c, "new_booking", result.booking);
+  }
+  return c.json({ ...result, notified }, result.replayed ? 200 : 201);
 });
 sandbox.get("/bookings/:id", async (c) =>
   c.json({ booking: redact(c.get("account"), await readBooking(c, c.req.param("id"), true)) }),
@@ -3418,7 +3447,15 @@ sandbox.post("/bookings/:id/status", async (c) => {
   }
   // A completed visit earns a review request (outbox only).
   if (body.status === "COMPLETED") await queueReviewRequest(c, c.get("shopId"), b.id);
-  return c.json({ booking: await readBooking(c, b.id) });
+  // The customer hears when the shop cancels their visit (unless the shop chose not to tell them), and
+  // the booked barber sees it in their bell when someone else did it.
+  let notified: string[] = [];
+  if (body.status === "CANCELLED") {
+    const after = await readBooking(c, b.id);
+    if (body.notify && b.start_at > Date.now()) notified = await tellCustomer(c, after, "booking_cancelled");
+    await bellFor(c, "cancelled", after);
+  }
+  return c.json({ booking: await readBooking(c, b.id), notified });
 });
 
 // ---- Payments ledger (Model A: records money taken at the chair; holds nothing) ----
@@ -4098,7 +4135,7 @@ sandbox.get("/bookings/:id/timeline", async (c) => {
 });
 // Cancel every remaining (future, confirmed) visit in a standing series.
 sandbox.post("/series/:id/cancel", async (c) => {
-  const body = await input(c, z.object({ reason: z.string().trim().min(3).max(300), from_booking_id: z.string().uuid().optional() }).strict());
+  const body = await input(c, z.object({ reason: z.string().trim().min(3).max(300), from_booking_id: z.string().uuid().optional(), notify: z.boolean().default(true) }).strict());
   const seriesId = c.req.param("id");
   const rows = await c.env.DB.prepare(
     "SELECT id,staff_id,status,start_at,version FROM bookings WHERE shop_id=? AND series_id=? AND status='CONFIRMED' ORDER BY start_at",
@@ -4122,6 +4159,15 @@ sandbox.post("/series/:id/cancel", async (c) => {
   statements.push(audit(c, "series", seriesId, "SERIES_CANCELLED", `${targets.length} remaining visits cancelled: ${body.reason}`));
   const result = await c.env.DB.batch(statements);
   const cancelled = result.filter((r, i) => i % 2 === 0 && i < targets.length * 2 && r.meta.changes).length;
+  // One message per cancelled visit, each to its own customer; the barber's bell hears of each too.
+  {
+    for (let i = 0; i < targets.length; i++) {
+      if (!result[i * 2].meta.changes) continue;
+      const after = await readBooking(c, targets[i].id, true);
+      if (body.notify && after.start_at > Date.now()) await tellCustomer(c, after, "booking_cancelled");
+      await bellFor(c, "cancelled", after);
+    }
+  }
   return c.json({ series_id: seriesId, cancelled, remaining: targets.length - cancelled });
 });
 // Move every remaining visit in a series to a new weekly time (same weekday offset kept).

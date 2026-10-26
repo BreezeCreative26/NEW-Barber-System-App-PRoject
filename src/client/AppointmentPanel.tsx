@@ -121,14 +121,14 @@ export function AppointmentPanel({
   busy: string;
   error: string;
   onClose: () => void;
-  onStatus: (status: string, reason: string) => Promise<void>;
+  onStatus: (status: string, reason: string, notify?: boolean) => Promise<void>;
   onMove: () => void;
   onPickSlot?: () => void;
   onRebook: () => void;
   onEdit: () => void;
   onShare: () => void;
   onCustomer: (id: string) => void;
-  onSeriesCancel: (reason: string, fromThis: boolean) => Promise<void>;
+  onSeriesCancel: (reason: string, fromThis: boolean, notify?: boolean) => Promise<void>;
   onSeriesMove: () => void;
   onNote: (note: string) => Promise<void>;
   payments?: Payment[];
@@ -149,6 +149,8 @@ export function AppointmentPanel({
   const ref = useRef<HTMLElement>(null);
   const [confirm, setConfirm] = useState<null | { status: string; series?: boolean }>(null);
   const [reason, setReason] = useState("");
+  // Cancelling: tell the customer by default. Only offered when we have a way to reach them.
+  const [tell, setTell] = useState(true);
   const [fromThis, setFromThis] = useState(true);
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
@@ -510,13 +512,19 @@ export function AppointmentPanel({
                 <span>{needsReason ? "Reason (required)" : "Note (optional)"}</span>
                 <textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} rows={2} required={!!needsReason} minLength={needsReason ? 3 : undefined} />
               </label>
+              {confirm.status === "CANCELLED" && (booking.phone || booking.email || booking.customer_email) && (
+                <label className="ask-check panel-tell" data-testid="cancel-tell-customer">
+                  <input type="checkbox" checked={tell} onChange={(e) => setTell(e.target.checked)} />
+                  <span><strong>Tell {(booking.attendee_name || booking.customer_name).split(" ")[0]} it is cancelled</strong><small>They get a text or email, as they prefer.</small></span>
+                </label>
+              )}
               <div className="panel-actions-row">
                 <Button
                   variant={["CANCELLED", "NO_SHOW"].includes(confirm.status) ? "danger" : "primary"}
                   disabled={busy !== "" || (needsReason && reason.trim().length < 3) || (confirm.status === "NO_SHOW" && noShowEarly)}
                   onClick={async () => {
-                    if (confirm.series) await onSeriesCancel(reason.trim(), fromThis);
-                    else await onStatus(confirm.status, reason.trim());
+                    if (confirm.series) await onSeriesCancel(reason.trim(), fromThis, tell);
+                    else await onStatus(confirm.status, reason.trim(), confirm.status === "CANCELLED" ? tell : undefined);
                     setConfirm(null);
                     setReason("");
                   }}

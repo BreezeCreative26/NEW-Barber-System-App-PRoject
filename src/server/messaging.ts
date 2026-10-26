@@ -811,12 +811,12 @@ export async function sweepReminders(db: DB, origin: string, now = Date.now()) {
     for (const w of windows) {
       const rows = await db
         .prepare(
-          `SELECT b.*, st.name AS staff_name, t.token_hash FROM bookings b LEFT JOIN staff st ON st.shop_id=b.shop_id AND st.id=b.staff_id LEFT JOIN booking_manage_tokens t ON t.booking_id=b.id
+          `SELECT b.*, st.name AS staff_name, t.token_hash, cu.contact_pref AS cust_pref, cu.email AS cust_email FROM bookings b LEFT JOIN staff st ON st.shop_id=b.shop_id AND st.id=b.staff_id LEFT JOIN booking_manage_tokens t ON t.booking_id=b.id LEFT JOIN customers cu ON cu.id=b.customer_id
            WHERE b.shop_id=? AND b.status='CONFIRMED' AND b.start_at>? AND b.start_at<=? AND (b.phone<>'' OR b.email<>'')
            AND NOT EXISTS (SELECT 1 FROM reminder_marks m WHERE m.shop_id=b.shop_id AND m.booking_id=b.id AND m.template=? AND m.start_at=b.start_at)`,
         )
         .bind(shop.id, w.from, w.to, w.mark)
-        .all<{ id: string; start_at: number; customer_name: string; attendee_name: string; phone: string; email: string; service_name: string; staff_name: string | null; date: string; start_min: number; token_hash: string | null; price_pence: number }>();
+        .all<{ id: string; start_at: number; customer_name: string; attendee_name: string; phone: string; email: string; service_name: string; staff_name: string | null; date: string; start_min: number; token_hash: string | null; price_pence: number; contact_pref: string | null; cust_pref: string | null; cust_email: string | null }>();
       for (const b of rows.results) {
         // Claim this reminder for this booking at this start time; a move changes the time, so it earns a new one.
         const claim = await db.prepare("INSERT INTO reminder_marks(shop_id,booking_id,template,start_at,created_at) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING").bind(shop.id, b.id, w.mark, b.start_at, now).run();
@@ -827,7 +827,11 @@ export async function sweepReminders(db: DB, origin: string, now = Date.now()) {
         // Quiet hours: hold the reminder until the shop's morning; if that would be too close to the visit, skip it.
         const sendAt = quietUntil(shop, now);
         if (sendAt > now && sendAt > b.start_at - 15 * 60000) continue;
-        const stmts = enqueue(db, shop, { name: b.attendee_name || b.customer_name, phone: b.phone, email: b.email }, w.template, {
+        // The customer's own choice decides where it goes: the booking's pick first, then their standing
+        // preference. "No messages" means no reminder at all; "email" never gets a text.
+        const pick = b.contact_pref && b.contact_pref !== "AUTO" ? b.contact_pref : b.cust_pref && b.cust_pref !== "AUTO" ? b.cust_pref : undefined;
+        if (pick === "NONE") continue;
+        const stmts = enqueue(db, shop, { name: b.attendee_name || b.customer_name, phone: b.phone, email: b.email || b.cust_email || "", pref: pick as Recipient["pref"] }, w.template, {
           service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], date: fmtDate(b.date), time: fmtTime(b.start_min), ref: b.id.slice(0, 6).toUpperCase(),
           address: shop.address, link, map_link: shop.map_url || (shop.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.address)}` : link),
         }, { related: { type: "booking", id: b.id }, origin, now, sendAt: sendAt > now ? sendAt : undefined }, false);

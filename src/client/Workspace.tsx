@@ -3351,9 +3351,9 @@ export function Workspace() {
           busy={panelBusy}
           error={panelError}
           onClose={() => setEditor(null)}
-          onStatus={(status, reason) =>
+          onStatus={(status, reason, notify) =>
             panelAction(status, () =>
-              api(`/bookings/${editor.item.id}/status`, "POST", { status, reason, version: editor.item.version }),
+              api(`/bookings/${editor.item.id}/status`, "POST", { status, reason, version: editor.item.version, ...(notify === undefined ? {} : { notify }) }),
             )
           }
           onMove={() => setEditor({ kind: "booking", item: editor.item })}
@@ -3366,10 +3366,11 @@ export function Workspace() {
             setCustomerId(id);
             setTab("Customers");
           }}
-          onSeriesCancel={(reason, fromThis) =>
+          onSeriesCancel={(reason, fromThis, notify) =>
             panelAction("series", () =>
               api(`/series/${editor.item.series_id}/cancel`, "POST", {
                 reason,
+                ...(notify === undefined ? {} : { notify }),
                 ...(fromThis ? { from_booking_id: editor.item.id } : {}),
               }),
             )
@@ -7651,6 +7652,7 @@ function BookingForm({
       source: text(f, "customer_name") ? text(f, "source") : "WALK_IN",
       quote: slots?.quote,
       addon_ids: addonIds,
+      notify: f.get("notify_confirm") === "on",
       ...(pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),
       interval_weeks: intervalWeeks,
       occurrences,
@@ -7811,6 +7813,7 @@ function BookingForm({
               source: text(f, "customer_name") ? text(f, "source") : "WALK_IN",
               quote: slots.quote,
               addon_ids: addonIds,
+              notify: f.get("notify_confirm") === "on",
               ...(pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),
               ...(override ? { force: true } : {}),
             };
@@ -8185,6 +8188,10 @@ function BookingForm({
               <Field label="Notes">
                 <textarea name="notes" maxLength={500} />
               </Field>
+              <label className="ask-check booking-confirm-tick" data-testid="booking-send-confirmation">
+                <input type="checkbox" name="notify_confirm" defaultChecked />
+                <span><strong>Send them a confirmation</strong><small>By text or email, as the customer prefers. Walk-ins are never messaged.</small></span>
+              </label>
               <fieldset className="series-options" data-testid="series-options">
                 <legend>
                   <Icon name="repeat" /> Standing booking
