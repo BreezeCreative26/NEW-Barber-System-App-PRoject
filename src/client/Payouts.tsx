@@ -445,7 +445,7 @@ function ReadersCard({ api, live }: { api: Api; live: boolean }) {
   return (
     <section className="payments-barbers" aria-label="Card readers" data-testid="readers-card">
       <h3>Card readers</h3>
-      <p className="workspace-footnote">Pair a Stripe reader (WisePOS E, or Tap to Pay on a phone) by typing the code it shows. At checkout the amount goes to the reader and the customer taps. No reader? Use <strong>Pay link / QR</strong> at checkout — works on any phone.</p>
+      <p className="workspace-footnote">Pair a Stripe smart reader (WisePOS E, or Stripe Reader S700 / S710 / T600) by typing the code it shows. Readers from other providers (SumUp, Zettle, Square…) will not work. At checkout the amount goes to the reader and the customer taps. No reader? Use <strong>Pay link / QR</strong> at checkout — customers pay on their own phone, including Apple Pay and Google Pay. Your shop address and postcode (Settings) are needed to pair a reader.</p>
       {readers.length > 0 && (
         <ul className="payments-barber-list">
           {readers.map((r) => (

@@ -173,6 +173,7 @@ type Detail = {
   messaging_30d: { channel: string; status: string; n: number }[];
   calls_30d: { n: number; secs: number } | null;
   connect: { id: string; owner_type: string; charges_enabled: number; payouts_enabled: number; disabled_reason: string }[];
+  readers: { id: string; label: string; device_type: string; status: string; location_id: string }[];
   open_disputes: number; upcoming: number;
   audit: { id: string; action: string; reason: string; actor: string; created_at: number }[];
   discounts: { id: string; code: string; name: string; kind: string; value: number; applied_until: number | null }[];
@@ -242,6 +243,7 @@ function ShopDetail({ id, onBack, me }: { id: string; onBack: () => void; me: { 
           <div className="admin-card"><small>Card payments</small><strong>{d.connect.some((c) => c.charges_enabled) ? "Live" : "Not set up"}</strong><span>{d.connect.length} connected account{d.connect.length === 1 ? "" : "s"}{d.open_disputes ? ` · ${d.open_disputes} open dispute${d.open_disputes === 1 ? "" : "s"}` : ""}</span></div>
           <div className="admin-card"><small>Messages · 30d</small><strong>{d.messaging_30d.reduce((n, m) => n + (m.status === "SENT" ? m.n : 0), 0)} sent</strong><span>{d.messaging_30d.reduce((n, m) => n + (m.status === "FAILED" ? m.n : 0), 0)} failed</span></div>
           <div className="admin-card"><small>AI Concierge · 30d</small><strong>{d.calls_30d?.n ?? 0} calls</strong><span>{Math.round((d.calls_30d?.secs ?? 0) / 60)} min</span></div>
+          <div className="admin-card admin-card-wide" data-testid="admin-readers"><small>Card readers</small>{d.readers.length === 0 ? <span>None paired</span> : <ul className="admin-list">{d.readers.map((r) => <li key={r.id}><strong>{r.label}</strong> · {r.device_type || "reader"} · {r.id} · {r.status}</li>)}</ul>}</div>
           <div className="admin-card admin-card-wide"><small>Accounts</small><ul className="admin-list">{d.members.map((m) => <li key={m.id}><strong>{m.name}</strong> · {m.role.toLowerCase()} · {m.email}{!m.active && <span className="admin-flag">inactive</span>}</li>)}</ul></div>
         </div>
       )}
