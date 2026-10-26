@@ -122,3 +122,34 @@ test("browser: 'Find your shop' sends the owner to their address (root host uses
   await expect(page).toHaveURL(`${shopOrigin}/signin`);
   await expect(page.getByTestId("auth-shop")).toContainText("Northline Barbers");
 });
+
+// The team's app on a phone is the shop's, not foliyo's: its own name, colour and icon, whether or not
+// the shop takes online bookings.
+test("team app: the workspace on a shop host installs as the shop (name, colour, icon), not as foliyo", async () => {
+  const shop = await viaHost(`${SHOP}.localhost:3000`);
+  const html = await (await shop.get("/signin")).text();
+  expect(html).toContain('rel="manifest" href="/team.webmanifest"');
+  expect(html).toContain('href="/icon-192.png"');
+  expect(html).not.toContain("/site.webmanifest");
+  // The name a phone pre-fills on "Add to Home Screen" is the shop's own name, not its web address.
+  expect(html).toContain('name="apple-mobile-web-app-title" content="Northline Barbers"');
+  const man = await (await shop.get("/team.webmanifest")).json();
+  expect(man).toMatchObject({ id: "/workspace", scope: "/", display: "standalone" });
+  expect(man.name).toContain("Northline Barbers");
+  expect(man.start_url).toBe("/workspace?source=pwa");
+  expect(man.icons.map((i: { src: string }) => i.src)).toEqual(["/icon-192.png", "/icon-512.png"]);
+  // The customer app (booking page and account) pre-fills the same name.
+  for (const path of ["/", "/me", "/book"]) {
+    const page = await (await shop.get(path)).text();
+    expect(page, path).toContain('name="apple-mobile-web-app-title" content="Northline Barbers"');
+  }
+  for (const f of ["/icon-192.png", "/icon-512.png"]) {
+    const r = await shop.get(f);
+    expect(r.status(), f).toBe(200);
+    expect(r.headers()["content-type"]).toBe("image/png");
+  }
+  // The root host keeps the foliyo app.
+  const root = await viaHost("localhost:3000");
+  expect(await (await root.get("/signin")).text()).toContain("/site.webmanifest");
+  expect((await (await root.get("/team.webmanifest")).json()).name).toBe("foliyo appointments");
+});
