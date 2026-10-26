@@ -42,8 +42,13 @@ function ensure() {
 }
 
 // Record the event, then push it to every signed-in team device that is allowed to see it.
-export async function recordEvent(db: DB, shopId: string, kind: EventKind, booking: StoredBooking, staffName?: string | null) {
-  const copy = COPY[kind](booking, (staffName || "the team").split(" ")[0]);
+export async function recordEvent(db: DB, shopId: string, kind: EventKind, booking: StoredBooking, staffName?: string | null, by: "customer" | "shop" = "customer") {
+  const first = (staffName || "the team").split(" ")[0];
+  const copy = kind === "cancelled" && by === "shop"
+    ? { title: "Booking cancelled by the shop", body: `${booking.attendee_name || booking.customer_name}'s ${booking.service_name} with ${first} · ${when(booking)}` }
+    : kind === "new_booking" && by === "shop"
+      ? { title: "New booking", body: `${booking.attendee_name || booking.customer_name} · ${booking.service_name} with ${first} · ${when(booking)} (added by the shop)` }
+      : COPY[kind](booking, first);
   const id = crypto.randomUUID();
   const now = Date.now();
   await db.prepare("INSERT INTO shop_events(id,shop_id,kind,title,body,booking_id,staff_id,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(id, shopId, kind, copy.title, copy.body, booking.id, booking.staff_id || null, now).run();

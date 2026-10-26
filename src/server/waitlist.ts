@@ -351,7 +351,12 @@ export async function queueReviewRequest(c: Ctx, shopId: string, bookingId: stri
   const flags = shop as unknown as { review_ask_sms?: number; review_ask_email?: number; msg_sms?: number; msg_email?: number };
   const askSms = flags.review_ask_sms === 1 && (flags.msg_sms ?? 1) === 1;
   const askEmail = flags.review_ask_email !== 0 && (flags.msg_email ?? 1) === 1;
-  const sendTo = { phone: askSms ? b.phone : "", email: askEmail ? b.email : "" };
+  // A customer who asked for no messages gets none; one who chose email is not texted.
+  const cu = await c.env.DB.prepare("SELECT contact_pref,email FROM customers WHERE shop_id=? AND phone=? AND merged_into IS NULL LIMIT 1").bind(shopId, b.phone).first<{ contact_pref: string | null; email: string | null }>();
+  const bp = (b as { contact_pref?: string | null }).contact_pref;
+  const pick = bp && bp !== "AUTO" ? bp : cu?.contact_pref && cu.contact_pref !== "AUTO" ? cu.contact_pref : "AUTO";
+  if (pick === "NONE") return null;
+  const sendTo = { phone: askSms && pick !== "EMAIL" ? b.phone : "", email: askEmail ? b.email || cu?.email || "" : "" };
   if (!sendTo.phone && !sendTo.email) return null;
   await queueMessage(c, shop, sendTo, "review_request", body, { type: "booking", id: bookingId }).run();
   await drainSoon(c, 2, { type: "booking", id: bookingId });
