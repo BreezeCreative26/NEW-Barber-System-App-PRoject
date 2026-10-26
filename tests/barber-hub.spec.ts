@@ -167,3 +167,55 @@ test.describe("barber page on a phone", () => {
     await expect(page.getByTestId("services-save")).toBeDisabled();
   });
 });
+
+// "New category" must make a heading for services to fall into, not open a new-service form.
+test("Services page: a new category is an empty group; a service can then be added into it; empty ones can be moved and deleted", async ({ page }) => {
+  const res = await page.request.post(base + "/auth/signup", {
+    headers: { Origin: origin },
+    data: { accept_legal: true, shop_name: "Category Cuts", name: "Cat Owner", email: `cat-${crypto.randomUUID().slice(0, 8)}@ollo.test`, password: "Unique fictional test password 438!" },
+  });
+  expect(res.status(), await res.text()).toBe(201);
+  const r = page.request;
+  const first = await r.post(base + "/services", { headers: { Origin: origin }, data: { name: "Skin fade", category: "Hair", price_pence: 3000, duration_min: 30 } });
+  expect(first.status(), await first.text()).toBe(201);
+  await page.goto("/workspace");
+  await section(page, "Services");
+  const before = (await ws(r)).services.length;
+  await page.getByTestId("new-category").click();
+  // It opens a name box for the category, not the service editor.
+  await expect(page.getByTestId("new-category-form")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "New service" })).toHaveCount(0);
+  await page.getByTestId("new-category-name").fill("Beard");
+  await page.getByTestId("new-category-save").click();
+  // The empty category shows as a group of its own, and no service was created.
+  await expect(page.getByTestId("category-Beard")).toBeVisible();
+  await expect(page.getByTestId("category-empty-Beard")).toBeVisible();
+  expect((await ws(r)).services.length).toBe(before);
+  // Same name again is refused.
+  await page.getByTestId("new-category").click();
+  await page.getByTestId("new-category-name").fill("beard");
+  await page.getByTestId("new-category-save").click();
+  await expect(page.getByTestId("category-msg")).toContainText("already have a category");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  // Add a service straight into the empty category.
+  await page.getByTestId("cat-add-Beard").click();
+  await expect(page.getByTestId("service-category-select")).toHaveValue("Beard");
+  await page.getByLabel("Service name").fill("Beard trim");
+  await page.getByRole("button", { name: "Create service", exact: true }).click();
+  await expect(page.getByTestId("category-Beard").getByTestId("service-card")).toHaveCount(1);
+  await expect(page.getByTestId("category-empty-Beard")).toHaveCount(0);
+  const w = await ws(r);
+  expect(w.services.find((s) => s.name === "Beard trim")?.category).toBe("Beard");
+  // Order: move Beard above Hair, and the shop's order follows.
+  await page.getByRole("button", { name: "Move Beard up", exact: true }).click();
+  await expect.poll(async () => (await ws(r)).service_categories.map((k) => k.name)).toEqual(["Beard", "Hair"]);
+  // An empty category can be deleted; one with services cannot.
+  await page.getByTestId("new-category").click();
+  await page.getByTestId("new-category-name").fill("Colour");
+  await page.getByTestId("new-category-save").click();
+  await expect(page.getByTestId("category-empty-Colour")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete category Beard", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Delete category Colour", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete category", exact: true }).click();
+  await expect(page.getByTestId("category-Colour")).toHaveCount(0);
+});

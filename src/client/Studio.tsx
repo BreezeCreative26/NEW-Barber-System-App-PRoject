@@ -1,6 +1,7 @@
 // Service studio and barber studio: catalogue presentation, per-barber matrix and
 // team profiles. All writes go through the existing versioned sandbox routes.
 import { offersService } from "./offers";
+import { ask } from "./confirm";
 import { SeatChargeNote } from "./SmsSender";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
@@ -296,7 +297,12 @@ export function ServiceStudio({
   initialSelected?: string | null;
 }) {
   const [selected, setSelected] = useState<string | "new" | null>(initialSelected);
-  const [newCategory, setNewCategory] = useState(false);
+  // A category is its own record: "New category" makes an empty group that services can then be put in.
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [categoryMsg, setCategoryMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  // The category a "new service" should start in (set by "Add a service" inside a category).
+  const [startCategory, setStartCategory] = useState<string | null>(null);
   useEffect(() => {
     if (initialSelected) setSelected(initialSelected);
   }, [initialSelected]);
@@ -325,15 +331,50 @@ export function ServiceStudio({
       setRenaming({ ...renaming, error: e instanceof Error ? e.message : "Could not rename." });
     }
   }
-  const categories = useMemo(() => {
-    const seen = new Map<string, Service[]>();
-    for (const s of [...w.services].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))) {
-      if (!showInactive && !s.active) continue;
-      if (query && !`${s.name} ${s.category} ${s.description}`.toLowerCase().includes(query.toLowerCase())) continue;
-      seen.set(s.category, [...(seen.get(s.category) || []), s]);
+  async function createCategory() {
+    const name = newCategoryName.trim();
+    if (name.length < 2) return setCategoryMsg({ kind: "error", text: "Use at least 2 characters." });
+    try {
+      await api("/service-categories", "POST", { name });
+      setNewCategoryName("");
+      setAddingCategory(false);
+      setCategoryMsg({ kind: "ok", text: `Category "${name}" added. Put services in it with "Add a service".` });
+      await refresh();
+    } catch (e) {
+      setCategoryMsg({ kind: "error", text: e instanceof Error ? e.message : "Could not add the category." });
     }
-    return [...seen.entries()];
-  }, [w.services, query, showInactive]);
+  }
+  // Groups in the shop's own order: every real category (even empty ones), then any older service
+  // category that has no record yet.
+  const groups = useMemo(() => {
+    const all = [...(w.service_categories || [])].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+    const rows = all.map((k) => ({ id: k.id as string | null, name: k.name, services: [] as Service[] }));
+    const byName = new Map(rows.map((r) => [r.name, r]));
+    for (const s of [...w.services].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))) {
+      let row = byName.get(s.category);
+      if (!row) { row = { id: null, name: s.category, services: [] }; byName.set(s.category, row); rows.push(row); }
+      row.services.push(s);
+    }
+    const q = query.trim().toLowerCase();
+    return rows
+      .map((r) => ({ ...r, total: r.services.length, services: r.services.filter((s) => (showInactive || s.active) && (!q || `${s.name} ${s.category} ${s.description}`.toLowerCase().includes(q))) }))
+      // While searching, only groups with a match; otherwise every category stays visible, empty or not.
+      .filter((r) => (q ? r.services.length > 0 : true));
+  }, [w.service_categories, w.services, query, showInactive]);
+  async function moveCategory(index: number, by: -1 | 1) {
+    const real = groups.filter((g) => g.id);
+    const pos = real.findIndex((g) => g.name === groups[index].name);
+    const to = pos + by;
+    if (pos < 0 || to < 0 || to >= real.length) return;
+    const ids = real.map((g) => g.id as string);
+    [ids[pos], ids[to]] = [ids[to], ids[pos]];
+    try { await api("/service-categories/order", "PUT", { ids }); await refresh(); } catch (e) { setCategoryMsg({ kind: "error", text: e instanceof Error ? e.message : "Could not reorder." }); }
+  }
+  async function deleteCategory(g: { id: string | null; name: string }) {
+    if (!g.id) return;
+    if (!(await ask({ title: `Delete the category "${g.name}"?`, body: "It is empty, so no services are affected.", confirm: "Delete category", tone: "danger" }))) return;
+    try { await api(`/service-categories/${g.id}`, "DELETE"); setCategoryMsg({ kind: "ok", text: `Category "${g.name}" deleted.` }); await refresh(); } catch (e) { setCategoryMsg({ kind: "error", text: e instanceof Error ? e.message : "Could not delete." }); }
+  }
   const offers = (s: Service) => w.staff.filter((b) => b.active && offersService(w.service_rules, b.id, s.id));
   const selectedService = selected && selected !== "new" ? w.services.find((s) => s.id === selected) || null : null;
   const upcoming = (s: Service) => w.bookings.filter((b) => b.service_id === s.id && ["CONFIRMED", "CHECKED_IN"].includes(b.status)).length;
@@ -347,13 +388,25 @@ export function ServiceStudio({
               {w.services.filter((s) => s.active).length} live · {w.addons.filter((a) => a.active).length} add-ons · saved appointments keep their price snapshot
             </p>
           </div>
-          <Button onClick={() => setSelected("new")}>
+          <Button onClick={() => { setStartCategory(null); setSelected("new"); }}>
             <Icon name="plus" size={16} /> New service
           </Button>
-          <Button variant="secondary" onClick={() => { setNewCategory(true); setSelected("new"); }} data-testid="new-category">
+          <Button variant="secondary" onClick={() => { setAddingCategory(true); setCategoryMsg(null); }} data-testid="new-category">
             <Icon name="plus" size={16} /> New category
           </Button>
         </div>
+        {addingCategory && (
+          <form className="studio-newcat" data-testid="new-category-form" onSubmit={(e) => { e.preventDefault(); void createCategory(); }}>
+            <label className="workspace-field">
+              <span>Category name</span>
+              <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} maxLength={40} placeholder="e.g. Beard, Colour, Kids" autoFocus data-testid="new-category-name" />
+            </label>
+            <Button type="submit" data-testid="new-category-save">Add category</Button>
+            <Button variant="ghost" onClick={() => { setAddingCategory(false); setNewCategoryName(""); setCategoryMsg(null); }}>Cancel</Button>
+            <small className="helper">A category is a heading your services sit under. It starts empty.</small>
+          </form>
+        )}
+        {categoryMsg && <p className={categoryMsg.kind === "error" ? "workspace-error" : "workspace-footnote"} role={categoryMsg.kind === "error" ? "alert" : "status"} data-testid="category-msg">{categoryMsg.text}</p>}
         <div className="customers-toolbar">
           <label className="customers-search">
             <Icon name="search" size={16} />
@@ -363,7 +416,7 @@ export function ServiceStudio({
             <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> Show inactive
           </label>
         </div>
-        {categories.length === 0 && w.services.length === 0 && (
+        {groups.length === 0 && w.services.length === 0 && (
           <div className="studio-empty" data-testid="services-empty">
             <Icon name="scissors" size={28} />
             <h3>Add your first service</h3>
@@ -373,9 +426,9 @@ export function ServiceStudio({
             </Button>
           </div>
         )}
-        {categories.length === 0 && w.services.length > 0 && <p className="workspace-footnote">No services match.</p>}
-        {categories.map(([cat, list]) => (
-          <section key={cat} className="studio-category" aria-label={cat}>
+        {groups.length === 0 && w.services.length > 0 && <p className="workspace-footnote">No services match.</p>}
+        {groups.map((g, gi) => { const cat = g.name; const list = g.services; return (
+          <section key={cat} className="studio-category" aria-label={cat} data-testid={`category-${cat}`}>
             <h3 className="studio-category-head">
               {renaming?.from === cat ? (
                 <form
@@ -400,14 +453,31 @@ export function ServiceStudio({
               ) : (
                 <>
                   <span>
-                    {cat} <small>{list.length}</small>
+                    {cat} <small>{g.total}</small>
                   </span>
-                  <button type="button" className="linklike studio-rename-link" onClick={() => setRenaming({ from: cat, to: cat })} aria-label={`Rename category ${cat}`}>
-                    Rename
-                  </button>
+                  <span className="studio-category-tools">
+                    <button type="button" className="linklike studio-rename-link" onClick={() => { setStartCategory(cat); setSelected("new"); }} aria-label={`Add a service to ${cat}`} data-testid={`cat-add-${cat}`}>
+                      Add a service
+                    </button>
+                    <button type="button" className="linklike studio-rename-link" onClick={() => setRenaming({ from: cat, to: cat })} aria-label={`Rename category ${cat}`}>
+                      Rename
+                    </button>
+                    {g.id && !query && (
+                      <>
+                        <button type="button" className="linklike studio-rename-link" onClick={() => void moveCategory(gi, -1)} disabled={groups.filter((x) => x.id).findIndex((x) => x.name === cat) === 0} aria-label={`Move ${cat} up`}>Up</button>
+                        <button type="button" className="linklike studio-rename-link" onClick={() => void moveCategory(gi, 1)} disabled={groups.filter((x) => x.id).findIndex((x) => x.name === cat) === groups.filter((x) => x.id).length - 1} aria-label={`Move ${cat} down`}>Down</button>
+                      </>
+                    )}
+                    {g.id && g.total === 0 && (
+                      <button type="button" className="linklike studio-rename-link" onClick={() => void deleteCategory(g)} aria-label={`Delete category ${cat}`}>
+                        Delete
+                      </button>
+                    )}
+                  </span>
                 </>
               )}
             </h3>
+            {g.total === 0 && <p className="workspace-footnote studio-category-empty" data-testid={`category-empty-${cat}`}>No services in this category yet.</p>}
             <ul className="service-cards">
               {list.map((s) => (
                 <li key={s.id}>
@@ -428,7 +498,7 @@ export function ServiceStudio({
               ))}
             </ul>
           </section>
-        ))}
+        ); })}
         <section className="studio-addons" aria-labelledby="addons-heading">
           <div className="workspace-section-heading">
             <h3 id="addons-heading">Add-ons</h3>
@@ -457,10 +527,10 @@ export function ServiceStudio({
           w={w}
           api={api}
           service={selectedService}
-          startNewCategory={selected === "new" && newCategory}
-          onClose={() => { setNewCategory(false); setSelected(null); }}
+          startCategory={selected === "new" ? startCategory : null}
+          onClose={() => { setStartCategory(null); setSelected(null); }}
           onSaved={async (id) => {
-            setNewCategory(false);
+            setStartCategory(null);
             // A failed re-read is surfaced by the workspace shell (Retry workspace); the write itself
             // succeeded, so keep the editor mounted and select the saved record once data arrives.
             if (id && selected === "new") setBorn(id);
@@ -491,16 +561,18 @@ const serviceForm = (service: Service | null, fallbackCategory: string) => ({
   active: service ? service.active : 1,
   sort_order: service?.sort_order ?? 0,
 });
-function ServiceEditor({ w, api, service, onClose, onSaved, startNewCategory = false }: { w: WorkspaceData; api: Api; service: Service | null; onClose: () => void; onSaved: (id?: string) => Promise<WorkspaceData | undefined>; startNewCategory?: boolean }) {
+function ServiceEditor({ w, api, service, onClose, onSaved, startCategory = null }: { w: WorkspaceData; api: Api; service: Service | null; onClose: () => void; onSaved: (id?: string) => Promise<WorkspaceData | undefined>; startCategory?: string | null }) {
   const [tab, setTabRaw] = useState<"details" | "barbers" | "addons">("details");
   const { guarded, notice } = useLeaveGuard("service-editor");
   const setTab = (t: typeof tab) => guarded(() => setTabRaw(t))();
-  const [form, setForm] = useState(() => serviceForm(service, startNewCategory ? "" : (w.services[0]?.category ?? "Hair")));
-  const [customCategory, setCustomCategory] = useState(startNewCategory);
+  // Real categories in the shop's order, plus any older service category that has no record yet.
+  const categories = [...new Set([...(w.service_categories || []).slice().sort((a, b) => a.sort_order - b.sort_order).map((k) => k.name), ...w.services.map((s) => s.category)])];
+  const [form, setForm] = useState(() => serviceForm(service, startCategory || categories[0] || ""));
+  // Only a shop with no categories at all types one in (the very first service); everyone else picks.
+  const [customCategory, setCustomCategory] = useState(false);
   const [locked, setLocked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [state, setState] = useState<LineState>(null);
-  const categories = [...new Set(w.services.map((s) => s.category))];
   const offering = service ? w.staff.filter((b) => b.active && offersService(w.service_rules, b.id, service.id)) : [];
   const priceRange = service
     ? w.service_rules.filter((r) => r.service_id === service.id && r.enabled && r.price_pence !== null).map((r) => r.price_pence as number)
@@ -595,7 +667,6 @@ function ServiceEditor({ w, api, service, onClose, onSaved, startNewCategory = f
                   minLength={2}
                   maxLength={40}
                   placeholder="e.g. Beard, Colour, Kids"
-                  autoFocus={startNewCategory}
                   data-testid="service-category-input"
                 />
               ) : (
@@ -612,13 +683,13 @@ function ServiceEditor({ w, api, service, onClose, onSaved, startNewCategory = f
                   {categories.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
-                  <option value="__new__">+ New category…</option>
+                  <option value="__new__">Another category (type a name)…</option>
                 </select>
               )}
             </label>
             {customCategory && categories.length > 0 && (
               <button type="button" className="linklike field-help" style={{ justifySelf: "start" }} onClick={() => { setCustomCategory(false); setForm({ ...form, category: categories[0] }); }}>
-                Choose an existing category instead
+                Pick from my categories instead
               </button>
             )}
           </div>
