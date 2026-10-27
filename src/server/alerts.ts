@@ -56,7 +56,7 @@ export async function alertOwners(db: DB, shopId: string, kind: Exclude<AlertKin
   const money = (p: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(p / 100);
   const vars = {
     customer: booking.attendee_name || booking.customer_name, service: booking.service_name, barber: (opts.staffName || "the team").split(" ")[0],
-    date: fmtDate(booking.date), time: fmtTime(booking.start_min), ref: `BRB-${booking.id.slice(0, 4).toUpperCase()}`,
+    date: fmtDate(booking.date), time: fmtTime(booking.start_min), ref: `BRB-${String((booking as { sequence?: number }).sequence ?? 0).padStart(4, "0")}`,
     deposit: booking.deposit_status === "PAID" ? `${money(booking.deposit_paid_pence ?? 0)} paid` : booking.deposit_status === "REFUNDED" ? "refunded" : "",
     link: teamUrl(shop.slug, opts.origin), ...opts.extra,
   };

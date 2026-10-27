@@ -19,8 +19,8 @@ import { landingPage, VERTICALS, INDUSTRY_PAGES } from "./server/landing";
 import { legalPage, LEGAL_DOCS, type LegalDoc } from "./server/legal";
 import { getCookie } from "hono/cookie";
 import { ACCOUNT_COOKIE } from "./server/accounts";
-import { expireHolds, markDepositPaid, stripeStatus, verifyWebhook } from "./server/stripe";
-import { afterDepositPaid } from "./server/public";
+import { expireHolds, markDepositPaid, retryDepositRefunds, stripeStatus, verifyWebhook } from "./server/stripe";
+import { afterDepositPaid, afterLateDepositRefunded } from "./server/public";
 import { handleConnectEvent, type ConnectEvent } from "./server/payouts";
 import { settleByMetadata, type PaymentRequest } from "./server/chair";
 import { applyDeliveryReports, applyInbound, waWebhookOk } from "./server/whatsapp";
@@ -55,10 +55,11 @@ app.get("/api/cron/messages", async (c) => {
   if (!secret || c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ error: "unauthorised" }, 401);
   const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
   const holds = await expireHolds(c.env.DB);
+  const refunds = await retryDepositRefunds(c.env.DB).catch(() => 0);
   const reminders = await sweepReminders(c.env.DB, origin);
   const drained = await drain(c.env.DB, 100);
   const waitlist = await sweepWaitlistPlatform(c.env.DB, origin).catch(() => 0);
-  return c.json({ ok: true, reminders, drained, holds_released: holds.length, waitlist, providers: providerStatus() });
+  return c.json({ ok: true, reminders, drained, holds_released: holds.length, refunds_retried: refunds, waitlist, providers: providerStatus() });
 });
 // Daily billing sweep: on the 1st (or the first run after it) close last month's period for every
 // paying shop — invoices issued, handed to Stripe, emailed — then apply dunning (overdue → past due).
@@ -80,6 +81,19 @@ app.post("/api/stripe/webhook", async (c) => {
   const evt = JSON.parse(raw) as { id: string; type: string; data: { object: { id: string; payment_status?: string; payment_intent?: string | null; amount_total?: number; metadata?: Record<string, string>; client_reference_id?: string | null } } };
   const seen = await c.env.DB.prepare("INSERT INTO stripe_events(id,type,received_at) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING").bind(evt.id, evt.type, Date.now()).run();
   if (!seen.meta.changes) return c.json({ ok: true, duplicate: true });
+  // The event id is claimed above so a concurrent redelivery cannot double-process. If processing then
+  // fails we release the claim and answer 500, so Stripe redelivers (it retries for up to three days)
+  // instead of the payment being silently lost.
+  try {
+    return await processStripeEvent(c, evt);
+  } catch (err) {
+    await c.env.DB.prepare("DELETE FROM stripe_events WHERE id=?").bind(evt.id).run().catch(() => null);
+    console.error("stripe webhook failed", evt.type, evt.id, err instanceof Error ? err.message : err);
+    return c.json({ error: "processing_failed" }, 500);
+  }
+});
+type StripeEvt = { id: string; type: string; data: { object: { id: string; payment_status?: string; payment_intent?: string | null; amount_total?: number; metadata?: Record<string, string>; client_reference_id?: string | null } } };
+async function processStripeEvent(c: Context<{ Bindings: AppBindings; Variables: { shopId: string; actor: string; account: null } }>, evt: StripeEvt) {
   const o = evt.data.object;
   const shopId = o.metadata?.shop_id, bookingId = o.metadata?.booking_id || o.client_reference_id || "";
   const requestId = o.metadata?.payment_request_id || "";
@@ -100,12 +114,11 @@ app.post("/api/stripe/webhook", async (c) => {
     await settleByMetadata(c.env.DB, requestId, pi);
   } else if (evt.type === "checkout.session.completed" || evt.type === "checkout.session.async_payment_succeeded") {
     if (shopId && bookingId && o.payment_status === "paid") {
-      const changed = await markDepositPaid(c.env.DB, shopId, bookingId, o.amount_total ?? 0, typeof o.payment_intent === "string" ? o.payment_intent : "", o.id);
-      if (changed) {
-        c.set("shopId", shopId);
-        c.set("actor", "stripe");
-        await afterDepositPaid(c as never, shopId, bookingId);
-      }
+      const result = await markDepositPaid(c.env.DB, shopId, bookingId, o.amount_total ?? 0, typeof o.payment_intent === "string" ? o.payment_intent : "", o.id);
+      c.set("shopId", shopId);
+      c.set("actor", "stripe");
+      if (result === "paid") await afterDepositPaid(c as never, shopId, bookingId);
+      else if (result === "refunded") await afterLateDepositRefunded(c as never, shopId, bookingId);
     }
   } else if (evt.type === "checkout.session.expired") {
     // Release the hold now rather than waiting for the sweep.
@@ -115,7 +128,7 @@ app.post("/api/stripe/webhook", async (c) => {
     await handleConnectEvent(c.env.DB, evt as ConnectEvent);
   }
   return c.json({ ok: true });
-});
+}
 // Which client build is live. Installed apps compare this with the build that rendered them and
 // reload when it moves, so a phone is never a deploy behind the dashboard.
 app.get("/api/public/build", (c) => {

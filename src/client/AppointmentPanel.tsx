@@ -404,7 +404,7 @@ export function AppointmentPanel({
                 }}
               >
                 <label className="panel-reason">
-                  <span>Why is this payment being voided?</span>
+                  <span>Why is this payment being voided? {voiding.stripe_payment_intent ? "A card payment is refunded to the customer's card first; if the refund fails nothing is voided." : ""}</span>
                   <input value={voidReason} onChange={(e) => setVoidReason(e.target.value)} minLength={3} maxLength={300} required autoFocus />
                 </label>
                 <div className="panel-actions-row">

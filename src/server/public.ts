@@ -46,7 +46,7 @@ import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, pushFor, waAvai
 import { currentAccount as currentCustomerAccount, customerPassword, ensureAccount, openSession as openCustomerSession, sendWelcome } from "./customerAuth";
 import { autoOffer, slotFreed, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
 import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
-import { createDepositSession, depositView, depositsOnline, paymentPolicy, expireHolds, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
+import { createDepositSession, depositView, depositsOnline, paymentPolicy, expireHolds, keepDepositInLedger, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
 import { shopUrl } from "./hosts";
 import {
   audit,
@@ -666,8 +666,16 @@ export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooki
         ? "paid in full by card"
         : `deposit ${new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format((booking.deposit_paid_pence ?? 0) / 100)} paid, the rest in the shop`
       : "pay in the shop",
+    // On a cancelled visit: what happened to the money, in plain words.
+    refund_note: (() => {
+      const money = new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format((booking.deposit_paid_pence ?? 0) / 100);
+      if (booking.deposit_status === "REFUNDED") return `Your deposit of ${money} has been refunded to your card. It can take 5-10 working days to appear.`;
+      if (booking.deposit_status === "PAID" && booking.status === "CANCELLED" && (booking as { deposit_refund_retry_at?: number | null }).deposit_refund_retry_at) return `Your deposit of ${money} is being refunded to your card.`;
+      if (booking.deposit_status === "PAID" && booking.status === "CANCELLED") return `Your deposit of ${money} is kept under the ${booking.cancel_hours_snapshot}-hour cancellation policy.`;
+      return "";
+    })(),
   };
-  const channels = channelsFor(shop, to, "AUTO", template === "booking_confirmed");
+  const channels = channelsFor(shop, to, "AUTO", ["booking_confirmed", "booking_moved", "booking_cancelled"].includes(template));
   const opts = { related: { type: "booking", id: booking.id }, origin };
   const stmts = [...enqueue(c.env.DB, shop, to, template, vars, opts), ...(await pushFor(c.env.DB, shop, to, template, vars, opts))];
   if (!stmts.length) return [];
@@ -830,8 +838,9 @@ pub.post("/manage/:token/deposit/confirm", async (c) => {
   if (!booking.stripe_session_id || !stripeLive()) return c.json({ booking: customerView(booking, shop, staffName), changed: false });
   const s = await retrieveSession(booking.stripe_session_id).catch(() => null);
   if (s?.payment_status === "paid") {
-    const changed = await markDepositPaid(c.env.DB, shop.id, booking.id, booking.deposit_policy_pence, typeof s.payment_intent === "string" ? s.payment_intent : "", s.id);
-    if (changed) await afterDepositPaid(c, shop.id, booking.id);
+    const result = await markDepositPaid(c.env.DB, shop.id, booking.id, booking.deposit_policy_pence, typeof s.payment_intent === "string" ? s.payment_intent : "", s.id);
+    if (result === "paid") await afterDepositPaid(c, shop.id, booking.id);
+    else if (result === "refunded") await afterLateDepositRefunded(c, shop.id, booking.id);
   } else if (s?.status === "expired") {
     await expireHolds(c.env.DB);
   }
@@ -849,6 +858,15 @@ export async function afterDepositPaid(c: Ctx, shopId: string, bookingId: string
   // The raw manage token is never stored, so the confirmation links to /<slug>/me.
   await notifyBooking(c, shopId, b, staff?.name ?? null, "booking_confirmed");
   await alertOwners(c.env.DB, shopId, "new_booking", b, { staffName: staff?.name, origin: new URL(c.req.url).origin }).catch(() => 0);
+}
+
+// The customer paid after their hold lapsed and the slot had gone: the money was refunded automatically,
+// so tell them plainly (the cancelled-visit message carries the refund line).
+export async function afterLateDepositRefunded(c: Ctx, shopId: string, bookingId: string) {
+  const b = await c.env.DB.prepare("SELECT * FROM bookings WHERE shop_id=? AND id=?").bind(shopId, bookingId).first<StoredBooking>();
+  if (!b) return;
+  const staff = await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(shopId, b.staff_id).first<{ name: string }>();
+  await notifyBooking(c, shopId, b, staff?.name ?? null, "booking_cancelled").catch(() => []);
 }
 
 // Group bookings ------------------------------------------------------------
@@ -1295,6 +1313,9 @@ export async function cancelByCustomer(c: Ctx, shop: Shop, booking: StoredBookin
     await c.env.DB.prepare("UPDATE bookings SET deposit_status='EXPIRED', deposit_hold_until=NULL WHERE shop_id=? AND id=?").bind(shop.id, booking.id).run();
   } else if (booking.deposit_status === "PAID" && !late) {
     await refundDeposit(c.env.DB, shop, booking, "customer", "customer cancelled outside the policy window");
+  } else if (booking.deposit_status === "PAID" && late) {
+    // Kept under the policy: it is the shop's money now, so it goes in the ledger for the next pay run.
+    await keepDepositInLedger(c.env.DB, shop, booking, "customer", "cancelled inside the policy window").catch(() => false);
   }
   await slotFreed(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-cancel");
   const after = await readBooking(c, booking.id);

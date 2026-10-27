@@ -10,7 +10,8 @@
 // plus the Stripe refs and fees, and move the visit forward. Idempotent on the request id.
 import type { Database as DB } from "../db/client";
 import type { Shop, StoredBooking } from "./domain";
-import { StripeError, chargeFee, platformFee, retrieveSession, stripeLive } from "./stripe";
+import { StripeError, chargeFee, descriptorSuffix, platformFee, retrieveSession, stripeApi, stripeLive } from "./stripe";
+export { descriptorSuffix };
 import { platformPolicy } from "./payouts";
 
 type Env = { STRIPE_SECRET_KEY?: string };
@@ -20,7 +21,7 @@ async function stripe<T>(path: string, body?: Record<string, string | number | b
   if (!key) throw new StripeError("Stripe is not configured", 503, "stripe_off");
   const headers: Record<string, string> = { Authorization: `Bearer ${key}`, "Stripe-Version": "2024-06-20" };
   if (opts.idempotency) headers["Idempotency-Key"] = opts.idempotency;
-  let url = `https://api.stripe.com/v1${path}`;
+  let url = `${stripeApi()}/v1${path}`;
   let init: RequestInit = { method: method ?? (body ? "POST" : "GET"), headers };
   if (body) {
     const form = new URLSearchParams();
@@ -54,7 +55,7 @@ export async function createLinkRequest(db: DB, shop: Shop, booking: StoredBooki
   const id = crypto.randomUUID();
   const now = Date.now();
   const expires = now + REQUEST_TTL_MIN * 60000;
-  const ref = booking.id.slice(0, 6).toUpperCase();
+  const ref = `BRB-${String(booking.sequence).padStart(4, "0")}`;
   const body: Record<string, string | number> = {
     mode: "payment",
     "managed_payments[enabled]": "false", // foliyo is merchant of record (see stripe.ts)
@@ -99,13 +100,6 @@ export async function createLinkRequest(db: DB, shop: Shop, booking: StoredBooki
 
 // ---- TERMINAL --------------------------------------------------------------------------------------------
 export const MAX_READERS_PER_SHOP = 10;
-// What the customer sees after foliyo's name on their card statement, so a charge reads as the barber's.
-// Stripe caps the whole statement line at 22 characters including foliyo's own prefix, so keep the
-// shop part short (12). Needs at least one letter and none of < > \\ ' " *.
-export function descriptorSuffix(name: string): string {
-  const clean = (name || "").normalize("NFKD").replace(/[^\x20-\x7E]/g, "").replace(/[<>\\'"*]/g, "").replace(/\s+/g, " ").trim().toUpperCase().slice(0, 12).trim();
-  return /[A-Z]/.test(clean) ? clean : "";
-}
 // Pull a Stripe-ready address out of the shop's free-text address. UK postcodes only (foliyo is UK);
 // returns null when there is no postcode so we can ask for one rather than invent a location.
 export function parseAddress(raw: string, fallbackName = ""): { line1: string; city: string; postal_code: string; country: "GB" } | null {
