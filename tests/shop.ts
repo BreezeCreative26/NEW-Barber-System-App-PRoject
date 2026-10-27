@@ -4,7 +4,7 @@
 // `staff` has exactly the two seeded barbers.
 import { expect, request, type APIRequestContext } from "@playwright/test";
 
-export const origin = "http://localhost:3000";
+export const origin = process.env.TEST_ORIGIN || "http://localhost:3000";
 export const base = origin + "/api/app";
 export const PASSWORD = "Unique fictional test password 438!";
 export const email = () => `owner-${crypto.randomUUID().slice(0, 8)}@ollo.test`;

@@ -20,7 +20,7 @@ import type { Database } from "../db/client";
 import type { AppEnv } from "./accounts";
 import type { Shop, ShopBrand } from "./domain";
 import { brandOf, inkOn, smsSenderFor } from "./domain";
-import { expireHolds } from "./stripe";
+import { expireHolds, retryDepositRefunds } from "./stripe";
 import { scheduledPayRuns } from "./payouts";
 import { expireRequests } from "./chair";
 import { sweepDailySummaries } from "./alerts";
@@ -88,10 +88,10 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "booking_cancelled":
       return {
-        sms: `${s}: your ${v.service} on ${when} is cancelled. Ref ${v.ref}. Book again: ${v.book_link}`,
+        sms: `${s}: your ${v.service} on ${when} is cancelled. ${v.refund_note ? `${v.refund_note} ` : ""}Ref ${v.ref}. Book again: ${v.book_link}`,
         subject: `Your visit at ${s} on ${v.date} is cancelled`,
         heading: `Cancelled: ${v.service}, ${when}.`,
-        lines: [`Reference ${v.ref}`, "Nothing else to do. Whenever you're ready, book again below."],
+        lines: [`Reference ${v.ref}`, v.refund_note ? String(v.refund_note) : "", "Nothing else to do. Whenever you're ready, book again below."].filter(Boolean),
         cta: { label: `Book again at ${s}`, href: String(v.book_link) },
       };
     case "booking_reminder":
@@ -487,6 +487,8 @@ export function channelsFor(shop: MsgShop, to: Recipient, prefer: Channel | "AUT
   if (both && sms && email) return ["SMS", "EMAIL"];
   return sms ? ["SMS"] : email ? ["EMAIL"] : [];
 }
+// Messages worth a durable email as well as a text: they change money or plans.
+const BOTH_CHANNELS = new Set<MessageTemplate>(["booking_confirmed", "booking_moved", "booking_cancelled"]);
 const WA_CAPABLE = new Set<MessageTemplate>(["booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon", "signin_code", "verify_contact", "waitlist_offer", "waitlist_open", "pay_link", "staff_invite", "password_reset"]);
 
 // Emails to a shop's customers carry the shop's look only, no foliyo mark. Owner, staff and billing
@@ -494,7 +496,7 @@ const WA_CAPABLE = new Set<MessageTemplate>(["booking_confirmed", "booking_moved
 const CUSTOMER_FACING = new Set<MessageTemplate>(["booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon", "signin_code", "waitlist_joined", "waitlist_offer", "waitlist_open", "waitlist_booked", "waitlist_released", "review_request", "google_review", "test_message", "pay_link", "verify_contact", "password_reset", "account_welcome", "account_reset", "shop_announcement"]);
 
 // Returns prepared statements so callers can batch them with their own writes.
-export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageTemplate, vars: MessageVars, opts: EnqueueOpts, both = template === "booking_confirmed") {
+export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageTemplate, vars: MessageVars, opts: EnqueueOpts, both = BOTH_CHANNELS.has(template)) {
   const now = opts.now ?? Date.now();
   const brand = brandOf(shop);
   const r = copyFor(template, { first: to.name, ...vars }, shop);
@@ -816,7 +818,7 @@ export async function sweepReminders(db: DB, origin: string, now = Date.now()) {
            AND NOT EXISTS (SELECT 1 FROM reminder_marks m WHERE m.shop_id=b.shop_id AND m.booking_id=b.id AND m.template=? AND m.start_at=b.start_at)`,
         )
         .bind(shop.id, w.from, w.to, w.mark)
-        .all<{ id: string; start_at: number; customer_name: string; attendee_name: string; phone: string; email: string; service_name: string; staff_name: string | null; date: string; start_min: number; token_hash: string | null; price_pence: number; contact_pref: string | null; cust_pref: string | null; cust_email: string | null }>();
+        .all<{ id: string; start_at: number; sequence?: number; customer_name: string; attendee_name: string; phone: string; email: string; service_name: string; staff_name: string | null; date: string; start_min: number; token_hash: string | null; price_pence: number; contact_pref: string | null; cust_pref: string | null; cust_email: string | null }>();
       for (const b of rows.results) {
         // Claim this reminder for this booking at this start time; a move changes the time, so it earns a new one.
         const claim = await db.prepare("INSERT INTO reminder_marks(shop_id,booking_id,template,start_at,created_at) VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING").bind(shop.id, b.id, w.mark, b.start_at, now).run();
@@ -832,7 +834,7 @@ export async function sweepReminders(db: DB, origin: string, now = Date.now()) {
         const pick = b.contact_pref && b.contact_pref !== "AUTO" ? b.contact_pref : b.cust_pref && b.cust_pref !== "AUTO" ? b.cust_pref : undefined;
         if (pick === "NONE") continue;
         const stmts = enqueue(db, shop, { name: b.attendee_name || b.customer_name, phone: b.phone, email: b.email || b.cust_email || "", pref: pick as Recipient["pref"] }, w.template, {
-          service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], date: fmtDate(b.date), time: fmtTime(b.start_min), ref: b.id.slice(0, 6).toUpperCase(),
+          service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], date: fmtDate(b.date), time: fmtTime(b.start_min), ref: `BRB-${String((b as { sequence?: number }).sequence ?? 0).padStart(4, "0")}`,
           address: shop.address, link, map_link: shop.map_url || (shop.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.address)}` : link),
         }, { related: { type: "booking", id: b.id }, origin, now, sendAt: sendAt > now ? sendAt : undefined }, false);
         if (stmts.length) { await db.batch(stmts); queued += stmts.length; }
@@ -853,6 +855,7 @@ export async function maybeSweep(db: DB, origin: string, intervalMs = 5 * 60000,
   const holds = await expireHolds(db, now).catch(() => []);
   const reminders = await sweepReminders(db, origin, now);
   const drained = await drain(db, 50, now);
+  const refunds = await retryDepositRefunds(db, now).catch(() => 0);
   const runs = await scheduledPayRuns(db, now).catch(() => 0);
   await expireRequests(db, now).catch(() => 0);
   const summaries = await sweepDailySummaries(db, origin, now).catch(() => 0);
@@ -865,7 +868,7 @@ export async function maybeSweep(db: DB, origin: string, intervalMs = 5 * 60000,
   // Retention: delivered/skipped/failed rows older than 180 days go; the outbox shows 30 days and the
   // audit trail keeps the fact a message was sent. Anything still QUEUED is never touched.
   await db.prepare("DELETE FROM notifications WHERE status IN ('SENT','SKIPPED','FAILED') AND created_at < ?").bind(now - 180 * 86400000).run().catch(() => null);
-  return { reminders, drained, holds_released: holds.length, pay_runs: runs, summaries, platform, waitlist, domains };
+  return { reminders, drained, holds_released: holds.length, refunds_retried: refunds, pay_runs: runs, summaries, platform, waitlist, domains };
 }
 
 export const fmtDate = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });

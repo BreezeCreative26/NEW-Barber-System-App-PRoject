@@ -184,12 +184,21 @@ export async function executeRun(db: DB, shop: Shop, run: PayRun, staff: Staff, 
       return { ...out, error: `Stripe refused the ${leg.to === "STAFF" ? "barber" : "shop"} transfer: ${err instanceof Error ? err.message : "error"}` };
     }
   }
+  // A leg that could not go (account not payouts-enabled yet) leaves the run APPROVED: nothing is marked
+  // paid, the legs already sent are remembered (idempotent), and the sweep / the Transfer button retries
+  // once the account is ready. Previously the run flipped to TRANSFERRED and the held money was forgotten.
+  if (out.skipped.length) {
+    const why = `${out.transferred.length ? `Sent: ${out.transferred.map((t) => `${t.to === "STAFF" ? staff.name : "shop"} ${t.amount}p`).join("; ")}. ` : ""}Held: ${out.skipped.join("; ")}`.slice(0, 500);
+    const logged = await db.prepare("SELECT 1 FROM audit_events WHERE shop_id=? AND entity_type='pay_run' AND entity_id=? AND action='PAY_RUN_HELD' AND reason=?").bind(shop.id, run.id, why).first();
+    if (!logged) await db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), shop.id, "pay_run", run.id, "PAY_RUN_HELD", actor, why, now).run().catch(() => null);
+    return { ...out, error: `Held: ${out.skipped.join("; ")}. It will send automatically once Stripe setup is finished.` };
+  }
   // Settle the payments into this run so they can't be paid twice, and advance the run.
   await db.batch([
     db.prepare("UPDATE payments SET pay_run_id=? WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND pay_run_id IS NULL").bind(run.id, shop.id, staff.id, run.period_from, run.period_to),
     db.prepare("UPDATE pay_runs SET status='TRANSFERRED', transfer_group=?, transferred_at=?, updated_at=?, version=version+1 WHERE shop_id=? AND id=? AND status='APPROVED'").bind(group, now, now, shop.id, run.id),
     db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
-      .bind(crypto.randomUUID(), shop.id, "pay_run", run.id, "PAY_RUN_TRANSFERRED", actor, `${out.transferred.map((t) => `${t.to === "STAFF" ? staff.name : "shop"} ${t.amount}p (${t.id})`).join("; ") || "nothing to move"}${out.skipped.length ? `. Held: ${out.skipped.join("; ")}` : ""}`, now),
+      .bind(crypto.randomUUID(), shop.id, "pay_run", run.id, "PAY_RUN_TRANSFERRED", actor, `${out.transferred.map((t) => `${t.to === "STAFF" ? staff.name : "shop"} ${t.amount}p (${t.id})`).join("; ") || "nothing to move"}`, now),
   ]);
   out.ok = true;
   return out;
@@ -273,6 +282,15 @@ export async function scheduledPayRuns(db: DB, now = Date.now()) {
       n++;
     }
   }
+  // Approved runs that could not be sent (account not ready, balance not settled yet) are retried here.
+  const stuck = (await db.prepare("SELECT r.* FROM pay_runs r WHERE r.status='APPROVED' AND r.transferred_at IS NULL AND (r.transfer_pence>0 OR r.shop_transfer_pence>0) ORDER BY r.created_at LIMIT 20").all<PayRun>()).results;
+  for (const run of stuck) {
+    const shop = await db.prepare("SELECT * FROM shops WHERE id=?").bind(run.shop_id).first<Shop>();
+    const st = await db.prepare("SELECT * FROM staff WHERE shop_id=? AND id=?").bind(run.shop_id, run.staff_id).first<Staff>();
+    if (!shop || !st) continue;
+    const r = await executeRun(db, shop, run, st, "system").catch(() => null);
+    if (r?.ok) n++;
+  }
   return n;
 }
 
@@ -332,11 +350,33 @@ export async function handleConnectEvent(db: DB, evt: ConnectEvent) {
       return;
     }
     case "charge.refunded": {
-      // Refunds we did not initiate from the app (e.g. from the Stripe dashboard) still need reversing.
+      // Refunds we did not initiate from the app (e.g. from the Stripe dashboard) still have to be
+      // reflected: the booking's deposit status, the ledger row, and money a pay run already sent out.
       const pi = typeof o.payment_intent === "string" ? o.payment_intent : "";
       if (!pi) return;
-      const pay = await db.prepare("SELECT id, shop_id, pay_run_id FROM payments WHERE stripe_payment_intent=? AND voided_at IS NULL").bind(pi).first<{ id: string; shop_id: string; pay_run_id: string | null }>();
-      if (pay?.pay_run_id) await reverseForPayment(db, pay.shop_id, pay.id, Number(o.amount_refunded) || 0, "refund from Stripe dashboard", "stripe");
+      const refundedPence = Number(o.amount_refunded) || 0;
+      const full = o.refunded === true || (Number(o.amount) > 0 && refundedPence >= Number(o.amount));
+      const { unwindDepositLedger } = await import("./stripe");
+      // A deposit refunded outside the app: close it on the booking and take it out of the ledger.
+      const dep = await db.prepare("SELECT shop_id, id, deposit_paid_pence FROM bookings WHERE stripe_payment_intent=? AND deposit_status='PAID'").bind(pi).first<{ shop_id: string; id: string; deposit_paid_pence: number }>();
+      if (dep && full) {
+        await db.batch([
+          db.prepare("UPDATE bookings SET deposit_status='REFUNDED', deposit_refund_retry_at=NULL, updated_at=? WHERE shop_id=? AND id=? AND deposit_status='PAID'").bind(now, dep.shop_id, dep.id),
+          db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), dep.shop_id, "booking", dep.id, "DEPOSIT_REFUNDED", "stripe", `Deposit ${dep.deposit_paid_pence}p refunded outside the app (Stripe dashboard).`, now),
+        ]);
+        await unwindDepositLedger(db, dep.shop_id, dep.id, "deposit refunded in the Stripe dashboard", "stripe").catch(() => null);
+        return;
+      }
+      const pay = await db.prepare("SELECT id, shop_id, pay_run_id, service_pence, tip_pence FROM payments WHERE stripe_payment_intent=? AND voided_at IS NULL ORDER BY created_at LIMIT 1").bind(pi).first<{ id: string; shop_id: string; pay_run_id: string | null; service_pence: number; tip_pence: number }>();
+      if (!pay) return;
+      // A card payment refunded in full no longer counts as takings; a part refund claws back its share.
+      if (full) {
+        await db.batch([
+          db.prepare("UPDATE payments SET voided_at=?, void_reason=? WHERE shop_id=? AND id=? AND voided_at IS NULL").bind(now, "refunded in the Stripe dashboard", pay.shop_id, pay.id),
+          db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), pay.shop_id, "payment", pay.id, "PAYMENT_VOIDED", "stripe", "Refunded in full in the Stripe dashboard.", now),
+        ]);
+      }
+      if (pay.pay_run_id) await reverseForPayment(db, pay.shop_id, pay.id, full ? pay.service_pence + pay.tip_pence : refundedPence, "refund from Stripe dashboard", "stripe");
       return;
     }
     default:

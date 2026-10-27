@@ -85,7 +85,7 @@ import { billingLive, cardSetupSession, paymentMethodSummary, portalSession } fr
 import { applyDecisions, changeSchema, decisionSchema, describeChange, previewChange, type ScheduleChange } from "./schedule";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, pushFor, sweepReminders, reminderSteps, MESSAGE_TEMPLATES, type Recipient } from "./messaging";
 import { agentPrompt, newSecret, voiceEndpoints, voiceOf, voiceSettingsSchema } from "./voice";
-import { StripeError, depositsOnline, expireHolds, expireSession, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
+import { StripeError, depositsOnline, expireHolds, expireSession, keepDepositInLedger, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import QRCode from "qrcode";
 import setup from "./setup";
 import { PERM_DEFS, type PermKey } from "./perms";
@@ -96,7 +96,7 @@ import { mountShopCampaigns } from "./shopCampaigns";
 import { mountDomains } from "./domains";
 import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
-import { accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, type ConnectedAccount } from "./payouts";
+import { accountFor, accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, type ConnectedAccount } from "./payouts";
 import { walletsCsv, walletsSummary } from "./wallets";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
 import { RESERVED_SUBDOMAINS, shopUrl } from "./hosts";
@@ -1686,8 +1686,25 @@ sandbox.get("/shop/payments", async (c) => {
     active: depositsOnline(shop),
     payouts_ready: stripeLive() && stripeConnect() && !!shopAcct?.payouts_enabled,
     totals_30d: { ...(totals as object), ...(moved as object) },
+    // Things that need a human: refunds Stripe has not accepted yet, pay runs approved but not sent.
+    attention: {
+      refunds_outstanding: await c.env.DB.prepare("SELECT id, customer_name, date, deposit_paid_pence FROM bookings WHERE shop_id=? AND deposit_status='PAID' AND deposit_refund_retry_at IS NOT NULL ORDER BY date DESC LIMIT 20").bind(shop.id).all().then((r) => r.results),
+      runs_held: await c.env.DB.prepare("SELECT r.id, r.period_from, r.period_to, r.transfer_pence, r.shop_transfer_pence, s.name AS staff_name FROM pay_runs r JOIN staff s ON s.shop_id=r.shop_id AND s.id=r.staff_id WHERE r.shop_id=? AND r.status='APPROVED' AND r.transferred_at IS NULL AND (r.transfer_pence>0 OR r.shop_transfer_pence>0) ORDER BY r.period_from DESC LIMIT 20").bind(shop.id).all().then((r) => r.results),
+    },
+    // Tie-out for the last 30 days: card money in, what the platform kept, what went out, what is still waiting.
+    reconciliation: await reconcileShop(c.env.DB, shop.id, since),
   });
 });
+// Card money for a shop over a window: in (ledger, not voided), platform fee, paid out (transfers net of
+// reversals), and still waiting for a pay run. `outstanding_pence` should equal what a shop's next runs will move.
+async function reconcileShop(db: D1Database, shopId: string, sinceMs: number) {
+  const row = await db.prepare(
+    "SELECT COALESCE(SUM(service_pence+tip_pence),0)::int AS card_in, COALESCE(SUM(platform_fee_pence),0)::int AS platform_fee, COALESCE(SUM(CASE WHEN pay_run_id IS NULL THEN service_pence+tip_pence ELSE 0 END),0)::int AS unsettled, COUNT(*)::int AS payments FROM payments WHERE shop_id=? AND voided_at IS NULL AND created_at>? AND (method='ONLINE' OR (method='CARD' AND stripe_payment_intent<>''))",
+  ).bind(shopId, sinceMs).first<{ card_in: number; platform_fee: number; unsettled: number; payments: number }>();
+  const out = await db.prepare("SELECT COALESCE(SUM(amount_pence),0)::int AS net_out FROM transfers WHERE shop_id=? AND created_at>?").bind(shopId, sinceMs).first<{ net_out: number }>();
+  const refunded = await db.prepare("SELECT COALESCE(SUM(deposit_paid_pence),0)::int AS p FROM bookings WHERE shop_id=? AND deposit_status='REFUNDED' AND updated_at>?").bind(shopId, sinceMs).first<{ p: number }>();
+  return { card_in_pence: row?.card_in ?? 0, platform_fee_pence: row?.platform_fee ?? 0, paid_out_net_pence: out?.net_out ?? 0, unsettled_pence: row?.unsettled ?? 0, deposits_refunded_pence: refunded?.p ?? 0, payments: row?.payments ?? 0 };
+}
 const paymentsSchema = z
   .object({
     deposits_online: z.union([z.literal(0), z.literal(1)]),
@@ -1704,6 +1721,12 @@ sandbox.put("/shop/payments", async (c) => {
   const b = await input(c, paymentsSchema);
   const shop = await readShop(c);
   if (b.deposits_online && !stripeLive()) fail(409, "Card payments are not switched on for foliyo yet");
+  // Money taken online lands on foliyo and is paid out to the shop's own Stripe account: refuse to switch
+  // card deposits on until that account can actually receive payouts, or the money would sit with no destination.
+  if (b.deposits_online && !shop.deposits_online && stripeLive() && stripeConnect()) {
+    const sa = await accountFor(c.env.DB, shop.id, "SHOP", shop.id);
+    if (!sa?.payouts_enabled) fail(409, "Finish connecting the shop's payout account first (Payments → Connect), then switch card deposits on");
+  }
   if (b.deposits_online && b.payment_mode === "DEPOSIT" && shop.deposit_pence <= 0) fail(409, "Set a deposit amount above zero first");
   if (b.payment_mode === "PREPAY" && !b.deposits_online) fail(409, "Pre-payment needs card payments at booking switched on");
   if (b.payrun_auto !== "OFF" && !stripeLive()) fail(409, "Automatic pay runs need card payments switched on");
@@ -3442,6 +3465,8 @@ sandbox.post("/bookings/:id/status", async (c) => {
   if (body.status === "NO_SHOW") {
     const count = await c.env.DB.prepare("SELECT COUNT(*)::int AS n FROM bookings WHERE shop_id=? AND phone=? AND status='NO_SHOW'").bind(c.get("shopId"), b.phone).first<{ n: number }>();
     const st = await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(c.get("shopId"), b.staff_id).first<{ name: string }>();
+    // A deposit paid online is the shop's to keep on a no-show: put it in the ledger so the pay run moves it.
+    if (b.deposit_status === "PAID") await keepDepositInLedger(c.env.DB, await readShop(c), b, c.get("actor"), "no-show").catch(() => false);
     await alertOwners(c.env.DB, c.get("shopId"), "no_show", { ...b, status: "NO_SHOW" }, { staffName: st?.name, origin: new URL(c.req.url).origin, extra: { count: count?.n ?? 0 } }).catch(() => 0);
   }
   // A cancelled visit frees a slot: offer it to the queue if the shop has auto-offer on. If the
@@ -3549,14 +3574,37 @@ sandbox.post("/payments/:id/void", async (c) => {
   const p = await c.env.DB.prepare("SELECT * FROM payments WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<Payment>();
   if (!p) return fail(404, "Payment not found");
   if (p.voided_at) fail(409, "payment_already_voided");
+  // Card money (online deposit, pay link, reader) went through Stripe: voiding must give it back to the
+  // customer FIRST, and if Stripe refuses the void does not happen, so the ledger never says "voided"
+  // while the customer is still out of pocket.
+  let refunded = false;
+  if (p.stripe_payment_intent && (p.method === "ONLINE" || p.method === "CARD")) {
+    if (!stripeLive()) fail(409, "Card refunds are not available on this deployment; refund from the Stripe dashboard");
+    const shop = await readShop(c);
+    const bk = await readBooking(c, p.booking_id);
+    if (p.method === "ONLINE" && bk.deposit_status === "PAID" && bk.stripe_payment_intent === p.stripe_payment_intent) {
+      // The online deposit: refundDeposit also closes the booking's deposit, voids this row and claws back any pay-run transfer.
+      const ok = await refundDeposit(c.env.DB, shop, bk, c.get("actor"), `payment voided: ${body.reason}`);
+      if (!ok) fail(409, "Stripe could not refund this payment, so it has not been voided. Try again or refund it from the Stripe dashboard.");
+      const after = await c.env.DB.prepare("SELECT * FROM payments WHERE shop_id=? AND id=?").bind(c.get("shopId"), p.id).first<Payment>();
+      return c.json({ payment: after ?? { ...p, voided_at: Date.now(), void_reason: body.reason }, reversal: null, refunded: true });
+    }
+    try {
+      await refundIntent(p.stripe_payment_intent, undefined, `void-${p.id}`, p.service_pence + p.tip_pence);
+      refunded = true;
+    } catch (err) {
+      if (!(err instanceof StripeError && err.code === "charge_already_refunded")) fail(409, `Stripe could not refund this payment, so it has not been voided: ${err instanceof Error ? err.message : "error"}`);
+      refunded = true;
+    }
+  }
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE payments SET voided_at=?,void_reason=? WHERE shop_id=? AND id=? AND voided_at IS NULL").bind(Date.now(), body.reason, c.get("shopId"), p.id),
-    audit(c, "payment", p.id, "PAYMENT_VOIDED", body.reason, true),
+    audit(c, "payment", p.id, "PAYMENT_VOIDED", `${body.reason}${refunded ? " (refunded to the customer's card)" : ""}`, true),
   ]);
   // Already settled through a pay run: claw the shares back with reversals (never edit the run).
   let reversal: Awaited<ReturnType<typeof reverseForPayment>> | null = null;
   if (p.pay_run_id && stripeLive()) reversal = await reverseForPayment(c.env.DB, c.get("shopId"), p.id, p.service_pence + p.tip_pence, `void: ${body.reason}`, c.get("actor"));
-  return c.json({ payment: { ...p, voided_at: Date.now(), void_reason: body.reason }, reversal });
+  return c.json({ payment: { ...p, voided_at: Date.now(), void_reason: body.reason }, reversal, refunded });
 });
 // Wallet: ledger totals for a date range (defaults to today), per method and per barber.
 // Per-user UI preferences. Sparse patch; unknown keys rejected so the column stays small.

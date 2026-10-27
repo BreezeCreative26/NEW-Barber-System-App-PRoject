@@ -707,10 +707,12 @@ BEGIN
 END $$;
 CREATE TRIGGER payments_immutable BEFORE UPDATE ON payments FOR EACH ROW EXECUTE FUNCTION ollo_payments_immutable();
 CREATE OR REPLACE FUNCTION ollo_payments_visit_state() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE b RECORD;
 BEGIN
-  IF (SELECT status FROM bookings WHERE shop_id=NEW.shop_id AND id=NEW.booking_id) NOT IN ('IN_SERVICE','COMPLETED') THEN
-    PERFORM ollo_abort('payment_visit_not_in_service');
-  END IF;
+  SELECT status, deposit_status INTO b FROM bookings WHERE shop_id=NEW.shop_id AND id=NEW.booking_id;
+  IF b.status IN ('IN_SERVICE','COMPLETED') THEN RETURN NEW; END IF;
+  IF NEW.method='ONLINE' AND b.status IN ('CANCELLED','NO_SHOW') AND b.deposit_status='PAID' THEN RETURN NEW; END IF;
+  PERFORM ollo_abort('payment_visit_not_in_service');
   RETURN NEW;
 END $$;
 CREATE TRIGGER payments_visit_state BEFORE INSERT ON payments FOR EACH ROW EXECUTE FUNCTION ollo_payments_visit_state();
@@ -889,6 +891,10 @@ CREATE INDEX IF NOT EXISTS booking_adjustments_open ON booking_adjustments(shop_
 
 -- Which line items were re-priced by hand (reporting). NULL = catalogue price at the time.
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS items_edited_at BIGINT;
+
+-- A deposit refund Stripe refused: when to try again (NULL = nothing owed).
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS deposit_refund_retry_at BIGINT;
+CREATE INDEX IF NOT EXISTS bookings_refund_retry ON bookings(deposit_refund_retry_at) WHERE deposit_refund_retry_at IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS reminder_marks (
   shop_id TEXT NOT NULL REFERENCES shops(id), booking_id TEXT NOT NULL, template TEXT NOT NULL, start_at BIGINT NOT NULL,

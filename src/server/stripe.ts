@@ -14,9 +14,15 @@ import type { Database as DB } from "../db/client";
 import type { Shop, StoredBooking } from "./domain";
 import { shopUrl } from "./hosts";
 
-type Env = { STRIPE_SECRET_KEY?: string; STRIPE_WEBHOOK_SECRET?: string; STRIPE_WEBHOOK_SECRET_CONNECT?: string; STRIPE_CONNECT?: string; APP_ORIGIN?: string };
+type Env = { STRIPE_API_BASE?: string; STRIPE_SECRET_KEY?: string; STRIPE_WEBHOOK_SECRET?: string; STRIPE_WEBHOOK_SECRET_CONNECT?: string; STRIPE_CONNECT?: string; APP_ORIGIN?: string };
 const env = (): Env => (typeof process !== "undefined" ? (process.env as Env) : {});
 export const stripeLive = () => !!env().STRIPE_SECRET_KEY;
+// Where Stripe's API lives. Only a TEST key may be pointed elsewhere (a local fake for automated
+// tests); a live key always talks to Stripe itself, whatever the environment says.
+export function stripeApi(): string {
+  const e = env();
+  return e.STRIPE_API_BASE && (e.STRIPE_SECRET_KEY || "").startsWith("sk_test_") ? e.STRIPE_API_BASE.replace(/\/+$/, "") : "https://api.stripe.com";
+}
 // Connect is the model (platform charges, transfers out). STRIPE_CONNECT=0 turns the shop/barber
 // account layer off for a single-shop deployment where the platform account IS the shop.
 export const stripeConnect = () => (env().STRIPE_CONNECT ?? "1") !== "0";
@@ -59,6 +65,14 @@ export function paymentPolicy(shop: Pick<Shop, "deposits_online" | "deposit_penc
   return { mode: "DEPOSIT", deposit_pence: shop.deposit_pence, line: `A ${fmt(shop.deposit_pence)} deposit is taken by card when you book. The rest is paid in the shop.` };
 }
 
+// What the customer sees after foliyo's name on their card statement, so a charge reads as the barber's.
+// Stripe caps the whole statement line at 22 characters including foliyo's own prefix, so keep the
+// shop part short (12). Needs at least one letter and none of < > \\ ' " *.
+export function descriptorSuffix(name: string): string {
+  const clean = (name || "").normalize("NFKD").replace(/[^\x20-\x7E]/g, "").replace(/[<>\\'"*]/g, "").replace(/\s+/g, " ").trim().toUpperCase().slice(0, 12).trim();
+  return /[A-Z]/.test(clean) ? clean : "";
+}
+
 class StripeError extends Error {
   constructor(message: string, public status: number, public code = "") {
     super(message);
@@ -70,7 +84,7 @@ async function stripe<T>(path: string, body?: Record<string, string | number | b
   const headers: Record<string, string> = { Authorization: `Bearer ${key}`, "Stripe-Version": "2024-06-20" };
   if (opts.account) headers["Stripe-Account"] = opts.account;
   if (opts.idempotency) headers["Idempotency-Key"] = opts.idempotency;
-  let url = `https://api.stripe.com/v1${path}`;
+  let url = `${stripeApi()}/v1${path}`;
   let init: RequestInit = { method: opts.method ?? (body ? "POST" : "GET"), headers };
   if (body) {
     const form = new URLSearchParams();
@@ -95,7 +109,7 @@ async function stripeV2<T>(path: string, body?: Record<string, unknown>, opts: {
   if (!key) throw new StripeError("Stripe is not configured", 503, "stripe_off");
   const headers: Record<string, string> = { Authorization: `Bearer ${key}`, "Stripe-Version": V2_VERSION, "Content-Type": "application/json" };
   if (opts.idempotency) headers["Idempotency-Key"] = opts.idempotency;
-  const res = await fetch(`https://api.stripe.com/v2${path}`, { method: body ? "POST" : "GET", headers, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(`${stripeApi()}/v2${path}`, { method: body ? "POST" : "GET", headers, body: body ? JSON.stringify(body) : undefined });
   const json = (await res.json().catch(() => ({}))) as { error?: { message?: string; code?: string } } & T;
   if (!res.ok) throw new StripeError(json.error?.message || `Stripe ${res.status}`, res.status, json.error?.code || "");
   return json;
@@ -123,7 +137,7 @@ export async function createDepositSession(shop: Shop, booking: StoredBooking, o
     "line_items[0][price_data][currency]": currency,
     "line_items[0][price_data][unit_amount]": amount,
     "line_items[0][price_data][product_data][name]": `${prepay ? "Payment" : "Deposit"} · ${booking.service_name}`,
-    "line_items[0][price_data][product_data][description]": `${shop.name} · ${booking.date} · ref ${booking.id.slice(0, 6).toUpperCase()}`,
+    "line_items[0][price_data][product_data][description]": `${shop.name} · ${booking.date} · ref BRB-${String(booking.sequence).padStart(4, "0")}`,
     success_url: `${manage}?paid=1&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${manage}?paid=0`,
     client_reference_id: booking.id,
@@ -139,7 +153,14 @@ export async function createDepositSession(shop: Shop, booking: StoredBooking, o
   if (booking.email) body.customer_email = booking.email;
   // Platform is the merchant of record: the charge lands on foliyo's balance and the pay run moves the
   // shop's and barber's shares out with Transfers. No Stripe-Account header.
-  return stripe<CheckoutSession>("/checkout/sessions", body, { idempotency: `deposit-${booking.id}` });
+  const suffix = descriptorSuffix(shop.name);
+  if (suffix) body["payment_intent_data[statement_descriptor_suffix]"] = suffix;
+  // A refused statement suffix must never stop the customer paying: retry once without it (the
+  // idempotency key changes because the parameters do).
+  return stripe<CheckoutSession>("/checkout/sessions", body, { idempotency: `deposit-${booking.id}${suffix ? "-d" : ""}` }).catch((e) => {
+    if (suffix && e instanceof StripeError && e.status === 400) { delete body["payment_intent_data[statement_descriptor_suffix]"]; return stripe<CheckoutSession>("/checkout/sessions", body, { idempotency: `deposit-${booking.id}` }); }
+    return Promise.reject(e);
+  });
 }
 export async function retrieveSession(sessionId: string, account?: string) {
   return stripe<CheckoutSession>(`/checkout/sessions/${encodeURIComponent(sessionId)}`, undefined, { account });
@@ -273,12 +294,77 @@ function timingSafeEqual(a: string, b: string) {
 
 // ---- Applying results ------------------------------------------------------------------------------
 // Mark a booking's deposit paid (idempotent). Returns true when this call made the change.
-export async function markDepositPaid(db: DB, shopId: string, bookingId: string, amountPence: number, paymentIntent: string, sessionId: string) {
+// A Checkout payment landed for a booking. Returns what happened so callers can message the customer:
+//   "paid"     the normal case: the hold was still open.
+//              Also returned when the hold had lapsed but the customer paid anyway (slow 3-D Secure, delayed
+//              webhook) and the slot was still free: the booking is restored.
+//   "refunded" the hold lapsed and the slot is gone (or the visit was cancelled): the money goes straight
+//              back and the customer is told, rather than being charged for nothing.
+//   null       already recorded (duplicate event) or nothing to do.
+export async function markDepositPaid(db: DB, shopId: string, bookingId: string, amountPence: number, paymentIntent: string, sessionId: string): Promise<"paid" | "refunded" | null> {
+  const now = Date.now();
   const r = await db
-    .prepare("UPDATE bookings SET deposit_status='PAID', deposit_paid_pence=?, stripe_payment_intent=?, stripe_session_id=COALESCE(NULLIF(stripe_session_id,''),?), deposit_hold_until=NULL, version=version+1, updated_at=? WHERE shop_id=? AND id=? AND deposit_status IN ('PENDING','EXPIRED')")
-    .bind(amountPence, paymentIntent, sessionId, Date.now(), shopId, bookingId)
+    .prepare("UPDATE bookings SET deposit_status='PAID', deposit_paid_pence=?, stripe_payment_intent=?, stripe_session_id=COALESCE(NULLIF(stripe_session_id,''),?), deposit_hold_until=NULL, version=version+1, updated_at=? WHERE shop_id=? AND id=? AND deposit_status='PENDING' AND status='CONFIRMED'")
+    .bind(amountPence, paymentIntent, sessionId, now, shopId, bookingId)
     .run();
-  return r.meta.changes > 0;
+  if (r.meta.changes > 0) return "paid";
+  const b = await db.prepare("SELECT status, deposit_status, deposit_hold_until, stripe_payment_intent FROM bookings WHERE shop_id=? AND id=?").bind(shopId, bookingId).first<{ status: string; deposit_status: string; deposit_hold_until: number | null; stripe_payment_intent: string }>();
+  if (!b || !paymentIntent || b.stripe_payment_intent === paymentIntent || b.deposit_status === "PAID" || b.deposit_status === "REFUNDED") return null;
+  // Only a hold that LAPSED can be revived (a customer who cancelled themselves stays cancelled).
+  if (b.status === "CANCELLED" && b.deposit_status === "EXPIRED" && b.deposit_hold_until !== null) {
+    try {
+      const rv = await db
+        .prepare("UPDATE bookings SET status='CONFIRMED', deposit_status='PAID', deposit_paid_pence=?, stripe_payment_intent=?, stripe_session_id=COALESCE(NULLIF(stripe_session_id,''),?), deposit_hold_until=NULL, version=version+1, updated_at=? WHERE shop_id=? AND id=? AND deposit_status='EXPIRED' AND status='CANCELLED'")
+        .bind(amountPence, paymentIntent, sessionId, now, shopId, bookingId)
+        .run();
+      if (rv.meta.changes > 0) {
+        await db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
+          .bind(crypto.randomUUID(), shopId, "booking", bookingId, "CONFIRMED", "stripe", "Deposit arrived after the hold lapsed; the slot was still free so the booking was restored.", now).run();
+        return "paid";
+      }
+    } catch {
+      /* slot taken meanwhile: fall through to the refund */
+    }
+  }
+  // Cannot honour it: give the money back straight away and record it on the booking.
+  try {
+    const rf = await refundIntent(paymentIntent, undefined, `late-${bookingId}-${paymentIntent}`);
+    await db.batch([
+      db.prepare("UPDATE bookings SET deposit_status='REFUNDED', deposit_paid_pence=?, stripe_payment_intent=?, stripe_refund_id=?, deposit_hold_until=NULL, updated_at=? WHERE shop_id=? AND id=? AND deposit_status IN ('PENDING','EXPIRED')").bind(amountPence, paymentIntent, rf.id, now, shopId, bookingId),
+      db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
+        .bind(crypto.randomUUID(), shopId, "booking", bookingId, "DEPOSIT_REFUNDED", "stripe", `Deposit ${amountPence}p arrived after the booking was released and the slot is no longer free; refunded automatically.`, now),
+    ]);
+    return "refunded";
+  } catch (err) {
+    // Could not refund either: leave a loud audit line and let the webhook retry (the caller 500s on throw).
+    await db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
+      .bind(crypto.randomUUID(), shopId, "booking", bookingId, "DEPOSIT_REFUND_FAILED", "stripe", `Late payment ${amountPence}p could not be refunded: ${err instanceof Error ? err.message : "error"}. Refund payment ${paymentIntent} from the Stripe dashboard.`, now).run().catch(() => null);
+    throw err;
+  }
+}
+
+// A deposit the shop KEEPS (customer cancelled inside the policy window, or no-show): it is shop money
+// like any card payment, so it goes into the ledger as an ONLINE tender and the next pay run moves it.
+// Idempotent: nothing happens if the deposit already has a live ledger row.
+export async function keepDepositInLedger(db: DB, shop: Shop, booking: StoredBooking, actor: string, why: string) {
+  const paid = booking.deposit_paid_pence ?? 0;
+  if (booking.deposit_status !== "PAID" || !(paid > 0)) return false;
+  const have = await db.prepare("SELECT 1 FROM payments WHERE shop_id=? AND booking_id=? AND method='ONLINE' AND voided_at IS NULL").bind(shop.id, booking.id).first();
+  if (have) return false;
+  const { platformPolicy } = await import("./payouts");
+  const { shopToday } = await import("./domain");
+  const staff = await db.prepare("SELECT commission_pct FROM staff WHERE shop_id=? AND id=?").bind(shop.id, booking.staff_id).first<{ commission_pct: number }>();
+  const amount = Math.min(paid, booking.price_pence);
+  const pid = crypto.randomUUID();
+  const now = Date.now();
+  const policy = await platformPolicy(db);
+  await db.batch([
+    db.prepare("INSERT INTO payments(id,shop_id,booking_id,staff_id,customer_id,date,method,service_pence,tip_pence,discount_pence,commission_pct,note,recorded_by,created_at,stripe_payment_intent,platform_fee_pence) VALUES(?,?,?,?,?,?,'ONLINE',?,0,0,?,?,?,?,?,?)")
+      .bind(pid, shop.id, booking.id, booking.staff_id, booking.customer_id, shopToday(shop.timezone, now), amount, staff?.commission_pct ?? 50, `Deposit kept: ${why}`.slice(0, 200), actor, now, booking.stripe_payment_intent || "", platformFee(amount, policy)),
+    db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
+      .bind(crypto.randomUUID(), shop.id, "payment", pid, "PAYMENT_RECORDED", actor, `ONLINE ${amount}p deposit kept (${why})`, now),
+  ]);
+  return true;
 }
 
 // Expire holds whose payment window lapsed: cancel the booking so the slot frees. Called from the
@@ -306,25 +392,64 @@ export async function expireHolds(db: DB, now = Date.now()) {
 }
 
 
-// Refund a paid deposit through Stripe and record it. Idempotent on the booking id. Never throws:
-// a failed refund is audited so the owner can do it from the Stripe dashboard.
-export async function refundDeposit(db: DB, shop: Shop, booking: StoredBooking, actor: string, why: string) {
+// Refund a paid deposit through Stripe and record it. Idempotent on the booking id. Never throws.
+// A refund Stripe refuses is not forgotten: the booking is flagged (deposit_refund_retry_at) and the
+// sweep tries again, and the Payments page shows the shop that one is outstanding. `attempt` makes the
+// retry's idempotency key differ from the failed one (Stripe replays a failed result for the same key).
+// Once the money is back with the customer, any ledger row for the deposit is voided and, if a pay run
+// already paid it out, the transfers are reversed — otherwise the barber keeps money that was refunded.
+export async function refundDeposit(db: DB, shop: Shop, booking: StoredBooking, actor: string, why: string, attempt = 0) {
   if (booking.deposit_status !== "PAID" || !booking.stripe_payment_intent) return false;
   const now = Date.now();
-  try {
-    const r = await refundIntent(booking.stripe_payment_intent, undefined, `refund-${booking.id}`);
+  const done = async (refundId: string, note: string) => {
     await db.batch([
-      db.prepare("UPDATE bookings SET deposit_status='REFUNDED', stripe_refund_id=?, updated_at=? WHERE shop_id=? AND id=? AND deposit_status='PAID'").bind(r.id, now, shop.id, booking.id),
+      db.prepare("UPDATE bookings SET deposit_status='REFUNDED', stripe_refund_id=?, deposit_refund_retry_at=NULL, updated_at=? WHERE shop_id=? AND id=? AND deposit_status='PAID'").bind(refundId, now, shop.id, booking.id),
       db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
-        .bind(crypto.randomUUID(), shop.id, "booking", booking.id, "DEPOSIT_REFUNDED", actor, `Deposit ${booking.deposit_paid_pence}p refunded to card (${why}).`, now),
+        .bind(crypto.randomUUID(), shop.id, "booking", booking.id, "DEPOSIT_REFUNDED", actor, `Deposit ${booking.deposit_paid_pence}p refunded to card (${why})${note}.`, now),
     ]);
+    await unwindDepositLedger(db, shop.id, booking.id, `deposit refunded: ${why}`, actor).catch(() => null);
+  };
+  try {
+    const r = await refundIntent(booking.stripe_payment_intent, undefined, attempt ? `refund-${booking.id}-${attempt}` : `refund-${booking.id}`);
+    await done(r.id, "");
     return true;
   } catch (err) {
-    await db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
-      .bind(crypto.randomUUID(), shop.id, "booking", booking.id, "DEPOSIT_REFUND_FAILED", actor, `Refund failed: ${err instanceof Error ? err.message : "error"}. Refund from the Stripe dashboard.`, now)
-      .run();
+    // Stripe says it is already refunded (an earlier attempt landed, or it was done in the dashboard).
+    if (err instanceof StripeError && err.code === "charge_already_refunded") { await done("", " — already refunded at Stripe"); return true; }
+    const retryAt = now + 15 * 60000;
+    await db.batch([
+      db.prepare("UPDATE bookings SET deposit_refund_retry_at=? WHERE shop_id=? AND id=? AND deposit_status='PAID'").bind(retryAt, shop.id, booking.id),
+      db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
+        .bind(crypto.randomUUID(), shop.id, "booking", booking.id, "DEPOSIT_REFUND_FAILED", actor, `Refund failed: ${err instanceof Error ? err.message : "error"}. We will try again automatically; if it keeps failing, refund it from the Stripe dashboard.`, now),
+    ]).catch(() => null);
     return false;
   }
+}
+// The ledger row for a deposit that has been refunded no longer counts: void it, and claw back what a
+// pay run already sent out for it.
+export async function unwindDepositLedger(db: DB, shopId: string, bookingId: string, reason: string, actor: string) {
+  const row = await db.prepare("SELECT id, pay_run_id, service_pence, tip_pence FROM payments WHERE shop_id=? AND booking_id=? AND method='ONLINE' AND voided_at IS NULL").bind(shopId, bookingId).first<{ id: string; pay_run_id: string | null; service_pence: number; tip_pence: number }>();
+  if (!row) return;
+  await db.batch([
+    db.prepare("UPDATE payments SET voided_at=?, void_reason=? WHERE shop_id=? AND id=? AND voided_at IS NULL").bind(Date.now(), reason.slice(0, 300), shopId, row.id),
+    db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), shopId, "payment", row.id, "PAYMENT_VOIDED", actor, reason.slice(0, 300), Date.now()),
+  ]);
+  if (row.pay_run_id) {
+    const { reverseForPayment } = await import("./payouts");
+    await reverseForPayment(db, shopId, row.id, row.service_pence + row.tip_pence, reason, actor);
+  }
+}
+// Refunds that failed earlier and are due another go (every 15 minutes). Called from the sweep. The
+// Payments page keeps showing the shop that one is outstanding until it lands.
+export async function retryDepositRefunds(db: DB, now = Date.now()) {
+  const due = await db.prepare("SELECT b.*, s.id AS _sid FROM bookings b JOIN shops s ON s.id=b.shop_id WHERE b.deposit_status='PAID' AND b.deposit_refund_retry_at IS NOT NULL AND b.deposit_refund_retry_at<? LIMIT 20").bind(now).all<StoredBooking & { _sid: string; deposit_refund_retry_at: number }>();
+  let n = 0;
+  for (const b of due.results) {
+    const shop = await db.prepare("SELECT * FROM shops WHERE id=?").bind(b.shop_id).first<Shop>();
+    if (!shop) continue;
+    if (await refundDeposit(db, shop, b, "system", "automatic retry", b.deposit_refund_retry_at)) n++;
+  }
+  return n;
 }
 
 // Customer-facing summary for payloads.

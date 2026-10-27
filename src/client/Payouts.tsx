@@ -19,6 +19,8 @@ export type PaymentsData = {
   active: boolean;
   payouts_ready: boolean;
   totals_30d: { deposits_pence: number; deposits: number; refunded: number; expired: number; pending: number; to_barbers: number; to_shop: number; reversed: number };
+  attention?: { refunds_outstanding: { id: string; customer_name: string; date: string; deposit_paid_pence: number }[]; runs_held: { id: string; period_from: string; period_to: string; transfer_pence: number; shop_transfer_pence: number; staff_name: string }[] };
+  reconciliation?: { card_in_pence: number; platform_fee_pence: number; paid_out_net_pence: number; unsettled_pence: number; deposits_refunded_pence: number; payments: number };
 };
 const tone = (k: AcctState["key"]) => (k === "active" ? "good" : k === "none" ? "note" : k === "onboarding" ? "next" : "warn");
 
@@ -105,6 +107,36 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
         </Notice>
       )}
 
+      {data && canEdit && live && (
+        <section className="panel-card payments-card" aria-label="Ready to take online payments" data-testid="payments-readiness">
+          <h3><Icon name="check" size={15} /> Ready to take online payments?</h3>
+          <ul className="payments-checklist">
+            {[
+              { k: "payouts", ok: data.payouts_ready, text: "Shop payout account connected and verified", fix: "Use “Set up shop payouts” below." },
+              { k: "amount", ok: data.settings.payment_mode === "PREPAY" || data.settings.deposit_pence > 0, text: data.settings.payment_mode === "PREPAY" ? "Pay in full at booking" : `Deposit amount set (${money(data.settings.deposit_pence)})`, fix: "Set a deposit above £0 in Settings → Shop." },
+              { k: "on", ok: data.settings.deposits_online === 1, text: "Card payment at booking switched on", fix: "Tick “Take the deposit by card at booking” and Save." },
+              { k: "barbers", ok: data.barbers.filter((b) => b.active).every((b) => b.state.key === "active"), text: "Every active barber has finished payout setup (or is paid by hand)", fix: "Barbers without an account keep their share held until they finish." },
+            ].map((r) => (
+              <li key={r.k} data-testid={`ready-${r.k}`} data-ok={r.ok ? "1" : "0"}>
+                <StatusPill tone={r.ok ? "good" : "warn"}>{r.ok ? "Done" : "To do"}</StatusPill> <span>{r.text}{!r.ok && <small className="helper"> — {r.fix}</small>}</span>
+              </li>
+            ))}
+          </ul>
+          {data.stripe.mode === "test" && <p className="workspace-footnote" data-testid="ready-testmode"><strong>Stripe is in test mode.</strong> No real money moves. Don't switch deposits on for real customers until foliyo is on live keys.</p>}
+        </section>
+      )}
+      {data?.attention && (data.attention.refunds_outstanding.length > 0 || data.attention.runs_held.length > 0) && (
+        <Notice icon="alert">
+          <span data-testid="payments-attention">
+            {data.attention.refunds_outstanding.length > 0 && (
+              <><strong>{data.attention.refunds_outstanding.length} refund{data.attention.refunds_outstanding.length === 1 ? "" : "s"} not through yet.</strong> We keep retrying every few minutes: {data.attention.refunds_outstanding.map((r) => `${r.customer_name} (${money(r.deposit_paid_pence)}, ${r.date})`).join("; ")}. If it still hasn't gone in a day, refund it from the Stripe dashboard. </>
+            )}
+            {data.attention.runs_held.length > 0 && (
+              <><strong>{data.attention.runs_held.length} pay run{data.attention.runs_held.length === 1 ? " is" : "s are"} approved but not sent</strong> (waiting for Stripe setup or card settlement): {data.attention.runs_held.map((r) => `${r.staff_name} ${r.period_from}–${r.period_to}`).join("; ")}. They send automatically when ready.</>
+            )}
+          </span>
+        </Notice>
+      )}
       {data && (
         <div className="payments-grid">
           {/* Shop account */}
@@ -186,6 +218,15 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
                 </div>
               )}
             </dl>
+            {data.reconciliation && (
+              <dl className="payments-figures" data-testid="payments-reconciliation">
+                <div><dt>Card money in</dt><dd data-testid="recon-in">{money(data.reconciliation.card_in_pence)}</dd></div>
+                <div><dt>foliyo fee</dt><dd data-testid="recon-fee">{money(data.reconciliation.platform_fee_pence)}</dd></div>
+                <div><dt>Paid out (net)</dt><dd data-testid="recon-out">{money(data.reconciliation.paid_out_net_pence)}</dd></div>
+                <div><dt>Waiting for a pay run</dt><dd data-testid="recon-waiting">{money(data.reconciliation.unsettled_pence)}</dd></div>
+                <div><dt>Deposits refunded</dt><dd data-testid="recon-refunded">{money(data.reconciliation.deposits_refunded_pence)}</dd></div>
+              </dl>
+            )}
           </section>
         </div>
       )}
@@ -257,7 +298,7 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
               <small className="workspace-footnote">Applies to every service in the shop.</small>
             </fieldset>
             <label className="workspace-toggle">
-              <input type="checkbox" data-testid="deposits-online" checked={form.deposits_online === 1} disabled={!live} onChange={(e) => setForm({ ...form, deposits_online: e.target.checked ? 1 : 0 })} />
+              <input type="checkbox" data-testid="deposits-online" checked={form.deposits_online === 1} disabled={!live || (!data!.payouts_ready && form.deposits_online !== 1 && data!.stripe.connect)} onChange={(e) => setForm({ ...form, deposits_online: e.target.checked ? 1 : 0 })} />
               <span>
                 <strong>Take {form.payment_mode === "PREPAY" ? "the payment" : "the deposit"} by card at booking</strong>
                 <small>{money(data!.settings.deposit_pence)} from Settings → Shop. Refunded automatically if the customer cancels in time; kept if they don't.</small>
