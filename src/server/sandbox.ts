@@ -1821,6 +1821,12 @@ async function chairPrecheck(c: Ctx, bookingId: string, body: z.infer<typeof cha
   if (body.complete && body.service_pence < due) fail(409, `Amount short by ${due - body.service_pence}p; charge the full amount or leave the visit open`);
   const open = await c.env.DB.prepare("SELECT id FROM payment_requests WHERE shop_id=? AND booking_id=? AND status='OPEN'").bind(shop.id, b.id).first<{ id: string }>();
   if (open) fail(409, "A card request is already open for this visit — cancel it first");
+  // Card money lands with foliyo first and is paid out to the shop afterwards, so the shop's payout
+  // account must be ready before it takes a card payment (otherwise the money has nowhere to go).
+  if (stripeLive() && stripeConnect()) {
+    const acct = await c.env.DB.prepare("SELECT payouts_enabled FROM connected_accounts WHERE shop_id=? AND owner_type='SHOP'").bind(shop.id).first<{ payouts_enabled: number }>();
+    if (!acct?.payouts_enabled) fail(409, "Finish setting up payouts (Payments) before taking card payments, so the money can reach your bank");
+  }
   return { b, shop };
 }
 // Pay link / QR: the customer pays on their own phone (or scans the shop device).
@@ -1917,7 +1923,7 @@ sandbox.post("/terminal/connection-token", async (c) => {
   await input(c, z.object({}).strict());
   if (!stripeLive()) fail(409, "Card payments are not switched on for foliyo yet");
   const shop = await readShop(c);
-  const location = await ensureLocation(c.env.DB, shop).catch(() => "");
+  const location = await ensureLocation(c.env.DB, shop).catch((e) => { if (e instanceof StripeError && e.code === "address_needed") fail(409, e.message); return ""; });
   const t = await connectionToken(location).catch(() => fail(409, "Could not get a Terminal token"));
   return c.json({ secret: (t as { secret: string }).secret, location });
 });

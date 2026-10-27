@@ -131,7 +131,7 @@ admin.get("/shops", async (c) => {
 async function shopDetail(db: DB, shopId: string) {
   const shop = await db.prepare("SELECT s.*, u.email AS owner_email, u.name AS owner_name FROM shops s LEFT JOIN shop_owners so ON so.shop_id=s.id LEFT JOIN app_users u ON u.id=so.user_id WHERE s.id=?").bind(shopId).first();
   if (!shop) return null;
-  const [ent, est, usage, invoices, adjustments, events, notes, adminAudit, members, staff, msgs, calls, connect, disputes, recentAudit, discounts, issues] = await Promise.all([
+  const [ent, est, usage, invoices, adjustments, events, notes, adminAudit, members, staff, msgs, calls, connect, disputes, recentAudit, discounts, issues, readers] = await Promise.all([
     entitlements(db, shopId),
     estimate(db, shopId),
     usageFor(db, shopId),
@@ -149,8 +149,9 @@ async function shopDetail(db: DB, shopId: string) {
     db.prepare("SELECT * FROM audit_events WHERE shop_id=? ORDER BY created_at DESC LIMIT 40").bind(shopId).all().then((r) => r.results),
     db.prepare("SELECT d.*, sd.applied_at, sd.applied_by, sd.ends_at AS applied_until FROM shop_discounts sd JOIN discounts d ON d.id=sd.discount_id WHERE sd.shop_id=?").bind(shopId).all().then((r) => r.results),
     db.prepare("SELECT COUNT(*)::int AS n FROM bookings WHERE shop_id=? AND status IN ('CONFIRMED','CHECKED_IN') AND start_at>?").bind(shopId, Date.now()).first(),
+    db.prepare("SELECT id, label, device_type, status, location_id, created_at FROM terminal_readers WHERE shop_id=? ORDER BY created_at").bind(shopId).all().then((r) => r.results),
   ]);
-  return { shop, entitlements: ent, estimate: est, usage, invoices, adjustments, events, notes, admin_audit: adminAudit, members, staff, messaging_30d: msgs, calls_30d: calls, connect, open_disputes: (disputes as { n: number })?.n ?? 0, audit: recentAudit, discounts, upcoming: (issues as { n: number })?.n ?? 0, features: await features(db), plans: await plans(db) };
+  return { shop, entitlements: ent, estimate: est, usage, invoices, adjustments, events, notes, admin_audit: adminAudit, members, staff, messaging_30d: msgs, calls_30d: calls, connect, readers, open_disputes: (disputes as { n: number })?.n ?? 0, audit: recentAudit, discounts, upcoming: (issues as { n: number })?.n ?? 0, features: await features(db), plans: await plans(db) };
 }
 admin.get("/shops/:id", async (c) => {
   const d = await shopDetail(c.env.DB, c.req.param("id"));

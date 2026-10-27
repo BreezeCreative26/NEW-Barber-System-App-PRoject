@@ -1,8 +1,11 @@
 // Card at the chair. Two ways, both charging the platform so the pay run treats them as card money:
 //   LINK     — a Checkout session for the visit's amount; shown as a QR on the shop device and/or
 //              texted to the customer. Works on any phone today, no hardware.
-//   TERMINAL — a PaymentIntent handed to a Stripe Terminal reader (WisePOS, or Tap to Pay on the
-//              barber's phone, which registers as a reader) via server-driven integration.
+//   TERMINAL — a PaymentIntent handed to a Stripe smart reader (WisePOS E, Stripe Reader S700/S710/T600)
+//              via server-driven integration. Tap to Pay and WisePad 3 need the Terminal SDK in a native
+//              app (reader_id "sdk" + /terminal/connection-token are the server half of that, no client yet).
+// Readers belong to foliyo's platform Stripe account; each shop gets its own Terminal location and the
+// reader rows carry shop_id, so shops only ever see and use their own readers.
 // When Stripe confirms, we write the ledger row exactly as a hand-recorded CARD tender would be,
 // plus the Stripe refs and fees, and move the visit forward. Idempotent on the request id.
 import type { Database as DB } from "../db/client";
@@ -72,6 +75,8 @@ export async function createLinkRequest(db: DB, shop: Shop, booking: StoredBooki
     "payment_intent_data[metadata][payment_request_id]": id,
     "payment_intent_data[description]": `${shop.name} · ${booking.service_name} · ${booking.date}`,
   };
+  const suffix = descriptorSuffix(shop.name);
+  if (suffix) body["payment_intent_data[statement_descriptor_suffix]"] = suffix;
   if (amounts.tip_pence > 0) {
     body["line_items[1][quantity]"] = 1;
     body["line_items[1][price_data][currency]"] = (shop.currency || "GBP").toLowerCase();
@@ -79,7 +84,12 @@ export async function createLinkRequest(db: DB, shop: Shop, booking: StoredBooki
     body["line_items[1][price_data][product_data][name]"] = "Tip";
   }
   if (booking.email) body.customer_email = booking.email;
-  const session = await stripe<{ id: string; url: string; payment_intent?: string | null }>("/checkout/sessions", body);
+  type Sess = { id: string; url: string; payment_intent?: string | null };
+  // A refused statement suffix must never stop the customer paying: retry once without it.
+  const session = await stripe<Sess>("/checkout/sessions", body).catch((e) => {
+    if (suffix && e instanceof StripeError && e.status === 400) { delete body["payment_intent_data[statement_descriptor_suffix]"]; return stripe<Sess>("/checkout/sessions", body); }
+    return Promise.reject(e);
+  });
   await db
     .prepare("INSERT INTO payment_requests(id,shop_id,booking_id,staff_id,kind,service_pence,tip_pence,discount_pence,complete,note,stripe_session_id,stripe_payment_intent,url,status,created_by,created_at,expires_at) VALUES(?,?,?,?,'LINK',?,?,?,?,?,?,?,?,'OPEN',?,?,?)")
     .bind(id, shop.id, booking.id, booking.staff_id, amounts.service_pence, amounts.tip_pence, amounts.discount_pence, amounts.complete ? 1 : 0, amounts.note, session.id, typeof session.payment_intent === "string" ? session.payment_intent : "", session.url, actor, now, expires)
@@ -88,24 +98,58 @@ export async function createLinkRequest(db: DB, shop: Shop, booking: StoredBooki
 }
 
 // ---- TERMINAL --------------------------------------------------------------------------------------------
-export async function ensureLocation(db: DB, shop: Shop) {
-  if (shop.stripe_location_id) return shop.stripe_location_id;
-  const loc = await stripe<{ id: string }>("/terminal/locations", {
-    display_name: shop.name.slice(0, 100),
-    "address[line1]": (shop.address || shop.name).slice(0, 100),
-    "address[city]": "London",
-    "address[country]": shop.currency === "GBP" ? "GB" : "GB",
-    "address[postal_code]": "EC1A 1BB",
-    "metadata[shop_id]": shop.id,
-  });
-  await db.prepare("UPDATE shops SET stripe_location_id=? WHERE id=? AND stripe_location_id=''").bind(loc.id, shop.id).run();
-  return loc.id;
+export const MAX_READERS_PER_SHOP = 10;
+// What the customer sees after foliyo's name on their card statement, so a charge reads as the barber's.
+// Stripe caps the whole statement line at 22 characters including foliyo's own prefix, so keep the
+// shop part short (12). Needs at least one letter and none of < > \\ ' " *.
+export function descriptorSuffix(name: string): string {
+  const clean = (name || "").normalize("NFKD").replace(/[^\x20-\x7E]/g, "").replace(/[<>\\'"*]/g, "").replace(/\s+/g, " ").trim().toUpperCase().slice(0, 12).trim();
+  return /[A-Z]/.test(clean) ? clean : "";
+}
+// Pull a Stripe-ready address out of the shop's free-text address. UK postcodes only (foliyo is UK);
+// returns null when there is no postcode so we can ask for one rather than invent a location.
+export function parseAddress(raw: string, fallbackName = ""): { line1: string; city: string; postal_code: string; country: "GB" } | null {
+  const text = (raw || "").replace(/\s+/g, " ").trim();
+  const m = text.match(/\b([A-Za-z]{1,2}\d[A-Za-z\d]?)\s*(\d[A-Za-z]{2})\b/);
+  if (!m) return null;
+  const postal_code = `${m[1]}  ${m[2]}`.replace(/\s+/g, " ").toUpperCase();
+  const parts = text.split(",").map((x) => x.trim()).filter(Boolean);
+  const isPostcode = (x: string) => x.replace(/\s+/g, "").toUpperCase() === (m[1] + m[2]).toUpperCase();
+  const rest = parts.map((x) => x.replace(m[0], "").trim()).filter((x) => x && !isPostcode(x));
+  const line1 = (rest[0] || fallbackName || "").slice(0, 100);
+  const city = (rest.length > 1 ? rest[rest.length - 1] : "").slice(0, 60) || "UK";
+  if (!line1) return null;
+  return { line1, city, postal_code, country: "GB" };
+}
+function locationFields(shop: Shop) {
+  const a = parseAddress(shop.address, shop.name);
+  if (!a) throw new StripeError("Add your shop's address, with its postcode, in Settings before pairing a reader", 409, "address_needed");
+  return { display_name: shop.name.slice(0, 100), "address[line1]": a.line1, "address[city]": a.city, "address[country]": a.country, "address[postal_code]": a.postal_code };
+}
+export async function ensureLocation(db: DB, shop: Shop, syncAddress = false) {
+  if (shop.stripe_location_id) {
+    // When pairing, bring the Stripe location up to date with the shop's address (shops paired before
+    // addresses were read still carry a placeholder). Best effort: a stale location is not fatal.
+    if (syncAddress) await stripe(`/terminal/locations/${encodeURIComponent(shop.stripe_location_id)}`, locationFields(shop)).catch((e) => { if (e instanceof StripeError && e.code === "address_needed") throw e; });
+    return shop.stripe_location_id;
+  }
+  const loc = await stripe<{ id: string }>("/terminal/locations", { ...locationFields(shop), "metadata[shop_id]": shop.id });
+  const claim = await db.prepare("UPDATE shops SET stripe_location_id=? WHERE id=? AND stripe_location_id=''").bind(loc.id, shop.id).run();
+  if (claim.meta.changes) return loc.id;
+  // A parallel pairing got there first: use its location and drop ours so nothing is orphaned.
+  const won = await db.prepare("SELECT stripe_location_id FROM shops WHERE id=?").bind(shop.id).first<{ stripe_location_id: string }>();
+  await stripe(`/terminal/locations/${encodeURIComponent(loc.id)}`, undefined, "DELETE").catch(() => null);
+  return won?.stripe_location_id || loc.id;
 }
 export async function registerReader(db: DB, shop: Shop, code: string, label: string) {
-  const location = await ensureLocation(db, shop);
+  const have = await db.prepare("SELECT COUNT(*)::int AS n FROM terminal_readers WHERE shop_id=?").bind(shop.id).first<{ n: number }>();
+  if ((have?.n ?? 0) >= MAX_READERS_PER_SHOP) throw new StripeError(`A shop can pair up to ${MAX_READERS_PER_SHOP} readers`, 409, "reader_limit");
+  const location = await ensureLocation(db, shop, true);
   const r = await stripe<{ id: string; label: string; device_type: string; status: string }>("/terminal/readers", { registration_code: code, label: label.slice(0, 60), location, "metadata[shop_id]": shop.id });
   const now = Date.now();
-  await db.prepare("INSERT INTO terminal_readers(id,shop_id,label,device_type,location_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET label=excluded.label, status=excluded.status, updated_at=excluded.updated_at")
+  // A reader id belongs to one shop. The conflict update only touches rows already ours, so a reader
+  // can never be moved between shops by re-registering it.
+  await db.prepare("INSERT INTO terminal_readers(id,shop_id,label,device_type,location_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET label=excluded.label, status=excluded.status, updated_at=excluded.updated_at WHERE terminal_readers.shop_id=excluded.shop_id")
     .bind(r.id, shop.id, r.label || label, r.device_type || "", location, r.status || "online", now, now).run();
   return r;
 }
@@ -130,9 +174,14 @@ export async function createTerminalRequest(db: DB, shop: Shop, booking: StoredB
   if (!stripeLive()) throw new StripeError("Card payments are not switched on for foliyo yet", 409, "stripe_off");
   const total = amounts.service_pence + amounts.tip_pence;
   if (total <= 0) throw new StripeError("Nothing to charge", 400, "zero");
-  const id = crypto.randomUUID();
   const now = Date.now();
-  const pi = await stripe<{ id: string; client_secret: string }>("/payment_intents", {
+  if (readerId !== "sdk") {
+    // One payment at a time per reader: a second barber must wait or pick another reader.
+    const busy = await db.prepare("SELECT id FROM payment_requests WHERE shop_id=? AND kind='TERMINAL' AND status='OPEN' AND url=? AND expires_at>?").bind(shop.id, readerId, now).first();
+    if (busy) throw new StripeError("That reader is already waiting on another payment. Wait for it, cancel it, or choose another reader", 409, "reader_busy");
+  }
+  const id = crypto.randomUUID();
+  const base: Record<string, string | number> = {
     amount: total,
     currency: (shop.currency || "GBP").toLowerCase(),
     "payment_method_types[0]": "card_present",
@@ -141,14 +190,31 @@ export async function createTerminalRequest(db: DB, shop: Shop, booking: StoredB
     "metadata[shop_id]": shop.id,
     "metadata[booking_id]": booking.id,
     "metadata[payment_request_id]": id,
-  }, "POST", { idempotency: `terminal-${id}` });
-  if (readerId !== "sdk") {
-    await stripe(`/terminal/readers/${encodeURIComponent(readerId)}/process_payment_intent`, { payment_intent: pi.id, "process_config[skip_tipping]": true });
-  }
+  };
+  const make = (extra: Record<string, string>, tag: string) => stripe<{ id: string; client_secret: string }>("/payment_intents", { ...base, ...extra }, "POST", { idempotency: `terminal-${id}-${tag}` });
+  // The customer's receipt (Stripe emails it on success) and the shop's name on the card statement.
+  // If Stripe refuses either, carry on without them rather than failing the payment.
+  const extras: Record<string, string> = {};
+  if (booking.email) extras.receipt_email = booking.email;
+  const suffix = descriptorSuffix(shop.name);
+  if (suffix) extras.statement_descriptor_suffix = suffix;
+  const pi = Object.keys(extras).length ? await make(extras, "x").catch((e) => (e instanceof StripeError && e.status === 400 ? make({}, "plain") : Promise.reject(e))) : await make({}, "plain");
   await db
     .prepare("INSERT INTO payment_requests(id,shop_id,booking_id,staff_id,kind,service_pence,tip_pence,discount_pence,complete,note,stripe_payment_intent,url,status,created_by,created_at,expires_at) VALUES(?,?,?,?,'TERMINAL',?,?,?,?,?,?,?,'OPEN',?,?,?)")
     .bind(id, shop.id, booking.id, booking.staff_id, amounts.service_pence, amounts.tip_pence, amounts.discount_pence, amounts.complete ? 1 : 0, amounts.note, pi.id, readerId, actor, now, now + 10 * 60000)
     .run();
+  if (readerId !== "sdk") {
+    try {
+      await stripe(`/terminal/readers/${encodeURIComponent(readerId)}/process_payment_intent`, { payment_intent: pi.id, "process_config[skip_tipping]": true });
+    } catch (e) {
+      // The reader did not take it (offline, busy, unpaired). Leave nothing dangling: cancel the intent
+      // and close our request so the till can try again straight away.
+      await stripe(`/payment_intents/${encodeURIComponent(pi.id)}/cancel`, {}).catch(() => null);
+      await db.prepare("UPDATE payment_requests SET status='CANCELLED' WHERE id=? AND status='OPEN'").bind(id).run();
+      const why = e instanceof StripeError ? e.message : "";
+      throw new StripeError(`The reader did not accept the payment${why ? ` (${why})` : ""}. Check it is switched on and online, then try again`, 409, "reader_unavailable");
+    }
+  }
   const row = (await db.prepare("SELECT * FROM payment_requests WHERE id=?").bind(id).first<PaymentRequest>())!;
   return { request: row, client_secret: pi.client_secret };
 }
