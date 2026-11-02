@@ -203,15 +203,24 @@ export async function telnyxSetup(origin: string, opts: { buyUkNumber?: boolean;
   }
   let ordered: string | undefined;
   if (opts.buyUkNumber && numbers.length === 0) {
-    const search = await api<{ data?: { phone_number: string }[] }>("/available_phone_numbers?filter[country_code]=GB&filter[phone_number_type]=mobile&filter[features][]=sms&filter[limit]=5");
-    const pick = search.data?.[0]?.phone_number;
-    if (!pick) notes.push("No UK mobile SMS numbers available to order right now");
-    else {
-      const order = await api<{ data: { id: string; status: string } }>("/number_orders", { phone_numbers: [{ phone_number: pick }], messaging_profile_id: profile.id });
-      ordered = pick;
-      numbers.push(pick);
-      notes.push(`Ordered ${pick} (order ${order.data.id}, ${order.data.status})`);
+    const search = await api<{ data?: { phone_number: string }[] }>("/available_phone_numbers?filter[country_code]=GB&filter[phone_number_type]=mobile&filter[features][]=sms&filter[limit]=10");
+    const candidates = (search.data || []).map((x) => x.phone_number).filter(Boolean);
+    if (!candidates.length) notes.push("No UK mobile SMS numbers available to order right now - buy one in Mission Control > Numbers");
+    // Telnyx sometimes refuses a number that was just listed (someone else took it, or it needs a
+    // regulatory requirement group). Try a few; report the last reason rather than failing the setup.
+    let lastErr = "";
+    for (const pick of candidates.slice(0, 5)) {
+      try {
+        const order = await api<{ data: { id: string; status: string } }>("/number_orders", { phone_numbers: [{ phone_number: pick }], messaging_profile_id: profile.id });
+        ordered = pick;
+        numbers.push(pick);
+        notes.push(`Ordered ${pick} (order ${order.data.id}, ${order.data.status})`);
+        break;
+      } catch (err) {
+        lastErr = err instanceof Error ? err.message : "order failed";
+      }
     }
+    if (!ordered && candidates.length) notes.push(`Could not order a UK number automatically (${lastErr}). Buy one in Mission Control > Numbers > Buy numbers (United Kingdom, SMS), attach it to the "foliyo" messaging profile, then set TELNYX_FROM.`);
   }
   // Account public key for webhook verification. Telnyx exposes it under /public_key on some
   // accounts; if absent, copy it from Mission Control → Account → Keys & Credentials → Public Key.
