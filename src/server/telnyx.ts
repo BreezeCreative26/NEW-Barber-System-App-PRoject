@@ -271,3 +271,38 @@ export async function telnyxSetup(origin: string, opts: { buyUkNumber?: boolean;
   }
   return { balance, profile_id: profile.id, webhook, numbers, ordered, public_key: pk?.data?.public_key, notes };
 }
+
+// Read-only look at everything on the account that could be a sender (numbers, profile pools, short
+// codes, toll-free, hosted/ported numbers, recent message records). GETs only; each answer is trimmed.
+export async function telnyxInspect(opts: { e?: Env } = {}) {
+  const e = opts.e ?? env();
+  if (!e.TELNYX_API_KEY) throw new Error("TELNYX_API_KEY not set");
+  const get = async (path: string) => {
+    try {
+      const res = await fetch(`https://api.telnyx.com/v2${path}`, { headers: { Authorization: `Bearer ${e.TELNYX_API_KEY}`, Accept: "application/json" }, signal: AbortSignal.timeout(12000) });
+      const text = await res.text();
+      let body: unknown = text.slice(0, 200);
+      try { body = JSON.parse(text); } catch { /* not json */ }
+      return { path, status: res.status, body };
+    } catch (err) {
+      return { path, status: 0, body: err instanceof Error ? err.message : "error" };
+    }
+  };
+  const out: { path: string; status: number; body: unknown }[] = [];
+  const profiles = await get("/messaging_profiles?page[size]=50");
+  out.push(profiles);
+  const pids = ((profiles.body as { data?: { id: string }[] })?.data || []).map((p) => p.id);
+  for (const path of [
+    "/phone_numbers?page[size]=50",
+    "/phone_numbers/messaging?page[size]=50",
+    "/short_codes?page[size]=20",
+    "/messaging_hosted_numbers?page[size]=20",
+    "/messaging_tollfree/verification/requests?page[size]=20",
+    "/porting_orders?page[size]=20",
+    "/number_orders?page[size]=20",
+    "/detail_records?filter[record_type]=messaging&filter[date_range]=this_month&page[size]=10",
+    "/detail_records?filter[record_type]=messaging&filter[date_range]=last_month&page[size]=10",
+    ...pids.flatMap((id) => [`/messaging_profiles/${id}/phone_numbers?page[size]=50`, `/messaging_profiles/${id}/short_codes?page[size]=20`]),
+  ]) out.push(await get(path));
+  return out;
+}
