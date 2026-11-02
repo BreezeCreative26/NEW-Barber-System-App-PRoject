@@ -203,24 +203,36 @@ export async function telnyxSetup(origin: string, opts: { buyUkNumber?: boolean;
   }
   let ordered: string | undefined;
   if (opts.buyUkNumber && numbers.length === 0) {
-    const search = await api<{ data?: { phone_number: string }[] }>("/available_phone_numbers?filter[country_code]=GB&filter[phone_number_type]=mobile&filter[features][]=sms&filter[limit]=10");
-    const candidates = (search.data || []).map((x) => x.phone_number).filter(Boolean);
-    if (!candidates.length) notes.push("No UK mobile SMS numbers available to order right now - buy one in Mission Control > Numbers");
-    // Telnyx sometimes refuses a number that was just listed (someone else took it, or it needs a
-    // regulatory requirement group). Try a few; report the last reason rather than failing the setup.
-    let lastErr = "";
-    for (const pick of candidates.slice(0, 5)) {
+    // Search a few ways (mobile first, then any SMS-capable UK number), keeping what Telnyx says about each.
+    type Avail = { phone_number: string; record_type?: string; phone_number_type?: string; best_effort?: boolean; reservable?: boolean; quickship?: boolean };
+    const mask = (n: string) => n.replace(/\d(?=\d{3})/g, "x");
+    const seen = new Map<string, Avail>();
+    for (const q of ["filter[phone_number_type]=mobile&", "filter[phone_number_type]=national&", ""]) {
+      const r = await api<{ data?: Avail[] }>(`/available_phone_numbers?filter[country_code]=GB&${q}filter[features][]=sms&filter[limit]=10`).catch((err) => { notes.push(`Search failed: ${err instanceof Error ? err.message : "error"}`); return null; });
+      for (const x of r?.data || []) if (x.phone_number && !seen.has(x.phone_number)) seen.set(x.phone_number, x);
+    }
+    const candidates = [...seen.values()];
+    if (!candidates.length) notes.push("No UK SMS numbers available to order right now - buy one in Mission Control > Numbers");
+    else notes.push(`Search found ${candidates.length} UK numbers (${[...new Set(candidates.map((x) => x.phone_number_type || "?"))].join("/")}; best_effort=${candidates.filter((x) => x.best_effort).length}; reservable=${candidates.filter((x) => x.reservable).length})`);
+    // Telnyx refuses a number it did not just see reserved, so reserve first, then order that same number.
+    // Prefer numbers that are not "best effort" (those are not guaranteed to still be there).
+    const ranked = [...candidates].sort((a, b) => Number(!!a.best_effort) - Number(!!b.best_effort));
+    const errs: string[] = [];
+    for (const cand of ranked.slice(0, 3)) {
+      const pick = cand.phone_number;
       try {
+        await api("/number_reservations", { phone_numbers: [{ phone_number: pick }] }).catch((err) => { errs.push(`reserve ${mask(pick)}: ${err instanceof Error ? err.message : "error"}`); });
         const order = await api<{ data: { id: string; status: string } }>("/number_orders", { phone_numbers: [{ phone_number: pick }], messaging_profile_id: profile.id });
         ordered = pick;
         numbers.push(pick);
         notes.push(`Ordered ${pick} (order ${order.data.id}, ${order.data.status})`);
         break;
       } catch (err) {
-        lastErr = err instanceof Error ? err.message : "order failed";
+        errs.push(`order ${mask(pick)}: ${err instanceof Error ? err.message : "order failed"}`);
+        await new Promise((r) => setTimeout(r, 1500));
       }
     }
-    if (!ordered && candidates.length) notes.push(`Could not order a UK number automatically (${lastErr}). Buy one in Mission Control > Numbers > Buy numbers (United Kingdom, SMS), attach it to the "foliyo" messaging profile, then set TELNYX_FROM.`);
+    if (!ordered && candidates.length) notes.push(`Could not order a UK number automatically. ${errs.slice(0, 4).join(" | ").slice(0, 700)}. Buy one in Mission Control > Numbers > Buy numbers (United Kingdom, SMS), attach it to the "foliyo" messaging profile, then set TELNYX_FROM.`);
   }
   // Account public key for webhook verification. Telnyx exposes it under /public_key on some
   // accounts; if absent, copy it from Mission Control → Account → Keys & Credentials → Public Key.
