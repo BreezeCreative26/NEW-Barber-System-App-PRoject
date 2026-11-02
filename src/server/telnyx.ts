@@ -164,11 +164,11 @@ export async function telnyxSetup(origin: string, opts: { buyUkNumber?: boolean;
     if (body) { (init.headers as Record<string, string>)["Content-Type"] = "application/json"; init.body = JSON.stringify(body); }
     const res = await fetch(`https://api.telnyx.com/v2${path}`, init);
     const text = await res.text();
-    let json: { errors?: { code?: string; title?: string; detail?: string }[] } = {};
+    let json: { errors?: { code?: string; title?: string; detail?: string; source?: { pointer?: string; parameter?: string } }[] } = {};
     try { json = JSON.parse(text); } catch { /* html */ }
     if (!res.ok) {
       const err = json.errors?.[0];
-      throw new Error(`${path}: ${res.status} ${err ? `${err.code} ${err.title}${err.detail ? ` — ${err.detail}` : ""}` : text.slice(0, 120)}`);
+      throw new Error(`${path}: ${res.status} ${err ? `${err.code} ${err.title}${err.detail ? ` — ${err.detail}` : ""}${err.source?.pointer || err.source?.parameter ? ` [${err.source.pointer || err.source.parameter}]` : ""}` : text.slice(0, 120)}`);
     }
     return json as T;
   };
@@ -212,6 +212,10 @@ export async function telnyxSetup(origin: string, opts: { buyUkNumber?: boolean;
       for (const x of r?.data || []) if (x.phone_number && !seen.has(x.phone_number)) seen.set(x.phone_number, x);
     }
     const candidates = [...seen.values()];
+    const sample = candidates[0] as Record<string, unknown> | undefined;
+    if (sample) notes.push(`Sample search result fields: ${Object.keys(sample).join(",")}`);
+    const reqs = await api<{ data?: { requirements_types?: { name?: string }[]; action?: string; phone_number_type?: string }[] }>("/requirements?filter[country_code]=GB&filter[phone_number_type]=mobile&filter[action]=ordering").catch((err) => { notes.push(`Requirements lookup failed: ${err instanceof Error ? err.message : "error"}`); return null; });
+    if (reqs?.data) notes.push(`GB mobile ordering requirements: ${reqs.data.length ? JSON.stringify(reqs.data).slice(0, 400) : "none"}`);
     if (!candidates.length) notes.push("No UK SMS numbers available to order right now - buy one in Mission Control > Numbers");
     else notes.push(`Search found ${candidates.length} UK numbers (${[...new Set(candidates.map((x) => x.phone_number_type || "?"))].join("/")}; best_effort=${candidates.filter((x) => x.best_effort).length}; reservable=${candidates.filter((x) => x.reservable).length})`);
     // Telnyx refuses a number it did not just see reserved, so reserve first, then order that same number.
