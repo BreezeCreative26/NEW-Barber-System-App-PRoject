@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { adminApi } from "./Admin";
 import { Button, Icon } from "./ui";
+import { MAX_FILE_BYTES, planParts, sendParts, type Plan } from "./csvChunks";
 
 type Stats = { contacts: number; with_mobile: number; with_email: number; with_both: number; landline_only: number; email_only: number; no_contact_details: number; duplicates_merged: number; bad_numbers: number; bad_emails: number };
 type Preview = { rows_read: number; stats: Stats; contacts: { name: string; business: string; phone: string; landline: string; email: string; notes: string[] }[]; contacts_total: number; problems: { row: number; text: string; why: string }[]; already_in_system: number; unsubscribed: number; headers: string[] | null };
@@ -13,6 +14,23 @@ type Audience = { sms: number; email: number; contacts: number; sms_text: string
 type Person = { id: string; list_name: string; name: string; business: string; phone: string; email: string; landline: string; unsubscribed_at: number | null; unsub_reason: string };
 
 const n = (v: number) => v.toLocaleString("en-GB");
+
+// A big file is read in parts (see csvChunks.ts). Add the parts' previews back into one.
+function mergePreviews(parts: Preview[], plan: Plan): Preview {
+  const sum = (pick: (p: Preview) => number) => parts.reduce((t, p) => t + pick(p), 0);
+  const stats = Object.fromEntries(Object.keys(parts[0].stats).map((k) => [k, sum((p) => (p.stats as Record<string, number>)[k])])) as Stats;
+  return {
+    rows_read: sum((p) => p.rows_read),
+    stats,
+    contacts: parts.flatMap((p) => p.contacts).slice(0, 50),
+    contacts_total: sum((p) => p.contacts_total),
+    // Each part counts its rows from 1; shift them back to the row numbers in the file you chose.
+    problems: parts.flatMap((p, i) => p.problems.map((x) => ({ ...x, row: x.row + plan.parts[i].rowsBefore }))).slice(0, 200),
+    already_in_system: sum((p) => p.already_in_system),
+    unsubscribed: sum((p) => p.unsubscribed),
+    headers: parts[0].headers,
+  };
+}
 const smsParts = (len: number) => (len <= 160 ? 1 : Math.ceil(len / 153));
 
 export function AdminMarketing({ me }: { me: { role: string } }) {
@@ -48,7 +66,8 @@ export function AdminMarketing({ me }: { me: { role: string } }) {
 }
 
 function Contacts({ ov, reload, picked, setPicked, onStart }: { ov: Overview; reload: () => Promise<unknown>; picked: string[]; setPicked: (v: string[]) => void; onStart: () => void }) {
-  const [csv, setCsv] = useState("");
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [progress, setProgress] = useState("");
   const [fileName, setFileName] = useState("");
   const [pv, setPv] = useState<Preview | null>(null);
   const [list, setList] = useState("");
@@ -62,22 +81,37 @@ function Contacts({ ov, reload, picked, setPicked, onStart }: { ov: Overview; re
 
   async function read(file: File | undefined) {
     if (!file) return;
-    setErr(""); setMsg(""); setPv(null); setBusy(true);
+    setErr(""); setMsg(""); setPv(null); setPlan(null); setProgress(""); setBusy(true);
     try {
+      if (file.size > MAX_FILE_BYTES) throw new Error(`That file is ${n(Math.round(file.size / 1048576))} MB. The limit is ${MAX_FILE_BYTES / 1048576} MB.`);
       const text = await file.text();
-      setCsv(text); setFileName(file.name);
+      const p = planParts(text);
+      setFileName(file.name);
       setList(file.name.replace(/\.[a-z0-9]+$/i, "").replace(/[_-]+/g, " ").slice(0, 60));
-      setPv(await adminApi<Preview>("/marketing/preview", "POST", { csv: text }));
-    } catch (e) { setErr(e instanceof Error ? e.message : "Could not read that file"); } finally { setBusy(false); }
+      const { results, failed } = await sendParts(p, (part) => adminApi<Preview>("/marketing/preview", "POST", { csv: part.text }), (done, total) => setProgress(total > 1 ? `Reading part ${Math.min(done + 1, total)} of ${total}…` : ""));
+      if (failed) throw failed;
+      setPlan(p);
+      setPv(mergePreviews(results, p));
+    } catch (e) { setErr(e instanceof Error ? e.message : "Could not read that file"); } finally { setBusy(false); setProgress(""); }
   }
   async function save() {
-    setBusy(true); setErr("");
+    if (!plan) return;
+    setBusy(true); setErr(""); setMsg("");
+    type Done = { created: number; updated: number; skipped: number };
     try {
-      const r = await adminApi<{ created: number; updated: number; skipped: number }>("/marketing/import", "POST", { csv, list_name: list, basis, confirm: ok });
-      setMsg(`Added ${n(r.created)} new contacts${r.updated ? `, updated ${n(r.updated)} that we already had` : ""}${r.skipped ? `, skipped ${n(r.skipped)}` : ""}.`);
-      setPv(null); setCsv(""); setFileName(""); setOk(false);
+      const { results, failed } = await sendParts(plan, (part) => adminApi<Done>("/marketing/import", "POST", { csv: part.text, list_name: list, basis, confirm: ok }), (done, total) => setProgress(total > 1 ? `Adding part ${Math.min(done + 1, total)} of ${total}…` : ""));
+      const r = results.reduce((t, x) => ({ created: t.created + x.created, updated: t.updated + x.updated, skipped: t.skipped + x.skipped }), { created: 0, updated: 0, skipped: 0 });
+      const summary = `Added ${n(r.created)} new contacts${r.updated ? `, updated ${n(r.updated)} that we already had` : ""}${r.skipped ? `, skipped ${n(r.skipped)}` : ""}`;
+      if (failed) {
+        // Adding is safe to repeat: anyone already added is matched, not duplicated.
+        setMsg(`${summary} (${results.length} of ${plan.parts.length} parts).`);
+        await reload();
+        throw new Error(`${failed.message}. Press the button again to carry on; people already added will not be duplicated.`);
+      }
+      setMsg(`${summary}.`);
+      setPv(null); setPlan(null); setFileName(""); setOk(false);
       await reload();
-    } catch (e) { setErr(e instanceof Error ? e.message : "Import failed"); } finally { setBusy(false); }
+    } catch (e) { setErr(e instanceof Error ? e.message : "Import failed"); } finally { setBusy(false); setProgress(""); }
   }
   return (
     <div className="mk-grid">
@@ -97,10 +131,10 @@ function Contacts({ ov, reload, picked, setPicked, onStart }: { ov: Overview; re
         >
           <Icon name="upload" size={22} />
           <strong>{fileName || "Drop a CSV here, or tap to choose"}</strong>
-          <small>.csv, .tsv or .txt, up to 6 MB</small>
+          <small>.csv, .tsv or .txt, up to {MAX_FILE_BYTES / 1048576} MB. Big files are read in parts.</small>
           <input ref={input} type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden onChange={(e) => void read(e.target.files?.[0])} data-testid="mk-file" />
         </div>
-        {busy && !pv && <p className="workspace-footnote">Reading the file…</p>}
+        {busy && <p className="workspace-footnote" role="status" data-testid="mk-progress">{progress || (pv ? "Adding…" : "Reading the file…")}</p>}
         {err && <p className="workspace-error" role="alert">{err}</p>}
         {msg && <p className="workspace-ok" role="status">{msg}</p>}
         {pv && (
@@ -126,6 +160,7 @@ function Contacts({ ov, reload, picked, setPicked, onStart }: { ov: Overview; re
               </table>
             </div>
             {pv.contacts_total > 12 && <p className="workspace-footnote">Showing 12 of {n(pv.contacts_total)}.</p>}
+            {plan && plan.parts.length > 1 && <p className="workspace-footnote">Big file: sent in {plan.parts.length} parts. The same person appearing in two parts is counted twice here and merged when you add them.</p>}
             {pv.problems.length > 0 && (
               <details className="mk-problems"><summary>{pv.problems.length} row{pv.problems.length === 1 ? "" : "s"} could not be used</summary>
                 <ul>{pv.problems.map((p, i) => <li key={i}><b>Row {p.row}:</b> {p.why}</li>)}</ul>
