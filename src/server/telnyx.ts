@@ -189,8 +189,13 @@ export async function telnyxSetup(origin: string, opts: { buyUkNumber?: boolean;
     notes.push(`Updated messaging profile ${profile.id} webhook`);
   } else notes.push(`Messaging profile ${profile.id} already configured`);
 
-  type Num = { id: string; phone_number: string };
+  type Num = { id: string; phone_number: string; status?: string; phone_number_type?: string };
   const nums = await api<{ data?: Num[] }>("/phone_numbers?page[size]=100");
+  for (const n of nums.data || []) notes.push(`${n.phone_number}: status=${n.status ?? "?"} type=${n.phone_number_type ?? "?"}`);
+  const ords = await api<{ data?: { id: string; status?: string; requirements_met?: boolean; phone_numbers_count?: number; sub_number_orders_ids?: string[] }[] }>("/number_orders?page[size]=10").catch(() => null);
+  for (const o of ords?.data || []) notes.push(`order ${o.id.slice(0, 8)}: status=${o.status ?? "?"} requirements_met=${o.requirements_met ?? "?"}`);
+  const subs = await api<{ data?: { id: string; status?: string; phone_number_type?: string; country_code?: string; requirements_met?: boolean; phone_numbers?: { phone_number?: string; status?: string; requirements_met?: boolean; regulatory_requirements?: { status?: string; field_type?: string; requirement_id?: string }[] }[] }[] }>("/sub_number_orders?page[size]=10").catch(() => null);
+  for (const o of subs?.data || []) for (const pn of o.phone_numbers || []) notes.push(`sub-order ${pn.phone_number}: status=${pn.status ?? o.status ?? "?"} requirements_met=${pn.requirements_met ?? o.requirements_met ?? "?"}${pn.regulatory_requirements?.length ? ` open=${pn.regulatory_requirements.filter((r) => r.status && r.status !== "approved").map((r) => r.field_type || r.requirement_id).join(",").slice(0, 200)}` : ""}`);
   const numbers: string[] = [];
   for (const n of nums.data || []) {
     const m = await api<{ data?: { messaging_profile_id?: string; features?: { sms?: unknown } } }>(`/phone_numbers/${n.id}/messaging`).catch(() => null);
