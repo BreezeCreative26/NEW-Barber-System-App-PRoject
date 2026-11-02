@@ -189,6 +189,9 @@ export async function telnyxSetup(origin: string, opts: { buyUkNumber?: boolean;
     notes.push(`Updated messaging profile ${profile.id} webhook`);
   } else notes.push(`Messaging profile ${profile.id} already configured`);
 
+  for (const pr of profiles.data || []) notes.push(`profile ${pr.id} "${pr.name}" enabled=${pr.enabled ?? "?"}`);
+  const rgs = await api<{ data?: { id: string; status?: string; country_code?: string; phone_number_type?: string }[] }>("/requirement_groups?page[size]=20").catch(() => null);
+  for (const g of rgs?.data || []) notes.push(`requirement group ${g.id}: ${g.country_code ?? "?"} ${g.phone_number_type ?? "?"} status=${g.status ?? "?"}`);
   type Num = { id: string; phone_number: string; status?: string; phone_number_type?: string };
   const nums = await api<{ data?: Num[] }>("/phone_numbers?page[size]=100");
   for (const n of nums.data || []) notes.push(`${n.phone_number}: status=${n.status ?? "?"} type=${n.phone_number_type ?? "?"}`);
