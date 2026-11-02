@@ -139,6 +139,9 @@ export function settlementFor(terms: PayTerms, result: ReturnType<typeof calcula
 
 // ---- Executing a run ------------------------------------------------------------------------------------
 export type TransferOutcome = { ok: boolean; transferred: { to: OwnerType; id: string; amount: number }[]; skipped: string[]; error?: string };
+const claimStatement = (db: DB, shopId: string, staffId: string, run: Pick<PayRun, "id" | "period_from" | "period_to">) =>
+  db.prepare("UPDATE payments SET pay_run_id=? WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND pay_run_id IS NULL").bind(run.id, shopId, staffId, run.period_from, run.period_to);
+const claimPayments = (db: DB, shopId: string, staffId: string, run: Pick<PayRun, "id" | "period_from" | "period_to">) => claimStatement(db, shopId, staffId, run).run();
 // Move the money for an APPROVED run. Idempotent (keys on run id). Marks the payments settled.
 export async function executeRun(db: DB, shop: Shop, run: PayRun, staff: Staff, actor: string, opts: { force?: boolean } = {}): Promise<TransferOutcome> {
   const out: TransferOutcome = { ok: false, transferred: [], skipped: [] };
@@ -161,6 +164,15 @@ export async function executeRun(db: DB, shop: Shop, run: PayRun, staff: Staff, 
   const group = run.transfer_group || `payrun_${run.id}`;
   const currency = shop.currency || "GBP";
   const now = Date.now();
+  // Nothing has left yet, so the run's figures must still match the ledger. A card payment refunded
+  // (or added) after approval would otherwise be paid out on stale numbers, and money sent for a
+  // payment that no longer exists cannot be found again by the refund.
+  const sentAlready = await db.prepare("SELECT 1 AS x FROM transfers WHERE pay_run_id=? AND kind='PAYOUT' LIMIT 1").bind(run.id).first();
+  if (!sentAlready) {
+    const cur = await splitFigures(db, shop.id, staff.id, run.period_from, run.period_to);
+    if (cur.card_service_pence + cur.card_tips_pence !== (run.card_service_pence || 0) + (run.card_tips_pence || 0))
+      return { ...out, error: "The card payments in this period changed after this run was approved (a refund or a new payment). Void the run and create it again so the figures are right." };
+  }
   const legs: { to: OwnerType; acct: ConnectedAccount | null; amount: number; ownerId: string }[] = [
     { to: "STAFF", acct: barberAcct, amount: run.transfer_pence || 0, ownerId: staff.id },
     { to: "SHOP", acct: shopAcct, amount: run.shop_transfer_pence || 0, ownerId: shop.id },
@@ -180,6 +192,9 @@ export async function executeRun(db: DB, shop: Shop, run: PayRun, staff: Staff, 
       await db.prepare("INSERT INTO transfers(id,shop_id,pay_run_id,account_id,owner_type,owner_id,kind,amount_pence,currency,transfer_group,reason,status,created_by,created_at) VALUES(?,?,?,?,?,?,'PAYOUT',?,?,?,?,'CREATED',?,?) ON CONFLICT(id) DO NOTHING")
         .bind(t.id, shop.id, run.id, leg.acct.id, leg.to, leg.ownerId, leg.amount, currency, group, `Pay run ${run.period_from}..${run.period_to}`, actor, now).run();
       out.transferred.push({ to: leg.to, id: t.id, amount: leg.amount });
+      // Money has left: settle the period's payments into this run right now (not only when every leg
+      // is done), so a refund from here on finds the run and claws the transfer back.
+      await claimPayments(db, shop.id, staff.id, run);
     } catch (err) {
       return { ...out, error: `Stripe refused the ${leg.to === "STAFF" ? "barber" : "shop"} transfer: ${err instanceof Error ? err.message : "error"}` };
     }
@@ -195,7 +210,7 @@ export async function executeRun(db: DB, shop: Shop, run: PayRun, staff: Staff, 
   }
   // Settle the payments into this run so they can't be paid twice, and advance the run.
   await db.batch([
-    db.prepare("UPDATE payments SET pay_run_id=? WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND pay_run_id IS NULL").bind(run.id, shop.id, staff.id, run.period_from, run.period_to),
+    claimStatement(db, shop.id, staff.id, run),
     db.prepare("UPDATE pay_runs SET status='TRANSFERRED', transfer_group=?, transferred_at=?, updated_at=?, version=version+1 WHERE shop_id=? AND id=? AND status='APPROVED'").bind(group, now, now, shop.id, run.id),
     db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
       .bind(crypto.randomUUID(), shop.id, "pay_run", run.id, "PAY_RUN_TRANSFERRED", actor, `${out.transferred.map((t) => `${t.to === "STAFF" ? staff.name : "shop"} ${t.amount}p (${t.id})`).join("; ") || "nothing to move"}`, now),
@@ -215,6 +230,24 @@ export async function reverseForPayment(db: DB, shopId: string, paymentId: strin
   if (!cardTotal) return { reversed: [], note: "no card money in that run" };
   const reversed: string[] = [];
   const now = Date.now();
+  // A leg that has not gone yet (held because that person's Stripe setup is unfinished) must shrink by the
+  // same share, or it would later pay out money for a payment the customer has been refunded.
+  const sentTo = new Set(transfers.map((t) => t.owner_type));
+  const shrink: string[] = [];
+  const cut = (col: "transfer_pence" | "shop_transfer_pence", owner: OwnerType) => {
+    if (sentTo.has(owner)) return;
+    const was = (run as unknown as Record<string, number>)[col] || 0;
+    const by = Math.min(was, Math.round((amountPence * was) / cardTotal));
+    if (by <= 0) return;
+    shrink.push(`${owner === "STAFF" ? "barber" : "shop"} ${by}p`);
+    return db.prepare(`UPDATE pay_runs SET ${col}=${col}-? WHERE shop_id=? AND id=? AND status='APPROVED'`).bind(by, shopId, run.id);
+  };
+  if (run.status === "APPROVED") {
+    const stmts = [cut("transfer_pence", "STAFF"), cut("shop_transfer_pence", "SHOP")].filter((x): x is NonNullable<typeof x> => !!x);
+    if (stmts.length) {
+      await db.batch([...stmts, db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(), shopId, "pay_run", run.id, "PAY_RUN_REDUCED", actor, `A payment in this run was refunded; the unsent part came down (${shrink.join(", ")}).`, now)]);
+    }
+  }
   for (const t of transfers) {
     const share = Math.min(t.amount_pence, Math.round((amountPence * t.amount_pence) / cardTotal));
     if (share <= 0) continue;

@@ -8,6 +8,7 @@ import type { Shop, ShopPage, StoredBooking } from "./domain";
 import { defaultShopPage, parseTheme, shopDay } from "./domain";
 import type { AppEnv } from "./accounts";
 import { shopUrl } from "./hosts";
+import { alertOwners } from "./alerts";
 
 export type MediaEnv = AppEnv & { Bindings: AppEnv["Bindings"] & { MEDIA?: R2Bucket } };
 type Ctx = Context<AppEnv>;
@@ -77,6 +78,9 @@ export async function leaveReview(c: Ctx, shop: Shop, b: StoredBooking, input: z
       now,
     ),
   ]);
+  // Tell the owner (email by default; Settings → Messages can turn it off or add texts).
+  const staff = b.staff_id ? await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(shop.id, b.staff_id).first<{ name: string }>().catch(() => null) : null;
+  await alertOwners(c.env.DB, shop.id, "review", b, { staffName: staff?.name, origin: new URL(c.req.url).origin, extra: { customer: who, rating: input.rating, comment: input.body || "" } }).catch(() => 0);
   return { review: (await reviewForBooking(c.env.DB, b.id))! };
 }
 

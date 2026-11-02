@@ -85,7 +85,7 @@ import { billingLive, cardSetupSession, paymentMethodSummary, portalSession } fr
 import { applyDecisions, changeSchema, decisionSchema, describeChange, previewChange, type ScheduleChange } from "./schedule";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, pushFor, sweepReminders, reminderSteps, MESSAGE_TEMPLATES, type Recipient } from "./messaging";
 import { agentPrompt, newSecret, voiceEndpoints, voiceOf, voiceSettingsSchema } from "./voice";
-import { StripeError, depositsOnline, expireHolds, expireSession, keepDepositInLedger, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, stripeConnect, stripeLive, stripeStatus } from "./stripe";
+import { CARDS_NOT_READY, StripeError, cardsReadyFor, depositsOnline, expireHolds, expireSession, depositStripeFee, keepDepositInLedger, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, shopCanTakeCards, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import QRCode from "qrcode";
 import setup from "./setup";
 import { PERM_DEFS, type PermKey } from "./perms";
@@ -749,6 +749,7 @@ sandbox.get("/workspace", async (c) => {
   ).results;
   return c.json({
     shop,
+    cards_ready: await shopCanTakeCards(c.env.DB, sid),
     logo_url: (result[11].results[0] as { logo_url?: string } | undefined)?.logo_url || "",
     logo_tone: (result[11].results[0] as { logo_tone?: string } | undefined)?.logo_tone || "",
     account,
@@ -1453,7 +1454,7 @@ sandbox.get("/notifications", async (c) => {
     notifications: rows.results,
     counts_30d: Object.fromEntries(counts.results.map((r) => [r.status, r.n])),
     providers: providerStatus(),
-    messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 1, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reminder_steps: reminderSteps(ms).join(","), msg_quiet_on: ms.msg_quiet_on ?? 1, msg_quiet_start: ms.msg_quiet_start ?? 1260, msg_quiet_end: ms.msg_quiet_end ?? 480, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "", customer_code_signin: (ms as { customer_code_signin?: number }).customer_code_signin ?? 1 },
+    messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 0, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reminder_steps: reminderSteps(ms).join(","), msg_quiet_on: ms.msg_quiet_on ?? 1, msg_quiet_start: ms.msg_quiet_start ?? 1260, msg_quiet_end: ms.msg_quiet_end ?? 480, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "", customer_code_signin: (ms as { customer_code_signin?: number }).customer_code_signin ?? 1 },
     // What a text costs the shop and whether the owner has acknowledged texts are billed.
     sms_billing: await smsBilling(c),
     templates: templatesOf(shop),
@@ -1493,7 +1494,7 @@ const messagingSchema = z
     msg_sms: z.union([z.literal(0), z.literal(1)]),
     msg_email: z.union([z.literal(0), z.literal(1)]),
     // Older clients omit this; WhatsApp stays on unless the shop switches it off.
-    msg_wa: z.union([z.literal(0), z.literal(1)]).default(1),
+    msg_wa: z.union([z.literal(0), z.literal(1)]).default(0),
     // May customers sign in with a text code? Older clients omit it: stays on.
     customer_code_signin: z.union([z.literal(0), z.literal(1)]).default(1),
     msg_reminders: z.union([z.literal(0), z.literal(1)]),
@@ -1606,11 +1607,11 @@ sandbox.get("/shop/alerts", async (c) => {
 sandbox.put("/shop/alerts", async (c) => {
   requireRole(c, ["OWNER", "MANAGER"]);
   const ch = z.enum(["OFF", "EMAIL", "SMS", "BOTH"]);
-  const b = await input(c, z.object({ new_booking: ch, cancelled: ch, no_show: ch, daily_summary: ch, managers: z.boolean(), summary_hour: z.number().int().min(5).max(12) }).strict());
+  const b = await input(c, z.object({ new_booking: ch, cancelled: ch, moved: ch.default("EMAIL"), review: ch.default("EMAIL"), no_show: ch, daily_summary: ch, managers: z.boolean(), summary_hour: z.number().int().min(5).max(12) }).strict());
   const sid = c.get("shopId");
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE shops SET notify_json=?, version=version+1 WHERE id=?").bind(JSON.stringify(b satisfies AlertPrefs), sid),
-    audit(c, "shop", sid, "ALERTS_UPDATED", `Booking ${b.new_booking.toLowerCase()}, cancel ${b.cancelled.toLowerCase()}, no-show ${b.no_show.toLowerCase()}, summary ${b.daily_summary.toLowerCase()}${b.daily_summary !== "OFF" ? ` at ${b.summary_hour}:00` : ""}; managers ${b.managers ? "included" : "excluded"}.`),
+    audit(c, "shop", sid, "ALERTS_UPDATED", `Booking ${b.new_booking.toLowerCase()}, cancel ${b.cancelled.toLowerCase()}, moved ${b.moved.toLowerCase()}, review ${b.review.toLowerCase()}, no-show ${b.no_show.toLowerCase()}, summary ${b.daily_summary.toLowerCase()}${b.daily_summary !== "OFF" ? ` at ${b.summary_hour}:00` : ""}; managers ${b.managers ? "included" : "excluded"}.`),
   ]);
   return c.json({ ok: true, prefs: b });
 });
@@ -1683,8 +1684,9 @@ sandbox.get("/shop/payments", async (c) => {
         const acct = accounts.find((x) => x.owner_type === "STAFF" && x.owner_id === st.id) ?? null;
         return { id: st.id, name: st.name, role: st.role, active: st.active, account: acct && { id: acct.id, email: acct.email, payout_schedule: acct.payout_schedule, details_submitted: acct.details_submitted, payouts_enabled: acct.payouts_enabled }, state: accountState(acct) };
       }),
-    active: depositsOnline(shop),
+    active: depositsOnline({ ...shop, cards_ready: cardsReadyFor(shopAcct) ? 1 : 0 }),
     payouts_ready: stripeLive() && stripeConnect() && !!shopAcct?.payouts_enabled,
+    cards_ready: cardsReadyFor(shopAcct),
     totals_30d: { ...(totals as object), ...(moved as object) },
     // Things that need a human: refunds Stripe has not accepted yet, pay runs approved but not sent.
     attention: {
@@ -1924,6 +1926,7 @@ sandbox.post("/terminal/readers", async (c) => {
   const b = await input(c, z.object({ code: z.string().trim().min(3).max(60), label: z.string().trim().min(1).max(60) }).strict());
   if (!stripeLive()) fail(409, "Card payments are not switched on for foliyo yet");
   const shop = await readShop(c);
+  if (!(await shopCanTakeCards(c.env.DB, shop.id))) fail(409, CARDS_NOT_READY);
   const r = await registerReader(c.env.DB, shop, b.code, b.label).catch((e) => fail(409, e instanceof Error ? e.message : "Stripe rejected the reader"));
   await c.env.DB.batch([audit(c, "shop", shop.id, "READER_ADDED", `${b.label} (${(r as { id: string }).id}).`)]);
   return c.json({ reader: r }, 201);
@@ -1946,6 +1949,7 @@ sandbox.post("/terminal/connection-token", async (c) => {
   await input(c, z.object({}).strict());
   if (!stripeLive()) fail(409, "Card payments are not switched on for foliyo yet");
   const shop = await readShop(c);
+  if (!(await shopCanTakeCards(c.env.DB, shop.id))) fail(409, CARDS_NOT_READY);
   const location = await ensureLocation(c.env.DB, shop).catch((e) => { if (e instanceof StripeError && e.code === "address_needed") fail(409, e.message); return ""; });
   const t = await connectionToken(location).catch(() => fail(409, "Could not get a Terminal token"));
   return c.json({ secret: (t as { secret: string }).secret, location });
@@ -3503,6 +3507,10 @@ sandbox.post("/bookings/:id/checkout", async (c) => {
   tillAllowed(c, shop, b.staff_id);
   if (b.version !== body.version) fail(409, "record_changed");
   if (!["CONFIRMED", "IN_SERVICE", "COMPLETED", "CHECKED_IN"].includes(b.status)) fail(409, "This visit was cancelled or marked no-show");
+  // Only shops with online payments set up (a payouts-enabled account) may log a card tender. Everyone
+  // else records Cash / Transfer / Voucher / Other. An online deposit is posted by the system, never by hand.
+  if (body.tenders.some((t) => t.method === "ONLINE")) fail(400, "Online deposits are recorded automatically; choose how the rest was paid");
+  if (body.tenders.some((t) => t.method === "CARD") && !(await shopCanTakeCards(c.env.DB, shop.id))) fail(409, CARDS_NOT_READY);
   // A deposit paid by card online is already the shop's money: it lands in the ledger as an ONLINE
   // tender the first time the visit is checked out, and counts towards what is due at the chair.
   const depositRow = b.deposit_status === "PAID" && (b.deposit_paid_pence ?? 0) > 0
@@ -3536,10 +3544,11 @@ sandbox.post("/bookings/:id/checkout", async (c) => {
   if (depositToPost > 0) {
     const pid = id();
     const policy = await platformPolicy(c.env.DB);
+    const sf = await depositStripeFee(b.stripe_payment_intent || "");
     statements.push(
       c.env.DB.prepare(
-        "INSERT INTO payments(id,shop_id,booking_id,staff_id,customer_id,date,method,service_pence,tip_pence,discount_pence,commission_pct,note,recorded_by,created_at,stripe_payment_intent,platform_fee_pence) VALUES(?,?,?,?,?,?,'ONLINE',?,0,0,?,'Deposit paid by card at booking',?,?,?,?)",
-      ).bind(pid, c.get("shopId"), b.id, b.staff_id, b.customer_id, shopToday(shop.timezone, now), depositToPost, staff?.commission_pct ?? 50, "stripe", now, b.stripe_payment_intent || "", platformFee(depositToPost, policy)),
+        "INSERT INTO payments(id,shop_id,booking_id,staff_id,customer_id,date,method,service_pence,tip_pence,discount_pence,commission_pct,note,recorded_by,created_at,stripe_payment_intent,stripe_charge,stripe_fee_pence,platform_fee_pence) VALUES(?,?,?,?,?,?,'ONLINE',?,0,0,?,'Deposit paid by card at booking',?,?,?,?,?,?)",
+      ).bind(pid, c.get("shopId"), b.id, b.staff_id, b.customer_id, shopToday(shop.timezone, now), depositToPost, staff?.commission_pct ?? 50, "stripe", now, b.stripe_payment_intent || "", sf.charge, sf.fee_pence, platformFee(depositToPost, policy)),
     );
     statements.push(audit(c, "payment", pid, "PAYMENT_RECORDED", `ONLINE ${depositToPost}p deposit (paid at booking) for ${ref(b)}`));
   }
@@ -3681,7 +3690,7 @@ sandbox.get("/wallet", async (c) => {
   const live = rows.filter((r) => !r.voided_at);
   const sum = (list: typeof live, f: (r: Payment) => number) => list.reduce((n, r) => n + f(r), 0);
   const byMethod = Object.fromEntries(
-    ["CARD", "CASH", "TRANSFER", "VOUCHER"].map((m) => {
+    ["CARD", "CASH", "TRANSFER", "VOUCHER", "OTHER"].map((m) => {
       const l = live.filter((r) => r.method === m);
       return [m, { service: sum(l, (r) => r.service_pence), tips: sum(l, (r) => r.tip_pence), count: l.length }];
     }),

@@ -2105,11 +2105,9 @@ export function Workspace() {
     writeLocalPrefs({ calendar_density: d });
     api("/me/prefs", "PUT", { calendar_density: d }).catch(() => null);
   }
-  // Card at the chair is available once foliyo's Stripe keys are live (checked once per session).
-  const [cardLive, setCardLive] = useState(false);
-  useEffect(() => {
-    fetch("/api/health").then((r) => r.json()).then((h: { livePayments?: boolean }) => setCardLive(!!h.livePayments)).catch(() => null);
-  }, []);
+  // Card at the chair needs foliyo's Stripe keys to be live AND this shop to have online payments set up
+  // (a payouts-enabled account); the workspace says so per shop. Everyone else logs cash / transfer / voucher / other.
+  const cardLive = !!w?.cards_ready;
   const navItems: NavItem[] = [
     { key: "Appointments", label: "Appointments", icon: "calendar" },
     { key: "Insights", label: "Insights", icon: "trend" },
@@ -4568,13 +4566,13 @@ const MSG_LABELS: Record<string, string> = {
   staff_invite: "Team invitation", review_request: "Review request", test_message: "Test message",
   waitlist_joined: "Joined the list", waitlist_offer: "A time is offered", waitlist_open: "A time has opened", waitlist_booked: "Offer accepted", waitlist_released: "Declined or expired",
   pay_link: "Pay link", verify_contact: "Verification code", password_reset: "Password reset",
-  owner_new_booking: "Alert · new booking", owner_cancelled: "Alert · cancellation", owner_no_show: "Alert · no-show", owner_daily_summary: "Alert · morning summary", owner_callback: "Alert · call back (AI receptionist)",
+  owner_new_booking: "Alert · new booking", owner_cancelled: "Alert · cancellation", owner_moved: "Alert · booking moved", owner_review: "Alert · new review", owner_no_show: "Alert · no-show", owner_daily_summary: "Alert · morning summary", owner_callback: "Alert · call back (AI receptionist)",
   owner_welcome: "Welcome (confirm email)", email_verify: "Confirm email", owner_signin_link: "One-time sign-in link",
   invoice: "Invoice", credit_note: "Credit note", trial_ending: "Trial ending", trial_ended: "Trial ended", payment_overdue: "Payment overdue", account_readonly: "Bookings paused", broadcast: "Announcement",
 };
 // Owner/manager alert preferences (Settings → Messages).
 type AlertCh = "OFF" | "EMAIL" | "SMS" | "BOTH";
-type AlertPrefs = { new_booking: AlertCh; cancelled: AlertCh; no_show: AlertCh; daily_summary: AlertCh; managers: boolean; summary_hour: number };
+type AlertPrefs = { new_booking: AlertCh; cancelled: AlertCh; moved: AlertCh; review: AlertCh; no_show: AlertCh; daily_summary: AlertCh; managers: boolean; summary_hour: number };
 type AlertsData = { prefs: AlertPrefs; kinds: { key: keyof AlertPrefs; label: string; hint: string }[]; recipients: { owner_email: string; owner_phone: string; phone_unverified: boolean; managers: { name: string; email: string }[] } };
 // AI receptionist (ElevenLabs): per-shop switch, one-time secret, endpoints + prompt to paste, call log.
 type VoiceData = {

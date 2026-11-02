@@ -167,3 +167,49 @@ describe("switching card deposits on", () => {
     expect(view.reconciliation).toBeTruthy();
   });
 });
+
+describe("only shops with online payments set up can take card", () => {
+  const body = (version: number, method: string) => ({ version, tenders: [{ method, service_pence: 2800 }] });
+
+  it("a shop without a payouts-enabled account can log cash / transfer / voucher / other, but not card or online", async () => {
+    const w = await world();
+    const post = (version: number, method: string) => w.s.r.post(w.base + `/bookings/${w.booking.id}/checkout`, { headers: { Origin: w.origin }, data: { ...body(version, method), complete: false } });
+    const ws = await (await w.s.r.get(w.base + "/workspace")).json();
+    expect(ws.cards_ready).toBe(false);
+
+    const card = await post(w.booking.version, "CARD");
+    expect(card.status()).toBe(409);
+    expect(await card.text()).toMatch(/not set up online payments/i);
+    const online = await post(w.booking.version, "ONLINE");
+    expect(online.status()).toBe(400);
+    // Nothing was written by the refused attempts.
+    expect((await db.prepare("SELECT COUNT(*)::int AS n FROM payments WHERE booking_id=?").bind(w.booking.id).first<any>()).n).toBe(0);
+
+    // "Other" (and the rest) are fine; each one is a ledger row that pay runs treat as hand-held money.
+    const other = await post(w.booking.version, "OTHER");
+    expect(other.status(), await other.text()).toBe(201);
+    const rows = await db.prepare("SELECT method, service_pence, stripe_payment_intent FROM payments WHERE booking_id=?").bind(w.booking.id).all<any>();
+    expect(rows.results).toEqual([{ method: "OTHER", service_pence: 2800, stripe_payment_intent: "" }]);
+  });
+
+  it("card deposits are not offered to customers, and the terminal is refused, until the payout account is enabled", async () => {
+    const w = await world();
+    await db.prepare("UPDATE shops SET deposits_online=1, deposit_pence=1000 WHERE id=?").bind(w.shopId).run(); // switched on directly: the old data shape
+    const before = await (await w.s.r.get(w.base + "/shop/payments")).json();
+    expect(before.active).toBe(false);
+    expect(before.cards_ready).toBe(false);
+    const reader = await w.s.r.post(w.base + "/terminal/readers", { headers: { Origin: w.origin }, data: { code: "simulated-wpe", label: "Counter" } });
+    expect(reader.status()).toBe(409);
+    expect(await reader.text()).toMatch(/not set up online payments/i);
+
+    const now = Date.now();
+    await db.prepare("INSERT INTO connected_accounts(id,shop_id,owner_type,owner_id,details_submitted,charges_enabled,payouts_enabled,created_at,updated_at) VALUES(?,?,'SHOP',?,1,1,1,?,?)").bind("acct_" + crypto.randomUUID().slice(0, 8), w.shopId, w.shopId, now, now).run();
+    const after = await (await w.s.r.get(w.base + "/shop/payments")).json();
+    expect(after.active).toBe(true);
+    expect(after.cards_ready).toBe(true);
+    expect((await (await w.s.r.get(w.base + "/workspace")).json()).cards_ready).toBe(true);
+    // And now a card tender is accepted for the same shop.
+    const card = await w.s.r.post(w.base + `/bookings/${w.booking.id}/checkout`, { headers: { Origin: w.origin }, data: { ...body(w.booking.version, "CARD"), complete: false } });
+    expect(card.status(), await card.text()).toBe(201);
+  });
+});

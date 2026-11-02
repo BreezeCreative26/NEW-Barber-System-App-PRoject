@@ -62,7 +62,7 @@ test("checkout records service + tip by method, completes the visit, updates the
   const checkout = page.getByTestId("checkout");
   await expect(checkout.getByTestId("checkout-due")).toHaveText("£28");
   await checkout.getByRole("button", { name: "£3", exact: true }).click();
-  await checkout.getByRole("button", { name: "Cash" }).click();
+  await checkout.getByTestId("method-cash").click();
   await expect(checkout.getByTestId("record-payment")).toContainText("£31");
   await checkout.getByTestId("record-payment").click();
   // Visit is completed and the paid strip shows the tender.
@@ -120,11 +120,11 @@ test("server guards: payment needs a served visit, cannot exceed what is due, sp
   const other = await bookToday(page);
   let r = await page.request.post(base + `/bookings/${other.booking.id}/status`, { headers: { Origin: origin }, data: { status: "CANCELLED", reason: "guard test", version: other.booking.version } });
   expect(r.status()).toBe(200);
-  r = await post({ version: other.booking.version + 1, tenders: [{ method: "CARD", service_pence: 2800 }] }, other.booking.id);
+  r = await post({ version: other.booking.version + 1, tenders: [{ method: "CASH", service_pence: 2800 }] }, other.booking.id);
   expect(r.status()).toBe(409);
   let b = booking;
   // Over-payment refused.
-  r = await post({ version: b.version, tenders: [{ method: "CARD", service_pence: 3000 }] });
+  r = await post({ version: b.version, tenders: [{ method: "CASH", service_pence: 3000 }] });
   expect(r.status()).toBe(409);
   // Short payment with complete=true refused; complete=false records a part payment and moves to IN_SERVICE.
   r = await post({ version: b.version, tenders: [{ method: "CASH", service_pence: 1000 }] });
@@ -134,16 +134,16 @@ test("server guards: payment needs a served visit, cannot exceed what is due, sp
   b = (await r.json()).booking;
   expect(b.status).toBe("IN_SERVICE");
   // Remaining 18.00 by card with a discount that does not exceed the price completes it.
-  r = await post({ version: b.version, discount_pence: 300, tenders: [{ method: "CARD", service_pence: 1500, tip_pence: 200 }] });
+  r = await post({ version: b.version, discount_pence: 300, tenders: [{ method: "CASH", service_pence: 1500, tip_pence: 200 }] });
   expect(r.status(), await r.text()).toBe(201);
   const done = await r.json();
   expect(done.booking.status).toBe("COMPLETED");
   expect(done.payments).toHaveLength(2);
   // Stale version refused.
-  r = await post({ version: b.version, tenders: [{ method: "CARD", service_pence: 100 }] });
+  r = await post({ version: b.version, tenders: [{ method: "CASH", service_pence: 100 }] });
   expect(r.status()).toBe(409);
   // Bad discount refused at validation.
-  r = await post({ version: done.booking.version, discount_pence: 99999, tenders: [{ method: "CARD", service_pence: 100 }] });
+  r = await post({ version: done.booking.version, discount_pence: 99999, tenders: [{ method: "CASH", service_pence: 100 }] });
   expect([400, 409]).toContain(r.status());
 });
 
@@ -162,7 +162,7 @@ test("till access: barbers cannot take payment by default; owner setting opens i
   const freshRes = await barber.request.get(base + `/bookings/${booking.id}`);
   expect(freshRes.status(), await freshRes.text()).toBe(200);
   const fresh = (await freshRes.json()).booking;
-  let r = await barber.request.post(base + `/bookings/${booking.id}/checkout`, { headers: { Origin: origin }, data: { version: fresh.version, tenders: [{ method: "CARD", service_pence: 2800 }] } });
+  let r = await barber.request.post(base + `/bookings/${booking.id}/checkout`, { headers: { Origin: origin }, data: { version: fresh.version, tenders: [{ method: "CASH", service_pence: 2800 }] } });
   expect(r.status()).toBe(403);
   // Barber's phone view: panel shows the lock note, not a Take payment button; wallet is "My earnings".
   await barber.goto("/workspace");
@@ -177,12 +177,12 @@ test("till access: barbers cannot take payment by default; owner setting opens i
     data: shopPayload(w.shop, { till_access: "ALL" }),
   });
   expect(r.status(), await r.text()).toBe(200);
-  r = await barber.request.post(base + `/bookings/${booking.id}/checkout`, { headers: { Origin: origin }, data: { version: fresh.version, tenders: [{ method: "CARD", service_pence: 2800, tip_pence: 500 }] } });
+  r = await barber.request.post(base + `/bookings/${booking.id}/checkout`, { headers: { Origin: origin }, data: { version: fresh.version, tenders: [{ method: "CASH", service_pence: 2800, tip_pence: 500 }] } });
   expect(r.status(), await r.text()).toBe(201);
   // Another barber's visit is still refused; voiding is owner/manager only.
   const other = w.bookings.find((b: any) => b.staff_id !== fresh.staff_id && b.status === "COMPLETED");
   if (other) {
-    r = await barber.request.post(base + `/bookings/${other.id}/checkout`, { headers: { Origin: origin }, data: { version: other.version, tenders: [{ method: "CARD", service_pence: 100 }] } });
+    r = await barber.request.post(base + `/bookings/${other.id}/checkout`, { headers: { Origin: origin }, data: { version: other.version, tenders: [{ method: "CASH", service_pence: 100 }] } });
     expect([403, 404]).toContain(r.status());
   }
   const mine = (await (await barber.request.get(base + "/wallet")).json()).payments.find((p: any) => p.booking_id === booking.id);

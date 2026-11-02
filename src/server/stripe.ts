@@ -43,10 +43,24 @@ export function stripeStatus(): StripeStatus {
   };
 }
 
-// Whether this shop can take a deposit online right now: toggled on, a deposit amount, live keys, and
-// (with Connect) a connected account.
-export function depositsOnline(shop: Pick<Shop, "deposits_online" | "deposit_pence" | "stripe_account_id" | "payment_mode">) {
+// Can this shop take card money through foliyo at all? Card money lands with foliyo first and is paid
+// out to the shop's own Stripe account, so the shop needs a payouts-enabled account of its own.
+// Everyone else logs payments as cash / transfer / voucher / other. With Connect off (legacy direct
+// mode) live keys are enough.
+export const CARDS_READY_SQL = "EXISTS(SELECT 1 FROM connected_accounts ca WHERE ca.shop_id=s.id AND ca.owner_type='SHOP' AND ca.payouts_enabled=1)::int AS cards_ready";
+export const cardsReadyFor = (acct: { payouts_enabled?: number | boolean } | null | undefined) => stripeLive() && (!stripeConnect() || !!acct?.payouts_enabled);
+export async function shopCanTakeCards(db: DB, shopId: string) {
   if (!stripeLive()) return false;
+  if (!stripeConnect()) return true;
+  const acct = await db.prepare("SELECT payouts_enabled FROM connected_accounts WHERE shop_id=? AND owner_type='SHOP' AND owner_id=?").bind(shopId, shopId).first<{ payouts_enabled: number }>();
+  return cardsReadyFor(acct);
+}
+export const CARDS_NOT_READY = "This shop has not set up online payments yet, so it cannot take card payments. Record the payment as Cash, Transfer, Voucher or Other, or finish Settings → Payments to take cards.";
+
+// Whether this shop can take a deposit online right now: toggled on, a deposit amount, live keys, and
+// (with Connect) a payouts-enabled account of its own. `cards_ready` comes from CARDS_READY_SQL.
+export function depositsOnline(shop: Pick<Shop, "deposits_online" | "deposit_pence" | "stripe_account_id" | "payment_mode"> & { cards_ready?: number | boolean }) {
+  if (!cardsReadyFor({ payouts_enabled: shop.cards_ready ?? 0 })) return false;
   if ((shop.deposits_online ?? 0) !== 1) return false;
   // PREPAY takes the full price so a zero deposit is fine; DEPOSIT needs an amount.
   if ((shop.payment_mode ?? "DEPOSIT") === "DEPOSIT" && shop.deposit_pence <= 0) return false;
@@ -57,7 +71,7 @@ export function depositsOnline(shop: Pick<Shop, "deposits_online" | "deposit_pen
 // messages). It follows the shop's single choice, and if online payments were chosen but card
 // payments aren't actually connected, it says "pay in the shop" rather than promise a deposit.
 export type PaymentPolicy = { mode: "IN_STORE" | "DEPOSIT" | "FULL"; deposit_pence: number; line: string };
-export function paymentPolicy(shop: Pick<Shop, "deposits_online" | "deposit_pence" | "stripe_account_id" | "payment_mode" | "currency">): PaymentPolicy {
+export function paymentPolicy(shop: Pick<Shop, "deposits_online" | "deposit_pence" | "stripe_account_id" | "payment_mode" | "currency"> & { cards_ready?: number | boolean }): PaymentPolicy {
   const fmt = (p: number) => new Intl.NumberFormat("en-GB", { style: "currency", currency: shop.currency || "GBP" }).format(p / 100);
   const mode = shop.payment_mode ?? "DEPOSIT";
   if (mode === "PAY_AT_VISIT" || !depositsOnline(shop)) return { mode: "IN_STORE", deposit_pence: 0, line: "Pay in the shop on the day. No payment is taken online." };
@@ -262,6 +276,9 @@ export async function chargeFee(paymentIntent: string) {
   const bt = await stripe<{ fee: number }>(`/balance_transactions/${encodeURIComponent(ch.balance_transaction)}`);
   return { charge: ch.id, fee_pence: bt.fee };
 }
+// Stripe's processing fee on a deposit, for foliyo's own books (0 if Stripe cannot be asked).
+export const depositStripeFee = async (paymentIntent: string) =>
+  paymentIntent ? chargeFee(paymentIntent).then((f) => ({ charge: f.charge, fee_pence: f.fee_pence })).catch(() => ({ charge: "", fee_pence: 0 })) : { charge: "", fee_pence: 0 };
 // Platform take on a card payment, from platform_payments.
 export const platformFee = (amountPence: number, fee: { fee_bps: number; fee_fixed_pence: number }) => (amountPence <= 0 ? 0 : Math.round((amountPence * fee.fee_bps) / 10000) + fee.fee_fixed_pence);
 
@@ -358,9 +375,10 @@ export async function keepDepositInLedger(db: DB, shop: Shop, booking: StoredBoo
   const pid = crypto.randomUUID();
   const now = Date.now();
   const policy = await platformPolicy(db);
+  const sf = await depositStripeFee(booking.stripe_payment_intent || "");
   await db.batch([
-    db.prepare("INSERT INTO payments(id,shop_id,booking_id,staff_id,customer_id,date,method,service_pence,tip_pence,discount_pence,commission_pct,note,recorded_by,created_at,stripe_payment_intent,platform_fee_pence) VALUES(?,?,?,?,?,?,'ONLINE',?,0,0,?,?,?,?,?,?)")
-      .bind(pid, shop.id, booking.id, booking.staff_id, booking.customer_id, shopToday(shop.timezone, now), amount, staff?.commission_pct ?? 50, `Deposit kept: ${why}`.slice(0, 200), actor, now, booking.stripe_payment_intent || "", platformFee(amount, policy)),
+    db.prepare("INSERT INTO payments(id,shop_id,booking_id,staff_id,customer_id,date,method,service_pence,tip_pence,discount_pence,commission_pct,note,recorded_by,created_at,stripe_payment_intent,stripe_charge,stripe_fee_pence,platform_fee_pence) VALUES(?,?,?,?,?,?,'ONLINE',?,0,0,?,?,?,?,?,?,?,?)")
+      .bind(pid, shop.id, booking.id, booking.staff_id, booking.customer_id, shopToday(shop.timezone, now), amount, staff?.commission_pct ?? 50, `Deposit kept: ${why}`.slice(0, 200), actor, now, booking.stripe_payment_intent || "", sf.charge, sf.fee_pence, platformFee(amount, policy)),
     db.prepare("INSERT INTO audit_events (id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)")
       .bind(crypto.randomUUID(), shop.id, "payment", pid, "PAYMENT_RECORDED", actor, `ONLINE ${amount}p deposit kept (${why})`, now),
   ]);

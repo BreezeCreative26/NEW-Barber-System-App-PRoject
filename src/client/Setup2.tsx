@@ -387,7 +387,7 @@ export function StepPayments({ w, api, refresh, data, setNotice, setError, goTo,
             <>
               <p>To take money online the shop needs a payouts account — a five-minute form (business details, bank account, ID). Money lands in your bank on a daily schedule.</p>
               <Button disabled={busy} onClick={() => run(connect, setError)} data-testid="setup-connect-stripe">{busy ? "Opening…" : "Set up payouts"} <Icon name="external" size={14} /></Button>
-              <small className="helper">Fee: card processing plus 1.5% platform fee, shown per payment in <button type="button" className="linklike" onClick={() => goTo("Settings")}>Settings → Payments</button>.</small>
+              <small className="helper">Fee: foliyo takes a small fee on card payments (it is on your invoice and shown per payment), netted from your payouts. See <button type="button" className="linklike" onClick={() => goTo("Settings")}>Settings → Payments</button>.</small>
             </>
           )}
         </div>

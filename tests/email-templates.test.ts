@@ -43,6 +43,8 @@ const V: Record<MessageTemplate, Record<string, string | number>> = {
   password_reset: { link: `${origin}/reset?token=tok_reset` },
   owner_new_booking: { customer: "Sam Patel", service: "Skin fade", barber: "Marcus", date: "Thu 2 Oct", time: "14:30", ref: "NB-4821", deposit: "£5", link: `${origin}/workspace` },
   owner_cancelled: { customer: "Sam Patel", service: "Skin fade", barber: "Marcus", date: "Thu 2 Oct", time: "14:30", ref: "NB-4821", deposit: "£5 refunded", waitlist: 2, link: `${origin}/workspace` },
+  owner_moved: { customer: "Sam Patel", service: "Skin fade", barber: "Marcus", date: "Fri 3 Oct", time: "15:00", was: "Thu 2 Oct at 14:30", ref: "NB-4821", link: `${origin}/workspace` },
+  owner_review: { customer: "Sam P.", service: "Skin fade", barber: "Marcus", date: "Thu 2 Oct", time: "14:30", rating: 5, comment: "Best fade I have had.", link: `${origin}/workspace` },
   owner_no_show: { customer: "Sam Patel", service: "Skin fade", barber: "Marcus", date: "Thu 2 Oct", time: "14:30", ref: "NB-4821", count: 2 },
   owner_daily_summary: { count: 14, first_time: "09:00", last_time: "17:30", online: 9, walkin: 5, gaps: 3, deposits: "£45", date: "Thu 2 Oct", link: `${origin}/workspace` },
   owner_callback: { customer: "Jo Lee", phone: "07700 900456", note: "Wants a Saturday slot for two kids.", link: `${origin}/workspace` },
@@ -57,7 +59,7 @@ const V: Record<MessageTemplate, Record<string, string | number>> = {
   admin_alert_digest: { count: 2, items: "‼ Stripe webhook failing for 2 h\n! 3 shops with overdue invoices", link: `${origin}/admin/alerts` },
   owner_welcome: { link: `${origin}/verify?token=tok_verify`, shop: shop.name, trial_days: 14 },
   email_verify: { link: `${origin}/verify?token=tok_verify`, email: "dana@northline.example" },
-  shop_announcement: { sms: "Hi Alex, Northline now takes bookings online: https://x.test Reply STOP to opt out.", subject: "Book online with Northline", heading: "Book your next visit online", body: "Northline now has online booking.", cta_label: "Book online", cta_url: `${origin}/book` },
+  shop_announcement: { sms: "Hi Alex, Northline Barbers now takes bookings online: https://x.test Reply STOP to opt out.", subject: "Book online with Northline", heading: "Book your next visit online", body: "Northline now has online booking.", cta_label: "Book online", cta_url: `${origin}/book` },
 };
 // Which templates go out as the platform (foliyo) rather than the shop.
 const PLATFORM = new Set<MessageTemplate>(["invoice", "credit_note", "owner_signin_link", "trial_ending", "trial_ended", "payment_overdue", "account_readonly", "broadcast", "admin_alert_digest", "owner_welcome"]);
@@ -101,7 +103,11 @@ describe("message templates", () => {
         // Links may live on the platform domain; the *words* the customer reads may not name it.
         const noUrls = (s: string) => s.replace(/https?:\/\/\S+/g, "");
         expect(noUrls(`${r.sms} ${r.subject} ${r.heading} ${r.lines.join(" ")} ${r.footnote || ""} ${r.cta?.label || ""}`), `${t} never names the platform`).not.toMatch(/foliyo|\bOLLO\b/i);
-        expect(noUrls(html.replace(/\s(href|src)="[^"]*"/g, "")), `${t} html never names the platform`).not.toMatch(/foliyo|\bOLLO\b/i);
+        // The header carries the foliyo wordmark as an image (by design: foliyo left, the shop's own mark right).
+        // That image is the one allowed mention; its alt text is not copy the customer reads. Everything else must be clean.
+        const wordmark = /<img[^>]*foliyo-wordmark[^>]*>/g;
+        expect(html.match(wordmark)?.length ?? 0, `${t} shows the foliyo wordmark once in the header`).toBe(1);
+        expect(noUrls(html.replace(wordmark, "").replace(/\s(href|src)="[^"]*"/g, "")), `${t} html never names the platform`).not.toMatch(/foliyo|\bOLLO\b/i);
       }
       // 5) Sent-by line always present.
       expect(html).toContain(`Sent by ${sender.name}`);

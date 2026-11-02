@@ -46,7 +46,7 @@ import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, pushFor, waAvai
 import { currentAccount as currentCustomerAccount, customerPassword, ensureAccount, openSession as openCustomerSession, sendWelcome } from "./customerAuth";
 import { autoOffer, slotFreed, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
 import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
-import { createDepositSession, depositView, depositsOnline, paymentPolicy, expireHolds, keepDepositInLedger, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
+import { CARDS_READY_SQL, createDepositSession, depositView, depositsOnline, paymentPolicy, expireHolds, keepDepositInLedger, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
 import { shopUrl } from "./hosts";
 import {
   audit,
@@ -140,7 +140,7 @@ pub.route("/shops/:slug/account", customerAccounts);
 
 export async function shopBySlug(c: Ctx, slug: string) {
   const shop = await c.env.DB.prepare(
-    "SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1 AND s.suspended_at IS NULL",
+    `SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex, ${CARDS_READY_SQL} FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1 AND s.suspended_at IS NULL`,
   )
     .bind(slug.toLowerCase())
     .first<BrandedShop>();
@@ -157,7 +157,7 @@ export function limits(shop: Shop, now = Date.now()) {
     maxDate: datePlus(today, shop.booking_window_days),
   };
 }
-export type BrandedShop = Shop & { logo_url: string; accent: string; theme_json: string; logo_tone?: string };
+export type BrandedShop = Shop & { cards_ready?: number; logo_url: string; accent: string; theme_json: string; logo_tone?: string };
 const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   id: s.id,
   name: s.name,
@@ -192,7 +192,7 @@ const publicShop = (s: Shop & Partial<BrandedShop>) => ({
     sms: (s as { msg_sms?: number }).msg_sms !== 0,
     code: (s as { msg_sms?: number }).msg_sms !== 0 && (s as { customer_code_signin?: number }).customer_code_signin !== 0,
     email: (s as { msg_email?: number }).msg_email !== 0,
-    wa: waAvailable() && (s as { msg_wa?: number }).msg_wa !== 0,
+    wa: waAvailable() && (s as { msg_wa?: number }).msg_wa === 1,
   },
 });
 
@@ -1166,7 +1166,7 @@ async function bookingByToken(c: Ctx) {
     .first<{ booking_id: string; shop_id: string }>();
   if (!row) return fail(404, "Booking link not found");
   c.set("shopId", row.shop_id);
-  const shop = await c.env.DB.prepare("SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?")
+  const shop = await c.env.DB.prepare(`SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex, ${CARDS_READY_SQL} FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?`)
     .bind(row.shop_id)
     .first<BrandedShop>();
   const booking = await readBooking(c, row.booking_id);
@@ -1388,7 +1388,7 @@ export async function moveByCustomer(c: Ctx, shop: Shop, booking: StoredBooking,
   await slotFreed(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-move");
   const after = await readBooking(c, booking.id);
   await notifyBooking(c, shop.id, after, staffName, "booking_moved");
-  await recordEvent(c.env.DB, shop.id, "moved", after, staffName).catch(() => {});
+  await alertOwners(c.env.DB, shop.id, "moved", after, { staffName, origin: new URL(c.req.url).origin, extra: { was: `${fmtDate(booking.date)} at ${fmtTime(booking.start_min)}` } }).catch(() => 0);
   return {
     booking: customerView(after, shop, staffName),
   };

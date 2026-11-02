@@ -56,6 +56,8 @@ const TEMPLATE_LABEL: Record<string, string> = {
   shop_address: "Shop address",
   owner_new_booking: "Owner alert: new booking",
   owner_cancelled: "Owner alert: cancellation",
+  owner_moved: "Owner alert: booking moved",
+  owner_review: "Owner alert: new review",
   owner_no_show: "Owner alert: no-show",
   owner_daily_summary: "Owner daily summary",
   owner_callback: "Owner alert: callback",
@@ -126,7 +128,8 @@ export async function runningStatement(db: DB, shopId: string, now = Date.now(),
   const daysSoFar = Math.max(1, Math.floor((now - start) / DAY) + 1);
   const nextKey = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1)).toISOString().slice(0, 7);
   const nextDays = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 2, 0)).getUTCDate();
-  const fixed = est.lines.filter((l) => !est.usage.some((u) => l.label.startsWith(`${u.name} ·`)));
+  // Card-fee info lines describe this month's takings, so they are not projected into next month.
+  const fixed = est.lines.filter((l) => !est.usage.some((u) => l.label.startsWith(`${u.name} ·`)) && !l.label.startsWith("Card payments ·"));
   const forecastLines = [...fixed];
   for (const u of est.usage) {
     if (!u.quantity) continue;
