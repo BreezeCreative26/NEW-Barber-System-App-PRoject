@@ -194,7 +194,20 @@ export async function telnyxSetup(origin: string, opts: { buyUkNumber?: boolean;
   const numbers: string[] = [];
   for (const n of nums.data || []) {
     const m = await api<{ data?: { messaging_profile_id?: string; features?: { sms?: unknown } } }>(`/phone_numbers/${n.id}/messaging`).catch(() => null);
-    if (!m?.data?.features?.sms) { notes.push(`${n.phone_number}: not messaging-capable`); continue; }
+    if (!m?.data?.features?.sms) {
+      // A number that was never attached to a messaging profile can report no SMS feature yet. Try the
+      // attach anyway and report what Telnyx says: that is the real test of whether it can text.
+      try {
+        const r = await api<{ data?: { messaging_profile_id?: string; features?: { sms?: unknown } } }>(`/phone_numbers/${n.id}/messaging`, { messaging_profile_id: profile.id }, "PATCH");
+        const back = await api<{ data?: { type?: string; features?: { sms?: unknown } } }>(`/phone_numbers/${n.id}/messaging`).catch(() => null);
+        const sms = back?.data?.features?.sms ?? r.data?.features?.sms;
+        notes.push(`${n.phone_number}: attach attempted, type=${back?.data?.type ?? "?"}, sms=${sms ? JSON.stringify(sms) : "none"}`);
+        if (sms) numbers.push(n.phone_number);
+      } catch (err) {
+        notes.push(`${n.phone_number}: cannot enable messaging (${err instanceof Error ? err.message : "error"})`);
+      }
+      continue;
+    }
     if (m.data.messaging_profile_id !== profile.id) {
       await api(`/phone_numbers/${n.id}/messaging`, { messaging_profile_id: profile.id }, "PATCH");
       notes.push(`${n.phone_number}: attached to foliyo`);
