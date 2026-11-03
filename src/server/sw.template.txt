@@ -76,7 +76,13 @@ self.addEventListener("push", (event) => {
     renotify: !!data.tag,
     data: { url: data.url || "/" },
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(title, options),
+      // Tell any open window so the in-app bell refreshes at once.
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => list.forEach((c) => c.postMessage({ type: "foliyo-push", tag: data.tag || "" }))),
+    ]),
+  );
 });
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();

@@ -2051,7 +2051,19 @@ export function Workspace() {
     if (!w) return;
     loadInbox();
     const t = window.setInterval(() => { if (!document.hidden) loadInbox(); }, 45000);
-    return () => window.clearInterval(t);
+    // The bell updates the moment something happens: a push landing in the worker pings the open
+    // app, and coming back to the tab/app refreshes straight away instead of waiting for the poll.
+    const onMsg = (e: MessageEvent) => { if (e.data?.type === "foliyo-push") loadInbox(); };
+    const onBack = () => { if (!document.hidden) loadInbox(); };
+    navigator.serviceWorker?.addEventListener("message", onMsg);
+    document.addEventListener("visibilitychange", onBack);
+    window.addEventListener("focus", onBack);
+    return () => {
+      window.clearInterval(t);
+      navigator.serviceWorker?.removeEventListener("message", onMsg);
+      document.removeEventListener("visibilitychange", onBack);
+      window.removeEventListener("focus", onBack);
+    };
   }, [!!w]);
   const visibleStaff =
     w?.staff.filter(
@@ -5312,8 +5324,10 @@ function TeamPushToggle({ all }: { all: boolean }) {
         setSt({ ...st, subscribed: false });
       } else {
         if ((await Notification.requestPermission()) !== "granted") throw new Error("Notifications are blocked in this browser. Allow them in the site settings and try again.");
+        await navigator.serviceWorker.ready; // subscribing needs an active worker
         const sub = existing || (await rg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(st.public_key) }));
-        await api("/inbox/push", "POST", sub.toJSON());
+        const j = sub.toJSON();
+        await api("/inbox/push", "POST", { endpoint: sub.endpoint, keys: { p256dh: j.keys?.p256dh || "", auth: j.keys?.auth || "" } });
         setSt({ ...st, subscribed: true });
       }
     } catch (e) {

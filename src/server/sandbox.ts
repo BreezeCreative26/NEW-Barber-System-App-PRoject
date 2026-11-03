@@ -1012,7 +1012,9 @@ sandbox.get("/inbox/push", async (c) => {
   const subscribed = endpoint ? !!(await c.env.DB.prepare("SELECT 1 AS x FROM staff_push_subscriptions WHERE shop_id=? AND account_id=? AND endpoint=?").bind(c.get("shopId"), v.id, endpoint).first()) : false;
   return c.json({ enabled: st.enabled, public_key: st.public_key, subscribed });
 });
-const staffPushSchema = z.object({ endpoint: z.string().url().max(2000), keys: z.object({ p256dh: z.string().max(300), auth: z.string().max(100) }).strict() }).strict();
+// Browsers hand back { endpoint, expirationTime, keys } from PushSubscription.toJSON(); a strict schema
+// that does not name expirationTime turned every real subscribe into a 400, so no team device ever saved.
+const staffPushSchema = z.object({ endpoint: z.string().url().max(2000), expirationTime: z.number().nullable().optional(), keys: z.object({ p256dh: z.string().max(300), auth: z.string().max(100) }).strict() }).strict();
 sandbox.post("/inbox/push", async (c) => {
   const v = viewerOf(c);
   const b = await input(c, staffPushSchema);
