@@ -1300,7 +1300,7 @@
 .ca-profile { grid-template-columns: 1fr 1fr; }
 .ca-span { grid-column: 1 / -1; }
 .ca-check { grid-template-columns: auto 1fr; align-items: center; font-weight: 500; }
-.ca-check input { width: 18px; height: 18px; padding: 0; }
+.ca-check input { width: 18px; height: 18px; min-height: 18px; padding: 0; }
 .ca-privacy { border-top: 1px solid var(--line); padding-top: var(--s-4); display: grid; gap: var(--s-2); }
 .ca-privacy h3 { margin: 0; font-size: var(--fs-15); }
 .ca-privacy p { margin: 0; color: var(--muted); font-size: var(--fs-13); line-height: 1.5; }
@@ -2759,8 +2759,8 @@ html.boot-dark, html.boot-dark body { background: #17181e; }
 /* ---- Account consent (sign-up + profile): reminders by text/email, marketing opt-in ---- */
 .ca-consent, .booking-consent { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--sp-line, var(--line)); border-radius: var(--sp-r-sm, 10px); background: var(--sp-surface-2, transparent); margin: 0; }
 .ca-consent legend { font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--sp-muted, var(--muted)); padding: 0 4px; }
-.ca-consent .ca-check, .booking-consent .booking-check { display: flex; align-items: flex-start; gap: 10px; font-size: 0.95rem; line-height: 1.35; }
-.ca-consent .ca-check input, .booking-consent .booking-check input { margin-top: 3px; width: 18px; height: 18px; flex: none; accent-color: var(--sp-accent, var(--accent)); }
+.ca-consent .ca-check, .booking-consent .booking-check { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; font-size: 0.95rem; line-height: 1.35; }
+.ca-consent .ca-check input, .booking-consent .booking-check input { margin-top: 3px; width: 18px; height: 18px; min-height: 18px; padding: 0; flex: none; accent-color: var(--sp-accent, var(--accent)); }
 .ca-consent .ca-hint { color: var(--sp-muted, var(--muted)); font-size: 0.8rem; line-height: 1.4; }
 .ca-consent .ca-hint a { color: inherit; text-decoration: underline; }
 .booking-consent { margin-top: 6px; }
@@ -3247,7 +3247,7 @@ body.editor-open { overflow: hidden; }
 .sms-bill-ack span { display: grid; gap: 3px; }
 .sms-bill-ack strong { font-size: var(--fs-14); }
 .sms-bill-ack small { color: var(--muted); font-size: var(--fs-12); line-height: 1.4; }
-.sms-bill-note { display: flex; align-items: center; gap: 6px; margin: 0; font-size: var(--fs-12); color: #006b4d; }
+.sms-bill-note { display: block; margin: 0; line-height: 1.45; font-size: var(--fs-12); color: #006b4d; }
 .workspace-form-wide { grid-column: 1 / -1; }
 
 /* Onboarding channel cards */
@@ -3376,9 +3376,18 @@ body.editor-open { overflow: hidden; }
   .sidebar.rail, .sidebar-label { transition: none; }
 }
 
+/* ---------- Text-kinds picker (Settings → Messages, onboarding) ---------- */
+.sms-kinds { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 8px; }
+.sms-kinds legend { padding: 0; margin-bottom: 2px; font-size: var(--fs-12); font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+.sms-kinds .setup-check { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; font-size: var(--fs-14); line-height: 1.35; cursor: pointer; }
+.sms-kinds .setup-check input { flex: none; width: 18px; height: 18px; min-height: 18px; margin: 2px 0 0; padding: 0; accent-color: #006b4d; }
+.sms-kinds .setup-check span { display: grid; gap: 2px; min-width: 0; }
+.sms-kinds .setup-check small { color: var(--muted); font-size: var(--fs-12); line-height: 1.4; }
+.sms-kinds > .helper { color: var(--muted); font-size: var(--fs-12); line-height: 1.4; }
+
 /* ---------- Settings → Messages: channel cards (symmetric) ---------- */
 .chan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; align-items: start; }
-.chan-card { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: var(--surface); display: grid; gap: 10px; min-height: 100%; }
+.chan-card { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: var(--surface); display: grid; align-content: start; gap: 10px; min-height: 100%; }
 .chan-card.on { border-color: #006b4d; box-shadow: 0 0 0 3px rgba(47, 97, 82, .08); }
 .chan-head { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
 .chan-ic { width: 36px; height: 36px; border-radius: 10px; background: var(--canvas); display: grid; place-items: center; color: var(--ink); }
@@ -4263,3 +4272,17 @@ html.calendar-pinned, html.calendar-pinned body { overscroll-behavior: none; }
 .notify-list li.unread { box-shadow: inset 3px 0 0 var(--accent); padding-left: 10px; }
 .perm-group { display: grid; gap: 6px; margin-top: var(--s-3); }
 .perm-group > strong { font-size: var(--fs-12); text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+
+.sms-bill-note svg { vertical-align: -2px; margin-right: 6px; }
+.rem-quiet-toggle { flex-direction: row; justify-content: flex-start; }
+.rem-quiet-toggle input { width: 18px; height: 18px; min-height: 18px; padding: 0; margin: 0; accent-color: #006b4d; }
+
+/* ---- Checkbox / radio rows: the global `label` rule is a column, so every row-style label must say row ---- */
+.setup-check, .sms-bill-ack { flex-direction: row; }
+.setup-check input { flex: none; width: 18px; height: 18px; min-height: 18px; padding: 0; accent-color: var(--ctl-accent, var(--accent)); }
+.workspace-toggle input[type="radio"], .workspace-toggle input[type="checkbox"] { height: 18px; min-height: 18px; padding: 0; }
+input[type="radio"] { appearance: auto; width: 18px; height: 18px; min-height: 18px; padding: 0; flex: none; }
+/* Small round "x" buttons (reminder chips): bigger touch area on phones */
+@media (pointer: coarse) { .rem-chip button { width: 32px; height: 32px; } }
+.workspace-field input[type="radio"], .workspace-field input[type="checkbox"],
+.workspace .workspace-form-grid input[type="radio"], .workspace .workspace-form-grid input[type="checkbox"] { width: 18px; min-width: 18px; height: 18px; min-height: 18px; padding: 0; }
