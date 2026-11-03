@@ -92,15 +92,11 @@ test.skip("public shop advertises channels; WhatsApp preference routes the confi
   expect(box.providers.wa.provider).toMatch(/^(mailbox|infobip)$/);
 });
 
-test("shop switches WhatsApp off → WA preference falls back to text; toggle round-trips in settings", async () => {
+test("WhatsApp is retired: new shops start with it off, a WA preference falls back to text, and omitting the field never switches it on", async () => {
   const { r, w, slug } = await onlineShop("No WhatsApp Shop");
   const c = await customer();
   let box = await outbox(r);
-  expect(box.messaging.msg_wa).toBe(1);
-  const res = await r.put(base + "/shop/messaging", { data: { ...box.messaging, msg_wa: 0, sms_billing_ack: true } });
-  expect(res.status(), await res.text()).toBe(200);
-  box = await outbox(r);
-  expect(box.messaging.msg_wa).toBe(0);
+  expect(box.messaging.msg_wa).toBe(0); // migration 0058: off for new shops
   const info = await (await c.get(`${pub}/shops/${slug}`)).json();
   expect(info.shop.channels.wa).toBe(false);
 
@@ -110,11 +106,13 @@ test("shop switches WhatsApp off → WA preference falls back to text; toggle ro
   const rows = customerRows((await outbox(r)).notifications, b.json.booking.id);
   expect(rows.map((n) => n.channel).sort()).toEqual(["EMAIL", "SMS"]);
 
-  // Older clients that omit msg_wa keep it as it was (default 1 only applies when unset in the DB).
+  // An older client that omits msg_wa must leave it off (it used to default to ON).
   const { msg_wa: _drop, ...legacy } = box.messaging;
   void _drop;
   const res2 = await r.put(base + "/shop/messaging", { data: { ...legacy, sms_billing_ack: true } });
   expect(res2.status(), await res2.text()).toBe(200);
+  box = await outbox(r);
+  expect(box.messaging.msg_wa).toBe(0);
 });
 
 test.skip("inbound webhook: STOP opts a number out (WA message fails fast, text still goes); START opts back in; replies are stored against the shop", async () => {

@@ -9,7 +9,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Database as DB } from "../db/client";
-import { parseCsv } from "./import";
+import { isHeaderRow, parseCsv } from "./csvParse";
 import { platformBilling } from "./billing";
 import { deliverDirect, msgShop, renderPlatformEmail } from "./messaging";
 import { setMarketingChoice } from "./consent";
@@ -30,7 +30,6 @@ export type ExtractResult = {
 const EMAIL_RE = /[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
 const PHONE_RE = /(?:\+|00)?\(?\d[\d\s().\-–]{6,}\d/g;
 const BUSINESS_WORDS = /\b(barber|barbers|barbershop|barber shop|salon|hair|hairdress\w*|cuts?|studio|lounge|grooming|ltd|limited|llp|&|and sons|co\.?|company|the)\b/i;
-const HEADER_WORDS = /^(name|full name|first name|last name|surname|forename|contact|owner|business|business name|company|shop|salon|trading name|phone|mobile|tel|telephone|cell|email|e-mail|email address|address|postcode|town|city|website|notes?)$/i;
 const BAD_FIRST = new Set(["the", "mr", "mrs", "ms", "miss", "dr", "sir", "info", "hello", "contact", "admin", "enquiries", "sales", "shop", "salon", "barber", "barbers"]);
 
 export type Normalised = { kind: "mobile" | "landline" | "other"; e164: string } | null;
@@ -57,7 +56,7 @@ const cleanName = (s: string) => titleCase(s.replace(/[^A-Za-z\u00C0-\u024F'’\
 export function extractContacts(csvText: string): ExtractResult {
   const table = parseCsv(csvText);
   const first = table[0] ?? [];
-  const hasHeader = first.length > 0 && first.filter((c) => HEADER_WORDS.test(c.trim())).length >= Math.min(2, first.length) && !first.some((c) => EMAIL_RE.test(c) || /\d{7,}/.test(c.replace(/\D/g, "")));
+  const hasHeader = isHeaderRow(first);
   EMAIL_RE.lastIndex = 0;
   const headers = hasHeader ? first.map((h) => h.trim()) : null;
   const body = hasHeader ? table.slice(1) : table;
@@ -289,7 +288,7 @@ export function mountMarketing(admin: Hono<any>, h: H) {
     const b = await input(c);
     const text = String(b.csv || "");
     if (!text.trim()) h.fail(400, "Choose a CSV file first");
-    if (text.length > 6_000_000) h.fail(400, "That file is too big. Split it into files under 6 MB.");
+    if (text.length > 2_000_000) h.fail(400, "That part of the file is too big. Reload the page and upload the file again.");
     const r = extractContacts(text);
     const db = c.env.DB as DB;
     let existing = 0, suppressed = 0;

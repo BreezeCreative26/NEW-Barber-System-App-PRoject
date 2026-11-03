@@ -119,6 +119,31 @@ export async function usageFor(db: DB, shopId: string, period = periodKey()): Pr
   });
 }
 
+// Card fees for a month, itemised for the shop. foliyo's platform fee is NOT billed on the monthly invoice:
+// it is taken out of the shop's own transfer when the pay run sends their share, so the invoice shows it as
+// an information line (£0 to pay) and the maths is visible in one place. Stripe's own processing fee is
+// paid by foliyo out of that fee, not charged to the shop (stripe_fee_pence is kept for foliyo's own books).
+export type CardFees = { payments: number; card_taken_pence: number; platform_fee_pence: number; stripe_fee_pence: number; fee_bps: number; fee_fixed_pence: number };
+export async function cardFeesFor(db: DB, shopId: string, period = periodKey()): Promise<CardFees> {
+  const [y, m] = period.split("-").map(Number);
+  const from = Date.UTC(y, m - 1, 1), to = Date.UTC(y, m, 1);
+  const row = await db.prepare(
+    "SELECT COUNT(*)::int AS n, COALESCE(SUM(service_pence+tip_pence),0)::int AS taken, COALESCE(SUM(platform_fee_pence),0)::int AS pf, COALESCE(SUM(stripe_fee_pence),0)::int AS sf FROM payments WHERE shop_id=? AND voided_at IS NULL AND created_at>=? AND created_at<? AND (method='ONLINE' OR (method='CARD' AND stripe_payment_intent<>''))",
+  ).bind(shopId, from, to).first<{ n: number; taken: number; pf: number; sf: number }>();
+  const pol = await db.prepare("SELECT fee_bps, fee_fixed_pence FROM platform_payments WHERE id=1").first<{ fee_bps: number; fee_fixed_pence: number }>().catch(() => null);
+  return { payments: row?.n ?? 0, card_taken_pence: row?.taken ?? 0, platform_fee_pence: row?.pf ?? 0, stripe_fee_pence: row?.sf ?? 0, fee_bps: pol?.fee_bps ?? 0, fee_fixed_pence: pol?.fee_fixed_pence ?? 0 };
+}
+const pounds = (p: number) => `£${(p / 100).toFixed(2)}`;
+export function cardFeeLine(f: CardFees): { label: string; amount_pence: number; detail: string } | null {
+  if (!f.payments) return null;
+  const rate = `${(f.fee_bps / 100).toFixed(2).replace(/\.?0+$/, "")}%${f.fee_fixed_pence ? ` + ${f.fee_fixed_pence}p` : ""}`;
+  return {
+    label: `Card payments · ${f.payments} taken (${pounds(f.card_taken_pence)})`,
+    amount_pence: 0,
+    detail: `foliyo fee ${rate} = ${pounds(f.platform_fee_pence)}, already taken out of your payouts. Nothing to pay here.`,
+  };
+}
+
 // Estimated next invoice from local truth (Stripe's figure wins once it exists).
 export async function estimate(db: DB, shopId: string, period = periodKey()) {
   const e = await entitlements(db, shopId);
@@ -132,6 +157,8 @@ export async function estimate(db: DB, shopId: string, period = periodKey()) {
     if (ent?.enabled) lines.push({ label: f.name, amount_pence: ent.source === "ADMIN_GRANT" ? 0 : f.monthly_pence, detail: ent.source === "ADMIN_GRANT" ? "complimentary" : "monthly" });
   }
   for (const u of usage) if (u.quantity > 0) lines.push({ label: `${u.name} · ${u.quantity} ${u.unit}${u.quantity === 1 ? "" : "s"}`, amount_pence: u.amount_pence, detail: u.included ? `${Math.min(u.quantity, u.included)} included, ${u.billable} × ${u.unit_pence}p` : `${u.quantity} × ${u.unit_pence}p` });
+  const cardFee = cardFeeLine(await cardFeesFor(db, shopId, period));
+  if (cardFee) lines.push(cardFee);
   const discounts = (await db.prepare("SELECT d.* FROM shop_discounts sd JOIN discounts d ON d.id=sd.discount_id WHERE sd.shop_id=? AND d.active=1 AND (sd.ends_at IS NULL OR sd.ends_at > ?)").bind(shopId, Date.now()).all<{ code: string; name: string; kind: string; value: number; applies_to: string }>()).results;
   let subtotal = lines.reduce((n, l) => n + l.amount_pence, 0);
   let discount = 0;

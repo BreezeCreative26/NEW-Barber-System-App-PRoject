@@ -9,6 +9,8 @@ import { startFakeStripe, type FakeStripe } from "./support/fake-stripe";
 import { makeDb } from "../src/db/client";
 import { keepDepositInLedger, markDepositPaid, refundDeposit, retryDepositRefunds } from "../src/server/stripe";
 import { executeRun, handleConnectEvent } from "../src/server/payouts";
+import { cardFeesFor, estimate, periodKey } from "../src/server/billing";
+import { issuePeriodInvoice } from "../src/server/invoicing";
 import type { Shop, StoredBooking } from "../src/server/domain";
 
 const envFile = existsSync(".env.local") ? ".env.local" : ".env";
@@ -195,7 +197,7 @@ async function payRunWorld(accounts: { staff: boolean; shop: boolean }) {
 }
 
 describe("pay runs", () => {
-  it("a leg whose payout account is not ready leaves the run APPROVED and the payments unsettled, then sends once ready", async () => {
+  it("a leg whose payout account is not ready leaves the run APPROVED, settles the payment once any leg is sent, then sends the rest once ready", async () => {
     const w = await payRunWorld({ staff: false, shop: true }); // barber has not finished Stripe setup
     const t0 = transferCalls().length;
     const r1 = await executeRun(db, w.shop, await w.run(), w.staff, "test", { force: true });
@@ -204,7 +206,9 @@ describe("pay runs", () => {
     const held = await w.run();
     expect(held.status).toBe("APPROVED");
     expect(held.transferred_at).toBeNull();
-    expect((await db.prepare("SELECT pay_run_id FROM payments WHERE id=?").bind(w.pay.id).first<any>()).pay_run_id).toBeNull();
+    // Money has left (the shop leg), so the payment is settled against this run straight away: a later
+    // refund must claw that transfer back rather than find an "unsettled" payment.
+    expect((await db.prepare("SELECT pay_run_id FROM payments WHERE id=?").bind(w.pay.id).first<any>()).pay_run_id).toBe(w.runId);
     expect(transferCalls().length).toBe(t0 + 1); // the shop leg went; the barber leg waits
     expect((await db.prepare("SELECT action FROM audit_events WHERE entity_id=? AND action='PAY_RUN_HELD'").bind(w.runId).all()).results.length).toBe(1);
     // Barber finishes setup. Retrying sends only the missing leg (shop leg is idempotent), then settles.
@@ -218,6 +222,31 @@ describe("pay runs", () => {
     expect((await db.prepare("SELECT pay_run_id FROM payments WHERE id=?").bind(w.pay.id).first<any>()).pay_run_id).toBe(w.runId);
     const legs = (await db.prepare("SELECT owner_type, amount_pence FROM transfers WHERE pay_run_id=? AND kind='PAYOUT' ORDER BY owner_type").bind(w.runId).all<any>()).results;
     expect(legs).toEqual([{ owner_type: "SHOP", amount_pence: 485 }, { owner_type: "STAFF", amount_pence: 500 }]);
+  });
+
+  it("a refund after a half-sent run claws back the sent leg and shrinks the held one", async () => {
+    const w = await payRunWorld({ staff: false, shop: true }); // shop leg goes, barber leg is held
+    expect((await executeRun(db, w.shop, await w.run(), w.staff, "test", { force: true })).ok).toBe(false);
+    const rev0 = fake.calls.filter((c) => /reversals$/.test(c.path)).length;
+    expect(await refundDeposit(db, w.shop, await w.reload(), "test", "goodwill")).toBe(true);
+    // The shop transfer that went out is reversed in full...
+    expect(fake.calls.filter((c) => /reversals$/.test(c.path)).length).toBe(rev0 + 1);
+    expect((await db.prepare("SELECT SUM(amount_pence)::int AS s FROM transfers WHERE pay_run_id=? AND kind='REVERSAL'").bind(w.runId).first<any>()).s).toBe(-485);
+    // ...and the barber leg that never went is no longer owed anything.
+    const after = await w.run();
+    expect(after.transfer_pence).toBe(0);
+    expect((await db.prepare("SELECT action FROM audit_events WHERE entity_id=? AND action='PAY_RUN_REDUCED'").bind(w.runId).all()).results.length).toBeGreaterThan(0);
+  });
+
+  it("a run whose card payments changed after approval is refused instead of paying stale figures", async () => {
+    const w = await payRunWorld({ staff: true, shop: true });
+    // A payment inside the period is refunded after the run was approved but before anything was sent.
+    await db.prepare("UPDATE payments SET voided_at=?, void_reason='refund' WHERE id=?").bind(Date.now(), w.pay.id).run();
+    const t0 = transferCalls().length;
+    const r = await executeRun(db, w.shop, await w.run(), w.staff, "test", { force: true });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/changed after this run was approved/);
+    expect(transferCalls().length).toBe(t0);
   });
 
   it("refunding a deposit that a pay run already paid out voids the ledger row and reverses the transfers", async () => {
@@ -241,5 +270,31 @@ describe("refunds made in the Stripe dashboard", () => {
     await handleConnectEvent(db, { id: "evt_x", type: "charge.refunded", data: { object: { id: "ch_1", payment_intent: w.pi, amount: 1000, amount_refunded: 1000, refunded: true } } });
     expect((await w.reload()).deposit_status).toBe("REFUNDED");
     expect((await db.prepare("SELECT voided_at FROM payments WHERE booking_id=?").bind(w.booking.id).first<any>()).voided_at).not.toBeNull();
+  });
+});
+
+describe("card fees on the shop's own foliyo invoice", () => {
+  it("the month's card takings and the foliyo fee are itemised at £0 to pay, and voided payments drop out", async () => {
+    const w = await world();
+    await w.setStatus("CANCELLED");
+    await keepDepositInLedger(db, w.shop, await w.reload(), "customer", "policy"); // £10 online, 15p fee
+    const period = periodKey();
+    const f = await cardFeesFor(db, w.shop.id, period);
+    expect(f).toMatchObject({ payments: 1, card_taken_pence: 1000, platform_fee_pence: 15, fee_bps: 150 });
+    const est = await estimate(db, w.shop.id, period);
+    const line = est.lines.find((l) => l.label.startsWith("Card payments"));
+    expect(line).toBeTruthy();
+    expect(line!.label).toMatch(/1 taken \(£10\.00\)/);
+    expect(line!.detail).toMatch(/1\.5%.*£0\.15.*taken out of your payouts/);
+    expect(line!.amount_pence).toBe(0); // information only: the fee is netted from the payout, never invoiced twice
+    // It is carried onto the issued invoice and does not change what is owed.
+    const issued = await issuePeriodInvoice(db, w.shop.id, period, "test", { force: true });
+    const inv = (issued as any).invoice;
+    expect(JSON.parse(inv.lines_json).some((l: any) => l.label.startsWith("Card payments"))).toBe(true);
+    expect(inv.subtotal_pence).toBe(est.lines.reduce((n, l) => n + l.amount_pence, 0));
+    // A refunded payment is not a fee.
+    await db.prepare("UPDATE payments SET voided_at=? WHERE booking_id=?").bind(Date.now(), w.booking.id).run();
+    expect((await cardFeesFor(db, w.shop.id, period)).payments).toBe(0);
+    expect((await estimate(db, w.shop.id, period)).lines.some((l) => l.label.startsWith("Card payments"))).toBe(false);
   });
 });

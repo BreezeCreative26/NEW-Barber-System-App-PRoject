@@ -11,22 +11,24 @@ import type { StoredBooking } from "./domain";
 import { teamUrl } from "./hosts";
 import { drain, enqueue, fmtDate, fmtTime, msgShop, type MessageTemplate } from "./messaging";
 
-export type AlertKind = "new_booking" | "cancelled" | "no_show" | "daily_summary";
+export type AlertKind = "new_booking" | "cancelled" | "moved" | "review" | "no_show" | "daily_summary";
 export type AlertChannel = "OFF" | "EMAIL" | "SMS" | "BOTH";
 export type AlertPrefs = Record<AlertKind, AlertChannel> & { managers: boolean; summary_hour: number };
 export const ALERT_KINDS: { key: AlertKind; label: string; hint: string }[] = [
   { key: "new_booking", label: "New online booking", hint: "When a customer books through your link." },
   { key: "cancelled", label: "Cancellation", hint: "When a customer cancels online." },
+  { key: "moved", label: "Booking moved", hint: "When a customer reschedules online." },
+  { key: "review", label: "New review", hint: "When a customer leaves a review." },
   { key: "no_show", label: "No-show marked", hint: "When someone on the team marks a visit as a no-show." },
   { key: "daily_summary", label: "Morning summary", hint: "Today's visits, first and last, free slots." },
 ];
-export const DEFAULT_PREFS: AlertPrefs = { new_booking: "EMAIL", cancelled: "EMAIL", no_show: "OFF", daily_summary: "OFF", managers: true, summary_hour: 7 };
+export const DEFAULT_PREFS: AlertPrefs = { new_booking: "EMAIL", cancelled: "EMAIL", moved: "EMAIL", review: "EMAIL", no_show: "OFF", daily_summary: "OFF", managers: true, summary_hour: 7 };
 const CHANNELS: AlertChannel[] = ["OFF", "EMAIL", "SMS", "BOTH"];
 export function prefsOf(json: string | null | undefined): AlertPrefs {
   let j: Partial<AlertPrefs> = {};
   try { j = JSON.parse(json || "{}"); } catch { /* default */ }
   const pick = (k: AlertKind) => (CHANNELS.includes(j[k] as AlertChannel) ? (j[k] as AlertChannel) : DEFAULT_PREFS[k]);
-  return { new_booking: pick("new_booking"), cancelled: pick("cancelled"), no_show: pick("no_show"), daily_summary: pick("daily_summary"), managers: j.managers ?? true, summary_hour: Number.isInteger(j.summary_hour) && (j.summary_hour as number) >= 5 && (j.summary_hour as number) <= 12 ? (j.summary_hour as number) : 7 };
+  return { new_booking: pick("new_booking"), cancelled: pick("cancelled"), moved: pick("moved"), review: pick("review"), no_show: pick("no_show"), daily_summary: pick("daily_summary"), managers: j.managers ?? true, summary_hour: Number.isInteger(j.summary_hour) && (j.summary_hour as number) >= 5 && (j.summary_hour as number) <= 12 ? (j.summary_hour as number) : 7 };
 }
 
 type Recipient = { name: string; email?: string; phone?: string };
@@ -42,11 +44,11 @@ async function recipients(db: DB, shopId: string, prefs: AlertPrefs): Promise<Re
   }
   return out;
 }
-const TEMPLATE: Record<Exclude<AlertKind, "daily_summary">, MessageTemplate> = { new_booking: "owner_new_booking", cancelled: "owner_cancelled", no_show: "owner_no_show" };
+const TEMPLATE: Record<Exclude<AlertKind, "daily_summary">, MessageTemplate> = { new_booking: "owner_new_booking", cancelled: "owner_cancelled", moved: "owner_moved", review: "owner_review", no_show: "owner_no_show" };
 
 export async function alertOwners(db: DB, shopId: string, kind: Exclude<AlertKind, "daily_summary">, booking: StoredBooking, opts: { staffName?: string | null; origin: string; extra?: Record<string, string | number> }) {
   // The bell and push for the team always get the event (the email/text channel setting below only governs messages).
-  await recordEvent(db, shopId, kind as EventKind, booking, opts.staffName).catch(() => {});
+  if (kind !== "review") await recordEvent(db, shopId, kind as EventKind, booking, opts.staffName).catch(() => {});
   const shop = await msgShop({ env: { DB: db } }, shopId);
   const prefs = prefsOf(shop.notify_json);
   const channel = prefs[kind];

@@ -50,7 +50,7 @@ export type Recipient = { name?: string; phone?: string; email?: string; pref?: 
 export const MESSAGE_TEMPLATES = [
   "booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon",
   "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_open", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
-  "verify_contact", "password_reset", "account_welcome", "account_reset", "shop_address", "owner_new_booking", "owner_cancelled", "owner_no_show", "owner_daily_summary", "owner_callback",
+  "verify_contact", "password_reset", "account_welcome", "account_reset", "shop_address", "owner_new_booking", "owner_cancelled", "owner_moved", "owner_review", "owner_no_show", "owner_daily_summary", "owner_callback",
   "invoice", "credit_note", "owner_signin_link", "trial_ending", "trial_ended", "payment_overdue", "account_readonly", "broadcast", "admin_alert_digest",
   "owner_welcome", "email_verify", "google_review", "shop_announcement",
 ] as const;
@@ -104,11 +104,12 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "booking_reminder_soon":
       return {
-        sms: `${s}: see you at ${v.time} today for your ${v.service} with ${v.barber}. ${v.address || ""}`.trim(),
+        sms: `${s}: see you at ${v.time} today for your ${v.service} with ${v.barber}.${v.address ? ` ${v.address}` : ""}`,
         subject: `Today at ${v.time}: ${s}`,
         heading: `See you at ${v.time}.`,
         lines: [`${v.service} with ${v.barber}`, v.address ? String(v.address) : ""].filter(Boolean),
-        cta: { label: "Directions", href: String(v.map_link || v.link) },
+        // "Directions" only makes sense when there is somewhere to go; otherwise link to the booking.
+        cta: v.map_link || v.address ? { label: "Directions", href: String(v.map_link || v.link) } : { label: "View your booking", href: String(v.link) },
       };
     case "signin_code":
       return {
@@ -361,6 +362,22 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         lines: [`${v.service} with ${v.barber}`, `${when} · ref ${v.ref}`, v.deposit ? `Deposit: ${v.deposit}` : "", v.waitlist ? `${v.waitlist} on the waitlist for that day.` : ""].filter(Boolean),
         cta: v.link ? { label: "Open the calendar", href: String(v.link) } : undefined,
       };
+    case "owner_moved":
+      return {
+        sms: `${s}: ${v.customer} moved ${v.service} with ${v.barber} to ${when}${v.was ? ` (was ${v.was})` : ""}. Ref ${v.ref}.`,
+        subject: `Moved: ${v.customer} · ${when}`,
+        heading: `${v.customer} moved their booking.`,
+        lines: [`${v.service} with ${v.barber}`, `Now ${when} · ref ${v.ref}`, v.was ? `Was ${v.was}` : ""].filter(Boolean),
+        cta: v.link ? { label: "Open the calendar", href: String(v.link) } : undefined,
+      };
+    case "owner_review":
+      return {
+        sms: `${s}: new ${v.rating}-star review from ${v.customer} for ${v.service}.${v.comment ? ` "${String(v.comment).slice(0, 80)}"` : ""}`,
+        subject: `New ${v.rating}-star review from ${v.customer}`,
+        heading: `${v.customer} left you ${v.rating} ${Number(v.rating) === 1 ? "star" : "stars"}.`,
+        lines: [`${v.service} with ${v.barber}`, v.comment ? `"${String(v.comment).slice(0, 400)}"` : "No comment left."].filter(Boolean),
+        cta: v.link ? { label: "Open reviews", href: String(v.link) } : undefined,
+      };
     case "owner_no_show":
       return {
         sms: `${s}: no-show — ${v.customer}, ${v.service} with ${v.barber}, ${when}.`,
@@ -477,7 +494,7 @@ export function channelsFor(shop: MsgShop, to: Recipient, prefer: Channel | "AUT
   // WhatsApp is only "real" with the foliyo sender configured. In preview mode (no SMS provider
   // either) it still queues to the mailbox like the other channels, so the flow can be exercised;
   // with live SMS but no WhatsApp, a stored WA preference falls back to a real text.
-  const waOk = !!to.phone && (force || (shop.msg_wa ?? 1) === 1) && (!template || WA_CAPABLE.has(template)) && waAvailable();
+  const waOk = !!to.phone && (force || (shop.msg_wa ?? 0) === 1) && (!template || WA_CAPABLE.has(template)) && waAvailable();
   if (prefer === "WA") return waOk ? ["WA"] : sms ? ["SMS"] : email ? ["EMAIL"] : [];
   if (prefer === "SMS") return sms ? ["SMS"] : email ? ["EMAIL"] : [];
   if (prefer === "EMAIL") return email ? ["EMAIL"] : sms ? ["SMS"] : [];

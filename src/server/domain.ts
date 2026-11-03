@@ -376,6 +376,8 @@ export type AuditEvent = {
 export type WorkspaceData = {
   account?: import("./accounts").Account | null;
   shop: Shop;
+  // True when this shop has online payments set up (a payouts-enabled account): only then may it take card.
+  cards_ready?: boolean;
   logo_url?: string;
   logo_tone?: string;
   staff: Staff[];
@@ -1146,7 +1148,7 @@ export type Payment = {
   staff_id: string;
   customer_id: string | null;
   date: string;
-  method: "CARD" | "CASH" | "TRANSFER" | "VOUCHER" | "ONLINE";
+  method: "CARD" | "CASH" | "TRANSFER" | "VOUCHER" | "OTHER" | "ONLINE";
   service_pence: number;
   tip_pence: number;
   discount_pence: number;
@@ -1162,7 +1164,7 @@ export type Payment = {
   platform_fee_pence?: number;
   pay_run_id?: string | null;
 };
-export const paymentMethods = ["CARD", "CASH", "TRANSFER", "VOUCHER", "ONLINE"] as const;
+export const paymentMethods = ["CARD", "CASH", "TRANSFER", "VOUCHER", "OTHER", "ONLINE"] as const;
 // Checkout: one or more tenders against a visit. Service amount defaults to the booking price
 // less discount; tips are recorded separately and belong to the barber.
 export const checkoutSchema = z

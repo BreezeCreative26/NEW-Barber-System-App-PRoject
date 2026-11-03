@@ -24,7 +24,7 @@ import { afterDepositPaid, afterLateDepositRefunded } from "./server/public";
 import { handleConnectEvent, type ConnectEvent } from "./server/payouts";
 import { settleByMetadata, type PaymentRequest } from "./server/chair";
 import { applyDeliveryReports, applyInbound, waWebhookOk } from "./server/whatsapp";
-import { applyTelnyxEvent, telnyxSetup, telnyxWebhookOk } from "./server/telnyx";
+import { applyTelnyxEvent, telnyxInspect, telnyxSend, telnyxSetup, telnyxWebhookOk } from "./server/telnyx";
 import { applyInvoiceEvent, cardSaved } from "./server/stripeBilling";
 import { prevPeriodKey, runPeriodClose, applyDunning } from "./server/invoicing";
 import { platformBilling } from "./server/billing";
@@ -201,6 +201,13 @@ app.post("/api/telnyx/setup", async (c) => {
   if (!want || want.length < 24 || got !== want) return c.json({ ok: false }, 404);
   const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
   try {
+    // ?test=+44… sends one text so the setup can be proven end to end (sender name "foliyo", or ?from=).
+    if (c.req.query("inspect") === "1") return c.json({ ok: true, inspect: await telnyxInspect() });
+    const testTo = c.req.query("test");
+    if (testTo && /^\+\d{8,15}$/.test(testTo)) {
+      const sent = await telnyxSend(testTo, "foliyo: this is a test text. If you can read it, texting is working. Reply STOP to opt out.", { alphaSender: c.req.query("from") || "foliyo" });
+      return c.json({ ok: sent.ok, test: sent, from_env: process.env.TELNYX_FROM ? "set" : "not set" });
+    }
     const r = await telnyxSetup(origin, { buyUkNumber: c.req.query("buy") === "uk" });
     return c.json({ ok: true, ...r });
   } catch (e) {

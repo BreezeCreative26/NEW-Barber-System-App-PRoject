@@ -413,7 +413,7 @@ CREATE TABLE payments (
   staff_id TEXT NOT NULL,
   customer_id TEXT,
   date TEXT NOT NULL,
-  method TEXT NOT NULL CHECK(method IN ('CARD','CASH','TRANSFER','VOUCHER','ONLINE')),
+  method TEXT NOT NULL CHECK(method IN ('CARD','CASH','TRANSFER','VOUCHER','OTHER','ONLINE')),
   service_pence INTEGER NOT NULL CHECK(service_pence >= 0),
   tip_pence INTEGER NOT NULL DEFAULT 0 CHECK(tip_pence >= 0),
   discount_pence INTEGER NOT NULL DEFAULT 0 CHECK(discount_pence >= 0),

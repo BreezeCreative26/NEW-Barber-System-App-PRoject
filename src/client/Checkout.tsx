@@ -11,10 +11,14 @@ export const METHODS: { key: Payment["method"]; label: string; icon: string; til
   { key: "CASH", label: "Cash", icon: "banknote", till: true },
   { key: "TRANSFER", label: "Transfer", icon: "landmark", till: true },
   { key: "VOUCHER", label: "Voucher", icon: "gift", till: true },
+  { key: "OTHER", label: "Other", icon: "receipt", till: true },
   // Deposits paid by card online at booking; posted to the ledger automatically, never tendered by hand.
   { key: "ONLINE", label: "Online deposit", icon: "globe" },
 ];
 export const TILL_METHODS = METHODS.filter((m) => m.till);
+// Card goes through foliyo, so only shops with online payments set up (cardLive) get the Card tile.
+// Everyone else logs the payment as cash, transfer, voucher or other.
+export const tillMethodsFor = (cardLive: boolean) => TILL_METHODS.filter((m) => m.key !== "CARD" || cardLive);
 const TIPS = [0, 200, 300, 500];
 
 export function paidFor(payments: Payment[], bookingId: string) {
@@ -56,7 +60,7 @@ export function Checkout({
   const [discount, setDiscount] = useState(0);
   const [tip, setTip] = useState(0);
   const [customTip, setCustomTip] = useState("");
-  const [method, setMethod] = useState<Payment["method"]>("CARD");
+  const [method, setMethod] = useState<Payment["method"]>(cardLive ? "CARD" : "CASH");
   const [split, setSplit] = useState<Tender[]>([]);
   const [note, setNote] = useState("");
   const [card, setCard] = useState(false);
@@ -154,14 +158,15 @@ export function Checkout({
       <fieldset className="checkout-methods">
         <legend>How are they paying?</legend>
         <div className="method-grid">
-          {TILL_METHODS.map((m) => (
+          {tillMethodsFor(!!cardLive).map((m) => (
             <button key={m.key} type="button" className="method-tile" aria-pressed={method === m.key} data-testid={`method-${m.key.toLowerCase()}`} onClick={() => { setMethod(m.key); setCard(false); }}>
               <Icon name={m.icon} size={18} />
               <b>{m.label}</b>
-              {m.key === "CARD" && <small>{cardLive ? "Tap on their phone or reader" : "Recorded by hand"}</small>}
+              {m.key === "CARD" && <small>Tap on their phone or reader</small>}
             </button>
           ))}
         </div>
+        {!cardLive && <small className="helper" data-testid="card-not-set-up">Card payments need online payments set up (Settings → Payments). Until then, record cash, transfer, voucher or other here.</small>}
       </fieldset>
 
       {split.length > 0 && (
@@ -198,12 +203,7 @@ export function Checkout({
         ) : (
           <Button disabled={!canRecord} onClick={() => record(true)} data-testid="record-payment">
             <Icon name="checks" size={16} />
-            {busy ? "Recording…" : `${method === "CARD" ? "Card taken" : method === "CASH" ? "Cash taken" : "Paid"} · ${money(remaining + tipPence)} · complete`}
-          </Button>
-        )}
-        {method === "CARD" && cardLive && !card && (
-          <Button variant="ghost" disabled={!canRecord} onClick={() => record(true)} data-testid="record-payment" title="Card taken on a machine that isn't connected to foliyo">
-            Record card taken elsewhere
+            {busy ? "Recording…" : `${method === "CASH" ? "Cash taken" : "Paid"} · ${money(remaining + tipPence)} · complete`}
           </Button>
         )}
         {remaining > 0 && (
@@ -218,7 +218,7 @@ export function Checkout({
           Back
         </Button>
       </div>
-      <p className="drawer-note left">{cardLive ? "Card goes through the reader or a pay link and reaches the barber's payout automatically. Cash, transfer and voucher are recorded here." : "Completes the visit and writes the ledger your wallet and pay runs read from."}</p>
+      <p className="drawer-note left">{cardLive ? "Card goes through the reader or a pay link and reaches the barber's payout automatically. Cash, transfer, voucher and other are recorded here." : "Completes the visit and writes the ledger your wallet and pay runs read from."}</p>
     </section>
   );
 }

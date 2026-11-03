@@ -2,6 +2,7 @@
 // words, see exactly who gets it and what it costs, then send now or later. Branded as the shop.
 import { useEffect, useRef, useState } from "react";
 import { Button, Icon } from "./ui";
+import { MAX_FILE_BYTES, planParts, sendParts } from "./csvChunks";
 
 type Audience = "ALL" | "OPTED_IN" | "RECENT" | "LAPSED" | "NONE";
 type Channel = "SMS" | "EMAIL" | "BOTH";
@@ -78,6 +79,7 @@ function Composer({ info, preset, onBack }: { info: Info; preset: Preset; onBack
   const [f, setF] = useState({ kind: preset.kind, channel: first, audience: preset.audience, contact_ids: [] as string[], ...preset.copy });
   const [list, setList] = useState<{ name: string; added: number; skipped: number; with_mobile: number; with_email: number } | null>(null);
   const [upBusy, setUpBusy] = useState(false);
+  const [upMsg, setUpMsg] = useState("");
   const [when_, setWhen] = useState<"now" | "later">("now");
   const [at, setAt] = useState(localInput(Date.now() + 24 * 3600000));
   const [prev, setPrev] = useState<Prev | null>(null);
@@ -104,12 +106,18 @@ function Composer({ info, preset, onBack }: { info: Info; preset: Preset; onBack
     if (!file) return;
     setUpBusy(true); setErr("");
     try {
-      const csv = await file.text();
-      const r = await call<{ ids: string[]; added: number; skipped: number; with_mobile: number; with_email: number }>("/announcements/contacts", "POST", { csv });
+      if (file.size > MAX_FILE_BYTES) throw new Error("That file is over 50 MB. Split it into smaller files and add them one at a time.");
+      const plan = planParts(await file.text());
+      type R = { ids: string[]; added: number; skipped: number; with_mobile: number; with_email: number };
+      const { results, failed } = await sendParts<R>(plan, (part) => call<R>("/announcements/contacts", "POST", { csv: part.text }), (done, total) => setUpMsg(total > 1 ? `Reading part ${Math.min(done + 1, total)} of ${total}...` : ""));
+      if (failed) throw failed;
+      const ids = Array.from(new Set(results.flatMap((x) => x.ids)));
+      const sum = (k: "added" | "skipped" | "with_mobile" | "with_email") => results.reduce((n, x) => n + (x[k] || 0), 0);
+      const r = { ids, added: sum("added"), skipped: sum("skipped"), with_mobile: sum("with_mobile"), with_email: sum("with_email") };
       if (!r.added) throw new Error("No names, mobile numbers or email addresses found in that file.");
       setList({ name: file.name, added: r.added, skipped: r.skipped, with_mobile: r.with_mobile, with_email: r.with_email });
       set("contact_ids", r.ids);
-    } catch (e) { setErr((e as Error).message); } finally { setUpBusy(false); }
+    } catch (e) { setErr((e as Error).message); } finally { setUpBusy(false); setUpMsg(""); }
   }
   async function test() {
     setBusy(true); setErr(""); setNote("");
@@ -171,7 +179,7 @@ function Composer({ info, preset, onBack }: { info: Info; preset: Preset; onBack
             ) : (
               <label className="mkt-drop">
                 <input type="file" accept=".csv,text/csv,text/plain" onChange={(e) => { upload(e.target.files?.[0]); e.target.value = ""; }} data-testid="mkt-csv" />
-                <Icon name="upload" size={18} /> {upBusy ? "Reading..." : "Choose a CSV file"}
+                <Icon name="upload" size={18} /> {upBusy ? (upMsg || "Reading...") : "Choose a CSV file"}
               </label>
             )}
           </section>
