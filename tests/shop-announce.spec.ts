@@ -8,6 +8,8 @@ const psql = (q: string) => cp.execSync(`psql -h /tmp/pg -p 5433 -U postgres fol
 
 test("shop announcement: shop-branded email, mobiles only for texts, opt-out sticks, price acknowledged", async () => {
   const { r, shop_id } = await newShop("Northline Cuts");
+  // newShop switches texts on (and accepts the price); this test is about the price not yet being accepted.
+  psql(`update shops set msg_sms_billing_ack_at=NULL where id='${shop_id}'`);
   let w = await (await r.get(base + "/workspace")).json();
   const slug = `ann-${crypto.randomUUID().slice(0, 10)}`;
   expect((await r.put(base + "/shop/online", { data: { slug, online_booking: 1, lead_time_min: 60, booking_window_days: 42, version: w.shop.version } })).status()).toBe(200);

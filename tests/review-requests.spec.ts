@@ -1,9 +1,12 @@
+import { execSync } from "node:child_process";
 import { test, expect } from "@playwright/test";
 import { newShop } from "./shop";
 
 const base = "http://localhost:3000/api/app";
 test("review requests: email on by default, text needs the price accepted and texts on", async () => {
-  const { r } = await newShop("Review ask shop");
+  const { r, shop_id } = await newShop("Review ask shop");
+  // newShop switches texts on (and accepts the price); this test is about the price not yet being accepted.
+  execSync(`psql -h /tmp/pg -p 5433 -U postgres foliyo -Atc "update shops set msg_sms_billing_ack_at=NULL where id='${shop_id}'"`);
   const w = await (await r.get(base + "/workspace")).json();
   expect(w.shop.review_ask_email).toBe(1);
   expect(w.shop.review_ask_sms).toBe(0);

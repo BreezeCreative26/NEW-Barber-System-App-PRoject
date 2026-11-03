@@ -7,7 +7,7 @@ import { z } from "zod";
 import { calculateQuote, dayStarts, effectiveHours, localInstant, ref, shopToday, slotReason, weekday, type Addon, type AddonLink, type Holiday, type Hours, type ScheduleOverride, type Service, type Shop, type Staff, type StaffDayOff, type StaffServiceRule, type StoredBooking } from "./domain";
 import type { AppEnv } from "./accounts";
 import { digest } from "./accounts";
-import { drain, emailHtml, type MessageTemplate } from "./messaging";
+import { drain, emailHtml, smsKindAllowed, type MessageTemplate } from "./messaging";
 import { brandOf } from "./domain";
 import { shopUrl } from "./hosts";
 
@@ -90,7 +90,7 @@ export const fmtRange = (from: string, to: string) => (from === to ? fmtDate(fro
 // Outbox write. The owner's editable template is the SMS text; email wraps the same text in the
 // shop-branded shell. Channel is SMS when we have a mobile, EMAIL otherwise. Row is QUEUED; callers
 // run drainSoon() after their batch so it goes out within the request.
-type MsgShopLite = { id: string; name: string; address: string; slug: string | null; msg_sms?: number; msg_email?: number; logo_url?: string; accent?: string; theme_json?: string; phone?: string; email?: string };
+type MsgShopLite = { id: string; name: string; address: string; slug: string | null; msg_sms?: number; msg_sms_kinds?: string; msg_email?: number; logo_url?: string; accent?: string; theme_json?: string; phone?: string; email?: string };
 const SUBJECTS: Record<TemplateKey, (shop: string) => string> = {
   waitlist_joined: (s) => `You're on the list at ${s}`,
   waitlist_offer: (s) => `A time has opened at ${s}`,
@@ -101,7 +101,7 @@ const SUBJECTS: Record<TemplateKey, (shop: string) => string> = {
 };
 export function queueMessage(c: Ctx, shop: MsgShopLite | string, to: { phone: string; email: string }, template: TemplateKey, body: string, related: { type: string; id: string }) {
   const sh: MsgShopLite = typeof shop === "string" ? { id: shop, name: "", address: "", slug: null } : shop;
-  const sms = !!to.phone && (sh.msg_sms ?? 1) === 1;
+  const sms = !!to.phone && (sh.msg_sms ?? 1) === 1 && smsKindAllowed(sh, template);
   const email = !!to.email && (sh.msg_email ?? 1) === 1;
   const channel = sms ? "SMS" : email ? "EMAIL" : to.phone ? "SMS" : "EMAIL";
   const link = body.match(/https?:\/\/\S+/)?.[0];

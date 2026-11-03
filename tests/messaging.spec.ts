@@ -4,7 +4,7 @@
 // settings, test send, resend and the cron route. Every test creates its own fictional shop.
 import { test, expect, request, type APIRequestContext } from "@playwright/test";
 import type { WorkspaceData } from "../src/server/domain";
-import { base, origin, newShop, enterNewShop, registerCustomer } from "./shop";
+import { base, origin, newShop, enableTexts, enterNewShop, registerCustomer } from "./shop";
 import { section } from "./fixture";
 
 const pub = origin + "/api/public";
@@ -27,6 +27,7 @@ function futureDate(days = 8) {
 }
 async function onlineShop(name = "Messaging Test Shop") {
   const { r, shop_id } = await newShop(name);
+  await enableTexts(r);
   let w: WorkspaceData = await (await r.get(base + "/workspace")).json();
   const slug = `msg-${crypto.randomUUID().slice(0, 12)}`;
   const res = await r.put(base + "/shop/online", { data: { slug, online_booking: 1, lead_time_min: 60, booking_window_days: 42, version: w.shop.version } });

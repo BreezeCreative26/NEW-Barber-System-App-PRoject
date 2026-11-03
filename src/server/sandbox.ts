@@ -83,7 +83,7 @@ import { billingSummary, entitlements, setFeature, syncSeats, hasFeature, featur
 import { runningStatement, statementCsv } from "./statement";
 import { billingLive, cardSetupSession, paymentMethodSummary, portalSession } from "./stripeBilling";
 import { applyDecisions, changeSchema, decisionSchema, describeChange, previewChange, type ScheduleChange } from "./schedule";
-import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, pushFor, sweepReminders, reminderSteps, MESSAGE_TEMPLATES, type Recipient } from "./messaging";
+import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, pushFor, sweepReminders, reminderSteps, MESSAGE_TEMPLATES, smsKindsOf, type Recipient } from "./messaging";
 import { agentPrompt, newSecret, voiceEndpoints, voiceOf, voiceSettingsSchema } from "./voice";
 import { CARDS_NOT_READY, StripeError, cardsReadyFor, depositsOnline, expireHolds, expireSession, depositStripeFee, keepDepositInLedger, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, shopCanTakeCards, stripeConnect, stripeLive, stripeStatus } from "./stripe";
 import QRCode from "qrcode";
@@ -1455,7 +1455,7 @@ sandbox.get("/notifications", async (c) => {
     notifications: rows.results,
     counts_30d: Object.fromEntries(counts.results.map((r) => [r.status, r.n])),
     providers: providerStatus(),
-    messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 0, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reminder_steps: reminderSteps(ms).join(","), msg_quiet_on: ms.msg_quiet_on ?? 1, msg_quiet_start: ms.msg_quiet_start ?? 1260, msg_quiet_end: ms.msg_quiet_end ?? 480, msg_reply_to: ms.msg_reply_to || "", msg_sms_sender: ms.msg_sms_sender || "", customer_code_signin: (ms as { customer_code_signin?: number }).customer_code_signin ?? 1 },
+    messaging: { msg_sms: ms.msg_sms ?? 1, msg_email: ms.msg_email ?? 1, msg_wa: ms.msg_wa ?? 0, msg_reminders: ms.msg_reminders ?? 1, msg_reminder_hours: ms.msg_reminder_hours ?? 24, msg_reminder_steps: reminderSteps(ms).join(","), msg_quiet_on: ms.msg_quiet_on ?? 1, msg_quiet_start: ms.msg_quiet_start ?? 1260, msg_quiet_end: ms.msg_quiet_end ?? 480, msg_reply_to: ms.msg_reply_to || "", msg_sms_kinds: smsKindsOf(ms).join(","), msg_sms_sender: ms.msg_sms_sender || "", customer_code_signin: (ms as { customer_code_signin?: number }).customer_code_signin ?? 1 },
     // What a text costs the shop and whether the owner has acknowledged texts are billed.
     sms_billing: await smsBilling(c),
     templates: templatesOf(shop),
@@ -1509,6 +1509,8 @@ const messagingSchema = z
     msg_sms_sender: z.string().trim().max(11).regex(/^[A-Za-z0-9 ]*$/, "Letters and numbers only"),
     // Owner confirms texts are billed per message (shown with the rate). Required the first time SMS is switched on.
     sms_billing_ack: z.boolean().optional(),
+    // Which texts go out: any of confirm, reminder, change, waitlist, review. Older clients omit it: left as it is.
+    msg_sms_kinds: z.string().trim().regex(/^((confirm|reminder|change|waitlist|review)(,(confirm|reminder|change|waitlist|review)){0,4})?$/, "Unknown kind of text").optional(),
   })
   .strict();
 // Per-text price and whether this shop's owner has accepted it.
@@ -1529,8 +1531,8 @@ sandbox.put("/shop/messaging", async (c) => {
   if (b.msg_reminder_steps && b.msg_reminder_steps.split(",").some((x) => Number(x) < 1 || Number(x) > 72)) fail(400, "Reminders can be 1 to 72 hours before the visit.");
   await c.env.DB.batch([
     ...(stepsClean === undefined && b.msg_quiet_on === undefined ? [] : [c.env.DB.prepare("UPDATE shops SET msg_reminder_steps=COALESCE(?,msg_reminder_steps), msg_quiet_on=COALESCE(?,msg_quiet_on), msg_quiet_start=COALESCE(?,msg_quiet_start), msg_quiet_end=COALESCE(?,msg_quiet_end) WHERE id=?").bind(b.msg_reminder_steps === "" ? "" : stepsClean ?? null, b.msg_quiet_on ?? null, b.msg_quiet_start ?? null, b.msg_quiet_end ?? null, sid)]),
-    c.env.DB.prepare(`UPDATE shops SET customer_code_signin=?,msg_sms=?,msg_email=?,msg_wa=?,msg_reminders=?,msg_reminder_hours=?,msg_reply_to=?,msg_sms_sender=?,version=version+1${ackNow ? ", msg_sms_billing_ack_at=?" : ""} WHERE id=?`).bind(...[b.customer_code_signin, b.msg_sms, b.msg_email, b.msg_wa, b.msg_reminders, b.msg_reminder_hours, b.msg_reply_to, b.msg_sms_sender, ...(ackNow ? [ackNow] : []), sid]),
-    audit(c, "shop", sid, "MESSAGING_UPDATED", `Customer code sign-in ${b.customer_code_signin ? "on" : "off"}, SMS ${b.msg_sms ? "on" : "off"}${ackNow ? ` (billing at ${bill.unit_pence}p/text accepted)` : ""}, WhatsApp ${b.msg_wa ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
+    c.env.DB.prepare(`UPDATE shops SET customer_code_signin=?,msg_sms=?,msg_email=?,msg_wa=?,msg_reminders=?,msg_reminder_hours=?,msg_reply_to=?,msg_sms_sender=?,msg_sms_kinds=COALESCE(?,msg_sms_kinds),version=version+1${ackNow ? ", msg_sms_billing_ack_at=?" : ""} WHERE id=?`).bind(...[b.customer_code_signin, b.msg_sms, b.msg_email, b.msg_wa, b.msg_reminders, b.msg_reminder_hours, b.msg_reply_to, b.msg_sms_sender, b.msg_sms_kinds ?? null, ...(ackNow ? [ackNow] : []), sid]),
+    audit(c, "shop", sid, "MESSAGING_UPDATED", `Customer code sign-in ${b.customer_code_signin ? "on" : "off"}, SMS ${b.msg_sms ? `on (${b.msg_sms_kinds ?? "unchanged"})` : "off"}${ackNow ? ` (billing at ${bill.unit_pence}p/text accepted)` : ""}, WhatsApp ${b.msg_wa ? "on" : "off"}, email ${b.msg_email ? "on" : "off"}, reminders ${b.msg_reminders ? `${b.msg_reminder_hours}h` : "off"}.`),
   ]);
   bootCache.clear(); // customers see the new sign-in options straight away
   const shop_version = (await c.env.DB.prepare("SELECT version FROM shops WHERE id=?").bind(sid).first<{ version: number }>())?.version;
@@ -2352,7 +2354,7 @@ async function blockCollisions(c: Ctx, staffId: string, date: string, start: num
   return rows.map((b) => {
     const pref = (b.contact_pref || "AUTO") as "AUTO" | "SMS" | "WA" | "EMAIL" | "NONE";
     const to = { name: b.attendee_name || b.customer_name, phone: b.phone, email: b.email || b.customer_email || "" };
-    const channel = pref === "NONE" ? null : (channelsFor(shop, to, pref === "AUTO" ? "AUTO" : pref)[0] ?? null);
+    const channel = pref === "NONE" ? null : (channelsFor(shop, to, pref === "AUTO" ? "AUTO" : pref, false, false, "booking_cancelled")[0] ?? null);
     return {
       id: b.id, customer_name: b.customer_name, attendee_name: b.attendee_name, phone: b.phone, email: to.email, service_name: b.service_name, start_min: b.start_min, duration_min: b.duration_min, price_pence: b.price_pence, version: b.version, status: b.status,
       deposit_status: b.deposit_status ?? "NONE", deposit_paid_pence: b.deposit_paid_pence ?? 0, channel, service_id: b.service_id, contact_pref: pref,
@@ -2431,7 +2433,7 @@ sandbox.post("/staff/:id/blocks", async (c) => {
         if (booking.deposit_status === "PAID") await refundDeposit(c.env.DB, await readShop(c), booking, c.get("actor"), "cancelled: barber unavailable");
         if (r.notify && pref) {
           const q = enqueue(c.env.DB, shop, to, "booking_cancelled", vars, { related: { type: "booking", id: a.id }, origin, channel: pref });
-          if (q.length) { await c.env.DB.batch(q); notified = channelsFor(shop, to, pref); }
+          if (q.length) { await c.env.DB.batch(q); notified = channelsFor(shop, to, pref, false, false, "booking_cancelled"); }
         }
         outcome.push({ booking_id: a.id, action: "CANCEL", ok: true, note: booking.deposit_status === "PAID" ? "Cancelled · deposit refunded" : "Cancelled", notified });
       } else if (r.action === "MOVE" && r.move_to) {
@@ -2447,7 +2449,7 @@ sandbox.post("/staff/:id/blocks", async (c) => {
         const newBarber = data.staff.name.split(" ")[0];
         if (r.notify && pref) {
           const q = enqueue(c.env.DB, shop, to, "booking_moved", { ...vars, barber: newBarber, date: fmtDate(r.move_to.date), time: fmtTime(r.move_to.start_min) }, { related: { type: "booking", id: a.id }, origin, channel: pref });
-          if (q.length) { await c.env.DB.batch(q); notified = channelsFor(shop, to, pref); }
+          if (q.length) { await c.env.DB.batch(q); notified = channelsFor(shop, to, pref, false, false, "booking_cancelled"); }
         }
         outcome.push({ booking_id: a.id, action: "MOVE", ok: true, note: `Moved to ${fmtDate(r.move_to.date)} ${fmtTime(r.move_to.start_min)} with ${newBarber}`, notified });
       } else {

@@ -9,7 +9,7 @@ import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { ReviewCard, type OwnReview } from "./Reviews";
 import { applyThemeColor, brandStyle, serverBrand, themeClass, type ShopBrand, shopPath } from "./theme";
 
-type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; contact_pref?: "AUTO" | "EMAIL" | "NONE"; complete?: boolean; notes: string; version: number; member_since: number; has_password?: boolean; account_email?: string; email_verified?: boolean };
+type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; contact_pref?: "AUTO" | "EMAIL" | "NONE"; needs_sms_choice?: boolean; sms_stopped_at?: number | null; complete?: boolean; notes: string; version: number; member_since: number; has_password?: boolean; account_email?: string; email_verified?: boolean };
 type Visit = {
   review?: OwnReview;
   can_review?: boolean;
@@ -143,6 +143,9 @@ export function CustomerArea({ slug }: { slug: string }) {
           <Notice icon="check">
             <span role="status">{notice}</span>
           </Notice>
+        )}
+        {me.profile.needs_sms_choice && me.shop.channels?.sms !== false && (
+          <TextChoice me={me} A={A} onDone={(msg) => { setNotice(msg); load(); }} />
         )}
         <AppCard slug={me.shop.slug} A={A} shopName={me.shop.name} hasPassword={!!me.profile.has_password} onSetPassword={() => setTab("profile")} />
         <div className="ca-tabs" role="tablist" aria-label="Account sections">
@@ -907,6 +910,34 @@ function MoveDialog({ visit, me, A, onClose, onDone }: { visit: Visit; me: Me; A
   );
 }
 
+// Asked once per shop, the next time a customer who has never answered signs in while the shop sends texts.
+function TextChoice({ me, A, onDone }: { me: Me; A: string; onDone: (msg: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function answer(texts: boolean) {
+    setBusy(true);
+    setError("");
+    try {
+      await api(`${A}/sms-choice`, "POST", { texts });
+      onDone(texts ? `Thanks. ${me.shop.name} will text your confirmations and reminders to ${me.profile.phone}.` : "Thanks. You will get your confirmations and reminders by email only.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save your choice.");
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="ca-section ca-card" aria-labelledby="text-choice-heading" data-testid="text-choice">
+      <h2 id="text-choice-heading">Text reminders from {me.shop.name}?</h2>
+      <p>{me.shop.name} can now text booking confirmations and reminders to {me.profile.phone}. Would you like them? Emails keep coming either way, and you can reply STOP to any text or change this under Profile.</p>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <div className="ca-form-actions">
+        <Button disabled={busy} onClick={() => answer(true)} data-testid="text-choice-yes">Yes, text me</Button>
+        <button type="button" className="button secondary" disabled={busy} onClick={() => answer(false)} data-testid="text-choice-no">No, email only</button>
+      </div>
+    </section>
+  );
+}
+
 function ProfileForm({ me, A, onSaved, onDeleted }: { me: Me; A: string; onSaved: (msg: string) => void; onDeleted: () => void }) {
   const p = me.profile;
   const smsOffered = me.shop.channels ? me.shop.channels.sms : true;
@@ -920,7 +951,9 @@ function ProfileForm({ me, A, onSaved, onDeleted }: { me: Me; A: string; onSaved
     setBusy(true);
     setError("");
     try {
-      await api(`${A}/profile`, "PUT", { ...form, version: p.version });
+      // Only send the text choice when the shop actually offers texts, so saving never records an answer to a question not asked.
+      const { contact_pref, ...rest } = form;
+      await api(`${A}/profile`, "PUT", { ...rest, ...(smsOffered ? { contact_pref } : {}), version: p.version });
       onSaved("Profile saved.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save.");
@@ -979,6 +1012,9 @@ function ProfileForm({ me, A, onSaved, onDeleted }: { me: Me; A: string; onSaved
               <input type="checkbox" checked={form.contact_pref === "AUTO"} onChange={(e) => set("contact_pref", e.target.checked ? "AUTO" : "EMAIL")} data-testid="profile-texts" />
               <span>Text confirmations and reminders to {p.phone}</span>
             </label>
+          )}
+          {smsOffered && p.sms_stopped_at && (
+            <small className="ca-hint" data-testid="profile-stopped">You replied STOP to a text from {me.shop.name} on {new Date(p.sms_stopped_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}, so texts are off. Tick the box above and save (or reply START) to turn them back on.</small>
           )}
           <label className="ca-check">
             <input type="checkbox" checked={!!form.marketing_opt_in} onChange={(e) => set("marketing_opt_in", e.target.checked ? 1 : 0)} data-testid="profile-marketing" />

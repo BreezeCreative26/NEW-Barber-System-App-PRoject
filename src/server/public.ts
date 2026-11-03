@@ -675,7 +675,7 @@ export async function notifyBooking(c: Ctx, shopId: string, booking: StoredBooki
       return "";
     })(),
   };
-  const channels = channelsFor(shop, to, "AUTO", ["booking_confirmed", "booking_moved", "booking_cancelled"].includes(template));
+  const channels = channelsFor(shop, to, "AUTO", ["booking_confirmed", "booking_moved", "booking_cancelled"].includes(template), false, template);
   const opts = { related: { type: "booking", id: booking.id }, origin };
   const stmts = [...enqueue(c.env.DB, shop, to, template, vars, opts), ...(await pushFor(c.env.DB, shop, to, template, vars, opts))];
   if (!stmts.length) return [];

@@ -48,7 +48,7 @@ import { SearchPalette, AccountMenu } from "./Palette";
 import { PhotoUpload, PhotoPreview } from "./Media";
 import { themeClass, type ShopBrand } from "./theme";
 import { ShopPageView, type PageData as ShopPageData, type SectionVariants } from "./ShopPage";
-import { SmsBillingAck, SmsSenderField } from "./SmsSender";
+import { SmsBillingAck, SmsKindsPicker, SmsSenderField } from "./SmsSender";
 import { TemplateEditor } from "./TemplateEditor";
 import { WS_ACCENTS, DEFAULT_WS_THEME, applyWsTheme, parseWsTheme, readLocalWsTheme, writeLocalWsTheme, type WorkspaceTheme } from "./workspaceTheme";
 import { ask, askCheck } from "./confirm";
@@ -4745,7 +4745,7 @@ function AlertsPanel({ smsLive }: { smsLive: boolean }) {
   );
 }
 type Providers = { email: { provider: "resend" | "mailbox"; from: string; customer_ready?: boolean; warning?: string }; sms: { provider: "telnyx" | "twilio" | "clicksend" | "mailbox"; from: string }; wa?: { provider: "infobip" | "mailbox"; sender: string; test_sender: boolean; keyword: string } };
-type Messaging = { customer_code_signin?: number; msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reminder_steps?: string; msg_quiet_on?: number; msg_quiet_start?: number; msg_quiet_end?: number; msg_reply_to: string; msg_sms_sender: string };
+type Messaging = { customer_code_signin?: number; msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reminder_steps?: string; msg_quiet_on?: number; msg_quiet_start?: number; msg_quiet_end?: number; msg_reply_to: string; msg_sms_sender: string; msg_sms_kinds?: string };
 const CHANNEL_LABEL: Record<string, string> = { SMS: "Text", EMAIL: "Email", WA: "WhatsApp (retired)", PUSH: "Push" };
 type OutboxData = {
   shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; sms_billing?: { unit_pence: number; included_units: number; acknowledged_at: number | null; live: boolean }; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_enabled?: number; waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_mode?: "ORDER" | "EVERYONE"; waitlist_delay_min?: number } };
@@ -4881,6 +4881,8 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
               </div>
               <p className="chan-body">Confirmations, reminders and sign-in codes when we have a mobile number.{smsLive ? ` Sent as "${msg.msg_sms_sender || "your shop name"}".` : ""}</p>
               {msg.msg_sms === 1 && data.sms_billing && <SmsBillingAck unitPence={data.sms_billing.unit_pence} acknowledgedAt={data.sms_billing.acknowledged_at} checked={smsAck} onChange={setSmsAck} testId="msg-sms-billing-ack" />}
+              {msg.msg_sms === 1 && <SmsKindsPicker value={msg.msg_sms_kinds ?? "confirm,reminder,change,waitlist,review"} onChange={(v) => setMsg({ ...msg, msg_sms_kinds: v })} />}
+              {msg.msg_sms !== 1 && <p className="chan-body" data-testid="sms-off-note">Texts are off. Customers are not asked about texts while they are off. Switch them on to choose which texts to send; customers are then asked once, next time they sign in.</p>}
             </div>
             <div className={`chan-card${msg.msg_email ? " on" : ""}`} data-testid="chan-email">
               <div className="chan-head">
@@ -4894,8 +4896,8 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
                   <span />
                 </label>
               </div>
-              <p className="chan-body">Sent as “{w.shop.name}”{data.providers.email.from ? ` from ${data.providers.email.from}` : ""}. Replies go to {msg.msg_reply_to || "your shop email"}.</p>
-              <Field label="Reply-to email (optional)">
+              <p className="chan-body">Sent as “{w.shop.name}”{data.providers.email.from ? ` from ${data.providers.email.from}` : ""}. Customers who reply land in {msg.msg_reply_to || "your shop inbox (add an address below)"}, not ours.</p>
+              <Field label="Replies to your emails go to">
                 <input type="email" value={msg.msg_reply_to} maxLength={120} placeholder="hello@yourshop.com" onChange={(e) => setMsg({ ...msg, msg_reply_to: e.target.value })} />
               </Field>
             </div>

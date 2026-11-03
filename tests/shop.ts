@@ -69,17 +69,28 @@ export async function seedCatalogue(r: APIRequestContext) {
   await offerEverything(r);
 }
 
+// New shops start with texts OFF (the owner switches them on, accepts the per-text price and picks the
+// kinds). Tests that exercise texts call this first.
+export async function enableTexts(r: APIRequestContext, kinds = "confirm,reminder,change,waitlist,review", headers: Record<string, string> = {}) {
+  const cur = (await (await r.get(base + "/notifications")).json()).messaging;
+  const res = await r.put(base + "/shop/messaging", { headers, data: { ...cur, msg_sms: 1, msg_sms_kinds: kinds, sms_billing_ack: true } });
+  expect(res.status(), await res.text()).toBe(200);
+}
+
 // One call: new context (same-origin header), signup, seeded catalogue.
-export async function newShop(name = "API test shop"): Promise<Seeded> {
+// Most specs exercise messaging and were written when texts were on, so the helper switches them on;
+// pass { texts: false } to get a shop exactly as signup leaves it.
+export async function newShop(name = "API test shop", opts: { texts?: boolean } = {}): Promise<Seeded> {
   const r = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
   const { email, shop_id } = await signup(r, name);
   await seedCatalogue(r);
+  if (opts.texts !== false) await enableTexts(r);
   return { r, email, shop_id };
 }
 
 // Browser variant: sign up + seed through page.request so the session cookie lands in the page.
 import type { Page } from "@playwright/test";
-export async function enterNewShop(page: Page, name = "UI test shop") {
+export async function enterNewShop(page: Page, name = "UI test shop", opts: { texts?: boolean } = {}) {
   const res = await page.request.post(base + "/auth/signup", {
     headers: { Origin: origin },
     data: { shop_name: name, name: "Zed Owner", email: email(), password: PASSWORD, accept_legal: true },
@@ -98,6 +109,7 @@ export async function enterNewShop(page: Page, name = "UI test shop") {
     expect((await r.post(base + "/services", { headers: { Origin: origin }, data: { ...s, category: "Hair" } })).status()).toBe(201);
   await setFixtureHours(r, { Origin: origin });
   await offerEverything(r, { Origin: origin });
+  if (opts.texts !== false) await enableTexts(r, undefined, { Origin: origin });
   await page.goto("/workspace");
   await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
 }

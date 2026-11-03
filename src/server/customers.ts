@@ -27,7 +27,7 @@ import {
   throttle,
   type Ctx,
 } from "./public";
-import { setMarketingChoice } from "./consent";
+import { resumePhone, setMarketingChoice } from "./consent";
 
 const uid = () => crypto.randomUUID();
 const CODE_TTL = 10 * 60000;
@@ -96,7 +96,12 @@ async function ownBooking(c: Ctx, shop: Shop, customer: Customer, id: string) {
   const staff = await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(shop.id, booking.staff_id).first<{ name: string }>();
   return { booking, staffName: staff?.name ?? null };
 }
-const profileOf = (a: AccountRow, cust: Customer) => ({
+type TextState = { sms_choice_at?: number | null; sms_stopped_at?: number | null };
+const profileOf = (a: AccountRow, cust: Customer, shop?: Shop) => ({
+  // Texts are only a question when this shop sends them and the customer has never answered here.
+  // A STOP reply counts as an answer. Shops with texts off never ask.
+  needs_sms_choice: !!shop && (shop as { msg_sms?: number }).msg_sms !== 0 && !(cust as TextState).sms_choice_at && !(cust as TextState).sms_stopped_at,
+  sms_stopped_at: (cust as TextState).sms_stopped_at ?? null,
   id: a.id,
   phone: a.phone,
   name: cust.name || a.name,
@@ -186,7 +191,7 @@ acct.post("/verify", async (c) => {
   // An account that only ever signed in by code has no email or password: it cannot receive
   // confirmations by email or reset itself. The client finishes the profile before going on.
   const needsProfile = !account.email || !account.password_hash || !(account.name || "").trim();
-  return c.json({ ok: true, profile: profileOf(account, cust), new_account: account.created_at === now, needs_profile: needsProfile }, 201);
+  return c.json({ ok: true, profile: profileOf(account, cust, shop), new_account: account.created_at === now, needs_profile: needsProfile }, 201);
 });
 
 // Finish a code-only account: name, email, password and consents, in one step. Used straight after
@@ -220,7 +225,7 @@ acct.post("/complete", async (c) => {
   if (termsNeeded) await c.env.DB.prepare("UPDATE customer_account_links SET terms_version=?, terms_accepted_at=? WHERE account_id=? AND shop_id=?").bind(shop.terms_version, now, a.id, shop.id).run();
   await c.env.DB.batch([audit(c, "customer_account", a.id, "CUSTOMER_PROFILE_COMPLETED", `Code sign-in account completed with email and password. Reminders by ${pref === "EMAIL" ? "email" : "text and email"}; marketing ${b.marketing_opt_in ? "on" : "off"}.`)]);
   const cust = await linkedCustomer(c, shop, fresh);
-  return c.json({ ok: true, profile: profileOf(fresh, cust) });
+  return c.json({ ok: true, profile: profileOf(fresh, cust, shop) });
 });
 
 acct.post("/logout", async (c) => {
@@ -239,7 +244,7 @@ acct.get("/session", async (c) => {
   if (!a) return c.json({ profile: null });
   const cust = await linkedCustomer(c, shop, a);
   const link = await c.env.DB.prepare("SELECT terms_version FROM customer_account_links WHERE account_id=? AND shop_id=?").bind(a.id, shop.id).first<{ terms_version: number }>();
-  return c.json({ profile: profileOf(a, cust), terms_accepted: link?.terms_version || 0 });
+  return c.json({ profile: profileOf(a, cust, shop), terms_accepted: link?.terms_version || 0 });
 });
 
 // The customer area: upcoming, history, "your usual", profile — only this shop's rows.
@@ -317,7 +322,7 @@ acct.get("/me", async (c) => {
   return c.json({
     waiting: waiting.results,
     shop: { channels: { sms: (shop as { msg_sms?: number }).msg_sms !== 0, code: codeSignInOn(shop), email: (shop as { msg_email?: number }).msg_email !== 0 }, name: shop.name, slug: shop.slug, address: shop.address, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, lead_time_min: shop.lead_time_min, today: shopToday(shop.timezone, now), logo_url: shop.logo_url || "", brand: brandOf(shop), google_review_url: gp?.google_review_url || "" },
-    profile: profileOf(a, cust),
+    profile: profileOf(a, cust, shop),
     upcoming,
     history,
     usual,
@@ -326,6 +331,26 @@ acct.get("/me", async (c) => {
     stats: { visits: completed.length, spent_pence: completed.reduce((s, b) => s + b.price_pence, 0), first_visit: completed.at(-1)?.date ?? null },
     now,
   });
+});
+
+// "Texts yes or no" at this shop. Their own answer: recorded with the date, and a yes after an old
+// STOP lifts that shop's block (they chose it again themselves).
+async function applyTextChoice(c: Ctx, shop: Shop, cust: Customer, yes: boolean, now: number) {
+  const stopped = !!(cust as TextState).sms_stopped_at;
+  await c.env.DB.prepare("UPDATE customers SET contact_pref=CASE WHEN contact_pref='NONE' AND ?::int=1 THEN 'NONE' ELSE ? END, sms_choice_at=?, updated_at=? WHERE shop_id=? AND id=?")
+    .bind(yes ? 1 : 0, yes ? "AUTO" : "EMAIL", now, now, shop.id, cust.id).run();
+  if (yes && stopped && cust.phone) await resumePhone(c.env.DB, cust.phone.replace(/\D/g, "").replace(/^0/, "44"), shop.id, now);
+}
+acct.post("/sms-choice", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug")!);
+  const a = await requireAccount(c, shop);
+  const cust = await linkedCustomer(c, shop, a);
+  const b = await readInput(c, z.object({ texts: z.boolean() }).strict());
+  const now = Date.now();
+  await applyTextChoice(c, shop, cust, b.texts, now);
+  await c.env.DB.batch([audit(c, "customer", cust.id, "CUSTOMER_TEXT_CHOICE", `Customer chose ${b.texts ? "text and email" : "email only"} reminders when asked online.`, true)]);
+  const fresh = (await c.env.DB.prepare("SELECT * FROM customers WHERE shop_id=? AND id=?").bind(shop.id, cust.id).first<Customer>())!;
+  return c.json({ ok: true, profile: profileOf(a, fresh, shop) });
 });
 
 acct.put("/profile", async (c) => {
@@ -347,9 +372,10 @@ acct.put("/profile", async (c) => {
   );
   // The customer's own choice, applied last so it is the final word (and logged).
   await setMarketingChoice(c.env.DB, shop.id, cust.id, !!b.marketing_opt_in, "app_profile", now);
+  if (b.contact_pref) await applyTextChoice(c, shop, cust, b.contact_pref === "AUTO", now);
   await c.env.DB.prepare("UPDATE customer_accounts SET name=?,email=?,version=version+1 WHERE id=?").bind(b.name, b.email, a.id).run();
   const fresh = (await c.env.DB.prepare("SELECT * FROM customers WHERE shop_id=? AND id=?").bind(shop.id, cust.id).first<Customer>())!;
-  return c.json({ profile: profileOf({ ...a, name: b.name, email: b.email }, fresh) });
+  return c.json({ profile: profileOf({ ...a, name: b.name, email: b.email }, fresh, shop) });
 });
 
 // Manage a visit while signed in: same rules as the manage link.

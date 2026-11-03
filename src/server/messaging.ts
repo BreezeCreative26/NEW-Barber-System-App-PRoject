@@ -38,7 +38,7 @@ type DB = Database;
 const uid = () => crypto.randomUUID();
 
 export type MsgShop = Shop & {
-  msg_sms?: number; msg_email?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reminder_steps?: string; msg_quiet_on?: number; msg_quiet_start?: number; msg_quiet_end?: number; timezone?: string; msg_reply_to?: string; msg_sms_sender?: string;
+  msg_sms?: number; msg_email?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reminder_steps?: string; msg_quiet_on?: number; msg_quiet_start?: number; msg_quiet_end?: number; timezone?: string; msg_reply_to?: string; msg_sms_sender?: string; msg_sms_kinds?: string;
   notify_json?: string;
   msg_wa?: number;
   logo_url?: string; accent?: string; theme_json?: string; logo_tone?: string;
@@ -487,9 +487,28 @@ export type EnqueueOpts = {
 // plumbing (sendWhatsApp, inbound webhooks) stays dormant so historic rows still render.
 export const WHATSAPP_RETIRED = true;
 export const waAvailable = () => !WHATSAPP_RETIRED && (waLive() || providerStatus().sms.provider === "mailbox");
+// Which texts a shop sends. Owners pick these when they switch texts on; anything not listed goes by email.
+// Sign-in codes, contact checks, staff-sent payment links, tests and marketing are not in here: they have
+// their own switches (code sign-in, the campaign confirmation) or are a deliberate staff action.
+export const SMS_KINDS = ["confirm", "reminder", "change", "waitlist", "review"] as const;
+export type SmsKind = (typeof SMS_KINDS)[number];
+export const SMS_KIND_OF: Partial<Record<string, SmsKind>> = {
+  booking_confirmed: "confirm",
+  booking_reminder: "reminder", booking_reminder_soon: "reminder",
+  booking_moved: "change", booking_cancelled: "change",
+  waitlist_joined: "waitlist", waitlist_offer: "waitlist", waitlist_open: "waitlist", waitlist_booked: "waitlist", waitlist_released: "waitlist",
+  review_request: "review", google_review: "review",
+};
+export const smsKindsOf = (shop: { msg_sms_kinds?: string | null }): SmsKind[] =>
+  (shop.msg_sms_kinds ?? SMS_KINDS.join(",")).split(",").map((x) => x.trim()).filter((x): x is SmsKind => (SMS_KINDS as readonly string[]).includes(x));
+export const smsKindAllowed = (shop: { msg_sms_kinds?: string | null }, template?: string) => {
+  const kind = template ? SMS_KIND_OF[template] : undefined;
+  return !kind || smsKindsOf(shop).includes(kind);
+};
+
 export function channelsFor(shop: MsgShop, to: Recipient, prefer: Channel | "AUTO" = "AUTO", both = false, force = false, template?: MessageTemplate): Channel[] {
   if (to.pref === "NONE" && !force) return [];
-  const sms = !!to.phone && (force || (shop.msg_sms ?? 1) === 1);
+  const sms = !!to.phone && (force || ((shop.msg_sms ?? 1) === 1 && smsKindAllowed(shop, template)));
   const email = !!to.email && (force || (shop.msg_email ?? 1) === 1);
   // WhatsApp is only "real" with the foliyo sender configured. In preview mode (no SMS provider
   // either) it still queues to the mailbox like the other channels, so the flow can be exercised;
@@ -624,10 +643,12 @@ export function toE164(phone: string, defaultCountry = "GB"): string | null {
 }
 async function sendSms(row: Row, db?: DB): Promise<Delivery> {
   const e = env();
-  // A STOP reply is honoured platform-wide, on every SMS provider, before we spend a message.
+  // A STOP reply is honoured (for that shop, or platform-wide if we couldn't tell which shop), on every SMS provider, before we spend a message.
   if (db) {
     const num = toE164(row.recipient);
-    if (num && (await db.prepare("SELECT 1 AS x FROM wa_optouts WHERE phone=?").bind(num.replace(/\D/g, "")).first()))
+    const digits = num ? num.replace(/\D/g, "") : "";
+    if (digits && ((await db.prepare("SELECT 1 AS x FROM wa_optouts WHERE phone=?").bind(digits).first()) ||
+        (row.shop_id && (await db.prepare("SELECT 1 AS x FROM shop_sms_optouts WHERE shop_id=? AND phone=?").bind(row.shop_id, digits).first()))))
       return { ok: false, provider: telnyxOn(e) ? "telnyx" : "sms", error: "Customer opted out of texts (replied STOP)", permanent: true };
   }
   if (telnyxOn(e)) {

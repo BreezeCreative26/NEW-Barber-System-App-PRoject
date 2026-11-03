@@ -96,14 +96,17 @@ describe("applyTelnyxEvent", () => {
     const { db, ran } = fakeDb();
     const r = await applyTelnyxEvent(db, { data: { event_type: "message.received", payload: { id: "in_1", direction: "inbound", text: "STOP", from: { phone_number: "+447911123456" } } } }, 1000);
     expect(r).toBe("inbound");
-    expect(ran.some((x) => x.sql.includes("INSERT INTO wa_optouts") && x.args[0] === "447911123456")).toBe(true);
+    // Scoped to the shop that texted: that shop's opt-out, the customer's own record, and no platform-wide block.
+    expect(ran.some((x) => x.sql.includes("INSERT INTO shop_sms_optouts") && x.args[0] === "shop_a" && x.args[1] === "447911123456")).toBe(true);
+    expect(ran.some((x) => x.sql.includes("UPDATE customers c SET") && x.sql.includes("sms_stopped_at") && x.args.includes("shop_a"))).toBe(true);
+    expect(ran.some((x) => x.sql.includes("INSERT INTO wa_optouts"))).toBe(false);
     const stored = ran.find((x) => x.sql.includes("INSERT INTO wa_inbound"));
     expect(stored?.args).toEqual(["in_1", "shop_a", "447911123456", "STOP", "in_1", 1000]);
   });
   it("START lifts the opt-out; unknown events are ignored", async () => {
     const { db, ran } = fakeDb();
     await applyTelnyxEvent(db, { data: { event_type: "message.received", payload: { id: "in_2", direction: "inbound", text: "start", from: { phone_number: "+447911123456" } } } });
-    expect(ran.some((x) => x.sql.includes("DELETE FROM wa_optouts"))).toBe(true);
+    expect(ran.some((x) => x.sql.includes("DELETE FROM shop_sms_optouts") && x.args[0] === "shop_a")).toBe(true);
     expect(await applyTelnyxEvent(db, { data: { event_type: "something.else", payload: { id: "x" } } })).toBe("ignored");
     expect(await applyTelnyxEvent(db, null)).toBe("ignored");
   });

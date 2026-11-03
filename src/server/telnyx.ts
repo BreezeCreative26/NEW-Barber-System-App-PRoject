@@ -16,7 +16,7 @@
 //   (same wa_optouts table WhatsApp uses, so a STOP is honoured on every channel).
 import { verify as edVerify } from "node:crypto";
 import type { Database as DB } from "../db/client";
-import { suppressPhone } from "./consent";
+import { resumePhone, suppressPhone } from "./consent";
 
 type Env = Record<string, string | undefined>;
 const env = (): Env => (typeof process !== "undefined" ? (process.env as Env) : {});
@@ -112,19 +112,22 @@ export async function applyTelnyxEvent(db: DB, body: unknown, now = Date.now()):
     const phone = (p.from?.phone_number || "").replace(/\D/g, "");
     const text = (p.text || "").trim();
     if (!phone) return "ignored";
-    if (STOP.test(text)) {
-      await db.prepare("INSERT INTO wa_optouts(phone,reason,created_at) VALUES(?,?,?) ON CONFLICT(phone) DO NOTHING").bind(phone, text.slice(0, 40), now).run();
-      // STOP also ends marketing for that number everywhere. START only lets texts through again:
-      // it never turns marketing back on (only the customer's own tick in the app does).
-      await suppressPhone(db, phone, now);
-    } else if (START.test(text)) await db.prepare("DELETE FROM wa_optouts WHERE phone=?").bind(phone).run();
-    // Store the reply against the shop that last texted this number (same as WhatsApp inbound).
+    // Which shop is this reply about? The shop that last texted this number; failing that, the only shop that
+    // knows this number. If it is still unclear, a STOP is honoured everywhere (the safe side).
     const national = phone.startsWith("44") ? `0${phone.slice(2)}` : phone;
     const last = await db
       .prepare("SELECT shop_id FROM notifications WHERE channel IN ('SMS','WA') AND regexp_replace(recipient,'\\D','','g') IN (?,?) ORDER BY created_at DESC LIMIT 1")
       .bind(phone, national)
       .first<{ shop_id: string }>();
-    await db.prepare("INSERT INTO wa_inbound(id,shop_id,phone,body,provider_id,received_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING").bind(p.id || crypto.randomUUID(), last?.shop_id ?? null, phone, text, p.id || "", now).run();
+    let shopId = last?.shop_id ?? null;
+    if (!shopId) {
+      const known = (await db.prepare("SELECT DISTINCT shop_id FROM customers WHERE regexp_replace(phone,'\\D','','g') IN (?,?) LIMIT 2").bind(phone, national).all<{ shop_id: string }>()).results;
+      if (known.length === 1) shopId = known[0].shop_id;
+    }
+    if (STOP.test(text)) await suppressPhone(db, phone, now, shopId);
+    else if (START.test(text)) await resumePhone(db, phone, shopId, now);
+    // Store the reply against that shop (same as WhatsApp inbound).
+    await db.prepare("INSERT INTO wa_inbound(id,shop_id,phone,body,provider_id,received_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING").bind(p.id || crypto.randomUUID(), shopId, phone, text, p.id || "", now).run();
     return "inbound";
   }
   if ((type === "message.finalized" || type === "message.sent") && p.id) {

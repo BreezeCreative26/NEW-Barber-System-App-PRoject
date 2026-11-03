@@ -115,7 +115,10 @@ async function audience(db: DB, shopId: string, f: Fields, shop: MsgShop) {
       rows.push({ ...e, contact_pref: "AUTO", extra: true }); extraCount++;
     }
   }
-  const optedOut = new Set((await db.prepare("SELECT phone FROM wa_optouts").all<{ phone: string }>()).results.map((r) => r.phone));
+  const optedOut = new Set([
+    ...(await db.prepare("SELECT phone FROM wa_optouts").all<{ phone: string }>()).results.map((r) => r.phone),
+    ...(await db.prepare("SELECT phone FROM shop_sms_optouts WHERE shop_id=?").bind(shopId).all<{ phone: string }>()).results.map((r) => r.phone),
+  ]);
   const wantSms = f.channel !== "EMAIL" && (shop.msg_sms ?? 1) === 1;
   const wantEmail = f.channel !== "SMS" && (shop.msg_email ?? 1) === 1;
   const sms: (Cust & { e164: string })[] = [], email: Cust[] = [];
