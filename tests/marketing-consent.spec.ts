@@ -62,7 +62,10 @@ test("app customer opts in and out at any time; the shop's announcement follows 
 
 test("an unsubscribe link or STOP reply is final; a queued announcement is dropped at send time", async () => {
   const { r, shop_id, slug } = await shopWithPage("Final Cuts");
-  const csv = "Name,Phone,Email\nDan Smith,07700 900123,dan@cust.test\nSam Cole,07700 900789,sam@cust.test\n";
+  // A number no other test shop has ever texted: a STOP is about the shop that last texted the number.
+  const samLocal = `07700 9${String(Math.floor(Math.random() * 90000) + 10000)}`;
+  const samIntl = "+44" + samLocal.slice(1).replace(/\D/g, "");
+  const csv = `Name,Phone,Email\nDan Smith,07700 900123,dan@cust.test\nSam Cole,${samLocal},sam@cust.test\n`;
   expect((await r.post(base + "/customers/import", { data: { csv } })).status()).toBe(201);
   expect((await audience(r)).email).toBe(2);
 
@@ -73,11 +76,11 @@ test("an unsubscribe link or STOP reply is final; a queued announcement is dropp
   const post = await r.post(`${origin}/u/c/${tok}`, { headers: { Host: `${slug}.localhost:3000` } });
   expect(await post.text()).toContain("You are unsubscribed");
   // Sam texts STOP to the shop's number: that ends marketing on every channel, not just texts.
-  const stop = await r.post(origin + "/api/telnyx/webhook", { data: { data: { event_type: "message.received", payload: { direction: "inbound", id: crypto.randomUUID(), from: { phone_number: "+447700900789" }, text: "STOP" } } } });
+  const stop = await r.post(origin + "/api/telnyx/webhook", { data: { data: { event_type: "message.received", payload: { direction: "inbound", id: crypto.randomUUID(), from: { phone_number: samIntl }, text: "STOP" } } } });
   expect(stop.status(), await stop.text()).toBe(200);
   expect((await audience(r)).email).toBe(0);
   // Texting START later lets booking texts through again, but never turns marketing back on.
-  await r.post(origin + "/api/telnyx/webhook", { data: { data: { event_type: "message.received", payload: { direction: "inbound", id: crypto.randomUUID(), from: { phone_number: "+447700900789" }, text: "START" } } } });
+  await r.post(origin + "/api/telnyx/webhook", { data: { data: { event_type: "message.received", payload: { direction: "inbound", id: crypto.randomUUID(), from: { phone_number: samIntl }, text: "START" } } } });
   expect((await audience(r)).email).toBe(0);
 
   // A CSV re-import marked "yes" does not bring Dan or Sam back.

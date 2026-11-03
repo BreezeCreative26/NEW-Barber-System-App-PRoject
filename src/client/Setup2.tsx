@@ -4,7 +4,7 @@ import type { Staff } from "../server/domain";
 import { Badge, Button, Icon } from "./ui";
 import { money } from "./fixtures";
 import { F, StepActions, useBusy, type StepProps } from "./Setup";
-import { SeatChargeNote, SmsBillingAck, SmsSenderField, suggestSenders } from "./SmsSender";
+import { SeatChargeNote, SmsBillingAck, SmsKindsPicker, SmsSenderField, suggestSenders } from "./SmsSender";
 
 type Invite = { id: string; staff_id: string; email: string; phone: string; role: string; channel: string; sent_count: number; last_sent_at: number | null; expires_at: number; accepted_at: number | null; revoked: number };
 type Member = { id: string; name: string; email: string; staff_id: string | null; role: string; active: number };
@@ -138,12 +138,12 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
 }
 
 // ---- 5. Messages ---------------------------------------------------------------------------------
-type Msg = { msg_sms: number; msg_email: number; msg_wa: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string };
+type Msg = { msg_sms: number; msg_email: number; msg_wa: number; msg_reminders: number; msg_reminder_hours: number; msg_reply_to: string; msg_sms_sender: string; msg_sms_kinds: string };
 type SmsBilling = { unit_pence: number; included_units: number; acknowledged_at: number | null; live: boolean };
 export function StepMessages({ w, api, refresh, data, setNotice, setError, onNext, onSkip }: StepProps) {
-  const shop = w.shop as typeof w.shop & { phone?: string; email?: string; msg_sms?: number; msg_email?: number; msg_wa?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reply_to?: string; msg_sms_sender?: string };
+  const shop = w.shop as typeof w.shop & { phone?: string; email?: string; msg_sms?: number; msg_email?: number; msg_wa?: number; msg_reminders?: number; msg_reminder_hours?: number; msg_reply_to?: string; msg_sms_sender?: string; msg_sms_kinds?: string };
   const suggested = suggestSenders(shop.name)[0] || "";
-  const [m, setM] = useState<Msg>({ msg_sms: shop.msg_sms ?? 1, msg_email: shop.msg_email ?? 1, msg_wa: shop.msg_wa ?? 0, msg_reminders: shop.msg_reminders ?? 1, msg_reminder_hours: shop.msg_reminder_hours ?? 24, msg_reply_to: shop.msg_reply_to || shop.email || "", msg_sms_sender: shop.msg_sms_sender || suggested });
+  const [m, setM] = useState<Msg>({ msg_sms: shop.msg_sms ?? 0, msg_email: shop.msg_email ?? 1, msg_wa: shop.msg_wa ?? 0, msg_reminders: shop.msg_reminders ?? 1, msg_reminder_hours: shop.msg_reminder_hours ?? 24, msg_reply_to: shop.msg_reply_to || shop.email || "", msg_sms_sender: shop.msg_sms_sender || suggested, msg_sms_kinds: shop.msg_sms_kinds ?? "confirm,reminder,change" });
   const [bill, setBill] = useState<SmsBilling | null>(null);
   const [ack, setAck] = useState(false);
   const [test, setTest] = useState<{ channel: string; ok: boolean; note: string } | null>(null);
@@ -185,6 +185,7 @@ export function StepMessages({ w, api, refresh, data, setNotice, setError, onNex
             </span>
           </label>
           {m.msg_sms === 1 && bill && <SmsBillingAck unitPence={unit} acknowledgedAt={bill.acknowledged_at} checked={ack} onChange={setAck} testId="setup-sms-billing-ack" />}
+          {m.msg_sms === 1 && <SmsKindsPicker value={m.msg_sms_kinds} onChange={(v) => setM({ ...m, msg_sms_kinds: v })} testId="setup-sms-kinds" />}
         </div>
         <div className={`setup-channel${m.msg_email ? " on" : ""}`}>
           <label className="setup-check">
@@ -197,7 +198,7 @@ export function StepMessages({ w, api, refresh, data, setNotice, setError, onNex
         </div>
       </div>
       <div className="setup-msg-form setup-msg-grid">
-        <F label="Email replies go to"><input type="email" value={m.msg_reply_to} onChange={(e) => setM({ ...m, msg_reply_to: e.target.value })} maxLength={120} /></F>
+        <F label="Customer replies to your emails go to"><input type="email" value={m.msg_reply_to} onChange={(e) => setM({ ...m, msg_reply_to: e.target.value })} maxLength={120} /></F>
         <F label="Reminder">
           <select value={m.msg_reminders ? m.msg_reminder_hours : 0} onChange={(e) => { const v = Number(e.target.value); setM({ ...m, msg_reminders: v ? 1 : 0, msg_reminder_hours: v || 24 }); }}>
             <option value={0}>No reminder</option><option value={24}>24 hours before</option><option value={48}>48 hours before</option><option value={4}>4 hours before</option>

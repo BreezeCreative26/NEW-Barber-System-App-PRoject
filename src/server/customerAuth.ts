@@ -186,17 +186,19 @@ export async function sendWelcome(c: Ctx, shop: Shop, account: AccountRow, origi
 // the choice they made at sign-up rather than the shop's defaults.
 export async function recordConsent(c: Ctx, shop: Shop, account: AccountRow, v: { name: string; email: string; marketing_opt_in: 0 | 1; contact_pref: "AUTO" | "EMAIL" }) {
   const now = Date.now();
+  // They only saw the text yes/no box if this shop sends texts. If it does not, they get asked later, when it does.
+  const asked = (shop as { msg_sms?: number }).msg_sms !== 0;
   let cust = await c.env.DB.prepare("SELECT id, merged_into FROM customers WHERE shop_id=? AND phone=?").bind(shop.id, account.phone).first<{ id: string; merged_into: string | null }>();
   if (cust?.merged_into) cust = { id: cust.merged_into, merged_into: null };
   if (!cust) {
     const id = uid();
     await c.env.DB.prepare(
-      "INSERT INTO customers(id,shop_id,name,phone,email,notes,tags,birthday,preferred_staff_id,marketing_opt_in,contact_pref,created_at,updated_at) VALUES(?,?,?,?,?,'','[]',NULL,NULL,?,?,?,?)",
-    ).bind(id, shop.id, v.name, account.phone, v.email, v.marketing_opt_in, v.contact_pref, now, now).run();
+      "INSERT INTO customers(id,shop_id,name,phone,email,notes,tags,birthday,preferred_staff_id,marketing_opt_in,contact_pref,sms_choice_at,created_at,updated_at) VALUES(?,?,?,?,?,'','[]',NULL,NULL,?,?,?,?,?)",
+    ).bind(id, shop.id, v.name, account.phone, v.email, v.marketing_opt_in, v.contact_pref, asked ? now : null, now, now).run();
     cust = { id, merged_into: null };
   } else {
-    await c.env.DB.prepare("UPDATE customers SET email=CASE WHEN email='' THEN ? ELSE email END, marketing_opt_in=?, contact_pref=?, version=version+1, updated_at=? WHERE shop_id=? AND id=?")
-      .bind(v.email, v.marketing_opt_in, v.contact_pref, now, shop.id, cust.id).run();
+    await c.env.DB.prepare("UPDATE customers SET email=CASE WHEN email='' THEN ? ELSE email END, marketing_opt_in=?, contact_pref=?, sms_choice_at=COALESCE(?::bigint, sms_choice_at), version=version+1, updated_at=? WHERE shop_id=? AND id=?")
+      .bind(v.email, v.marketing_opt_in, v.contact_pref, asked ? now : null, now, shop.id, cust.id).run();
   }
   await c.env.DB.prepare("INSERT INTO customer_account_links(account_id,shop_id,customer_id,linked_at) VALUES(?,?,?,?) ON CONFLICT (account_id,shop_id) DO UPDATE SET customer_id=EXCLUDED.customer_id, linked_at=EXCLUDED.linked_at")
     .bind(account.id, shop.id, cust.id, now).run();

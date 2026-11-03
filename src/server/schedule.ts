@@ -210,7 +210,7 @@ export async function previewChange(db: DB, shop: Shop, today: string, change: S
     const staff = patched.staff.find((s) => s.id === b.staff_id);
     const pref = (b.contact_pref || "AUTO") as "AUTO" | "SMS" | "WA" | "EMAIL" | "NONE";
     const to = { name: b.attendee_name || b.customer_name, phone: b.phone, email: b.email || b.customer_email || "" };
-    const channel = !msgShopRow || pref === "NONE" ? null : (channelsFor(msgShopRow, to, pref === "AUTO" ? "AUTO" : pref)[0] ?? null);
+    const channel = !msgShopRow || pref === "NONE" ? null : (channelsFor(msgShopRow, to, pref === "AUTO" ? "AUTO" : pref, false, false, "booking_cancelled")[0] ?? null);
     conflicts.push({
       booking_id: b.id, ref: ref(b), version: b.version, staff_id: b.staff_id, staff_name: staff?.name ?? "", customer_name: b.customer_name, attendee_name: b.attendee_name || "",
       phone: b.phone, email: to.email, contact_pref: pref, channel, service_id: b.service_id, service_name: b.service_name, date: b.date, start_min: b.start_min, duration_min: b.duration_min,
@@ -268,7 +268,7 @@ export async function applyDecisions(
         }
         if (d.notify && ch) {
           const q = enqueue(db, shopMsg, to, "booking_cancelled", vars, { related: { type: "booking", id: b.id }, origin, channel: ch });
-          if (q.length) { await db.batch(q); notified = channelsFor(shopMsg, to, ch); }
+          if (q.length) { await db.batch(q); notified = channelsFor(shopMsg, to, ch, false, false, "booking_cancelled"); }
         }
         outcome.push({ booking_id: b.id, action: d.action, ok: true, note: `${d.action === "WAITLIST" ? "Cancelled · on the waitlist" : "Cancelled"}${b.deposit_status === "PAID" ? " · deposit refunded" : ""}`, notified });
       } else if (d.action === "MOVE" && d.move_to) {
@@ -289,7 +289,7 @@ export async function applyDecisions(
         const nb = target.name.split(" ")[0];
         if (d.notify && ch) {
           const q = enqueue(db, shopMsg, to, "booking_moved", { ...vars, barber: nb, date: fmtDate(d.move_to.date), time: fmtTime(d.move_to.start_min) }, { related: { type: "booking", id: b.id }, origin, channel: ch });
-          if (q.length) { await db.batch(q); notified = channelsFor(shopMsg, to, ch); }
+          if (q.length) { await db.batch(q); notified = channelsFor(shopMsg, to, ch, false, false, "booking_moved"); }
         }
         outcome.push({ booking_id: b.id, action: "MOVE", ok: true, note: `Moved to ${fmtDate(d.move_to.date)} ${fmtTime(d.move_to.start_min)} with ${nb}`, notified });
       } else {

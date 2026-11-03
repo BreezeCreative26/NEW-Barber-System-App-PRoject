@@ -441,8 +441,10 @@ accounts.post("/signup", async (c) => {
   const encoded = await passwordHash(b.password, salt);
   const session = await newSession(c, membership);
   const writes = [
-    // Every shop texts under its own name from day one (alphanumeric sender, editable in Settings → Messages).
-    c.env.DB.prepare("INSERT INTO shops(id,name,timezone,kind,email,setup_json,created_at,slug,msg_sms_sender,account_type) VALUES(?,?,?,?,?,?,?,?,?,?)").bind(shop, b.shop_name, b.timezone, b.kind, b.email, JSON.stringify({ step: "shop", done: [], skipped: [], started_at: now }), now, b.slug ?? null, smsSenderFor(b.shop_name), b.account_type),
+    // Every shop gets its own text sender name from day one (alphanumeric, editable in Settings → Messages), but texts
+    // start OFF: the owner switches them on, accepts the per-text price and picks which texts go out. Customer replies
+    // to emails go to the owner's own address until they set another one (Settings → Messages).
+    c.env.DB.prepare("INSERT INTO shops(id,name,timezone,kind,email,setup_json,created_at,slug,msg_sms_sender,account_type,msg_reply_to,msg_sms,msg_sms_kinds) VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?)").bind(shop, b.shop_name, b.timezone, b.kind, b.email, JSON.stringify({ step: "shop", done: [], skipped: [], started_at: now }), now, b.slug ?? null, smsSenderFor(b.shop_name), b.account_type, b.email, "confirm,reminder,change"),
     c.env.DB.prepare("INSERT INTO app_users(id,email,name,password_hash,password_salt,created_at) VALUES(?,?,?,?,?,?)").bind(user, b.email, loginName, encoded, salt, now),
     c.env.DB.prepare("INSERT INTO shop_owners(shop_id,user_id) VALUES(?,?)").bind(shop, user),
     // A business shop starts with the free shop login only: no barber profile and no seat. The owner

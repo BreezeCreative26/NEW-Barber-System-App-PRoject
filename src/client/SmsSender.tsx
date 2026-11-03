@@ -126,3 +126,33 @@ export function SeatChargeNote({ api, adding = 1, testId = "seat-charge" }: { ap
     </p>
   );
 }
+
+export const SMS_KIND_OPTIONS: { id: string; label: string; hint: string }[] = [
+  { id: "confirm", label: "Booking confirmations", hint: "Sent straight after a customer books." },
+  { id: "reminder", label: "Appointment reminders", hint: "Before the appointment, at the times you pick below." },
+  { id: "change", label: "Moved or cancelled", hint: "When a booking is moved or cancelled." },
+  { id: "waitlist", label: "Waiting list", hint: "Offers when a slot opens up." },
+  { id: "review", label: "Review requests", hint: "After a visit, asking for a review." },
+];
+
+/** Which kinds of text this shop sends. Each text costs the shop, so each kind is its own choice. */
+export function SmsKindsPicker({ value, onChange, testId = "msg-sms-kinds" }: { value: string; onChange: (v: string) => void; testId?: string }) {
+  const on = new Set(value.split(",").map((s) => s.trim()).filter(Boolean));
+  const toggle = (id: string, yes: boolean) => {
+    const next = new Set(on);
+    if (yes) next.add(id); else next.delete(id);
+    onChange(SMS_KIND_OPTIONS.map((k) => k.id).filter((k) => next.has(k)).join(","));
+  };
+  return (
+    <fieldset className="sms-kinds" data-testid={testId}>
+      <legend>Which texts do you want to send?</legend>
+      {SMS_KIND_OPTIONS.map((k) => (
+        <label key={k.id} className="setup-check">
+          <input type="checkbox" checked={on.has(k.id)} onChange={(e) => toggle(k.id, e.target.checked)} data-testid={`${testId}-${k.id}`} />
+          <span><strong>{k.label}</strong><small>{k.hint}</small></span>
+        </label>
+      ))}
+      <small className="helper">Customers are asked once whether they want texts, and can reply STOP at any time. Emails are never affected.</small>
+    </fieldset>
+  );
+}

@@ -1,7 +1,7 @@
 // Customer accounts v2: email + password sign-in, registration, reset links, booking-creates-account,
 // per-shop PWA manifest and icons, push subscription endpoints.
 import { test, expect, request, type APIRequestContext } from "@playwright/test";
-import { base, newShop, origin } from "./shop";
+import { base, enableTexts, newShop, origin } from "./shop";
 
 const pub = origin + "/api/public";
 const slugFor = () => `auth-${crypto.randomUUID().slice(0, 8)}`;
@@ -15,6 +15,7 @@ function futureDate(days = 8) {
 }
 async function shop() {
   const { r } = await newShop("Auth Test Shop");
+  await enableTexts(r);
   const w = await (await r.get(base + "/workspace")).json();
   const slug = slugFor();
   expect((await r.put(base + "/shop/online", { data: { slug, online_booking: 1, lead_time_min: 60, booking_window_days: 42, version: w.shop.version } })).status()).toBe(200);
