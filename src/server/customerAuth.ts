@@ -65,7 +65,7 @@ const loginSchema = z.object({ email: requiredEmail, password: z.string().min(1)
 const forgotSchema = z.object({ email: requiredEmail }).strict();
 const resetSchema = z.object({ token: z.string().min(40).max(200), password: customerPassword }).strict();
 const changeSchema = z.object({ current: z.string().max(128).default(""), password: customerPassword }).strict();
-const pushSchema = z.object({ endpoint: z.string().url().max(2000), keys: z.object({ p256dh: z.string().min(20).max(400), auth: z.string().min(10).max(200) }) }).strict();
+const pushSchema = z.object({ endpoint: z.string().url().max(2000), expirationTime: z.number().nullable().optional(), keys: z.object({ p256dh: z.string().min(20).max(400), auth: z.string().min(10).max(200) }) }).strict();
 
 export function setSession(c: Ctx, shop: Shop, raw: string) {
   setCookie(c, customerCookieName(shop.id), raw, { httpOnly: true, secure: true, sameSite: "Lax", path: "/", maxAge: SESSION_TTL / 1000 });
