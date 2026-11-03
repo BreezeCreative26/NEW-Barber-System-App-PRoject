@@ -108,7 +108,9 @@ const reject = (
 ): never => {
   throw new HTTPException(status, { message });
 };
-export async function readInput<T>(c: Ctx, schema: z.ZodType<T>): Promise<T> {
+// Bodies are tiny JSON by default (16 KB). CSV routes pass a bigger cap; Vercel itself stops anything over ~4.5 MB.
+export const CSV_BODY_BYTES = 4 * 1024 * 1024;
+export async function readInput<T>(c: Ctx, schema: z.ZodType<T>, maxBytes = 16384): Promise<T> {
   const reader = c.req.raw.body?.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -118,7 +120,7 @@ export async function readInput<T>(c: Ctx, schema: z.ZodType<T>): Promise<T> {
         const { value, done } = await reader.read();
         if (done) break;
         size += value.byteLength;
-        if (size > 16384) {
+        if (size > maxBytes) {
           await reader.cancel();
           reject(413, "Request is too large");
         }

@@ -10,9 +10,13 @@ import { enqueue, msgShop, drain, type MsgShop } from "./messaging";
 import { shopUrl } from "./hosts";
 import { normaliseUk, smsWindowOpen, extractContacts } from "./marketing";
 import { HELD_BACK_SQL } from "./consent";
+import { CSV_BODY_BYTES } from "./accounts";
+// A campaign carries the ids of the people it was uploaded for (up to 5,000 x ~40 bytes), so its preview/test/send
+// bodies need more room than a normal 16 KB form.
+const ID_LIST_BYTES = 512 * 1024;
 
 type Ctx = Context<any>;
-type Helpers = { input: <T>(c: Ctx, s: z.ZodType<T>) => Promise<T>; requireRole: (c: Ctx, roles: string[]) => void; fail: (status: 400 | 403 | 404 | 409, message: string) => never };
+type Helpers = { input: <T>(c: Ctx, s: z.ZodType<T>, maxBytes?: number) => Promise<T>; requireRole: (c: Ctx, roles: string[]) => void; fail: (status: 400 | 403 | 404 | 409, message: string) => never };
 
 export type Kind = "launch" | "offer" | "quiet" | "winback" | "hours" | "service" | "custom";
 type Copy = { subject: string; heading: string; body: string; cta_label: string; sms_body: string };
@@ -173,7 +177,7 @@ export function mountShopCampaigns(app: Hono<any>, h: Helpers) {
     const ack = await c.env.DB.prepare("SELECT msg_sms_billing_ack_at AS a FROM shops WHERE id=?").bind(shop.id).first() as { a: number | null } | null;
     return { shop, acked: !!ack?.a };
   };
-  const draft = async (c: Ctx) => withDefaults(await h.input(c, fields));
+  const draft = async (c: Ctx) => withDefaults(await h.input(c, fields, ID_LIST_BYTES));
 
   app.get("/announcements", async (c) => {
     gate(c);
@@ -214,7 +218,7 @@ export function mountShopCampaigns(app: Hono<any>, h: Helpers) {
   // A CSV of name, mobile and email: read it, remember the people, hand back their ids to add to a campaign.
   app.post("/announcements/contacts", async (c) => {
     gate(c);
-    const b = await h.input(c, z.object({ csv: z.string().max(2_000_000) }).strict());
+    const b = await h.input(c, z.object({ csv: z.string().max(2_000_000) }).strict(), CSV_BODY_BYTES);
     const sid = c.get("shopId") as string;
     const r = extractContacts(b.csv);
     const db = c.env.DB as DB;
@@ -259,7 +263,7 @@ export function mountShopCampaigns(app: Hono<any>, h: Helpers) {
 
   app.post("/announcements/send", async (c) => {
     gate(c);
-    const b = await h.input(c, fields.extend({ confirm: z.boolean(), sms_ack: z.boolean().optional() }).strict());
+    const b = await h.input(c, fields.extend({ confirm: z.boolean(), sms_ack: z.boolean().optional() }).strict(), ID_LIST_BYTES);
     const { confirm: _c, sms_ack: _a, ...rest } = b;
     const f = withDefaults(rest as Fields);
     if (!b.confirm) h.fail(400, "Please confirm these are your own customers.");

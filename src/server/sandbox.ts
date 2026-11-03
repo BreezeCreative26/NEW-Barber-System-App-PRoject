@@ -103,6 +103,7 @@ import { RESERVED_SUBDOMAINS, shopUrl } from "./hosts";
 import { setMarketingChoice } from "./consent";
 import accounts, {
   ACCOUNT_COOKIE,
+  CSV_BODY_BYTES,
   resolveAccount,
   readInput,
   sameOrigin,
@@ -1115,14 +1116,14 @@ async function importPreview(c: Ctx, body: z.infer<typeof importBody>) {
 }
 sandbox.post("/customers/import/preview", async (c) => {
   requireRole(c, ["OWNER", "MANAGER"]);
-  const body = await input(c, importBody);
+  const body = await input(c, importBody, CSV_BODY_BYTES);
   const p = await importPreview(c, body);
   // Trim the row list for the wire; the client shows the first 200 and the counts.
   return c.json({ ...p, rows: p.rows.slice(0, 200), truncated: p.rows.length > 200 });
 });
 sandbox.post("/customers/import", async (c) => {
   requireRole(c, ["OWNER", "MANAGER"]);
-  const body = await input(c, importBody);
+  const body = await input(c, importBody, CSV_BODY_BYTES);
   const p = await importPreview(c, body);
   const now = Date.now();
   const stmts: D1PreparedStatement[] = [];
