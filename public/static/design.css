@@ -3439,9 +3439,20 @@ body.editor-open { overflow: hidden; }
 .workspace .connected-calendar .staff-column-heading { flex-wrap: wrap; row-gap: 4px; }
 .workspace .connected-calendar .staff-column-heading > div { flex: 1 1 90px; }
 .workspace .connected-calendar .staff-column-heading .staff-hours-chip { flex: 0 0 auto; }
-@media (max-width: 1280px) {
-  .workspace .connected-calendar .staff-column-heading .staff-hours-chip { order: 3; flex-basis: 100%; justify-content: flex-start; margin-left: 38px; }
-  .workspace .connected-calendar .staff-column-heading .staff-menu { margin-left: auto; }
+/* Laptop widths: the header box is a fixed height (--header-h), so it must never need a third line.
+   Layout becomes   [avatar] name        [⋯]
+                             hours chip
+   with the takings line dropped (it stays in the summary bar and the name's tooltip). */
+@media (max-width: 1440px) and (min-width: 768px) {
+  .workspace .connected-calendar .staff-column-heading { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "avatar name menu" "avatar chip menu"; align-content: center; align-items: center; column-gap: 8px; row-gap: 2px; padding: 0 8px 0 10px; flex-wrap: nowrap; }
+  .workspace .connected-calendar .staff-column-heading > .avatar { grid-area: avatar; }
+  .workspace .connected-calendar .staff-column-heading > div:not(.staff-menu) { display: contents; }
+  .workspace .connected-calendar .staff-column-heading > div:not(.staff-menu) > strong { grid-area: name; min-width: 0; line-height: 1.2; }
+  .workspace .connected-calendar .staff-column-heading > div:not(.staff-menu) > span { display: none; }
+  .workspace .connected-calendar .staff-column-heading .staff-hours-chip { grid-area: chip; justify-self: start; margin: 0; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; height: 20px; padding: 0 8px; line-height: 18px; }
+  .workspace .connected-calendar .staff-column-heading .staff-menu { grid-area: menu; margin: 0; align-self: center; }
+  .workspace .connected-calendar .density-compact .staff-column-heading { row-gap: 0; }
+  .workspace .connected-calendar .density-compact .staff-hours-chip { height: 18px; line-height: 16px; font-size: 10px; }
 }
 /* Barber phone app: the week board is fixed to the screen and scrolls inside itself. */
 @media (max-width: 767px) {
