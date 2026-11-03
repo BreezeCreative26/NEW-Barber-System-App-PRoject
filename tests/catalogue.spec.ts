@@ -453,7 +453,7 @@ test("owner edits add-ons, barber pricing and partial shifts; booking items surv
       name: "09:00 — Outside working hours",
       exact: true,
     }),
-  ).toHaveJSProperty("disabled", true);
+  ).toHaveJSProperty("disabled", false); // shop staff may still book outside hours (flagged as an override)
   await page.getByLabel("Available start time").selectOption("600");
   await page
     .getByLabel("Customer name", { exact: true })
@@ -533,7 +533,7 @@ test("changing add-ons invalidates a selected slot, preserves contact fields and
   await expect(page.getByLabel("Available start time")).toHaveValue("");
   await expect(
     page.getByRole("option", { name: "09:00 — Slot taken", exact: true }),
-  ).toHaveJSProperty("disabled", true);
+  ).toHaveJSProperty("disabled", false); // shop may double-book on purpose (flagged as an override)
   await expect(page.getByLabel("Customer name", { exact: true })).toHaveValue(
     "Preserved addon draft",
   );

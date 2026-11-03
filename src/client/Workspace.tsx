@@ -7549,6 +7549,8 @@ function CustomerPicker({
     </div>
   );
 }
+// Reasons a slot is greyed but the shop may still book it (mirrors OVERRIDABLE_REASONS on the server).
+const SOFT_SLOT_REASONS = ["Slot taken", "Outside working hours", "Lunch break", "Barber off duty", "Blocked time"];
 function BookingForm({
   w,
   initialDate,
@@ -7683,7 +7685,7 @@ function BookingForm({
           setSlots(s);
           if (draftPending.current !== undefined) {
             const at = s.slots.find((slot) => slot.start_min === draftPending.current);
-            const soft = at?.reason && ["Slot taken", "Outside working hours", "Lunch break", "Barber off duty", "Blocked time"].includes(at.reason);
+            const soft = at?.reason && SOFT_SLOT_REASONS.includes(at.reason);
             if (at && !at.reason) {
               setStart(String(at.start_min));
               setOverride("");
@@ -8100,13 +8102,19 @@ function BookingForm({
                 onPick={(m, el) => {
                   markDraft(el);
                   setStart(String(m));
+                  setOverride("");
                 }}
               />
               <div className="booking-time-row">
                 <Field label="Available start time">
                   <select
                     value={start}
-                    onChange={(e) => setStart(e.target.value)}
+                    onChange={(e) => {
+                      setStart(e.target.value);
+                      // Shop staff may book outside hours / over a break or another booking: flag the override.
+                      const at = slots.slots.find((x) => String(x.start_min) === e.target.value);
+                      setOverride(at?.reason && SOFT_SLOT_REASONS.includes(at.reason) ? at.reason : "");
+                    }}
                     required
                   >
                     <option value="">Choose a time</option>
@@ -8114,7 +8122,7 @@ function BookingForm({
                       <option
                         key={s.start_min}
                         value={s.start_min}
-                        disabled={!!s.reason}
+                        disabled={!!s.reason && !SOFT_SLOT_REASONS.includes(s.reason)}
                       >
                         {time(s.start_min)}
                         {s.reason ? ` — ${s.reason}` : ""}
@@ -8130,7 +8138,10 @@ function BookingForm({
                   onClick={(e) => {
                     markDraft(e.currentTarget);
                     const first = slots.slots.find((s) => !s.reason);
-                    if (first) setStart(String(first.start_min));
+                    if (first) {
+                      setStart(String(first.start_min));
+                      setOverride("");
+                    }
                   }}
                 >
                   Use first available time

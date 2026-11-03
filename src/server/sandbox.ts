@@ -1080,6 +1080,14 @@ sandbox.get("/customers", async (c) => {
   const results = assigned ? rows.results.filter((r) => (r as { visits: number }).visits > 0) : rows.results;
   return c.json({ customers: results, limit });
 });
+// One email, one customer per shop: stops the same person ending up with two records / accounts.
+async function assertEmailFree(c: Ctx, email: string, exceptId: string | null) {
+  if (!email) return;
+  const clash = await c.env.DB.prepare("SELECT id FROM customers WHERE shop_id=? AND LOWER(email)=LOWER(?) AND merged_into IS NULL AND id<>?")
+    .bind(c.get("shopId"), email, exceptId ?? "")
+    .first();
+  if (clash) fail(409, "Another customer already uses this email address");
+}
 sandbox.post("/customers", async (c) => {
   const b = await input(c, customerSchema);
   if (!b.email) fail(400, "Add an email address so they get confirmations");
@@ -1087,6 +1095,7 @@ sandbox.post("/customers", async (c) => {
     .bind(c.get("shopId"), b.phone)
     .first<{ id: string; merged_into: string | null }>();
   if (existing) fail(409, "A customer with this mobile number already exists");
+  await assertEmailFree(c, b.email, null);
   const now = Date.now();
   const customerId = id();
   await c.env.DB.batch([
@@ -1239,6 +1248,7 @@ sandbox.put("/customers/:id", async (c) => {
     .bind(c.get("shopId"), b.phone, current.id)
     .first();
   if (clash) fail(409, "Another customer already uses this mobile number");
+  if (b.email && b.email.toLowerCase() !== (current.email || "").toLowerCase()) await assertEmailFree(c, b.email, current.id);
   const changes: string[] = [];
   if (current.name !== b.name) changes.push("name");
   if (current.phone !== b.phone) changes.push("phone");
@@ -3331,6 +3341,14 @@ sandbox.post("/bookings", async (c) => {
   const b = await input(c, bookingSchema);
   // The shop can add an appointment after it happened (a walk-in written up later, a missed
   // entry): any start time is allowed from the shop side. Customers online still can't book the past.
+  // Booking someone new must not create a second record: the phone is matched to the customer
+  // (by the DB), so an email that already belongs to a different customer is refused up front.
+  if (b.email && !b.customer_id) {
+    const owner = await c.env.DB.prepare("SELECT id, phone FROM customers WHERE shop_id=? AND LOWER(email)=LOWER(?) AND merged_into IS NULL LIMIT 1")
+      .bind(c.get("shopId"), b.email)
+      .first<{ id: string; phone: string }>();
+    if (owner && owner.phone !== b.phone) fail(409, "Another customer already uses this email address. Pick them from the customer list instead.");
+  }
   const result = await createBooking(c, b, "OWNER", { force: b.force, minStart: 0 });
   // A new customer's email goes on their record (existing emails are never overwritten).
   if (b.email && b.phone) await c.env.DB.prepare("UPDATE customers SET email=?, updated_at=? WHERE shop_id=? AND phone=? AND email='' AND merged_into IS NULL").bind(b.email, Date.now(), c.get("shopId"), b.phone).run().catch(() => {});
