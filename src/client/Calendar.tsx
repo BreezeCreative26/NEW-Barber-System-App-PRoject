@@ -372,7 +372,6 @@ export function Calendar({
     if (closed) return "Shop closed";
     if (leave) return "Day off";
     if (!shift?.enabled) return "Off duty";
-    if (start < Math.max(dayHours.starts, shift.starts) || start >= Math.min(dayHours.ends, shift.ends)) return "Outside hours";
     if (start >= shift.break_start && start < shift.break_end) return "Break";
     const moving = excludeId ? dayBookings.find((b) => b.id === excludeId) : null;
     const dur = moving?.duration_min ?? 15;
@@ -386,7 +385,6 @@ export function Calendar({
     if (!s) return "Inactive barber";
     const shift = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date) || w.hours.find((h) => h.staff_id === s.id && h.weekday === weekdayOf);
     const endAt = start + dur;
-    if (shift?.enabled && endAt > Math.min(dayHours.ends, shift.ends)) return "Outside hours";
     if (shift?.enabled && start < shift.break_end && endAt > shift.break_start && shift.break_end > shift.break_start) return "Break";
     if (dayBlocks.some((k) => k.staff_id === s.id && start < k.end_min && endAt > k.start_min)) return "Blocked";
     if (dayBookings.some((b) => b.id !== excludeId && b.staff_id === s.id && start < b.start_min + b.duration_min + b.buffer_min && endAt > b.start_min)) return "Occupied";
@@ -679,10 +677,7 @@ export function Calendar({
                         ? "Day off"
                         : !shift?.enabled
                             ? "Off duty"
-                            : start < Math.max(dayHours.starts, shift.starts) ||
-                                start >= Math.min(dayHours.ends, shift.ends)
-                              ? "Outside hours"
-                              : start >= shift.break_start &&
+                            : start >= shift.break_start &&
                                   start < shift.break_end
                                 ? "Break"
                                 : dayBlocks.some((k) => k.staff_id === s.id && start >= k.start_min && start < k.end_min)
@@ -694,7 +689,9 @@ export function Calendar({
                       start >= b.start_min &&
                       start < b.start_min + b.duration_min + b.buffer_min,
                   );
-                  return { start, reason, busy };
+                  // Outside the normal hours is just shaded (bookable like any time; customers can't see it).
+                  const after = !reason && !!shift?.enabled && (start < Math.max(dayHours.starts, shift.starts) || start >= Math.min(dayHours.ends, shift.ends));
+                  return { start, reason, busy, after };
                 },
               );
               const enabledSlots = slots.filter(
@@ -720,7 +717,7 @@ export function Calendar({
                   }}
                   onPointerLeave={() => setHover((h) => (h?.staffId === s.id ? null : h))}
                 >
-                  {slots.map(({ start, reason, busy }, n) => {
+                  {slots.map(({ start, reason, busy, after }, n) => {
                     // Greyed but clickable (Fresha): only truly impossible times are disabled.
                     const hard = HARD_REASONS.has(reason);
                     const outside = OUTSIDE_REASONS.has(reason);
@@ -728,7 +725,7 @@ export function Calendar({
                       <button
                         key={start}
                         type="button"
-                        className={`timetable-slot ${reason ? "blocked" : busy ? "occupied" : ""} ${reason && !hard ? "soft" : ""} ${outside ? "outside" : ""}`}
+                        className={`timetable-slot ${reason ? "blocked" : busy ? "occupied" : ""} ${reason && !hard ? "soft" : ""} ${outside ? "outside" : ""} ${after ? "after-hours" : ""}`}
                         data-column={i}
                         data-minute={start}
                         tabIndex={start === activeMinute ? 0 : -1}
@@ -750,7 +747,9 @@ export function Calendar({
                               ? `${reason} · click to book anyway`
                               : busy
                                 ? `Occupied · click to book alongside at ${time(start)}`
-                                : `Add booking at ${time(start)}`
+                                : after
+                                  ? `Add booking at ${time(start)} (outside normal hours, staff only)`
+                                  : `Add booking at ${time(start)}`
                         }
                         disabled={disabled || hard}
                         onClick={() => onDraft({ staffId: s.id, start, outside: reason || (busy ? "Occupied" : "") || undefined })}

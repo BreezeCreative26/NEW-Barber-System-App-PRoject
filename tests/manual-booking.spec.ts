@@ -14,26 +14,46 @@ async function slotsFor(page: import("@playwright/test").Page, w: W) {
     d.setUTCDate(d.getUTCDate() + i);
     const date = d.toISOString().slice(0, 10);
     const a = await (await page.request.get(base + `/availability?date=${date}&staff_id=${jay.id}&service_id=${svc.id}`)).json();
-    if (a.slots.some((s: { reason?: string }) => s.reason === "Outside working hours") && a.slots.some((s: { reason?: string }) => !s.reason))
+    if (a.slots.some((s: { reason?: string; outside?: boolean }) => !s.reason && s.outside) && a.slots.some((s: { reason?: string; outside?: boolean }) => !s.reason && !s.outside))
       return { date, jay, svc };
   }
   throw new Error("no suitable day");
 }
 
-test("UI: the New booking time list lets the shop pick an out-of-hours time and books it", async ({ page }) => {
+test("UI: outside-hours times are ordinary bookable times for staff, listed apart, with no override warning", async ({ page }) => {
   await openFixtureShop(page);
   const w = (await (await page.request.get(base + "/workspace")).json()) as W;
   const { date, svc } = await slotsFor(page, w);
   await page.getByLabel("Appointment date", { exact: true }).fill(date);
   await page.getByRole("button", { name: "New booking", exact: true }).click();
   await page.getByLabel("Service", { exact: true }).selectOption({ label: svc.name });
-  const early = page.getByRole("option", { name: /Outside working hours/ }).first();
+  const early = page.getByRole("option", { name: /outside normal hours/ }).first();
   await expect(early).toHaveJSProperty("disabled", false);
-  await page.getByLabel("Available start time").selectOption({ index: (await early.evaluate((el) => (el as HTMLOptionElement).index)) });
-  await expect(page.getByTestId("override-notice")).toContainText("Outside working hours");
+  await expect(page.getByText(/Outside normal hours \(\d+\)/)).toBeVisible();
+  await page.getByLabel("Available start time").selectOption({ index: await early.evaluate((el) => (el as HTMLOptionElement).index) });
+  // Booked "the same as normal": no override warning.
+  await expect(page.getByTestId("override-notice")).toHaveCount(0);
   // Hard reasons stay greyed out.
   const hard = page.getByRole("option", { name: /Shop closed|Time has passed|Barber has a day off/ });
   for (let i = 0; i < (await hard.count()); i++) await expect(hard.nth(i)).toHaveJSProperty("disabled", true);
+});
+
+test("API: staff book outside hours with no force flag; customers online still can't", async ({ page }) => {
+  await openFixtureShop(page);
+  const w = (await (await page.request.get(base + "/workspace")).json()) as W;
+  const { date, jay, svc } = await slotsFor(page, w);
+  const a = await (await page.request.get(base + `/availability?date=${date}&staff_id=${jay.id}&service_id=${svc.id}`)).json();
+  const out = a.slots.find((s: { reason: string; outside: boolean }) => !s.reason && s.outside);
+  expect(out, "an outside-hours slot is offered to staff").toBeTruthy();
+  const r = await page.request.post(base + "/bookings", {
+    headers: { Origin: origin },
+    data: { request_id: crypto.randomUUID(), staff_id: jay.id, service_id: svc.id, customer_name: "Early Bird", phone: "07700 900777", notes: "", date, start_min: out.start_min, source: "TEST_BOOKING", quote: a.quote, notify: false },
+  });
+  expect(r.status(), await r.text()).toBe(201);
+  // Not flagged as a schedule problem on the bell.
+  const after = await (await page.request.get(base + "/workspace")).json();
+  const bid = (await r.json()).booking.id;
+  expect(after.issues.some((i: { booking_id: string }) => i.booking_id === bid)).toBe(false);
 });
 
 test("API: a customer's phone or email can't be used by a second customer (create, edit, booking)", async () => {

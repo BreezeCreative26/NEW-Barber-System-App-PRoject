@@ -1127,12 +1127,25 @@ function SlotGrid({
   value,
   onPick,
 }: {
-  slots: { start_min: number; reason: string }[];
+  slots: { start_min: number; reason: string; outside?: boolean }[];
   value: string;
   onPick: (minute: number, el: HTMLElement) => void;
 }) {
-  const free = slots.filter((s) => !s.reason);
-  if (!free.length) return null;
+  const free = slots.filter((s) => !s.reason && !s.outside);
+  const after = slots.filter((s) => !s.reason && s.outside);
+  const afterGroup = after.length ? (
+    <details className="slot-grid-after" open={after.some((s) => value === String(s.start_min))}>
+      <summary>Outside normal hours ({after.length}) — staff only, customers can't book these</summary>
+      <div className="slot-grid-chips">
+        {after.map((s) => (
+          <button type="button" key={s.start_min} className="slot-chip" aria-pressed={value === String(s.start_min)} onClick={(e) => onPick(s.start_min, e.currentTarget)}>
+            {time(s.start_min)}
+          </button>
+        ))}
+      </div>
+    </details>
+  ) : null;
+  if (!free.length) return afterGroup;
   const groups: [string, (m: number) => boolean][] = [
     ["Morning", (m) => m < 720],
     ["Afternoon", (m) => m >= 720 && m < 1020],
@@ -1162,6 +1175,7 @@ function SlotGrid({
           </div>
         );
       })}
+      {afterGroup}
     </div>
   );
 }
@@ -1191,10 +1205,10 @@ function WalkInForm({ w, saved, staffId }: { w: WorkspaceData; saved: EditorProp
       cancelled = true;
     };
   }, [staff, service, w.today]);
-  const next = slots?.slots.find((s) => !s.reason) ?? null;
+  const next = slots?.slots.find((s) => !s.reason && !s.outside) ?? null;
   const [start, setStart] = useState<number | null>(null);
   useEffect(() => setStart(next?.start_min ?? null), [next?.start_min]);
-  const upcoming = slots?.slots.filter((s) => !s.reason).slice(0, 6) ?? [];
+  const upcoming = slots?.slots.filter((s) => !s.reason && !s.outside).slice(0, 6) ?? [];
   return (
     <SaveForm
       label={busy ? "Seating…" : start !== null ? `Seat now · ${time(start)}` : "Seat now"}
@@ -7354,7 +7368,7 @@ type Slots = {
   overridden: boolean;
   service_name: string;
   cancel_hours: number;
-  slots: { start_min: number; reason: string }[];
+  slots: { start_min: number; reason: string; outside?: boolean }[];
   price_pence: number;
   duration_min: number;
   deposit_policy_pence: number;
@@ -8125,7 +8139,7 @@ function BookingForm({
                         disabled={!!s.reason && !SOFT_SLOT_REASONS.includes(s.reason)}
                       >
                         {time(s.start_min)}
-                        {s.reason ? ` — ${s.reason}` : ""}
+                        {s.reason ? ` — ${s.reason}` : s.outside ? " — outside normal hours" : ""}
                       </option>
                     ))}
                   </select>
@@ -8134,10 +8148,10 @@ function BookingForm({
               <div className="booking-time-shortcut">
                 <Button
                   variant="secondary"
-                  disabled={!slots.slots.some((s) => !s.reason)}
+                  disabled={!slots.slots.some((s) => !s.reason && !s.outside)}
                   onClick={(e) => {
                     markDraft(e.currentTarget);
-                    const first = slots.slots.find((s) => !s.reason);
+                    const first = slots.slots.find((s) => !s.reason && !s.outside);
                     if (first) {
                       setStart(String(first.start_min));
                       setOverride("");
@@ -8148,7 +8162,7 @@ function BookingForm({
                 </Button>
                 <small>Selected barber and date only. No time is held.</small>
               </div>
-              {slots.slots.every((s) => s.reason) && (
+              {slots.slots.every((s) => s.reason && !SOFT_SLOT_REASONS.includes(s.reason)) && (
                 <Notice tone="warning">
                   No available times. Try another day or barber, or review
                   weekly hours.
