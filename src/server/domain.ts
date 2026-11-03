@@ -1137,6 +1137,12 @@ export const moveSchema = z
   })
   .strict();
 // Reasons a shop user may knowingly override from the calendar. Public booking never can.
+// True when a time is outside the shop's/barber's hours (the customer view would refuse it).
+export function isOutsideHours(shop: Shop, hours: Hours | null, date: string, start: number, duration: number): boolean {
+  if (!hours?.enabled) return false;
+  const day = shopDay(shop, weekday(date));
+  return start < Math.max(day.starts, hours.starts) || start + duration + shopBuffer(shop) > Math.min(day.ends, hours.ends);
+}
 export const OVERRIDABLE_REASONS = new Set(["Slot taken", "Outside working hours", "Lunch break", "Barber off duty", "Blocked time"]);
 export function overridable(reason: string) {
   return OVERRIDABLE_REASONS.has(reason);
@@ -1548,6 +1554,9 @@ export function slotReason(
   excludeId?: string,
   daysOff: StaffDayOff[] = [],
   blocks: Pick<StaffBlock, "staff_id" | "date" | "start_min" | "end_min">[] = [],
+  // Shop-side view: times outside the working hours are ordinary bookable times for staff and
+  // barbers (customers never get this view, so they are only ever offered opening hours).
+  staffView = false,
 ): string {
   if (!staff?.active) return "Barber unavailable";
   const buf = shopBuffer(shop);
@@ -1562,8 +1571,9 @@ export function slotReason(
   if (!day.enabled || holidays.some((h) => h.date === date)) return "Shop closed";
   if (!hours?.enabled) return "Barber off duty";
   if (
-    start < Math.max(day.starts, hours.starts) ||
-    start + duration + buf > Math.min(day.ends, hours.ends)
+    !staffView &&
+    (start < Math.max(day.starts, hours.starts) ||
+      start + duration + buf > Math.min(day.ends, hours.ends))
   )
     return "Outside working hours";
   if (

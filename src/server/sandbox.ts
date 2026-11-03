@@ -43,6 +43,7 @@ import {
   shopToday,
   slotReason,
   overridable,
+  isOutsideHours,
   dueAtBooking,
   paymentModeFor,
   staffSchema,
@@ -515,6 +516,7 @@ async function seriesPreview(c: Ctx, b: z.infer<typeof seriesSchema>) {
       undefined,
       data.daysOff,
       data.blocks,
+      true,
     );
     out.push({ date, reason, skipped: false });
   }
@@ -709,6 +711,15 @@ sandbox.get("/workspace", async (c) => {
   )
     .bind(sid, issueScope, issueScope, Date.now())
     .all<StoredBooking>();
+  const deliberate = new Set(
+    (
+      await c.env.DB.prepare(
+        "SELECT entity_id FROM audit_events WHERE shop_id=? AND entity_type='booking' AND action IN ('BOOKING_CREATED','RESCHEDULED') AND reason ILIKE '%outside normal working hours%' AND entity_id IN (SELECT id FROM bookings WHERE shop_id=? AND start_at>?)",
+      )
+        .bind(sid, sid, Date.now())
+        .all<{ entity_id: string }>()
+    ).results.map((r) => r.entity_id),
+  );
   const issues = future.results
     .filter(
       (b) =>
@@ -739,6 +750,7 @@ sandbox.get("/workspace", async (c) => {
             undefined,
             daysOff,
           );
+      if (reason === "Outside working hours" && deliberate.has(b.id)) return [];
       return reason ? [{ booking_id: b.id, ref: ref(b), reason }] : [];
     });
   const payments = (
@@ -1080,6 +1092,14 @@ sandbox.get("/customers", async (c) => {
   const results = assigned ? rows.results.filter((r) => (r as { visits: number }).visits > 0) : rows.results;
   return c.json({ customers: results, limit });
 });
+// One email, one customer per shop: stops the same person ending up with two records / accounts.
+async function assertEmailFree(c: Ctx, email: string, exceptId: string | null) {
+  if (!email) return;
+  const clash = await c.env.DB.prepare("SELECT id FROM customers WHERE shop_id=? AND LOWER(email)=LOWER(?) AND merged_into IS NULL AND id<>?")
+    .bind(c.get("shopId"), email, exceptId ?? "")
+    .first();
+  if (clash) fail(409, "Another customer already uses this email address");
+}
 sandbox.post("/customers", async (c) => {
   const b = await input(c, customerSchema);
   if (!b.email) fail(400, "Add an email address so they get confirmations");
@@ -1087,6 +1107,7 @@ sandbox.post("/customers", async (c) => {
     .bind(c.get("shopId"), b.phone)
     .first<{ id: string; merged_into: string | null }>();
   if (existing) fail(409, "A customer with this mobile number already exists");
+  await assertEmailFree(c, b.email, null);
   const now = Date.now();
   const customerId = id();
   await c.env.DB.batch([
@@ -1239,6 +1260,7 @@ sandbox.put("/customers/:id", async (c) => {
     .bind(c.get("shopId"), b.phone, current.id)
     .first();
   if (clash) fail(409, "Another customer already uses this mobile number");
+  if (b.email && b.email.toLowerCase() !== (current.email || "").toLowerCase()) await assertEmailFree(c, b.email, current.id);
   const changes: string[] = [];
   if (current.name !== b.name) changes.push("name");
   if (current.phone !== b.phone) changes.push("phone");
@@ -3098,6 +3120,8 @@ sandbox.get("/availability", async (c) => {
   const slots = Array.from({ length: 96 }, (_, i) => i * 15)
     .map((start_min) => ({
       start_min,
+      // Bookable by staff like any other time, but not offered to customers online.
+      outside: isOutsideHours(data.shop, data.hours, p.date, start_min, duration),
       reason:
         !booking && !data.service.active
           ? "Service unavailable"
@@ -3114,6 +3138,7 @@ sandbox.get("/availability", async (c) => {
               booking?.id,
               data.daysOff,
               data.blocks,
+              true,
             ),
     }));
   return c.json({
@@ -3218,12 +3243,15 @@ export async function createBooking(
     undefined,
     data.daysOff,
     data.blocks,
+    channel === "OWNER",
   );
+  // Outside the working hours is an ordinary bookable time for the shop (never for customers online).
+  const outsideHours = channel === "OWNER" && isOutsideHours(data.shop, data.hours, b.date, b.start_min, quote.duration_min);
   // Shop users may knowingly double-book or book outside hours (Fresha behaviour); customers cannot.
   // Past time is never overridable, whichever reason slotReason happened to report first.
   const startInstant = localInstant(b.date, b.start_min, data.shop.timezone);
   const inPast = startInstant === null || startInstant < (options.minStart ?? Date.now());
-  const overridden = !!reason && channel === "OWNER" && !!options.force && overridable(reason) && !inPast;
+  const overridden = (!!reason && channel === "OWNER" && !!options.force && overridable(reason) && !inPast) || (outsideHours && !reason);
   if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
   const start = localInstant(b.date, b.start_min, data.shop.timezone)!;
   const now = Date.now();
@@ -3292,7 +3320,7 @@ export async function createBooking(
           ? options.depositHoldMin
             ? `Customer booked online. Slot held ${options.depositHoldMin} min for the deposit.`
             : "Customer booked online. Deposit payable in the shop; confirmation queued."
-          : (b.source === "WALK_IN" ? "Walk-in seated." : start < now ? "Added after the visit by the shop. No message sent." : "Appointment saved by the shop.") + (overridden ? ` Overrode: ${reason}.` : ""),
+          : (b.source === "WALK_IN" ? "Walk-in seated." : start < now ? "Added after the visit by the shop. No message sent." : "Appointment saved by the shop.") + (reason && overridden ? ` Overrode: ${reason}.` : "") + (outsideHours ? " Booked outside normal working hours." : ""),
       ),
     ]);
   } catch (err) {
@@ -3331,6 +3359,14 @@ sandbox.post("/bookings", async (c) => {
   const b = await input(c, bookingSchema);
   // The shop can add an appointment after it happened (a walk-in written up later, a missed
   // entry): any start time is allowed from the shop side. Customers online still can't book the past.
+  // Booking someone new must not create a second record: the phone is matched to the customer
+  // (by the DB), so an email that already belongs to a different customer is refused up front.
+  if (b.email && !b.customer_id) {
+    const owner = await c.env.DB.prepare("SELECT id, phone FROM customers WHERE shop_id=? AND LOWER(email)=LOWER(?) AND merged_into IS NULL LIMIT 1")
+      .bind(c.get("shopId"), b.email)
+      .first<{ id: string; phone: string }>();
+    if (owner && owner.phone !== b.phone) fail(409, "Another customer already uses this email address. Pick them from the customer list instead.");
+  }
   const result = await createBooking(c, b, "OWNER", { force: b.force, minStart: 0 });
   // A new customer's email goes on their record (existing emails are never overwritten).
   if (b.email && b.phone) await c.env.DB.prepare("UPDATE customers SET email=?, updated_at=? WHERE shop_id=? AND phone=? AND email='' AND merged_into IS NULL").bind(b.email, Date.now(), c.get("shopId"), b.phone).run().catch(() => {});
@@ -3392,9 +3428,9 @@ sandbox.patch("/bookings/:id/items", async (c) => {
   const edited = items.some((it, i) => it.price_pence !== quote.items[i].price_pence || it.duration_min !== quote.items[i].duration_min);
   // Roster + overlap for the new footprint (only re-checked when it grows or moves service).
   const reason = duration !== b.duration_min || body.service_id !== b.service_id
-    ? slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, b.date, b.start_min, duration, 0, b.id, data.daysOff, data.blocks)
+    ? slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, b.date, b.start_min, duration, 0, b.id, data.daysOff, data.blocks, true)
     : "";
-  const overridden = !!reason && body.force && overridable(reason);
+  const overridden = (!!reason && body.force && overridable(reason)) || (!reason && isOutsideHours(data.shop, data.hours, b.date, b.start_min, duration));
   if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
   const now = Date.now();
   const start = localInstant(b.date, b.start_min, data.shop.timezone)!;
@@ -4068,10 +4104,11 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     b.id,
     data.daysOff,
     data.blocks,
+    true,
   );
   const moveInstant = localInstant(body.date, body.start_min, data.shop.timezone);
   const movedToPast = moveInstant !== null && moveInstant < Date.now();
-  const overridden = !!reason && body.force && overridable(reason) && moveInstant !== null;
+  const overridden = (!!reason && body.force && overridable(reason) && moveInstant !== null) || (!reason && isOutsideHours(data.shop, data.hours, body.date, body.start_min, b.duration_min));
   if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
   const start = localInstant(body.date, body.start_min, data.shop.timezone)!;
   await checkVersionUpdate(
@@ -4089,7 +4126,7 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
       b.id,
       body.version,
     ),
-    audit(c, "booking", b.id, "RESCHEDULED", overridden ? `${body.reason} (overrode: ${reason})` : body.reason, true),
+    audit(c, "booking", b.id, "RESCHEDULED", (reason && overridden ? `${body.reason} (overrode: ${reason})` : body.reason) + (isOutsideHours(data.shop, data.hours, body.date, body.start_min, b.duration_min) ? " (outside normal working hours)" : ""), true),
     overridden ? [forceSlot(c)] : [],
   );
   await slotFreed(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "move");
@@ -4269,7 +4306,7 @@ sandbox.post("/series/:id/reschedule", async (c) => {
     try {
       const data = await availabilityContext(c, body.staff_id, b.service_id, date);
       if (!isOffered(data.rule)) throw new Error("service_ineligible");
-      const reason = slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, date, body.start_min, b.duration_min, Date.now(), b.id, data.daysOff, data.blocks);
+      const reason = slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, date, body.start_min, b.duration_min, Date.now(), b.id, data.daysOff, data.blocks, true);
       if (reason) throw new Error(reason);
       const start = localInstant(date, body.start_min, data.shop.timezone)!;
       await checkVersionUpdate(

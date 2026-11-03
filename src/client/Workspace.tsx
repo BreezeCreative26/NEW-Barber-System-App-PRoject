@@ -1127,12 +1127,25 @@ function SlotGrid({
   value,
   onPick,
 }: {
-  slots: { start_min: number; reason: string }[];
+  slots: { start_min: number; reason: string; outside?: boolean }[];
   value: string;
   onPick: (minute: number, el: HTMLElement) => void;
 }) {
-  const free = slots.filter((s) => !s.reason);
-  if (!free.length) return null;
+  const free = slots.filter((s) => !s.reason && !s.outside);
+  const after = slots.filter((s) => !s.reason && s.outside);
+  const afterGroup = after.length ? (
+    <details className="slot-grid-after" open={after.some((s) => value === String(s.start_min))}>
+      <summary>Outside normal hours ({after.length}) — staff only, customers can't book these</summary>
+      <div className="slot-grid-chips">
+        {after.map((s) => (
+          <button type="button" key={s.start_min} className="slot-chip" aria-pressed={value === String(s.start_min)} onClick={(e) => onPick(s.start_min, e.currentTarget)}>
+            {time(s.start_min)}
+          </button>
+        ))}
+      </div>
+    </details>
+  ) : null;
+  if (!free.length) return afterGroup;
   const groups: [string, (m: number) => boolean][] = [
     ["Morning", (m) => m < 720],
     ["Afternoon", (m) => m >= 720 && m < 1020],
@@ -1162,6 +1175,7 @@ function SlotGrid({
           </div>
         );
       })}
+      {afterGroup}
     </div>
   );
 }
@@ -1191,10 +1205,10 @@ function WalkInForm({ w, saved, staffId }: { w: WorkspaceData; saved: EditorProp
       cancelled = true;
     };
   }, [staff, service, w.today]);
-  const next = slots?.slots.find((s) => !s.reason) ?? null;
+  const next = slots?.slots.find((s) => !s.reason && !s.outside) ?? null;
   const [start, setStart] = useState<number | null>(null);
   useEffect(() => setStart(next?.start_min ?? null), [next?.start_min]);
-  const upcoming = slots?.slots.filter((s) => !s.reason).slice(0, 6) ?? [];
+  const upcoming = slots?.slots.filter((s) => !s.reason && !s.outside).slice(0, 6) ?? [];
   return (
     <SaveForm
       label={busy ? "Seating…" : start !== null ? `Seat now · ${time(start)}` : "Seat now"}
@@ -7354,7 +7368,7 @@ type Slots = {
   overridden: boolean;
   service_name: string;
   cancel_hours: number;
-  slots: { start_min: number; reason: string }[];
+  slots: { start_min: number; reason: string; outside?: boolean }[];
   price_pence: number;
   duration_min: number;
   deposit_policy_pence: number;
@@ -7549,6 +7563,8 @@ function CustomerPicker({
     </div>
   );
 }
+// Reasons a slot is greyed but the shop may still book it (mirrors OVERRIDABLE_REASONS on the server).
+const SOFT_SLOT_REASONS = ["Slot taken", "Outside working hours", "Lunch break", "Barber off duty", "Blocked time"];
 function BookingForm({
   w,
   initialDate,
@@ -7683,7 +7699,7 @@ function BookingForm({
           setSlots(s);
           if (draftPending.current !== undefined) {
             const at = s.slots.find((slot) => slot.start_min === draftPending.current);
-            const soft = at?.reason && ["Slot taken", "Outside working hours", "Lunch break", "Barber off duty", "Blocked time"].includes(at.reason);
+            const soft = at?.reason && SOFT_SLOT_REASONS.includes(at.reason);
             if (at && !at.reason) {
               setStart(String(at.start_min));
               setOverride("");
@@ -8100,13 +8116,19 @@ function BookingForm({
                 onPick={(m, el) => {
                   markDraft(el);
                   setStart(String(m));
+                  setOverride("");
                 }}
               />
               <div className="booking-time-row">
                 <Field label="Available start time">
                   <select
                     value={start}
-                    onChange={(e) => setStart(e.target.value)}
+                    onChange={(e) => {
+                      setStart(e.target.value);
+                      // Shop staff may book outside hours / over a break or another booking: flag the override.
+                      const at = slots.slots.find((x) => String(x.start_min) === e.target.value);
+                      setOverride(at?.reason && SOFT_SLOT_REASONS.includes(at.reason) ? at.reason : "");
+                    }}
                     required
                   >
                     <option value="">Choose a time</option>
@@ -8114,10 +8136,10 @@ function BookingForm({
                       <option
                         key={s.start_min}
                         value={s.start_min}
-                        disabled={!!s.reason}
+                        disabled={!!s.reason && !SOFT_SLOT_REASONS.includes(s.reason)}
                       >
                         {time(s.start_min)}
-                        {s.reason ? ` — ${s.reason}` : ""}
+                        {s.reason ? ` — ${s.reason}` : s.outside ? " — outside normal hours" : ""}
                       </option>
                     ))}
                   </select>
@@ -8126,18 +8148,21 @@ function BookingForm({
               <div className="booking-time-shortcut">
                 <Button
                   variant="secondary"
-                  disabled={!slots.slots.some((s) => !s.reason)}
+                  disabled={!slots.slots.some((s) => !s.reason && !s.outside)}
                   onClick={(e) => {
                     markDraft(e.currentTarget);
-                    const first = slots.slots.find((s) => !s.reason);
-                    if (first) setStart(String(first.start_min));
+                    const first = slots.slots.find((s) => !s.reason && !s.outside);
+                    if (first) {
+                      setStart(String(first.start_min));
+                      setOverride("");
+                    }
                   }}
                 >
                   Use first available time
                 </Button>
                 <small>Selected barber and date only. No time is held.</small>
               </div>
-              {slots.slots.every((s) => s.reason) && (
+              {slots.slots.every((s) => s.reason && !SOFT_SLOT_REASONS.includes(s.reason)) && (
                 <Notice tone="warning">
                   No available times. Try another day or barber, or review
                   weekly hours.

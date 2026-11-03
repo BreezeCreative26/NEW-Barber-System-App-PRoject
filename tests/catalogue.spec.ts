@@ -323,10 +323,13 @@ test("dated partial shifts replace weekly hours, keep closure precedence, flag b
   let q = await (await quote(r, w)).json();
   const reason = (n: number) =>
     q.slots.find((s: { start_min: number }) => s.start_min === n).reason;
-  expect(reason(540)).toBe("Outside working hours");
+  // Outside the dated shift is bookable for staff (flagged `outside`), just never offered to customers.
+  expect(reason(480)).toBe("");
+  expect(q.slots.find((s: { start_min: number }) => s.start_min === 480).outside).toBe(true);
+  expect(reason(540)).toBe("Slot taken"); // the earlier 09:00 booking, no longer masked by "outside hours"
   expect(reason(705)).toBe("Lunch break");
   expect(reason(765)).toBe("");
-  expect(reason(945)).toBe("Outside working hours");
+  expect(reason(945)).toBe("");
   expect((await ws(r)).issues[0].reason).toBe("Outside working hours");
   // Weekly lunch is replaced: 13:00 is now bookable, unlike the seeded weekly break.
   expect(reason(780)).toBe("");
@@ -450,10 +453,10 @@ test("owner edits add-ons, barber pricing and partial shifts; booking items surv
   ).toBeVisible();
   await expect(
     page.getByRole("option", {
-      name: "09:00 — Outside working hours",
+      name: "09:00 — outside normal hours",
       exact: true,
     }),
-  ).toHaveJSProperty("disabled", true);
+  ).toHaveJSProperty("disabled", false); // staff book outside hours exactly like any other time
   await page.getByLabel("Available start time").selectOption("600");
   await page
     .getByLabel("Customer name", { exact: true })
@@ -533,7 +536,7 @@ test("changing add-ons invalidates a selected slot, preserves contact fields and
   await expect(page.getByLabel("Available start time")).toHaveValue("");
   await expect(
     page.getByRole("option", { name: "09:00 — Slot taken", exact: true }),
-  ).toHaveJSProperty("disabled", true);
+  ).toHaveJSProperty("disabled", false); // shop may double-book on purpose (flagged as an override)
   await expect(page.getByLabel("Customer name", { exact: true })).toHaveValue(
     "Preserved addon draft",
   );

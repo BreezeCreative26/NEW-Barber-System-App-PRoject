@@ -3213,6 +3213,9 @@ body.editor-open { overflow: hidden; }
 .workspace .timetable-slot.blocked.outside span { opacity: 0; }
 .workspace .timetable-slot.blocked.outside:hover { background: var(--line-2, #eceee8); }
 .workspace .timetable-slot.blocked.outside:hover span { opacity: 1; }
+.workspace .timetable-slot.after-hours { background: var(--canvas, #f5f6f8); }
+.workspace .slot-grid-after { margin-top: 10px; }
+.workspace .slot-grid-after > summary { cursor: pointer; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
 .workspace .legend-outside { background: var(--canvas, #f5f6f8); border: 1px solid var(--line); }
 
 /* ---------- SMS sender name (alpha tag) field with live phone preview ---------- */
