@@ -4931,7 +4931,7 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
               <p className="chan-body">{msg.msg_sms ? "Each code is one text, billed like any other text. Turn this off and customers sign in with email and password only." : "Needs texts to be switched on. While texts are off, customers sign in with email and password."}</p>
             </div>
           </div>
-          <SmsSenderField value={msg.msg_sms_sender} onChange={(v) => setMsg({ ...msg, msg_sms_sender: v })} shopName={w.shop.name} sampleBody={`${w.shop.name}: you're booked — ${w.services[0]?.name || "Haircut"} with ${w.staff[0]?.name.split(" ")[0] || "Sam"}, Fri 12 Sep at 10:30. Ref BRB-0412. Move or cancel: ${location.origin}/m/a1b2c3`} testId="msg-sms-sender" />
+          <SmsSenderField value={msg.msg_sms_sender} onChange={(v) => setMsg({ ...msg, msg_sms_sender: v })} shopName={w.shop.name} sampleBody={`${w.shop.name}: you're booked - ${w.services[0]?.name || "Haircut"} with ${w.staff[0]?.name.split(" ")[0] || "Sam"}, Fri 12 Sep at 10:30. Ref BRB-0412. Move or cancel: ${location.origin}/m/a1b2c3`} testId="msg-sms-sender" />
           {msgState.text && (
             <p className={msgState.kind === "error" ? "workspace-error" : "workspace-success"} role={msgState.kind === "error" ? "alert" : "status"}>
               {msgState.text}

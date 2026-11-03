@@ -466,6 +466,7 @@ const publicMutations = [
   ["POST", "/shops/:slug/account/start"],
   ["POST", "/shops/:slug/account/verify"],
   ["POST", "/shops/:slug/account/logout"],
+  ["POST", "/shops/:slug/account/sms-choice"],
   ["PUT", "/shops/:slug/account/profile"],
   ["POST", "/shops/:slug/account/bookings/:id/cancel"],
   ["POST", "/shops/:slug/account/bookings/:id/reschedule"],

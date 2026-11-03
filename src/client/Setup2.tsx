@@ -155,7 +155,7 @@ export function StepMessages({ w, api, refresh, data, setNotice, setError, onNex
   const emailLive = ps.email.provider !== "mailbox";
   const barber = w.staff[0]?.name.split(" ")[0] || "Sam";
   const svc = w.services[0]?.name || "Haircut";
-  const preview = `${shop.name}: you're booked — ${svc} with ${barber}, Fri 12 Sep at 10:30. Ref BRB-0412. Move or cancel: ${location.origin}/m/a1b2c3`;
+  const preview = `${shop.name}: you're booked - ${svc} with ${barber}, Fri 12 Sep at 10:30. Ref BRB-0412. Move or cancel: ${location.origin}/m/a1b2c3`;
   const needsAck = m.msg_sms === 1 && !!bill && !bill.acknowledged_at;
   async function save() {
     await api("/shop/messaging", "PUT", { ...m, ...(needsAck ? { sms_billing_ack: ack } : {}) });
