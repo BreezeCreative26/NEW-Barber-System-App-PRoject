@@ -1,5 +1,10 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-04 — Timetable: changing day reads only that day
+- Next/previous day (and the date picker) used to re-read the whole workspace (~20 sequential queries: staff, services, hours, 500 bookings, audit, payments, schedule issues) before asking for the day. `loadDay()` now reads only `/bookings?date=`; everything else stays and is kept fresh by the heartbeat and saves.
+- Days already seen are cached for the session and shown instantly while being re-checked; the days either side are pre-loaded. Any full refresh clears the cache. Errors fall back to the full load.
+- Test: `tests/day-load.spec.ts` (no `/workspace` request on a day change). Calendar suite subset (5) passes.
+
 ## 2026-11-04 — Customer details: one edit updates the customer everywhere
 - Editing a customer (Customers → Details) now also updates the name / mobile / email copied onto their appointments, waiting-list entries and standing series, in the same transaction; the calendar re-reads straight after the save.
 - Editing name or mobile on an appointment now updates the customer record and their other appointments too (refused with a "merge instead" message if the mobile belongs to another customer). Notes-only edits leave the customer alone. A customer editing their own profile online syncs the same way.
