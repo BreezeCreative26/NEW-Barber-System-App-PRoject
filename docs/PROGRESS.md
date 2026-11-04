@@ -1,5 +1,11 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-04 — Admin calendar: whole-shop closed days show a light red wash
+- A closed weekday or closure date no longer prints "Shop closed" in every slot. The day timetable gets a soft red wash with one sticky "Shop closed · <closure label>" pill under the barber header; slots stay disabled and keep "Shop closed" in their aria-label for screen readers.
+- With nobody rostered on a closed day, one red "Shop closed" note replaces "No barbers match this view" (the team button still adds a barber to book anyway).
+- Week view: closed days are tinted red and read "Shop closed" (a barber's own day off still reads "Not working"). Dark mode variants included.
+- Test: `tests/closed-day.spec.ts` (desktop + phone). booking-slim, calendar-drag, day-load pass. calendar "E1 unavailable chair time" still fails at the barber day-off step, same as on main.
+
 ## 2026-11-04 — Staff booking: one plain list of bookable times
 - The admin booking time list shows only times the shop can book, with no reason labels ("outside normal hours", "Slot taken", "Lunch break") and no greyed-out rows. Out-of-hours, breaks and blocked time are ordinary choices; the save books over them as before.
 - Hidden: times that physically overlap an existing appointment for that barber (new `taken` flag from `/availability`), plus times that can't be saved at all (past, shop closed, day off).

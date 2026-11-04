@@ -4533,3 +4533,37 @@ input[type="radio"] { appearance: auto; width: 18px; height: 18px; min-height: 1
 
 .modal .booking-slim .addon-chip > svg { flex: none; }
 .modal .booking-slim .addon-chip > span { white-space: nowrap; }
+
+/* ---- Whole shop closed (closed weekday or a closure date): one soft red wash + one pinned label,
+   instead of "Shop closed" repeated down every column. Barbers' own days off keep the grey hatch. */
+.workspace .calendar-board.shop-closed-day .calendar-timeline { background-color: #fdf3f3; }
+.workspace .calendar-board.shop-closed-day .timetable-slot.blocked {
+  background: rgba(220, 70, 70, 0.07);
+  background-image: none;
+  border-color: transparent;
+  color: #a54848;
+}
+.workspace .calendar-board.shop-closed-day .timetable-slot.blocked span { opacity: 0; }
+.workspace .calendar-board.shop-closed-day .staff-column-heading { opacity: .75; }
+.workspace .shop-closed-banner {
+  /* Lives on the board (full scroll height) so it can stick just under the barber header. */
+  position: sticky; top: var(--header-h, 60px); left: 0; height: 0; z-index: 5; pointer-events: none;
+  display: flex; justify-content: center;
+}
+.workspace .shop-closed-banner > span {
+  display: flex; align-items: center; gap: 6px; width: max-content; margin-top: 12px; height: max-content;
+  padding: 6px 14px; border-radius: 999px;
+  background: #fff; border: 1px solid #f1c9c9; color: #b23b3b;
+  font-size: 13px; font-weight: 600; box-shadow: 0 4px 14px rgba(178, 59, 59, 0.12);
+}
+/* Week view: a shop-closed day gets the same soft red, distinct from a barber's day off. */
+.workspace .week-col.shop-closed { background: #fdf3f3; }
+.workspace .week-col.shop-closed .week-off { color: #b23b3b; font-weight: 600; }
+.workspace .week-day-head.closed small { color: #b23b3b; }
+html.ws-dark .workspace .calendar-board.shop-closed-day .calendar-timeline,
+html.ws-dark .workspace .week-col.shop-closed { background-color: rgba(220, 70, 70, 0.08); }
+html.ws-dark .workspace .shop-closed-banner > span { background: #1a1c22; border-color: rgba(220, 70, 70, .35); color: #f08a8a; }
+.workspace .shop-closed-empty { display: grid; justify-items: center; gap: 6px; margin: 16px; padding: 28px 16px; border-radius: 14px; background: #fdf3f3; border: 1px solid #f6dede; text-align: center; }
+.workspace .shop-closed-empty strong { display: inline-flex; align-items: center; gap: 6px; color: #b23b3b; font-size: 15px; }
+.workspace .shop-closed-empty span { color: var(--muted); font-size: 13px; }
+html.ws-dark .workspace .shop-closed-empty { background: rgba(220, 70, 70, 0.08); border-color: rgba(220, 70, 70, .25); }

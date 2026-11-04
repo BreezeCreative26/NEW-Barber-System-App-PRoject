@@ -36,6 +36,6 @@ test("walk-in button books with no customer and no messages; More options shows 
   await dialog.getByRole("button", { name: "Confirm booking" }).click();
   await expect(dialog).toBeHidden();
   const after = await (await page.request.get(`/api/app/bookings/range?from=${w.today}&to=${(() => { const d = new Date(w.today + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + 12); return d.toISOString().slice(0, 10); })()}`)).json();
-  const mine = after.bookings.find((b: { notes?: string; customer_name: string }) => b.customer_name === "Walk-in" && String(b.start_min) === picked);
+  const mine = after.bookings.find((b: { customer_name: string; start_min: number }) => b.customer_name === "Walk-in" && String(b.start_min) === picked);
   expect(mine).toBeTruthy();
 });
