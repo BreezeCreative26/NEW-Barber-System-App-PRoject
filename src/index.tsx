@@ -214,6 +214,28 @@ app.post("/api/telnyx/setup", async (c) => {
     return c.json({ ok: false, error: e instanceof Error ? e.message : "setup failed" }, 502);
   }
 });
+// Read-only Telnyx lookups (delivery records, one message, balance) run from the deployed app, because
+// Telnyx's edge blocks some dev networks. Ops use only: hidden (404) unless the caller presents
+// CRON_SECRET, GET only, a short allow-list of paths, nothing is sent or changed.
+app.get("/api/ops/telnyx", async (c) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || c.req.header("authorization") !== `Bearer ${secret}`) return c.json({ ok: false }, 404);
+  const key = process.env.TELNYX_API_KEY;
+  if (!key) return c.json({ ok: false, error: "TELNYX_API_KEY not set" }, 503);
+  const url = new URL(c.req.url);
+  const path = url.searchParams.get("path") || "";
+  if (!/^(detail_records|messages\/[0-9a-f-]{36}|balance)$/.test(path)) return c.json({ ok: false, error: "path not allowed" }, 400);
+  url.searchParams.delete("path");
+  try {
+    const res = await fetch(`https://api.telnyx.com/v2/${path}${url.searchParams.size ? `?${url.searchParams}` : ""}`, {
+      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+      signal: AbortSignal.timeout(20000),
+    });
+    return new Response(await res.text(), { status: res.status, headers: { "Content-Type": res.headers.get("content-type") || "application/json", "Cache-Control": "no-store" } });
+  } catch (e) {
+    return c.json({ ok: false, error: e instanceof Error ? e.message : "telnyx unreachable" }, 502);
+  }
+});
 const clientErrorHits = new Map<string, { n: number; until: number }>();
 app.post("/api/telemetry/error", async (c) => {
   const origin = new URL(c.req.url).origin;
