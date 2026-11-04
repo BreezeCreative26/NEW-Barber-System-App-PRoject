@@ -721,3 +721,10 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - Bottom tab bar on phones across shop home, /book and /me: Home · Book · Visits · Account (`ShopTabBar`).
 - Customer session cookie now carries `Domain=.<root>` like the owner cookie, so a sign-in on the shop host is seen on the root host and vice versa.
 - Tests: `registerCustomer`/`signInCustomer` helpers in `tests/shop.ts`; all booking suites updated to sign in first; new members-only API tests in `customer-auth.spec`.
+
+## Recurring bookings from the shop side (series fix)
+- Barbers without "manage others" no longer hit "You can only change your own appointments": the booking form starts on, and only offers, their own name (it used to preselect the first barber).
+- Standing bookings stop at the shop's booking window (`booking_window_days`). The Visits field caps itself and says how many fit; the server drops later dates and reports `trimmed`.
+- Conflict screen on review: each clashing date shows "Change time…" (that day's free times) or Skip. The server accepts `moves: [{date,start_min}]`.
+- Only real clashes block a date (overlapping appointment, past, shop closed, day off), the same rule as the single booking list. Breaks, blocked time and out-of-hours are booked over (`force`).
+- Tests: tests/series-fix.spec.ts (4); sandbox/calendar series tests updated for the window cap and new wording.

@@ -819,15 +819,17 @@ test("series preview marks conflicts, requires explicit skips, and creation runs
   const preview = await r.post(base + "/series/preview", { data: seriesBody });
   expect(preview.status(), await preview.text()).toBe(200);
   const pv = await preview.json();
-  expect(pv.dates).toHaveLength(4);
+  // The fourth visit (start + 42 days) falls beyond the 42-day booking window and is left off.
+  expect(pv.dates).toHaveLength(3);
+  expect(pv.trimmed).toBe(1);
+  expect(pv.window_days).toBe(42);
   expect(pv.dates.map((d: any) => d.date)).toEqual([
     p.date,
     plusDays(p.date, 14),
     blocked,
-    plusDays(p.date, 42),
   ]);
   expect(pv.dates[2].reason).toBeTruthy();
-  expect(pv.bookable).toBe(3);
+  expect(pv.bookable).toBe(2);
   // Saving with an unresolved conflict is refused; nothing is written.
   const refused = await r.post(base + "/series", { data: seriesBody });
   expect(refused.status()).toBe(409);
@@ -838,7 +840,7 @@ test("series preview marks conflicts, requires explicit skips, and creation runs
   });
   expect(saved.status(), await saved.text()).toBe(201);
   const body = await saved.json();
-  expect(body.created).toHaveLength(3);
+  expect(body.created).toHaveLength(2);
   expect(body.failed).toEqual([]);
   expect(new Set(body.created.map((b: any) => b.series_id)).size).toBe(1);
   expect(body.created[0].series_id).toBe(body.series_id);
@@ -849,7 +851,7 @@ test("series preview marks conflicts, requires explicit skips, and creation runs
   expect(tooFew.status()).toBe(409);
   // Re-previewing the same series now reports every kept date as taken.
   const again = await (await r.post(base + "/series/preview", { data: seriesBody })).json();
-  expect(again.dates.filter((d: any) => d.reason).length).toBe(4);
+  expect(again.dates.filter((d: any) => d.reason).length).toBe(3);
   // Shape validation: unknown keys and out-of-range cadence are rejected.
   expect(
     (await r.post(base + "/series", { data: { ...seriesBody, interval_weeks: 0 } })).status(),
@@ -863,7 +865,7 @@ test("series preview marks conflicts, requires explicit skips, and creation runs
   // Audit trail and range read agree.
   const after = await workspace(r);
   expect(after.audit.filter((a) => a.action === "SERIES_CREATED")).toHaveLength(1);
-  expect(after.audit.filter((a) => a.action === "BOOKING_CREATED").length).toBeGreaterThanOrEqual(3);
+  expect(after.audit.filter((a) => a.action === "BOOKING_CREATED").length).toBeGreaterThanOrEqual(2);
   const range = await (
     await r.get(base + `/bookings/range?from=${p.date}&to=${plusDays(p.date, 30)}`)
   ).json();

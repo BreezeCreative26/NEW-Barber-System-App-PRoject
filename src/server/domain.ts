@@ -1080,6 +1080,11 @@ export const seriesSchema = bookingBase
     interval_weeks: z.number().int().min(1).max(12),
     occurrences: z.number().int().min(2).max(26),
     skip_dates: z.array(dateSchema).max(26).default([]),
+    // Per-date time changes chosen on the conflict screen (same barber, same service, another start).
+    moves: z
+      .array(z.object({ date: dateSchema, start_min: z.number().int().min(0).max(1425).refine((v) => v % 15 === 0) }).strict())
+      .max(26)
+      .default([]),
   })
   .strict();
 export const bookingDetailsSchema = z

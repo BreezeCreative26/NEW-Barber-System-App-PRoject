@@ -484,75 +484,91 @@ sandbox.get("/insights", async (c) => {
   });
 });
 // Standing bookings: preview every date with the same guards, then create in one pass.
-async function seriesDates(b: z.infer<typeof seriesSchema>) {
+// Visits stop at the shop's booking window ("how far ahead customers can book").
+function seriesDates(b: z.infer<typeof seriesSchema>, maxDate: string) {
   const dates: string[] = [];
   for (let i = 0; i < b.occurrences; i++) {
     const d = new Date(`${b.date}T12:00:00Z`);
     d.setUTCDate(d.getUTCDate() + i * 7 * b.interval_weeks);
-    dates.push(d.toISOString().slice(0, 10));
+    const iso = d.toISOString().slice(0, 10);
+    if (iso > maxDate) break;
+    dates.push(iso);
   }
   return dates;
 }
+type SeriesDate = { date: string; start_min: number; moved: boolean; reason: string; skipped: boolean; force: boolean; options?: number[] };
 async function seriesPreview(c: Ctx, b: z.infer<typeof seriesSchema>) {
-  const dates = await seriesDates(b);
-  const out: { date: string; reason: string; skipped: boolean }[] = [];
+  const shop = await readShop(c);
+  const windowDays = shop.booking_window_days || 42;
+  const maxDate = datePlusServer(shopToday(shop.timezone), windowDays);
+  const dates = seriesDates(b, maxDate);
+  const out: SeriesDate[] = [];
   for (const date of dates) {
+    const move = b.moves.find((m) => m.date === date);
+    const start = move ? move.start_min : b.start_min;
     if (b.skip_dates.includes(date)) {
-      out.push({ date, reason: "", skipped: true });
+      out.push({ date, start_min: start, moved: !!move, reason: "", skipped: true, force: false });
       continue;
     }
     const data = await availabilityContext(c, b.staff_id, b.service_id, date);
     const quote = calculateQuote(data.service, data.rule, data.addons, data.links, b.addon_ids);
-    const reason = slotReason(
-      data.shop,
-      data.staff,
-      data.hours,
-      data.holidays,
-      data.bookings,
-      date,
-      b.start_min,
-      b.duration_min ?? quote.duration_min,
-      Date.now(),
-      undefined,
-      data.daysOff,
-      data.blocks,
-      true,
-    );
-    out.push({ date, reason, skipped: false });
+    const duration = b.duration_min ?? quote.duration_min;
+    const now = Date.now();
+    // Same rule as the single booking list: only a real clash (overlapping appointment), a past
+    // time, a closed shop or a day off stops a date. Breaks, blocked time and out-of-hours are
+    // ordinary shop-side choices and are booked over quietly.
+    const check = (at: number) => {
+      const instant = localInstant(date, at, data.shop.timezone);
+      const overlaps = instant !== null && data.bookings.some((x) =>
+        x.staff_id === b.staff_id && !["CANCELLED", "NO_SHOW"].includes(x.status) &&
+        instant < x.end_at + x.buffer_min * 60000 && x.start_at < instant + duration * 60000);
+      const reason = slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, date, at, duration, now, undefined, data.daysOff, data.blocks, true);
+      if (instant === null || instant < now) return { reason: reason && !overridable(reason) ? reason : "Time has passed", force: false };
+      if (overlaps) return { reason: "Clashes with another appointment", force: false };
+      if (reason && !overridable(reason)) return { reason, force: false };
+      return { reason: "", force: !!reason };
+    };
+    const r = check(start);
+    const row: SeriesDate = { date, start_min: start, moved: !!move, reason: r.reason, skipped: false, force: r.force };
+    // A clash gets the free times that day so the shop can move just that visit.
+    if (r.reason)
+      row.options = Array.from({ length: 96 }, (_, i) => i * 15).filter((m) => !check(m).reason);
+    out.push(row);
   }
-  return out;
+  return { dates: out, window_days: windowDays, max_date: maxDate, trimmed: b.occurrences - dates.length };
 }
 sandbox.post("/series/preview", async (c) => {
   const b = await input(c, seriesSchema);
   const preview = await seriesPreview(c, b);
   return c.json({
-    dates: preview,
-    bookable: preview.filter((p) => !p.skipped && !p.reason).length,
+    ...preview,
+    bookable: preview.dates.filter((p) => !p.skipped && !p.reason).length,
   });
 });
 sandbox.post("/series", async (c) => {
   const b = await input(c, seriesSchema);
-  const preview = await seriesPreview(c, b);
+  const { dates: preview } = await seriesPreview(c, b);
   const targets = preview.filter((p) => !p.skipped && !p.reason);
-  if (targets.length < 2) fail(409, "A series needs at least two bookable dates. Skip or move the conflicts first.");
+  if (targets.length < 2) fail(409, "A series needs at least two bookable dates within the booking window. Change or skip the clashes first.");
   if (preview.some((p) => !p.skipped && p.reason))
-    fail(409, "Some dates are unavailable. Skip them explicitly before saving the series.");
+    fail(409, "Some dates clash. Change their time or skip them before saving the series.");
   const seriesId = id();
   await c.env.DB.prepare(
     "INSERT INTO booking_series(id,shop_id,staff_id,service_id,customer_name,phone,interval_weeks,start_date,start_min,occurrences,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
   )
-    .bind(seriesId, c.get("shopId"), b.staff_id, b.service_id, b.customer_name, b.phone, b.interval_weeks, b.date, b.start_min, b.occurrences, Date.now())
+    .bind(seriesId, c.get("shopId"), b.staff_id, b.service_id, b.customer_name, b.phone, b.interval_weeks, b.date, b.start_min, preview.length, Date.now())
     .run();
   const created: StoredBooking[] = [];
   const failed: { date: string; reason: string }[] = [];
-  const { interval_weeks, occurrences, skip_dates, ...single } = b;
+  const { interval_weeks, occurrences, skip_dates, moves, ...single } = b;
   for (const t of targets) {
     try {
       const result = await createBooking(
         c,
-        { ...single, email: single.email ?? "", date: t.date, request_id: id() },
+        { ...single, email: single.email ?? "", date: t.date, start_min: t.start_min, request_id: id() },
         "OWNER",
-        { seriesId },
+        // Only soft reasons (break, blocked time, off duty) are booked over; a fresh clash still fails.
+        { seriesId, force: t.force },
       );
       created.push(result.booking);
     } catch (err) {

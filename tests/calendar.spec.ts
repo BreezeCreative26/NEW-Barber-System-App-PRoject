@@ -931,10 +931,10 @@ test("standing booking: repeat controls preview every date, conflicts must be sk
   await expect(preview.locator("li")).toHaveCount(3);
   await expect(preview).toContainText("2 of 3 dates bookable");
   await expect(preview.locator("li.is-blocked")).toHaveCount(1);
-  await expect(preview.locator("li.is-blocked")).toContainText(blocked);
+  await expect(preview.getByTestId(`series-date-${blocked}`)).toHaveClass(/is-blocked/);
   // Confirming with an unresolved conflict is refused client-side; nothing is written.
   await dialog.getByRole("button", { name: /^Confirm standing booking \(2 dates\)/ }).click();
-  await expect(dialog.getByRole("alert")).toContainText("Skip the 1 unavailable date");
+  await expect(dialog.getByRole("alert")).toContainText("1 date clashes");
   expect((await (await page.request.get(base + "/workspace")).json()).bookings).toHaveLength(0);
   await dialog.getByLabel(`Skip ${blocked}`).check();
   await expect(preview.locator("li.is-skipped")).toHaveCount(1);
