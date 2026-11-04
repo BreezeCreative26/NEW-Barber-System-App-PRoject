@@ -3162,8 +3162,16 @@ sandbox.get("/availability", async (c) => {
   // a soft reason the shop may knowingly override. Public booking (public.ts) only ever offers
   // opening hours via dayStarts, so customers never reach these.
   const slots = Array.from({ length: 96 }, (_, i) => i * 15)
-    .map((start_min) => ({
+    .map((start_min) => {
+      const instant = localInstant(p.date, start_min, data.shop.timezone);
+      return {
       start_min,
+      // Staff booking list: hide only times that overlap an existing appointment (whatever else is going
+      // on then) and times that have passed. Breaks, blocks and out-of-hours stay bookable.
+      taken: instant !== null && data.bookings.some((x) =>
+        x.id !== booking?.id && x.staff_id === p.staff_id && !["CANCELLED", "NO_SHOW"].includes(x.status) &&
+        instant < x.end_at + x.buffer_min * 60000 && x.start_at < instant + duration * 60000),
+      past: instant === null || instant < minStart,
       // Bookable by staff like any other time, but not offered to customers online.
       outside: isOutsideHours(data.shop, data.hours, p.date, start_min, duration),
       reason:
@@ -3184,7 +3192,8 @@ sandbox.get("/availability", async (c) => {
               data.blocks,
               true,
             ),
-    }));
+      };
+    });
   return c.json({
     slots,
     duration_min: duration,

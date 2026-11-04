@@ -27,16 +27,17 @@ test("UI: outside-hours times are ordinary bookable times for staff, listed apar
   await page.getByLabel("Appointment date", { exact: true }).fill(date);
   await page.getByRole("button", { name: "New booking", exact: true }).click();
   await page.getByLabel("Service", { exact: true }).selectOption({ label: svc.name });
-  const early = page.getByRole("option", { name: /outside normal hours/ }).first();
-  await expect(early).toHaveJSProperty("disabled", false);
-  // Out-of-hours times are grouped at the bottom of the one time dropdown (no separate list of buttons).
-  await expect(page.locator('optgroup[label^="Outside normal hours"]')).toHaveCount(1);
-  await page.getByLabel("Available start time").selectOption({ index: await early.evaluate((el) => (el as HTMLOptionElement).index) });
-  // Booked "the same as normal": no override warning.
+  const select = page.getByLabel("Available start time");
+  await expect(select.locator('option[value="420"]')).toHaveCount(1);
+  // One plain list: no reason labels, nothing greyed out, no groups for out-of-hours.
+  const labels = await select.locator("option").allTextContents();
+  expect(labels.slice(1).every((t) => /^\d\d:\d\d$/.test(t.trim()))).toBe(true);
+  expect(await select.locator("option:disabled").count()).toBe(0);
+  // The list starts at opening time; early times sit in one plain "Earlier" group (no reason labels).
+  expect(await select.locator("optgroup").evaluateAll((gs) => gs.map((g) => g.getAttribute("label")))).toEqual(["Earlier"]);
+  // An early (out-of-hours) time is in the list and books like any other, with no warning.
+  await select.selectOption("420");
   await expect(page.getByTestId("override-notice")).toHaveCount(0);
-  // Hard reasons stay greyed out.
-  const hard = page.getByRole("option", { name: /Shop closed|Time has passed|Barber has a day off/ });
-  for (let i = 0; i < (await hard.count()); i++) await expect(hard.nth(i)).toHaveJSProperty("disabled", true);
 });
 
 test("API: staff book outside hours with no force flag; customers online still can't", async ({ page }) => {
