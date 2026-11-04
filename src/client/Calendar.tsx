@@ -312,6 +312,8 @@ export function Calendar({
   const eventMin = Math.min(preset.eventMin, step - 2);
   const height = slots * step;
   const closed = !dayHours.enabled || w.holidays.some((h) => h.date === date);
+  // Whole-shop closure: one soft red wash + one label instead of "Shop closed" in every slot.
+  const closedLabel = w.holidays.find((h) => h.date === date)?.label?.trim() || "";
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: w.shop.timezone,
     hour: "2-digit",
@@ -343,7 +345,12 @@ export function Calendar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, barber, density, staff.length, step]);
   if (!staff.length)
-    return (
+    return closed ? (
+      <div className="calendar-empty shop-closed-empty" role="note" data-testid="shop-closed-empty">
+        <strong><Icon name="lock" size={16} /> Shop closed{closedLabel ? ` · ${closedLabel}` : ""}</strong>
+        <span>No one is working. Use the team button to show a barber if you need to book anyway.</span>
+      </div>
+    ) : (
       <p className="calendar-empty">
         No barbers match this view. Add a barber or clear the filter.
       </p>
@@ -551,7 +558,7 @@ export function Calendar({
         aria-describedby="timetable-keyboard-help"
       >
         <div
-          className={`calendar-board ${dragging ? "dragging" : ""}`}
+          className={`calendar-board ${dragging ? "dragging" : ""} ${closed ? "shop-closed-day" : ""}`}
           ref={boardRef}
           style={
             {
@@ -639,6 +646,13 @@ export function Calendar({
               );
             })}
           </div>
+          {closed && (
+            <div className="shop-closed-banner" role="note" data-testid="shop-closed-banner">
+              <span>
+                <Icon name="lock" size={14} /> Shop closed{closedLabel ? ` · ${closedLabel}` : ""}
+              </span>
+            </div>
+          )}
           <div
             className="calendar-timeline connected-timeline"
             style={{ height }}
@@ -764,7 +778,9 @@ export function Calendar({
                         data-drop={dragging && dragging.overStaff === s.id && dragging.overStart === start ? "over" : undefined}
                       >
                         <span>
-                          {reason
+                          {reason === "Shop closed"
+                            ? ""
+                            : reason
                             ? n === 0 ||
                               slots[n - 1].reason !== reason ||
                               (reason !== "Past time" && n % 4 === 0)
@@ -1152,11 +1168,12 @@ export function WeekView({
           </div>
           {days.map((d) => {
             const off = rostered(s.id, d) === 0;
+            const shut = !shopDayOf(w.shop, d).enabled || w.holidays.some((h) => h.date === d);
             const cell = mine.filter((b) => b.date === d).sort((a, b) => a.start_min - b.start_min);
             return (
-              <div className={`week-col ${off ? "off" : ""} ${d === w.today ? "today" : ""}`} key={d} role="group" aria-label={`${s.name}, ${d}${off ? ", not working" : ""}`}>
+              <div className={`week-col ${off ? "off" : ""} ${shut ? "shop-closed" : ""} ${d === w.today ? "today" : ""}`} key={d} role="group" aria-label={`${s.name}, ${d}${shut ? ", shop closed" : off ? ", not working" : ""}`}>
                 {hours.map((m) => <i className="week-line" key={m} style={{ top: ((m - gridStart) / 60) * PX }} aria-hidden="true" />)}
-                {off && !cell.length && <span className="week-off">Not working</span>}
+                {off && !cell.length && <span className="week-off">{shut ? "Shop closed" : "Not working"}</span>}
                 {cell.map((b) => (
                   <button
                     type="button"
