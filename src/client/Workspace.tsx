@@ -7617,8 +7617,13 @@ function BookingForm({
     if (form) form.dataset.dirty = "true";
     setReview(false);
   }
+  // Barbers without "manage others" can only book into their own column (the server enforces it too),
+  // so the form starts on — and is limited to — their own name, even from another barber's column.
+  const ownStaffOnly = !!w.account && w.account.role !== "OWNER" && !(w.account.perms as Record<string, boolean> | undefined)?.manage_others && !!w.account.staff_id;
+  const ownStaffId = ownStaffOnly ? w.account!.staff_id! : "";
   const [staff, setStaff] = useState(
     b?.staff_id ||
+      ownStaffId ||
       draft?.staffId ||
       (rebook
         ? w.staff.find((s) => s.id === rebook.staff_id && s.active)?.id || ""
@@ -7659,10 +7664,43 @@ function BookingForm({
   const [intervalWeeks, setIntervalWeeks] = useState(2);
   const [occurrences, setOccurrences] = useState(6);
   const [skipDates, setSkipDates] = useState<string[]>([]);
+  const [moves, setMoves] = useState<{ date: string; start_min: number }[]>([]);
   const [seriesPreview, setSeriesPreview] = useState<{
-    dates: { date: string; reason: string | null; skipped: boolean }[];
+    dates: { date: string; start_min: number; moved: boolean; reason: string | null; skipped: boolean; options?: number[] }[];
     bookable: number;
+    window_days?: number;
+    max_date?: string;
+    trimmed?: number;
   } | null>(null);
+  const seriesBodyRef = useRef<Record<string, unknown> | null>(null);
+  // Visits that fit inside the shop's booking window ("how far ahead customers can book").
+  const windowDays = w.shop.booking_window_days || 42;
+  const windowEnd = datePlus(w.today, windowDays);
+  const maxVisits = Math.max(
+    1,
+    Math.min(26, Math.floor((new Date(`${windowEnd}T12:00:00Z`).getTime() - new Date(`${date}T12:00:00Z`).getTime()) / (7 * intervalWeeks * 86400000)) + 1),
+  );
+  const visits = Math.min(occurrences, maxVisits);
+  // Conflict screen: skipping or moving one date re-checks the whole series on the server.
+  async function resolveDate(nextSkip: string[], nextMoves: { date: string; start_min: number }[]) {
+    setSkipDates(nextSkip);
+    setMoves(nextMoves);
+    // Show the skip straight away; the server re-check below fills in the rest.
+    setSeriesPreview((p) => {
+      if (!p) return p;
+      const dates = p.dates.map((x) => ({ ...x, skipped: nextSkip.includes(x.date) }));
+      return { ...p, dates, bookable: dates.filter((x) => !x.skipped && !x.reason).length };
+    });
+    if (!seriesBodyRef.current) return;
+    const body = { ...seriesBodyRef.current, skip_dates: nextSkip, moves: nextMoves };
+    seriesBodyRef.current = body;
+    try {
+      setSeriesPreview(await api<NonNullable<typeof seriesPreview>>("/series/preview", "POST", body));
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
   const [seriesResult, setSeriesResult] = useState<{
     created: number;
     failed: { date: string; reason: string }[];
@@ -7688,8 +7726,9 @@ function BookingForm({
       ...(pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),
       ...(length ? { duration_min: Number(length) } : {}),
       interval_weeks: intervalWeeks,
-      occurrences,
+      occurrences: Math.max(2, visits),
       skip_dates: skipDates,
+      moves,
     };
   }
   useEffect(() => {
@@ -7780,10 +7819,14 @@ function BookingForm({
             phone: b?.phone || text(f, "phone"),
           });
           if (seriesOn) {
+            if (maxVisits < 2)
+              throw new Error(`Only one visit fits inside your ${windowDays}-day booking window. Turn off repeat or pick an earlier date.`);
+            const body = seriesBody(f);
+            seriesBodyRef.current = body;
             const preview = await api<NonNullable<typeof seriesPreview>>(
               "/series/preview",
               "POST",
-              seriesBody(f),
+              body,
             );
             setSeriesPreview(preview);
           }
@@ -7795,7 +7838,7 @@ function BookingForm({
           const unresolved = seriesPreview?.dates.filter((d) => d.reason && !d.skipped) || [];
           if (unresolved.length)
             throw new Error(
-              `Skip the ${unresolved.length} unavailable date${unresolved.length === 1 ? "" : "s"} before saving.`,
+              `${unresolved.length} date${unresolved.length === 1 ? " clashes" : "s clash"} — change the time or skip ${unresolved.length === 1 ? "it" : "them"} before saving.`,
             );
           try {
             const result = await saved("/series", "POST", body);
@@ -7950,7 +7993,7 @@ function BookingForm({
               >
                 <option value="">Choose barber</option>
                 {w.staff
-                  .filter((s) => s.active || s.id === b?.staff_id)
+                  .filter((s) => (s.active || s.id === b?.staff_id) && (!ownStaffOnly || s.id === ownStaffId || s.id === b?.staff_id))
                   .map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
@@ -8253,6 +8296,7 @@ function BookingForm({
                     onChange={(e) => {
                       setRepeat(e.target.checked);
                       setSkipDates([]);
+                      setMoves([]);
                       setSeriesPreview(null);
                     }}
                   />
@@ -8262,7 +8306,7 @@ function BookingForm({
                   <div className="series-controls">
                     <div className="series-presets" role="group" aria-label="Quick repeat">
                       {([[1, "Every week"], [2, "Every 2 weeks"]] as const).map(([n, label]) => (
-                        <button key={n} type="button" className={`chip${intervalWeeks === n ? " active" : ""}`} aria-pressed={intervalWeeks === n} onClick={() => { setIntervalWeeks(n); setSkipDates([]); }}>
+                        <button key={n} type="button" className={`chip${intervalWeeks === n ? " active" : ""}`} aria-pressed={intervalWeeks === n} onClick={() => { setIntervalWeeks(n); setSkipDates([]); setMoves([]); }}>
                           {label}
                         </button>
                       ))}
@@ -8273,6 +8317,7 @@ function BookingForm({
                         onChange={(e) => {
                           setIntervalWeeks(Number(e.target.value));
                           setSkipDates([]);
+                          setMoves([]);
                         }}
                         aria-describedby="series-hint"
                       >
@@ -8287,20 +8332,24 @@ function BookingForm({
                       <input
                         type="number"
                         min={2}
-                        max={26}
-                        value={occurrences}
+                        max={Math.max(2, maxVisits)}
+                        value={visits}
+                        data-testid="series-visits"
                         onChange={(e) => {
                           setOccurrences(
-                            Math.min(26, Math.max(2, Number(e.target.value) || 2)),
+                            Math.min(maxVisits, Math.max(2, Number(e.target.value) || 2)),
                           );
                           setSkipDates([]);
+                          setMoves([]);
                         }}
                       />
                     </Field>
-                    <p id="series-hint" className="workspace-footnote">
-                      Up to 26 visits, every 1–12 weeks. Each date is checked
-                      against the roster and time off before anything is saved;
-                      you can skip individual dates on the review step.
+                    <p id="series-hint" className="workspace-footnote" data-testid="series-window-hint">
+                      {maxVisits < 2
+                        ? `Only one visit fits inside your ${windowDays}-day booking window from this date.`
+                        : `Up to ${maxVisits} visit${maxVisits === 1 ? "" : "s"} fit inside your ${windowDays}-day booking window (last date ${prettyBookingDate(windowEnd)}).`}{" "}
+                      Each date is checked before anything is saved; any clash
+                      can be moved to another time or skipped on the review step.
                     </p>
                   </div>
                 )}
@@ -8386,43 +8435,59 @@ function BookingForm({
                   {seriesPreview.dates.map((d) => (
                     <li
                       key={d.date}
+                      data-testid={`series-date-${d.date}`}
                       className={
                         d.skipped ? "is-skipped" : d.reason ? "is-blocked" : "is-free"
                       }
                     >
-                      <span className="series-date">{d.date}</span>
-                      <span className="series-reason">
-                        {d.skipped ? "Skipped" : d.reason || "Available"}
+                      <span className="series-date">
+                        {prettyBookingDate(d.date)} · {time(d.start_min)}
                       </span>
+                      <span className="series-reason">
+                        {d.skipped ? "Skipped" : d.reason || (d.moved ? "Moved · available" : "Available")}
+                      </span>
+                      {!d.skipped && (d.reason || d.moved) && (
+                        <select
+                          aria-label={`Change time for ${d.date}`}
+                          className="series-move"
+                          value={d.reason ? "" : String(d.start_min)}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const rest = moves.filter((m) => m.date !== d.date);
+                            resolveDate(skipDates, v === "" ? rest : [...rest, { date: d.date, start_min: Number(v) }]);
+                          }}
+                        >
+                          <option value="">{d.reason ? (d.options?.length ? "Change time…" : "No free time that day") : "Original time"}</option>
+                          {(d.options || (d.moved ? [d.start_min] : [])).map((m) => (
+                            <option key={m} value={m}>{time(m)}</option>
+                          ))}
+                        </select>
+                      )}
                       <label>
                         <input
                           type="checkbox"
                           checked={d.skipped}
                           aria-label={`Skip ${d.date}`}
-                          onChange={(e) => {
-                            const next = e.target.checked
-                              ? [...skipDates, d.date]
-                              : skipDates.filter((x) => x !== d.date);
-                            setSkipDates(next);
-                            setSeriesPreview({
-                              dates: seriesPreview.dates.map((x) =>
-                                x.date === d.date ? { ...x, skipped: e.target.checked } : x,
-                              ),
-                              bookable: seriesPreview.dates.filter(
-                                (x) =>
-                                  !(x.date === d.date ? e.target.checked : x.skipped) &&
-                                  !x.reason,
-                              ).length,
-                            });
-                          }}
+                          onChange={(e) =>
+                            resolveDate(
+                              e.target.checked ? [...skipDates, d.date] : skipDates.filter((x) => x !== d.date),
+                              moves,
+                            )
+                          }
                         />
                         Skip
                       </label>
                     </li>
                   ))}
                 </ul>
+                {!!seriesPreview.trimmed && (
+                  <p className="workspace-footnote" data-testid="series-trimmed">
+                    {seriesPreview.trimmed} visit{seriesPreview.trimmed === 1 ? "" : "s"} beyond your{" "}
+                    {seriesPreview.window_days}-day booking window {seriesPreview.trimmed === 1 ? "was" : "were"} left off.
+                  </p>
+                )}
                 <p className="workspace-footnote">
-                  Unavailable dates must be skipped before saving. Every visit is
+                  Clashing dates need a new time or a skip before saving. Every visit is
                   saved as its own appointment under one series and can be moved
                   or cancelled individually later.
                 </p>
