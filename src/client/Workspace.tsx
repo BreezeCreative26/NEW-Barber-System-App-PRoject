@@ -1810,6 +1810,9 @@ export function Workspace() {
   const [revalidating, setRevalidating] = useState(false);
   const [stale, setStale] = useState(false);
   const loadSequence = useRef(0);
+  // Days already read this session, so flicking back and forth shows a day instantly. Every visit to a
+  // day still re-reads it from the server and swaps the fresh copy in; any full refresh clears the cache.
+  const dayCache = useRef(new Map<string, StoredBooking[]>());
   const identity = useRef("");
   async function refresh(opts: { background?: boolean } = {}) {
     const sequence = ++loadSequence.current;
@@ -1843,6 +1846,8 @@ export function Workspace() {
       const targetDate = dateRef.current || w.today;
       const bookings = await readDay(targetDate);
       if (sequence === loadSequence.current) {
+        dayCache.current.clear();
+        dayCache.current.set(targetDate, bookings);
         queriedDate.current = targetDate;
         setLoadedDate(targetDate);
         const nextIdentity = `${w.shop.id}:${w.account?.id || "legacy"}:${w.account?.role || ""}`;
@@ -1906,8 +1911,47 @@ export function Workspace() {
       window.removeEventListener("offline", disconnect);
     };
   }, []);
+  // Changing day only needs that day's appointments: staff, services, hours and the rest are the same
+  // for every day and stay as they are (the heartbeat and saves keep them fresh). This used to re-read
+  // the whole workspace — about twenty database queries — before it even asked for the day.
+  async function loadDay(target: string) {
+    const sequence = ++loadSequence.current;
+    const cached = dayCache.current.get(target);
+    if (cached) {
+      queriedDate.current = target;
+      setLoadedDate(target);
+      setData((d) => (d ? { ...d, bookings: cached } : d));
+      setRevalidating(true);
+    } else setLoading(true);
+    try {
+      const bookings = await readDay(target);
+      if (sequence === loadSequence.current) {
+        dayCache.current.set(target, bookings);
+        queriedDate.current = target;
+        setLoadedDate(target);
+        setData((d) => (d ? { ...d, bookings } : d));
+        setError("");
+        setStale(false);
+      }
+    } catch (e) {
+      // Signed out, or anything unexpected: fall back to the full load, which knows how to recover.
+      if (sequence === loadSequence.current) refresh().catch(() => {});
+      return;
+    } finally {
+      if (sequence === loadSequence.current) { setLoading(false); setRevalidating(false); }
+    }
+    // Warm the days either side so the next tap is instant. Best effort, never blocks or errors.
+    for (const step of [-1, 1]) {
+      const d = new Date(`${target}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + step);
+      const near = d.toISOString().slice(0, 10);
+      if (!dayCache.current.has(near)) readDay(near).then((rows) => { if (!dayCache.current.has(near)) dayCache.current.set(near, rows); }).catch(() => {});
+    }
+  }
   useEffect(() => {
-    if (date && date !== queriedDate.current) refresh().catch(() => {});
+    if (!date || date === queriedDate.current) return;
+    if (data) loadDay(date).catch(() => {});
+    else refresh().catch(() => {});
   }, [date]);
   async function openBooking(id: string) {
     try {
