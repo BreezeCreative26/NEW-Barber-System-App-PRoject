@@ -3,7 +3,7 @@
 // Plus the booking form: a clicked slot shows that time with one dropdown to change it, no slot grid.
 import { test, expect } from "@playwright/test";
 import { base, newShop } from "./shop";
-import { openFixtureShop } from "./fixture";
+import { openFixtureShop, origin } from "./fixture";
 
 type W = { today: string; staff: { id: string; active: number }[]; services: { id: string; name: string; duration_min: number }[] };
 
@@ -105,16 +105,50 @@ test("booking form opened without a slot: one dropdown, out-of-hours grouped at 
   await page.getByRole("button", { name: "New booking", exact: true }).click();
   await expect(page.getByLabel("Available start time")).toBeVisible();
   await expect(page.locator(".slot-grid")).toHaveCount(0);
-  await expect(page.locator('optgroup[label="Opening hours"]')).toHaveCount(1);
+  const select = page.getByLabel("Available start time");
+  await expect(select.locator("option").nth(1)).toBeAttached();
+  // Starts at the first opening-hours time, not midnight; earlier times are grouped, with no reason text.
+  const first = Number(await select.locator("option").nth(1).getAttribute("value"));
+  expect(first).toBeGreaterThanOrEqual(8 * 60);
+  const labels = await select.locator("option").allTextContents();
+  expect(labels.slice(1).every((t) => /^\d\d:\d\d$/.test(t.trim()))).toBe(true);
 });
 
-test("booking form: a clicked out-of-hours slot is used the same way, labelled outside normal hours", async ({ page }) => {
+test("booking form: a clicked out-of-hours slot is used the same way, with no label or warning", async ({ page }) => {
   await openFixtureShop(page);
   await futureWeekday(page);
   const cell = page.getByRole("button", { name: /^07:00, .+ — add booking$/ }).first();
   await cell.click();
   await expect(page.getByLabel("Available start time")).toHaveValue("420");
   await expect(page.getByTestId("booking-chosen-time")).toContainText("07:00");
-  await expect(page.getByTestId("booking-chosen-time")).toContainText("Outside normal hours");
+  await expect(page.getByTestId("booking-chosen-time")).not.toContainText(/outside/i);
+  await expect(page.getByTestId("override-notice")).toHaveCount(0);
   await expect(page.locator(".slot-grid")).toHaveCount(0);
+});
+
+test("time list starts at the clicked time and hides only times that overlap an appointment", async ({ page }) => {
+  await openFixtureShop(page);
+  const date = await futureWeekday(page);
+  const w = (await (await page.request.get(base + "/workspace")).json()) as Omit<W, "staff"> & { staff: { id: string; name: string; active: number }[] };
+  const barber = w.staff.find((s) => s.active)!;
+  const svc = w.services.find((s) => s.duration_min === 30) || w.services[0];
+  // Put an appointment at 12:00 for this barber.
+  const a = await (await page.request.get(base + `/availability?date=${date}&staff_id=${barber.id}&service_id=${svc.id}`)).json();
+  const made = await page.request.post(base + "/bookings", { headers: { Origin: origin }, data: { request_id: crypto.randomUUID(), staff_id: barber.id, service_id: svc.id, customer_name: "Busy Noon", phone: "07700 900611", notes: "", date, start_min: 720, source: "TEST_BOOKING", quote: a.quote, notify: false, force: true } });
+  expect(made.status(), await made.text()).toBe(201);
+  await page.reload();
+  await page.getByLabel("Appointment date", { exact: true }).fill(date);
+  await page.getByRole("button", { name: new RegExp(`^11:00, ${barber.name} — add booking$`) }).click();
+  const select = page.getByLabel("Available start time");
+  await expect(select).toHaveValue("660");
+  const values = await select.locator("option").evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value).filter(Boolean).map(Number));
+  // Starts at the clicked time (11:00); earlier times come after, in their own group.
+  expect(values[0]).toBe(660);
+  await expect(select.locator('optgroup[label="Earlier"]')).toHaveCount(1);
+  // Times that would overlap the 12:00 appointment are gone; the rest of the day is there.
+  for (const m of [720, 735]) expect(values).not.toContain(m);
+  expect(values).toContain(780);
+  // No reason text anywhere in the list.
+  const labels = await select.locator("option").allTextContents();
+  expect(labels.slice(1).every((t) => /^\d\d:\d\d$/.test(t.trim()))).toBe(true);
 });

@@ -7373,7 +7373,7 @@ type Slots = {
   overridden: boolean;
   service_name: string;
   cancel_hours: number;
-  slots: { start_min: number; reason: string; outside?: boolean }[];
+  slots: { start_min: number; reason: string; outside?: boolean; taken?: boolean; past?: boolean }[];
   price_pence: number;
   duration_min: number;
   /** The length the customer is told (menu length), whatever the calendar block is. */
@@ -7572,6 +7572,11 @@ function CustomerPicker({
 }
 // Reasons a slot is greyed but the shop may still book it (mirrors OVERRIDABLE_REASONS on the server).
 const SOFT_SLOT_REASONS = ["Slot taken", "Outside working hours", "Lunch break", "Barber off duty", "Blocked time"];
+// Staff booking list: every time the shop can actually book. Only times that overlap an appointment are
+// hidden (plus ones that can't be saved at all: past, shop closed, day off). Out-of-hours, breaks and
+// blocked time are ordinary choices with no label; the save quietly books over them.
+const staffCanPick = (x: { reason: string; taken?: boolean; past?: boolean }) =>
+  !x.taken && !x.past && (!x.reason || (x.reason !== "Slot taken" && SOFT_SLOT_REASONS.includes(x.reason)));
 function BookingForm({
   w,
   initialDate,
@@ -7715,17 +7720,14 @@ function BookingForm({
           setSlots(s);
           if (draftPending.current !== undefined) {
             const at = s.slots.find((slot) => slot.start_min === draftPending.current);
-            const soft = at?.reason && SOFT_SLOT_REASONS.includes(at.reason);
-            if (at && !at.reason) {
-              setStart(String(at.start_min));
-              setOverride("");
-            } else if (at && soft) {
-              // Greyed-but-clickable: keep the time, flag the override, let the review step confirm it.
+            if (at && staffCanPick(at)) {
               setStart(String(at.start_min));
               setOverride(at.reason);
             } else
               setError(
-                at?.reason ? `${at.reason}. Choose another time.` : "The clicked time does not fit this service and buffer. Choose another time or service.",
+                at?.reason === "Slot taken"
+                  ? "That time overlaps another appointment. Choose another time."
+                  : at?.reason ? `${at.reason}. Choose another time.` : "The clicked time does not fit this service. Choose another time or service.",
               );
             draftPending.current = undefined;
           }
@@ -7933,35 +7935,6 @@ function BookingForm({
           </p>
         </aside>
       )}
-      {draft && (
-        <aside
-          className="booking-slot-origin"
-          aria-label="Timetable starting point"
-        >
-          <strong>Started from the timetable</strong>
-          <p>
-            {w.staff.find((s) => s.id === draft.staffId)?.name} · {initialDate}{" "}
-            · {time(draft.start)}
-          </p>
-          <p>
-            This was your starting point, not a reservation. The fields below
-            show your current selection.
-          </p>
-        </aside>
-      )}
-      {override && start && (
-        <Notice icon="blocked" tone="warning">
-          <span data-testid="override-notice">
-            <strong>{override === "Slot taken" ? "Double-booking" : override}</strong> at {time(Number(start))}.
-            {override === "Slot taken"
-              ? " This overlaps another appointment; both will show side by side on the calendar."
-              : override === "Blocked time"
-                ? " The barber blocked this time; saving books over the block regardless."
-                : " The barber isn't rostered then; saving books it regardless."}
-            <Button variant="ghost" onClick={() => { setStart(""); setOverride(""); }}>Pick a free time instead</Button>
-          </span>
-        </Notice>
-      )}
       <div className="booking-layout" onChange={() => setReview(false)}>
         <section
           className="booking-selection"
@@ -8152,68 +8125,74 @@ function BookingForm({
           )}
           {slots && (
             <>
-              {start && (
-                <div className="booking-chosen-time" data-testid="booking-chosen-time" aria-live="polite">
-                  <Icon name="clock" />
-                  <strong>{prettyBookingDate(date)} · {time(Number(start))}–{time(Number(start) + slots.duration_min)}</strong>
-                  {slots.slots.find((x) => String(x.start_min) === start)?.outside && <Badge>Outside normal hours</Badge>}
-                </div>
-              )}
-              <div className="booking-time-row">
-                <Field label="Available start time">
-                  <select
-                    value={start}
-                    onChange={(e) => {
-                      markDraft(e.currentTarget);
-                      setStart(e.target.value);
-                      // Shop staff may book outside hours / over a break or another booking: flag the override.
-                      const at = slots.slots.find((x) => String(x.start_min) === e.target.value);
-                      setOverride(at?.reason && SOFT_SLOT_REASONS.includes(at.reason) ? at.reason : "");
-                    }}
-                    required
-                  >
-                    <option value="">Choose a time</option>
-                    {(() => {
-                      const opt = (x: Slots["slots"][number]) => (
-                        <option key={x.start_min} value={x.start_min} disabled={!!x.reason && !SOFT_SLOT_REASONS.includes(x.reason)}>
-                          {time(x.start_min)}
-                          {x.reason ? ` — ${x.reason}` : x.outside ? " — outside normal hours" : ""}
-                        </option>
-                      );
-                      const inHours = slots.slots.filter((x) => !x.outside);
-                      const after = slots.slots.filter((x) => x.outside);
-                      return (
-                        <>
-                          <optgroup label="Opening hours">{inHours.map(opt)}</optgroup>
-                          {after.length > 0 && <optgroup label={`Outside normal hours (${after.filter((x) => !x.reason).length} free) — staff only`}>{after.map(opt)}</optgroup>}
-                        </>
-                      );
-                    })()}
-                  </select>
-                </Field>
-                {!start && (
-                  <Button
-                    variant="secondary"
-                    disabled={!slots.slots.some((s) => !s.reason && !s.outside)}
-                    onClick={(e) => {
-                      markDraft(e.currentTarget);
-                      const first = slots.slots.find((s) => !s.reason && !s.outside);
-                      if (first) {
-                        setStart(String(first.start_min));
-                        setOverride("");
-                      }
-                    }}
-                  >
-                    Use first available time
-                  </Button>
-                )}
-              </div>
-              {slots.slots.every((s) => s.reason && !SOFT_SLOT_REASONS.includes(s.reason)) && (
-                <Notice tone="warning">
-                  No available times. Try another day or barber, or review
-                  weekly hours.
-                </Notice>
-              )}
+              {(() => {
+                const pickable = slots.slots.filter(staffCanPick);
+                // Start the list at the time clicked on the timetable (or, from "New booking", the first
+                // opening-hours time); earlier times follow in their own group.
+                const anchor = draft?.start ?? pickable.find((x) => !x.outside)?.start_min;
+                const ordered = anchor === undefined ? pickable : [...pickable.filter((x) => x.start_min >= anchor), ...pickable.filter((x) => x.start_min < anchor)];
+                const firstFree = pickable.find((x) => !x.reason && !x.outside) || pickable[0];
+                return (
+                  <>
+                    <div className="booking-time-picker" data-testid="booking-time-picker">
+                      {start && (
+                        <div className="booking-chosen-time" data-testid="booking-chosen-time" aria-live="polite">
+                          <Icon name="clock" />
+                          <span>
+                            <small>{prettyBookingDate(date)}</small>
+                            <strong>{time(Number(start))} – {time(Number(start) + slots.duration_min)}</strong>
+                          </span>
+                        </div>
+                      )}
+                      <label className="workspace-field">
+                        <span>Start time</span>
+                        <select
+                          aria-label="Available start time"
+                          value={start}
+                          onChange={(e) => {
+                            markDraft(e.currentTarget);
+                            setStart(e.target.value);
+                            const at = slots.slots.find((x) => String(x.start_min) === e.target.value);
+                            setOverride(at?.reason || "");
+                          }}
+                          required
+                        >
+                          <option value="">Choose a time</option>
+                          {anchor === undefined || !ordered.some((x) => x.start_min < anchor)
+                            ? ordered.map((x) => <option key={x.start_min} value={x.start_min}>{time(x.start_min)}</option>)
+                            : (
+                              <>
+                                {ordered.filter((x) => x.start_min >= anchor).map((x) => <option key={x.start_min} value={x.start_min}>{time(x.start_min)}</option>)}
+                                <optgroup label="Earlier">
+                                  {ordered.filter((x) => x.start_min < anchor).map((x) => <option key={x.start_min} value={x.start_min}>{time(x.start_min)}</option>)}
+                                </optgroup>
+                              </>
+                            )}
+                        </select>
+                      </label>
+                      {!start && (
+                        <Button
+                          variant="secondary"
+                          disabled={!firstFree}
+                          onClick={(e) => {
+                            if (!firstFree) return;
+                            markDraft(e.currentTarget);
+                            setStart(String(firstFree.start_min));
+                            setOverride(firstFree.reason);
+                          }}
+                        >
+                          Use first available time
+                        </Button>
+                      )}
+                    </div>
+                    {!pickable.length && (
+                      <Notice tone="warning">
+                        No available times. Try another day or barber.
+                      </Notice>
+                    )}
+                  </>
+                );
+              })()}
               <BookingItems items={slots.items} />
               {slots.overridden && (
                 <Badge>Barber-specific price / duration</Badge>

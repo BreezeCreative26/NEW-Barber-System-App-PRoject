@@ -365,9 +365,7 @@ test("E1 keyboard slot navigation skips bookings and breaks, restores focus and 
   await expect(page.locator(".calendar-slot-context")).toContainText("09:15");
   await page.keyboard.press("Enter");
   await expect(page.getByLabel("Available start time")).toHaveValue("555");
-  await expect(page.getByLabel("Timetable starting point")).toContainText(
-    "09:15",
-  );
+  await expect(page.getByTestId("booking-chosen-time")).toContainText("09:15");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(cell).toBeFocused();

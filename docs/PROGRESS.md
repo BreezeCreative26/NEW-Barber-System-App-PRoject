@@ -1,5 +1,12 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-04 — Staff booking: one plain list of bookable times
+- The admin booking time list shows only times the shop can book, with no reason labels ("outside normal hours", "Slot taken", "Lunch break") and no greyed-out rows. Out-of-hours, breaks and blocked time are ordinary choices; the save books over them as before.
+- Hidden: times that physically overlap an existing appointment for that barber (new `taken` flag from `/availability`), plus times that can't be saved at all (past, shop closed, day off).
+- The list starts at the time clicked on the timetable (from "New booking": the first opening-hours time); earlier times follow under "Earlier".
+- Removed the "Started from the timetable" banner and the override warning. Picker restyled as one card (date, big time range, start time) at all widths; booking-form dropdowns centre their value.
+- Tests: staff-length (8), manual-booking, catalogue, calendar-drag, customer-sync, day-load pass; calendar/catalogue/manual-booking assertions updated for the plain list.
+
 ## 2026-11-04 — Booking form, staff-only appointment length, iPhone safe areas
 - **iPhone:** the team app page lacked `viewport-fit=cover`, so `env(safe-area-inset-*)` were 0 and the appointment sheet's buttons sat under the home bar. Added it, plus safe-area padding on the sheet footer, "more" menu, tab bar, dialogs and landscape sides.
 - **Booking from a clicked slot:** no slot grid or 14-day strip; the chosen time shows as a summary with one "Available start time" dropdown to change it (opening hours, then "Outside normal hours" grouped below). Out-of-hours slots work the same way, labelled.

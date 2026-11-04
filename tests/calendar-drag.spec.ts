@@ -133,7 +133,7 @@ test("browser: overlapping appointments share the column; pointer drag snaps to 
   if (await soft.count()) {
     await soft.scrollIntoViewIfNeeded();
     await soft.click({ force: true });
-    await expect(page.getByTestId("override-notice")).toBeVisible();
-    await expect(page.getByTestId("override-notice")).toContainText(/Outside working hours|Lunch break|Barber off duty|Double-booking/);
+    await expect(page.getByTestId("booking-chosen-time")).toBeVisible();
+    await expect(page.getByTestId("override-notice")).toHaveCount(0);
   }
 });
