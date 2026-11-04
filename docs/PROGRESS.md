@@ -728,3 +728,10 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - Conflict screen on review: each clashing date shows "Change time…" (that day's free times) or Skip. The server accepts `moves: [{date,start_min}]`.
 - Only real clashes block a date (overlapping appointment, past, shop closed, day off), the same rule as the single booking list. Breaks, blocked time and out-of-hours are booked over (`force`).
 - Tests: tests/series-fix.spec.ts (4); sandbox/calendar series tests updated for the window cap and new wording.
+
+## iPhone: layout restored, sheets fixed properly (after #77)
+- #77 added viewport-fit=cover to the team app. On iPhone that pushed the top bar under the status bar and left a band under the tab bar. Removed it: iOS handles the main layout's safe areas itself again.
+- Sheets get a dedicated home-bar allowance (`--sheet-safe-bottom`): env() inset when iOS reports one, otherwise 12px in Safari / 24px in the installed app.
+- Appointment sheet: real bottom sheet (grab handle, rounded top, slide-up, stops below the status bar, scrolls inside, sticky action bar clear of the home bar) and swipe down on the handle/header to close.
+- Dialogs on phones are bottom sheets with a sticky header and a full-width main button; the booking form is a full-screen sheet with a solid confirm bar.
+- Tests: tests/phone-sheets.spec.ts (4, 390×844 touch). calendar.spec "E1 unavailable chair time…" and "responsive rebook…" also fail on main without this change.

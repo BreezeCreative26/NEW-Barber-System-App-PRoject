@@ -207,6 +207,41 @@ export function AppointmentPanel({
     });
   }, [booking.id, booking.version]);
 
+  // Phone bottom sheet: drag the grab handle / header down to close it (like an iOS sheet).
+  const drag = useRef<{ y: number; t: number; dy: number } | null>(null);
+  function dragStart(e: React.PointerEvent) {
+    if (!window.matchMedia("(max-width: 900px)").matches) return;
+    if ((e.target as HTMLElement).closest("button, a, input, select, textarea, summary")) return;
+    drag.current = { y: e.clientY, t: performance.now(), dy: 0 };
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    ref.current?.classList.add("dragging");
+  }
+  function dragMove(e: React.PointerEvent) {
+    const d = drag.current;
+    if (!d || !ref.current) return;
+    d.dy = Math.max(0, e.clientY - d.y);
+    ref.current.style.transform = d.dy ? `translateY(${d.dy}px)` : "";
+  }
+  function dragEnd() {
+    const d = drag.current;
+    const el = ref.current;
+    drag.current = null;
+    if (!d || !el) return;
+    el.classList.remove("dragging");
+    const fast = d.dy > 40 && d.dy / Math.max(1, performance.now() - d.t) > 0.6;
+    if (d.dy > Math.min(160, el.offsetHeight * 0.3) || fast) {
+      el.classList.add("settling");
+      el.style.transform = "translateY(100%)";
+      window.setTimeout(onClose, 200);
+      return;
+    }
+    if (d.dy) {
+      el.classList.add("settling");
+      el.style.transform = "";
+      window.setTimeout(() => el.classList.remove("settling"), 240);
+    }
+  }
+  const dragProps = { onPointerDown: dragStart, onPointerMove: dragMove, onPointerUp: dragEnd, onPointerCancel: dragEnd };
   function keyDown(e: React.KeyboardEvent) {
     if (e.key === "Escape") {
       e.stopPropagation();
@@ -252,8 +287,8 @@ export function AppointmentPanel({
         }}
         data-testid="appointment-panel"
       >
-        <div className="panel-handle" aria-hidden="true" />
-        <header className="panel-header">
+        <div className="panel-handle" aria-hidden="true" data-testid="panel-handle" {...dragProps} />
+        <header className="panel-header" {...dragProps}>
           <div className="panel-title-row">
             <Badge tone={tones[booking.status]}>{labels[booking.status]}</Badge>
             {booking.channel === "ONLINE" && <span className="channel-badge online">Booked online</span>}

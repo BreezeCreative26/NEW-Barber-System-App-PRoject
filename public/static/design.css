@@ -4046,7 +4046,7 @@ p.auth-switch button.linklike:hover { text-decoration: underline; text-underline
   .modal .booking-workflow .workspace-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .modal .booking-customer .workspace-form-grid { grid-template-columns: minmax(0, 1fr); }
   .modal .slot-grid-chips { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .modal:has(.booking-workflow) .workspace-save-actions { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); gap: 10px; }
+  .modal:has(.booking-workflow) .workspace-save-actions { padding: 10px 16px calc(10px + var(--sheet-safe-bottom, 12px)); gap: 10px; }
   .modal:has(.booking-workflow) .workspace-save-actions > .button { padding: 0 16px; flex: 0 0 auto; }
   .booking-summary-bar { font-size: 12.5px; gap: 2px 8px; flex: 1 1 0; }
   .booking-summary-bar .bsb-main { flex-basis: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -4103,7 +4103,7 @@ p.auth-switch button.linklike:hover { text-decoration: underline; text-underline
 .ask-actions .button { min-height: 40px; padding-inline: 16px; }
 @media (max-width: 767px) {
   .ask-dialog { width: 100vw; max-width: 100vw; margin: auto 0 0; border-radius: 18px 18px 0 0; border-bottom: 0; }
-  .ask-dialog form { padding: 20px 18px calc(18px + env(safe-area-inset-bottom)); }
+  .ask-dialog form { padding: 20px 18px calc(18px + var(--sheet-safe-bottom, 12px)); }
   .ask-actions { flex-direction: column-reverse; }
   .ask-actions .button { width: 100%; min-height: 46px; }
 }
@@ -4316,23 +4316,88 @@ input[type="radio"] { appearance: auto; width: 18px; height: 18px; min-height: 1
   .customer-profile-head h2 { overflow-wrap: anywhere; }
 }
 
-/* ---- iPhone safe areas in the team app ----
-   The workspace page now opts into viewport-fit=cover, so env(safe-area-inset-*) report the real home-bar
-   and notch sizes (they were 0 before, which is why sheet buttons sat under the home bar). Keep content
-   clear of the notch in landscape, and give every bottom-pinned bar the home-bar gap. */
-.workspace { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
-.tabbar { height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px)); padding-left: calc(var(--s-2) + env(safe-area-inset-left, 0px)); padding-right: calc(var(--s-2) + env(safe-area-inset-right, 0px)); }
-@media (max-width: 900px) {
-  .workspace .workspace-main { padding-bottom: calc(var(--tabbar-h) + 24px + env(safe-area-inset-bottom, 0px)); }
-  /* Appointment sheet: stop short of the top, and keep the action bar above the home indicator. */
-  .appointment-panel { height: auto; max-height: calc(100dvh - 12px - env(safe-area-inset-top, 0px)); }
-  .appointment-panel .panel-body { min-height: 0; }
-  .appointment-panel .panel-actions { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); padding-left: calc(12px + env(safe-area-inset-left, 0px)); padding-right: calc(12px + env(safe-area-inset-right, 0px)); }
-  .panel-more-menu { bottom: calc(52px + env(safe-area-inset-bottom, 0px)); }
+/* ---- Phone sheets in the team app: appointment sheet, booking form, dialogs ----
+   The team app shell does NOT use viewport-fit=cover: iOS keeps the top bar and tab bar inside the
+   safe area itself (cover pushed the top bar under the status bar and left a band under the tab bar).
+   Only the sheets need help: their action bars get a home-bar allowance that works whether or not iOS
+   reports env() insets — env() when it does, a fixed allowance in the installed (standalone) app. */
+:root { --sheet-safe-bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
+@media (display-mode: standalone) and (pointer: coarse) {
+  :root { --sheet-safe-bottom: max(24px, env(safe-area-inset-bottom, 0px)); }
 }
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes scrim-fade { from { opacity: 0; } to { opacity: 1; } }
+
+@media (max-width: 900px) {
+  /* Appointment sheet: a real bottom sheet — grab handle, rounded top, stops short of the status bar,
+     scrolls inside, and the action bar always sits clear of the home bar. */
+  .panel-scrim { background: rgba(14, 17, 26, 0.42); overscroll-behavior: contain; animation: scrim-fade .18s ease-out; }
+  .appointment-panel {
+    height: auto; max-height: calc(100dvh - 28px); min-height: 0;
+    border: 0; border-radius: 22px 22px 0 0; overflow: hidden;
+    box-shadow: 0 -18px 50px rgba(14, 17, 26, 0.22);
+    animation: sheet-up .28s cubic-bezier(.2, .8, .2, 1);
+    touch-action: pan-y; will-change: transform;
+  }
+  .appointment-panel.dragging { animation: none; transition: none; }
+  .appointment-panel.settling { transition: transform .22s cubic-bezier(.2, .8, .2, 1); }
+  .panel-handle { display: block; flex: none; width: 100%; height: 22px; margin: 0; background: transparent; position: relative; cursor: grab; touch-action: none; }
+  .panel-handle::before { content: ""; position: absolute; left: 50%; top: 8px; width: 40px; height: 5px; margin-left: -20px; border-radius: 3px; background: #d0d3db; }
+  .appointment-panel .panel-header { padding-top: 2px; background: var(--surface); }
+  .appointment-panel .panel-body { flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  .appointment-panel .panel-actions {
+    position: relative; flex: none;
+    padding: 10px 14px calc(10px + var(--sheet-safe-bottom));
+    background: var(--surface); border-top: 1px solid var(--line);
+    box-shadow: 0 -8px 24px rgba(14, 17, 26, 0.06);
+  }
+  .appointment-panel .panel-actions > .button { min-height: 46px; border-radius: 12px; font-weight: 600; }
+  .appointment-panel .panel-more summary { border-radius: 12px; }
+  .panel-more-menu { bottom: calc(100% + 8px); border-radius: 14px; box-shadow: 0 18px 50px rgba(14, 17, 26, 0.22); }
+
+  /* Side drawers (message history, reviews) clear the home bar too. */
+  .history-drawer { padding-bottom: calc(24px + var(--sheet-safe-bottom)); }
+}
+
 @media (max-width: 767px) {
-  .modal { max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
-  .modal .workspace-save-actions { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+  /* Dialogs become bottom sheets on phones: full width, rounded top, slide up, never taller than the
+     screen, content clear of the home bar. */
+  .modal {
+    width: 100vw; max-width: 100vw; margin: auto 0 0;
+    max-height: calc(100dvh - 28px);
+    border: 0; border-radius: 22px 22px 0 0;
+    box-shadow: 0 -18px 50px rgba(14, 17, 26, 0.22);
+    overscroll-behavior: contain; overflow-x: hidden;
+  }
+  .modal[open] { animation: sheet-up .28s cubic-bezier(.2, .8, .2, 1); }
+  .modal::backdrop { background: rgba(14, 17, 26, 0.42); }
+  .modal .modal-inner { padding: 18px 16px 16px; }
+  .modal .modal-inner:not(:has(.workspace-save-actions)) { padding-bottom: calc(16px + var(--sheet-safe-bottom)); }
+  .modal .modal-header { position: sticky; top: 0; z-index: 3; margin: -18px -16px 16px; padding: 14px 16px 12px; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .modal .modal-header::before { content: ""; position: absolute; left: 50%; top: 5px; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: #d0d3db; }
+  .modal .modal-header h2 { font-size: 19px; }
+  .modal .workspace-save-actions {
+    margin: 0 -16px; padding: 10px 16px calc(10px + var(--sheet-safe-bottom));
+    background: var(--surface); border-top: 1px solid var(--line);
+    box-shadow: 0 -8px 24px rgba(14, 17, 26, 0.06);
+  }
+  .modal .workspace-save-actions .button { min-height: 46px; border-radius: 12px; }
+  /* Plain dialogs: the main action spans the sheet, like an iOS sheet button. */
+  .modal:not(:has(.booking-workflow)) .workspace-save-actions { display: flex; flex-wrap: wrap; gap: 8px; position: sticky; bottom: 0; z-index: 3; }
+  .modal:not(:has(.booking-workflow)) .workspace-save-actions > .button { flex: 1 1 100%; justify-content: center; font-size: 15px; font-weight: 650; }
+  /* The in-app confirm sheet (cancel, no-show…) uses the same allowance. */
+  .ask-dialog form { padding-bottom: calc(18px + var(--sheet-safe-bottom)); }
+}
+@media (max-width: 720px) {
+  /* The booking form is a full-screen sheet; its header and footer handle their own edges. */
+  .modal.wide:has(.booking-workflow) { animation: sheet-up .28s cubic-bezier(.2, .8, .2, 1); box-shadow: none; }
+  .modal.wide:has(.booking-workflow) .modal-inner { padding: 0; }
+  .modal:has(.booking-workflow) .modal-header { position: sticky; top: 0; margin: 0; padding: 12px 16px; }
+  .modal:has(.booking-workflow) .modal-header::before { display: none; }
+  .modal:has(.booking-workflow) .workspace-save-actions { margin: 0; padding: 10px 16px calc(10px + var(--sheet-safe-bottom)); background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .appointment-panel, .modal[open], .modal.wide:has(.booking-workflow), .panel-scrim { animation: none !important; }
 }
 
 /* ---- Booking form: the chosen time as a summary, one "change time" dropdown, staff-only length ---- */
