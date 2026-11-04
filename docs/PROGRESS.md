@@ -1,5 +1,10 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-04 — Outbox: overlapping drains could send the same message twice
+- `drain()` claimed rows with `status IN ('QUEUED','SENDING')`, so a second drain that had read the same row could re-claim it straight after the first and send it again. Overlap is normal in production (Vercel cron, lazy sweep, un-scoped post-write drains). Seen live on The Doghouse campaign: SMS rows with `attempts=2` sent within seconds, the duplicate rejected by carriers as `40008`, and ~50 emails with `attempts=2`.
+- Fix: the claim repeats the select's conditions (due QUEUED, or SENDING abandoned 10+ min). `tests/outbox-claim.test.ts` runs four drains at once against Postgres with a fake Telnyx: old code sent most numbers 3-4 times, fixed code exactly once; paused rows and crashed-worker reclaim covered.
+- Remaining campaign SMS paused (next_attempt_at +30 days) until this is deployed.
+
 ## 2026-09-27 — Customer experience audit + fixes
 - `docs/CX_AUDIT.md`: walked shop page → booking → confirmation → passwordless sign-in → account (usual / upcoming / history / profile) → waiting list, on phone and laptop; screenshots in `docs/evidence/cx/`. Zero console errors. Shop scoping of accounts confirmed. Verdict: shop page, account area and manage link are commercial grade; booking flow had four rough edges, all fixed:
   1. "Live shop prices · no payment taken" test-era copy removed from the booking summary.

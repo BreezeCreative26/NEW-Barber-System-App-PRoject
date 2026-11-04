@@ -759,8 +759,17 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
     .all<Row>();
   let sent = 0, failed = 0, retried = 0;
   for (const row of due.results) {
-    const claim = await db.prepare("UPDATE notifications SET status='SENDING', next_attempt_at=?, attempts=attempts+1 WHERE id=? AND status IN ('QUEUED','SENDING')").bind(now, row.id).run();
-    if (!claim.meta.changes) continue; // someone else took it
+    // The claim must be exclusive. Two drains often overlap (Vercel cron, the lazy sweep, and every
+    // un-scoped drain() call after a write), and both can SELECT the same QUEUED row. The claim
+    // repeats the SELECT's conditions so only one of them wins: a QUEUED row that is (still) due, or a
+    // SENDING row abandoned for 10+ minutes. Accepting any SENDING row here let the second drain
+    // re-claim a row the first had just taken, so the customer got the same text twice (and carriers
+    // rejected the copy, which is what showed up as "Carrier could not deliver").
+    const claim = await db
+      .prepare("UPDATE notifications SET status='SENDING', next_attempt_at=?, attempts=attempts+1 WHERE id=? AND ((status='QUEUED' AND (next_attempt_at IS NULL OR next_attempt_at<=?)) OR (status='SENDING' AND next_attempt_at<=?))")
+      .bind(now, row.id, now, now - 10 * 60000)
+      .run();
+    if (!claim.meta.changes) continue; // another drain took it, or it was paused/rescheduled since the SELECT
     // Marketing is re-checked at the moment of sending: someone who opted out after it was queued or
     // scheduled is never messaged.
     if (row.template === "shop_announcement" && row.related_type === "announce") {
