@@ -7531,7 +7531,7 @@ function CustomerPicker({
       <div className={`customer-new ${mode === "picked" || (open && mode === "search") ? "visually-hidden" : ""}`} data-testid="customer-new">
         <p className="customer-new-title"><Icon name="user" size={14} /> {mode === "new" ? "New customer" : "Or add a new customer"}</p>
         <div className="workspace-form-grid">
-          <Field label="Customer name" hint={mode === "new" ? undefined : "Leave blank for a walk-in"}>
+          <Field label="Customer name">
             <input
               name="customer_name"
               value={name}
@@ -7542,7 +7542,7 @@ function CustomerPicker({
               autoComplete="off"
             />
           </Field>
-          <Field label="Mobile number" hint={name.trim() ? "For confirmations and reminders" : "Optional for walk-ins"}>
+          <Field label="Mobile number">
             <input
               name="phone"
               value={phone}
@@ -7715,6 +7715,10 @@ function BookingForm({
   const [pickedCustomer, setPickedCustomer] = useState<PickedCustomer | null>(
     rebook?.customer_id ? { id: rebook.customer_id, name: rebook.customer_name, phone: rebook.phone } : null,
   );
+  // Slim form: an explicit Walk-in switch (no name, never messaged) and the rarely used extras folded away.
+  const [walkIn, setWalkIn] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [notes, setNotes] = useState("");
   function seriesBody(f: FormData) {
     return {
       staff_id: staff,
@@ -7729,7 +7733,7 @@ function BookingForm({
       quote: slots?.quote,
       addon_ids: addonIds,
       notify: f.get("notify_confirm") === "on",
-      ...(pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),
+      ...(!walkIn && pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),
       ...(length ? { duration_min: Number(length) } : {}),
       interval_weeks: intervalWeeks,
       occurrences: Math.max(2, visits),
@@ -7897,7 +7901,7 @@ function BookingForm({
               quote: slots.quote,
               addon_ids: addonIds,
               notify: f.get("notify_confirm") === "on",
-              ...(pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),
+              ...(!walkIn && pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),
               ...(length ? { duration_min: Number(length) } : {}),
               ...(override ? { force: true } : {}),
             };
@@ -7929,468 +7933,458 @@ function BookingForm({
     >
       {waitlist && (
         <aside className="booking-slot-origin" aria-label="Waitlist request">
-          <strong>
-            <Icon name="bell" /> From the waitlist · {waitlist.customer_name}
-          </strong>
-          <p>
-            Asked for {waitlist.service_name} on {waitlist.date}
-            {waitlist.staff_name ? ` with ${waitlist.staff_name}` : " with any barber"} ·{" "}
-            {({ ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" } as Record<string, string>)[waitlist.daypart]}.
-          </p>
-          <p>
-            Pick a free time below. Saving books the customer and marks this waitlist request as booked.
-            {!waitlist.staff_id && " Choose whichever barber has space."}
-          </p>
-          {(!staff || !service) && (
-            <p>Choose an active, eligible barber and service.</p>
-          )}
+          <Icon name="bell" size={16} />
+          <span>
+            <strong>Waitlist · {waitlist.customer_name}</strong>
+            <small>
+              {waitlist.service_name} · {prettyBookingDate(waitlist.date)}
+              {waitlist.staff_name ? ` · ${waitlist.staff_name}` : " · any barber"} ·{" "}
+              {({ ANY: "any time", MORNING: "morning", AFTERNOON: "afternoon", EVENING: "evening" } as Record<string, string>)[waitlist.daypart]}
+              {(!staff || !service) && " · choose an available barber and service"}
+            </small>
+          </span>
         </aside>
       )}
       {rebook && !waitlist && (
         <aside className="booking-slot-origin" aria-label="Previous visit">
-          <strong>Book again · {reference(rebook)}</strong>
-          <p>
-            {rebook.customer_name} · {rebook.service_name} · previous price{" "}
-            {money(rebook.price_pence)}
-          </p>
-          <p>
-            A separate new appointment using current prices. Previous notes and
-            add-ons are not copied; choose any extras below. The original visit
-            stays unchanged.
-          </p>
-          {(!staff || !service) && (
-            <p>
-              The previous barber or service is unavailable. Choose an active,
-              eligible replacement.
-            </p>
-          )}
+          <Icon name="repeat" size={16} />
+          <span>
+            <strong>Book again · {rebook.customer_name}</strong>
+            <small>
+              {rebook.service_name} · previous price {money(rebook.price_pence)}
+              {(!staff || !service) && " · the previous barber or service is unavailable, choose another"}
+            </small>
+          </span>
         </aside>
       )}
       {b && (
-        <aside
-          className="booking-slot-origin"
-          aria-label="Original appointment"
-        >
-          <strong>
-            Moving {reference(b)} · {b.customer_name}
-          </strong>
-          <p>
-            {prettyBookingDate(b.date)} · {time(b.start_min)} ·{" "}
-            {w.staff.find((s) => s.id === b.staff_id)?.name}
-          </p>
-          <p>
-            Original price {money(b.price_pence)} and service items stay
-            unchanged. The original time is kept if the move fails.
-          </p>
+        <aside className="booking-slot-origin" aria-label="Original appointment">
+          <Icon name="calendar" size={16} />
+          <span>
+            <strong>Moving {reference(b)} · {b.customer_name}</strong>
+            <small>
+              Now {prettyBookingDate(b.date)} · {time(b.start_min)} · {w.staff.find((s) => s.id === b.staff_id)?.name}. Price stays the same.
+            </small>
+          </span>
         </aside>
       )}
-      <div className="booking-layout" onChange={() => setReview(false)}>
-        <section
-          className="booking-selection"
-          aria-labelledby="booking-service-heading"
-        >
-          <h3 id="booking-service-heading">1. Service & time</h3>
-          <div className="workspace-form-grid">
-            <Field label="Barber">
-              <select
-                value={staff}
-                onChange={(e) => setStaff(e.target.value)}
-                required
-              >
-                <option value="">Choose barber</option>
-                {w.staff
-                  .filter((s) => (s.active || s.id === b?.staff_id) && (!ownStaffOnly || s.id === ownStaffId || s.id === b?.staff_id))
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                      {s.active ? "" : " (inactive)"}
-                    </option>
-                  ))}
-              </select>
-            </Field>
-            <Field label="Service">
-              <select
-                value={service}
-                onChange={(e) => {
-                  setService(e.target.value);
-                  setAddonIds([]);
-                }}
-                disabled={!!b}
-                required
-              >
-                <option value="">Choose service</option>
-                {w.services
-                  .filter((s) => s.active || s.id === b?.service_id)
-                  .map((s) => (
-                    <option
-                      key={s.id}
-                      value={s.id}
-                      disabled={!offersService(w.service_rules, staff, s.id)}
-                    >
-                      {s.name}
-                      {!offersService(w.service_rules, staff, s.id)
-                        ? " (not offered)"
-                        : ""}
-                    </option>
-                  ))}
-              </select>
-            </Field>
-          </div>
-          {!b && slots && (() => {
-            const normal = slots.customer_duration_min ?? slots.duration_min;
-            const steps = Array.from({ length: 32 }, (_, i) => (i + 1) * 15).filter((m) => m !== normal);
-            return (
-              <div className="booking-length" data-testid="booking-length">
-                <Field label="Appointment length">
-                  <select
-                    value={length}
-                    onChange={(e) => {
-                      lengthChange.current = true;
-                      setLength(e.target.value === String(normal) ? "" : e.target.value);
-                    }}
-                  >
-                    <option value="">{normal} min (normal)</option>
-                    {steps.map((m) => (
-                      <option key={m} value={m}>
-                        {m} min{m < normal ? " (shorter)" : " (longer)"}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <small>{length ? `Blocks ${length} min on your calendar. The customer is still told ${normal} min.` : "Only changes your calendar. The customer always sees the normal length."}</small>
-              </div>
-            );
-          })()}
+      <div className="booking-layout booking-slim" onChange={() => setReview(false)}>
+        <div className="booking-col">
           {!b && (
-            <fieldset className="workspace-addon-options">
-              <legend>Optional add-ons</legend>
-              {w.addons
-                .filter(
-                  (a) =>
-                    (a.active &&
-                      w.addon_links.some(
-                        (l) => l.addon_id === a.id && l.service_id === service,
-                      )) ||
-                    addonIds.includes(a.id),
-                )
-                .map((a) => (
-                  <label className="workspace-check" key={a.id}>
-                    <input
-                      type="checkbox"
-                      checked={addonIds.includes(a.id)}
-                      onChange={(e) =>
-                        setAddonIds((ids) =>
-                          e.target.checked
-                            ? [...ids, a.id]
-                            : ids.filter((id) => id !== a.id),
-                        )
-                      }
-                    />
-                    {a.name} · {money(a.price_pence)} · +{a.duration_min} min
-                    {a.active ? "" : " (unavailable)"}
-                  </label>
-                ))}
-              {!w.addons.some(
-                (a) =>
-                  a.active &&
-                  w.addon_links.some(
-                    (l) => l.addon_id === a.id && l.service_id === service,
-                  ),
-              ) && <p>No add-ons offered with this service.</p>}
-            </fieldset>
-          )}
-        </section>
-        <section
-          className="booking-when"
-          aria-labelledby="booking-when-heading"
-        >
-          <h3 id="booking-when-heading">2. Date & time</h3>
-          {rebook && !waitlist && (
-            <div
-              className="booking-date-shortcuts"
-              aria-label="Rebooking date shortcuts"
-            >
-              <p>
-                Weeks from {rebookBase}. Choose a date, then check available
-                times.
-              </p>
-              {[3, 4, 6].map((weeks) => (
-                <Button
-                  key={weeks}
-                  variant="secondary"
-                  aria-pressed={date === datePlus(rebookBase, weeks * 7)}
-                  onClick={(e) => {
-                    markDraft(e.currentTarget);
-                    setDate(datePlus(rebookBase, weeks * 7));
-                  }}
-                >
-                  {weeks} weeks
-                </Button>
-              ))}
-            </div>
-          )}
-          {!draft && <div className="booking-day-strip" role="group" aria-label="Quick dates">
-            {Array.from({ length: 14 }, (_, i) => datePlus(w.today, i)).map((d, i) => {
-              const dt = new Date(`${d}T12:00:00Z`);
-              return (
+            <section className="booking-customer" aria-labelledby="booking-customer-heading">
+              <div className="booking-section-head">
+                <h3 id="booking-customer-heading">Customer</h3>
                 <button
                   type="button"
-                  key={d}
-                  className="booking-day"
-                  aria-pressed={date === d}
-                  aria-label={dt.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}
+                  className={`booking-walkin${walkIn ? " active" : ""}`}
+                  aria-pressed={walkIn}
+                  data-testid="booking-walkin"
                   onClick={(e) => {
                     markDraft(e.currentTarget);
-                    setDate(d);
+                    setWalkIn((v) => !v);
+                    setPickedCustomer(null);
                   }}
                 >
-                  <small>{i === 0 ? "Today" : dt.toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" })}</small>
-                  <strong>{dt.getUTCDate()}</strong>
-                  <small>{dt.toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" })}</small>
+                  <Icon name="footprints" size={14} /> Walk-in
                 </button>
-              );
-            })}
-          </div>}
-          <Field label="Booking date">
-            <input
-              type="date"
-              required
-              lang="en-GB"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </Field>
-          <ErrorMessage error={error} />
-          {error && (
-            <Button
-              variant="secondary"
-              onClick={() => setRefresh((n) => n + 1)}
-            >
-              Retry availability
-            </Button>
-          )}
-          {!slots && !error && (
-            <p role="status">Checking saved availability…</p>
-          )}
-          {slots && (
-            <>
-              {(() => {
-                const pickable = slots.slots.filter(staffCanPick);
-                // Start the list at the time clicked on the timetable (or, from "New booking", the first
-                // opening-hours time); earlier times follow in their own group.
-                const anchor = draft?.start ?? pickable.find((x) => !x.outside)?.start_min;
-                const ordered = anchor === undefined ? pickable : [...pickable.filter((x) => x.start_min >= anchor), ...pickable.filter((x) => x.start_min < anchor)];
-                const firstFree = pickable.find((x) => !x.reason && !x.outside) || pickable[0];
-                return (
-                  <>
-                    <div className="booking-time-picker" data-testid="booking-time-picker">
-                      {start && (
-                        <div className="booking-chosen-time" data-testid="booking-chosen-time" aria-live="polite">
-                          <Icon name="clock" />
-                          <span>
-                            <small>{prettyBookingDate(date)}</small>
-                            <strong>{time(Number(start))} – {time(Number(start) + slots.duration_min)}</strong>
-                          </span>
-                        </div>
-                      )}
-                      <label className="workspace-field">
-                        <span>Start time</span>
-                        <select
-                          aria-label="Available start time"
-                          value={start}
-                          onChange={(e) => {
-                            markDraft(e.currentTarget);
-                            setStart(e.target.value);
-                            const at = slots.slots.find((x) => String(x.start_min) === e.target.value);
-                            setOverride(at?.reason || "");
-                          }}
-                          required
-                        >
-                          <option value="">Choose a time</option>
-                          {anchor === undefined || !ordered.some((x) => x.start_min < anchor)
-                            ? ordered.map((x) => <option key={x.start_min} value={x.start_min}>{time(x.start_min)}</option>)
-                            : (
-                              <>
-                                {ordered.filter((x) => x.start_min >= anchor).map((x) => <option key={x.start_min} value={x.start_min}>{time(x.start_min)}</option>)}
-                                <optgroup label="Earlier">
-                                  {ordered.filter((x) => x.start_min < anchor).map((x) => <option key={x.start_min} value={x.start_min}>{time(x.start_min)}</option>)}
-                                </optgroup>
-                              </>
-                            )}
-                        </select>
-                      </label>
-                      {!start && (
-                        <Button
-                          variant="secondary"
-                          disabled={!firstFree}
-                          onClick={(e) => {
-                            if (!firstFree) return;
-                            markDraft(e.currentTarget);
-                            setStart(String(firstFree.start_min));
-                            setOverride(firstFree.reason);
-                          }}
-                        >
-                          Use first available time
-                        </Button>
-                      )}
-                    </div>
-                    {!pickable.length && (
-                      <Notice tone="warning">
-                        No available times. Try another day or barber.
-                      </Notice>
-                    )}
-                  </>
-                );
-              })()}
-              <BookingItems items={slots.items} />
-              {slots.overridden && (
-                <Badge>Barber-specific price / duration</Badge>
-              )}
-              <p className="workspace-quote">
-                <strong>{money(slots.price_pence)}</strong> ·{" "}
-                {slots.duration_min} minutes
-                <br />
-                Deposit {money(slots.deposit_policy_pence)} · payable in shop. Cancellation policy: {slots.cancel_hours} hours.
-              </p>
-            </>
-          )}
-        </section>
-        <section
-          className="booking-customer"
-          aria-labelledby="booking-customer-heading"
-        >
-          <h3 id="booking-customer-heading">
-            3. {b ? "Move details" : "Customer details"}
-          </h3>
-          {!b && (
-            <>
-              <CustomerPicker
-                w={w}
-                initial={
-                  rebook
-                    ? { id: rebook.customer_id || null, name: rebook.customer_name, phone: rebook.phone }
-                    : null
-                }
-                onChange={(c) => {
-                  setPickedCustomer(c);
-                  // A returning customer brings their favourite barber/service when nothing was chosen yet.
-                  if (c?.favourite_staff_id && !draft && !rebook && w.staff.some((s) => s.id === c.favourite_staff_id && s.active))
-                    setStaff(c.favourite_staff_id);
-                }}
-              />
-              <Field label="Booking source">
-                <select name="source">
-                  <option value="TEST_BOOKING">Phone / in person</option>
-                  <option value="WALK_IN">Walk-in</option>
-                </select>
-              </Field>
-              <Field label="Notes">
-                <textarea name="notes" maxLength={500} />
-              </Field>
-              <label className="ask-check booking-confirm-tick" data-testid="booking-send-confirmation">
-                <input type="checkbox" name="notify_confirm" defaultChecked />
-                <span><strong>Send them a confirmation</strong><small>By text or email, as the customer prefers. Walk-ins are never messaged.</small></span>
-              </label>
-              <fieldset className="series-options" data-testid="series-options">
-                <legend>
-                  <Icon name="repeat" /> Standing booking
-                </legend>
-                <label className="series-toggle">
-                  <input
-                    type="checkbox"
-                    checked={repeat}
-                    onChange={(e) => {
-                      setRepeat(e.target.checked);
-                      setSkipDates([]);
-                      setMoves([]);
-                      setSeriesPreview(null);
+              </div>
+              <input type="hidden" name="source" value={walkIn ? "WALK_IN" : "TEST_BOOKING"} />
+              {walkIn ? (
+                <p className="booking-walkin-note" data-testid="booking-walkin-note">
+                  No name or number needed, and no messages are sent.{" "}
+                  <button type="button" className="panel-inline" onClick={() => setWalkIn(false)}>
+                    Add a customer instead
+                  </button>
+                </p>
+              ) : (
+                <>
+                  <CustomerPicker
+                    w={w}
+                    initial={
+                      rebook
+                        ? { id: rebook.customer_id || null, name: rebook.customer_name, phone: rebook.phone }
+                        : null
+                    }
+                    onChange={(c) => {
+                      setPickedCustomer(c);
+                      // A returning customer brings their favourite barber when nothing was chosen yet.
+                      if (c?.favourite_staff_id && !draft && !rebook && !ownStaffOnly && w.staff.some((s) => s.id === c.favourite_staff_id && s.active))
+                        setStaff(c.favourite_staff_id);
                     }}
                   />
-                  Repeat this appointment at the same time
-                </label>
-                {repeat && (
-                  <div className="series-controls">
-                    <div className="series-presets" role="group" aria-label="Quick repeat">
-                      {([[1, "Every week"], [2, "Every 2 weeks"]] as const).map(([n, label]) => (
-                        <button key={n} type="button" className={`chip${intervalWeeks === n ? " active" : ""}`} aria-pressed={intervalWeeks === n} onClick={() => { setIntervalWeeks(n); setSkipDates([]); setMoves([]); }}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <Field label="Every">
-                      <select
-                        value={intervalWeeks}
-                        onChange={(e) => {
-                          setIntervalWeeks(Number(e.target.value));
-                          setSkipDates([]);
-                          setMoves([]);
-                        }}
-                        aria-describedby="series-hint"
-                      >
-                        {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => (
-                          <option key={n} value={n}>
-                            {n === 1 ? "week" : `${n} weeks`}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Visits">
+                  <label className="workspace-check booking-confirm-switch" data-testid="booking-send-confirmation">
+                    <span>
+                      <strong>Send confirmation</strong>
+                      <small>Text or email, as they prefer</small>
+                    </span>
+                    <input type="checkbox" name="notify_confirm" defaultChecked />
+                  </label>
+                </>
+              )}
+            </section>
+          )}
+          <section className="booking-selection" aria-labelledby="booking-service-heading">
+            <h3 id="booking-service-heading">Appointment</h3>
+            <div className="workspace-form-grid">
+              <Field label="Service">
+                <select
+                  value={service}
+                  onChange={(e) => {
+                    setService(e.target.value);
+                    setAddonIds([]);
+                  }}
+                  disabled={!!b}
+                  required
+                >
+                  <option value="">Choose service</option>
+                  {w.services
+                    .filter((s) => s.active || s.id === b?.service_id)
+                    .map((s) => (
+                      <option key={s.id} value={s.id} disabled={!offersService(w.service_rules, staff, s.id)}>
+                        {s.name}
+                        {!offersService(w.service_rules, staff, s.id) ? " (not offered)" : ""}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+              <Field label="Barber">
+                <select
+                  value={staff}
+                  onChange={(e) => setStaff(e.target.value)}
+                  disabled={ownStaffOnly && !b}
+                  required
+                >
+                  <option value="">Choose barber</option>
+                  {w.staff
+                    .filter((s) => (s.active || s.id === b?.staff_id) && (!ownStaffOnly || s.id === ownStaffId || s.id === b?.staff_id))
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                        {s.active ? "" : " (inactive)"}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+            </div>
+            {slots && (
+              <p className="workspace-quote" data-testid="booking-quote">
+                <strong>{money(slots.price_pence)}</strong>
+                <span>· {slots.duration_min} min</span>
+                {!!slots.deposit_policy_pence && <span>· {money(slots.deposit_policy_pence)} deposit</span>}
+                {slots.overridden && <Badge>Barber-specific price / duration</Badge>}
+              </p>
+            )}
+            {!b && (() => {
+              const offered = w.addons.filter(
+                (a) => (a.active && w.addon_links.some((l) => l.addon_id === a.id && l.service_id === service)) || addonIds.includes(a.id),
+              );
+              if (!offered.length) return null;
+              return (
+                <fieldset className="workspace-addon-options booking-addons">
+                  <legend>Add-ons</legend>
+                  {offered.map((a) => (
+                    <label className={`addon-chip${addonIds.includes(a.id) ? " on" : ""}`} key={a.id}>
                       <input
-                        type="number"
-                        min={2}
-                        max={Math.max(2, maxVisits)}
-                        value={visits}
-                        data-testid="series-visits"
+                        type="checkbox"
+                        checked={addonIds.includes(a.id)}
+                        onChange={(e) =>
+                          setAddonIds((ids) => (e.target.checked ? [...ids, a.id] : ids.filter((id) => id !== a.id)))
+                        }
+                      />
+                      <Icon name={addonIds.includes(a.id) ? "check" : "plus"} size={14} />
+                      <span>
+                        {a.name} <small>+{money(a.price_pence)} · {a.duration_min} min{a.active ? "" : " · unavailable"}</small>
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+              );
+            })()}
+          </section>
+        </div>
+        <div className="booking-col">
+          <section className="booking-when" aria-labelledby="booking-when-heading">
+            <h3 id="booking-when-heading">{b ? "New time" : "Time"}</h3>
+            {rebook && !waitlist && (
+              <div className="booking-date-shortcuts" aria-label="Rebooking date shortcuts">
+                <span>In</span>
+                {[3, 4, 6].map((weeks) => (
+                  <Button
+                    key={weeks}
+                    variant="secondary"
+                    aria-pressed={date === datePlus(rebookBase, weeks * 7)}
+                    onClick={(e) => {
+                      markDraft(e.currentTarget);
+                      setDate(datePlus(rebookBase, weeks * 7));
+                    }}
+                  >
+                    {weeks} weeks
+                  </Button>
+                ))}
+              </div>
+            )}
+            {(() => {
+              const days = Array.from({ length: 14 }, (_, i) => datePlus(w.today, i));
+              const inStrip = !draft && days.includes(date);
+              const pick = (
+                <label className={`booking-day booking-date-pick${inStrip ? "" : " is-set"}`} title="Pick a date">
+                  <Icon name="calendar" size={16} />
+                  <small>{inStrip ? "Pick date" : prettyBookingDate(date)}</small>
+                  <input
+                    type="date"
+                    aria-label="Booking date"
+                    required
+                    lang="en-GB"
+                    value={date}
+                    onChange={(e) => {
+                      if (e.target.value) setDate(e.target.value);
+                    }}
+                  />
+                </label>
+              );
+              if (draft) return <div className="booking-date-row">{pick}</div>;
+              return (
+                <div className="booking-day-strip" role="group" aria-label="Quick dates">
+                  {days.map((d, i) => {
+                    const dt = new Date(`${d}T12:00:00Z`);
+                    return (
+                      <button
+                        type="button"
+                        key={d}
+                        className="booking-day"
+                        aria-pressed={date === d}
+                        aria-label={dt.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}
+                        onClick={(e) => {
+                          markDraft(e.currentTarget);
+                          setDate(d);
+                        }}
+                      >
+                        <small>{i === 0 ? "Today" : dt.toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" })}</small>
+                        <strong>{dt.getUTCDate()}</strong>
+                        <small>{dt.toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" })}</small>
+                      </button>
+                    );
+                  })}
+                  {pick}
+                </div>
+              );
+            })()}
+            <ErrorMessage error={error} />
+            {error && (
+              <Button variant="secondary" onClick={() => setRefresh((n) => n + 1)}>
+                Retry availability
+              </Button>
+            )}
+            {!slots && !error && <p role="status" className="booking-checking">Checking availability…</p>}
+            {slots && (() => {
+              const pickable = slots.slots.filter(staffCanPick);
+              // Start the list at the time clicked on the timetable (or, from "New booking", the first
+              // opening-hours time); earlier times follow in their own group.
+              const anchor = draft?.start ?? pickable.find((x) => !x.outside)?.start_min;
+              const ordered = anchor === undefined ? pickable : [...pickable.filter((x) => x.start_min >= anchor), ...pickable.filter((x) => x.start_min < anchor)];
+              const firstFree = pickable.find((x) => !x.reason && !x.outside) || pickable[0];
+              const opt = (x: { start_min: number }) => <option key={x.start_min} value={x.start_min}>{time(x.start_min)}</option>;
+              return (
+                <>
+                  <div className="booking-time-picker" data-testid="booking-time-picker">
+                    {start && (
+                      <div className="booking-chosen-time" data-testid="booking-chosen-time" aria-live="polite">
+                        <Icon name="clock" />
+                        <span>
+                          <small>{prettyBookingDate(date)}</small>
+                          <strong>{time(Number(start))} – {time(Number(start) + slots.duration_min)}</strong>
+                        </span>
+                      </div>
+                    )}
+                    <label className="workspace-field">
+                      <span>{start ? "Change time" : "Start time"}</span>
+                      <select
+                        aria-label="Available start time"
+                        value={start}
                         onChange={(e) => {
-                          setOccurrences(
-                            Math.min(maxVisits, Math.max(2, Number(e.target.value) || 2)),
-                          );
+                          markDraft(e.currentTarget);
+                          setStart(e.target.value);
+                          const at = slots.slots.find((x) => String(x.start_min) === e.target.value);
+                          setOverride(at?.reason || "");
+                        }}
+                        required
+                      >
+                        <option value="">Choose a time</option>
+                        {anchor === undefined || !ordered.some((x) => x.start_min < anchor) ? (
+                          ordered.map(opt)
+                        ) : (
+                          <>
+                            {ordered.filter((x) => x.start_min >= anchor).map(opt)}
+                            <optgroup label="Earlier">{ordered.filter((x) => x.start_min < anchor).map(opt)}</optgroup>
+                          </>
+                        )}
+                      </select>
+                    </label>
+                    {!start && (
+                      <Button
+                        variant="secondary"
+                        disabled={!firstFree}
+                        onClick={(e) => {
+                          if (!firstFree) return;
+                          markDraft(e.currentTarget);
+                          setStart(String(firstFree.start_min));
+                          setOverride(firstFree.reason);
+                        }}
+                      >
+                        Use first available time
+                      </Button>
+                    )}
+                  </div>
+                  {!pickable.length && <Notice tone="warning">No available times. Try another day or barber.</Notice>}
+                </>
+              );
+            })()}
+          </section>
+          {!b && (() => {
+            const normal = slots ? slots.customer_duration_min ?? slots.duration_min : 0;
+            const chips = [
+              length ? `${length} min` : "",
+              notes.trim() ? "Note" : "",
+              repeat ? `Every ${intervalWeeks === 1 ? "week" : `${intervalWeeks} weeks`} · ${visits} visits` : "",
+            ].filter(Boolean);
+            return (
+              <section className={`booking-more${moreOpen ? " open" : ""}`} aria-label="More options">
+                <button
+                  type="button"
+                  className="booking-more-toggle"
+                  aria-expanded={moreOpen}
+                  aria-controls="booking-more-body"
+                  data-testid="booking-more-toggle"
+                  onClick={() => setMoreOpen((v) => !v)}
+                >
+                  <Icon name="sliders" size={16} />
+                  <span className="booking-more-label">More options</span>
+                  <span className={`booking-more-summary${chips.length ? " set" : ""}`}>{chips.length ? chips.join(" · ") : "Length, notes, repeat"}</span>
+                  <Icon name={moreOpen ? "up" : "down"} size={16} />
+                </button>
+                <div id="booking-more-body" className="booking-more-body" hidden={!moreOpen}>
+                  {slots && (
+                    <div className="booking-length" data-testid="booking-length">
+                      <Field label="Appointment length">
+                        <select
+                          value={length}
+                          onChange={(e) => {
+                            lengthChange.current = true;
+                            setLength(e.target.value === String(normal) ? "" : e.target.value);
+                          }}
+                        >
+                          <option value="">{normal} min (normal)</option>
+                          {Array.from({ length: 32 }, (_, i) => (i + 1) * 15)
+                            .filter((m) => m !== normal)
+                            .map((m) => (
+                              <option key={m} value={m}>
+                                {m} min{m < normal ? " (shorter)" : " (longer)"}
+                              </option>
+                            ))}
+                        </select>
+                      </Field>
+                      <small>{length ? `Blocks ${length} min on your calendar. The customer is still told ${normal} min.` : "Only your calendar changes. The customer sees the normal length."}</small>
+                    </div>
+                  )}
+                  <Field label="Notes">
+                    <textarea name="notes" maxLength={500} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything the barber should know" />
+                  </Field>
+                  <fieldset className="series-options" data-testid="series-options">
+                    <label className="workspace-check series-toggle">
+                      <span>
+                        <strong><Icon name="repeat" size={14} /> Repeat booking</strong>
+                        <small>Same time, every few weeks</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        aria-label="Repeat this appointment at the same time"
+                        checked={repeat}
+                        onChange={(e) => {
+                          setRepeat(e.target.checked);
                           setSkipDates([]);
                           setMoves([]);
+                          setSeriesPreview(null);
                         }}
                       />
-                    </Field>
-                    <p id="series-hint" className="workspace-footnote" data-testid="series-window-hint">
-                      {maxVisits < 2
-                        ? `Only one visit fits inside your ${windowDays}-day booking window from this date.`
-                        : `Up to ${maxVisits} visit${maxVisits === 1 ? "" : "s"} fit inside your ${windowDays}-day booking window (last date ${prettyBookingDate(windowEnd)}).`}{" "}
-                      Each date is checked before anything is saved; any clash
-                      can be moved to another time or skipped on the review step.
-                    </p>
-                  </div>
-                )}
-              </fieldset>
-            </>
-          )}
-          {b && (
-            <Field label="Reason for rescheduling">
-              <textarea name="reason" required minLength={3} maxLength={300} />
-            </Field>
-          )}
-          {b && moveContact(b) && (() => {
-            const who = moveContact(b)!;
-            const d = notifyMovesDefault();
-            return (
-              <fieldset className="ask-checks booking-notify" data-testid="reschedule-notify">
-                <legend>Let {who.first} know the new time</legend>
-                {who.phone && (
-                  <label className="ask-check">
-                    <input type="checkbox" name="notify_sms" defaultChecked={d.sms} data-testid="reschedule-notify-sms" />
-                    <span><strong>Text</strong><small>{who.phone}</small></span>
-                  </label>
-                )}
-                {who.email && (
-                  <label className="ask-check">
-                    <input type="checkbox" name="notify_email" defaultChecked={d.email} data-testid="reschedule-notify-email" />
-                    <span><strong>Email</strong><small>{who.email}</small></span>
-                  </label>
-                )}
-                <p className="ask-checks-hint">Sent 30 seconds after you save, with the old and new time.</p>
-              </fieldset>
+                    </label>
+                    {repeat && (
+                      <div className="series-controls">
+                        <div className="workspace-form-grid">
+                          <Field label="Every">
+                            <select
+                              value={intervalWeeks}
+                              onChange={(e) => {
+                                setIntervalWeeks(Number(e.target.value));
+                                setSkipDates([]);
+                                setMoves([]);
+                              }}
+                              aria-describedby="series-hint"
+                            >
+                              {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => (
+                                <option key={n} value={n}>
+                                  {n === 1 ? "week" : `${n} weeks`}
+                                </option>
+                              ))}
+                            </select>
+                          </Field>
+                          <Field label="Visits">
+                            <input
+                              type="number"
+                              min={2}
+                              max={Math.max(2, maxVisits)}
+                              value={visits}
+                              data-testid="series-visits"
+                              onChange={(e) => {
+                                setOccurrences(Math.min(maxVisits, Math.max(2, Number(e.target.value) || 2)));
+                                setSkipDates([]);
+                                setMoves([]);
+                              }}
+                            />
+                          </Field>
+                        </div>
+                        <p id="series-hint" className="workspace-footnote" data-testid="series-window-hint">
+                          {maxVisits < 2
+                            ? `Only one visit fits inside your ${windowDays}-day booking window from this date.`
+                            : `Up to ${maxVisits} visits fit inside your ${windowDays}-day booking window (until ${prettyBookingDate(windowEnd)}). Clashes can be moved or skipped next.`}
+                        </p>
+                      </div>
+                    )}
+                  </fieldset>
+                </div>
+              </section>
             );
           })()}
-          <p className="workspace-footnote">Review the details before saving.</p>
-        </section>
+          {b && (
+            <section className="booking-move" aria-labelledby="booking-move-heading">
+              <h3 id="booking-move-heading">Move details</h3>
+              <Field label="Reason for rescheduling">
+                <textarea name="reason" required minLength={3} maxLength={300} rows={2} />
+              </Field>
+              {moveContact(b) && (() => {
+                const who = moveContact(b)!;
+                const d = notifyMovesDefault();
+                return (
+                  <fieldset className="ask-checks booking-notify" data-testid="reschedule-notify">
+                    <legend>Let {who.first} know the new time</legend>
+                    {who.phone && (
+                      <label className="ask-check">
+                        <input type="checkbox" name="notify_sms" defaultChecked={d.sms} data-testid="reschedule-notify-sms" />
+                        <span><strong>Text</strong><small>{who.phone}</small></span>
+                      </label>
+                    )}
+                    {who.email && (
+                      <label className="ask-check">
+                        <input type="checkbox" name="notify_email" defaultChecked={d.email} data-testid="reschedule-notify-email" />
+                        <span><strong>Email</strong><small>{who.email}</small></span>
+                      </label>
+                    )}
+                    <p className="ask-checks-hint">Sent 30 seconds after you save, with the old and new time.</p>
+                  </fieldset>
+                );
+              })()}
+            </section>
+          )}
+        </div>
       </div>
       {review && (
         <section
@@ -8524,9 +8518,6 @@ function BookingForm({
           .
         </p>
       )}
-      <p className="workspace-footnote">
-        Times are Europe/London. Data is saved only after confirmation.
-      </p>
     </SaveForm>
   );
 }

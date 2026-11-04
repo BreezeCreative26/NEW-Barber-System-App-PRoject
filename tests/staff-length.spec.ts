@@ -88,6 +88,7 @@ test("booking form: a clicked slot shows that time and one dropdown, with a staf
   await expect(page.locator(".slot-grid")).toHaveCount(0); // no wall of time buttons
   await expect(page.locator(".booking-day-strip")).toHaveCount(0); // the date came from the calendar
   await expect(page.getByLabel("Available start time")).not.toHaveValue("");
+  await page.getByTestId("booking-more-toggle").click(); // length lives under "More options"
   const length = page.getByTestId("booking-length").getByRole("combobox");
   await expect(length).toBeVisible();
   await expect(length.locator("option").first()).toContainText("(normal)");

@@ -741,3 +741,12 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - main.tsx: a click anywhere on a date/time field calls `showPicker()` on mouse devices (fine pointer), so it behaves like mobile. This also covers the booking-date and other date fields.
 - Enter/Space on the chip opens it from the keyboard; the chip gets a pointer cursor and hover state on desktop.
 - Test: tests/desktop-date.spec.ts (1440×900).
+
+## Slim staff booking form (customer first, walk-in button, extras folded)
+- Order is Customer → Appointment (service + barber) → Time. Two columns on desktop instead of three; one column on phones (phone form ~1340px tall, was ~1960px).
+- A Walk-in button replaces the "Booking source" dropdown and the "leave the name blank" trick. It sends source WALK_IN, needs no name or number, and no messages go out.
+- "More options" row folds away appointment length, notes and repeat booking. When closed it shows what's set (e.g. "45 min · Note · Every 2 weeks · 3 visits").
+- One date control: the day strip ends with a "Pick date" tile that opens the calendar (separate date box removed). A calendar-clicked slot shows just the date tile.
+- Price is one line under the service (price · length · deposit). Add-ons are compact chips. "Send confirmation" is a single switch. Banners (book again / waitlist / moving) are one line each. Repeated small print removed.
+- Unchanged: saving, checks, add-ons, staff-only length, repeat bookings + clash screen, customer search + duplicate warning, rebook/waitlist/slot prefills, barber-only-own-column rule, review step.
+- Tests: tests/booking-slim.spec.ts; series/staff-length/calendar tests open "More options" first.
