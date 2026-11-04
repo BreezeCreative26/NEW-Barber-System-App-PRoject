@@ -4289,3 +4289,29 @@ input[type="radio"] { appearance: auto; width: 18px; height: 18px; min-height: 1
 @media (pointer: coarse) { .rem-chip button { width: 32px; height: 32px; } }
 .workspace-field input[type="radio"], .workspace-field input[type="checkbox"],
 .workspace .workspace-form-grid input[type="radio"], .workspace .workspace-form-grid input[type="checkbox"] { width: 18px; min-width: 18px; height: 18px; min-height: 18px; padding: 0; }
+
+/* ---- Appointment bottom sheet on phones: compact footer, tidy header/customer card ----
+   Footer was three rows (Checkout / Move + Book again / lonely "…"), eating a third of the sheet.
+   Now: Checkout full width, then the secondary actions share one row with the "…" button. */
+@media (max-width: 900px) {
+  .panel-header { padding-bottom: 8px; }
+  .panel-title-line h2 { font-size: 18px; overflow-wrap: anywhere; min-width: 0; }
+  .panel-quick { margin-top: 10px; }
+  .panel-quick-btn { min-height: 44px; }
+  .panel-customer-name strong, .panel-email, .panel-phone { overflow-wrap: anywhere; }
+  .panel-email { white-space: normal; }
+  .panel-customer-head { align-items: flex-start; }
+  .panel-link { flex: none; }
+  .panel-actions { flex-wrap: wrap; gap: 8px; padding-top: 8px; }
+  .panel-actions > .button { flex: 1 1 0; min-width: 0; padding: 8px 6px; font-size: 13px; white-space: nowrap; line-height: 1.15; text-align: center; }
+  .panel-actions > .button:first-child:not(:nth-last-child(2)) { flex: 1 1 100%; }
+  .panel-actions > .button + .button svg { display: none; }
+  .panel-more { flex: 0 0 44px; margin: 0; }
+  .panel-more summary { width: 44px; height: 44px; }
+  .panel-more-menu { left: auto; right: 0; bottom: 52px; max-width: calc(100vw - 24px); }
+  .panel-more-menu button { min-height: 44px; }
+}
+@media (max-width: 767px) {
+  .customer-profile-head p { overflow-wrap: anywhere; line-height: 1.5; }
+  .customer-profile-head h2 { overflow-wrap: anywhere; }
+}
