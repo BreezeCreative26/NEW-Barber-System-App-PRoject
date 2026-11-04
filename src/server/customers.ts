@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { brandOf, dayStarts, phoneSchema, ref, shopToday, type Customer, type Shop, type StoredBooking } from "./domain";
 import { digest, passwordHash, readInput, type AppEnv } from "./accounts";
-import { audit, checkVersionUpdate, fail, readBooking } from "./sandbox";
+import { audit, checkVersionUpdate, fail, readBooking, syncCustomerDetails } from "./sandbox";
 import { leaveReview, ownReviewView, reviewEligibility, reviewSchema, type ReviewRow } from "./presence";
 import { drain, enqueue, msgShop, providerStatus } from "./messaging";
 import { byPhone, clearSession, currentAccount, customerAuth, customerPassword, customerSessionToken, recordConsent, setSession } from "./customerAuth";
@@ -363,6 +363,8 @@ acct.put("/profile", async (c) => {
     if (!ok) fail(404, "Barber not found");
   }
   const now = Date.now();
+  // Their name/email on upcoming and past appointments, the waiting list and series follow the edit.
+  const sync = syncCustomerDetails(c.env.DB, shop.id, cust.id, cust, { name: b.name, phone: cust.phone, email: b.email });
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
@@ -370,6 +372,8 @@ acct.put("/profile", async (c) => {
     ).bind(b.name, b.email, b.birthday || null, b.preferred_staff_id || null, b.contact_pref ?? (cust.contact_pref === "EMAIL" ? "EMAIL" : cust.contact_pref === "NONE" ? "NONE" : "AUTO"), b.notes, now, shop.id, cust.id, b.version),
     audit(c, "customer", cust.id, "CUSTOMER_PROFILE_SELF_UPDATED", "Customer updated their own profile online.", true),
   );
+  // Runs after the version-checked update succeeded; a stale save above throws before touching copies.
+  if (sync.length) await c.env.DB.batch(sync);
   // The customer's own choice, applied last so it is the final word (and logged).
   await setMarketingChoice(c.env.DB, shop.id, cust.id, !!b.marketing_opt_in, "app_profile", now);
   if (b.contact_pref) await applyTextChoice(c, shop, cust, b.contact_pref === "AUTO", now);

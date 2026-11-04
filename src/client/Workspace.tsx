@@ -3331,6 +3331,7 @@ export function Workspace() {
               {tab === "Customers" && (
                 <CustomersPanel
                   w={w}
+                  onChanged={() => { refresh({ background: true }).catch(() => {}); }}
                   onOpen={(b) => setEditor({ kind: "detail", item: b })}
                   selectedId={customerId}
                   onSelect={setCustomerId}
@@ -5906,12 +5907,15 @@ const shortDate = (ms: number | null) =>
 const initialsOf = (name: string) => name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 function CustomersPanel({
   w,
+  onChanged,
   onOpen,
   selectedId,
   onSelect,
   onBook,
 }: {
   w: WorkspaceData;
+  /** A customer's details changed: the calendar re-reads so their appointments show the new name. */
+  onChanged?: () => void;
   onOpen: (b: StoredBooking) => void;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
@@ -6247,7 +6251,7 @@ function CustomersPanel({
                     customer={profile.customer}
                     mode="details"
                     readOnly={!canEdit}
-                    onDone={() => setReload((n) => n + 1)}
+                    onDone={() => { setReload((n) => n + 1); onChanged?.(); }}
                   />
                   {canMerge && rows && rows.length > 1 && !profile.customer.erased_at && (
                     <MergeCustomer

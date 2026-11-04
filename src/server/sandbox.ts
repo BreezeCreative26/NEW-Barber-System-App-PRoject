@@ -990,6 +990,37 @@ async function readCustomer(c: Ctx, id: string) {
   if (!row) return fail(404, "Customer not found");
   return row;
 }
+// One customer, one set of details. Bookings, the waiting list and standing series take a copy of the
+// customer's name / mobile / email when they are made (that copy is what the calendar shows and what
+// reminders are sent to). When the record is edited — by the shop, from an appointment, or by the
+// customer — the copies follow, so nothing keeps showing or texting the old details. Returns statements
+// for the caller to run inside the same transaction as the edit. attendee_name (a visit booked for
+// someone else) is left alone, and a booking email is only replaced if it was the customer's old one.
+type ContactDetails = { name: string; phone: string; email: string };
+export function syncCustomerDetails(db: D1Database, shopId: string, customerId: string, before: ContactDetails, after: ContactDetails): D1PreparedStatement[] {
+  const oldEmail = (before.email || "").toLowerCase(), newEmail = after.email || "";
+  if (before.name === after.name && before.phone === after.phone && oldEmail === newEmail.toLowerCase()) return [];
+  const now = Date.now();
+  const out: D1PreparedStatement[] = [
+    db.prepare(
+      `UPDATE bookings SET customer_name=?, phone=?, email=CASE WHEN email='' OR lower(email)=? THEN ? ELSE email END, version=version+1, updated_at=?
+       WHERE shop_id=? AND (customer_id=? OR (customer_id IS NULL AND ?<>'' AND phone=?))`,
+    ).bind(after.name, after.phone, oldEmail, newEmail, now, shopId, customerId, before.phone, before.phone),
+  ];
+  if (before.phone) {
+    out.push(
+      // UNIQUE(shop_id,date,phone,service_id): never collide with an entry already on the new number.
+      db.prepare(
+        `UPDATE waitlist_entries SET customer_name=?, phone=?, email=CASE WHEN email='' OR lower(email)=? THEN ? ELSE email END, version=version+1, updated_at=?
+         WHERE shop_id=? AND phone=? AND NOT EXISTS (SELECT 1 FROM waitlist_entries x WHERE x.shop_id=waitlist_entries.shop_id AND x.id<>waitlist_entries.id AND x.phone=? AND x.date=waitlist_entries.date AND x.service_id=waitlist_entries.service_id)`,
+      ).bind(after.name, after.phone, oldEmail, newEmail, now, shopId, before.phone, after.phone),
+      db.prepare("UPDATE booking_series SET customer_name=?, phone=? WHERE shop_id=? AND phone=?").bind(after.name, after.phone, shopId, before.phone),
+    );
+  }
+  return out;
+}
+/** Run a statement built against c.env.DB inside a transaction handle. */
+export const runIn = (tx: D1Database, s: D1PreparedStatement) => tx.prepare(s.sql).bind(...s.args).run();
 // What the shop sees as "agreed to marketing": a recorded unsubscribe / STOP overrides an old tick.
 const marketingOn = (r: { marketing_opt_in: number; announce_unsub_at?: number | null }) => (r.marketing_opt_in === 1 && !r.announce_unsub_at ? 1 : 0);
 // The team bell: events this login is allowed to see, plus per-device push on/off.
@@ -1282,13 +1313,17 @@ sandbox.put("/customers/:id", async (c) => {
       if (locked || current.announce_unsub_at) fail(409, "This customer has opted out or manages their own marketing choice in the app. Only they can switch offers and news back on.");
     }
   }
-  await checkVersionUpdate(
-    c,
-    c.env.DB.prepare(
+  // The record and every copy of its contact details (calendar bookings, waiting list, standing
+  // series) change together or not at all.
+  const sync = syncCustomerDetails(c.env.DB, c.get("shopId"), current.id, current, b);
+  await c.env.DB.transaction(async (tx) => {
+    const upd = await runIn(tx, c.env.DB.prepare(
       "UPDATE customers SET name=?,phone=?,email=?,notes=?,tags=?,birthday=?,preferred_staff_id=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
-    ).bind(b.name, b.phone, b.email, b.notes, JSON.stringify(b.tags), b.birthday || null, b.preferred_staff_id || null, Date.now(), c.get("shopId"), current.id, b.version),
-    audit(c, "customer", current.id, "CUSTOMER_UPDATED", changes.length ? `Changed ${changes.join(", ")}.` : "No field changes.", true),
-  );
+    ).bind(b.name, b.phone, b.email, b.notes, JSON.stringify(b.tags), b.birthday || null, b.preferred_staff_id || null, Date.now(), c.get("shopId"), current.id, b.version));
+    if (!upd.meta.changes) fail(409, "record_changed");
+    await runIn(tx, audit(c, "customer", current.id, "CUSTOMER_UPDATED", changes.length ? `Changed ${changes.join(", ")}.` : "No field changes.", true));
+    for (const s of sync) await runIn(tx, s);
+  });
   if (wasOn !== wantOn) await setMarketingChoice(c.env.DB, c.get("shopId"), current.id, wantOn, "staff");
   const saved = await readCustomer(c, current.id);
   return c.json({ customer: { ...saved, marketing_opt_in: marketingOn(saved) } });
@@ -3387,22 +3422,32 @@ sandbox.get("/bookings/:id", async (c) =>
 sandbox.patch("/bookings/:id/details", async (c) => {
   const body = await input(c, bookingDetailsSchema);
   const b = await readBooking(c, c.req.param("id"));
-  await checkVersionUpdate(
-    c,
-    c.env.DB.prepare(
+  if (b.version !== body.version) fail(409, "record_changed");
+  const sid = c.get("shopId");
+  // Changing the name or mobile on an appointment changes the customer, not just this one visit:
+  // the customer record, their other appointments, waiting-list entries and series all follow.
+  const cust = b.customer_id ? await c.env.DB.prepare("SELECT * FROM customers WHERE shop_id=? AND id=?").bind(sid, b.customer_id).first<Customer>() : null;
+  const live = cust && !cust.merged_into && !cust.erased_at ? cust : null;
+  const contactChanged = body.customer_name !== b.customer_name || body.phone !== b.phone;
+  if (live && contactChanged && body.phone !== live.phone) {
+    const clash = await c.env.DB.prepare("SELECT name FROM customers WHERE shop_id=? AND phone=? AND id<>? AND merged_into IS NULL").bind(sid, body.phone, live.id).first<{ name: string }>();
+    if (clash) fail(409, `That mobile number belongs to another customer (${clash.name}). To move this visit to them, merge the two customers instead.`);
+  }
+  const sync = live && contactChanged ? syncCustomerDetails(c.env.DB, sid, live.id, live, { name: body.customer_name, phone: body.phone, email: live.email }) : [];
+  await c.env.DB.transaction(async (tx) => {
+    const upd = await runIn(tx, c.env.DB.prepare(
       "UPDATE bookings SET customer_name=?,phone=?,notes=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
-    ).bind(
-      body.customer_name,
-      body.phone,
-      body.notes,
-      Date.now(),
-      c.get("shopId"),
-      b.id,
-      body.version,
-    ),
-    audit(c, "booking", b.id, "DETAILS_UPDATED", body.reason, true),
-  );
-  return c.json({ booking: await readBooking(c, b.id) });
+    ).bind(body.customer_name, body.phone, body.notes, Date.now(), sid, b.id, body.version));
+    if (!upd.meta.changes) fail(409, "record_changed");
+    await runIn(tx, audit(c, "booking", b.id, "DETAILS_UPDATED", body.reason, true));
+    if (live && sync.length) {
+      await runIn(tx, c.env.DB.prepare("UPDATE customers SET name=?, phone=?, version=version+1, updated_at=? WHERE shop_id=? AND id=?").bind(body.customer_name, body.phone, Date.now(), sid, live.id));
+      const what = [body.customer_name !== live.name ? "name" : "", body.phone !== live.phone ? "mobile" : ""].filter(Boolean).join(" and ");
+      await runIn(tx, audit(c, "customer", live.id, "CUSTOMER_UPDATED", `Changed ${what || "details"} from an appointment: ${body.reason}`));
+      for (const s of sync) await runIn(tx, s);
+    }
+  });
+  return c.json({ booking: await readBooking(c, b.id), customer_updated: sync.length > 0 });
 });
 // ---- Edit the visit: service, add-ons, price, duration -------------------------------------------
 // Rewrites the items snapshot under a transaction-local flag. Same roster/overlap checks as a
