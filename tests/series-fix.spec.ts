@@ -105,6 +105,7 @@ test("a barber books a recurring appointment from the booking form (own column, 
   await dialog.getByLabel("Customer name", { exact: true }).fill("Barber Regular");
   await dialog.getByLabel("Mobile number", { exact: true }).fill("07700900779");
   await dialog.getByLabel("Email address").fill("barber.regular@example.test");
+  await dialog.getByTestId("booking-more-toggle").click();
   await dialog.getByLabel("Repeat this appointment at the same time").check();
   await dialog.getByLabel("Every").selectOption("2");
   await expect(dialog.getByTestId("series-window-hint")).toContainText("42-day booking window");
@@ -150,6 +151,7 @@ test("conflict screen: change the time of one clashing visit, then confirm the s
   await dialog.getByLabel("Mobile number", { exact: true }).fill("07700900781");
   const email = dialog.getByLabel("Email address");
   if (await email.count()) await email.fill("weekly.regular@example.test");
+  await dialog.getByTestId("booking-more-toggle").click();
   await dialog.getByLabel("Repeat this appointment at the same time").check();
   await dialog.getByLabel("Every").selectOption("1");
   await dialog.getByLabel("Visits").fill("3");

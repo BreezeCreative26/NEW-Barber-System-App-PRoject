@@ -4431,3 +4431,105 @@ input[type="radio"] { appearance: auto; width: 18px; height: 18px; min-height: 1
   .workspace .calendar-toolbar-row .toolbar-date:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: var(--canvas); }
   .workspace .calendar-toolbar-row .toolbar-date input[type="date"]::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: auto; height: auto; opacity: 0; cursor: pointer; }
 }
+
+/* =====================================================================================
+   Slim booking form (staff): Customer → Service → Time, extras folded into "More options".
+   Two columns on desktop, one tidy column on phones. Appended last so it wins.
+   ===================================================================================== */
+.modal .booking-layout.booking-slim { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; align-items: start; }
+.modal .booking-slim > .booking-col { display: grid; gap: 0; min-width: 0; align-content: start; }
+.modal .booking-slim > .booking-col + .booking-col { border-left: 1px solid var(--line-2, #eceef2); }
+.modal .booking-slim > .booking-col > section { padding: 20px 26px; border: 0 !important; min-width: 0; }
+.modal .booking-slim > .booking-col > section + section { border-top: 1px solid var(--line-2, #eceef2) !important; }
+.modal .booking-slim .booking-customer { padding-left: 26px; }
+.modal .booking-slim h3 { margin: 0 0 12px; font-size: 13px; font-weight: 650; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+.modal .booking-slim h3::first-letter { color: inherit; }
+.modal .booking-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; }
+.modal .booking-section-head h3 { margin: 0; }
+.modal .booking-walkin { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.modal .booking-walkin:hover { border-color: var(--ink-3, #9aa0aa); }
+.modal .booking-walkin.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+.modal .booking-walkin-note { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--canvas); color: var(--muted); font-size: 13px; line-height: 1.45; }
+.modal .booking-slim .workspace-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.modal .booking-slim .booking-customer .workspace-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.modal .booking-slim .customer-new { padding: 12px; gap: 8px; }
+.modal .booking-slim .customer-new .workspace-footnote { font-size: 12px; }
+/* One-line switches (confirmation, repeat): label left, switch right. */
+.modal .booking-slim .booking-confirm-switch,
+.modal .booking-slim .series-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0 0; padding: 10px 2px 0; border: 0; background: none; min-height: 0; }
+.modal .booking-slim .booking-confirm-switch > span,
+.modal .booking-slim .series-toggle > span { display: grid; gap: 1px; min-width: 0; }
+.modal .booking-slim .booking-confirm-switch strong,
+.modal .booking-slim .series-toggle strong { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--ink); }
+.modal .booking-slim .booking-confirm-switch small,
+.modal .booking-slim .series-toggle small { font-size: 12px; color: var(--muted); }
+/* Price line: one quiet row under the service. */
+.modal .booking-slim .workspace-quote { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 0; padding: 0; border: 0; background: none; font-size: 13px; color: var(--muted); }
+.modal .booking-slim .workspace-quote strong { font-size: 15px; color: var(--ink); }
+.modal .booking-slim .workspace-quote .badge { margin-left: 2px; }
+/* Add-ons as compact toggle chips. */
+.modal .booking-slim .booking-addons { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; padding: 0; border: 0; }
+.modal .booking-slim .booking-addons legend { width: 100%; margin: 0 0 6px; padding: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+.modal .booking-slim .addon-chip { position: relative; display: inline-flex; flex-direction: row; justify-content: flex-start; width: auto; text-align: left; align-items: center; gap: 6px; min-height: 34px; padding: 4px 12px 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-size: 13px; cursor: pointer; transition: border-color .15s, background .15s; }
+.modal .booking-slim .addon-chip input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.modal .booking-slim .addon-chip small { color: var(--muted); font-size: 12px; }
+.modal .booking-slim .addon-chip:hover { border-color: var(--ink-3, #9aa0aa); }
+.modal .booking-slim .addon-chip.on { border-color: var(--accent-fill, var(--accent)); background: var(--mint-soft, #e6fcf4); }
+.modal .booking-slim .addon-chip:focus-within { box-shadow: var(--ring, 0 0 0 3px rgba(0, 200, 150, .25)); }
+/* Dates: the day strip ends with a "Pick date" tile (opens the calendar); no separate date box. */
+.modal .booking-slim .booking-day-strip { margin: 0 -2px 12px; }
+.modal .booking-slim .booking-date-row { display: flex; margin: 0 0 12px; }
+.modal .booking-slim .booking-date-pick { position: relative; align-content: center; gap: 4px; color: var(--accent-dark, var(--ink)); }
+.modal .booking-slim .booking-date-row .booking-date-pick { grid-auto-flow: column; padding: 8px 14px; min-height: 40px; }
+.modal .booking-slim .booking-date-pick small { text-transform: none; letter-spacing: 0; font-size: 11.5px; color: inherit; white-space: nowrap; }
+.modal .booking-slim .booking-date-pick.is-set { background: var(--ink); border-color: var(--ink); color: #fff; grid-auto-columns: auto; }
+.modal .booking-slim .booking-day-strip .booking-date-pick.is-set { grid-column: span 2; }
+.modal .booking-slim .booking-date-pick input[type="date"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; cursor: pointer; max-width: none; min-height: 0 !important; }
+.modal .booking-slim .booking-date-pick input[type="date"]::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: auto; height: auto; opacity: 0; cursor: pointer; }
+.modal .booking-slim .booking-date-pick:focus-within { box-shadow: var(--ring, 0 0 0 3px rgba(0, 200, 150, .25)); }
+.modal .booking-slim .booking-date-shortcuts { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.modal .booking-slim .booking-date-shortcuts > span { font-size: 13px; color: var(--muted); }
+.modal .booking-slim .booking-date-shortcuts .button { min-height: 34px; padding: 0 12px; }
+.modal .booking-slim .booking-checking { margin: 0; font-size: 13px; color: var(--muted); }
+.modal .booking-slim .booking-time-picker { margin: 0; }
+/* More options: one row, opens to length / notes / repeat; shows what's set when closed. */
+.modal .booking-slim .booking-more { padding-top: 6px !important; padding-bottom: 6px !important; }
+.modal .booking-more-toggle { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 6px 0; border: 0; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.modal .booking-more-toggle > svg { flex: none; color: var(--muted); }
+.modal .booking-more-label { font-size: 14px; font-weight: 600; flex: none; }
+.modal .booking-more-summary { flex: 1 1 auto; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+.modal .booking-more-summary.set { color: var(--accent-dark, var(--ink)); font-weight: 600; }
+.modal .booking-more-body { display: grid; gap: 14px; padding: 4px 0 14px; }
+.modal .booking-more-body[hidden] { display: none; }
+.modal .booking-slim .booking-length { margin: 0; }
+.modal .booking-slim .booking-length .field { max-width: none; }
+.modal .booking-slim .series-options { margin: 0; padding: 0; border: 0; }
+.modal .booking-slim .series-options .series-toggle { margin: 0; padding: 0; }
+.modal .booking-slim .series-controls { display: grid; gap: 8px; margin-top: 10px; }
+.modal .booking-slim .series-controls .workspace-footnote { margin: 0; font-size: 12px; }
+.modal .booking-slim textarea { min-height: 64px; }
+/* Context banners (book again / waitlist / moving): one compact line. */
+.modal:has(.booking-slim) .booking-slot-origin { display: flex; align-items: flex-start; gap: 10px; margin: 14px 26px 0; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line-2, #eceef2); background: var(--canvas); font-size: 13px; }
+.modal:has(.booking-slim) .booking-slot-origin > svg { flex: none; margin-top: 2px; color: var(--accent-dark, var(--ink)); }
+.modal:has(.booking-slim) .booking-slot-origin > span { display: grid; gap: 2px; min-width: 0; }
+.modal:has(.booking-slim) .booking-slot-origin small { color: var(--muted); font-size: 12.5px; }
+.modal:has(.booking-slim) .booking-review { margin: 0 26px 18px; }
+@media (min-width: 721px) { .modal.wide:has(.booking-slim) { width: min(980px, calc(100vw - 48px)); } }
+
+@media (max-width: 860px) and (min-width: 721px) {
+  .modal .booking-layout.booking-slim { grid-template-columns: minmax(0, 1fr); }
+  .modal .booking-slim > .booking-col + .booking-col { border-left: 0; border-top: 1px solid var(--line-2, #eceef2); }
+}
+@media (max-width: 720px) {
+  .modal .booking-layout.booking-slim { display: block; }
+  .modal .booking-slim > .booking-col + .booking-col { border-left: 0; border-top: 8px solid var(--canvas); }
+  .modal .booking-slim > .booking-col > section { padding: 16px; }
+  .modal .booking-slim .booking-customer { padding-left: 16px; }
+  .modal .booking-slim .booking-customer .workspace-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .modal .booking-slim .booking-selection .workspace-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .modal:has(.booking-slim) .booking-slot-origin { margin: 12px 16px 0; }
+  .modal:has(.booking-slim) .booking-review { margin: 0 16px 16px; }
+}
+
+.modal .booking-slim .addon-chip > svg { flex: none; }
+.modal .booking-slim .addon-chip > span { white-space: nowrap; }

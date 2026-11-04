@@ -921,6 +921,7 @@ test("standing booking: repeat controls preview every date, conflicts must be sk
   await dialog.getByLabel("Mobile number", { exact: true }).fill("07700900555");
   await dialog.getByLabel("Email address").fill("new.customer@example.test");
   // Repeat controls are only offered for a new booking.
+  await dialog.getByTestId("booking-more-toggle").click();
   const repeat = dialog.getByLabel("Repeat this appointment at the same time");
   await repeat.check();
   await dialog.getByLabel("Every").selectOption("2");
