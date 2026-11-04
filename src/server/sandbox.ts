@@ -998,23 +998,28 @@ async function readCustomer(c: Ctx, id: string) {
 // someone else) is left alone, and a booking email is only replaced if it was the customer's old one.
 type ContactDetails = { name: string; phone: string; email: string };
 export function syncCustomerDetails(db: D1Database, shopId: string, customerId: string, before: ContactDetails, after: ContactDetails): D1PreparedStatement[] {
+  // No "nothing changed, skip" shortcut: a save must also repair copies that went stale earlier (an edit
+  // made before this sync existed, or one that failed part-way). Each update only touches rows that
+  // actually differ, so an ordinary re-save doesn't bump versions on appointments someone has open.
   const oldEmail = (before.email || "").toLowerCase(), newEmail = after.email || "";
-  if (before.name === after.name && before.phone === after.phone && oldEmail === newEmail.toLowerCase()) return [];
   const now = Date.now();
   const out: D1PreparedStatement[] = [
     db.prepare(
       `UPDATE bookings SET customer_name=?, phone=?, email=CASE WHEN email='' OR lower(email)=? THEN ? ELSE email END, version=version+1, updated_at=?
-       WHERE shop_id=? AND (customer_id=? OR (customer_id IS NULL AND ?<>'' AND phone=?))`,
-    ).bind(after.name, after.phone, oldEmail, newEmail, now, shopId, customerId, before.phone, before.phone),
+       WHERE shop_id=? AND (customer_id=? OR (customer_id IS NULL AND ?<>'' AND phone=?))
+         AND (customer_name<>? OR phone<>? OR ((email='' OR lower(email)=?) AND email<>?))`,
+    ).bind(after.name, after.phone, oldEmail, newEmail, now, shopId, customerId, before.phone, before.phone, after.name, after.phone, oldEmail, newEmail),
   ];
-  if (before.phone) {
+  const phones = [...new Set([before.phone, after.phone].filter(Boolean))];
+  for (const ph of phones) {
     out.push(
       // UNIQUE(shop_id,date,phone,service_id): never collide with an entry already on the new number.
       db.prepare(
         `UPDATE waitlist_entries SET customer_name=?, phone=?, email=CASE WHEN email='' OR lower(email)=? THEN ? ELSE email END, version=version+1, updated_at=?
-         WHERE shop_id=? AND phone=? AND NOT EXISTS (SELECT 1 FROM waitlist_entries x WHERE x.shop_id=waitlist_entries.shop_id AND x.id<>waitlist_entries.id AND x.phone=? AND x.date=waitlist_entries.date AND x.service_id=waitlist_entries.service_id)`,
-      ).bind(after.name, after.phone, oldEmail, newEmail, now, shopId, before.phone, after.phone),
-      db.prepare("UPDATE booking_series SET customer_name=?, phone=? WHERE shop_id=? AND phone=?").bind(after.name, after.phone, shopId, before.phone),
+         WHERE shop_id=? AND phone=? AND (customer_name<>? OR phone<>? OR ((email='' OR lower(email)=?) AND email<>?))
+           AND NOT EXISTS (SELECT 1 FROM waitlist_entries x WHERE x.shop_id=waitlist_entries.shop_id AND x.id<>waitlist_entries.id AND x.phone=? AND x.date=waitlist_entries.date AND x.service_id=waitlist_entries.service_id)`,
+      ).bind(after.name, after.phone, oldEmail, newEmail, now, shopId, ph, after.name, after.phone, oldEmail, newEmail, after.phone),
+      db.prepare("UPDATE booking_series SET customer_name=?, phone=? WHERE shop_id=? AND phone=? AND (customer_name<>? OR phone<>?)").bind(after.name, after.phone, shopId, ph, after.name, after.phone),
     );
   }
   return out;
