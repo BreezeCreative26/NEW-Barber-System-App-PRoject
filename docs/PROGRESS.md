@@ -1,5 +1,10 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-04 — Customer details: one edit updates the customer everywhere
+- Editing a customer (Customers → Details) now also updates the name / mobile / email copied onto their appointments, waiting-list entries and standing series, in the same transaction; the calendar re-reads straight after the save.
+- Editing name or mobile on an appointment now updates the customer record and their other appointments too (refused with a "merge instead" message if the mobile belongs to another customer). Notes-only edits leave the customer alone. A customer editing their own profile online syncs the same way.
+- `syncCustomerDetails()` in `sandbox.ts`; a visit booked for someone else keeps its `attendee_name`, and a booking email is only replaced if it was the customer's old one. Tests: `tests/customer-sync.spec.ts` (4).
+
 ## 2026-11-04 — Outbox: overlapping drains could send the same message twice
 - `drain()` claimed rows with `status IN ('QUEUED','SENDING')`, so a second drain that had read the same row could re-claim it straight after the first and send it again. Overlap is normal in production (Vercel cron, lazy sweep, un-scoped post-write drains). Seen live on The Doghouse campaign: SMS rows with `attempts=2` sent within seconds, the duplicate rejected by carriers as `40008`, and ~50 emails with `attempts=2`.
 - Fix: the claim repeats the select's conditions (due QUEUED, or SENDING abandoned 10+ min). `tests/outbox-claim.test.ts` runs four drains at once against Postgres with a fake Telnyx: old code sent most numbers 3-4 times, fixed code exactly once; paused rows and crashed-worker reclaim covered.
