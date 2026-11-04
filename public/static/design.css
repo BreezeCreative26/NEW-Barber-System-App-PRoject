@@ -4424,3 +4424,10 @@ input[type="radio"] { appearance: auto; width: 18px; height: 18px; min-height: 1
 }
 /* Booking form dropdowns: centre the chosen value vertically (base-select renders as a flex box). */
 .modal:has(.booking-workflow) select { align-items: center; }
+
+/* ---- Timetable date chip: clickable anywhere on desktop (opens the calendar via showPicker) ---- */
+@media (hover: hover) and (pointer: fine) {
+  .workspace .calendar-toolbar-row .toolbar-date { cursor: pointer; transition: border-color .15s, background .15s, box-shadow .15s; }
+  .workspace .calendar-toolbar-row .toolbar-date:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: var(--canvas); }
+  .workspace .calendar-toolbar-row .toolbar-date input[type="date"]::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: auto; height: auto; opacity: 0; cursor: pointer; }
+}
