@@ -1,3 +1,4 @@
+import { gsmSafe } from "./smsText";
 import { recordUsage } from "./billing";
 // Messaging: the outbox becomes a real delivery queue.
 //
@@ -535,7 +536,8 @@ const CUSTOMER_FACING = new Set<MessageTemplate>(["booking_confirmed", "booking_
 export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageTemplate, vars: MessageVars, opts: EnqueueOpts, both = BOTH_CHANNELS.has(template)) {
   const now = opts.now ?? Date.now();
   const brand = brandOf(shop);
-  const r = copyFor(template, { first: to.name, ...vars }, shop);
+  const r0 = copyFor(template, { first: to.name, ...vars }, shop);
+  const r = { ...r0, sms: gsmSafe(r0.sms) };
   const html = emailHtml(shop, brand, opts.origin, r, { phone: shop.phone, email: shop.email, unsubscribe: opts.unsubscribe }, opts.shopOnly ?? CUSTOMER_FACING.has(template));
   const out = [];
   const chosen = channelsFor(shop, to, opts.channel || "AUTO", both, opts.force, template);
@@ -641,7 +643,8 @@ export function toE164(phone: string, defaultCountry = "GB"): string | null {
   if (/^44\d{10}$/.test(digits)) return `+${digits}`;
   return null;
 }
-async function sendSms(row: Row, db?: DB): Promise<Delivery> {
+async function sendSms(row0: Row, db?: DB): Promise<Delivery> {
+  const row = { ...row0, body: gsmSafe(row0.body) };
   const e = env();
   // A STOP reply is honoured (for that shop, or platform-wide if we couldn't tell which shop), on every SMS provider, before we spend a message.
   if (db) {
