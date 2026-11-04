@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mock-up · Customer booking v2</title>
+<style>
+@font-face { font-family: "Bebas Neue"; src: url("../../public/static/fonts/bebas-neue-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Geist"; font-weight: 100 900; src: url("../../public/static/fonts/geist-latin-wght-normal.woff2") format("woff2"); }
+:root { --bg:#0e0f11; --card:#17181b; --card2:#1d1f23; --line:#2a2c31; --ink:#f3f1ec; --muted:#9a9ca3; --accent:#f3f1ec; --ok:#3ecf8e; }
+* { box-sizing: border-box; }
+body { margin:0; background:#e9e7e2; font-family: Geist, system-ui, sans-serif; color:#1b1c1f; }
+.stage { display:flex; gap:40px; justify-content:center; align-items:flex-start; padding:28px 16px 60px; flex-wrap:wrap; }
+.controls { width:340px; }
+.controls h1 { font-family:"Bebas Neue"; font-size:40px; margin:0 0 4px; letter-spacing:.5px; }
+.controls p { margin:0 0 14px; color:#55575d; font-size:14px; line-height:1.45; }
+.seg { display:inline-flex; background:#fff; border:1px solid #d7d4cc; border-radius:999px; padding:3px; margin-bottom:18px; }
+.seg button { border:0; background:none; padding:8px 14px; border-radius:999px; font:600 13px Geist; cursor:pointer; color:#55575d; }
+.seg button.on { background:#1b1c1f; color:#fff; }
+.notes { background:#fff; border:1px solid #d7d4cc; border-radius:14px; padding:16px 18px; }
+.notes h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:#8a6d1f; margin:0 0 8px; }
+.notes ul { margin:0; padding-left:18px; font-size:14px; line-height:1.55; }
+.notes li + li { margin-top:4px; }
+.jump { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
+.jump button { border:1px solid #d7d4cc; background:#fff; border-radius:8px; padding:6px 10px; font:500 12px Geist; cursor:pointer; }
+
+/* Phone */
+.phone { width:390px; height:844px; background:var(--bg); color:var(--ink); border-radius:44px; border:10px solid #111; box-shadow:0 30px 60px rgba(0,0,0,.25); position:relative; overflow:hidden; display:flex; flex-direction:column; }
+.top { display:flex; align-items:center; gap:10px; padding:16px 18px 10px; }
+.top .back { width:32px; height:32px; border-radius:50%; border:1px solid var(--line); display:grid; place-items:center; background:none; color:var(--ink); cursor:pointer; font-size:16px; }
+.top .back[hidden] { display:none; }
+.top b { font-family:"Bebas Neue"; font-size:22px; letter-spacing:.6px; flex:1; }
+.top .acct { font-size:12px; color:var(--muted); }
+.dots { display:flex; gap:6px; padding:0 18px 12px; }
+.dots i { flex:1; height:3px; border-radius:3px; background:var(--line); }
+.dots i.on { background:var(--ink); }
+.scroll { flex:1; overflow:auto; padding:0 18px 120px; }
+h2.h { font-family:"Bebas Neue"; font-size:34px; letter-spacing:.4px; margin:4px 0 12px; font-weight:400; }
+.foot { position:absolute; left:0; right:0; bottom:0; padding:12px 18px 26px; background:linear-gradient(to top, var(--bg) 70%, transparent); display:flex; align-items:center; gap:12px; }
+.foot .tot { font-weight:700; font-size:18px; min-width:56px; }
+.foot .tot small { display:block; font-size:11px; color:var(--muted); font-weight:500; }
+.cta { flex:1; height:52px; border:0; border-radius:14px; background:var(--accent); color:#111; font:700 16px Geist; cursor:pointer; }
+.cta:disabled { opacity:.35; cursor:default; }
+
+.usual { border:1px solid #4a4026; background:linear-gradient(135deg,#2a2416,#1a1812); border-radius:16px; padding:14px; margin-bottom:16px; display:flex; gap:12px; align-items:center; }
+.usual .av { width:44px; height:44px; border-radius:50%; background:#6b5a33; display:grid; place-items:center; font-weight:700; }
+.usual div { flex:1; }
+.usual small { color:#d9c38a; font-size:11px; text-transform:uppercase; letter-spacing:.08em; font-weight:700; }
+.usual strong { display:block; font-size:15px; margin:2px 0; }
+.usual span { color:var(--muted); font-size:12.5px; }
+.usual button { border:0; border-radius:10px; background:#f3d98a; color:#1a1406; font:700 13px Geist; padding:10px 12px; cursor:pointer; }
+
+.chips { display:flex; gap:6px; overflow:auto; margin-bottom:12px; }
+.chip { border:1px solid var(--line); background:none; color:var(--ink); border-radius:999px; padding:7px 13px; font:500 13px Geist; white-space:nowrap; cursor:pointer; }
+.chip.on { background:var(--ink); color:#111; border-color:var(--ink); }
+
+.svc { border:1px solid var(--line); background:var(--card); border-radius:14px; margin-bottom:8px; cursor:pointer; }
+.svc .row { display:flex; align-items:center; gap:10px; padding:12px 14px; }
+.svc .row div { flex:1; min-width:0; }
+.svc strong { font-size:15px; font-weight:600; }
+.svc .meta { color:var(--muted); font-size:12.5px; margin-top:2px; }
+.svc .price { font-weight:700; }
+.radio { width:20px; height:20px; border-radius:50%; border:1.5px solid #55585f; flex:0 0 auto; display:grid; place-items:center; }
+.on > .row .radio, .barber.on .radio { border-color:var(--ink); background:var(--ink); }
+.on > .row .radio::after, .barber.on .radio::after { content:"✓"; color:#111; font-size:12px; font-weight:800; }
+.svc.on { border-color:var(--ink); background:var(--card2); }
+.pop { font-size:10px; font-weight:700; letter-spacing:.06em; color:#111; background:#cdeedd; padding:2px 6px; border-radius:999px; margin-left:6px; vertical-align:2px; }
+.extras { border-top:1px dashed var(--line); padding:10px 14px 12px; display:flex; flex-wrap:wrap; gap:6px; }
+.extras p { width:100%; margin:0 0 2px; font-size:12px; color:var(--muted); }
+.ex { border:1px solid var(--line); background:#111215; color:var(--ink); border-radius:10px; padding:7px 10px; font:500 12.5px Geist; cursor:pointer; }
+.ex.on { border-color:var(--ok); color:var(--ok); }
+.group { display:flex; align-items:center; justify-content:space-between; color:var(--muted); font-size:13px; padding:12px 2px; border-top:1px solid var(--line); margin-top:10px; }
+
+.barber { display:flex; align-items:center; gap:12px; padding:11px 12px; border:1px solid var(--line); border-radius:14px; background:var(--card); margin-bottom:8px; cursor:pointer; }
+.barber.on { border-color:var(--ink); background:var(--card2); }
+.barber .av { width:40px; height:40px; border-radius:50%; display:grid; place-items:center; font-weight:700; font-size:14px; flex:0 0 auto; }
+.barber div { flex:1; }
+.barber strong { font-size:15px; font-weight:600; }
+.barber .meta { color:var(--muted); font-size:12.5px; margin-top:2px; }
+.barber .meta b { color:var(--ok); font-weight:600; }
+
+.summary { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); background:var(--card); border:1px solid var(--line); border-radius:12px; padding:9px 12px; margin-bottom:14px; }
+.summary b { color:var(--ink); font-weight:600; }
+.summary a { margin-left:auto; color:var(--ink); font-size:12.5px; text-decoration:underline; cursor:pointer; }
+.days { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; margin-bottom:6px; }
+.day { border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:12px; padding:7px 0 8px; text-align:center; cursor:pointer; font-family:Geist; }
+.day small { display:block; font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+.day b { display:block; font-size:18px; font-weight:700; margin-top:1px; }
+.day.on { background:var(--ink); color:#111; border-color:var(--ink); }
+.day.on small { color:#444; }
+.day.off { opacity:.35; cursor:default; }
+.weeknav { display:flex; justify-content:space-between; font-size:12.5px; color:var(--muted); margin:0 2px 14px; }
+.weeknav span { cursor:pointer; }
+.period { font-size:11.5px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); font-weight:700; margin:14px 0 8px; }
+.times { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+.t { border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:10px; padding:10px 0; font:600 14px Geist; cursor:pointer; }
+.t.on { background:var(--ink); color:#111; border-color:var(--ink); }
+.t small { display:block; font-size:10.5px; color:var(--muted); font-weight:500; margin-top:1px; }
+.t.on small { color:#444; }
+
+.card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px; margin-bottom:14px; }
+.card .when { font-family:"Bebas Neue"; font-size:26px; letter-spacing:.4px; }
+.card .line { display:flex; justify-content:space-between; font-size:14px; padding:4px 0; color:var(--muted); }
+.card .line b { color:var(--ink); font-weight:600; }
+.card .line.total { border-top:1px solid var(--line); margin-top:6px; padding-top:9px; color:var(--ink); font-weight:700; }
+.card a { color:var(--ink); font-size:12.5px; text-decoration:underline; cursor:pointer; }
+label.f { display:block; font-size:12.5px; color:var(--muted); margin:10px 0 5px; }
+input.in { width:100%; height:48px; border-radius:12px; border:1px solid var(--line); background:#111215; color:var(--ink); padding:0 14px; font:500 16px Geist; }
+.code { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; margin-top:6px; }
+.code input { width:100%; min-width:0; height:52px; text-align:center; font:700 22px Geist; border-radius:12px; border:1px solid var(--line); background:#111215; color:var(--ink); }
+.hint { font-size:12.5px; color:var(--muted); margin-top:8px; line-height:1.45; }
+.signedin { display:flex; align-items:center; gap:10px; font-size:14px; }
+.signedin .av { width:34px; height:34px; border-radius:50%; background:#6b5a33; display:grid; place-items:center; font-weight:700; font-size:13px; }
+.signedin span { color:var(--muted); font-size:12.5px; display:block; }
+.more { font-size:13px; color:var(--muted); padding:4px 2px; }
+.more summary { cursor:pointer; color:var(--ink); }
+.more textarea { width:100%; margin-top:8px; border-radius:12px; border:1px solid var(--line); background:#111215; color:var(--ink); padding:10px 12px; font:500 14px Geist; min-height:70px; }
+
+.done { text-align:center; padding-top:40px; }
+.done .tick { width:72px; height:72px; border-radius:50%; background:var(--ok); color:#06210f; display:grid; place-items:center; font-size:36px; font-weight:800; margin:0 auto 16px; }
+.done .ref { font-size:13px; color:var(--muted); margin-bottom:18px; }
+.done .btns { display:grid; gap:8px; margin-top:18px; }
+.ghost { height:48px; border-radius:14px; border:1px solid var(--line); background:none; color:var(--ink); font:600 15px Geist; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <aside class="controls">
+    <h1>Customer booking · mock-up</h1>
+    <p>Clickable preview of the proposed flow. Nothing here is live yet. Compare it with the current five steps: Service → Barber → Date &amp; time → Your account → Review.</p>
+    <div class="seg" role="group" aria-label="Who is booking">
+      <button id="who-new" class="on">New customer</button>
+      <button id="who-back">Returning customer</button>
+    </div>
+    <div class="notes"><h2 id="notes-title">What's different</h2><ul id="notes"></ul></div>
+    <div class="jump" id="jump"></div>
+  </aside>
+  <div class="phone" id="phone">
+    <div class="top">
+      <button class="back" id="back" aria-label="Back" hidden>←</button>
+      <b>Northline Barbers</b>
+      <span class="acct" id="acct">Sign in</span>
+    </div>
+    <div class="dots" id="dots"><i></i><i></i><i></i><i></i></div>
+    <div class="scroll" id="screen"></div>
+    <div class="foot" id="foot"></div>
+  </div>
+</div>
+<script>
+const SERVICES = [
+  { id:"sig", name:"Signature cut", min:30, p:28, cat:"Hair", pop:1 },
+  { id:"fade", name:"Skin fade", min:45, p:32, cat:"Hair", pop:1 },
+  { id:"sci", name:"Scissor cut", min:40, p:30, cat:"Hair" },
+  { id:"kids", name:"Kids cut (under 12)", min:30, p:18, cat:"Hair" },
+  { id:"beard", name:"Beard trim & shape", min:20, p:15, cat:"Beard" },
+  { id:"towel", name:"Hot towel shave", min:30, p:25, cat:"Beard" },
+  { id:"cb", name:"Cut & beard", min:60, p:42, cat:"Combos", pop:1 },
+  { id:"works", name:"The full works", min:75, p:55, cat:"Combos" },
+];
+const EXTRAS = { Hair:[["Eyebrow tidy",4,5],["Grey blending",12,15],["Hot towel finish",5,5]], Beard:[["Eyebrow tidy",4,5],["Nose wax",6,5]], Combos:[["Eyebrow tidy",4,5],["Grey blending",12,15]] };
+const BARBERS = [
+  { id:"any", name:"Anyone", meta:"First free chair · most times", col:"#2c2f35", ini:"★" },
+  { id:"dani", name:"Dani Okoro", meta:"Next free <b>today 14:15</b>", col:"#3b5d7a", ini:"DO" },
+  { id:"jay", name:"Jay Carter", meta:"Next free <b>tomorrow 10:00</b>", col:"#6a4f7d", ini:"JC" },
+  { id:"marcus", name:"Marcus Reed", meta:"Next free <b>Fri 09:30</b>", col:"#7a5a3b", ini:"MR" },
+];
+const NOTES = [
+  ["Service", ["Returning customers see <b>Book your usual</b> at the top. One tap fills service and barber and goes straight to times.", "Extras appear <b>under the chosen service</b> as small chips, not in a separate list at the bottom.", "No “STEP 01 OF 05 · Service” eyebrow above the heading. Just four thin progress bars.", "Shorter cards: no description line, so all 8 services fit without much scrolling."]],
+  ["Barber", ["<b>Compact list</b>: avatar, name and next free time on one row.", "“Anyone” is the first row instead of a link above the button.", "Tapping a barber moves on straight away, with no separate Continue button."]],
+  ["Time", ["What you picked is shown in <b>one summary line</b> with Change. The timezone and lead-time sentence is gone.", "One week of days in a single row, so you don't scroll sideways.", "All times shown in a 4-wide grid with no “+12 more” buttons. The barber's name only appears when “Anyone” is picked."]],
+  ["Confirm", ["<b>No password.</b> Name and mobile, then a 6-digit code by text. Account and Review become one step.", "Returning customers are already signed in, so this is just check and confirm.", "Notes and “for someone else” sit under <b>More options</b>."]],
+  ["Done", ["Same confirmation as today: reference, add to calendar and manage link."]],
+];
+const S = { step:0, back:false, cat:"All", svc:null, extras:[], barber:null, day:1, time:null, sent:false, code:"" };
+const $ = (id) => document.getElementById(id);
+const svc = () => SERVICES.find((s) => s.id === S.svc);
+const total = () => (svc() ? svc().p : 0) + S.extras.reduce((n, e) => n + e[1], 0);
+const mins = () => (svc() ? svc().min : 0) + S.extras.reduce((n, e) => n + e[2], 0);
+const DAYS = (() => { const out = []; const d = new Date("2026-11-04T12:00:00"); for (let i = 0; i < 7; i++) { const x = new Date(d); x.setDate(d.getDate() + i); out.push(x); } return out; })();
+const dname = (d, i) => i === 0 ? "Today" : d.toLocaleDateString("en-GB", { weekday:"short" });
+const TIMES = { Morning:["09:30","09:45","10:00","10:15","10:30","11:00","11:15","11:45"], Afternoon:["12:00","12:15","12:45","13:30","14:15","14:30","15:00","15:45","16:15","16:30"], Evening:["17:00","17:15","17:45"] };
+const who = ["Dani","Jay","Marcus"];
+
+function go(n) { S.step = n; render(); $("screen").scrollTop = 0; }
+function render() {
+  const sc = $("screen"), ft = $("foot");
+  $("back").hidden = S.step === 0 || S.step === 4;
+  $("acct").textContent = S.back ? "Jordan" : "Sign in";
+  [...$("dots").children].forEach((d, i) => d.classList.toggle("on", i <= Math.min(S.step, 3)));
+  $("dots").style.visibility = S.step === 4 ? "hidden" : "visible";
+  const [title, items] = NOTES[S.step];
+  $("notes-title").textContent = `What's different · ${title}`;
+  $("notes").innerHTML = items.map((x) => `<li>${x}</li>`).join("");
+  [...$("jump").children].forEach((b, i) => b.style.fontWeight = i === S.step ? 700 : 500);
+  ft.innerHTML = ""; ft.style.display = "flex";
+
+  if (S.step === 0) {
+    const cats = ["All", "Hair", "Beard", "Combos"];
+    const list = SERVICES.filter((s) => S.cat === "All" || s.cat === S.cat);
+    sc.innerHTML = `
+      <h2 class="h">What are we doing today?</h2>
+      ${S.back ? `<div class="usual"><span class="av">DO</span><div><small>Your usual</small><strong>Skin fade with Dani</strong><span>45 min · £32 · last visit 3 weeks ago</span></div><button id="usual">Book again</button></div>` : ""}
+      <div class="chips">${cats.map((c) => `<button class="chip ${S.cat === c ? "on" : ""}" data-cat="${c}">${c === "All" ? "All services" : c}</button>`).join("")}</div>
+      ${list.map((s) => `
+        <div class="svc ${S.svc === s.id ? "on" : ""}" data-svc="${s.id}">
+          <div class="row"><div><strong>${s.name}</strong>${s.pop ? '<span class="pop">POPULAR</span>' : ""}<div class="meta">${s.min} min</div></div><span class="price">£${s.p}</span><span class="radio"></span></div>
+          ${S.svc === s.id ? `<div class="extras"><p>Add an extra?</p>${EXTRAS[s.cat].map((e) => `<button class="ex ${S.extras.some((x) => x[0] === e[0]) ? "on" : ""}" data-ex="${e[0]}">${S.extras.some((x) => x[0] === e[0]) ? "✓ " : "+ "}${e[0]} · £${e[1]}</button>`).join("")}</div>` : ""}
+        </div>`).join("")}
+      <div class="group"><span>Booking for two or more?</span><span>›</span></div>`;
+    ft.innerHTML = `<span class="tot">${S.svc ? "£" + total() : ""}<small>${S.svc ? mins() + " min" : ""}</small></span><button class="cta" id="next" ${S.svc ? "" : "disabled"}>Choose barber →</button>`;
+    sc.querySelectorAll("[data-cat]").forEach((b) => b.onclick = () => { S.cat = b.dataset.cat; render(); });
+    sc.querySelectorAll("[data-svc]").forEach((el) => el.onclick = (e) => {
+      if (e.target.closest("[data-ex]")) return;
+      if (S.svc !== el.dataset.svc) { S.svc = el.dataset.svc; S.extras = []; render(); }
+    });
+    sc.querySelectorAll("[data-ex]").forEach((b) => b.onclick = () => {
+      const e = EXTRAS[svc().cat].find((x) => x[0] === b.dataset.ex);
+      S.extras = S.extras.some((x) => x[0] === e[0]) ? S.extras.filter((x) => x[0] !== e[0]) : [...S.extras, e];
+      render();
+    });
+    if ($("usual")) $("usual").onclick = () => { S.svc = "fade"; S.extras = []; S.barber = "dani"; S.time = null; go(2); };
+    $("next").onclick = () => go(1);
+  }
+  if (S.step === 1) {
+    sc.innerHTML = `<div class="summary"><b>${svc().name}</b> · ${mins()} min · £${total()}<a data-go="0">Change</a></div>
+      <h2 class="h">Who's cutting?</h2>
+      ${BARBERS.map((b) => `<div class="barber ${S.barber === b.id ? "on" : ""}" data-b="${b.id}"><span class="av" style="background:${b.col}">${b.ini}</span><div><strong>${b.name}</strong><div class="meta">${b.meta}</div></div><span class="radio"></span></div>`).join("")}`;
+    ft.style.display = "none";
+    sc.querySelectorAll("[data-b]").forEach((el) => el.onclick = () => { S.barber = el.dataset.b; S.time = null; render(); setTimeout(() => go(2), 180); });
+  }
+  if (S.step === 2) {
+    const b = BARBERS.find((x) => x.id === S.barber);
+    sc.innerHTML = `<div class="summary"><b>${svc().name}</b> · ${b.id === "any" ? "Anyone" : b.name.split(" ")[0]} · ${mins()} min<a data-go="${S.back && S.barber === "dani" && S.svc === "fade" ? 0 : 1}">Change</a></div>
+      <h2 class="h">When suits you?</h2>
+      <div class="days">${DAYS.map((d, i) => `<button class="day ${i === S.day ? "on" : ""} ${d.getDay() === 0 ? "off" : ""}" data-day="${i}" ${d.getDay() === 0 ? "disabled" : ""}><small>${dname(d, i)}</small><b>${d.getDate()}</b></button>`).join("")}</div>
+      <div class="weeknav"><span>‹ Earlier</span><span>${DAYS[S.day].toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month:"long" })}</span><span>Later ›</span></div>
+      ${Object.entries(TIMES).map(([p, ts]) => `<div class="period">${p}</div><div class="times">${ts.map((t, i) => `<button class="t ${S.time === t ? "on" : ""}" data-t="${t}">${t}${b.id === "any" ? `<small>${who[(i + p.length) % 3]}</small>` : ""}</button>`).join("")}</div>`).join("")}`;
+    ft.innerHTML = `<span class="tot">£${total()}<small>${mins()} min</small></span><button class="cta" id="next" ${S.time ? "" : "disabled"}>${S.time ? "Continue · " + S.time : "Pick a time"}</button>`;
+    sc.querySelectorAll("[data-day]").forEach((el) => el.onclick = () => { S.day = +el.dataset.day; S.time = null; render(); });
+    sc.querySelectorAll("[data-t]").forEach((el) => el.onclick = () => { S.time = el.dataset.t; render(); });
+    $("next").onclick = () => go(3);
+  }
+  if (S.step === 3) {
+    const b = BARBERS.find((x) => x.id === S.barber);
+    const d = DAYS[S.day];
+    sc.innerHTML = `
+      <h2 class="h">Check and confirm</h2>
+      <div class="card">
+        <div class="when">${d.toLocaleDateString("en-GB", { weekday:"short", day:"numeric", month:"short" })} · ${S.time}</div>
+        <div class="line"><span>${svc().name}</span><b>£${svc().p}</b></div>
+        ${S.extras.map((e) => `<div class="line"><span>${e[0]}</span><b>£${e[1]}</b></div>`).join("")}
+        <div class="line"><span>With</span><b>${b.id === "any" ? "First free barber" : b.name}</b></div>
+        <div class="line total"><span>Total · ${mins()} min · pay in shop</span><span>£${total()}</span></div>
+        <a data-go="2">Change time</a>
+      </div>
+      ${S.back ? `<div class="card signedin"><span class="av">J</span><div>Jordan Ellis<span>07700 900123 · not you? <a>Switch</a></span></div></div>` : `
+      <div class="card">
+        <strong style="font-size:15px">Your details</strong>
+        <label class="f" for="nm">Name</label><input class="in" id="nm" value="Jordan Ellis">
+        <label class="f" for="ph">Mobile</label><input class="in" id="ph" inputmode="tel" value="07700 900123">
+        ${S.sent ? `<label class="f">Enter the 6-digit code we texted you</label><div class="code">${[0,1,2,3,4,5].map((i) => `<input maxlength="1" inputmode="numeric" value="${S.code[i] || ""}" data-c="${i}">`).join("")}</div><div class="hint">Didn't get it? <a style="color:var(--ink);text-decoration:underline">Resend</a> · Your mobile is your account. No password needed.</div>` : `<div class="hint">We'll text a code to check it's you. Your mobile is your account: no password to remember.</div>`}
+      </div>`}
+      <details class="more"><summary>More options</summary><textarea placeholder="Anything your barber should know?"></textarea><label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox"> Booking for someone else</label></details>`;
+    const ready = S.back || (S.sent && S.code.length === 6);
+    ft.innerHTML = `<span class="tot">£${total()}<small>${mins()} min</small></span><button class="cta" id="next">${S.back || S.sent ? "Confirm booking" : "Text me a code"}</button>`;
+    if (!S.back && S.sent && !ready) $("next").disabled = true;
+    sc.querySelectorAll("[data-c]").forEach((el) => el.oninput = () => {
+      const v = [...sc.querySelectorAll("[data-c]")].map((x) => x.value.replace(/\D/g, "").slice(-1));
+      S.code = v.join(""); const nx = sc.querySelector(`[data-c="${+el.dataset.c + 1}"]`); if (el.value && nx) nx.focus();
+      $("next").disabled = S.code.length !== 6;
+    });
+    $("next").onclick = () => {
+      if (!S.back && !S.sent) { S.sent = true; render(); setTimeout(() => { S.code = "482913"; render(); }, 900); return; }
+      go(4);
+    };
+  }
+  if (S.step === 4) {
+    const b = BARBERS.find((x) => x.id === S.barber);
+    sc.innerHTML = `<div class="done"><div class="tick">✓</div><h2 class="h">You're booked</h2>
+      <div class="ref">Reference BRB-4821 · confirmation sent by text</div>
+      <div class="card" style="text-align:left"><div class="when">${DAYS[S.day].toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month:"long" })} · ${S.time}</div>
+      <div class="line"><span>${svc().name}${S.extras.length ? " + " + S.extras.map((e) => e[0]).join(", ") : ""}</span><b>£${total()}</b></div>
+      <div class="line"><span>With</span><b>${b.id === "any" ? "Dani Okoro" : b.name}</b></div></div>
+      <div class="btns"><button class="cta">Add to calendar</button><button class="ghost">Move or cancel</button><button class="ghost" id="again">Start again</button></div></div>`;
+    ft.style.display = "none";
+    $("again").onclick = () => { Object.assign(S, { step:0, cat:"All", svc:null, extras:[], barber:null, day:1, time:null, sent:false, code:"" }); render(); };
+  }
+  sc.querySelectorAll("[data-go]").forEach((a) => a.onclick = () => go(+a.dataset.go));
+}
+$("back").onclick = () => go(S.back && S.step === 2 && S.barber === "dani" && S.svc === "fade" ? 0 : S.step - 1);
+$("who-new").onclick = () => { S.back = false; $("who-new").classList.add("on"); $("who-back").classList.remove("on"); render(); };
+$("who-back").onclick = () => { S.back = true; $("who-back").classList.add("on"); $("who-new").classList.remove("on"); render(); };
+$("jump").innerHTML = ["1 Service", "2 Barber", "3 Time", "4 Confirm", "Done"].map((l, i) => `<button data-j="${i}">${l}</button>`).join("");
+$("jump").querySelectorAll("[data-j]").forEach((b) => b.onclick = () => {
+  const j = +b.dataset.j;
+  if (j >= 1 && !S.svc) S.svc = "fade";
+  if (j >= 2 && !S.barber) S.barber = "dani";
+  if (j >= 3 && !S.time) S.time = "14:15";
+  go(j);
+});
+const q = new URLSearchParams(location.search);
+if (q.get("who") === "back") $("who-back").click();
+if (q.get("step")) $("jump").querySelector(`[data-j="${q.get("step")}"]`).click();
+if (q.get("extras")) { S.extras = [EXTRAS.Hair[0]]; render(); }
+if (q.get("sent")) { S.sent = true; S.code = "482913"; render(); }
+render();
+</script>
+</body>
+</html>
