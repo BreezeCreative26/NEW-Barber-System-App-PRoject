@@ -735,3 +735,9 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - Appointment sheet: real bottom sheet (grab handle, rounded top, slide-up, stops below the status bar, scrolls inside, sticky action bar clear of the home bar) and swipe down on the handle/header to close.
 - Dialogs on phones are bottom sheets with a sticky header and a full-width main button; the booking form is a full-screen sheet with a solid confirm bar.
 - Tests: tests/phone-sheets.spec.ts (4, 390×844 touch). calendar.spec "E1 unavailable chair time…" and "responsive rebook…" also fail on main without this change.
+
+## Desktop: timetable date dropdown opens on click
+- On desktop a date field only opens its calendar from the browser's small icon. The timetable date chip is a hidden date field laid over the label, so clicking it did nothing (phones open on any tap).
+- main.tsx: a click anywhere on a date/time field calls `showPicker()` on mouse devices (fine pointer), so it behaves like mobile. This also covers the booking-date and other date fields.
+- Enter/Space on the chip opens it from the keyboard; the chip gets a pointer cursor and hover state on desktop.
+- Test: tests/desktop-date.spec.ts (1440×900).

@@ -2659,6 +2659,12 @@ export function Workspace() {
                           onChange={(e) => {
                             if (e.target.value) setDate(e.target.value);
                           }}
+                          onKeyDown={(e) => {
+                            if (e.key !== "Enter" && e.key !== " ") return;
+                            e.preventDefault();
+                            try { e.currentTarget.showPicker?.(); } catch { /* browser default */ }
+                          }}
+                          data-testid="toolbar-date-input"
                         />
                       </span>
                       <Button
