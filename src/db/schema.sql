@@ -357,6 +357,9 @@ CREATE TABLE bookings (
   end_at BIGINT NOT NULL CHECK(end_at > start_at),
   duration_min INTEGER NOT NULL,
   buffer_min INTEGER NOT NULL DEFAULT 10 CHECK(buffer_min BETWEEN 0 AND 60),
+  -- Staff may book a different length than the menu says (15-minute steps). duration_min/end_at are the
+  -- real block on the calendar; this is what the customer booked and is shown (NULL = same as duration_min).
+  customer_duration_min INTEGER CHECK(customer_duration_min IS NULL OR customer_duration_min > 0),
   service_name TEXT NOT NULL,
   price_pence INTEGER NOT NULL CHECK(price_pence >= 0),
   deposit_policy_pence INTEGER NOT NULL CHECK(deposit_policy_pence >= 0),
@@ -821,7 +824,7 @@ BEGIN
   first := items->0;
   IF first->>'kind' IS DISTINCT FROM 'SERVICE' OR first->>'id' IS DISTINCT FROM NEW.service_id
      OR NEW.price_pence IS DISTINCT FROM (SELECT SUM((v->>'price_pence')::int) FROM jsonb_array_elements(items) v)
-     OR NEW.duration_min IS DISTINCT FROM (SELECT SUM((v->>'duration_min')::int) FROM jsonb_array_elements(items) v)
+     OR COALESCE(NEW.customer_duration_min, NEW.duration_min) IS DISTINCT FROM (SELECT SUM((v->>'duration_min')::int) FROM jsonb_array_elements(items) v)
      OR EXISTS (SELECT 1 FROM jsonb_array_elements(items) v WHERE jsonb_typeof(v->'price_pence')<>'number' OR jsonb_typeof(v->'duration_min')<>'number')
      OR (SELECT COUNT(*) FROM jsonb_array_elements(items)) <> (SELECT COUNT(DISTINCT v->>'id') FROM jsonb_array_elements(items) v) THEN
     PERFORM ollo_abort('invalid_booking_items');

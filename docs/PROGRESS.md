@@ -1,5 +1,11 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-04 — Booking form, staff-only appointment length, iPhone safe areas
+- **iPhone:** the team app page lacked `viewport-fit=cover`, so `env(safe-area-inset-*)` were 0 and the appointment sheet's buttons sat under the home bar. Added it, plus safe-area padding on the sheet footer, "more" menu, tab bar, dialogs and landscape sides.
+- **Booking from a clicked slot:** no slot grid or 14-day strip; the chosen time shows as a summary with one "Available start time" dropdown to change it (opening hours, then "Outside normal hours" grouped below). Out-of-hours slots work the same way, labelled.
+- **Appointment length (staff only):** 15-minute steps, shorter or longer than the menu. `bookings.duration_min`/`end_at` are the calendar block; new `customer_duration_min` (migration 0064) keeps what the customer booked. Customer manage page, account, calendar invite and move-availability use the customer's length. Resizing on the calendar keeps the customer's length; changing service/add-ons resets it.
+- Tests: `tests/staff-length.spec.ts` (7), `tests/customer-length.test.ts` (3); manual-booking, catalogue, customer-sync, day-load and the calendar booking tests pass. Pre-existing failures on main (unchanged): calendar "E1 keyboard" and "responsive rebook and move review".
+
 ## 2026-11-04 — Timetable: changing day reads only that day
 - Next/previous day (and the date picker) used to re-read the whole workspace (~20 sequential queries: staff, services, hours, 500 bookings, audit, payments, schedule issues) before asking for the day. `loadDay()` now reads only `/bookings?date=`; everything else stays and is kept fresh by the heartbeat and saves.
 - Days already seen are cached for the session and shown instantly while being re-checked; the days either side are pre-loaded. Any full refresh clears the cache. Errors fall back to the full load.
