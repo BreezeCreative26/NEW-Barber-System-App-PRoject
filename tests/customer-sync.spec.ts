@@ -87,3 +87,37 @@ test("a notes-only change on an appointment leaves the customer alone", async ()
   const after = (await (await r.get(base + `/customers/${customerId}`)).json()).customer;
   expect(after.version).toBe(before.version);
 });
+
+test("re-saving a customer repairs appointments still showing old details (edited before the sync existed)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const postgres = (await import("postgres")).default;
+  const url = process.env.DATABASE_URL || readFileSync(".env", "utf8").split("\n").find((l) => l.startsWith("DATABASE_URL="))!.slice("DATABASE_URL=".length);
+  const { r, visits, customerId } = await world("Sync Repair");
+  // Simulate the old bug: the customer record was corrected but the appointments kept the typo.
+  const sql = postgres(url, { max: 1 });
+  await sql`update customers set name='Lloyd Mullins', version=version+1 where id=${customerId}`;
+  await sql`update bookings set customer_name='Lloyd myllindt' where customer_id=${customerId}`;
+  await sql.end();
+  // Saving the customer with no changes at all must still bring every appointment back in line.
+  const cust = (await (await r.get(base + `/customers/${customerId}`)).json()).customer;
+  const res = await r.put(base + `/customers/${customerId}`, {
+    data: { name: cust.name, phone: cust.phone, email: cust.email, notes: cust.notes || "", tags: [], birthday: "", preferred_staff_id: "", marketing_opt_in: 0, version: cust.version },
+  });
+  expect(res.status(), await res.text()).toBe(200);
+  for (const v of visits) {
+    const b = (await (await r.get(base + `/bookings/${v.id}`)).json()).booking;
+    expect(b.customer_name).toBe("Lloyd Mullins");
+  }
+});
+
+test("an ordinary re-save leaves appointments that are already correct untouched", async () => {
+  const { r, visits, customerId } = await world("Sync Untouched");
+  const before = (await (await r.get(base + `/bookings/${visits[0].id}`)).json()).booking;
+  const cust = (await (await r.get(base + `/customers/${customerId}`)).json()).customer;
+  const res = await r.put(base + `/customers/${customerId}`, {
+    data: { name: cust.name, phone: cust.phone, email: cust.email, notes: "just a note", tags: [], birthday: "", preferred_staff_id: "", marketing_opt_in: 0, version: cust.version },
+  });
+  expect(res.status(), await res.text()).toBe(200);
+  const after = (await (await r.get(base + `/bookings/${visits[0].id}`)).json()).booking;
+  expect(after.version).toBe(before.version); // nobody with this appointment open gets a "record changed" clash
+});
