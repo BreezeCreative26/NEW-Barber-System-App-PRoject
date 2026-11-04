@@ -511,7 +511,7 @@ async function seriesPreview(c: Ctx, b: z.infer<typeof seriesSchema>) {
       data.bookings,
       date,
       b.start_min,
-      quote.duration_min,
+      b.duration_min ?? quote.duration_min,
       Date.now(),
       undefined,
       data.daysOff,
@@ -3126,6 +3126,8 @@ sandbox.get("/availability", async (c) => {
       booking_id: z.string().uuid().optional(),
       // walk_in=1: the current 15-minute slot counts as free (seating someone now).
       walk_in: z.enum(["0", "1"]).default("0"),
+      // Staff-chosen calendar length for a new booking (15-minute steps); default is the menu length.
+      duration_min: z.coerce.number().int().min(15).max(480).refine((v) => v % 15 === 0).optional(),
       addon_ids: z
         .string()
         .default("")
@@ -3155,7 +3157,7 @@ sandbox.get("/availability", async (c) => {
         data.links,
         p.addon_ids,
       );
-  const duration = quote.duration_min;
+  const duration = !booking && p.duration_min ? p.duration_min : quote.duration_min;
   // Staff see the whole 24h day: out-of-hours starts come back flagged "Outside working hours",
   // a soft reason the shop may knowingly override. Public booking (public.ts) only ever offers
   // opening hours via dayStarts, so customers never reach these.
@@ -3186,6 +3188,8 @@ sandbox.get("/availability", async (c) => {
   return c.json({
     slots,
     duration_min: duration,
+    // What the customer is told (the menu length), whatever the calendar block is.
+    customer_duration_min: booking ? booking.customer_duration_min ?? booking.duration_min : quote.duration_min,
     price_pence: quote.price_pence,
     items: quote.items,
     overridden:
@@ -3212,6 +3216,7 @@ export async function createBooking(
     notify?: boolean;
     source: "TEST_BOOKING" | "WALK_IN";
     attendee_name?: string;
+    duration_min?: number;
     contact_pref?: "AUTO" | "SMS" | "WA" | "EMAIL";
   },
   channel: "OWNER" | "ONLINE",
@@ -3272,6 +3277,9 @@ export async function createBooking(
   );
   if (options.maxDate && b.date > options.maxDate)
     fail(409, "outside_booking_window");
+  // Calendar block: the menu length, or the length staff chose (never from the customer's own booking).
+  const block = channel === "OWNER" && b.duration_min ? b.duration_min : quote.duration_min;
+  const customerLength = block !== quote.duration_min ? quote.duration_min : null;
   const reason = slotReason(
     data.shop,
     data.staff,
@@ -3280,7 +3288,7 @@ export async function createBooking(
     data.bookings,
     b.date,
     b.start_min,
-    quote.duration_min,
+    block,
     options.minStart ?? Date.now(),
     undefined,
     data.daysOff,
@@ -3288,7 +3296,7 @@ export async function createBooking(
     channel === "OWNER",
   );
   // Outside the working hours is an ordinary bookable time for the shop (never for customers online).
-  const outsideHours = channel === "OWNER" && isOutsideHours(data.shop, data.hours, b.date, b.start_min, quote.duration_min);
+  const outsideHours = channel === "OWNER" && isOutsideHours(data.shop, data.hours, b.date, b.start_min, block);
   // Shop users may knowingly double-book or book outside hours (Fresha behaviour); customers cannot.
   // Past time is never overridable, whichever reason slotReason happened to report first.
   const startInstant = localInstant(b.date, b.start_min, data.shop.timezone);
@@ -3299,8 +3307,8 @@ export async function createBooking(
   const now = Date.now();
   const bookingId = id();
   const statement = c.env.DB.prepare(
-    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id,deposit_status,deposit_hold_until,payment_mode,contact_pref,buffer_min)
-  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
+    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id,deposit_status,deposit_hold_until,payment_mode,contact_pref,buffer_min,customer_duration_min)
+  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
   ).bind(
     bookingId,
     sid,
@@ -3314,8 +3322,8 @@ export async function createBooking(
     b.date,
     b.start_min,
     start,
-    start + quote.duration_min * 60000,
-    quote.duration_min,
+    start + block * 60000,
+    block,
     data.service.name,
     quote.price_pence,
     // The policy amount is always recorded (the database checks it against the shop's settings);
@@ -3340,6 +3348,7 @@ export async function createBooking(
     paymentModeFor(data.shop, data.service),
     contactPref,
     shopBuffer(data.shop),
+    customerLength,
     sid,
   );
   try {
@@ -3362,7 +3371,7 @@ export async function createBooking(
           ? options.depositHoldMin
             ? `Customer booked online. Slot held ${options.depositHoldMin} min for the deposit.`
             : "Customer booked online. Deposit payable in the shop; confirmation queued."
-          : (b.source === "WALK_IN" ? "Walk-in seated." : start < now ? "Added after the visit by the shop. No message sent." : "Appointment saved by the shop.") + (reason && overridden ? ` Overrode: ${reason}.` : "") + (outsideHours ? " Booked outside normal working hours." : ""),
+          : (b.source === "WALK_IN" ? "Walk-in seated." : start < now ? "Added after the visit by the shop. No message sent." : "Appointment saved by the shop.") + (reason && overridden ? ` Overrode: ${reason}.` : "") + (outsideHours ? " Booked outside normal working hours." : "") + (customerLength !== null ? ` Calendar length set to ${block} min (customer sees ${customerLength} min).` : ""),
       ),
     ]);
   } catch (err) {
@@ -3487,13 +3496,19 @@ sandbox.patch("/bookings/:id/items", async (c) => {
   const now = Date.now();
   const start = localInstant(b.date, b.start_min, data.shop.timezone)!;
   const before = JSON.parse(b.items_json) as BookingItem[];
+  // Same service and add-ons = only the length/price was adjusted on our side: the customer keeps the
+  // length they booked. A different service or add-ons redefines the visit, so their length follows it.
+  const sameVisit = body.service_id === b.service_id
+    && [...body.addon_ids].sort().join(",") === before.filter((i) => i.kind === "ADDON").map((i) => i.id).sort().join(",");
+  const keepCustomer = sameVisit ? b.customer_duration_min ?? b.duration_min : null;
+  const customerLength = keepCustomer !== null && keepCustomer !== duration ? keepCustomer : null;
   const summary = `${b.service_name} £${(b.price_pence / 100).toFixed(2)} ${b.duration_min}min → ${items[0].name}${items.length > 1 ? ` +${items.length - 1}` : ""} £${(price / 100).toFixed(2)} ${duration}min`;
   await c.env.DB.batch([
     c.env.DB.prepare("SELECT set_config('ollo.edit_items', '1', true)"),
     ...(overridden ? [forceSlot(c)] : []),
     c.env.DB.prepare(
-      "UPDATE bookings SET service_id=?,service_name=?,price_pence=?,duration_min=?,items_json=?,end_at=?,items_edited_at=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
-    ).bind(body.service_id, items[0].name, price, duration, JSON.stringify(items), start + duration * 60000, edited ? now : null, now, c.get("shopId"), b.id, body.version),
+      "UPDATE bookings SET service_id=?,service_name=?,price_pence=?,duration_min=?,customer_duration_min=?,items_json=?,end_at=?,items_edited_at=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
+    ).bind(body.service_id, items[0].name, price, duration, customerLength, JSON.stringify(items), start + duration * 60000, edited ? now : null, now, c.get("shopId"), b.id, body.version),
     audit(c, "booking", b.id, "ITEMS_UPDATED", `${summary}. ${body.reason}${overridden ? ` (overrode: ${reason})` : ""}`, true),
   ]);
   const fresh = await readBooking(c, b.id);

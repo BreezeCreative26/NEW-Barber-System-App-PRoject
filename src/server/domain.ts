@@ -325,6 +325,8 @@ export type StoredBooking = {
   end_at: number;
   duration_min: number;
   buffer_min: number;
+  /** What the customer booked when staff set a different calendar length (null = same as duration_min). */
+  customer_duration_min?: number | null;
   service_name: string;
   items_json: string;
   price_pence: number;
@@ -994,6 +996,9 @@ const bookingBase = z
     force: z.boolean().default(false),
     // Phone / in-person bookings: send the customer their confirmation (default yes). Walk-ins never are.
     notify: z.boolean().default(true),
+    // Staff only: how long to block on the calendar, when it differs from the menu (15-minute steps,
+    // shorter or longer). The customer still sees and is told the service's normal length.
+    duration_min: z.number().int().min(15).max(480).refine((v) => v % 15 === 0, "Use 15-minute steps").optional(),
     quote: z
       .object({ service_version: version, shop_version: version })
       .strict(),

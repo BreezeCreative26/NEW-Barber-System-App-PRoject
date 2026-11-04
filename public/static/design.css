@@ -4315,3 +4315,30 @@ input[type="radio"] { appearance: auto; width: 18px; height: 18px; min-height: 1
   .customer-profile-head p { overflow-wrap: anywhere; line-height: 1.5; }
   .customer-profile-head h2 { overflow-wrap: anywhere; }
 }
+
+/* ---- iPhone safe areas in the team app ----
+   The workspace page now opts into viewport-fit=cover, so env(safe-area-inset-*) report the real home-bar
+   and notch sizes (they were 0 before, which is why sheet buttons sat under the home bar). Keep content
+   clear of the notch in landscape, and give every bottom-pinned bar the home-bar gap. */
+.workspace { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+.tabbar { height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px)); padding-left: calc(var(--s-2) + env(safe-area-inset-left, 0px)); padding-right: calc(var(--s-2) + env(safe-area-inset-right, 0px)); }
+@media (max-width: 900px) {
+  .workspace .workspace-main { padding-bottom: calc(var(--tabbar-h) + 24px + env(safe-area-inset-bottom, 0px)); }
+  /* Appointment sheet: stop short of the top, and keep the action bar above the home indicator. */
+  .appointment-panel { height: auto; max-height: calc(100dvh - 12px - env(safe-area-inset-top, 0px)); }
+  .appointment-panel .panel-body { min-height: 0; }
+  .appointment-panel .panel-actions { padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); padding-left: calc(12px + env(safe-area-inset-left, 0px)); padding-right: calc(12px + env(safe-area-inset-right, 0px)); }
+  .panel-more-menu { bottom: calc(52px + env(safe-area-inset-bottom, 0px)); }
+}
+@media (max-width: 767px) {
+  .modal { max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+  .modal .workspace-save-actions { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* ---- Booking form: the chosen time as a summary, one "change time" dropdown, staff-only length ---- */
+.modal .booking-chosen-time { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 12px; margin: 0 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); }
+.modal .booking-chosen-time strong { font-size: 15px; }
+.modal .booking-chosen-time svg { color: var(--accent); flex: none; }
+.modal .booking-length { display: grid; gap: 4px; margin: 10px 0 4px; }
+.modal .booking-length .field { margin: 0; max-width: 260px; }
+.modal .booking-length small { color: var(--muted); font-size: 12px; }

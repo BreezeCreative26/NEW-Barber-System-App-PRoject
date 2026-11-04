@@ -1116,8 +1116,9 @@ export function customerView(b: StoredBooking, shop: Shop & Partial<BrandedShop>
     date: b.date,
     start_min: b.start_min,
     start_at: b.start_at,
-    end_at: b.end_at,
-    duration_min: b.duration_min,
+    // The length the customer booked, even when the shop blocks a different length on its calendar.
+    end_at: b.start_at + (b.customer_duration_min ?? b.duration_min) * 60000,
+    duration_min: b.customer_duration_min ?? b.duration_min,
     service_name: b.service_name,
     items: JSON.parse(b.items_json) as BookingItem[],
     price_pence: b.price_pence,
@@ -1212,7 +1213,7 @@ export function calendarResponse(c: Ctx, shop: Shop, booking: StoredBooking, sta
     `UID:${booking.id}@ollo.local`,
     `DTSTAMP:${stamp(Date.now())}`,
     `DTSTART:${stamp(booking.start_at)}`,
-    `DTEND:${stamp(booking.end_at)}`,
+    `DTEND:${stamp(booking.start_at + (booking.customer_duration_min ?? booking.duration_min) * 60000)}`,
     `SUMMARY:${esc(`${booking.service_name} at ${shop.name}`)}`,
     `DESCRIPTION:${esc(`Reference ${ref(booking)}${staffName ? ` with ${staffName}` : ""}.${booking.deposit_status === "PAID" ? " Deposit paid." : ""} Manage or move your appointment from the link in your confirmation.`)}`,
     `LOCATION:${esc(shop.address || shop.name)}`,
@@ -1259,7 +1260,7 @@ export async function moveOptions(c: Ctx, shop: Shop, booking: StoredBooking, da
         reason: hiddenReasons.includes(reason) ? "Unavailable" : reason,
       };
     });
-  return { slots, duration_min: booking.duration_min, max_date: maxDate, today };
+  return { slots, duration_min: booking.customer_duration_min ?? booking.duration_min, max_date: maxDate, today };
 }
 pub.get("/manage/:token/availability", async (c) => {
   const p = z.object({ date: dateSchema }).safeParse(c.req.query());

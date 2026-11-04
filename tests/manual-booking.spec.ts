@@ -29,7 +29,8 @@ test("UI: outside-hours times are ordinary bookable times for staff, listed apar
   await page.getByLabel("Service", { exact: true }).selectOption({ label: svc.name });
   const early = page.getByRole("option", { name: /outside normal hours/ }).first();
   await expect(early).toHaveJSProperty("disabled", false);
-  await expect(page.getByText(/Outside normal hours \(\d+\)/)).toBeVisible();
+  // Out-of-hours times are grouped at the bottom of the one time dropdown (no separate list of buttons).
+  await expect(page.locator('optgroup[label^="Outside normal hours"]')).toHaveCount(1);
   await page.getByLabel("Available start time").selectOption({ index: await early.evaluate((el) => (el as HTMLOptionElement).index) });
   // Booked "the same as normal": no override warning.
   await expect(page.getByTestId("override-notice")).toHaveCount(0);

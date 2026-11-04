@@ -1122,63 +1122,6 @@ function WeekHoursEditor({ week }: { week: ShopDayClient[] }) {
 // fallback select so the grid stays scannable.
 const prettyBookingDate = (d: string) =>
   d ? new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }) : "";
-function SlotGrid({
-  slots,
-  value,
-  onPick,
-}: {
-  slots: { start_min: number; reason: string; outside?: boolean }[];
-  value: string;
-  onPick: (minute: number, el: HTMLElement) => void;
-}) {
-  const free = slots.filter((s) => !s.reason && !s.outside);
-  const after = slots.filter((s) => !s.reason && s.outside);
-  const afterGroup = after.length ? (
-    <details className="slot-grid-after" open={after.some((s) => value === String(s.start_min))}>
-      <summary>Outside normal hours ({after.length}) — staff only, customers can't book these</summary>
-      <div className="slot-grid-chips">
-        {after.map((s) => (
-          <button type="button" key={s.start_min} className="slot-chip" aria-pressed={value === String(s.start_min)} onClick={(e) => onPick(s.start_min, e.currentTarget)}>
-            {time(s.start_min)}
-          </button>
-        ))}
-      </div>
-    </details>
-  ) : null;
-  if (!free.length) return afterGroup;
-  const groups: [string, (m: number) => boolean][] = [
-    ["Morning", (m) => m < 720],
-    ["Afternoon", (m) => m >= 720 && m < 1020],
-    ["Evening", (m) => m >= 1020],
-  ];
-  return (
-    <div className="slot-grid" role="group" aria-label="Free times">
-      {groups.map(([label, test]) => {
-        const items = free.filter((s) => test(s.start_min));
-        if (!items.length) return null;
-        return (
-          <div className="slot-grid-group" key={label}>
-            <h4>{label}</h4>
-            <div className="slot-grid-chips">
-              {items.map((s) => (
-                <button
-                  type="button"
-                  key={s.start_min}
-                  className="slot-chip"
-                  aria-pressed={value === String(s.start_min)}
-                  onClick={(e) => onPick(s.start_min, e.currentTarget)}
-                >
-                  {time(s.start_min)}
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-      {afterGroup}
-    </div>
-  );
-}
 
 // Walk-in: seat someone now. Picks the next free 15-minute start for the chosen barber today;
 // customer details are optional (a name defaults to "Walk-in", no number needed).
@@ -7433,6 +7376,8 @@ type Slots = {
   slots: { start_min: number; reason: string; outside?: boolean }[];
   price_pence: number;
   duration_min: number;
+  /** The length the customer is told (menu length), whatever the calendar block is. */
+  customer_duration_min?: number;
   deposit_policy_pence: number;
   quote: { service_version: number; shop_version: number };
 };
@@ -7690,6 +7635,9 @@ function BookingForm({
           )?.id || ""),
   );
   const [addonIds, setAddonIds] = useState<string[]>([]);
+  // Staff-only calendar length ("" = the menu length). 15-minute steps, shorter or longer; the customer
+  // is still told the service's normal length.
+  const [length, setLength] = useState("");
   const [start, setStart] = useState("");
   const [slots, setSlots] = useState<Slots | null>(null);
   const [error, setError] = useState("");
@@ -7697,6 +7645,7 @@ function BookingForm({
   const [review, setReview] = useState(false);
   const request = useRef({ payload: "", key: crypto.randomUUID() });
   const draftPending = useRef(draft?.start);
+  const lengthChange = useRef(false);
   // Fresha-style override: the clicked cell was outside hours / on a break / already occupied and the
   // shop chose it anyway. Holds the server's reason so the review step can say what's being overridden.
   const [override, setOverride] = useState<string>("");
@@ -7732,6 +7681,7 @@ function BookingForm({
       addon_ids: addonIds,
       notify: f.get("notify_confirm") === "on",
       ...(pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),
+      ...(length ? { duration_min: Number(length) } : {}),
       interval_weeks: intervalWeeks,
       occurrences,
       skip_dates: skipDates,
@@ -7746,6 +7696,10 @@ function BookingForm({
   useEffect(() => {
     let current = true;
     setSlots(null);
+    // Changing only the length keeps the time the staff picked; it is re-checked against the new slots.
+    const keep = lengthChange.current ? start : "";
+    lengthChange.current = false;
+    if (keep) draftPending.current = Number(keep);
     setStart("");
     setReview(false);
     setError("");
@@ -7754,7 +7708,7 @@ function BookingForm({
       return;
     }
     api<Slots>(
-      `/availability?${new URLSearchParams({ date, staff_id: staff, service_id: service, addon_ids: addonIds.join(","), ...(b ? { booking_id: b.id } : {}) })}`,
+      `/availability?${new URLSearchParams({ date, staff_id: staff, service_id: service, addon_ids: addonIds.join(","), ...(b ? { booking_id: b.id } : {}), ...(!b && length ? { duration_min: length } : {}) })}`,
     )
       .then((s) => {
         if (current) {
@@ -7783,7 +7737,7 @@ function BookingForm({
     return () => {
       current = false;
     };
-  }, [date, staff, service, addonIds, refresh, b?.id]);
+  }, [date, staff, service, addonIds, refresh, b?.id, length]);
   return (
     <SaveForm
       className="booking-workflow"
@@ -7893,6 +7847,7 @@ function BookingForm({
               addon_ids: addonIds,
               notify: f.get("notify_confirm") === "on",
               ...(pickedCustomer?.id ? { customer_id: pickedCustomer.id } : {}),
+              ...(length ? { duration_min: Number(length) } : {}),
               ...(override ? { force: true } : {}),
             };
         const serial = JSON.stringify(payload);
@@ -8059,6 +8014,31 @@ function BookingForm({
               </select>
             </Field>
           </div>
+          {!b && slots && (() => {
+            const normal = slots.customer_duration_min ?? slots.duration_min;
+            const steps = Array.from({ length: 32 }, (_, i) => (i + 1) * 15).filter((m) => m !== normal);
+            return (
+              <div className="booking-length" data-testid="booking-length">
+                <Field label="Appointment length">
+                  <select
+                    value={length}
+                    onChange={(e) => {
+                      lengthChange.current = true;
+                      setLength(e.target.value === String(normal) ? "" : e.target.value);
+                    }}
+                  >
+                    <option value="">{normal} min (normal)</option>
+                    {steps.map((m) => (
+                      <option key={m} value={m}>
+                        {m} min{m < normal ? " (shorter)" : " (longer)"}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <small>{length ? `Blocks ${length} min on your calendar. The customer is still told ${normal} min.` : "Only changes your calendar. The customer always sees the normal length."}</small>
+              </div>
+            );
+          })()}
           {!b && (
             <fieldset className="workspace-addon-options">
               <legend>Optional add-ons</legend>
@@ -8127,7 +8107,7 @@ function BookingForm({
               ))}
             </div>
           )}
-          <div className="booking-day-strip" role="group" aria-label="Quick dates">
+          {!draft && <div className="booking-day-strip" role="group" aria-label="Quick dates">
             {Array.from({ length: 14 }, (_, i) => datePlus(w.today, i)).map((d, i) => {
               const dt = new Date(`${d}T12:00:00Z`);
               return (
@@ -8148,7 +8128,7 @@ function BookingForm({
                 </button>
               );
             })}
-          </div>
+          </div>}
           <Field label="Booking date">
             <input
               type="date"
@@ -8172,20 +8152,19 @@ function BookingForm({
           )}
           {slots && (
             <>
-              <SlotGrid
-                slots={slots.slots}
-                value={start}
-                onPick={(m, el) => {
-                  markDraft(el);
-                  setStart(String(m));
-                  setOverride("");
-                }}
-              />
+              {start && (
+                <div className="booking-chosen-time" data-testid="booking-chosen-time" aria-live="polite">
+                  <Icon name="clock" />
+                  <strong>{prettyBookingDate(date)} · {time(Number(start))}–{time(Number(start) + slots.duration_min)}</strong>
+                  {slots.slots.find((x) => String(x.start_min) === start)?.outside && <Badge>Outside normal hours</Badge>}
+                </div>
+              )}
               <div className="booking-time-row">
                 <Field label="Available start time">
                   <select
                     value={start}
                     onChange={(e) => {
+                      markDraft(e.currentTarget);
                       setStart(e.target.value);
                       // Shop staff may book outside hours / over a break or another booking: flag the override.
                       const at = slots.slots.find((x) => String(x.start_min) === e.target.value);
@@ -8194,35 +8173,40 @@ function BookingForm({
                     required
                   >
                     <option value="">Choose a time</option>
-                    {slots.slots.map((s) => (
-                      <option
-                        key={s.start_min}
-                        value={s.start_min}
-                        disabled={!!s.reason && !SOFT_SLOT_REASONS.includes(s.reason)}
-                      >
-                        {time(s.start_min)}
-                        {s.reason ? ` — ${s.reason}` : s.outside ? " — outside normal hours" : ""}
-                      </option>
-                    ))}
+                    {(() => {
+                      const opt = (x: Slots["slots"][number]) => (
+                        <option key={x.start_min} value={x.start_min} disabled={!!x.reason && !SOFT_SLOT_REASONS.includes(x.reason)}>
+                          {time(x.start_min)}
+                          {x.reason ? ` — ${x.reason}` : x.outside ? " — outside normal hours" : ""}
+                        </option>
+                      );
+                      const inHours = slots.slots.filter((x) => !x.outside);
+                      const after = slots.slots.filter((x) => x.outside);
+                      return (
+                        <>
+                          <optgroup label="Opening hours">{inHours.map(opt)}</optgroup>
+                          {after.length > 0 && <optgroup label={`Outside normal hours (${after.filter((x) => !x.reason).length} free) — staff only`}>{after.map(opt)}</optgroup>}
+                        </>
+                      );
+                    })()}
                   </select>
                 </Field>
-              </div>
-              <div className="booking-time-shortcut">
-                <Button
-                  variant="secondary"
-                  disabled={!slots.slots.some((s) => !s.reason && !s.outside)}
-                  onClick={(e) => {
-                    markDraft(e.currentTarget);
-                    const first = slots.slots.find((s) => !s.reason && !s.outside);
-                    if (first) {
-                      setStart(String(first.start_min));
-                      setOverride("");
-                    }
-                  }}
-                >
-                  Use first available time
-                </Button>
-                <small>Selected barber and date only. No time is held.</small>
+                {!start && (
+                  <Button
+                    variant="secondary"
+                    disabled={!slots.slots.some((s) => !s.reason && !s.outside)}
+                    onClick={(e) => {
+                      markDraft(e.currentTarget);
+                      const first = slots.slots.find((s) => !s.reason && !s.outside);
+                      if (first) {
+                        setStart(String(first.start_min));
+                        setOverride("");
+                      }
+                    }}
+                  >
+                    Use first available time
+                  </Button>
+                )}
               </div>
               {slots.slots.every((s) => s.reason && !SOFT_SLOT_REASONS.includes(s.reason)) && (
                 <Notice tone="warning">
