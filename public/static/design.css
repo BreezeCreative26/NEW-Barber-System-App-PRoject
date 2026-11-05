@@ -4597,3 +4597,36 @@ html.ws-dark .workspace .shop-closed-empty { background: rgba(220, 70, 70, 0.08)
 .booking-app .anyone-row-empty { margin: 0; color: var(--sp-muted, var(--muted)); font-size: 13px; }
 .booking-app .anyone-row .time-slots { margin: 0; }
 .booking-app .time-groups[hidden] { display: none !important; }
+
+/* Customer booking: the time they tapped is held for them (5 min, 2 min after leaving). */
+.booking-app .hold-pill { display: inline-flex; align-items: center; gap: 8px; margin: 4px 0 12px; padding: 7px 13px; border-radius: 999px; font-size: 13px; font-weight: 600; background: color-mix(in srgb, #3ecf8e 14%, var(--sp-surface, #fff)); border: 1px solid color-mix(in srgb, #3ecf8e 45%, var(--sp-line, #e2e4ee)); color: var(--sp-ink, var(--ink)); }
+.booking-app .hold-pill i { width: 8px; height: 8px; border-radius: 50%; background: #2fb47a; animation: hold-pulse 1.6s infinite; flex: 0 0 auto; }
+.booking-app .hold-pill span { font-variant-numeric: tabular-nums; }
+.booking-app .hold-pill.low { background: color-mix(in srgb, #f3c969 18%, var(--sp-surface, #fff)); border-color: color-mix(in srgb, #c98a00 45%, var(--sp-line, #e2e4ee)); }
+.booking-app .hold-pill.low i { background: #c98a00; }
+@keyframes hold-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+.booking-app .hold-notice { margin: 4px 0 14px; padding: 13px 15px; border-radius: 14px; }
+.booking-app .hold-notice strong { display: block; font-size: 15px; margin-bottom: 2px; }
+.booking-app .hold-notice p { margin: 0; font-size: 14px; color: var(--sp-muted, var(--muted)); }
+.booking-app .hold-notice.gone { background: color-mix(in srgb, #e5484d 10%, var(--sp-surface, #fff)); border: 1px solid color-mix(in srgb, #e5484d 35%, var(--sp-line, #e2e4ee)); }
+.booking-app .hold-notice.expired { background: color-mix(in srgb, #f3c969 14%, var(--sp-surface, #fff)); border: 1px solid color-mix(in srgb, #c98a00 35%, var(--sp-line, #e2e4ee)); }
+.booking-app .hold-notice-times { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.booking-app .hold-notice-times button { min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--sp-line, var(--line)); background: var(--sp-surface, #fff); color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+
+/* Admin timetable: an online customer is mid-booking this time (held up to 5 min). */
+.workspace .calendar-hold {
+  position: absolute; left: 4px; right: 4px; z-index: 2; display: grid; align-content: start; gap: 1px;
+  padding: 4px 8px; border-radius: 9px; text-align: left; font: inherit; font-size: 12px; cursor: pointer; overflow: hidden;
+  color: #035e45; border: 1.5px dashed #00b386;
+  background: repeating-linear-gradient(135deg, rgba(0, 232, 176, .10) 0 8px, rgba(0, 232, 176, .22) 8px 16px);
+}
+.workspace .calendar-hold strong { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.workspace .calendar-hold strong i { width: 7px; height: 7px; border-radius: 50%; background: #00b386; animation: hold-pulse 1.4s infinite; }
+.workspace .calendar-hold span { opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.workspace .calendar-hold .calendar-hold-left { font-variant-numeric: tabular-nums; font-weight: 600; }
+.workspace .calendar-hold.low { color: #7a4f06; border-color: #d69a2d; background: repeating-linear-gradient(135deg, rgba(243, 170, 40, .12) 0 8px, rgba(243, 170, 40, .24) 8px 16px); }
+.workspace .calendar-hold.low strong i { background: #d69a2d; }
+.workspace .calendar-hold:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+html.ws-dark .workspace .calendar-hold { color: #8ff0cf; }
+html.ws-dark .workspace .calendar-hold.low { color: #f6dc9b; }
+@keyframes hold-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }

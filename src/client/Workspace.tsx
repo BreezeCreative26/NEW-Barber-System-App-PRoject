@@ -73,6 +73,25 @@ const labels: Record<string, string> = {
   CANCELLED: "Cancelled",
   NO_SHOW: "No-show",
 };
+// An online customer is holding this time while they book (see holds.ts). The shop may book over it.
+const SLOT_HELD = "Someone is booking this time online right now.";
+const isHeld = (e: unknown) => e instanceof ApiError && e.status === 409 && e.message === SLOT_HELD;
+async function bookOverHold(what = "book"): Promise<boolean> {
+  return ask({
+    title: "Someone is booking this time online",
+    body: `A customer has this time held while they finish booking. If you ${what} it, their hold ends and they'll see "Sorry, that time has just gone" with nearby times instead.`,
+    confirm: what === "move" ? "Move anyway" : "Book anyway",
+    tone: "warning",
+  });
+}
+async function overHold<T>(run: (force: boolean) => Promise<T>, what: "book" | "move" = "book", force = false): Promise<T> {
+  try {
+    return await run(force);
+  } catch (e) {
+    if (!force && isHeld(e) && (await bookOverHold(what))) return run(true);
+    throw e;
+  }
+}
 class ApiError extends Error {
   constructor(
     message: string,
@@ -120,6 +139,7 @@ async function api<T>(
           "The service or shop policy changed. Review the refreshed price and time before confirming again.",
         slot_taken:
           "That time was just booked. Choose another available time; your customer details have been kept.",
+        slot_held: SLOT_HELD,
         session_required:
           "Your session has expired. Sign in again.",
         slug_taken:
@@ -2932,7 +2952,7 @@ export function Workspace() {
                               if (!ok) return;
                               setMoving(null);
                               try {
-                                const r = await api<{ booking: StoredBooking; notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: draft.start, staff_id: draft.staffId, reason: "Moved on the timetable", version: b.version, notify: ok.notify, ...(draft.outside ? { force: true } : {}) });
+                                const r = await overHold((held) => api<{ booking: StoredBooking; notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: draft.start, staff_id: draft.staffId, reason: "Moved on the timetable", version: b.version, notify: ok.notify, ...(draft.outside || held ? { force: true } : {}) }), "move");
                                 const n = r.notify ?? null;
                                 flushMoveNotice(b.id, n);
                                 setNotice(`Moved ${b.attendee_name || b.customer_name} to ${at}${same ? "" : ` with ${who}`}.${noticeSuffix(b, n)}`);
@@ -2953,6 +2973,19 @@ export function Workspace() {
                             setEditor({ kind: "override", item: staffMember, override: w.schedule_overrides.find((o) => o.staff_id === staffMember.id && o.date === d) });
                           }}
                           team={barber ? undefined : new Set(team[date] ?? [])}
+                          onHold={async (h) => {
+                            const who = w.staff.find((x) => x.id === h.staff_id)?.name ?? "";
+                            const ends = h.left_at ? Math.min(h.expires_at, h.left_at + 120000) : h.expires_at;
+                            const mins = Math.max(0, Math.ceil((ends - Date.now()) / 60000));
+                            const ok = await ask({
+                              title: "Online booking in progress",
+                              body: `${h.customer_name ? `${h.customer_name} (returning customer)` : "A customer"} is booking ${h.service_name} with ${who.split(" ")[0] || "this barber"} at ${time(h.start_min)}. ${h.left_at ? "They've left the page." : "They're still on the booking page."} Held for about ${mins} more minute${mins === 1 ? "" : "s"}.`,
+                              confirm: "Book over it",
+                              cancel: "Close",
+                              tone: "warning",
+                            });
+                            if (ok) setEditor({ kind: "booking", draft: { staffId: h.staff_id, start: h.start_min, outside: "Held" } });
+                          }}
                           columnMenu={false}
                           canSetHours={manager}
                           onAction={(action, staffMember, at) => {
@@ -3023,7 +3056,7 @@ export function Workspace() {
                                   if (!ok) return;
                                   setPanelError("");
                                   try {
-                                    const r = await api<{ booking: StoredBooking; notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: to.start, staff_id: to.staffId, reason: to.override ? `Moved on the calendar (over: ${to.override.toLowerCase()})` : "Moved on the calendar", version: b.version, notify: ok.notify, ...(to.override ? { force: true } : {}) });
+                                    const r = await overHold((held) => api<{ booking: StoredBooking; notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: to.start, staff_id: to.staffId, reason: to.override ? `Moved on the calendar (over: ${to.override.toLowerCase()})` : "Moved on the calendar", version: b.version, notify: ok.notify, ...(to.override || held ? { force: true } : {}) }), "move");
                                     const n = r.notify ?? null;
                                     flushMoveNotice(b.id, n);
                                     setNotice(`Moved to ${at}${same ? "" : ` with ${who}`}.${noticeSuffix(b, n)}`);
@@ -7661,6 +7694,8 @@ function BookingForm({
   const [review, setReview] = useState(false);
   const request = useRef({ payload: "", key: crypto.randomUUID() });
   const draftPending = useRef(draft?.start);
+  // Came from "Book over it" on an online hold: the shop has already chosen to take the time.
+  const overHeld = useRef(draft?.outside === "Held");
   const lengthChange = useRef(false);
   // Fresha-style override: the clicked cell was outside hours / on a break / already occupied and the
   // shop chose it anyway. Holds the server's reason so the review step can say what's being overridden.
@@ -7909,10 +7944,14 @@ function BookingForm({
         if (request.current.payload !== serial)
           request.current = { payload: serial, key: crypto.randomUUID() };
         try {
-          const result = await saved(
-            b ? `/bookings/${b.id}/reschedule` : "/bookings",
-            "POST",
-            b ? payload : { ...payload, request_id: request.current.key },
+          const result = await overHold(
+            (held) => saved(
+              b ? `/bookings/${b.id}/reschedule` : "/bookings",
+              "POST",
+              held ? { ...(b ? payload : { ...payload, request_id: request.current.key }), force: true } : b ? payload : { ...payload, request_id: request.current.key },
+            ),
+            b ? "move" : "book",
+            overHeld.current,
           );
           if (b && (result as { notify?: MoveNotice } | undefined)?.notify) flushMoveNotice(b.id, (result as { notify: MoveNotice }).notify);
           // Link the waitlist request to the saved visit; a failure here never undoes the booking.

@@ -475,6 +475,10 @@ const publicMutations = [
   ["POST", "/manage/:token/review"],
   ["POST", "/shops/:slug/account/complete"],
   ["POST", "/shops/:slug/account/delete"],
+  ["POST", "/shops/:slug/holds"],
+  ["POST", "/shops/:slug/holds/ping"],
+  ["POST", "/shops/:slug/holds/left"],
+  ["DELETE", "/shops/:slug/holds"],
 ] as const;
 test("all public mutation endpoints enforce origin and validate input", async () => {
   const source = readFileSync(new URL("../src/server/public.ts", import.meta.url), "utf8");

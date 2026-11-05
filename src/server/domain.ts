@@ -397,6 +397,8 @@ export type WorkspaceData = {
   payments: Payment[];
   audit: AuditEvent[];
   today: string;
+  // Online customers mid-booking ("Booking in progress" on the timetable). See holds.ts.
+  holds?: import("./holds").SlotHold[];
   now: number;
   mode: "sandbox";
   issues: { booking_id: string; ref: string; reason: string }[];
