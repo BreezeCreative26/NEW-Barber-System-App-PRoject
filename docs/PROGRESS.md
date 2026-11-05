@@ -1,5 +1,10 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-05 — Team app: your own photo in the top-right corner
+- The account button (top right, every width including phones) shows the signed-in person's own barber profile photo, cropped round. No photo on their profile → the shop logo as before → initials.
+- Owners and the shop login have no barber profile linked to their login, so they keep the shop logo / initials.
+- Tests: `tests/staff-avatar.spec.ts` (4). accounts, catalogue, pay pass.
+
 ## 2026-11-05 — Customer booking: new 4-step layout
 - **4 steps** (Service · Barber · Time · Confirm) shown as four thin progress bars. The "STEP 01 OF 05" eyebrow, "Step 1 of 5" counter and the sub-headings under each title are gone.
 - **Book your usual** card at the top of the service step for signed-in customers (from `/account/me`: most-booked service + barber and its next free time). "Book again" opens the time step with both set and the day picked.

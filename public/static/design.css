@@ -4741,3 +4741,5 @@ html.ws-dark .bell-v3 .bell-undo button { color: #03785a; }
 /* Week nav stays on one line at every width (older rules stack it on phones). */
 .booking-app.standalone .booking-date-toolbar, .booking-app .booking-date-toolbar { flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 6px; }
 .booking-app.standalone .booking-date-toolbar h3, .booking-app .booking-date-toolbar h3 { flex: 1 1 auto; min-width: 0; text-align: center; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Top bar: the signed-in person's own photo, cropped to the round avatar. */
+.account-pill .avatar-photo { object-fit: cover; padding: 0; background: var(--line-2); flex: 0 0 auto; }
