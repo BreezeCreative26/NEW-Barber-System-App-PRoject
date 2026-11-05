@@ -2048,6 +2048,8 @@ export function Workspace() {
     }
   }
   const w = data;
+  // Schedule issues this login hasn't dismissed in the bell (the banner follows the bell).
+  const openIssues = (w?.issues ?? []).filter((i) => !(inbox?.dismissed ?? []).includes(issueKey(i)));
   useEffect(() => {
     if (!w || reviewsOpen) return;
     api<{ summary: { average: number | null; count: number } }>("/reviews").then((r) => setRatingChip(r.summary)).catch(() => setRatingChip(null));
@@ -2333,7 +2335,7 @@ export function Workspace() {
         onWallet={() => setWalletOpen((v) => !v)}
         queue={w && w.shop.waitlist_enabled !== 0 && can("waitlist") ? { count: waitlist.length, offered: waitlist.filter((e) => e.status === "OFFERED").length, open: queueOpen } : null}
         onQueue={() => setQueueOpen((v) => !v)}
-        bell={w ? { count: w.issues.length + (inbox?.unread ?? 0), open: notificationsOpen } : null}
+        bell={w ? { count: inbox?.unread ?? 0, open: notificationsOpen } : null}
         onBell={() => setNotificationsOpen((v) => !v)}
         reviews={w && ratingChip ? { ...ratingChip, open: reviewsOpen } : null}
         onReviews={() => setReviewsOpen((v) => !v)}
@@ -2599,10 +2601,10 @@ export function Workspace() {
           })()}
           {w && !inviteToken && !setupOpen && (
             <>
-              {w.issues.length > 0 && (
+              {openIssues.length > 0 && (
                 <Notice tone="warning">
                   <strong>
-                    {w.issues.length} appointment(s) need schedule review.
+                    {openIssues.length} appointment(s) need schedule review.
                   </strong>{" "}
                   <button
                     className="workspace-text-button"
@@ -2610,7 +2612,7 @@ export function Workspace() {
                   >
                     Open notifications
                   </button>
-                  {w.issues.map((issue) => (
+                  {openIssues.map((issue) => (
                     <p key={issue.booking_id}>
                       {issue.ref}: {issue.reason}.{" "}
                       <button
@@ -5317,7 +5319,7 @@ function CustomerPagesPanel({ w, onOpenBooking }: { w: WorkspaceData; onOpenBook
 }
 
 // Notifications drawer (bell): schedule issues. The waiting list has its own Queue drawer.
-type TeamInbox = { events: { id: string; kind: string; title: string; body: string; booking_id: string | null; created_at: number; unread: boolean }[]; unread: number; all: boolean };
+type TeamInbox = { events: { id: string; kind: string; title: string; body: string; booking_id: string | null; created_at: number; unread: boolean }[]; unread: number; all: boolean; dismissed?: string[] };
 function b64ToBytes(b64: string) {
   const pad = "=".repeat((4 - (b64.length % 4)) % 4);
   const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
@@ -5373,12 +5375,31 @@ function TeamPushToggle({ all }: { all: boolean }) {
     </div>
   );
 }
-function NotificationsDrawer({ w, inbox, onInbox, onOpenBooking, onReview, onClose }: { w: WorkspaceData; inbox: TeamInbox | null; onInbox: () => void; onOpenBooking: (bookingId: string) => void; onReview: (bookingId: string) => void; onClose: () => void }) {
-  useEffect(() => {
-    // Opening the bell marks what is listed as seen (the new ones stay highlighted while it is open).
-    const t = window.setTimeout(() => { api("/inbox/read", "POST", {}).then(onInbox).catch(() => {}); }, 1500);
-    return () => window.clearTimeout(t);
-  }, []);
+// "Needs attention" items are keyed by booking + reason, so a dismissed one comes back if the reason changes.
+const issueKey = (i: { booking_id: string; reason: string }) => `${i.booking_id}|${i.reason}`;
+const BELL_ICON: Record<string, string> = { new_booking: "plus", cancelled: "close", moved: "repeat", no_show: "alert", waitlist: "hourglass" };
+function dayLabel(at: number, now = Date.now()) {
+  const t = new Date(now);
+  const start = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+  if (at >= start) return "Today";
+  if (at >= start - 86400000) return "Yesterday";
+  return "Earlier";
+}
+function agoLabel(at: number, now = Date.now()) {
+  const m = Math.max(0, Math.round((now - at) / 60000));
+  const day = dayLabel(at, now);
+  if (day === "Today") return m < 1 ? "Just now" : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)} hr ago`;
+  const d = new Date(at);
+  if (day === "Yesterday") return `Yesterday ${d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
+  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+}
+function NotificationsDrawer({ w, inbox, onInbox, onOpenBooking, onReview, onClose }: { w: WorkspaceData; inbox: TeamInbox | null; onInbox: () => void | Promise<void>; onOpenBooking: (bookingId: string) => void; onReview: (bookingId: string) => void; onClose: () => void }) {
+  // Opening the bell no longer marks anything read: use "Mark all read", or open an item.
+  const [tab, setTab] = useState<"activity" | "attention">(() => (!inbox?.unread && w.issues.some((i) => !(inbox?.dismissed ?? []).includes(issueKey(i))) ? "attention" : "activity"));
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [undo, setUndo] = useState<{ text: string; cleared: string[]; dismissed: string[] } | null>(null);
+  const [error, setError] = useState("");
+  const undoTimer = useRef(0);
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -5390,60 +5411,154 @@ function NotificationsDrawer({ w, inbox, onInbox, onOpenBooking, onReview, onClo
     return () => {
       document.removeEventListener("keydown", onKey);
       previous?.focus();
+      window.clearTimeout(undoTimer.current);
     };
   }, []);
-  const total = w.issues.length + (inbox?.unread ?? 0);
+  const events = (inbox?.events ?? []).filter((e) => !hidden.has(`e:${e.id}`));
+  const dismissed = new Set(inbox?.dismissed ?? []);
+  const issues = w.issues.filter((i) => !dismissed.has(issueKey(i)) && !hidden.has(`i:${issueKey(i)}`));
+  const unread = events.filter((e) => e.unread).length;
+  const showUndo = (u: { text: string; cleared: string[]; dismissed: string[] }) => {
+    setUndo(u);
+    window.clearTimeout(undoTimer.current);
+    undoTimer.current = window.setTimeout(() => setUndo(null), 6000);
+  };
+  const hide = (keys: string[]) => setHidden((h) => new Set([...h, ...keys]));
+  const unhide = (keys: string[]) => setHidden((h) => { const n = new Set(h); keys.forEach((k) => n.delete(k)); return n; });
+  const fail = (e: unknown) => setError(e instanceof Error ? e.message : "Could not update notifications.");
+  async function clearOne(id: string) {
+    setError("");
+    hide([`e:${id}`]);
+    try {
+      await api("/inbox/clear", "POST", { ids: [id] });
+      showUndo({ text: "Notification cleared", cleared: [id], dismissed: [] });
+      onInbox();
+    } catch (e) { unhide([`e:${id}`]); fail(e); }
+  }
+  async function clearAll() {
+    setError("");
+    const keys = events.map((e) => `e:${e.id}`);
+    hide(keys);
+    try {
+      const r = await api<{ cleared: string[] }>("/inbox/clear", "POST", {});
+      showUndo({ text: `Cleared ${r.cleared.length} notification${r.cleared.length === 1 ? "" : "s"}`, cleared: r.cleared, dismissed: [] });
+      onInbox();
+    } catch (e) { unhide(keys); fail(e); }
+  }
+  async function dismiss(key: string) {
+    setError("");
+    hide([`i:${key}`]);
+    try {
+      await api("/inbox/dismiss", "POST", { keys: [key] });
+      showUndo({ text: "Dismissed", cleared: [], dismissed: [key] });
+      onInbox();
+    } catch (e) { unhide([`i:${key}`]); fail(e); }
+  }
+  async function restore() {
+    if (!undo) return;
+    const u = undo;
+    setUndo(null);
+    try {
+      await api("/inbox/restore", "POST", { cleared: u.cleared, dismissed: u.dismissed });
+      await onInbox();
+      unhide([...u.cleared.map((id) => `e:${id}`), ...u.dismissed.map((k) => `i:${k}`)]);
+    } catch (e) { fail(e); }
+  }
+  async function markAll() {
+    setError("");
+    try { await api("/inbox/read", "POST", {}); onInbox(); } catch (e) { fail(e); }
+  }
+  const open = (ev: TeamInbox["events"][number]) => {
+    if (ev.unread) api("/inbox/read", "POST", { ids: [ev.id] }).then(onInbox).catch(() => {});
+    if (ev.booking_id) onOpenBooking(ev.booking_id);
+  };
+  const now = Date.now();
+  const groups = (["Today", "Yesterday", "Earlier"] as const).map((d) => [d, events.filter((e) => dayLabel(e.created_at, now) === d)] as const).filter(([, l]) => l.length);
+  const summary = [unread ? `${unread} unread` : "You're all caught up", issues.length ? `${issues.length} need${issues.length === 1 ? "s" : ""} attention` : ""].filter(Boolean).join(" · ");
   return (
     <>
       <div className="drawer-scrim" onClick={onClose} aria-hidden="true" />
-      <aside className="drawer-right notifications-drawer" aria-label="Notifications" ref={ref} data-testid="notifications">
+      <aside className="drawer-right notifications-drawer bell-v3" aria-label="Notifications" ref={ref} data-testid="notifications">
         <h2>
           Notifications
-          <small>{total ? `${total} item${total === 1 ? "" : "s"}` : "All clear"}</small>
+          <small data-testid="bell-summary">{summary}</small>
           <IconButton name="close" label="Close notifications" onClick={onClose} />
         </h2>
-        <TeamPushToggle all={!!inbox?.all} />
-        {inbox && inbox.events.length > 0 && (
-          <section className="notify-group" aria-label="Recent activity" data-testid="team-events">
-            <h3><Icon name="bell" size={16} /> Recent activity{!inbox.all && <small> · your bookings</small>}</h3>
-            <ul className="notify-list">
-              {inbox.events.map((ev) => (
-                <li key={ev.id} className={ev.unread ? "unread" : ""}>
-                  <div>
-                    <strong>{ev.title}</strong>
-                    <small>{ev.body}</small>
-                    <small>{new Date(ev.created_at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}</small>
-                  </div>
-                  {ev.booking_id && ev.kind !== "cancelled" && <Button variant="secondary" onClick={() => onOpenBooking(ev.booking_id as string)}>Open</Button>}
-                </li>
+        <div className="bell-tabs" role="tablist" aria-label="Notification type">
+          <button type="button" role="tab" aria-selected={tab === "activity"} className={tab === "activity" ? "on" : ""} onClick={() => setTab("activity")} data-testid="bell-tab-activity">
+            Activity{unread > 0 && <span className="n">{unread}</span>}
+          </button>
+          <button type="button" role="tab" aria-selected={tab === "attention"} className={tab === "attention" ? "on" : ""} onClick={() => setTab("attention")} data-testid="bell-tab-attention">
+            Needs attention{issues.length > 0 && <span className="n">{issues.length}</span>}
+          </button>
+        </div>
+        {error && <p className="bell-error" role="alert">{error}</p>}
+        {tab === "activity" ? (
+          <>
+            {events.length > 0 && (
+              <div className="bell-actions">
+                <button type="button" className="workspace-text-button" onClick={markAll} disabled={!unread} data-testid="bell-mark-all">Mark all read</button>
+                <button type="button" className="workspace-text-button muted" onClick={clearAll} data-testid="bell-clear-all">Clear all</button>
+              </div>
+            )}
+            <div className="bell-list" data-testid="team-events">
+              {groups.map(([day, list]) => (
+                <section key={day} aria-label={day}>
+                  <h3 className="bell-day">{day}</h3>
+                  <ul className="bell-items">
+                    {list.map((ev) => (
+                      <li key={ev.id} className={`bell-item${ev.unread ? " unread" : ""}`} data-testid="bell-item">
+                        <span className={`bell-ic ${ev.kind}`} aria-hidden="true"><Icon name={BELL_ICON[ev.kind] || "bell"} size={15} /></span>
+                        <div className="bell-tx">
+                          <strong>{ev.title}<time dateTime={new Date(ev.created_at).toISOString()}>{agoLabel(ev.created_at, now)}</time></strong>
+                          <p>{ev.body}</p>
+                          {ev.booking_id && ev.kind !== "cancelled" && (
+                            <div className="bell-acts"><button type="button" onClick={() => open(ev)}>Open booking</button></div>
+                          )}
+                        </div>
+                        <button type="button" className="bell-clr" aria-label={`Clear: ${ev.title}`} title="Clear" onClick={() => clearOne(ev.id)} data-testid="bell-clear">
+                          <Icon name="close" size={14} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               ))}
-            </ul>
-          </section>
-        )}
-        {w.issues.length > 0 ? (
-          <section className="notify-group" aria-labelledby="notify-issues-heading">
-            <h3 id="notify-issues-heading">
-              <Icon name="blocked" size={16} /> Schedule review
-              <span className="nav-count">{w.issues.length}</span>
-            </h3>
-            <p className="drawer-note left">Saved appointments that no longer fit the roster, hours or closures.</p>
-            <ul className="notify-list">
-              {w.issues.map((issue) => (
-                <li key={issue.booking_id}>
-                  <div>
+              {!events.length && (
+                <p className="bell-empty"><Icon name="bell" size={26} />No notifications{inbox && !inbox.all ? " for your bookings" : ""}. New bookings, cancellations and moves will show here.</p>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="bell-list" data-testid="bell-attention">
+            {issues.length > 0 && <p className="bell-note">Appointments that no longer fit the rota, hours or closures.</p>}
+            <ul className="bell-items">
+              {issues.map((issue) => (
+                <li key={issueKey(issue)} className="bell-item" data-testid="bell-issue">
+                  <span className="bell-ic review" aria-hidden="true"><Icon name="alert" size={15} /></span>
+                  <div className="bell-tx">
                     <strong>{issue.ref}</strong>
-                    <small>{issue.reason}</small>
+                    <p>{issue.reason}</p>
+                    <div className="bell-acts">
+                      <button type="button" onClick={() => onReview(issue.booking_id)}>Review appointment</button>
+                      <button type="button" onClick={() => dismiss(issueKey(issue))} data-testid="bell-dismiss">Dismiss</button>
+                    </div>
                   </div>
-                  <Button variant="secondary" onClick={() => onReview(issue.booking_id)}>
-                    Review appointment
-                  </Button>
                 </li>
               ))}
             </ul>
-          </section>
-        ) : !inbox?.events.length ? (
-          <p className="drawer-note left">Nothing needs your attention. The waiting list lives under the hourglass in the top bar.</p>
-        ) : null}
+            {!issues.length && <p className="bell-empty"><Icon name="paid" size={26} />Nothing needs your attention.</p>}
+          </div>
+        )}
+        {undo && (
+          <div className="bell-undo" role="status" data-testid="bell-undo">
+            <span>{undo.text}</span>
+            <button type="button" onClick={restore}>Undo</button>
+          </div>
+        )}
+        <div className="bell-foot">
+          <TeamPushToggle all={!!inbox?.all} />
+        </div>
       </aside>
     </>
   );
