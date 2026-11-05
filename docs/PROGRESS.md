@@ -799,3 +799,10 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - Price is one line under the service (price · length · deposit). Add-ons are compact chips. "Send confirmation" is a single switch. Banners (book again / waitlist / moving) are one line each. Repeated small print removed.
 - Unchanged: saving, checks, add-ons, staff-only length, repeat bookings + clash screen, customer search + duplicate warning, rebook/waitlist/slot prefills, barber-only-own-column rule, review step.
 - Tests: tests/booking-slim.spec.ts; series/staff-length/calendar tests open "More options" first.
+
+## Texts fix: group bookings now confirmed (2026-11-05)
+- Bug: an online group booking (2–4 people) sent no confirmation text or email, and the shop got no new-booking alert. Single bookings, repeats, staff bookings, moves and cancels were all fine.
+- Fix: `/group-bookings` now confirms each visit like a single booking (`notifyBooking` + `alertOwners`). Replays and deposit holds don't re-send.
+- Checked on live, read-only: the 5-minute cron is running, Telnyx delivers (~97% delivered), and nothing is stuck in the queue. Reminders have sent none yet only because nothing is booked within 24h; the first visits are on 9 Nov, and reminders for those will go out on 8 Nov.
+- Not code: the Telnyx balance is low ($17.59, no credit limit, ~$0.10 per 2-part text). When it runs out, texts stop. Carrier rejections (40008) are individual numbers, mostly from the 3 Nov announcement.
+- Test: tests/booking-upgrades.spec.ts asserts an SMS confirmation per group visit.
