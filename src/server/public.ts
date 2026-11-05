@@ -439,7 +439,7 @@ pub.get("/shops/:slug/days", async (c) => {
   const to = datePlus(from, 13);
   const ctx = await rangeContext(c, shop, q.staff_id ? [q.staff_id] : null, q.service_id, from, to, q.addon_ids);
   const days = Array.from({ length: 14 }, (_, i) => datePlus(from, i)).map((date) => {
-    if (date > maxDate) return { date, available: 0, closed: false, beyond: true };
+    if (date > maxDate) return { date, available: 0, closed: false, beyond: true, reason: "" as const };
     const open = new Set<number>();
     let closed = true;
     for (const staff of ctx.staff)
@@ -448,7 +448,10 @@ pub.get("/shops/:slug/days", async (c) => {
         if (!reason) open.add(m);
         if (!closedReasons.includes(reason)) closed = false;
       }
-    return { date, available: open.size, closed, beyond: false };
+    // Why a day can't be booked: the whole shop is shut, or the barber(s) aren't working.
+    // Customers see "Closed" only for the first; a barber's day off reads "Day off".
+    const shopShut = !shopDay(shop, weekday(date)).enabled || ctx.holidays.some((h) => h.date === date);
+    return { date, available: open.size, closed, beyond: false, reason: closed ? (shopShut ? ("shop" as const) : ("off" as const)) : ("" as const) };
   });
   const durations = [...ctx.quotes.values()].map((q) => q.duration_min);
   const prices = [...ctx.quotes.values()].map((q) => q.price_pence);
@@ -532,6 +535,10 @@ pub.get("/shops/:slug/availability", async (c) => {
           barbers: open.length,
           price_pence: ctx.quotes.get(chosen.id)!.price_pence,
           duration_min: ctx.quotes.get(chosen.id)!.duration_min,
+          // Any-barber: every barber free at this time, so the customer can pick who.
+          ...(q.staff_id ? {} : {
+            options: open.map((s) => ({ staff_id: s.id, staff_name: s.name, price_pence: ctx.quotes.get(s.id)!.price_pence, duration_min: ctx.quotes.get(s.id)!.duration_min })),
+          }),
         };
       }
       const reasons = ctx.staff.map((s) => slotFor(shop, ctx, s, q.date, start_min, minStart));
@@ -545,8 +552,16 @@ pub.get("/shops/:slug/availability", async (c) => {
   const rule = single ? await c.env.DB.prepare(
     "SELECT price_pence,duration_min FROM staff_service_rules WHERE shop_id=? AND staff_id=? AND service_id=?",
   ).bind(shop.id, primary.id, q.service_id).first<{ price_pence: number | null; duration_min: number | null }>() : null;
+  // Any-barber: who is in today and who is off, so a barber with a day off shows "Day off"
+  // instead of vanishing. Off = no time of the day is open for a reason other than closure.
+  const team = q.staff_id ? undefined : ctx.staff.map((s) => {
+    const starts = dayStarts(shop, q.date);
+    const off = starts.length === 0 || starts.every((m) => closedReasons.includes(slotFor(shop, ctx, s, q.date, m, minStart)));
+    return { id: s.id, name: s.name, off, price_pence: ctx.quotes.get(s.id)!.price_pence, duration_min: ctx.quotes.get(s.id)!.duration_min };
+  });
   return c.json({
     slots,
+    ...(team ? { team } : {}),
     any_barber: !q.staff_id,
     duration_min: quote.duration_min,
     price_pence: quote.price_pence,

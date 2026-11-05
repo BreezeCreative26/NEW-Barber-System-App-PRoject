@@ -4567,3 +4567,33 @@ html.ws-dark .workspace .shop-closed-banner > span { background: #1a1c22; border
 .workspace .shop-closed-empty strong { display: inline-flex; align-items: center; gap: 6px; color: #b23b3b; font-size: 15px; }
 .workspace .shop-closed-empty span { color: var(--muted); font-size: 13px; }
 html.ws-dark .workspace .shop-closed-empty { background: rgba(220, 70, 70, 0.08); border-color: rgba(220, 70, 70, .25); }
+
+/* Customer booking: a barber's day off reads "Day off" (dashed), never "Closed". */
+.booking-app .booking-dates button.dayoff { border-style: dashed; opacity: 1; }
+.booking-app .booking-dates button.dayoff > small { color: #a46a00; font-weight: 600; }
+.booking-app.mode-dark .booking-dates button.dayoff > small,
+.shop-page.mode-dark .booking-app .booking-dates button.dayoff > small { color: #f3c969; }
+.booking-app .booking-dates button.dayoff.chosen > small { color: inherit; }
+.booking-app .dayoff-card {
+  margin: 12px 0; padding: 14px 16px; border-radius: 14px;
+  background: color-mix(in srgb, #f3c969 14%, var(--sp-surface, #fff));
+  border: 1px solid color-mix(in srgb, #c98a00 35%, var(--sp-line, #e2e4ee));
+}
+.booking-app .dayoff-card strong { display: block; font-size: 15px; margin-bottom: 2px; }
+.booking-app .dayoff-card p { margin: 0 0 10px; color: var(--sp-muted, var(--muted)); font-size: 14px; }
+.booking-app .dayoff-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* "Anyone": one row per barber with their own times (fair random order). */
+.booking-app .anyone-rows { display: grid; gap: 10px; margin-top: 8px; }
+.booking-app .anyone-row { border: 1px solid var(--sp-line, var(--line)); background: var(--sp-surface, #fff); border-radius: 16px; padding: 12px; }
+.booking-app .anyone-row > header { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.booking-app .anyone-row > header strong { font-size: 15px; }
+.booking-app .anyone-row > header span { color: var(--sp-muted, var(--muted)); font-size: 13px; }
+.booking-app .anyone-row > header b { margin-left: auto; font-size: 14px; }
+.booking-app .anyone-row.off { opacity: .8; }
+.booking-app .anyone-row.off > header { margin-bottom: 0; }
+.booking-app .anyone-row .dayoff-tag { margin-left: auto; font-style: normal; font-size: 12px; font-weight: 600; color: #a46a00; border: 1px dashed currentColor; border-radius: 999px; padding: 3px 9px; }
+.shop-page.mode-dark .booking-app .anyone-row .dayoff-tag { color: #f3c969; }
+.booking-app .anyone-row-empty { margin: 0; color: var(--sp-muted, var(--muted)); font-size: 13px; }
+.booking-app .anyone-row .time-slots { margin: 0; }
+.booking-app .time-groups[hidden] { display: none !important; }
