@@ -1138,6 +1138,13 @@ pub.post("/shops/:slug/group-bookings", async (c) => {
       const token = await issueManageToken(c, result.booking);
       if (!firstToken && token) firstToken = token;
       created.push(customerView(result.booking, shop, names.get(result.booking.staff_id) ?? null));
+      // Each visit in the group is confirmed like a single booking (text + email, with its own link),
+      // and the shop hears about it. Without this, group bookers got no confirmation at all.
+      if (!result.replayed && result.booking.deposit_status !== "PENDING") {
+        const staffName = names.get(result.booking.staff_id) ?? null;
+        await notifyBooking(c, shop.id, result.booking, staffName, "booking_confirmed", token).catch(() => []);
+        await alertOwners(c.env.DB, shop.id, "new_booking", result.booking, { staffName, origin: new URL(c.req.url).origin }).catch(() => 0);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       failed.push({ index: i, attendee_name: m.attendee_name || b.customer_name, error: message.includes("slot_taken") || message.includes("Slot taken") ? "slot_taken" : message });

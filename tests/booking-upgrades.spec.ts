@@ -80,6 +80,11 @@ test("group availability: together assigns distinct barbers, back to back chains
   expect(g.bookings[1].attendee_name).toBe("Little Sam");
   expect(g.bookings[0].attendee_name).toBe("");
   expect(new Set(g.bookings.map((b: { group_id: string }) => b.group_id)).size).toBe(1);
+  // Every visit in the group is confirmed to the booker by text (it used to send nothing at all).
+  const outbox = (await (await r.get(base + "/notifications?limit=200")).json()).notifications as { template: string; channel: string; related_id: string }[];
+  for (const bk of g.bookings as { id: string }[]) {
+    expect(outbox.some((n) => n.related_id === bk.id && n.template === "booking_confirmed" && n.channel === "SMS"), `confirmation for ${bk.id}`).toBe(true);
+  }
   // Replay returns the same group; a fresh request for the same chairs fails wholesale (409), nothing half-saved.
   const again = await c.post(`${P}/group-bookings`, { data: body });
   expect(again.status()).toBe(201);
