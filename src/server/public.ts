@@ -41,6 +41,7 @@ import {
  shopDay, shopWeek, dayStarts, isOffered,
 } from "./domain";
 import { readInput, digest, sameOrigin, type AppEnv } from "./accounts";
+import { HOLD_MAX_MS, LEFT_MS, LIVE, liveArgs, holderHash, holdEnds } from "./holds";
 import customerAccounts from "./customers";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, pushFor, waAvailable, type Channel, type MessageTemplate, type Recipient } from "./messaging";
 import { currentAccount as currentCustomerAccount, customerPassword, ensureAccount, openSession as openCustomerSession, sendWelcome } from "./customerAuth";
@@ -248,6 +249,8 @@ export async function rangeContext(
   addonIds: string[],
 ) {
   const sid = shop.id;
+  // Times other customers are holding while they book count as taken; this page's own hold doesn't.
+  const ownHold = await holderHash(sid, holdKeyOf(c));
   const r = await c.env.DB.batch([
     c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name").bind(sid),
     c.env.DB.prepare("SELECT * FROM services WHERE shop_id=? AND id=? AND active=1 AND online_bookable=1").bind(sid, serviceId),
@@ -264,7 +267,11 @@ export async function rangeContext(
     c.env.DB.prepare("SELECT * FROM addons WHERE shop_id=?").bind(sid),
     c.env.DB.prepare("SELECT * FROM addon_services WHERE shop_id=? AND service_id=?").bind(sid, serviceId),
     c.env.DB.prepare("SELECT * FROM staff_blocks WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, from, to),
+    c.env.DB.prepare(`SELECT h.id,h.staff_id,h.start_at,h.end_at FROM slot_holds h WHERE h.shop_id=? AND h.date BETWEEN ? AND ? AND ${LIVE} AND h.holder_hash<>?`).bind(sid, from, to, ...liveArgs(), ownHold),
   ]);
+  const held = (r[11].results as { id: string; staff_id: string; start_at: number; end_at: number }[]).map(
+    (h) => ({ id: `hold:${h.id}`, staff_id: h.staff_id, start_at: Number(h.start_at), end_at: Number(h.end_at), buffer_min: 0, status: "CONFIRMED" }) as unknown as StoredBooking,
+  );
   const service = r[1].results[0] as Service | undefined;
   if (!service) fail(404, "Service is not available");
   const rules = r[7].results as StaffServiceRule[];
@@ -294,11 +301,16 @@ export async function rangeContext(
     overrides: r[3].results as ScheduleOverride[],
     holidays: r[4].results as Holiday[],
     daysOff: r[5].results as StaffDayOff[],
-    bookings: r[6].results as StoredBooking[],
+    bookings: [...(r[6].results as StoredBooking[]), ...held],
     blocks: r[10].results as StaffBlock[],
   };
 }
 export type Range = Awaited<ReturnType<typeof rangeContext>>;
+// The booking page sends a random per-tab key so its own hold isn't hidden from it.
+export function holdKeyOf(c: Ctx) {
+  const k = c.req.header("x-hold-key") || "";
+  return /^[A-Za-z0-9-]{16,64}$/.test(k) ? k : "";
+}
 export function slotFor(shop: Shop, ctx: Range, staff: Staff, date: string, minute: number, minStart: number) {
   const h = effectiveHours(
     ctx.hours.find((x) => x.staff_id === staff.id && x.weekday === weekday(date)) ?? null,
@@ -500,6 +512,97 @@ pub.get("/shops/:slug/next", async (c) => {
     }
   }
   return c.json({ next: results, max_date: maxDate });
+});
+
+// ---- Slot holds (see holds.ts) -------------------------------------------------------------
+// The booking page holds the time a customer taps, so nobody else can take it while they sign up
+// and confirm. Identified by a random per-tab key (x-hold-key), never by a cookie.
+const holdSchema = z
+  .object({
+    staff_id: z.string().uuid(),
+    service_id: z.string().uuid(),
+    date: dateSchema,
+    start_min: z.number().int().min(0).max(1425).refine((v) => v % 15 === 0),
+    addon_ids: addonIdsSchema.default([]),
+  })
+  .strict();
+type HoldRow = { id: string; staff_id: string; date: string; start_min: number; created_at: number; seen_at: number; expires_at: number; left_at: number | null; released: string | null };
+const holdView = (h: HoldRow, now = Date.now()) => {
+  const ends = holdEnds({ expires_at: Number(h.expires_at), seen_at: Number(h.seen_at), left_at: h.left_at === null ? null : Number(h.left_at) });
+  return { id: h.id, staff_id: h.staff_id, date: h.date, start_min: h.start_min, expires_at: Number(h.expires_at), ends_at: ends, left_ms: Math.max(0, ends - now), server_now: now };
+};
+async function holdKeyOrFail(c: Ctx, shopId: string) {
+  const key = holdKeyOf(c);
+  if (!key) fail(400, "hold_key_required");
+  return holderHash(shopId, key);
+}
+pub.post("/shops/:slug/holds", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug"));
+  const b = await readInput(c, holdSchema);
+  const mine = await holdKeyOrFail(c, shop.id);
+  await throttle(c, "hold", `${shop.id}:${clientKey(c)}`, 120);
+  const { minStart, maxDate } = limits(shop);
+  if (b.date > maxDate) fail(409, "outside_booking_window");
+  const ctx = await rangeContext(c, shop, [b.staff_id], b.service_id, b.date, b.date, b.addon_ids);
+  const staff = ctx.staff[0];
+  const reason = slotFor(shop, ctx, staff, b.date, b.start_min, minStart);
+  if (reason) fail(409, hiddenReasons.includes(reason) ? "slot_taken" : reason);
+  const quote = ctx.quotes.get(staff.id)!;
+  const startAt = localInstant(b.date, b.start_min, shop.timezone)!;
+  const endAt = startAt + quote.duration_min * 60000;
+  const who = await currentCustomerAccount(c, shop).catch(() => null);
+  const now = Date.now();
+  const hid = crypto.randomUUID();
+  await c.env.DB.batch([
+    c.env.DB.prepare("SELECT ollo_lock_shop(?)").bind(shop.id),
+    c.env.DB.prepare("DELETE FROM slot_holds WHERE shop_id=? AND expires_at<?").bind(shop.id, now - 86400000),
+    // Re-checked under the lock: another customer's hold or a booking that landed meanwhile wins.
+    c.env.DB.prepare(
+      `SELECT ollo_abort('slot_taken') WHERE EXISTS (SELECT 1 FROM slot_holds h WHERE h.shop_id=? AND h.staff_id=? AND ${LIVE} AND h.holder_hash<>? AND h.start_at<? AND ?<h.end_at)
+         OR EXISTS (SELECT 1 FROM bookings x WHERE x.shop_id=? AND x.staff_id=? AND x.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE','COMPLETED') AND x.start_at<? AND ?<x.end_at + x.buffer_min*60000)`,
+    ).bind(shop.id, b.staff_id, ...liveArgs(now), mine, endAt, startAt, shop.id, b.staff_id, endAt, startAt),
+    // One hold per page: picking another time replaces the previous one.
+    c.env.DB.prepare(
+      `INSERT INTO slot_holds(id,shop_id,staff_id,service_id,service_name,customer_name,account_id,holder_hash,date,start_min,duration_min,start_at,end_at,created_at,seen_at,expires_at)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT (shop_id,holder_hash) DO UPDATE SET id=EXCLUDED.id,staff_id=EXCLUDED.staff_id,service_id=EXCLUDED.service_id,service_name=EXCLUDED.service_name,customer_name=EXCLUDED.customer_name,account_id=EXCLUDED.account_id,date=EXCLUDED.date,start_min=EXCLUDED.start_min,duration_min=EXCLUDED.duration_min,start_at=EXCLUDED.start_at,end_at=EXCLUDED.end_at,created_at=EXCLUDED.created_at,seen_at=EXCLUDED.seen_at,expires_at=EXCLUDED.expires_at,left_at=NULL,released=NULL`,
+    ).bind(hid, shop.id, b.staff_id, b.service_id, ctx.service.name, who?.name || "", who?.id || null, mine, b.date, b.start_min, quote.duration_min, startAt, endAt, now, now, now + HOLD_MAX_MS),
+  ]);
+  const row = await c.env.DB.prepare("SELECT * FROM slot_holds WHERE shop_id=? AND holder_hash=?").bind(shop.id, mine).first<HoldRow>();
+  return c.json({ hold: holdView(row!, now) }, 201);
+});
+// Check-in while the page is open (every ~20 s). Says whether the hold is still theirs and why not.
+pub.post("/shops/:slug/holds/ping", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug"));
+  const mine = await holdKeyOrFail(c, shop.id);
+  const now = Date.now();
+  const touched = await c.env.DB.prepare(`UPDATE slot_holds h SET seen_at=?, left_at=NULL WHERE h.shop_id=? AND h.holder_hash=? AND ${LIVE}`)
+    .bind(now, shop.id, mine, ...liveArgs(now)).run();
+  const row = await c.env.DB.prepare("SELECT * FROM slot_holds WHERE shop_id=? AND holder_hash=?").bind(shop.id, mine).first<HoldRow>();
+  if (!row) return c.json({ hold: null, status: "none" });
+  if (row.released === "taken") return c.json({ hold: null, status: "taken", start_min: row.start_min, staff_id: row.staff_id, date: row.date });
+  if (row.released) return c.json({ hold: null, status: row.released });
+  const view = holdView(row, now);
+  // Not refreshed = no longer live (5 minutes up, or the page went quiet for over 2 minutes).
+  if (!touched.meta.changes || view.left_ms <= 0) return c.json({ hold: null, status: "expired", start_min: row.start_min, staff_id: row.staff_id, date: row.date });
+  return c.json({ hold: view, status: "held" });
+});
+// The page was hidden or closed: keep the time 2 more minutes, then let it go.
+pub.post("/shops/:slug/holds/left", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug"));
+  const mine = await holdKeyOrFail(c, shop.id);
+  const now = Date.now();
+  await c.env.DB.prepare(`UPDATE slot_holds h SET left_at=?, seen_at=? WHERE h.shop_id=? AND h.holder_hash=? AND ${LIVE}`)
+    .bind(now, now, shop.id, mine, ...liveArgs(now)).run();
+  return c.json({ ok: true, keeps_ms: LEFT_MS });
+});
+// The customer changed their mind (another barber, back to services): free the time now.
+pub.delete("/shops/:slug/holds", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug"));
+  const mine = await holdKeyOrFail(c, shop.id);
+  const hid = c.req.query("id") || "";
+  await c.env.DB.prepare("UPDATE slot_holds SET released='released' WHERE shop_id=? AND holder_hash=? AND released IS NULL AND (?='' OR id=?)").bind(shop.id, mine, hid, hid).run();
+  return c.json({ ok: true });
 });
 
 pub.get("/shops/:slug/availability", async (c) => {
@@ -743,7 +846,7 @@ pub.post("/shops/:slug/bookings", async (c) => {
     c,
     { ...bk, source: "TEST_BOOKING" },
     "ONLINE",
-    { minStart, maxDate, depositHoldMin: holdMin || undefined },
+    { minStart, maxDate, depositHoldMin: holdMin || undefined, holdKey: holdKeyOf(c) },
   );
   if (result.booking.channel !== "ONLINE")
     fail(409, "idempotency_payload_changed");

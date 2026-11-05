@@ -92,6 +92,7 @@ import setup from "./setup";
 import { PERM_DEFS, type PermKey } from "./perms";
 import { listFor, markSeen, recordEvent, staffPushStatus } from "./staffNotify";
 import { notifyBooking } from "./public";
+import { holdStatements, holderHash, liveHolds, holdsCursor } from "./holds";
 import { ALERT_KINDS, DEFAULT_PREFS, alertOwners, prefsOf, type AlertPrefs } from "./alerts";
 import { mountShopCampaigns } from "./shopCampaigns";
 import { mountDomains } from "./domains";
@@ -370,6 +371,7 @@ export function handleError(err: Error, c: Ctx) {
     "invalid_booking_items",
     "service_unavailable",
     "slot_taken",
+    "slot_held",
     "barber_unavailable",
     "service_changed",
     "shop_closed",
@@ -662,7 +664,8 @@ sandbox.get("/changes", async (c) => {
     .bind(c.get("shopId"))
     .first<{ at: number; n: number }>();
   c.header("Cache-Control", "no-store");
-  return c.json({ cursor: `${row?.at ?? 0}:${row?.n ?? 0}`, at: Number(row?.at ?? 0), now: Date.now() });
+  const held = await holdsCursor(c.env.DB, c.get("shopId")).catch(() => "0");
+  return c.json({ cursor: `${row?.at ?? 0}:${row?.n ?? 0}:${held}`, at: Number(row?.at ?? 0), now: Date.now() });
 });
 sandbox.get("/workspace", async (c) => {
   const sid = c.get("shopId");
@@ -797,6 +800,8 @@ sandbox.get("/workspace", async (c) => {
     service_categories: (result[13]?.results ?? []) as ServiceCategory[],
     schedule_overrides: overrides,
     today: shopToday(shop.timezone),
+    // Online customers mid-booking: shown as "Booking in progress" on the timetable.
+    holds: await liveHolds(c.env.DB, sid, shopToday(shop.timezone)).catch(() => []),
     now: Date.now(),
     mode: "sandbox",
     issues,
@@ -3245,7 +3250,7 @@ export async function createBooking(
     contact_pref?: "AUTO" | "SMS" | "WA" | "EMAIL";
   },
   channel: "OWNER" | "ONLINE",
-  options: { minStart?: number; maxDate?: string; seriesId?: string | null; groupId?: string | null; depositHoldMin?: number; force?: boolean } = {},
+  options: { minStart?: number; maxDate?: string; seriesId?: string | null; groupId?: string | null; depositHoldMin?: number; force?: boolean; holdKey?: string } = {},
 ) {
   // Preserve request hashes for pre-add-on bookings with the same normalized payload.
   // `force` is a shop-side decision, not part of what the customer asked for, so it stays out of the hash.
@@ -3331,6 +3336,12 @@ export async function createBooking(
   const start = localInstant(b.date, b.start_min, data.shop.timezone)!;
   const now = Date.now();
   const bookingId = id();
+  // Online holds: a customer may only take a time nobody else is holding (their own hold becomes the
+  // booking); the shop is warned and may book over it ("Book anyway" sends force).
+  const holdChecks = holdStatements(c.env.DB, {
+    shopId: sid, staffId: b.staff_id, startAt: start, endAt: start + block * 60000, channel,
+    force: channel === "OWNER" && !!options.force, ownHash: options.holdKey ? await holderHash(sid, options.holdKey) : "", now,
+  });
   const statement = c.env.DB.prepare(
     `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id,deposit_status,deposit_hold_until,payment_mode,contact_pref,buffer_min,customer_duration_min)
   SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
@@ -3380,6 +3391,7 @@ export async function createBooking(
     await c.env.DB.batch([
       // Serialise per-shop inserts so the sequence number (MAX+1) cannot collide under load.
       c.env.DB.prepare("SELECT ollo_lock_shop(?)").bind(sid),
+      ...holdChecks,
       ...(overridden ? [forceSlot(c)] : []),
       statement,
       // A customer who picks WhatsApp/text/email online is telling us how to reach them from now on.
@@ -3400,6 +3412,7 @@ export async function createBooking(
       ),
     ]);
   } catch (err) {
+    if (String(err).includes("slot_held")) throw err;
     // Same request_id racing itself: the loser may fail on the slot before the winner's row is
     // visible. Look for the winner, once immediately and once after a short pause.
     for (let attempt = 0; attempt < 4; attempt++) {
@@ -4203,6 +4216,7 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
   const overridden = (!!reason && body.force && overridable(reason) && moveInstant !== null) || (!reason && isOutsideHours(data.shop, data.hours, body.date, body.start_min, b.duration_min));
   if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
   const start = localInstant(body.date, body.start_min, data.shop.timezone)!;
+  const holdChecks = holdStatements(c.env.DB, { shopId: c.get("shopId"), staffId: body.staff_id, startAt: start, endAt: start + b.duration_min * 60000, channel: "OWNER", force: body.force, ownHash: "" });
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
@@ -4219,7 +4233,7 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
       body.version,
     ),
     audit(c, "booking", b.id, "RESCHEDULED", (reason && overridden ? `${body.reason} (overrode: ${reason})` : body.reason) + (isOutsideHours(data.shop, data.hours, body.date, body.start_min, b.duration_min) ? " (outside normal working hours)" : ""), true),
-    overridden ? [forceSlot(c)] : [],
+    [c.env.DB.prepare("SELECT ollo_lock_shop(?)").bind(c.get("shopId")), ...holdChecks, ...(overridden ? [forceSlot(c)] : [])],
   );
   await slotFreed(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "move");
   const after = await readBooking(c, b.id);

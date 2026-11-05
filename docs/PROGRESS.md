@@ -1,5 +1,13 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-05 — Online slot holds: the time a customer taps is kept for them
+- New table `slot_holds` (migration 0065). Tapping a time on the booking page holds it for up to **5 minutes**; the page pings every 20 s. Leaving the page (tab hidden / closed) keeps it **2 more minutes**, then it frees itself. One hold per browser tab (`x-hold-key` header, stored hashed).
+- Other customers see a held time as taken (holds are merged into availability); a second hold or booking on it gets 409. Booking with your own hold turns it into the booking (in the same transaction, under the shop lock).
+- Customer page: "12:30 is held for you · 4:59" pill; if it lapses, "Your hold ran out" with **Hold again**; if staff take it, "Sorry, that time has just gone" with up to 4 nearby times.
+- Admin timetable: striped "Booking in progress" block with service and live countdown ("Left the page" when they've gone). Tapping it offers **Book over it**. Staff booking or moving onto a held time gets a **Book anyway / Move anyway** warning (server answers `slot_held` until `force`); the customer's hold is then marked taken. Holds ride the 2 s `/changes` heartbeat.
+- Routes: `POST /shops/:slug/holds`, `/holds/ping`, `/holds/left`, `DELETE /holds?id=` (origin-checked, validated, throttled).
+- Tests: `tests/slot-holds.spec.ts` (4). booking-slim, booking-upgrades, calendar-drag, customer-account, day-load, dayoff-anyone, manual-booking, public (route list updated), staff-length pass (44).
+
 ## 2026-11-05 — Customer booking: "Day off" vs "Closed", and "Anyone" lists every barber's times
 - `/days` now says why a day can't be booked: `reason: "shop"` (whole shop shut — closed weekday or closure date) or `"off"` (the barber isn't working). The date strip shows **Closed** only for the shop; a barber's own day off is a dashed, tappable **Day off**.
 - Tapping a barber's day off shows "Dani has a day off on Mon 9 Nov" with **See who's working** (switches to Anyone on that day) and **Dani's next day in**.

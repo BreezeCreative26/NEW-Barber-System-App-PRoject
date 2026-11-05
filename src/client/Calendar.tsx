@@ -169,6 +169,7 @@ export function Calendar({
   onBlock,
   onRemoveBlock,
   onResize,
+  onHold,
   team,
   paid = new Set<string>(),
   density = "STANDARD",
@@ -197,6 +198,8 @@ export function Calendar({
   columnMenu?: boolean;
   onBlock?: (block: StaffBlock) => void;
   onRemoveBlock?: (block: StaffBlock) => void;
+  // An online customer is mid-booking this time ("Booking in progress"); click to see who / book over it.
+  onHold?: (hold: NonNullable<WorkspaceData["holds"]>[number]) => void;
   // Extra (non-rostered) barbers the user added to the day via "Scheduled team".
   team?: Set<string>;
 }) {
@@ -272,6 +275,21 @@ export function Calendar({
       (barber || !team || rostered(s) || team.has(s.id) || bookings.some((b) => b.staff_id === s.id)),
   );
   const dayBlocks = w.blocks.filter((b) => b.date === date);
+  // Online customers mid-booking on this day. The countdown ticks once a second while any are shown;
+  // `w.now` vs the browser clock corrects for a skewed device clock.
+  const skew = useRef(0);
+  useEffect(() => { if (w.now) skew.current = w.now - Date.now(); }, [w.now]);
+  const dayHolds = (w.holds || []).filter((h) => h.date === date);
+  const [, setHoldTick] = useState(0);
+  useEffect(() => {
+    if (!dayHolds.length) return;
+    const t = window.setInterval(() => setHoldTick((n) => n + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [dayHolds.length]);
+  const holdLeft = (h: (typeof dayHolds)[number]) => {
+    const ends = h.left_at ? Math.min(h.expires_at, h.left_at + 120000) : h.expires_at;
+    return Math.max(0, ends - (Date.now() + skew.current));
+  };
   // Returning customers: the same customer record holds more than one saved visit in the workspace snapshot.
   const regulars = (() => {
     const seen = new Map<string, number>();
@@ -825,6 +843,27 @@ export function Calendar({
                         )}
                       </div>
                     ))}
+                  {dayHolds
+                    .filter((h) => h.staff_id === s.id && holdLeft(h) > 0)
+                    .map((h) => {
+                      const left = holdLeft(h);
+                      const mm = Math.floor(left / 60000), ss = String(Math.floor(left / 1000) % 60).padStart(2, "0");
+                      return (
+                        <button
+                          key={h.id}
+                          type="button"
+                          className={`calendar-hold ${left < 60000 ? "low" : ""}`}
+                          data-testid="calendar-hold"
+                          style={{ top: ((h.start_min - begin) / 15) * step, height: Math.max(eventMin, (h.duration_min / 15) * step - 3) }}
+                          onClick={() => onHold?.(h)}
+                          aria-label={`Booking in progress online: ${time(h.start_min)} ${h.service_name} with ${s.name}, held for ${mm}:${ss}`}
+                        >
+                          <strong><i aria-hidden="true" /> Booking in progress</strong>
+                          <span>{time(h.start_min)} · {h.service_name} · online</span>
+                          <span className="calendar-hold-left">{h.left_at ? "Left the page · " : ""}{mm}:{ss} left</span>
+                        </button>
+                      );
+                    })}
                   {hover && !dragging && hover.staffId === s.id && hover.start >= begin && hover.start < end && (
                     <div className="slot-hover" aria-hidden="true" data-testid="slot-hover" style={{ top: ((hover.start - begin) / 15) * step }}>
                       <b>{time(hover.start)}</b>

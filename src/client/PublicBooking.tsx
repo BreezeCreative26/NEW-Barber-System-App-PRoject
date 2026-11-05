@@ -152,6 +152,19 @@ const friendly: Record<string, string> = {
   invalid_transition: "This booking can no longer be changed online.",
   idempotency_payload_changed: "This request was already used for a different booking. Refresh and try again.",
 };
+// Per-tab key for slot holds: lets the server keep the time this page tapped for it (and not hide it
+// from this page). Kept for the tab's life so a reload still owns its hold.
+const HOLD_KEY = (() => {
+  try {
+    const k = sessionStorage.getItem("foliyo:hold-key");
+    if (k) return k;
+    const n = crypto.randomUUID();
+    sessionStorage.setItem("foliyo:hold-key", n);
+    return n;
+  } catch {
+    return crypto.randomUUID();
+  }
+})();
 async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   if (!navigator.onLine)
     throw new ApiError("You are offline. Reconnect and try again.", 0);
@@ -162,7 +175,7 @@ async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> 
       method,
       credentials: "same-origin",
       signal: controller.signal,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers: { "x-hold-key": HOLD_KEY, ...(body ? { "Content-Type": "application/json" } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!response.headers.get("content-type")?.includes("application/json"))
@@ -318,6 +331,15 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const [slotError, setSlotError] = useState("");
   const [slot, setSlot] = useState<number | null>(null);
   const [assigned, setAssigned] = useState<{ id: string; name: string } | null>(null);
+  // The time this customer tapped is held for them (5 min max, 2 min after leaving). See holds.ts.
+  type Held = { id: string; staff_id: string; date: string; start_min: number; endsAt: number };
+  const [hold, setHold] = useState<Held | null>(null);
+  const holdRef = useRef<Held | null>(null);
+  holdRef.current = hold;
+  const [holdNotice, setHoldNotice] = useState<{ kind: "gone" | "expired"; staff_id: string; date: string; start_min: number } | null>(null);
+  const [holdTick, setHoldTick] = useState(0);
+  const holdSeq = useRef(0);
+  const [availNonce, setAvailNonce] = useState(0);
   const [daypart, setDaypart] = useState("All times");
   // A busy day has 30+ near-identical times. Each part of the day shows its first six; the rest sit
   // behind "+N more" so the choice reads as a handful, not a wall. Reset when the day changes.
@@ -540,7 +562,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     return () => {
       cancelled = true;
     };
-  }, [quoteKey, date, step, shop]);
+  }, [quoteKey, date, step, shop, availNonce]);
   // Warm the next two open days too, so tapping along the strip is instant.
   useEffect(() => {
     if (!shop || !barber || !service || !days || step < 1) return;
@@ -561,10 +583,113 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       heading.current?.scrollIntoView({ behavior: "instant", block: "start" });
     });
   };
+  const refreshTimes = () => {
+    availCache.current.clear();
+    setAvailNonce((n) => n + 1);
+  };
+  // Hold the tapped time so nobody else can take it while this customer finishes booking.
+  async function placeHold(staffId: string, start: number, d: string) {
+    if (!staffId || !service) return;
+    const seq = ++holdSeq.current;
+    setHoldNotice(null);
+    try {
+      const r = await api<{ hold: { id: string; staff_id: string; date: string; start_min: number; left_ms: number } }>(
+        `/shops/${encodeURIComponent(slug)}/holds`,
+        "POST",
+        { staff_id: staffId, service_id: service, date: d, start_min: start, addon_ids: [...extraIds].sort() },
+      );
+      if (seq !== holdSeq.current) return;
+      setHold({ id: r.hold.id, staff_id: r.hold.staff_id, date: r.hold.date, start_min: r.hold.start_min, endsAt: Date.now() + r.hold.left_ms });
+    } catch (e) {
+      if (seq !== holdSeq.current) return;
+      const err = e as ApiError;
+      // Someone else got there first: say so, drop the pick and show what's left.
+      if (err.status === 409) {
+        setHold(null);
+        setSlot(null);
+        setAssigned(null);
+        setHoldNotice({ kind: "gone", staff_id: staffId, date: d, start_min: start });
+        refreshTimes();
+      }
+      // Offline or a hiccup: keep the pick; the booking itself is still checked on confirm.
+    }
+  }
+  // The hold ended without a booking (5 minutes up, page left too long, or the shop booked over it).
+  function loseHold(kind: "gone" | "expired") {
+    const h = holdRef.current;
+    if (!h) return;
+    holdSeq.current++;
+    setHold(null);
+    setSlot(null);
+    setAssigned(null);
+    setHoldNotice({ kind, staff_id: h.staff_id, date: h.date, start_min: h.start_min });
+    if (h.date !== dateRef.current) {
+      pickedDateRef.current = true;
+      setDate(h.date);
+    }
+    refreshTimes();
+    if (step > 2) go(2);
+  }
   const pickSlot = (s: Slot) => {
     setSlot(s.start_min);
     setAssigned(s.staff_id ? { id: s.staff_id, name: s.staff_name! } : null);
+    placeHold(s.staff_id || barber, s.start_min, date);
   };
+  const pickWith = (staffId: string, staffName: string, start: number, d = date) => {
+    setSlot(start);
+    setAssigned({ id: staffId, name: staffName });
+    placeHold(staffId, start, d);
+  };
+  // While a time is held: check in every 20 s, tick the countdown, and tell the shop when the page is
+  // hidden or closed (the time is then kept 2 more minutes).
+  const holdId = hold?.id || "";
+  useEffect(() => {
+    if (!holdId || confirmed) return;
+    let alive = true;
+    const ping = async () => {
+      try {
+        const r = await api<{ status: string; hold: { left_ms: number } | null }>(`/shops/${encodeURIComponent(slug)}/holds/ping`, "POST");
+        if (!alive || holdRef.current?.id !== holdId) return;
+        if (r.status === "held" && r.hold) setHold((h) => (h && h.id === holdId ? { ...h, endsAt: Date.now() + r.hold!.left_ms } : h));
+        else if (r.status === "taken") loseHold("gone");
+        else if (r.status === "expired") loseHold("expired");
+      } catch { /* offline: try again next beat */ }
+    };
+    const leave = () => {
+      try {
+        fetch(`/api/public/shops/${encodeURIComponent(slug)}/holds/left`, { method: "POST", keepalive: true, credentials: "same-origin", headers: { "x-hold-key": HOLD_KEY } });
+      } catch { /* ignore */ }
+    };
+    const onVis = () => (document.visibilityState === "hidden" ? leave() : ping());
+    const beat = window.setInterval(ping, 20000);
+    const tick = window.setInterval(() => {
+      setHoldTick((n) => n + 1);
+      const h = holdRef.current;
+      if (h && h.id === holdId && Date.now() >= h.endsAt) ping();
+    }, 1000);
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", leave);
+    return () => {
+      alive = false;
+      window.clearInterval(beat);
+      window.clearInterval(tick);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", leave);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holdId, confirmed]);
+  // A different service, barber or extras changes what's being booked: let the held time go.
+  const holdQuote = useRef(quoteKey);
+  useEffect(() => {
+    if (holdQuote.current === quoteKey) return;
+    holdQuote.current = quoteKey;
+    const h = holdRef.current;
+    if (!h) return;
+    holdSeq.current++;
+    setHold(null);
+    api(`/shops/${encodeURIComponent(slug)}/holds?id=${h.id}`, "DELETE").catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quoteKey]);
   const jumpTo = (n: NextSlot) => {
     setFrom(n.date < from || n.date > datePlus(from, 6) ? n.date : from);
     pickedDateRef.current = true; // a chosen "soonest" time is a chosen day
@@ -573,6 +698,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     setDate(n.date);
     setSlot(n.start_min);
     setAssigned({ id: n.staff_id, name: n.staff_name });
+    placeHold(n.staff_id, n.start_min, n.date);
   };
   // Booking needs an account: step 3 signs the visitor in or registers them for this shop.
   const [authMode, setAuthMode] = useState<"register" | "login">("register");
@@ -686,10 +812,18 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       } catch {
         /* ignore */
       }
+      holdSeq.current++;
+      setHold(null);
       setConfirmed(r);
     } catch (e) {
       const err = e as ApiError;
       setSaveError(err.message);
+      if (err.code === "slot_taken" && slot !== null && bookingStaff) {
+        setHoldNotice({ kind: "gone", staff_id: bookingStaff, date, start_min: slot });
+        setSaveError("");
+        setHold(null);
+        refreshTimes();
+      }
       if (["slot_taken", "quote_changed", "outside_booking_window"].includes(err.code)) {
         setSlot(null);
         go(2);
@@ -893,6 +1027,17 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                   }
                 </p>
               </header>
+              {hold && step >= 2 && slot !== null && (() => {
+                void holdTick;
+                const left = Math.max(0, hold.endsAt - Date.now());
+                const mm = Math.floor(left / 60000), ss = String(Math.floor(left / 1000) % 60).padStart(2, "0");
+                return (
+                  <p className={`hold-pill ${left < 60000 ? "low" : ""}`} role="status" data-testid="hold-pill">
+                    <i aria-hidden="true" />
+                    {time(hold.start_min)} is held for you · <span>{mm}:{ss}</span>
+                  </p>
+                );
+              })()}
               {step === 0 && (
                 <>
                   <label className="service-search">
@@ -1119,6 +1264,35 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       </div>
                     </section>
                   )}
+                  {holdNotice && (() => {
+                    const who = shop.staff.find((x) => x.id === holdNotice.staff_id);
+                    const first = who?.name.split(" ")[0] || "your barber";
+                    const sameDay = holdNotice.date === date && !!availability && !slotsStale;
+                    const freeFor = (m: number) => openSlots.some((sl) => sl.start_min === m && (anyBarber ? sl.options?.some((o) => o.staff_id === holdNotice.staff_id) : true));
+                    const near = sameDay ? openSlots.map((sl) => sl.start_min).filter((m) => Math.abs(m - holdNotice.start_min) <= 60 && freeFor(m)).slice(0, 4) : [];
+                    const pick = (m: number) => (anyBarber && who ? pickWith(who.id, who.name, m) : pickSlot(openSlots.find((sl) => sl.start_min === m)!));
+                    return holdNotice.kind === "gone" ? (
+                      <section className="hold-notice gone" role="alert" data-testid="hold-gone">
+                        <strong>Sorry, {time(holdNotice.start_min)} with {first} has just gone</strong>
+                        <p>{near.length ? "Someone else has just booked it. These are close by:" : "Someone else has just booked it. Pick another time."}</p>
+                        {near.length > 0 && (
+                          <div className="hold-notice-times">
+                            {near.map((m) => <button key={m} type="button" onClick={() => pick(m)}>{time(m)}</button>)}
+                          </div>
+                        )}
+                      </section>
+                    ) : (
+                      <section className="hold-notice expired" role="alert" data-testid="hold-expired">
+                        <strong>We couldn't hold {time(holdNotice.start_min)} any longer</strong>
+                        <p>Times are held for 5 minutes while you book. {sameDay && freeFor(holdNotice.start_min) ? "It's still free." : "Pick a time to carry on."}</p>
+                        {sameDay && freeFor(holdNotice.start_min) && (
+                          <div className="hold-notice-times">
+                            <button type="button" onClick={() => pick(holdNotice.start_min)} data-testid="hold-again">Hold {time(holdNotice.start_min)} again</button>
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })()}
                   <div className="booking-date-toolbar">
                     <h3>{dateLabel(from, { month: "long", year: "numeric" })}</h3>
                     <div className="small-toggles">
@@ -1244,7 +1418,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                                     aria-pressed={on}
                                     disabled={slotsStale}
                                     className={on ? "chosen" : ""}
-                                    onClick={() => { setSlot(t.start_min); setAssigned({ id: r.id, name: r.name }); }}
+                                    onClick={() => pickWith(r.id, r.name, t.start_min)}
                                   >
                                     {time(t.start_min)}
                                     {on && <Icon name="check" size={14} />}
