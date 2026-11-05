@@ -1,5 +1,14 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-05 — Customer booking: new 4-step layout
+- **4 steps** (Service · Barber · Time · Confirm) shown as four thin progress bars. The "STEP 01 OF 05" eyebrow, "Step 1 of 5" counter and the sub-headings under each title are gone.
+- **Book your usual** card at the top of the service step for signed-in customers (from `/account/me`: most-booked service + barber and its next free time). "Book again" opens the time step with both set and the day picked.
+- **Extras under the chosen service** as chips (the separate "finishing touches" list is gone). Service search only shows for menus longer than 8.
+- **Compact barber list**: Anyone first, then one row per barber with their **next free time** and "Off today" where it applies (new read-only `GET /shops/:slug/team-next?service_id=`). Tapping a row moves straight on. A summary bar ("Signature cut · Jay · 30 min · Change") sits above steps 2–3.
+- **Tidier time screen**: one date line between Earlier / Later (no month heading + second date heading + "N available"). Part-of-day chips only for Anyone; one barber's times stay grouped Morning / Afternoon / Evening. The button reads **Continue · 14:00**.
+- **Account on the confirm step**: signed-out visitors see the visit, then **Create your account** (name, mobile, email, password, terms) or **Sign in**, and one button **Create account & book** / **Sign in & book** makes the account and the booking together. Signed-in customers just confirm. Old `step=3` deep links land on confirm; the group-booking sign-in step is unchanged.
+- Tests: `tests/booking-v4.spec.ts` (3). public, booking-upgrades, customer-screens, shop-page, customer-account, dayoff-anyone, slot-holds, booking-slim, accounts, edit-items, legal, schedule-conflicts, subdomain, text-choices, theme-matrix, workspace, manual-booking, calendar-drag pass (older flow tests updated for the new buttons). waitlist-v2 "delay" and "tell everyone" fail because they open a test database name that doesn't exist here (file untouched by this change).
+
 ## 2026-11-05 — Team bell clean-up: clear, undo, mark all read, two tabs
 - New table `shop_bell_marks` (migration 0066): per-login marks `read:<event>`, `clear:<event>`, `dismiss:<booking>|<reason>`. Shared `shop_events` rows are never deleted, so tidying your bell never changes anyone else's.
 - Opening the bell no longer marks everything read after 1.5 s. **Mark all read** does that; opening one item ("Open booking") marks just that one.

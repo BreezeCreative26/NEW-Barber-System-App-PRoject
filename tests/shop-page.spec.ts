@@ -69,14 +69,12 @@ test("shop page renders the seeded sections and every shortcut deep-links into t
   await expect(flow.getByRole("heading", { name: "When suits you?" })).toBeVisible();
 
   // Complete the booking.
-  await flow.getByRole("button", { name: "Sign in to book", exact: true }).click();
+  await flow.getByRole("button", { name: /^Continue · \d{2}:\d{2}/ }).click();
   await flow.getByLabel("Your name").fill("Home Page Customer");
   await flow.getByLabel("Mobile number").fill(`07${String(Date.now()).slice(-9)}`);
   await flow.getByLabel("Email address").fill(`homepage-${Date.now()}@example.test`);
   await flow.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
   await flow.getByTestId("auth-submit").click();
-  await expect(flow.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
-  await flow.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.locator(".public-reference")).toHaveText(/^BRB-\d{4}$/);
   await expect(page.getByTestId("open-manage")).toHaveAttribute("href", /^\/manage\//);
   // The confirmation keeps a way back to the shop.

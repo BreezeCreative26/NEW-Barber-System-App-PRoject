@@ -4680,3 +4680,64 @@ html.ws-dark .bell-v3 .bell-ic { background: rgba(255,255,255,.08); color: #d6d9
 html.ws-dark .bell-v3 .bell-tx p { color: #c4c8cf; }
 html.ws-dark .bell-v3 .bell-undo { background: #f3f4f6; color: #111; }
 html.ws-dark .bell-v3 .bell-undo button { color: #03785a; }
+
+/* ---- Customer booking v3 (4 steps) ---- */
+.booking-app .booking-bars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 14px 0 18px; }
+.booking-app .booking-bars button { display: grid; gap: 6px; padding: 0; border: 0; background: none; font: inherit; text-align: left; color: var(--sp-muted, var(--muted)); cursor: pointer; min-height: 32px; }
+.booking-app .booking-bars button:disabled { cursor: default; }
+.booking-app .booking-bars i { display: block; height: 4px; border-radius: 999px; background: var(--sp-line, var(--line)); }
+.booking-app .booking-bars .done i, .booking-app .booking-bars .on i { background: var(--sp-accent, var(--accent)); }
+.booking-app .booking-bars span { font-size: 11.5px; font-weight: 600; letter-spacing: .02em; }
+.booking-app .booking-bars .on span { color: var(--sp-ink, var(--ink)); }
+.booking-app .step-heading h2 { margin-bottom: 14px; }
+.booking-app .step-summary { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 10px 14px; border-radius: 12px; background: var(--sp-soft, var(--line-2)); font-size: 13.5px; }
+.booking-app .step-summary span { flex: 1; min-width: 0; }
+.booking-app .step-summary .link { font-weight: 600; white-space: nowrap; }
+
+.booking-app .usual-card { display: flex; align-items: center; gap: 12px; padding: 14px; margin: 0 0 14px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--sp-accent, var(--accent)) 35%, transparent); background: color-mix(in srgb, var(--sp-accent, var(--accent)) 8%, var(--surface, #fff)); }
+.booking-app .usual-card > div { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.booking-app .usual-card small { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: var(--sp-accent-dark, var(--accent-dark)); }
+.booking-app .usual-card strong { font-size: 15px; }
+.booking-app .usual-card span:not(.usual-avatar) { font-size: 12.5px; color: var(--sp-muted, var(--muted)); }
+.booking-app .usual-avatar { flex: 0 0 auto; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--sp-ink, var(--ink)); color: #fff; font-weight: 700; font-size: 13px; }
+
+.booking-app .service-item { border-radius: 16px; }
+.booking-app .service-item.chosen { box-shadow: 0 0 0 2px var(--sp-accent, var(--accent)); background: var(--surface, #fff); }
+.booking-app .service-item.chosen .service-choice { box-shadow: none; border-color: transparent; }
+.booking-app .service-extras { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 14px 16px; }
+.booking-app .service-extras p { width: 100%; margin: 0 0 2px; font-size: 12.5px; font-weight: 600; color: var(--sp-muted, var(--muted)); }
+.booking-app .extra-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--sp-line, var(--line)); background: var(--surface, #fff); color: inherit; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.booking-app .extra-chip.chosen { background: var(--sp-ink, var(--ink)); border-color: var(--sp-ink, var(--ink)); color: #fff; }
+
+.booking-app .barber-list { display: grid; gap: 8px; }
+.booking-app .barber-row-c { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 14px; border-radius: 14px; border: 1px solid var(--sp-line, var(--line)); background: var(--surface, #fff); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.booking-app .barber-row-c:hover { border-color: color-mix(in srgb, var(--sp-ink, var(--ink)) 30%, transparent); }
+.booking-app .barber-row-c.chosen { box-shadow: 0 0 0 2px var(--sp-accent, var(--accent)); border-color: transparent; }
+.booking-app .barber-av { flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; overflow: hidden; font-weight: 700; font-size: 14px; color: #fff; background: #3b4250; }
+.booking-app .barber-av img { width: 100%; height: 100%; object-fit: cover; }
+.booking-app .barber-av.any { background: var(--sp-ink, var(--ink)); }
+.booking-app .barber-txt { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.booking-app .barber-txt strong { font-size: 15px; }
+.booking-app .barber-txt small { font-size: 12.5px; color: var(--sp-muted, var(--muted)); }
+.booking-app .barber-txt small b { color: var(--sp-ink, var(--ink)); font-weight: 600; }
+.booking-app .barber-txt .off { font-style: normal; font-weight: 700; color: #b45309; }
+
+.booking-app .booking-date-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0 10px; }
+.booking-app .booking-date-toolbar h3 { margin: 0; font-size: 14px; font-weight: 600; text-align: center; flex: 1; }
+.booking-app .booking-date-toolbar button { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 10px; border: 0; border-radius: 10px; background: none; color: var(--sp-muted, var(--muted)); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.booking-app .booking-date-toolbar button:disabled { opacity: .35; cursor: default; }
+.booking-app .next-label { font-size: 12px; font-weight: 700; color: var(--sp-muted, var(--muted)); margin-right: 4px; }
+
+.booking-app .booking-auth .auth-title { margin: 0; font-size: 17px; }
+.booking-app .booking-auth .auth-sub { margin: 2px 0 12px; font-size: 13px; color: var(--sp-muted, var(--muted)); }
+.booking-app .review-change-row { display: flex; justify-content: flex-end; margin: 0 0 -4px; }
+.booking-app .review-change-row .link { font-size: 13px; font-weight: 600; min-height: 32px; }
+@media (max-width: 740px) {
+  .booking-app .booking-bars { margin: 8px 0 14px; }
+  .booking-app .booking-bars span { font-size: 10.5px; }
+  .booking-app .usual-card { flex-wrap: wrap; }
+  .booking-app .usual-card .button { width: 100%; }
+}
+/* Week nav stays on one line at every width (older rules stack it on phones). */
+.booking-app.standalone .booking-date-toolbar, .booking-app .booking-date-toolbar { flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 6px; }
+.booking-app.standalone .booking-date-toolbar h3, .booking-app .booking-date-toolbar h3 { flex: 1 1 auto; min-width: 0; text-align: center; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

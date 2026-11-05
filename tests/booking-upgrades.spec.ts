@@ -129,23 +129,22 @@ test("book for someone else: attendee saved and shown to owner, customer and man
   // Any-barber: times sit under each barber's own row, so every time says who it is with.
   await expect(slots.first()).toHaveAttribute("aria-label", / with \w+/);
   await slots.first().click();
-  await page.getByRole("button", { name: "Sign in to book", exact: true }).click();
+  await page.getByRole("button", { name: /^Continue · \d{2}:\d{2}/ }).click();
+  await expect(page.getByRole("heading", { name: "Last step: your account" })).toBeVisible();
+  // "For someone else" lives under "More options" on the confirm step; the attendee name is required once ticked.
+  await page.getByTestId("review-more").locator("summary").click();
+  await page.getByTestId("for-someone-else").check();
   await page.getByLabel("Your name").fill("Parent Booker");
   const parentPhone = `07${String(Date.now()).slice(-9)}`;
   await page.getByLabel("Mobile number").fill(parentPhone);
   await page.getByLabel("Email address", { exact: true }).fill(`parent-${Date.now()}@example.test`);
   await page.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
   await page.getByTestId("auth-submit").click();
-  await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
-  // "For someone else" lives under "More options" on the review step; the attendee name is required once ticked.
-  await page.getByTestId("review-more").locator("summary").click();
-  await page.getByTestId("for-someone-else").check();
-  await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByText("Who is the visit for?")).toBeVisible();
   await page.getByTestId("attendee-name").fill("Sam (age 8)");
   const a11y = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
   expect(a11y.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
-  await page.getByRole("button", { name: "Confirm booking" }).click();
+  await page.getByTestId("auth-submit").click();
   await expect(page.locator(".public-reference")).toHaveText(/^BRB-\d{4}$/);
   await expect(page.getByText(/Visit for/)).toContainText("Sam (age 8)");
   await expect(page.getByText(/booked by Parent Booker/)).toBeVisible();

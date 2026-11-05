@@ -32,7 +32,6 @@ test("customer screen tour", async ({ page }) => {
   await page.getByRole("button", { name: "Choose your barber", exact: true }).click();
   await shot(page, "03-book-barber");
   await page.getByRole("button", { name: new RegExp(w.staff[0].name) }).click();
-  await page.getByRole("button", { name: "Find a time", exact: true }).click();
   await expect(page.getByRole("heading", { name: "When suits you?" })).toBeVisible();
   // Pick the first open day next week (Northline is closed Sundays and Mondays).
   await page.getByRole("button", { name: "Next week" }).click();
@@ -44,8 +43,8 @@ test("customer screen tour", async ({ page }) => {
   await expect(page.getByRole("group", { name: "Choose an appointment time" }).locator(".time-slots button:not(.time-more):not([disabled])").first()).toBeVisible();
   await shot(page, "04-book-time");
   await page.getByRole("group", { name: "Choose an appointment time" }).locator(".time-slots button:not(.time-more):not([disabled])").first().click();
-  await page.getByRole("button", { name: "Sign in to book", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Sign in to book." })).toBeVisible();
+  await page.getByRole("button", { name: /^Continue · \d{2}:\d{2}/ }).click();
+  await expect(page.getByRole("heading", { name: "Last step: your account" })).toBeVisible();
   await page.getByLabel("Your name").fill("Jordan Lee");
   await page.getByLabel("Mobile number").fill(`07${String(Date.now()).slice(-9)}`);
   const jordanEmail = `jordan-${Date.now()}@example.test`;
@@ -53,9 +52,6 @@ test("customer screen tour", async ({ page }) => {
   await page.getByTestId("booking-password").fill("jordan-pass-1");
   await shot(page, "05-book-account");
   await page.getByTestId("auth-submit").click();
-  await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
-  await shot(page, "06-book-review");
-  await page.getByRole("button", { name: "Confirm booking" }).click();
   await expect(page.getByRole("heading", { level: 1, name: label })).toBeVisible();
   await shot(page, "07-book-confirmed");
 

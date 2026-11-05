@@ -514,6 +514,33 @@ pub.get("/shops/:slug/next", async (c) => {
   return c.json({ next: results, max_date: maxDate });
 });
 
+// The barber list: each barber's next free time (up to 3 weeks out) and whether they're off today,
+// in one request. Only barbers who offer the service online are listed.
+pub.get("/shops/:slug/team-next", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug"));
+  const p = z.object({ service_id: z.string().uuid(), addon_ids: addonQuery }).safeParse(c.req.query());
+  if (!p.success) fail(400, "Supply a valid service_id");
+  const q = p.data!;
+  const { today, minStart, maxDate } = limits(shop);
+  const to = datePlus(today, 20) < maxDate ? datePlus(today, 20) : maxDate;
+  const ctx = await rangeContext(c, shop, null, q.service_id, today, to, q.addon_ids);
+  // "Off today" only means something when the shop itself is open today.
+  const shopShut = !shopDay(shop, weekday(today)).enabled || ctx.holidays.some((h) => h.date === today);
+  const team = ctx.staff.map((staff) => {
+    let next: { date: string; start_min: number } | null = null;
+    outer: for (let date = today; date <= to; date = datePlus(date, 1))
+      for (const m of dayStarts(shop, date))
+        if (!slotFor(shop, ctx, staff, date, m, minStart)) {
+          next = { date, start_min: m };
+          break outer;
+        }
+    const offToday = !shopShut && dayStarts(shop, today).every((m) => closedReasons.includes(slotFor(shop, ctx, staff, today, m, 0)));
+    const quote = ctx.quotes.get(staff.id)!;
+    return { staff_id: staff.id, off_today: offToday, next, price_pence: quote.price_pence, duration_min: quote.duration_min };
+  });
+  return c.json({ today, team });
+});
+
 // ---- Slot holds (see holds.ts) -------------------------------------------------------------
 // The booking page holds the time a customer taps, so nobody else can take it while they sign up
 // and confirm. Identified by a random per-tab key (x-hold-key), never by a cookie.
