@@ -90,7 +90,7 @@ import { CARDS_NOT_READY, StripeError, cardsReadyFor, depositsOnline, expireHold
 import QRCode from "qrcode";
 import setup from "./setup";
 import { PERM_DEFS, type PermKey } from "./perms";
-import { listFor, markSeen, recordEvent, staffPushStatus } from "./staffNotify";
+import { clearEvents, dismissIssues, listFor, markRead, markSeen, recordEvent, restoreMarks, staffPushStatus } from "./staffNotify";
 import { notifyBooking } from "./public";
 import { holdStatements, holderHash, liveHolds, holdsCursor } from "./holds";
 import { ALERT_KINDS, DEFAULT_PREFS, alertOwners, prefsOf, type AlertPrefs } from "./alerts";
@@ -269,7 +269,7 @@ sandbox.use("*", async (c, next) => {
       (method === "PUT" && path === "/me/prefs") ||
       (method === "GET" && [ "/inbox", "/inbox/push" ].includes(path)) ||
       (path === "/announcements" || path.startsWith("/announcements/")) ||
-      (method === "POST" && [ "/inbox/read", "/inbox/push" ].includes(path)) ||
+      (method === "POST" && [ "/inbox/read", "/inbox/push", "/inbox/clear", "/inbox/restore", "/inbox/dismiss" ].includes(path)) ||
       (method === "DELETE" && path === "/inbox/push") ||
       (method === "PUT" && path === "/me/profile") ||
       (method === "POST" && path === "/me/onboarded") ||
@@ -1056,10 +1056,33 @@ const viewerOf = (c: Ctx) => {
   return { id: a!.id, role: a!.role, staff_id: a!.staff_id, perms: a!.perms as Record<string, boolean | undefined> | undefined };
 };
 sandbox.get("/inbox", async (c) => c.json(await listFor(c.env.DB, c.get("shopId"), viewerOf(c))));
+const eventIds = z.array(z.string().min(1).max(64)).max(100);
+// Read: no ids = "Mark all read"; ids = items opened one by one. Opening the bell no longer reads anything.
 sandbox.post("/inbox/read", async (c) => {
   const v = viewerOf(c);
-  await input(c, z.object({}).strict());
-  await markSeen(c.env.DB, c.get("shopId"), v.id);
+  const body = await input(c, z.object({ ids: eventIds.optional() }).strict());
+  if (body.ids) await markRead(c.env.DB, c.get("shopId"), v, body.ids);
+  else await markSeen(c.env.DB, c.get("shopId"), v.id);
+  return c.json({ ok: true });
+});
+// Clear from this login's bell (× on one item, or Clear all when no ids). Returns the ids for Undo.
+sandbox.post("/inbox/clear", async (c) => {
+  const v = viewerOf(c);
+  const body = await input(c, z.object({ ids: eventIds.optional() }).strict());
+  return c.json({ cleared: await clearEvents(c.env.DB, c.get("shopId"), v, body.ids) });
+});
+// "Needs attention": dismiss an item ('<booking id>|<reason>'); a different reason later shows again.
+const issueKeys = z.array(z.string().min(3).max(300)).min(1).max(100);
+sandbox.post("/inbox/dismiss", async (c) => {
+  const v = viewerOf(c);
+  const body = await input(c, z.object({ keys: issueKeys }).strict());
+  await dismissIssues(c.env.DB, c.get("shopId"), v.id, body.keys);
+  return c.json({ ok: true });
+});
+sandbox.post("/inbox/restore", async (c) => {
+  const v = viewerOf(c);
+  const body = await input(c, z.object({ cleared: eventIds.default([]), dismissed: z.array(z.string().min(3).max(300)).max(100).default([]) }).strict());
+  await restoreMarks(c.env.DB, c.get("shopId"), v.id, body.cleared, body.dismissed);
   return c.json({ ok: true });
 });
 sandbox.get("/inbox/push", async (c) => {

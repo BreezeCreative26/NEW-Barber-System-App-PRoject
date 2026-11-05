@@ -78,14 +78,65 @@ async function pushToTeam(db: DB, shopId: string, p: { title: string; body: stri
   }
 }
 
+// The bell for one login. Clearing, reading one item and dismissing a "needs attention" item are
+// stored per login in shop_bell_marks, so tidying your bell never changes anyone else's.
+const DAY = 86400000;
 export async function listFor(db: DB, shopId: string, v: Viewer) {
   const vis = visibleSql(v);
   const seen = await db.prepare("SELECT seen_at FROM shop_event_seen WHERE shop_id=? AND viewer_id=?").bind(shopId, v.id).first<{ seen_at: number }>();
   const since = seen?.seen_at ?? 0;
-  const rows = (await db.prepare(`SELECT id,kind,title,body,booking_id,staff_id,created_at FROM shop_events WHERE shop_id=? AND created_at>? ${vis.sql} ORDER BY created_at DESC LIMIT 50`).bind(shopId, Date.now() - 14 * 86400000, ...vis.args).all<ShopEvent>()).results;
-  return { events: rows.map((r) => ({ ...r, unread: r.created_at > since })), unread: rows.filter((r) => r.created_at > since).length, all: seesAll(v) };
+  const rows = (await db.prepare(
+    `SELECT e.id,e.kind,e.title,e.body,e.booking_id,e.staff_id,e.created_at FROM shop_events e WHERE e.shop_id=? AND e.created_at>? ${vis.sql.replace("staff_id", "e.staff_id")}
+       AND NOT EXISTS (SELECT 1 FROM shop_bell_marks m WHERE m.shop_id=e.shop_id AND m.viewer_id=? AND m.item_key='clear:'||e.id)
+     ORDER BY e.created_at DESC LIMIT 50`,
+  ).bind(shopId, Date.now() - 14 * DAY, ...vis.args, v.id).all<ShopEvent>()).results;
+  const marks = (await db.prepare("SELECT item_key FROM shop_bell_marks WHERE shop_id=? AND viewer_id=? AND (item_key LIKE 'read:%' OR item_key LIKE 'dismiss:%')").bind(shopId, v.id).all<{ item_key: string }>()).results.map((m) => m.item_key);
+  const read = new Set(marks.filter((k) => k.startsWith("read:")).map((k) => k.slice(5)));
+  const events = rows.map((r) => ({ ...r, unread: r.created_at > since && !read.has(r.id) }));
+  return {
+    events,
+    unread: events.filter((r) => r.unread).length,
+    all: seesAll(v),
+    dismissed: marks.filter((k) => k.startsWith("dismiss:")).map((k) => k.slice(8)),
+  };
 }
 export async function markSeen(db: DB, shopId: string, viewerId: string) {
   await db.prepare("INSERT INTO shop_event_seen(shop_id,viewer_id,seen_at) VALUES(?,?,?) ON CONFLICT (shop_id,viewer_id) DO UPDATE SET seen_at=EXCLUDED.seen_at").bind(shopId, viewerId, Date.now()).run();
+}
+// Only events this login can see may be marked; anything else is ignored silently.
+async function visibleIds(db: DB, shopId: string, v: Viewer, ids?: string[]) {
+  const vis = visibleSql(v);
+  if (ids && !ids.length) return [];
+  const rows = (await db.prepare(
+    `SELECT id FROM shop_events WHERE shop_id=? AND created_at>? ${vis.sql}${ids ? ` AND id IN (${ids.map(() => "?").join(",")})` : ""}`,
+  ).bind(shopId, Date.now() - 14 * DAY, ...vis.args, ...(ids ?? [])).all<{ id: string }>()).results;
+  return rows.map((r) => r.id);
+}
+async function putMarks(db: DB, shopId: string, viewerId: string, keys: string[]) {
+  const now = Date.now();
+  // Activity marks outlive the 14-day feed comfortably; tidy older ones as we go.
+  const stmts = [db.prepare("DELETE FROM shop_bell_marks WHERE shop_id=? AND viewer_id=? AND at<? AND item_key NOT LIKE 'dismiss:%'").bind(shopId, viewerId, now - 30 * DAY)];
+  for (const k of keys) stmts.push(db.prepare("INSERT INTO shop_bell_marks(shop_id,viewer_id,item_key,at) VALUES(?,?,?,?) ON CONFLICT (shop_id,viewer_id,item_key) DO UPDATE SET at=EXCLUDED.at").bind(shopId, viewerId, k, now));
+  await db.batch(stmts);
+}
+export async function markRead(db: DB, shopId: string, v: Viewer, ids: string[]) {
+  const ok = await visibleIds(db, shopId, v, ids);
+  await putMarks(db, shopId, v.id, ok.map((id) => `read:${id}`));
+  return ok;
+}
+// No ids = everything currently in this person's bell. Returns what was cleared, for Undo.
+export async function clearEvents(db: DB, shopId: string, v: Viewer, ids?: string[]) {
+  const ok = await visibleIds(db, shopId, v, ids);
+  await putMarks(db, shopId, v.id, ok.map((id) => `clear:${id}`));
+  return ok;
+}
+export async function dismissIssues(db: DB, shopId: string, viewerId: string, keys: string[]) {
+  await putMarks(db, shopId, viewerId, keys.map((k) => `dismiss:${k}`));
+}
+// Undo: bring back cleared items / dismissed issues for this login.
+export async function restoreMarks(db: DB, shopId: string, viewerId: string, cleared: string[], dismissed: string[]) {
+  const keys = [...cleared.map((id) => `clear:${id}`), ...dismissed.map((k) => `dismiss:${k}`)];
+  if (!keys.length) return;
+  await db.prepare(`DELETE FROM shop_bell_marks WHERE shop_id=? AND viewer_id=? AND item_key IN (${keys.map(() => "?").join(",")})`).bind(shopId, viewerId, ...keys).run();
 }
 export const staffPushStatus = pushStatus;

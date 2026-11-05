@@ -1,5 +1,14 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-05 — Team bell clean-up: clear, undo, mark all read, two tabs
+- New table `shop_bell_marks` (migration 0066): per-login marks `read:<event>`, `clear:<event>`, `dismiss:<booking>|<reason>`. Shared `shop_events` rows are never deleted, so tidying your bell never changes anyone else's.
+- Opening the bell no longer marks everything read after 1.5 s. **Mark all read** does that; opening one item ("Open booking") marks just that one.
+- **×** clears one item, **Clear all** clears the lot; both show **Undo** for 6 s (`/inbox/restore`).
+- Tabs: **Activity** (grouped Today / Yesterday / Earlier with "12 min ago" style times) and **Needs attention** (schedule issues with Review appointment / **Dismiss**). A dismissed issue comes back if its reason changes. The schedule banner on the timetable follows the same dismissals.
+- The red badge now counts unread activity only (schedule issues no longer add to it). Phone alerts switch moved to the bottom of the drawer.
+- Routes: `POST /inbox/read {ids?}`, `/inbox/clear {ids?}`, `/inbox/dismiss {keys}`, `/inbox/restore {cleared, dismissed}`; only events the login can see can be marked.
+- Tests: `tests/bell.spec.ts` (3). waitlist, notification-audit, staff-push, accounts, slot-holds, booking-slim, calendar-drag, manual-booking, day-load, public, messaging (team bell) and sandbox (route list updated) pass. Two failures outside this change (it touches neither the code nor the tests involved; not re-run on main): messaging "moved booking gets a fresh reminder" (test opens a DB that doesn't exist here) and sandbox "weekly hours…" (sends shop version 0 after the helper already bumped it to 1). Local runs need `SIGNUP_IP_LIMIT` raised or the sign-up throttle trips after ~60 shops.
+
 ## 2026-11-05 — Online slot holds: the time a customer taps is kept for them
 - New table `slot_holds` (migration 0065). Tapping a time on the booking page holds it for up to **5 minutes**; the page pings every 20 s. Leaving the page (tab hidden / closed) keeps it **2 more minutes**, then it frees itself. One hold per browser tab (`x-hold-key` header, stored hashed).
 - Other customers see a held time as taken (holds are merged into availability); a second hold or booking on it gets 409. Booking with your own hold turns it into the booking (in the same transaction, under the shop lock).
