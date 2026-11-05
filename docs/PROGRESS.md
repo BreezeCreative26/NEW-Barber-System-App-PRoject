@@ -1,5 +1,10 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-05 — Staff booking: the clicked time stays when the service changes
+- Booking from the timetable used to clear the start time whenever the service or extras changed (only a length change kept it). Now the time picked or clicked stays through service, extras, length and barber changes; it is re-checked against the new times.
+- If the new choice can't fit there (e.g. a longer service runs into the next appointment), the time is cleared with a message naming it ("11:00 overlaps another appointment for this service. Choose another time."). Picking a time clears the message.
+- Tests: `tests/keep-time.spec.ts` (2). staff-length, manual-booking, booking-slim, calendar-drag, slot-holds, catalogue, day-load, closed-day pass.
+
 ## 2026-11-05 — Team app: your own photo in the top-right corner
 - The account button (top right, every width including phones) shows the signed-in person's own barber profile photo, cropped round. No photo on their profile → the shop logo as before → initials.
 - Owners and the shop login have no barber profile linked to their login, so they keep the shop logo / initials.

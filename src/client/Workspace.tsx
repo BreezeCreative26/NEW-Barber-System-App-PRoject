@@ -7813,7 +7813,6 @@ function BookingForm({
   const draftPending = useRef(draft?.start);
   // Came from "Book over it" on an online hold: the shop has already chosen to take the time.
   const overHeld = useRef(draft?.outside === "Held");
-  const lengthChange = useRef(false);
   // Fresha-style override: the clicked cell was outside hours / on a break / already occupied and the
   // shop chose it anyway. Holds the server's reason so the review step can say what's being overridden.
   const [override, setOverride] = useState<string>("");
@@ -7902,9 +7901,10 @@ function BookingForm({
   useEffect(() => {
     let current = true;
     setSlots(null);
-    // Changing only the length keeps the time the staff picked; it is re-checked against the new slots.
-    const keep = lengthChange.current ? start : "";
-    lengthChange.current = false;
+    // The time the staff picked (or clicked on the timetable) stays put when the service, extras,
+    // length or barber change; it is re-checked against the new times and only dropped, with a
+    // reason, if it can't be booked any more.
+    const keep = start || (draftPending.current !== undefined ? String(draftPending.current) : "");
     if (keep) draftPending.current = Number(keep);
     setStart("");
     setReview(false);
@@ -7926,9 +7926,9 @@ function BookingForm({
               setOverride(at.reason);
             } else
               setError(
-                at?.reason === "Slot taken"
-                  ? "That time overlaps another appointment. Choose another time."
-                  : at?.reason ? `${at.reason}. Choose another time.` : "The clicked time does not fit this service. Choose another time or service.",
+                at?.reason === "Slot taken" || at?.taken
+                  ? `${time(draftPending.current)} overlaps another appointment for this service. Choose another time.`
+                  : at?.reason ? `${time(draftPending.current)}: ${at.reason}. Choose another time.` : `${time(draftPending.current)} doesn't fit this service. Choose another time or service.`,
               );
             draftPending.current = undefined;
           }
@@ -8360,6 +8360,7 @@ function BookingForm({
                         onChange={(e) => {
                           markDraft(e.currentTarget);
                           setStart(e.target.value);
+                          setError("");
                           const at = slots.slots.find((x) => String(x.start_min) === e.target.value);
                           setOverride(at?.reason || "");
                         }}
@@ -8384,6 +8385,7 @@ function BookingForm({
                           if (!firstFree) return;
                           markDraft(e.currentTarget);
                           setStart(String(firstFree.start_min));
+                          setError("");
                           setOverride(firstFree.reason);
                         }}
                       >
@@ -8425,7 +8427,6 @@ function BookingForm({
                         <select
                           value={length}
                           onChange={(e) => {
-                            lengthChange.current = true;
                             setLength(e.target.value === String(normal) ? "" : e.target.value);
                           }}
                         >
