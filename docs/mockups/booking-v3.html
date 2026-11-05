@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mock-up · Customer booking v3</title>
+<style>
+@font-face { font-family: "Bebas Neue"; src: url("../../public/static/fonts/bebas-neue-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Geist"; font-weight: 100 900; src: url("../../public/static/fonts/geist-latin-wght-normal.woff2") format("woff2"); }
+:root { --bg:#0e0f11; --card:#17181b; --card2:#1d1f23; --line:#2a2c31; --ink:#f3f1ec; --muted:#9a9ca3; --ok:#3ecf8e; --warn:#f3c969; --bad:#f08a8a; }
+* { box-sizing: border-box; }
+body { margin:0; background:#e9e7e2; font-family: Geist, system-ui, sans-serif; color:#1b1c1f; }
+.stage { display:flex; gap:40px; justify-content:center; align-items:flex-start; padding:28px 16px 60px; flex-wrap:wrap; }
+.controls { width:350px; }
+.controls h1 { font-family:"Bebas Neue"; font-size:40px; margin:0 0 4px; letter-spacing:.5px; font-weight:400; }
+.controls > p { margin:0 0 14px; color:#55575d; font-size:14px; line-height:1.45; }
+.seg { display:inline-flex; background:#fff; border:1px solid #d7d4cc; border-radius:999px; padding:3px; margin-bottom:14px; }
+.seg button { border:0; background:none; padding:8px 14px; border-radius:999px; font:600 13px Geist; cursor:pointer; color:#55575d; }
+.seg button.on { background:#1b1c1f; color:#fff; }
+.notes { background:#fff; border:1px solid #d7d4cc; border-radius:14px; padding:16px 18px; }
+.notes h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:#8a6d1f; margin:0 0 8px; }
+.notes ul { margin:0; padding-left:18px; font-size:14px; line-height:1.55; }
+.notes li + li { margin-top:5px; }
+.box { background:#fff; border:1px solid #d7d4cc; border-radius:14px; padding:14px 16px; margin-top:12px; }
+.box h3 { margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:#55575d; }
+.jump, .sim { display:flex; flex-wrap:wrap; gap:6px; }
+.jump button, .sim button { border:1px solid #d7d4cc; background:#faf9f6; border-radius:8px; padding:7px 10px; font:500 12.5px Geist; cursor:pointer; text-align:left; }
+.sim button { width:100%; }
+.sim button b { display:block; font-size:12.5px; }
+.sim button span { color:#6b6d73; font-size:11.5px; }
+
+.phone { width:390px; height:844px; background:var(--bg); color:var(--ink); border-radius:44px; border:10px solid #111; box-shadow:0 30px 60px rgba(0,0,0,.25); position:relative; overflow:hidden; display:flex; flex-direction:column; }
+.top { display:flex; align-items:center; gap:10px; padding:16px 18px 10px; }
+.top .back { width:32px; height:32px; border-radius:50%; border:1px solid var(--line); display:grid; place-items:center; background:none; color:var(--ink); cursor:pointer; font-size:16px; }
+.top .back[hidden] { display:none; }
+.top b { font-family:"Bebas Neue"; font-size:22px; letter-spacing:.6px; flex:1; font-weight:400; }
+.top .acct { font-size:12px; color:var(--muted); }
+.dots { display:flex; gap:6px; padding:0 18px 12px; }
+.dots i { flex:1; height:3px; border-radius:3px; background:var(--line); }
+.dots i.on { background:var(--ink); }
+.scroll { flex:1; overflow:auto; padding:0 18px 130px; }
+h2.h { font-family:"Bebas Neue"; font-size:34px; letter-spacing:.4px; margin:4px 0 12px; font-weight:400; }
+.foot { position:absolute; left:0; right:0; bottom:0; padding:12px 18px 26px; background:linear-gradient(to top, var(--bg) 72%, transparent); display:flex; align-items:center; gap:12px; }
+.foot .tot { font-weight:700; font-size:18px; min-width:56px; }
+.foot .tot small { display:block; font-size:11px; color:var(--muted); font-weight:500; }
+.cta { flex:1; min-height:52px; border:0; border-radius:14px; background:var(--ink); color:#111; font:700 15.5px Geist; cursor:pointer; padding:0 10px; }
+.cta:disabled { opacity:.35; cursor:default; }
+.cta small { display:block; font-weight:500; font-size:11.5px; color:#444; margin-top:1px; }
+
+.chips { display:flex; gap:6px; overflow:auto; margin-bottom:12px; }
+.chip { border:1px solid var(--line); background:none; color:var(--ink); border-radius:999px; padding:7px 13px; font:500 13px Geist; white-space:nowrap; cursor:pointer; }
+.chip.on { background:var(--ink); color:#111; border-color:var(--ink); }
+.svc { border:1px solid var(--line); background:var(--card); border-radius:14px; margin-bottom:8px; cursor:pointer; }
+.svc .row { display:flex; align-items:center; gap:10px; padding:12px 14px; }
+.svc .row div { flex:1; min-width:0; }
+.svc strong { font-size:15px; font-weight:600; }
+.meta { color:var(--muted); font-size:12.5px; margin-top:2px; }
+.price { font-weight:700; }
+.radio { width:20px; height:20px; border-radius:50%; border:1.5px solid #55585f; flex:0 0 auto; display:grid; place-items:center; }
+.svc.on .radio, .barber.on .radio { border-color:var(--ink); background:var(--ink); }
+.svc.on .radio::after, .barber.on .radio::after { content:"✓"; color:#111; font-size:12px; font-weight:800; }
+.svc.on { border-color:var(--ink); background:var(--card2); }
+.pop { font-size:10px; font-weight:700; letter-spacing:.06em; color:#111; background:#cdeedd; padding:2px 6px; border-radius:999px; margin-left:6px; vertical-align:2px; }
+.extras { border-top:1px dashed var(--line); padding:10px 14px 12px; display:flex; flex-wrap:wrap; gap:6px; }
+.extras p { width:100%; margin:0 0 2px; font-size:12px; color:var(--muted); }
+.ex { border:1px solid var(--line); background:#111215; color:var(--ink); border-radius:10px; padding:7px 10px; font:500 12.5px Geist; cursor:pointer; }
+.ex.on { border-color:var(--ok); color:var(--ok); }
+.usual { border:1px solid #4a4026; background:linear-gradient(135deg,#2a2416,#1a1812); border-radius:16px; padding:14px; margin-bottom:16px; display:flex; gap:12px; align-items:center; }
+.usual .av { width:44px; height:44px; border-radius:50%; background:#3b5d7a; display:grid; place-items:center; font-weight:700; flex:0 0 auto; }
+.usual div { flex:1; }
+.usual small { color:#d9c38a; font-size:11px; text-transform:uppercase; letter-spacing:.08em; font-weight:700; }
+.usual strong { display:block; font-size:15px; margin:2px 0; }
+.usual span { color:var(--muted); font-size:12.5px; }
+.usual button { border:0; border-radius:10px; background:#f3d98a; color:#1a1406; font:700 13px Geist; padding:10px 12px; cursor:pointer; }
+
+.barber { display:flex; align-items:center; gap:12px; padding:11px 12px; border:1px solid var(--line); border-radius:14px; background:var(--card); margin-bottom:8px; cursor:pointer; }
+.barber.on { border-color:var(--ink); background:var(--card2); }
+.av { width:40px; height:40px; border-radius:50%; display:grid; place-items:center; font-weight:700; font-size:14px; flex:0 0 auto; color:#fff; }
+.barber > div { flex:1; }
+.barber strong { font-size:15px; font-weight:600; }
+.meta b { color:var(--ok); font-weight:600; }
+.meta .off { color:var(--warn); font-weight:600; }
+
+.summary { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); background:var(--card); border:1px solid var(--line); border-radius:12px; padding:9px 12px; margin-bottom:12px; }
+.summary b { color:var(--ink); font-weight:600; }
+.summary a { margin-left:auto; color:var(--ink); font-size:12.5px; text-decoration:underline; cursor:pointer; }
+.days { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:6px; }
+.day { border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:12px; padding:6px 0 7px; text-align:center; cursor:pointer; font-family:Geist; min-width:0; }
+.day small { display:block; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+.day b { display:block; font-size:17px; font-weight:700; margin:1px 0; }
+.day em { display:block; font-style:normal; font-size:9.5px; color:var(--ok); font-weight:600; white-space:nowrap; }
+.day.on { background:var(--ink); color:#111; border-color:var(--ink); }
+.day.on small, .day.on em { color:#444; }
+.day.closed { opacity:.4; cursor:default; }
+.day.closed em { color:var(--muted); }
+.day.dayoff { border-style:dashed; }
+.day.dayoff em { color:var(--warn); }
+.day.dayoff.on em { color:#7a5a00; }
+.weeknav { display:flex; justify-content:space-between; font-size:12.5px; color:var(--muted); margin:2px 2px 12px; }
+.period { font-size:11px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); font-weight:700; margin:14px 0 8px; }
+.times { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+.t { border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:10px; padding:10px 0; font:600 14px Geist; cursor:pointer; transition: opacity .5s, transform .5s; }
+.t.on { background:var(--ink); color:#111; border-color:var(--ink); }
+.t.vanish { opacity:0; transform:scale(.8); }
+.notice { border-radius:14px; padding:12px 14px; margin-bottom:12px; font-size:13.5px; line-height:1.45; }
+.notice.warn { background:#2a2312; border:1px solid #5b4a1c; }
+.notice.bad { background:#2b1717; border:1px solid #5e2a2a; }
+.notice.info { background:#132420; border:1px solid #1f4d3f; }
+.notice strong { display:block; font-size:14.5px; margin-bottom:3px; }
+.notice .row { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+.notice .row button { border:1px solid var(--line); background:#111215; color:var(--ink); border-radius:10px; padding:8px 11px; font:600 13px Geist; cursor:pointer; }
+.brow { border:1px solid var(--line); background:var(--card); border-radius:14px; padding:12px; margin-bottom:10px; }
+.brow header { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.brow header .av { width:34px; height:34px; font-size:12px; }
+.brow header div { flex:1; }
+.brow header strong { font-size:14.5px; font-weight:600; display:block; }
+.brow header span { font-size:12px; color:var(--muted); }
+.brow header .p { font-weight:700; font-size:14px; }
+.brow.off { opacity:.75; }
+.brow.off header { margin-bottom:0; }
+.offtag { font-size:12px; font-weight:600; color:var(--warn); border:1px dashed #5b4a1c; padding:4px 9px; border-radius:999px; }
+.hold { display:flex; align-items:center; gap:8px; background:#132420; border:1px solid #1f4d3f; color:#bdf0d8; border-radius:999px; padding:7px 12px; font-size:12.5px; font-weight:600; margin-bottom:12px; width:max-content; max-width:100%; }
+.hold i { width:8px; height:8px; border-radius:50%; background:var(--ok); box-shadow:0 0 0 0 rgba(62,207,142,.6); animation:pulse 1.6s infinite; flex:0 0 auto; }
+.hold.low { background:#2a2312; border-color:#5b4a1c; color:#f6dc9b; }
+.hold.low i { background:var(--warn); }
+@keyframes pulse { 0% { box-shadow:0 0 0 0 rgba(62,207,142,.55);} 70% { box-shadow:0 0 0 8px rgba(62,207,142,0);} 100% { box-shadow:0 0 0 0 rgba(62,207,142,0);} }
+
+.card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px; margin-bottom:12px; }
+.card .when { font-family:"Bebas Neue"; font-size:26px; letter-spacing:.4px; }
+.card .line { display:flex; justify-content:space-between; font-size:14px; padding:4px 0; color:var(--muted); }
+.card .line b { color:var(--ink); font-weight:600; }
+.card .line.total { border-top:1px solid var(--line); margin-top:6px; padding-top:9px; color:var(--ink); font-weight:700; }
+.card a, .link { color:var(--ink); font-size:12.5px; text-decoration:underline; cursor:pointer; }
+.card h3 { margin:0 0 2px; font-size:15px; }
+.card .sub { font-size:12.5px; color:var(--muted); margin:0 0 4px; }
+label.f { display:block; font-size:12.5px; color:var(--muted); margin:10px 0 5px; }
+input.in { width:100%; height:46px; border-radius:12px; border:1px solid var(--line); background:#111215; color:var(--ink); padding:0 14px; font:500 15.5px Geist; }
+.pw { position:relative; }
+.pw button { position:absolute; right:8px; top:8px; height:30px; border:0; background:none; color:var(--muted); font:600 12px Geist; cursor:pointer; }
+.hint { font-size:12px; color:var(--muted); margin-top:6px; line-height:1.45; }
+.check { display:flex; gap:9px; align-items:flex-start; font-size:12.5px; color:var(--muted); margin-top:12px; line-height:1.4; }
+.check input { margin-top:2px; accent-color:#f3f1ec; }
+.signedin { display:flex; align-items:center; gap:10px; font-size:14px; }
+.signedin .av { width:34px; height:34px; background:#6b5a33; font-size:13px; }
+.signedin div > span { color:var(--muted); font-size:12.5px; display:block; }
+.more { font-size:13px; color:var(--muted); padding:4px 2px; }
+.more summary { cursor:pointer; color:var(--ink); }
+.more textarea { width:100%; margin-top:8px; border-radius:12px; border:1px solid var(--line); background:#111215; color:var(--ink); padding:10px 12px; font:500 14px Geist; min-height:64px; }
+.done { text-align:center; padding-top:34px; }
+.done .tick { width:72px; height:72px; border-radius:50%; background:var(--ok); color:#06210f; display:grid; place-items:center; font-size:36px; font-weight:800; margin:0 auto 16px; }
+.done .ref { font-size:13px; color:var(--muted); margin-bottom:18px; }
+.done .btns { display:grid; gap:8px; margin-top:18px; }
+.ghost { height:48px; border-radius:14px; border:1px solid var(--line); background:none; color:var(--ink); font:600 15px Geist; cursor:pointer; }
+.toast { position:absolute; left:18px; right:18px; top:70px; background:#f3f1ec; color:#111; border-radius:12px; padding:10px 12px; font-size:13px; font-weight:600; box-shadow:0 10px 30px rgba(0,0,0,.35); opacity:0; transform:translateY(-8px); transition:.25s; pointer-events:none; z-index:5; }
+.toast.show { opacity:1; transform:none; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <aside class="controls">
+    <h1>Customer booking · v3</h1>
+    <p>A clickable mock-up of the full plan. It's a preview only; nothing is live.</p>
+    <div class="seg" role="group" aria-label="Who is booking">
+      <button id="who-new" class="on">New customer</button>
+      <button id="who-back">Returning customer</button>
+    </div>
+    <div class="notes"><h2 id="notes-title">What's different</h2><ul id="notes"></ul></div>
+    <div class="box"><h3>Jump to</h3><div class="jump" id="jump"></div></div>
+    <div class="box"><h3>Try what happens when…</h3><div class="sim">
+      <button id="sim-other"><b>Another customer picks a time</b><span>It disappears for you straight away</span></button>
+      <button id="sim-gone"><b>The shop books over your held time</b><span>You're told and offered nearby times</span></button>
+      <button id="sim-expire"><b>Your 5-minute hold is nearly up</b><span>Jumps to the last 10 seconds</span></button>
+    </div></div>
+  </aside>
+  <div class="phone" id="phone">
+    <div class="top">
+      <button class="back" id="back" aria-label="Back" hidden>←</button>
+      <b>Northline Barbers</b>
+      <span class="acct" id="acct">Sign in</span>
+    </div>
+    <div class="dots" id="dots"><i></i><i></i><i></i><i></i></div>
+    <div class="scroll" id="screen"></div>
+    <div class="foot" id="foot"></div>
+    <div class="toast" id="toast"></div>
+  </div>
+</div>
+<script>
+const HOLD_MS = 5 * 60 * 1000;
+const SERVICES = [
+  { id:"sig", name:"Signature cut", min:30, p:28, cat:"Hair", pop:1 },
+  { id:"fade", name:"Skin fade", min:45, p:32, cat:"Hair", pop:1 },
+  { id:"sci", name:"Scissor cut", min:40, p:30, cat:"Hair" },
+  { id:"kids", name:"Kids cut (under 12)", min:30, p:18, cat:"Hair" },
+  { id:"beard", name:"Beard trim & shape", min:20, p:15, cat:"Beard" },
+  { id:"towel", name:"Hot towel shave", min:30, p:25, cat:"Beard" },
+  { id:"cb", name:"Cut & beard", min:60, p:42, cat:"Combos", pop:1 },
+  { id:"works", name:"The full works", min:75, p:55, cat:"Combos" },
+];
+const EXTRAS = { Hair:[["Eyebrow tidy",4,5],["Grey blending",12,15],["Hot towel finish",5,5]], Beard:[["Eyebrow tidy",4,5],["Nose wax",6,5]], Combos:[["Eyebrow tidy",4,5],["Grey blending",12,15]] };
+const BARBERS = [
+  { id:"dani", name:"Dani Okoro", col:"#3b5d7a", ini:"DO", lunch:[780,810], off:[5] },
+  { id:"jay", name:"Jay Carter", col:"#6a4f7d", ini:"JC", lunch:[750,780], off:[] },
+  { id:"marcus", name:"Marcus Reed", col:"#7a5a3b", ini:"MR", lunch:[810,840], off:[3,5], extra:3, title:"Senior barber" },
+];
+const DAYS = (() => { const out = []; const d = new Date("2026-11-04T12:00:00"); for (let i = 0; i < 7; i++) { const x = new Date(d); x.setDate(d.getDate() + i); out.push(x); } return out; })();
+const SHOP_CLOSED = (i) => DAYS[i].getDay() === 0;
+const S = { step:0, back:false, cat:"All", svc:null, extras:[], barber:null, day:1, part:"All day", hold:null, notice:null, taken:new Set(), signin:false, showPw:false };
+const $ = (id) => document.getElementById(id);
+const svc = () => SERVICES.find((s) => s.id === S.svc);
+const B = (id) => BARBERS.find((b) => b.id === id);
+const priceFor = (bid) => (svc() ? svc().p : 0) + (B(bid)?.extra || 0) + S.extras.reduce((n, e) => n + e[1], 0);
+const mins = () => (svc() ? svc().min : 0) + S.extras.reduce((n, e) => n + e[2], 0);
+const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+const dshort = (i) => i === 0 ? "Today" : DAYS[i].toLocaleDateString("en-GB", { weekday:"short" });
+const dlong = (i) => DAYS[i].toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month:"long" });
+const dmid = (i) => DAYS[i].toLocaleDateString("en-GB", { weekday:"short", day:"numeric", month:"short" });
+const isOff = (bid, i) => B(bid).off.includes(i);
+function timesFor(bid, i) {
+  if (SHOP_CLOSED(i) || isOff(bid, i)) return [];
+  const b = B(bid), seed = bid.length * 7 + i * 13;
+  const out = [];
+  for (let m = 570, k = 0; m <= 1065; m += 15, k++) {
+    if (i === 0 && m < 870) continue;
+    if (m >= b.lunch[0] && m < b.lunch[1]) continue;
+    if ((k * 31 + seed) % 9 <= 1) continue;
+    if (S.taken.has(`${bid}|${i}|${m}`)) continue;
+    if (S.hold && !(S.hold.b === bid && S.hold.d === i && S.hold.m === m) && false) continue;
+    out.push(m);
+  }
+  return out;
+}
+const PARTS = { "All day":[0,1440], Morning:[0,720], Afternoon:[720,1020], Evening:[1020,1440] };
+const inPart = (m) => m >= PARTS[S.part][0] && m < PARTS[S.part][1];
+const anyMode = () => S.barber === "any";
+function dayLabel(i) {
+  if (SHOP_CLOSED(i)) return { cls:"closed", txt:"Closed" };
+  if (!anyMode() && isOff(S.barber, i)) return { cls:"dayoff", txt:"Day off" };
+  const n = anyMode() ? new Set(BARBERS.flatMap((b) => timesFor(b.id, i))).size : timesFor(S.barber, i).length;
+  return n ? { cls:"", txt:`${n} free` } : { cls:"closed", txt:"Full" };
+}
+function nextFree(bid) {
+  for (let i = 0; i < 7; i++) { const t = timesFor(bid, i); if (t.length) return `${i === 0 ? "today" : i === 1 ? "tomorrow" : dshort(i)} ${hhmm(t[0])}`; }
+  return "next week";
+}
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2600); }
+
+const NOTES = {
+  0: ["Service", ["<b>Book your usual</b> shows at the top for returning customers.", "Extras appear as chips under the service you pick.", "No duplicate \"STEP 01 OF 05\" label, just four thin progress bars."]],
+  1: ["Barber", ["One compact row each, with the barber's <b>next free time</b>.", "A barber who's off today says <b>\"Off today\"</b> instead of looking empty.", "\"Anyone\" is the first row. Tapping a row moves straight on."]],
+  2: ["Time · one barber", ["Days the barber isn't working say <b>Day off</b> (dashed). <b>Closed</b> is only for when the whole shop is shut.", "Tap a day off and you're offered the barbers who <b>are</b> working.", "Tapping a time <b>holds it for you</b>, and it disappears for everyone else straight away."]],
+  "2any": ["Time · Anyone", ["<b>Every barber's times</b> are listed, each under their own name. No more one name on every time.", "A barber who's off shows <b>Day off</b> in their row instead of disappearing.", "If a barber charges more (e.g. Marcus is senior), the price shows beside his name.", "Whoever has the fewest bookings is listed first, so work is spread fairly."]],
+  3: ["Account & confirm", ["New customers <b>create a full account</b>: name, mobile, email and password.", "Returning customers are already signed in and just confirm.", "The green pill shows the time is <b>held for you</b> (5 minutes at most). It turns amber in the last minute.", "If you leave the page, the time stays held for 2 minutes, then it's released."]],
+  4: ["Done", ["As today: a reference, add to calendar, and move or cancel.", "On the shop's timetable, the striped <b>Booking in progress</b> block becomes a normal appointment and the bell shows <b>New booking</b>."]],
+};
+
+function setHold(b, d, m) { S.hold = { b, d, m, until: Date.now() + HOLD_MS }; S.notice = null; }
+function holdLeft() { return S.hold ? Math.max(0, S.hold.until - Date.now()) : 0; }
+function holdPill() {
+  if (!S.hold) return "";
+  const left = holdLeft(), low = left < 60000;
+  const mm = Math.floor(left / 60000), ss = String(Math.floor(left / 1000) % 60).padStart(2, "0");
+  return `<div class="hold ${low ? "low" : ""}" id="holdpill"><i></i>${hhmm(S.hold.m)} is held for you · <span class="hold-left">${mm}:${ss}</span></div>`;
+}
+setInterval(() => {
+  if (!S.hold) return;
+  const left = holdLeft();
+  if (left <= 0) {
+    const h = S.hold; S.hold = null;
+    S.notice = { kind:"expired", m:h.m, b:h.b, d:h.d };
+    S.day = h.d; go(2); return;
+  }
+  const el = document.querySelector("#holdpill .hold-left");
+  if (el) { el.textContent = `${Math.floor(left / 60000)}:${String(Math.floor(left / 1000) % 60).padStart(2, "0")}`; $("holdpill").classList.toggle("low", left < 60000); }
+}, 250);
+
+function go(n) { S.step = n; render(); $("screen").scrollTop = 0; }
+function render() {
+  const sc = $("screen"), ft = $("foot");
+  $("back").hidden = S.step === 0 || S.step === 4;
+  $("acct").textContent = S.back ? "Jordan" : "Sign in";
+  [...$("dots").children].forEach((d, i) => d.classList.toggle("on", i <= Math.min(S.step, 3)));
+  $("dots").style.visibility = S.step === 4 ? "hidden" : "visible";
+  const [title, items] = NOTES[S.step === 2 && anyMode() ? "2any" : S.step];
+  $("notes-title").textContent = `What's different · ${title}`;
+  $("notes").innerHTML = items.map((x) => `<li>${x}</li>`).join("");
+  ft.innerHTML = ""; ft.style.display = "flex";
+
+  if (S.step === 0) {
+    const cats = ["All", "Hair", "Beard", "Combos"];
+    const list = SERVICES.filter((s) => S.cat === "All" || s.cat === S.cat);
+    sc.innerHTML = `
+      <h2 class="h">What are we doing today?</h2>
+      ${S.back ? `<div class="usual"><span class="av">DO</span><div><small>Your usual</small><strong>Skin fade with Dani</strong><span>45 min · £32 · last visit 3 weeks ago</span></div><button id="usual">Book again</button></div>` : ""}
+      <div class="chips">${cats.map((c) => `<button class="chip ${S.cat === c ? "on" : ""}" data-cat="${c}">${c === "All" ? "All services" : c}</button>`).join("")}</div>
+      ${list.map((s) => `
+        <div class="svc ${S.svc === s.id ? "on" : ""}" data-svc="${s.id}">
+          <div class="row"><div><strong>${s.name}</strong>${s.pop ? '<span class="pop">POPULAR</span>' : ""}<div class="meta">${s.min} min</div></div><span class="price">£${s.p}</span><span class="radio"></span></div>
+          ${S.svc === s.id ? `<div class="extras"><p>Add an extra?</p>${EXTRAS[s.cat].map((e) => { const on = S.extras.some((x) => x[0] === e[0]); return `<button class="ex ${on ? "on" : ""}" data-ex="${e[0]}">${on ? "✓ " : "+ "}${e[0]} · £${e[1]}</button>`; }).join("")}</div>` : ""}
+        </div>`).join("")}`;
+    ft.innerHTML = `<span class="tot">${S.svc ? "£" + priceFor("") : ""}<small>${S.svc ? mins() + " min" : ""}</small></span><button class="cta" id="next" ${S.svc ? "" : "disabled"}>Choose barber →</button>`;
+    sc.querySelectorAll("[data-cat]").forEach((b) => b.onclick = () => { S.cat = b.dataset.cat; render(); });
+    sc.querySelectorAll("[data-svc]").forEach((el) => el.onclick = (e) => { if (e.target.closest("[data-ex]")) return; if (S.svc !== el.dataset.svc) { S.svc = el.dataset.svc; S.extras = []; render(); } });
+    sc.querySelectorAll("[data-ex]").forEach((b) => b.onclick = () => { const e = EXTRAS[svc().cat].find((x) => x[0] === b.dataset.ex); S.extras = S.extras.some((x) => x[0] === e[0]) ? S.extras.filter((x) => x[0] !== e[0]) : [...S.extras, e]; render(); });
+    if ($("usual")) $("usual").onclick = () => { S.svc = "fade"; S.extras = []; S.barber = "dani"; S.hold = null; go(2); };
+    $("next").onclick = () => go(1);
+  }
+
+  if (S.step === 1) {
+    const rows = [{ id:"any", name:"Anyone", meta:"Every barber's times on one screen", col:"#2c2f35", ini:"★" }, ...BARBERS.map((b) => ({ id:b.id, name:b.name, col:b.col, ini:b.ini, meta: (isOff(b.id, 0) ? `<span class="off">Off today</span> · ` : "") + `Next free <b>${nextFree(b.id)}</b>${b.extra ? ` · ${b.title} · £${svc().p + b.extra}` : ""}` }))];
+    sc.innerHTML = `<div class="summary"><b>${svc().name}</b> · ${mins()} min · £${priceFor("")}<a data-go="0">Change</a></div>
+      <h2 class="h">Who's cutting?</h2>
+      ${rows.map((b) => `<div class="barber ${S.barber === b.id ? "on" : ""}" data-b="${b.id}"><span class="av" style="background:${b.col}">${b.ini}</span><div><strong>${b.name}</strong><div class="meta">${b.meta}</div></div><span class="radio"></span></div>`).join("")}`;
+    ft.style.display = "none";
+    sc.querySelectorAll("[data-b]").forEach((el) => el.onclick = () => { S.barber = el.dataset.b; S.hold = null; S.notice = null; render(); setTimeout(() => go(2), 160); });
+  }
+
+  if (S.step === 2) {
+    const any = anyMode(), b = any ? null : B(S.barber);
+    const d = S.day;
+    let notice = "";
+    if (S.notice?.kind === "gone") {
+      const near = timesFor(S.notice.b, S.notice.d).filter((m) => Math.abs(m - S.notice.m) <= 60).slice(0, 4);
+      notice = `<div class="notice bad"><strong>Sorry, ${hhmm(S.notice.m)} with ${B(S.notice.b).name.split(" ")[0]} has just gone</strong>The shop has just filled that time. These are close by:<div class="row">${near.map((m) => `<button data-near="${m}">${hhmm(m)}</button>`).join("") || "<span>No nearby times. Try another day.</span>"}</div></div>`;
+    } else if (S.notice?.kind === "expired") {
+      notice = `<div class="notice warn"><strong>We couldn't hold ${hhmm(S.notice.m)} any longer</strong>Times are held for 5 minutes. ${timesFor(S.notice.b, S.notice.d).includes(S.notice.m) ? `It's still free. <div class="row"><button data-near="${S.notice.m}">Hold ${hhmm(S.notice.m)} again</button></div>` : "Someone else has taken it, so pick another time."}</div>`;
+    }
+    let body = "";
+    if (SHOP_CLOSED(d)) {
+      body = `<div class="notice info"><strong>The shop is closed on ${dmid(d)}</strong>Pick another day.</div>`;
+    } else if (!any && isOff(b.id, d)) {
+      const working = BARBERS.filter((x) => x.id !== b.id && !isOff(x.id, d));
+      body = `<div class="notice warn"><strong>${b.name.split(" ")[0]} has a day off on ${dmid(d)}</strong>${working.length ? `${working.map((x) => x.name.split(" ")[0]).join(" and ")} ${working.length > 1 ? "are" : "is"} working that day.` : "No one else is working that day."}<div class="row">${working.map((x) => `<button data-switch="${x.id}">See ${x.name.split(" ")[0]}'s times</button>`).join("")}<button data-nextday="1">${b.name.split(" ")[0]}'s next day in</button></div></div>`;
+    } else if (!any) {
+      const ts = timesFor(b.id, d);
+      const groups = ["Morning", "Afternoon", "Evening"].map((p) => [p, ts.filter((m) => m >= PARTS[p][0] && m < PARTS[p][1])]).filter(([, l]) => l.length);
+      body = groups.map(([p, l]) => `<div class="period">${p}</div><div class="times">${l.map((m) => `<button class="t ${S.hold && S.hold.b === b.id && S.hold.d === d && S.hold.m === m ? "on" : ""}" data-t="${m}" data-tb="${b.id}">${hhmm(m)}</button>`).join("")}</div>`).join("") || `<div class="notice info"><strong>Fully booked</strong>Try another day or join the waiting list.</div>`;
+    } else {
+      const order = [...BARBERS].sort((x, y) => (isOff(x.id, d) - isOff(y.id, d)) || (timesFor(y.id, d).length - timesFor(x.id, d).length));
+      body = `<div class="chips">${Object.keys(PARTS).map((p) => `<button class="chip ${S.part === p ? "on" : ""}" data-part="${p}">${p}</button>`).join("")}</div>` + order.map((x) => {
+        if (isOff(x.id, d)) return `<div class="brow off"><header><span class="av" style="background:${x.col}">${x.ini}</span><div><strong>${x.name}</strong><span>Not working ${d === 0 ? "today" : "this day"}</span></div><span class="offtag">Day off</span></header></div>`;
+        const ts = timesFor(x.id, d).filter(inPart);
+        return `<div class="brow"><header><span class="av" style="background:${x.col}">${x.ini}</span><div><strong>${x.name}</strong><span>${ts.length} time${ts.length === 1 ? "" : "s"}${x.extra ? ` · ${x.title}` : ""}</span></div><span class="p">£${priceFor(x.id)}</span></header>
+          ${ts.length ? `<div class="times">${ts.map((m) => `<button class="t ${S.hold && S.hold.b === x.id && S.hold.d === d && S.hold.m === m ? "on" : ""}" data-t="${m}" data-tb="${x.id}">${hhmm(m)}</button>`).join("")}</div>` : `<div class="meta">No ${S.part.toLowerCase()} times.</div>`}</div>`;
+      }).join("");
+    }
+    sc.innerHTML = `<div class="summary"><b>${svc().name}</b> · ${any ? "Anyone" : b.name.split(" ")[0]} · ${mins()} min<a data-go="1">Change</a></div>
+      ${notice}
+      ${holdPill()}
+      <h2 class="h">When suits you?</h2>
+      <div class="days">${DAYS.map((x, i) => { const l = dayLabel(i); return `<button class="day ${i === d ? "on" : ""} ${l.cls}" data-day="${i}" ${SHOP_CLOSED(i) ? "disabled" : ""} aria-label="${dlong(i)}, ${l.txt}"><small>${dshort(i)}</small><b>${x.getDate()}</b><em>${l.txt}</em></button>`; }).join("")}</div>
+      <div class="weeknav"><span>‹ Earlier</span><span>${dlong(d)}</span><span>Later ›</span></div>
+      ${body}`;
+    const h = S.hold;
+    ft.innerHTML = `<span class="tot">£${h ? priceFor(h.b) : priceFor(any ? "" : b.id)}<small>${mins()} min</small></span><button class="cta" id="next" ${h ? "" : "disabled"}>${h ? `Continue · ${hhmm(h.m)}<small>with ${B(h.b).name}${h.d !== d ? ` · ${dmid(h.d)}` : ""}</small>` : "Pick a time"}</button>`;
+    sc.querySelectorAll("[data-day]").forEach((el) => el.onclick = () => { S.day = +el.dataset.day; S.notice = null; render(); });
+    sc.querySelectorAll("[data-part]").forEach((el) => el.onclick = () => { S.part = el.dataset.part; render(); });
+    sc.querySelectorAll("[data-t]").forEach((el) => el.onclick = () => { setHold(el.dataset.tb, d, +el.dataset.t); render(); toast(`${hhmm(+el.dataset.t)} is held for you for up to 5 minutes`); });
+    sc.querySelectorAll("[data-near]").forEach((el) => el.onclick = () => { const n = S.notice; setHold(n.b, n.d, +el.dataset.near); S.day = n.d; render(); });
+    sc.querySelectorAll("[data-switch]").forEach((el) => el.onclick = () => { S.barber = el.dataset.switch; S.hold = null; render(); toast(`Showing ${B(S.barber).name.split(" ")[0]}'s times`); });
+    sc.querySelectorAll("[data-nextday]").forEach((el) => el.onclick = () => { for (let i = d + 1; i < 7; i++) if (!SHOP_CLOSED(i) && !isOff(S.barber, i)) { S.day = i; break; } render(); });
+    $("next").onclick = () => go(3);
+  }
+
+  if (S.step === 3) {
+    const h = S.hold || { b:"dani", d:1, m:855 };
+    const bb = B(h.b);
+    sc.innerHTML = `
+      ${holdPill()}
+      <h2 class="h">${S.back ? "Check and confirm" : "Last step: your account"}</h2>
+      <div class="card">
+        <div class="when">${dmid(h.d)} · ${hhmm(h.m)}</div>
+        <div class="line"><span>${svc().name}</span><b>£${svc().p + (bb.extra || 0)}</b></div>
+        ${S.extras.map((e) => `<div class="line"><span>${e[0]}</span><b>£${e[1]}</b></div>`).join("")}
+        <div class="line"><span>With</span><b>${bb.name}</b></div>
+        <div class="line total"><span>Total · ${mins()} min · pay in shop</span><span>£${priceFor(h.b)}</span></div>
+        <a data-go="2">Change time</a>
+      </div>
+      ${S.back ? `<div class="card signedin"><span class="av">J</span><div>Jordan Ellis<span>07700 900123 · not you? <a class="link">Switch</a></span></div></div>` : S.signin ? `
+      <div class="card">
+        <h3>Sign in</h3><p class="sub">Welcome back. Your visits are saved to your account.</p>
+        <label class="f" for="em2">Email</label><input class="in" id="em2" type="email" placeholder="you@example.com">
+        <label class="f" for="pw2">Password</label><div class="pw"><input class="in" id="pw2" type="password"></div>
+        <div class="hint"><a class="link">Forgot password?</a> · New here? <a class="link" id="to-new">Create an account</a></div>
+      </div>` : `
+      <div class="card">
+        <h3>Create your account</h3><p class="sub">Keeps all your visits in one place. Move, cancel or rebook in a tap.</p>
+        <label class="f" for="nm">Full name</label><input class="in" id="nm" autocomplete="name" value="Jordan Ellis">
+        <label class="f" for="ph">Mobile</label><input class="in" id="ph" inputmode="tel" autocomplete="tel" value="07700 900123">
+        <label class="f" for="em">Email</label><input class="in" id="em" type="email" autocomplete="email" value="jordan@example.com">
+        <label class="f" for="pw">Password</label><div class="pw"><input class="in" id="pw" type="${S.showPw ? "text" : "password"}" autocomplete="new-password" value="northline2026"><button type="button" id="showpw">${S.showPw ? "Hide" : "Show"}</button></div>
+        <div class="hint">At least 8 characters. You'll sign in with your email and this password.</div>
+        <label class="check"><input type="checkbox" checked> I agree to Northline Barbers' booking terms (cancel at least 24 hours before).</label>
+        <div class="hint" style="margin-top:10px">Already have an account? <a class="link" id="to-signin">Sign in</a></div>
+      </div>`}
+      <details class="more"><summary>More options</summary><textarea placeholder="Anything your barber should know?"></textarea><label class="check"><input type="checkbox"> Booking for someone else</label></details>`;
+    ft.innerHTML = `<span class="tot">£${priceFor(h.b)}<small>${mins()} min</small></span><button class="cta" id="next">${S.back ? "Confirm booking" : S.signin ? "Sign in & book" : "Create account & book"}</button>`;
+    if ($("showpw")) $("showpw").onclick = () => { S.showPw = !S.showPw; render(); };
+    if ($("to-signin")) $("to-signin").onclick = () => { S.signin = true; render(); };
+    if ($("to-new")) $("to-new").onclick = () => { S.signin = false; render(); };
+    $("next").onclick = () => { S.booked = S.hold || h; S.hold = null; go(4); };
+  }
+
+  if (S.step === 4) {
+    const h = S.booked || { b:"dani", d:1, m:855 };
+    sc.innerHTML = `<div class="done"><div class="tick">✓</div><h2 class="h">You're booked</h2>
+      <div class="ref">Reference BRB-4821 · confirmation sent by text and email</div>
+      <div class="card" style="text-align:left"><div class="when">${dlong(h.d)} · ${hhmm(h.m)}</div>
+      <div class="line"><span>${svc().name}${S.extras.length ? " + " + S.extras.map((e) => e[0]).join(", ") : ""}</span><b>£${priceFor(h.b)}</b></div>
+      <div class="line"><span>With</span><b>${B(h.b).name}</b></div></div>
+      <div class="btns"><button class="cta">Add to calendar</button><button class="ghost">Move or cancel</button><button class="ghost" id="again">Start again</button></div></div>`;
+    ft.style.display = "none";
+    $("again").onclick = () => { Object.assign(S, { step:0, cat:"All", svc:null, extras:[], barber:null, day:1, hold:null, notice:null, signin:false }); render(); };
+  }
+  sc.querySelectorAll("[data-go]").forEach((a) => a.onclick = () => go(+a.dataset.go));
+}
+$("back").onclick = () => go(S.step - 1);
+$("who-new").onclick = () => { S.back = false; S.signin = false; $("who-new").classList.add("on"); $("who-back").classList.remove("on"); render(); };
+$("who-back").onclick = () => { S.back = true; $("who-back").classList.add("on"); $("who-new").classList.remove("on"); render(); };
+const JUMPS = [["1 Service", () => go(0)], ["2 Barber", () => { S.svc ||= "fade"; go(1); }], ["3 Time · Dani", () => { S.svc ||= "fade"; S.barber = "dani"; S.day = 1; go(2); }], ["3 Time · Dani's day off", () => { S.svc ||= "fade"; S.barber = "dani"; S.day = 5; S.hold = null; go(2); }], ["3 Time · Anyone", () => { S.svc ||= "fade"; S.barber = "any"; S.day = 3; S.part = "All day"; go(2); }], ["4 Account", () => { S.svc ||= "fade"; S.barber ||= "dani"; if (!S.hold) setHold(S.barber === "any" ? "jay" : S.barber, 1, 855); go(3); }], ["Done", () => { S.svc ||= "fade"; S.booked = S.hold || { b:"dani", d:1, m:855 }; go(4); }]];
+$("jump").innerHTML = JUMPS.map(([l], i) => `<button data-j="${i}">${l}</button>`).join("");
+$("jump").querySelectorAll("[data-j]").forEach((b) => b.onclick = () => JUMPS[+b.dataset.j][1]());
+$("sim-other").onclick = () => {
+  if (S.step !== 2) { JUMPS[2][1](); }
+  const btns = [...document.querySelectorAll(".t:not(.on)")];
+  const pick = btns[Math.min(5, btns.length - 1)];
+  if (!pick) return;
+  const m = +pick.dataset.t, bid = pick.dataset.tb;
+  pick.classList.add("vanish");
+  setTimeout(() => { S.taken.add(`${bid}|${S.day}|${m}`); render(); toast(`${hhmm(m)} was just picked by another customer, so it's gone from your list`); }, 600);
+};
+$("sim-gone").onclick = () => {
+  if (!S.hold) { S.svc ||= "fade"; S.barber ||= "dani"; setHold(S.barber === "any" ? "jay" : S.barber, 1, 855); }
+  const h = S.hold; S.hold = null;
+  S.taken.add(`${h.b}|${h.d}|${h.m}`);
+  S.notice = { kind:"gone", m:h.m, b:h.b, d:h.d }; S.day = h.d; go(2);
+};
+$("sim-expire").onclick = () => {
+  if (!S.hold) { S.svc ||= "fade"; S.barber ||= "dani"; setHold(S.barber === "any" ? "jay" : S.barber, 1, 855); go(3); }
+  S.hold.until = Date.now() + 10000; render();
+};
+const q = new URLSearchParams(location.search);
+if (q.get("who") === "back") $("who-back").click();
+if (q.get("j")) JUMPS[+q.get("j")][1]();
+if (q.get("hold")) { setHold(q.get("hold"), 1, 855); render(); }
+if (q.get("low")) { S.hold.until = Date.now() + 42000; render(); }
+if (q.get("sim") === "gone") $("sim-gone").click();
+if (q.get("sim") === "expired") { S.svc ||= "fade"; S.barber ||= "dani"; S.notice = { kind:"expired", m:855, b:"dani", d:1 }; S.day = 1; go(2); }
+render();
+</script>
+</body>
+</html>

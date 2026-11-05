@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mock-up · Admin: booking holds + notifications</title>
+<style>
+@font-face { font-family: "Geist"; font-weight: 100 900; src: url("../../public/static/fonts/geist-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Bebas Neue"; src: url("../../public/static/fonts/bebas-neue-latin-400-normal.woff2") format("woff2"); }
+:root { --ink:#16181d; --muted:#6b6f78; --line:#e4e6ea; --line2:#f0f1f3; --canvas:#f6f7f8; --card:#fff; --mint:#00e8b0; --mint-deep:#00805c; --mint-soft:#e3fbf3; --amber:#b7791f; --amber-soft:#fff6e3; --red:#b23b3b; --red-soft:#fdf3f3; --step:22px; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:Geist, system-ui, sans-serif; color:var(--ink); background:#e9e7e2; }
+.stage { display:flex; gap:28px; padding:24px; align-items:flex-start; justify-content:center; flex-wrap:wrap; }
+.controls { width:330px; }
+.controls h1 { font-family:"Bebas Neue"; font-size:38px; font-weight:400; margin:0 0 4px; }
+.controls > p { color:#55575d; font-size:14px; line-height:1.45; margin:0 0 12px; }
+.box { background:#fff; border:1px solid #d7d4cc; border-radius:14px; padding:14px 16px; margin-bottom:12px; }
+.box h3 { margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:#8a6d1f; }
+.box ul { margin:0; padding-left:18px; font-size:13.5px; line-height:1.55; }
+.box li + li { margin-top:4px; }
+.sim { display:grid; gap:6px; }
+.sim button { border:1px solid #d7d4cc; background:#faf9f6; border-radius:9px; padding:8px 10px; font:500 12.5px Geist; cursor:pointer; text-align:left; }
+.sim button b { display:block; }
+.sim button span { color:#6b6d73; font-size:11.5px; }
+
+/* App frame */
+.app { width:1100px; height:820px; background:var(--canvas); border-radius:16px; box-shadow:0 30px 60px rgba(0,0,0,.18); overflow:hidden; display:grid; grid-template-rows:56px 1fr; position:relative; border:1px solid #d9dbe0; }
+.topbar { display:flex; align-items:center; gap:12px; padding:0 16px; background:#fff; border-bottom:1px solid var(--line); }
+.topbar .logo { font-weight:800; font-size:15px; }
+.topbar .logo small { display:block; font-weight:500; font-size:11px; color:var(--muted); }
+.topbar .sp { flex:1; }
+.pill { display:flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:999px; padding:6px 12px; font-size:13px; background:#fff; }
+.bell { position:relative; width:38px; height:38px; border-radius:50%; border:1px solid var(--line); background:#fff; cursor:pointer; display:grid; place-items:center; font-size:17px; }
+.bell .badge { position:absolute; top:-4px; right:-4px; min-width:19px; height:19px; padding:0 5px; border-radius:999px; background:#e5484d; color:#fff; font-size:11px; font-weight:700; display:grid; place-items:center; border:2px solid #fff; }
+.bell .badge[hidden] { display:none; }
+.who { display:flex; align-items:center; gap:8px; font-size:13px; }
+.who .av { width:30px; height:30px; border-radius:50%; background:#1b1c1f; color:#fff; display:grid; place-items:center; font-size:12px; font-weight:700; }
+.main { display:grid; grid-template-columns:200px 1fr; min-height:0; }
+.rail { background:#0b0b0c; color:#cfd2d6; padding:14px 10px; font-size:13.5px; }
+.rail div { padding:9px 12px; border-radius:9px; margin-bottom:2px; }
+.rail .on { background:#16251f; color:#fff; box-shadow: inset 0 0 0 1px #1f4d3f; }
+.cal { padding:14px; min-height:0; display:flex; flex-direction:column; }
+.calcard { background:#fff; border:1px solid var(--line); border-radius:16px; flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+.toolbar { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); }
+.toolbar .date { border:2px solid var(--mint); border-radius:10px; padding:7px 14px; font-weight:600; font-size:13.5px; }
+.toolbar .btn { border:1px solid var(--line); border-radius:9px; padding:7px 11px; font-size:13px; background:#fff; }
+.toolbar .new { margin-left:auto; background:var(--mint); border:0; font-weight:700; padding:9px 14px; border-radius:10px; cursor:pointer; font-size:13.5px; }
+.legend { display:flex; gap:14px; padding:7px 14px; font-size:12px; color:var(--muted); border-bottom:1px solid var(--line); }
+.legend i { display:inline-block; width:14px; height:10px; border-radius:3px; vertical-align:-1px; margin-right:5px; }
+.board { flex:1; overflow:auto; position:relative; }
+.heads { display:grid; grid-template-columns:56px repeat(3,1fr); position:sticky; top:0; background:#fff; z-index:4; border-bottom:1px solid var(--line); }
+.heads div { padding:8px 10px; font-size:13px; font-weight:600; display:flex; align-items:center; gap:8px; }
+.heads .av { width:26px; height:26px; border-radius:50%; color:#fff; display:grid; place-items:center; font-size:10.5px; font-weight:700; }
+.heads small { display:block; font-weight:500; color:var(--muted); font-size:11px; }
+.grid { display:grid; grid-template-columns:56px repeat(3,1fr); position:relative; }
+.gut div { height:calc(var(--step) * 4); font-size:11px; color:var(--muted); text-align:right; padding:2px 8px 0 0; border-top:1px solid var(--line); }
+.col { position:relative; border-left:1px solid var(--line); background-image: repeating-linear-gradient(to bottom, var(--line) 0, var(--line) 1px, transparent 1px, transparent calc(var(--step) * 4)), repeating-linear-gradient(to bottom, var(--line2) 0, var(--line2) 1px, transparent 1px, transparent var(--step)); }
+.slotbtn { position:absolute; left:0; right:0; height:var(--step); cursor:pointer; }
+.slotbtn:hover { background:rgba(0,232,176,.08); }
+.ev { position:absolute; left:4px; right:4px; border-radius:9px; padding:5px 8px; font-size:12px; overflow:hidden; z-index:2; border:1px solid; }
+.ev strong { display:block; font-size:12.5px; }
+.ev span { color:inherit; opacity:.75; }
+.ev.c1 { background:#e8f1fb; border-color:#bcd6f2; color:#1d4f86; }
+.ev.c2 { background:#f2ecf8; border-color:#d9c9ea; color:#5b3b84; }
+.ev.c3 { background:#f8efe6; border-color:#ead3bb; color:#7a4e22; }
+.ev.lunch { background:repeating-linear-gradient(135deg,#f3f4f6 0 6px,#eceef1 6px 12px); border-color:#e1e3e7; color:#80848c; }
+.ev.new { animation: pop .6s ease; box-shadow:0 0 0 3px rgba(0,232,176,.45); }
+@keyframes pop { 0% { transform:scale(.96); opacity:.3 } 100% { transform:none; opacity:1 } }
+.ev.hold { background: repeating-linear-gradient(135deg, rgba(0,232,176,.10) 0 8px, rgba(0,232,176,.20) 8px 16px); border:1.5px dashed #00b386; color:#035e45; cursor:pointer; }
+.ev.hold strong { display:flex; align-items:center; gap:6px; }
+.ev.hold strong i { width:7px; height:7px; border-radius:50%; background:#00b386; animation:pulse 1.4s infinite; }
+.ev.hold.low { background: repeating-linear-gradient(135deg, rgba(243,170,40,.12) 0 8px, rgba(243,170,40,.22) 8px 16px); border-color:#d69a2d; color:#7a4f06; }
+.ev.hold.low strong i { background:#d69a2d; }
+.ev.hold.gone { opacity:0; transform:scale(.97); transition:.5s; }
+@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.25 } }
+.now { position:absolute; left:56px; right:0; height:0; border-top:2px solid #e5484d; z-index:3; }
+.now::before { content:""; position:absolute; left:-5px; top:-6px; width:10px; height:10px; border-radius:50%; background:#e5484d; }
+
+/* Tooltip/popover for a hold */
+.pop { position:absolute; z-index:20; width:270px; background:#fff; border:1px solid var(--line); border-radius:14px; box-shadow:0 18px 40px rgba(0,0,0,.16); padding:14px; font-size:13px; }
+.pop h4 { margin:0 0 4px; font-size:14px; }
+.pop p { margin:0 0 10px; color:var(--muted); line-height:1.45; }
+.pop .row { display:flex; gap:8px; }
+.b { border:1px solid var(--line); background:#fff; border-radius:10px; padding:8px 12px; font:600 13px Geist; cursor:pointer; }
+.b.pri { background:var(--ink); color:#fff; border-color:var(--ink); }
+.b.mint { background:var(--mint); border-color:var(--mint); }
+.b.warn { background:#fff3dc; border-color:#f0d39a; color:#7a4f06; }
+
+/* Dialog */
+.scrim { position:absolute; inset:0; background:rgba(15,17,20,.38); z-index:30; display:grid; place-items:center; }
+.dlg { width:440px; background:#fff; border-radius:18px; box-shadow:0 30px 60px rgba(0,0,0,.25); padding:20px; }
+.dlg h3 { margin:0 0 4px; font-size:18px; }
+.dlg .sub { color:var(--muted); font-size:13px; margin:0 0 14px; }
+.field { margin-bottom:10px; }
+.field label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+.field div { border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:14px; }
+.warnbox { background:var(--amber-soft); border:1px solid #f0d39a; border-radius:12px; padding:12px; font-size:13px; color:#5d3d05; line-height:1.45; margin:12px 0; }
+.warnbox strong { display:block; font-size:14px; margin-bottom:2px; color:#4a3004; }
+.dlg .acts { display:flex; justify-content:flex-end; gap:8px; margin-top:6px; }
+
+/* Bell drawer */
+.drawer { position:absolute; top:0; right:0; bottom:0; width:420px; background:#fff; border-left:1px solid var(--line); box-shadow:-18px 0 40px rgba(0,0,0,.10); z-index:25; display:flex; flex-direction:column; transform:translateX(100%); transition:transform .22s ease; }
+.drawer.open { transform:none; }
+.dscrim { position:absolute; inset:0; z-index:24; background:rgba(15,17,20,.12); display:none; }
+.dscrim.open { display:block; }
+.dh { display:flex; align-items:center; gap:10px; padding:16px 18px 10px; }
+.dh h2 { margin:0; font-size:19px; flex:1; }
+.dh h2 small { display:block; font-size:12px; font-weight:500; color:var(--muted); margin-top:2px; }
+.x { width:32px; height:32px; border-radius:50%; border:1px solid var(--line); background:#fff; cursor:pointer; font-size:15px; }
+.tabs { display:flex; gap:6px; padding:0 18px 10px; border-bottom:1px solid var(--line); }
+.tab { border:1px solid var(--line); background:#fff; border-radius:999px; padding:6px 12px; font:600 12.5px Geist; cursor:pointer; color:var(--muted); display:flex; gap:6px; align-items:center; }
+.tab.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+.tab .n { background:#e5484d; color:#fff; border-radius:999px; font-size:10.5px; padding:1px 6px; }
+.tab.on .n { background:#fff; color:var(--ink); }
+.dactions { display:flex; justify-content:space-between; padding:9px 18px; font-size:12.5px; border-bottom:1px solid var(--line2); }
+.dactions a { color:var(--mint-deep); font-weight:600; cursor:pointer; text-decoration:none; }
+.dactions a.muted { color:var(--muted); }
+.dlist { flex:1; overflow:auto; padding:6px 10px 14px; }
+.day-h { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:700; padding:12px 8px 6px; }
+.item { display:flex; gap:10px; padding:10px 8px; border-radius:12px; position:relative; cursor:pointer; transition: opacity .25s, transform .25s, max-height .3s; max-height:120px; }
+.item:hover { background:#f7f8f9; }
+.item.unread { background:#f1fcf8; }
+.item.unread::before { content:""; position:absolute; left:-2px; top:18px; width:6px; height:6px; border-radius:50%; background:#00b386; }
+.item .ic { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; font-size:15px; flex:0 0 auto; }
+.ic.new { background:var(--mint-soft); }
+.ic.cancel { background:var(--red-soft); }
+.ic.move { background:#eef3ff; }
+.ic.noshow { background:#fff1e6; }
+.ic.wait { background:#f4efe6; }
+.ic.review { background:var(--amber-soft); }
+.item .tx { flex:1; min-width:0; }
+.item .tx strong { font-size:13.5px; display:flex; gap:6px; align-items:baseline; }
+.item .tx strong time { margin-left:auto; font-weight:500; font-size:11.5px; color:var(--muted); white-space:nowrap; }
+.item .tx p { margin:2px 0 0; font-size:12.5px; color:#4b4f57; line-height:1.4; }
+.item .tx .acts { display:flex; gap:6px; margin-top:7px; }
+.item .tx .acts button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:5px 9px; font:600 12px Geist; cursor:pointer; }
+.item .clr { width:26px; height:26px; border-radius:50%; border:0; background:none; color:#9ca0a8; cursor:pointer; font-size:14px; opacity:0; flex:0 0 auto; }
+.item:hover .clr, .item:focus-within .clr { opacity:1; }
+.item.bye { opacity:0; transform:translateX(30px); max-height:0; padding-top:0; padding-bottom:0; }
+.empty { text-align:center; padding:60px 20px; color:var(--muted); }
+.empty b { display:block; font-size:30px; margin-bottom:8px; }
+.dfoot { border-top:1px solid var(--line); padding:12px 18px; display:flex; align-items:center; gap:10px; font-size:12.5px; color:var(--muted); }
+.switch { width:36px; height:20px; border-radius:999px; background:var(--mint); position:relative; flex:0 0 auto; }
+.switch::after { content:""; position:absolute; right:2px; top:2px; width:16px; height:16px; border-radius:50%; background:#fff; }
+.dfoot a { margin-left:auto; color:var(--ink); font-weight:600; }
+.undo { position:absolute; left:50%; bottom:70px; transform:translateX(-50%) translateY(10px); background:var(--ink); color:#fff; border-radius:10px; padding:9px 12px; font-size:12.5px; display:flex; gap:12px; align-items:center; opacity:0; pointer-events:none; transition:.2s; z-index:26; white-space:nowrap; }
+.undo.show { opacity:1; transform:translateX(-50%); pointer-events:auto; }
+.undo a { color:var(--mint); font-weight:700; cursor:pointer; }
+.toast { position:absolute; left:50%; top:66px; transform:translateX(-50%) translateY(-8px); background:var(--ink); color:#fff; padding:9px 14px; border-radius:10px; font-size:13px; opacity:0; transition:.25s; z-index:40; pointer-events:none; }
+.toast.show { opacity:1; transform:translateX(-50%); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <aside class="controls">
+    <h1>Admin · holds &amp; bell</h1>
+    <p>A clickable mock-up of what the shop sees. It's a preview only. Use the buttons below to play out what happens.</p>
+    <div class="box"><h3>Booking in progress</h3><ul>
+      <li>When an online customer taps a time, a <b>striped green block</b> appears in that barber's column, with a countdown.</li>
+      <li>It turns <b>amber</b> in its last minute. Customers can be held for 5 minutes at most, or 2 minutes after leaving the page.</li>
+      <li>If they confirm, it becomes a normal appointment and the bell shows <b>New booking</b>. If not, it fades away.</li>
+      <li>Click the block to see who it is (if signed in), or <b>book over it</b> for a walk-in. You'll be warned first, and the customer is offered nearby times.</li>
+    </ul></div>
+    <div class="box"><h3>Play it out</h3><div class="sim">
+      <button id="s-start"><b>1 · Customer taps 14:15 with Dani</b><span>Striped "Booking in progress" block appears</span></button>
+      <button id="s-confirm"><b>2a · They confirm</b><span>Becomes a normal booking, bell shows New booking</span></button>
+      <button id="s-leave"><b>2b · They leave the page</b><span>Held for 2 more minutes, then released</span></button>
+      <button id="s-low"><b>2c · Skip to the last minute</b><span>Block turns amber</span></button>
+      <button id="s-over"><b>Staff book over the held slot</b><span>Warning before it's saved</span></button>
+    </div></div>
+    <div class="box"><h3>Notifications (bell)</h3><ul>
+      <li><b>× to clear</b> one item (with Undo), plus <b>Clear all</b>.</li>
+      <li><b>Mark all read</b> button. Opening the bell no longer marks everything read by itself.</li>
+      <li>Grouped by <b>Today / Yesterday / Earlier</b>, with how long ago.</li>
+      <li><b>Activity</b> and <b>Needs attention</b> tabs. The red number only counts unread activity.</li>
+      <li>"Needs attention" items can be fixed or dismissed.</li>
+    </ul><div class="sim" style="margin-top:10px"><button id="s-bell"><b>Open the bell</b><span>Try ×, Clear all, Mark all read</span></button></div></div>
+  </aside>
+
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="logo">Northline Barbers<small>Powered by foliyo</small></div>
+      <div class="sp"></div>
+      <div class="pill">£86 · Taken today</div>
+      <div class="pill">⏳ 2 waiting</div>
+      <button class="bell" id="bell" aria-label="Notifications">🔔<span class="badge" id="badge">3</span></button>
+      <div class="who"><span class="av">SO</span>Sam Okafor</div>
+    </header>
+    <div class="main">
+      <nav class="rail"><div class="on">Appointments</div><div>Insights</div><div>Customers</div><div>Team</div><div>Shifts</div><div>Services</div><div>Settings</div></nav>
+      <section class="cal">
+        <div class="calcard">
+          <div class="toolbar"><span class="btn">Today</span><span class="btn">‹</span><span class="date">Thu 5 Nov ▾</span><span class="btn">›</span><span class="btn">All barbers ▾</span><button class="new" id="newbk">+ New booking</button></div>
+          <div class="legend"><span><i style="background:#e8f1fb;border:1px solid #bcd6f2"></i>Booked</span><span><i style="background:repeating-linear-gradient(135deg,rgba(0,232,176,.12) 0 4px,rgba(0,232,176,.25) 4px 8px);border:1px dashed #00b386"></i>Booking in progress (online)</span><span><i style="background:#eceef1"></i>Break</span></div>
+          <div class="board" id="board"></div>
+        </div>
+      </section>
+    </div>
+    <div class="dscrim" id="dscrim"></div>
+    <aside class="drawer" id="drawer" aria-label="Notifications"></aside>
+    <div class="undo" id="undo"><span id="undo-t">Cleared</span><a id="undo-a">Undo</a></div>
+    <div class="toast" id="toast"></div>
+    <div id="layer"></div>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const START = 9 * 60, END = 18 * 60, STEP = 15, PX = 22;
+const STAFF = [ { id:"dani", name:"Dani Okoro", ini:"DO", col:"#3b5d7a", cls:"c1" }, { id:"jay", name:"Jay Carter", ini:"JC", col:"#6a4f7d", cls:"c2" }, { id:"marcus", name:"Marcus Reed", ini:"MR", col:"#7a5a3b", cls:"c3" } ];
+const BOOKINGS = [
+  { s:"dani", m:570, d:45, who:"Leo Grant", what:"Skin fade" }, { s:"dani", m:660, d:30, who:"Aaron Bell", what:"Signature cut" }, { s:"dani", m:780, d:30, lunch:1 }, { s:"dani", m:930, d:60, who:"Tom Hayes", what:"Cut & beard" },
+  { s:"jay", m:600, d:30, who:"Ravi Shah", what:"Beard trim" }, { s:"jay", m:750, d:30, lunch:1 }, { s:"jay", m:810, d:45, who:"Kai Moore", what:"Skin fade" }, { s:"jay", m:960, d:30, who:"Owen Price", what:"Signature cut" },
+  { s:"marcus", m:585, d:75, who:"Ben Ross", what:"The full works" }, { s:"marcus", m:720, d:30, who:"Max Webb", what:"Scissor cut" }, { s:"marcus", m:810, d:30, lunch:1 }, { s:"marcus", m:900, d:45, who:"Sam Lee", what:"Skin fade" },
+];
+const yOf = (m) => ((m - START) / STEP) * PX;
+const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+let HOLD = null; // { s, m, d, until, who, left: bool }
+let tick = null;
+function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove("show"), 2600); }
+
+function renderBoard() {
+  const rows = [];
+  for (let m = START; m < END; m += 60) rows.push(`<div>${hhmm(m)}</div>`);
+  const cols = STAFF.map((st) => {
+    const evs = BOOKINGS.filter((b) => b.s === st.id).map((b) => b.lunch
+      ? `<div class="ev lunch" style="top:${yOf(b.m)}px;height:${(b.d / STEP) * PX - 2}px"><strong>Lunch</strong></div>`
+      : `<div class="ev ${st.cls} ${b.fresh ? "new" : ""}" style="top:${yOf(b.m)}px;height:${(b.d / STEP) * PX - 2}px"><strong>${b.who}</strong><span>${hhmm(b.m)} · ${b.what}</span></div>`).join("");
+    const hold = HOLD && HOLD.s === st.id ? holdHtml() : "";
+    const slots = Array.from({ length: (END - START) / STEP }, (_, i) => `<div class="slotbtn" data-s="${st.id}" data-m="${START + i * STEP}" style="top:${i * PX}px"></div>`).join("");
+    return `<div class="col" style="height:${((END - START) / STEP) * PX}px">${slots}${evs}${hold}</div>`;
+  }).join("");
+  $("board").innerHTML = `
+    <div class="heads"><div></div>${STAFF.map((s) => `<div><span class="av" style="background:${s.col}">${s.ini}</span><span>${s.name}<small>09:30–18:00</small></span></div>`).join("")}</div>
+    <div class="grid"><div class="gut">${rows.join("")}</div>${cols}<div class="now" style="top:${yOf(11 * 60 + 40)}px"></div></div>`;
+  $("board").querySelectorAll(".slotbtn").forEach((el) => el.onclick = () => openNew(el.dataset.s, +el.dataset.m));
+  const h = $("board").querySelector(".ev.hold");
+  if (h) h.onclick = (e) => { e.stopPropagation(); openHoldPop(h); };
+}
+function left() { return HOLD ? Math.max(0, HOLD.until - Date.now()) : 0; }
+function fmtLeft() { const l = left(); return `${Math.floor(l / 60000)}:${String(Math.floor(l / 1000) % 60).padStart(2, "0")}`; }
+function holdHtml() {
+  const low = left() < 60000;
+  return `<div class="ev hold ${low ? "low" : ""}" id="holdev" style="top:${yOf(HOLD.m)}px;height:${(HOLD.d / STEP) * PX - 2}px" title="Online customer is booking this time">
+    <strong><i></i>Booking in progress</strong><span>${hhmm(HOLD.m)} · ${HOLD.what} · online</span><br><span id="hold-left">${HOLD.left ? "Left the page · " : ""}${fmtLeft()} left</span></div>`;
+}
+function startTick() {
+  clearInterval(tick);
+  tick = setInterval(() => {
+    if (!HOLD) return clearInterval(tick);
+    if (left() <= 0) { release("The online hold on " + hhmm(HOLD.m) + " ran out, so the time is free again"); return; }
+    const el = $("hold-left"); if (el) el.textContent = `${HOLD.left ? "Left the page · " : ""}${fmtLeft()} left`;
+    const ev = $("holdev"); if (ev) ev.classList.toggle("low", left() < 60000);
+  }, 250);
+}
+function release(msg) {
+  const ev = $("holdev"); if (ev) ev.classList.add("gone");
+  setTimeout(() => { HOLD = null; renderBoard(); }, 500);
+  closeLayer(); toast(msg);
+}
+
+/* Bell data */
+let ITEMS = [
+  { id:1, kind:"new", day:"Today", ago:"12 min ago", title:"New booking", body:"Kai Moore · Skin fade with Jay · Thu 5 Nov at 13:30", unread:true, open:true },
+  { id:2, kind:"cancel", day:"Today", ago:"48 min ago", title:"Booking cancelled", body:"Luca Ferri cancelled Signature cut with Dani · Fri 6 Nov at 10:00", unread:true, rebook:true },
+  { id:3, kind:"move", day:"Today", ago:"1 hr ago", title:"Booking moved", body:"Sam Lee moved Skin fade with Marcus to Thu 5 Nov at 15:00", unread:true, open:true },
+  { id:4, kind:"wait", day:"Yesterday", ago:"Wed 18:20", title:"Waiting list", body:"Jordan Ellis wants Sat 7 Nov, afternoon · any barber", open:true },
+  { id:5, kind:"noshow", day:"Yesterday", ago:"Wed 15:05", title:"No-show", body:"Chris Dale did not arrive for Beard trim with Jay · Wed 4 Nov at 15:00", open:true },
+  { id:6, kind:"new", day:"Earlier", ago:"Mon 2 Nov", title:"New booking", body:"Ben Ross · The full works with Marcus · Thu 5 Nov at 09:45", open:true },
+  { id:7, kind:"new", day:"Earlier", ago:"Sun 1 Nov", title:"New booking", body:"Aaron Bell · Signature cut with Dani · Thu 5 Nov at 11:00", open:true },
+];
+let ATTN = [
+  { id:"a1", kind:"review", title:"BRB-4710 needs a new time", body:"Marcus is now off on Sat 7 Nov, but Owen Price is booked with him at 11:00.", fix:"Move appointment" },
+  { id:"a2", kind:"review", title:"BRB-4702 is outside opening hours", body:"The shop now opens at 09:30. Ravi Shah is booked at 09:00 on Mon 9 Nov.", fix:"Review" },
+];
+const ICON = { new:"＋", cancel:"✕", move:"⇄", noshow:"!", wait:"⏳", review:"⚠" };
+let TAB = "activity", lastCleared = null;
+function badge() { const n = ITEMS.filter((i) => i.unread).length; $("badge").textContent = n; $("badge").hidden = !n; }
+function renderDrawer() {
+  const unread = ITEMS.filter((i) => i.unread).length;
+  const list = TAB === "activity" ? ITEMS : ATTN;
+  const groups = TAB === "activity" ? ["Today", "Yesterday", "Earlier"].map((d) => [d, ITEMS.filter((i) => i.day === d)]).filter(([, l]) => l.length) : [["", ATTN]];
+  $("drawer").innerHTML = `
+    <div class="dh"><h2>Notifications<small>${unread ? `${unread} unread` : "You're all caught up"}${ATTN.length ? ` · ${ATTN.length} need${ATTN.length === 1 ? "s" : ""} attention` : ""}</small></h2><button class="x" id="dclose" aria-label="Close">✕</button></div>
+    <div class="tabs"><button class="tab ${TAB === "activity" ? "on" : ""}" data-tab="activity">Activity ${unread ? `<span class="n">${unread}</span>` : ""}</button><button class="tab ${TAB === "attn" ? "on" : ""}" data-tab="attn">Needs attention ${ATTN.length ? `<span class="n">${ATTN.length}</span>` : ""}</button></div>
+    ${list.length ? `<div class="dactions">${TAB === "activity" ? `<a id="markall" class="${unread ? "" : "muted"}">✓ Mark all read</a><a id="clearall" class="muted">Clear all</a>` : `<span style="color:var(--muted)">Appointments that no longer fit the rota, hours or closures</span>`}</div>` : ""}
+    <div class="dlist">${list.length ? groups.map(([d, l]) => `${d ? `<div class="day-h">${d}</div>` : ""}${l.map((i) => `
+      <div class="item ${i.unread ? "unread" : ""}" data-id="${i.id}">
+        <span class="ic ${i.kind}">${ICON[i.kind]}</span>
+        <div class="tx"><strong>${i.title}${i.ago ? `<time>${i.ago}</time>` : ""}</strong><p>${i.body}</p>
+          <div class="acts">${i.open ? `<button data-act="open">Open booking</button>` : ""}${i.rebook ? `<button data-act="open">Fill the gap</button>` : ""}${i.fix ? `<button data-act="open">${i.fix}</button><button data-act="clear">Dismiss</button>` : ""}</div></div>
+        ${TAB === "activity" ? `<button class="clr" data-act="clear" aria-label="Clear this notification" title="Clear">✕</button>` : ""}
+      </div>`).join("")}`).join("") : `<div class="empty"><b>${TAB === "activity" ? "🔔" : "✓"}</b>${TAB === "activity" ? "No notifications. New bookings, cancellations and moves will show here." : "Nothing needs your attention."}</div>`}</div>
+    <div class="dfoot"><span class="switch"></span>Phone alerts on for this device<a>Alert settings</a></div>`;
+  $("dclose").onclick = closeDrawer;
+  $("drawer").querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { TAB = b.dataset.tab; renderDrawer(); });
+  if ($("markall")) $("markall").onclick = () => { ITEMS.forEach((i) => i.unread = false); renderDrawer(); badge(); };
+  if ($("clearall")) $("clearall").onclick = () => { lastCleared = { items:[...ITEMS] }; ITEMS = []; renderDrawer(); badge(); showUndo(`Cleared ${lastCleared.items.length} notifications`); };
+  $("drawer").querySelectorAll(".item").forEach((el) => {
+    const id = el.dataset.id;
+    el.onclick = (e) => {
+      const act = e.target.closest("[data-act]")?.dataset.act;
+      const list = TAB === "activity" ? ITEMS : ATTN;
+      const it = list.find((x) => String(x.id) === id);
+      if (act === "clear") {
+        el.classList.add("bye");
+        setTimeout(() => {
+          lastCleared = { item: it, tab: TAB, index: list.indexOf(it) };
+          if (TAB === "activity") ITEMS = ITEMS.filter((x) => x !== it); else ATTN = ATTN.filter((x) => x !== it);
+          renderDrawer(); badge(); showUndo(TAB === "activity" ? "Notification cleared" : "Dismissed");
+        }, 250);
+        return;
+      }
+      it.unread = false; renderDrawer(); badge();
+      if (act === "open") toast("Opens the appointment panel");
+    };
+  });
+}
+function showUndo(t) { $("undo-t").textContent = t; $("undo").classList.add("show"); clearTimeout(showUndo.t); showUndo.t = setTimeout(() => $("undo").classList.remove("show"), 4000); }
+$("undo-a").onclick = () => {
+  if (!lastCleared) return;
+  if (lastCleared.items) ITEMS = lastCleared.items;
+  else if (lastCleared.tab === "activity") ITEMS.splice(lastCleared.index, 0, lastCleared.item);
+  else ATTN.splice(lastCleared.index, 0, lastCleared.item);
+  lastCleared = null; $("undo").classList.remove("show"); renderDrawer(); badge();
+};
+function openDrawer() { closeLayer(); renderDrawer(); $("drawer").classList.add("open"); $("dscrim").classList.add("open"); }
+function closeDrawer() { $("drawer").classList.remove("open"); $("dscrim").classList.remove("open"); $("undo").classList.remove("show"); }
+$("bell").onclick = openDrawer; $("dscrim").onclick = closeDrawer; $("s-bell").onclick = openDrawer;
+
+/* Popovers & dialogs */
+function closeLayer() { $("layer").innerHTML = ""; }
+function openHoldPop(el) {
+  const r = el.getBoundingClientRect(), a = $("app").getBoundingClientRect();
+  $("layer").innerHTML = `<div class="pop" style="left:${Math.min(r.right - a.left + 8, 1100 - 290)}px;top:${r.top - a.top}px">
+    <h4>Online booking in progress</h4>
+    <p>${HOLD.who ? `<b>${HOLD.who}</b> (returning customer)` : "A customer"} is booking <b>${HOLD.what}</b> with Dani at <b>${hhmm(HOLD.m)}</b>. ${HOLD.left ? "They've left the page." : "They're on the confirm screen."} Held for <b id="pop-left">${fmtLeft()}</b> more.</p>
+    <div class="row"><button class="b warn" id="pop-over">Book over it</button><button class="b" id="pop-close">Close</button></div></div>`;
+  $("pop-close").onclick = closeLayer;
+  $("pop-over").onclick = () => openNew(HOLD.s, HOLD.m);
+}
+function openNew(s, m) {
+  closeLayer();
+  const st = STAFF.find((x) => x.id === s);
+  const clash = HOLD && HOLD.s === s && m < HOLD.m + HOLD.d && m + 30 > HOLD.m;
+  $("layer").innerHTML = `<div class="scrim" id="scrim"><div class="dlg" role="dialog" aria-label="New booking">
+    <h3>New booking</h3><p class="sub">${st.name} · Thu 5 Nov · ${hhmm(m)}</p>
+    <div class="field"><label>Customer</label><div>Walk-in</div></div>
+    <div class="field"><label>Service</label><div>Signature cut · 30 min · £28</div></div>
+    ${clash ? `<div class="warnbox"><strong>Someone is booking this time online</strong>${HOLD.who ? HOLD.who : "A customer"} has ${hhmm(HOLD.m)} held (${fmtLeft()} left). If you book it, their hold ends and they'll see “Sorry, that time has just gone” with nearby times instead.</div>` : ""}
+    <div class="acts"><button class="b" id="dlg-cancel">Cancel</button><button class="b ${clash ? "warn" : "mint"}" id="dlg-ok">${clash ? "Book anyway" : "Confirm booking"}</button></div></div></div>`;
+  $("dlg-cancel").onclick = closeLayer;
+  $("scrim").onclick = (e) => { if (e.target.id === "scrim") closeLayer(); };
+  $("dlg-ok").onclick = () => {
+    if (clash) { HOLD = null; clearInterval(tick); }
+    BOOKINGS.forEach((b) => b.fresh = false);
+    BOOKINGS.push({ s, m, d:30, who:"Walk-in", what:"Signature cut", fresh:true });
+    closeLayer(); renderBoard();
+    toast(clash ? "Booked. The online customer has been told the time has gone" : "Walk-in booked");
+  };
+}
+$("newbk").onclick = () => openNew("dani", 840);
+
+/* Simulation */
+$("s-start").onclick = () => {
+  closeDrawer(); closeLayer();
+  BOOKINGS.forEach((b) => b.fresh = false);
+  const i = BOOKINGS.findIndex((b) => b.s === "dani" && b.m === 855); if (i >= 0) BOOKINGS.splice(i, 1);
+  HOLD = { s:"dani", m:855, d:45, what:"Skin fade", who:"Jordan Ellis", until: Date.now() + 5 * 60000, left:false };
+  renderBoard(); startTick();
+  const el = $("holdev"); el.scrollIntoView({ block:"center", behavior:"smooth" });
+  toast("An online customer is booking 14:15 with Dani");
+};
+$("s-confirm").onclick = () => {
+  if (!HOLD) $("s-start").click();
+  setTimeout(() => {
+    const h = HOLD; HOLD = null; clearInterval(tick); closeLayer();
+    BOOKINGS.forEach((b) => b.fresh = false);
+    BOOKINGS.push({ s:h.s, m:h.m, d:h.d, who:h.who || "Online customer", what:h.what, fresh:true });
+    ITEMS.unshift({ id:Date.now(), kind:"new", day:"Today", ago:"Just now", title:"New booking", body:`${h.who} · ${h.what} with Dani · Thu 5 Nov at ${hhmm(h.m)}`, unread:true, open:true });
+    renderBoard(); badge();
+    $("bell").animate([{ transform:"rotate(0)" }, { transform:"rotate(-14deg)" }, { transform:"rotate(12deg)" }, { transform:"rotate(0)" }], { duration:500 });
+    toast(`${h.who} confirmed. 14:15 is now booked`);
+  }, HOLD ? 0 : 900);
+};
+$("s-leave").onclick = () => {
+  if (!HOLD) $("s-start").click();
+  HOLD.left = true; HOLD.until = Math.min(HOLD.until, Date.now() + 2 * 60000);
+  renderBoard(); toast("The customer left the page. 14:15 is held for 2 more minutes");
+};
+$("s-low").onclick = () => {
+  if (!HOLD) $("s-start").click();
+  HOLD.until = Date.now() + 45000; renderBoard();
+};
+$("s-over").onclick = () => {
+  if (!HOLD) $("s-start").click();
+  setTimeout(() => openNew(HOLD.s, HOLD.m), 200);
+};
+
+renderBoard(); badge();
+const q = new URLSearchParams(location.search);
+if (q.get("hold")) { HOLD = { s:"dani", m:855, d:45, what:"Skin fade", who:"Jordan Ellis", until: Date.now() + (q.get("hold") === "low" ? 42000 : 4 * 60000 + 31000), left: q.get("hold") === "left" }; if (q.get("hold") === "left") HOLD.until = Date.now() + 97000; renderBoard(); startTick(); }
+if (q.get("pop")) setTimeout(() => openHoldPop($("holdev")), 100);
+if (q.get("over")) setTimeout(() => openNew("dani", 855), 100);
+if (q.get("bell")) { if (q.get("bell") === "attn") TAB = "attn"; openDrawer(); }
+if (q.get("confirmed")) { $("s-start").click(); setTimeout(() => $("s-confirm").click(), 300); }
+const sc = q.get("scroll"); if (sc) setTimeout(() => $("board").scrollTop = +sc, 50);
+</script>
+</body>
+</html>
