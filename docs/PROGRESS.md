@@ -1,5 +1,12 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-05 — Customer booking: "Day off" vs "Closed", and "Anyone" lists every barber's times
+- `/days` now says why a day can't be booked: `reason: "shop"` (whole shop shut — closed weekday or closure date) or `"off"` (the barber isn't working). The date strip shows **Closed** only for the shop; a barber's own day off is a dashed, tappable **Day off**.
+- Tapping a barber's day off shows "Dani has a day off on Mon 9 Nov" with **See who's working** (switches to Anyone on that day) and **Dani's next day in**.
+- `/availability` with any barber returns `options[]` per time (every barber free then) and `team[]` (each barber, `off` flag, their price). The time screen lists one row per barber with their own times; barbers off that day stay listed with "Day off". Picking a time under a barber books that barber (price follows them).
+- Fair order: barbers are shown in a fresh random order per page visit (stable while the customer looks); barbers on a day off go last.
+- Tests: `tests/dayoff-anyone.spec.ts` (3). booking-upgrades (any-barber assertion updated: every time's label says who it's with), customer-account, customer-screens, shop-page, public (14) pass.
+
 ## 2026-11-04 — Admin calendar: whole-shop closed days show a light red wash
 - A closed weekday or closure date no longer prints "Shop closed" in every slot. The day timetable gets a soft red wash with one sticky "Shop closed · <closure label>" pill under the barber header; slots stay disabled and keep "Shop closed" in their aria-label for screen readers.
 - With nobody rostered on a closed day, one red "Shop closed" note replaces "No barbers match this view" (the team button still adds a barber to book anyway).

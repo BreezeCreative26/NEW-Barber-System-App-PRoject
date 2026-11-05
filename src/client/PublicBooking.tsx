@@ -72,9 +72,14 @@ type Slot = {
   barbers?: number;
   price_pence?: number;
   duration_min?: number;
+  // Any-barber: every barber free at this time.
+  options?: SlotOption[];
 };
+type SlotOption = { staff_id: string; staff_name: string; price_pence: number; duration_min: number };
+type TeamDay = { id: string; name: string; off: boolean; price_pence: number; duration_min: number };
 type Availability = {
   slots: Slot[];
+  team?: TeamDay[];
   duration_min: number;
   price_pence: number;
   items: BookingItem[];
@@ -84,7 +89,18 @@ type Availability = {
   cancel_hours: number;
   quote: { service_version: number; shop_version: number };
 };
-type DaySummary = { date: string; available: number; closed: boolean; beyond: boolean };
+// reason: "shop" = the whole shop is shut; "off" = the barber (or every barber) isn't working.
+type DaySummary = { date: string; available: number; closed: boolean; beyond: boolean; reason?: "shop" | "off" | "" };
+// Fair order for "Anyone": a fresh random order per page visit, stable while the customer looks.
+const shuffleSeed = Math.random();
+function fairOrder<T extends { id: string }>(list: T[], salt: string): T[] {
+  const score = (id: string) => {
+    let h = Math.floor(shuffleSeed * 2 ** 31) ^ 0x9e3779b9;
+    for (const ch of id + salt) h = Math.imul(h ^ ch.charCodeAt(0), 0x01000193) >>> 0;
+    return h;
+  };
+  return [...list].sort((a, b) => score(a.id) - score(b.id));
+}
 type CustomerBooking = {
   id: string;
   reference: string;
@@ -506,7 +522,12 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
         setSlotsLoading(false);
         setSlot((s) => {
           const keep = s !== null ? r.slots.find((x) => x.start_min === s && x.available) : null;
-          setAssigned(keep?.staff_id ? { id: keep.staff_id, name: keep.staff_name! } : null);
+          setAssigned((a) => {
+            if (!keep?.staff_id) return null;
+            // Any-barber: keep whoever the customer picked if they're still free at that time.
+            const still = a && keep.options?.find((o) => o.staff_id === a.id);
+            return still ? a : { id: keep.staff_id, name: keep.staff_name! };
+          });
           return keep ? s : null;
         });
       })
@@ -761,7 +782,9 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       `${s.name} ${s.category}`.toLowerCase().includes(query.toLowerCase()),
   );
   const est = anyBarber ? { ...anyEstimate(), overridden: false } : { ...estimate(barber), priceTo: estimate(barber).price };
-  const chosenSlot = availability?.slots.find((x) => x.start_min === slot && x.available);
+  const slotRow = availability?.slots.find((x) => x.start_min === slot && x.available);
+  const pickedOpt = anyBarber && assigned ? slotRow?.options?.find((o) => o.staff_id === assigned.id) : undefined;
+  const chosenSlot = slotRow ? { ...slotRow, ...(pickedOpt ? { price_pence: pickedOpt.price_pence, duration_min: pickedOpt.duration_min } : {}) } : undefined;
   const price = chosenSlot?.price_pence ?? (anyBarber ? est.price : availability?.price_pence ?? est.price);
   const priceTo = chosenSlot?.price_pence ?? (anyBarber ? est.priceTo : price);
   const duration = chosenSlot?.duration_min ?? availability?.duration_min ?? est.duration;
@@ -789,6 +812,23 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const weekDays = Array.from({ length: 7 }, (_, i) => datePlus(from, i));
   const dayInfo = (d: string) => days?.find((x) => x.date === d);
   const dayFull = !!availability && openCount === 0 && !!dayInfo(date) && !dayInfo(date)!.closed;
+  // "Anyone": one row per barber with their own times, in a fair random order. Barbers who are
+  // off that day stay listed with "Day off" so it never looks as if the shop is shut.
+  const barberRows = (() => {
+    if (!anyBarber || !availability?.team) return [];
+    const byStaff = new Map<string, { start_min: number }[]>();
+    for (const sl of openSlots) for (const o of sl.options || []) {
+      if (!inDaypart(sl.start_min, daypart)) continue;
+      const list = byStaff.get(o.staff_id) || [];
+      list.push({ start_min: sl.start_min });
+      byStaff.set(o.staff_id, list);
+    }
+    const team = fairOrder(availability.team, date);
+    const working = team.filter((t) => !t.off);
+    const off = team.filter((t) => t.off);
+    return [...working, ...off].map((t) => ({ ...t, times: byStaff.get(t.id) || [] }));
+  })();
+  const offToday = !anyBarber && dayInfo(date)?.reason === "off";
   const nextElsewhere = next?.filter((n) => n.date !== date) || [];
   return (
     <div className={`${wrap} in-flow`}>
@@ -1102,8 +1142,10 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                     {weekDays.map((d) => {
                       const info = dayInfo(d);
                       const beyond = d > shop.max_date;
-                      const disabled = beyond || (info ? info.closed : false);
-                      const level = !info || beyond ? "" : info.closed ? "closed" : info.available === 0 ? "full" : info.available < 6 ? "low" : "open";
+                      const dayOff = !!info && info.closed && info.reason === "off";
+                      // A barber's day off stays tappable so we can say who else is in that day.
+                      const disabled = beyond || (info ? info.closed && !dayOff : false);
+                      const level = !info || beyond ? "" : dayOff ? "dayoff" : info.closed ? "closed" : info.available === 0 ? "full" : info.available < 6 ? "low" : "open";
                       return (
                         <button
                           key={d}
@@ -1118,7 +1160,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                           }}
                           aria-pressed={date === d}
                           aria-label={`${dateLabel(d)}, ${
-                            !info ? "checking" : beyond ? "opens later" : info.closed ? "closed" : info.available === 0 ? "fully booked" : `${info.available} times`
+                            !info ? "checking" : beyond ? "opens later" : dayOff ? "day off" : info.closed ? "closed" : info.available === 0 ? "fully booked" : `${info.available} times`
                           }`}
                         >
                           <span>{d === shop.today ? "Today" : dateLabel(d, { weekday: "short" })}</span>
@@ -1128,7 +1170,9 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                               ? "…"
                               : beyond
                                 ? "Later"
-                                : info.closed
+                                : dayOff
+                                  ? "Day off"
+                                  : info.closed
                                   ? "Closed"
                                   : info.available
                                     ? `${info.available} times`
@@ -1157,7 +1201,64 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       {slotError}
                     </Notice>
                   )}
+                  {offToday && chosenBarber && (() => {
+                    const first = chosenBarber.name.split(" ")[0];
+                    const others = barbers.filter((b) => b.id !== chosenBarber.id);
+                    const nextIn = days?.find((d) => d.date > date && !d.closed && !d.beyond && d.available > 0);
+                    return (
+                      <section className="dayoff-card" role="note" data-testid="barber-day-off">
+                        <strong>{first} has a day off on {dateLabel(date, { weekday: "short", day: "numeric", month: "short" })}</strong>
+                        <p>{others.length ? "See who else is working that day, or pick another day." : "Pick another day."}</p>
+                        <div className="dayoff-actions">
+                          {others.length > 0 && (
+                            <Button variant="secondary" onClick={() => { setBarber(ANY); setSlot(null); setAssigned(null); }} data-testid="dayoff-see-team">
+                              See who's working
+                            </Button>
+                          )}
+                          {nextIn && (
+                            <Button variant="secondary" onClick={() => { pickedDateRef.current = true; dateRef.current = nextIn.date; setDate(nextIn.date); setSlot(null); }} data-testid="dayoff-next">
+                              {first}'s next day in
+                            </Button>
+                          )}
+                        </div>
+                      </section>
+                    );
+                  })()}
+                  {anyBarber && barberRows.length > 0 && !slotError && (
+                    <div className="anyone-rows" role="group" aria-label="Choose an appointment time" aria-busy={slotsLoading} data-testid="barber-rows">
+                      {barberRows.map((r) => (
+                        <section key={r.id} className={`anyone-row ${r.off ? "off" : ""}`} data-testid="barber-row" data-staff={r.id} aria-label={r.name}>
+                          <header>
+                            <strong>{r.name}</strong>
+                            <span>{r.off ? (date === shop.today ? "Not working today" : "Not working this day") : `${r.times.length} time${r.times.length === 1 ? "" : "s"}`}</span>
+                            {r.off ? <em className="dayoff-tag">Day off</em> : <b>{money(r.price_pence)}</b>}
+                          </header>
+                          {!r.off && (r.times.length ? (
+                            <div className="time-slots">
+                              {r.times.map((t) => {
+                                const on = slot === t.start_min && assigned?.id === r.id;
+                                return (
+                                  <button
+                                    key={t.start_min}
+                                    aria-label={`${time(t.start_min)} with ${r.name}`}
+                                    aria-pressed={on}
+                                    disabled={slotsStale}
+                                    className={on ? "chosen" : ""}
+                                    onClick={() => { setSlot(t.start_min); setAssigned({ id: r.id, name: r.name }); }}
+                                  >
+                                    {time(t.start_min)}
+                                    {on && <Icon name="check" size={14} />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : <p className="anyone-row-empty">No {daypart === "All times" ? "" : `${daypart.toLowerCase()} `}times left.</p>)}
+                        </section>
+                      ))}
+                    </div>
+                  )}
                   <div
+                    hidden={(anyBarber && barberRows.length > 0) || offToday}
                     className="time-groups"
                     role="group"
                     aria-label="Choose an appointment time"
