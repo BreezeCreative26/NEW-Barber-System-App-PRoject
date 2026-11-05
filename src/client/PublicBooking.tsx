@@ -269,7 +269,9 @@ function BookingTopBar({ slug, name, logo, customer }: { slug: string; name: str
   );
 }
 
-const steps = ["Service", "Barber", "Date & time", "Your account", "Review"];
+// Four steps: the account is created on the confirm step (step index 4). Index 3 is only used to
+// sign in before a group booking.
+const steps = ["Service", "Barber", "Time", "Confirm"];
 type NextSlot = {
   date: string;
   start_min: number;
@@ -310,13 +312,19 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       .finally(() => setSessionKnown(true));
   }, [slug]);
   const [loadError, setLoadError] = useState("");
-  const [step, setStep] = useState(preset?.step ?? (preset?.staff ? 2 : preset?.service ? 1 : 0));
+  const [step, setStep] = useState(preset?.step === 3 && !preset?.group ? 4 : preset?.step ?? (preset?.staff ? 2 : preset?.service ? 1 : 0));
   const [service, setService] = useState(preset?.service || "");
   const [barber, setBarber] = useState(preset?.staff || "");
   const [extraIds, setExtraIds] = useState<string[]>([]);
   const [category, setCategory] = useState("All services");
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
+  // Returning customers: their usual (most-booked service + barber) and its next free time.
+  type Usual = { service_id: string; service_name: string; staff_id: string; staff_name: string | null; price_pence: number; count: number; next: { date: string; start_min: number } | null };
+  const [usual, setUsual] = useState<Usual | null>(null);
+  // Barber list: each barber's next free time, and who is off today, for the chosen service.
+  type TeamNext = { staff_id: string; off_today: boolean; next: { date: string; start_min: number } | null; price_pence: number; duration_min: number };
+  const [teamNext, setTeamNext] = useState<{ key: string; team: TeamNext[] } | null>(null);
   const [date, setDate] = useState("");
   const [pickedDate, setPickedDate] = useState(false);
   // Read by async callbacks: a days response that lands after the customer tapped a day must
@@ -415,7 +423,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       setFrom(preset.date);
     }
     setSlot(preset.start ?? null);
-    setStep(preset.step ?? (preset.staff ? 2 : preset.service ? 1 : 0));
+    setStep(preset.step === 3 && !preset.group ? 4 : preset.step ?? (preset.staff ? 2 : preset.service ? 1 : 0));
     setGroup(!!preset.group);
     setTimeout(() => heading.current?.focus(), 50);
   }, [presetKey, !!shop]);
@@ -471,6 +479,30 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     };
   };
   const addonQuery = extraIds.length ? `&addon_ids=${[...extraIds].sort().join(",")}` : "";
+  useEffect(() => {
+    if (!customer || !shop) { setUsual(null); return; }
+    let cancelled = false;
+    api<{ usual: Omit<Usual, "next"> | null; next_usual: { date: string; start_min: number } | null }>(`/shops/${encodeURIComponent(slug)}/account/me`)
+      .then((d) => {
+        if (cancelled) return;
+        const u = d.usual;
+        // Only offer it while the service and barber can still be booked online.
+        const ok = u && shop.services.some((x) => x.id === u.service_id) && shop.staff.some((x) => x.id === u.staff_id) && offersService(shop.service_rules, u.staff_id, u.service_id);
+        setUsual(ok ? { ...u!, next: d.next_usual ? { date: d.next_usual.date, start_min: d.next_usual.start_min } : null } : null);
+      })
+      .catch(() => !cancelled && setUsual(null));
+    return () => { cancelled = true; };
+  }, [customer?.phone, !!shop, slug]);
+  useEffect(() => {
+    if (!shop || !service || step !== 1) return;
+    const key = `${service}|${[...extraIds].sort().join(",")}`;
+    if (teamNext?.key === key) return;
+    let cancelled = false;
+    api<{ team: TeamNext[] }>(`/shops/${encodeURIComponent(slug)}/team-next?service_id=${service}${addonQuery}`)
+      .then((r) => !cancelled && setTeamNext({ key, team: r.team }))
+      .catch(() => !cancelled && setTeamNext({ key, team: [] }));
+    return () => { cancelled = true; };
+  }, [step, service, addonQuery, !!shop]);
   const quoteKey = `${barber}|${service}|${[...extraIds].sort().join(",")}`;
   // Days + times are fetched as soon as a barber is chosen (step 2), so step 3 opens with them
   // already on screen. Previous data stays visible while a new request is in flight.
@@ -717,6 +749,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     setSession(me);
     setTermsAccepted(d.terms_accepted || 0);
     onSignedIn?.(me);
+    return { me, accepted: (d.terms_accepted || 0) as number };
   }
   const termsVersion = shop?.shop.terms?.version || 0;
   const termsDue = termsVersion > 0 && termsAccepted < termsVersion;
@@ -729,6 +762,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       if (!emailOk(reg.email)) next.email = "Enter a valid email address";
       if (reg.password.length < 8) next.password = "Use at least 8 characters";
       if (termsVersion > 0 && !termsTick) next.terms = "Please accept the booking terms";
+      if (step === 4 && forOther && attendee.trim().length < 2) next.attendee = "Who is the visit for?";
     } else {
       if (!emailOk(login.email)) next.email = "Enter your email address";
       if (!login.password) next.password = "Enter your password";
@@ -747,18 +781,22 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
         if (r?.team) { window.location.assign(r.workspace_url || "/workspace"); return; }
       }
       if (authMode === "register" && !(smsOffered && regTexts)) setContactPref("EMAIL");
-      await loadSession();
-      go(4);
+      const who = await loadSession();
+      if (step === 4) {
+        setAuthBusy(false);
+        // Register: terms were ticked in the form. Sign in: newer terms are asked for under More options.
+        await confirm(who.me, authMode === "register" && termsVersion > 0 && termsTick ? termsVersion : who.accepted, authMode === "register" && !(smsOffered && regTexts) ? "EMAIL" : undefined);
+      } else go(4);
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : "Could not sign in.");
     } finally {
       setAuthBusy(false);
     }
   };
-  const submitReview = () => {
+  const submitReview = (due = termsDue) => {
     const next: Record<string, string> = {};
     if (forOther && attendee.trim().length < 2) next.attendee = "Who is the visit for?";
-    if (termsDue && !termsTick) next.terms = "Please accept the booking terms to continue";
+    if (due && !termsTick) next.terms = "Please accept the booking terms to continue";
     setErrors(next);
     if (Object.keys(next).length) {
       requestAnimationFrame(() => document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
@@ -768,23 +806,27 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   };
   const bookingStaff = anyBarber ? assigned?.id || "" : barber;
   const bookingStaffName = anyBarber ? assigned?.name : chosenBarber?.name;
-  async function confirm() {
-    if (!availability || slot === null || busy || !bookingStaff || !customer) return;
-    if (!submitReview()) return;
+  // `who` / `accepted` / `pref`: passed straight after signing up on this step, before state catches up.
+  async function confirm(who?: BookingCustomer, accepted?: number, pref?: "AUTO" | "EMAIL") {
+    const booker = who || customer;
+    if (!availability || slot === null || busy || !bookingStaff || !booker) return;
+    const due = termsVersion > 0 && (accepted ?? termsAccepted) < termsVersion;
+    if (!submitReview(due)) return;
+    const contact = pref || contactPref;
     const payload = {
       staff_id: bookingStaff,
       service_id: service,
-      customer_name: details.name.trim(),
+      customer_name: booker.name.trim(),
       attendee_name: forOther ? attendee.trim() : "",
-      phone: details.phone,
-      email: details.email.trim(),
-      notes: details.notes.trim(),
+      phone: booker.phone,
+      email: (booker.email || "").trim(),
+      notes: (details.notes || (who ? who.notes || "" : "")).trim(),
       date,
       start_min: slot,
       addon_ids: [...extraIds].sort(),
       quote: availability.quote,
-      ...(contactPref !== "AUTO" ? { contact_pref: contactPref } : {}),
-      ...(termsDue ? { accept_terms_version: termsVersion } : {}),
+      ...(contact !== "AUTO" ? { contact_pref: contact } : {}),
+      ...(due || (accepted !== undefined && termsVersion > 0) ? { accept_terms_version: termsVersion } : {}),
       ...(repeatWeeks ? { repeat_weeks: repeatWeeks, repeat_visits: repeatVisits } : {}),
     };
     const serialised = JSON.stringify(payload);
@@ -807,7 +849,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       try {
         localStorage.setItem(
           "barbershop-os:customer",
-          JSON.stringify({ name: details.name.trim(), phone: details.phone, email: details.email.trim() }),
+          JSON.stringify({ name: booker.name.trim(), phone: booker.phone, email: (booker.email || "").trim() }),
         );
       } catch {
         /* ignore */
@@ -939,7 +981,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     (part === "Afternoon" && m >= 720 && m < 1020) ||
     (part === "Evening" && m >= 1020);
   const groups = (["Morning", "Afternoon", "Evening"] as const)
-    .filter((g) => daypart === "All times" || daypart === g)
+    .filter((g) => !anyBarber || daypart === "All times" || daypart === g)
     .map((g) => ({ label: g, slots: openSlots.filter((s) => inDaypart(s.start_min, g)) }))
     .filter((g) => g.slots.length);
   const openCount = openSlots.length;
@@ -963,6 +1005,95 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     return [...working, ...off].map((t) => ({ ...t, times: byStaff.get(t.id) || [] }));
   })();
   const offToday = !anyBarber && dayInfo(date)?.reason === "off";
+  const authForm = (
+                <form id="customer-auth" noValidate onSubmit={submitAuth} className="booking-auth" data-testid="booking-auth">
+                  <h3 className="auth-title">{authMode === "register" ? "Create your account" : "Sign in"}</h3>
+                  <p className="auth-sub">{authMode === "register" ? `Keeps all your visits with ${shop.shop.name} in one place. Move, cancel or rebook in a tap.` : "Welcome back. Your visits are saved to your account."}</p>
+                  <div className="auth-switch" role="tablist" aria-label="Sign in or create an account">
+                    <button type="button" role="tab" aria-selected={authMode === "register"} className={authMode === "register" ? "active" : ""} onClick={() => { setAuthMode("register"); setErrors({}); setAuthError(""); }} data-testid="auth-register">
+                      New here
+                    </button>
+                    <button type="button" role="tab" aria-selected={authMode === "login"} className={authMode === "login" ? "active" : ""} onClick={() => { setAuthMode("login"); setErrors({}); setAuthError(""); }} data-testid="auth-login">
+                      I have an account
+                    </button>
+                  </div>
+                  {authMode === "register" ? (
+                    <div className="customer-fields">
+                      {[
+                        { id: "name", label: "Your name", placeholder: "Jamie Taylor", type: "text", auto: "name" },
+                        { id: "phone", label: "Mobile number", placeholder: "07700 900123", type: "tel", auto: "tel" },
+                        { id: "email", label: "Email address", placeholder: "jamie@example.com", type: "email", auto: "email" },
+                        { id: "password", label: "Choose a password", placeholder: "", type: "password", auto: "new-password" },
+                      ].map((field) => (
+                        <label key={field.id}>
+                          <span id={`booking-${field.id}-label`}>{field.label}</span>
+                          <input
+                            aria-labelledby={`booking-${field.id}-label`}
+                            required
+                            type={field.type}
+                            name={field.id === "password" ? "new-password" : field.id}
+                            autoComplete={field.auto}
+                            minLength={field.id === "password" ? 8 : undefined}
+                            value={reg[field.id as keyof typeof reg]}
+                            placeholder={field.placeholder}
+                            onChange={(e) => {
+                              setReg((d) => ({ ...d, [field.id]: e.target.value }));
+                              setErrors((c) => ({ ...c, [field.id]: "" }));
+                            }}
+                            aria-invalid={!!errors[field.id]}
+                            aria-describedby={errors[field.id] ? `booking-${field.id}-error` : field.id === "password" ? "booking-password-hint" : undefined}
+                            data-testid={field.id === "password" ? "booking-password" : undefined}
+                          />
+                          {errors[field.id] ? (
+                            <span className="field-error" id={`booking-${field.id}-error`}>{errors[field.id]}</span>
+                          ) : field.id === "password" ? (
+                            <small className="field-hint" id="booking-password-hint">At least 8 characters. You'll use your email and this password to sign in.</small>
+                          ) : null}
+                        </label>
+                      ))}
+                      <div className="booking-consent" data-testid="booking-consent">
+                        {smsOffered && (
+                          <label className="booking-check">
+                            <input type="checkbox" checked={regTexts} onChange={(e) => setRegTexts(e.target.checked)} data-testid="booking-texts" />
+                            <span>Text me confirmations and reminders</span>
+                          </label>
+                        )}
+                        <label className="booking-check">
+                          <input type="checkbox" checked={regMarketing} onChange={(e) => setRegMarketing(e.target.checked)} data-testid="booking-marketing" />
+                          <span>Send me offers and news from {shop.shop.name} (optional, you can change this any time in your account)</span>
+                        </label>
+                      </div>
+                      {termsDue && (
+                        <div className={`booking-terms${errors.terms ? " has-error" : ""}`} data-testid="booking-terms">
+                          <label className="booking-check">
+                            <input type="checkbox" checked={termsTick} onChange={(e) => { setTermsTick(e.target.checked); setErrors((c) => ({ ...c, terms: "" })); }} aria-invalid={!!errors.terms} data-testid="booking-terms-tick" />
+                            <span>{termsAccepted > 0 ? `${shop.shop.name} has updated its booking terms. I accept the new terms.` : `I accept ${shop.shop.name}’s booking terms.`} <button type="button" className="link" onClick={() => setTermsOpen((v) => !v)} aria-expanded={termsOpen}>{termsOpen ? "Hide" : "Read them"}</button></span>
+                          </label>
+                          {termsOpen && <div className="booking-terms-text" data-testid="booking-terms-text">{shop.shop.terms!.text.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}</div>}
+                          {errors.terms && <span className="field-error">{errors.terms}</span>}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="customer-fields">
+                      <label>
+                        <span id="booking-email-label">Email address</span>
+                        <input aria-labelledby="booking-email-label" required type="email" name="email" autoComplete="username" value={login.email} onChange={(e) => { setLogin((d) => ({ ...d, email: e.target.value })); setErrors((c) => ({ ...c, email: "" })); }} aria-invalid={!!errors.email} aria-describedby={errors.email ? "booking-email-error" : undefined} data-testid="signin-email" />
+                        {errors.email && <span className="field-error" id="booking-email-error">{errors.email}</span>}
+                      </label>
+                      <label>
+                        <span id="booking-password-label">Password</span>
+                        <input aria-labelledby="booking-password-label" required type="password" name="current-password" autoComplete="current-password" value={login.password} onChange={(e) => { setLogin((d) => ({ ...d, password: e.target.value })); setErrors((c) => ({ ...c, password: "" })); }} aria-invalid={!!errors.password} aria-describedby={errors.password ? "booking-password-error" : undefined} data-testid="signin-password" />
+                        {errors.password && <span className="field-error" id="booking-password-error">{errors.password}</span>}
+                      </label>
+                      <a className="link small" href={shopPath(slug, "/me", "?forgot=1")} data-testid="auth-forgot">Forgot password?</a>
+                    </div>
+                  )}
+                  {authError && (
+                    <p className="workspace-error" role="alert" data-testid="auth-error">{authError}</p>
+                  )}
+                </form>
+  );
   const nextElsewhere = next?.filter((n) => n.date !== date) || [];
   return (
     <div className={`${wrap} in-flow`}>
@@ -974,58 +1105,41 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
             <GroupBooking shop={shop} slug={slug} customer={customer} onExit={() => setGroup(false)} />
           ) : (
           <>
-          <nav className="booking-progress" aria-label="Booking steps">
-            <i
-              className="booking-progress-bar"
-              aria-hidden
-              style={{
-                width: `${Math.round(((customer && step === 4 ? 4 : step + 1) / (customer ? 4 : 5)) * 100)}%`,
-              }}
-            />
-            <span className="booking-progress-count" aria-hidden>
-              Step {customer && step === 4 ? 4 : step + 1} of {customer ? 4 : 5}
-            </span>
-            {steps.map((label, i) => (
-              <button
-                key={label}
-                hidden={i === 3 && !!customer}
-                disabled={i > step || (i === 3 && !!customer)}
-                onClick={() => go(i)}
-                aria-current={i === step ? "step" : undefined}
-                className={i < step ? "done" : ""}
-              >
-                <span>{i < step ? <Icon name="check" size={14} /> : i + 1}</span>
-                <strong>{label}</strong>
-                {i < 4 && <i />}
-              </button>
-            ))}
+          <nav className="booking-bars" aria-label="Booking steps" data-testid="booking-steps">
+            {steps.map((label, i) => {
+              const at = step >= 3 ? 3 : step;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  disabled={i > at}
+                  onClick={() => go(i === 3 ? 4 : i)}
+                  aria-current={i === at ? "step" : undefined}
+                  aria-label={`${label}${i < at ? " (done)" : i === at ? " (current step)" : ""}`}
+                  className={i < at ? "done" : i === at ? "on" : ""}
+                >
+                  <i aria-hidden="true" />
+                  <span>{label}</span>
+                </button>
+              );
+            })}
           </nav>
           <div className="booking-layout">
             <section className="booking-flow">
-              <header className="step-heading">
-                <span className="eyebrow">STEP {String(customer && step === 4 ? 4 : step + 1).padStart(2, "0")} OF {customer ? "04" : "05"}</span>
-                <h2 ref={heading} tabIndex={-1}>
-                  {
-                    [
-                      "What are we doing today?",
-                      "Who’s cutting?",
-                      "When suits you?",
-                      "Sign in to book.",
-                      "Check and confirm.",
-                    ][step]
-                  }
-                </h2>
-                <p className={step === 3 ? "" : "step-sub"}>
-                  {
-                    [
-                      "Pick a service. Add extras if you like.",
-                      "Pick a barber, or take the first free chair.",
-                      `Times in ${shop.shop.timezone}. Book at least ${shop.shop.lead_time_min >= 60 ? `${Math.round(shop.shop.lead_time_min / 60)} hour${shop.shop.lead_time_min >= 120 ? "s" : ""}` : `${shop.shop.lead_time_min} minutes`} ahead.`,
-                      `Your ${shop.shop.name} account keeps every visit in one place — move, cancel or rebook in a tap.`,
-                      "Everything look right?",
-                    ][step]
-                  }
+              {(step === 1 || step === 2) && chosenService && (
+                <p className="step-summary" data-testid="step-summary">
+                  <span>
+                    <b>{chosenService.name}</b>
+                    {extraNames.length > 0 && ` + ${extraNames.join(", ")}`}
+                    {step === 2 && ` · ${anyBarber ? "Anyone" : chosenBarber?.name.split(" ")[0] || ""}`} · {duration} min
+                  </span>
+                  <button type="button" className="link" onClick={() => go(step - 1)}>Change</button>
                 </p>
+              )}
+              <header className="step-heading">
+                <h2 ref={heading} tabIndex={-1}>
+                  {step === 4 ? (customer ? "Check and confirm." : "Last step: your account") : ["What are we doing today?", "Who’s cutting?", "When suits you?", "Sign in to book."][step]}
+                </h2>
               </header>
               {hold && step >= 2 && slot !== null && (() => {
                 void holdTick;
@@ -1040,6 +1154,40 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
               })()}
               {step === 0 && (
                 <>
+                  {usual && (
+                    <section className="usual-card" data-testid="book-usual-card" aria-label="Your usual">
+                      <span className="usual-avatar" aria-hidden="true">{initials(usual.staff_name || usual.service_name)}</span>
+                      <div>
+                        <small>Your usual</small>
+                        <strong>{usual.service_name}{usual.staff_name ? ` with ${usual.staff_name.split(" ")[0]}` : ""}</strong>
+                        <span>
+                          {money(usual.price_pence)}
+                          {usual.next ? ` · next free ${usual.next.date === shop.today ? "today" : usual.next.date === datePlus(shop.today, 1) ? "tomorrow" : dateLabel(usual.next.date, { weekday: "short", day: "numeric", month: "short" })} at ${time(usual.next.start_min)}` : ""}
+                        </span>
+                      </div>
+                      <Button
+                        onClick={() => {
+                          setService(usual.service_id);
+                          setExtraIds([]);
+                          setBarber(usual.staff_id);
+                          setSlot(null);
+                          setAssigned(null);
+                          if (usual.next) {
+                            pickedDateRef.current = true;
+                            dateRef.current = usual.next.date;
+                            setPickedDate(true);
+                            setFrom(usual.next.date);
+                            setDate(usual.next.date);
+                          }
+                          go(2);
+                        }}
+                        data-testid="book-usual-again"
+                      >
+                        Book again
+                      </Button>
+                    </section>
+                  )}
+                  {shop.services.length > 8 && (
                   <label className="service-search">
                     <Icon name="search" />
                     <input
@@ -1049,6 +1197,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       onChange={(e) => setQuery(e.target.value)}
                     />
                   </label>
+                  )}
                   {categories.length > 2 && (
                     <div className="filter-chips" role="group" aria-label="Service categories">
                       {categories.map((c) => (
@@ -1059,38 +1208,66 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                     </div>
                   )}
                   <div className="service-cards" role="group" aria-label="Choose a service">
-                    {shownServices.map((s, i) => (
-                      <button
-                        key={s.id}
-                        className={`service-choice ${service === s.id ? "chosen" : ""}`}
-                        aria-pressed={service === s.id}
-                        onClick={() => {
-                          setService(s.id);
-                          setSlot(null);
-                        }}
-                      >
-                        <span className={`service-thumb ${s.colour || thumbs[i % thumbs.length]}`}>
-                          <Icon name="scissors" size={25} />
-                        </span>
-                        <span className="service-copy">
-                          <strong>
-                            {s.name}
-                            {s.popular ? <em className="popular-pill">Popular</em> : null}
-                          </strong>
-                          <span>{s.description || s.category}</span>
-                          <small>
-                            <Icon name="clock" size={12} />
-                            {s.duration_min} min
-                          </small>
-                        </span>
-                        <span className="choice-end">
-                          <strong>{money(s.price_pence)}</strong>
-                          <span className="choice-radio">
-                            {service === s.id && <Icon name="check" size={12} />}
-                          </span>
-                        </span>
-                      </button>
-                    ))}
+                    {shownServices.map((s, i) => {
+                      const on = service === s.id;
+                      return (
+                        <div key={s.id} className={`service-item ${on ? "chosen" : ""}`}>
+                          <button
+                            type="button"
+                            className={`service-choice ${on ? "chosen" : ""}`}
+                            aria-pressed={on}
+                            onClick={() => {
+                              if (!on) setExtraIds([]);
+                              setService(s.id);
+                              setSlot(null);
+                            }}
+                          >
+                            <span className={`service-thumb ${s.colour || thumbs[i % thumbs.length]}`}>
+                              <Icon name="scissors" size={22} />
+                            </span>
+                            <span className="service-copy">
+                              <strong>
+                                {s.name}
+                                {s.popular ? <em className="popular-pill">Popular</em> : null}
+                              </strong>
+                              {s.description && <span>{s.description}</span>}
+                              <small>
+                                <Icon name="clock" size={12} />
+                                {s.duration_min} min
+                              </small>
+                            </span>
+                            <span className="choice-end">
+                              <strong>{money(s.price_pence)}</strong>
+                              <span className="choice-radio">{on && <Icon name="check" size={12} />}</span>
+                            </span>
+                          </button>
+                          {on && serviceAddons.length > 0 && (
+                            <div className="service-extras" role="group" aria-label={`Extras for ${s.name}`} data-testid="service-extras">
+                              <p>Add an extra?</p>
+                              {serviceAddons.map((a) => {
+                                const picked = extraIds.includes(a.id);
+                                return (
+                                  <button
+                                    key={a.id}
+                                    type="button"
+                                    className={`extra-chip ${picked ? "chosen" : ""}`}
+                                    aria-pressed={picked}
+                                    aria-label={`${a.name}, plus ${money(a.price_pence)}, ${a.duration_min} minutes`}
+                                    onClick={() => {
+                                      setExtraIds((ids) => (ids.includes(a.id) ? ids.filter((v) => v !== a.id) : [...ids, a.id]));
+                                      setSlot(null);
+                                    }}
+                                  >
+                                    <Icon name={picked ? "check" : "plus"} size={13} />
+                                    {a.name} · {money(a.price_pence)}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                     {!shownServices.length && (
                       <div className="inline-empty">
                         <Icon name="search" />
@@ -1118,128 +1295,67 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       <Icon name="right" size={16} />
                     </button>
                   )}
-                  {serviceAddons.length > 0 && (
-                    <>
-                      <div className="addon-heading">
-                        <h3>The finishing touches</h3>
-                        <span>Optional extras</span>
-                      </div>
-                      <div className="addons">
-                        {serviceAddons.map((a) => (
-                          <label
-                            className={`addon-choice ${extraIds.includes(a.id) ? "chosen" : ""}`}
-                            key={a.id}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={extraIds.includes(a.id)}
-                              onChange={() => {
-                                setExtraIds((ids) =>
-                                  ids.includes(a.id) ? ids.filter((v) => v !== a.id) : [...ids, a.id],
-                                );
-                                setSlot(null);
-                              }}
-                            />
-                            <span>
-                              <strong>{a.name}</strong>
-                              <small>+{a.duration_min} minutes</small>
-                            </span>
-                            <strong>+{money(a.price_pence)}</strong>
-                          </label>
-                        ))}
-                      </div>
-                    </>
-                  )}
                 </>
               )}
-              {step === 1 && (
-                <div className="barber-choices" role="group" aria-label="Choose your barber">
-                  {barbers.length > 1 && (
-                    <button
-                      className={`barber-choice any-barber ${anyBarber ? "chosen" : ""}`}
-                      aria-pressed={anyBarber}
-                      onClick={() => {
-                        setBarber(ANY);
-                        setSlot(null);
-                      }}
-                    >
-                      <div className="barber-portrait forest">
-                        <span className="any-mark">
-                          <Icon name="sparkles" size={30} />
+              {step === 1 && (() => {
+                const info = teamNext && teamNext.key === `${service}|${[...extraIds].sort().join(",")}` ? new Map(teamNext.team.map((t) => [t.staff_id, t])) : null;
+                const when = (n: { date: string; start_min: number }) =>
+                  `${n.date === shop.today ? "Today" : n.date === datePlus(shop.today, 1) ? "Tomorrow" : dateLabel(n.date, { weekday: "short", day: "numeric", month: "short" })} ${time(n.start_min)}`;
+                const choose = (id: string) => {
+                  setBarber(id);
+                  setSlot(null);
+                  setAssigned(null);
+                  // Tapping a row moves straight on (short pause so the tick is seen).
+                  window.setTimeout(() => go(2), 160);
+                };
+                const base = chosenService ? chosenService.price_pence + serviceAddons.filter((a) => extraIds.includes(a.id)).reduce((n, a) => n + a.price_pence, 0) : 0;
+                return (
+                  <div className="barber-list" role="group" aria-label="Choose your barber" data-testid="barber-list">
+                    {barbers.length > 1 && (
+                      <button type="button" className={`barber-row-c any ${anyBarber ? "chosen" : ""}`} aria-pressed={anyBarber} onClick={() => choose(ANY)} data-testid="barber-any">
+                        <span className="barber-av any" aria-hidden="true"><Icon name="sparkles" size={18} /></span>
+                        <span className="barber-txt">
+                          <strong>Anyone</strong>
+                          <small>Every barber’s times on one screen</small>
                         </span>
-                        <span className="portrait-selected">
-                          <Icon name={anyBarber ? "check" : "plus"} size={16} />
-                        </span>
-                      </div>
-                      <span className="barber-choice-name">
-                        <strong>First available</strong>
-                      </span>
-                      <span className="barber-role">Any of {barbers.length} barbers</span>
-                      <span className="barber-description">
-                        See every open time. We’ll assign whoever is free.
-                      </span>
-                      <span className="barber-rate">
-                        {(() => {
-                          const e = anyEstimate();
-                          return e.price === e.priceTo ? money(e.price) : `${money(e.price)}–${money(e.priceTo)}`;
-                        })()}
-                        <span>Most choice · from {anyEstimate().duration} min</span>
-                      </span>
-                    </button>
-                  )}
-                  {barbers.map((b, i) => {
-                    const e = estimate(b.id);
-                    return (
-                      <button
-                        className={`barber-choice ${barber === b.id ? "chosen" : ""}`}
-                        key={b.id}
-                        aria-pressed={barber === b.id}
-                        onClick={() => {
-                          setBarber(b.id);
-                          setSlot(null);
-                        }}
-                      >
-                        <div className={`barber-portrait ${b.colour || colours[i % colours.length]}`}>
-                          {b.photo_url ? <img src={b.photo_url} alt="" className="barber-photo" /> : <span>{initials(b.name)}</span>}
-                          <Icon name="scissors" size={38} />
-                          <span className="portrait-selected">
-                            <Icon name={barber === b.id ? "check" : "plus"} size={16} />
-                          </span>
-                        </div>
-                        <span className="barber-choice-name">
-                          <strong>{b.name}</strong>
-                        </span>
-                        <span className="barber-role">{b.title || b.role}</span>
-                        {b.bio && <span className="barber-bio">{b.bio}</span>}
-                        {b.skills && (JSON.parse(b.skills) as string[]).length > 0 && (
-                          <span className="barber-skills">
-                            {(JSON.parse(b.skills) as string[]).slice(0, 3).map((k) => (
-                              <em key={k}>{k}</em>
-                            ))}
-                          </span>
-                        )}
-                        <span className="barber-rate">
-                          {money(e.price)}
-                          <span>
-                            {e.overridden ? `${b.name.split(" ")[0]}’s rate` : "Service + extras"} ·{" "}
-                            {e.duration} min
-                          </span>
-                        </span>
+                        <span className="choice-radio">{anyBarber && <Icon name="check" size={12} />}</span>
                       </button>
-                    );
-                  })}
-                  {!barbers.length && (
-                    <Notice tone="warning" icon="users">
-                      No barber currently offers this service online. Choose another service.
-                    </Notice>
-                  )}
-                </div>
-              )}
+                    )}
+                    {barbers.map((b, i) => {
+                      const t = info?.get(b.id);
+                      const on = barber === b.id;
+                      const e = estimate(b.id);
+                      return (
+                        <button type="button" key={b.id} className={`barber-row-c ${on ? "chosen" : ""}`} aria-pressed={on} onClick={() => choose(b.id)} data-testid="barber-option">
+                          <span className={`barber-av ${b.colour || colours[i % colours.length]}`} aria-hidden="true">
+                            {b.photo_url ? <img src={b.photo_url} alt="" /> : initials(b.name)}
+                          </span>
+                          <span className="barber-txt">
+                            <strong>{b.name}</strong>
+                            <small>
+                              {t?.off_today && <em className="off">Off today</em>}
+                              {t?.off_today && " · "}
+                              {!info ? (b.title || b.role || "Barber") : t?.next ? <>Next free <b>{when(t.next)}</b></> : "No free times in the next 3 weeks"}
+                              {e.price !== base && ` · ${money(e.price)}`}
+                            </small>
+                          </span>
+                          <span className="choice-radio">{on && <Icon name="check" size={12} />}</span>
+                        </button>
+                      );
+                    })}
+                    {!barbers.length && (
+                      <Notice tone="warning" icon="users">
+                        No barber currently offers this service online. Choose another service.
+                      </Notice>
+                    )}
+                  </div>
+                );
+              })()}
               {step === 2 && (
                 <>
                   {next && nextElsewhere.length > 0 && (
                     <section className="next-available" aria-label="Soonest open times">
-                      <span className="eyebrow">SOONEST</span>
+                      <span className="next-label">Soonest</span>
                       <div className="next-chips">
                         {next.slice(0, 4).map((n) => (
                           <button
@@ -1294,23 +1410,23 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                     );
                   })()}
                   <div className="booking-date-toolbar">
-                    <h3>{dateLabel(from, { month: "long", year: "numeric" })}</h3>
-                    <div className="small-toggles">
-                      <button
-                        aria-label="Previous week"
-                        disabled={from <= shop.today}
-                        onClick={() => setFrom(datePlus(from, -7) < shop.today ? shop.today : datePlus(from, -7))}
-                      >
-                        <Icon name="left" size={14} /> Earlier
-                      </button>
-                      <button
-                        aria-label="Next week"
-                        disabled={datePlus(from, 7) > shop.max_date}
-                        onClick={() => setFrom(datePlus(from, 7))}
-                      >
-                        Later <Icon name="right" size={14} />
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      aria-label="Previous week"
+                      disabled={from <= shop.today}
+                      onClick={() => setFrom(datePlus(from, -7) < shop.today ? shop.today : datePlus(from, -7))}
+                    >
+                      <Icon name="left" size={14} /> Earlier
+                    </button>
+                    <h3 data-testid="chosen-day">{date ? dateLabel(date, { weekday: "long", day: "numeric", month: "long" }) : dateLabel(from, { month: "long", year: "numeric" })}</h3>
+                    <button
+                      type="button"
+                      aria-label="Next week"
+                      disabled={datePlus(from, 7) > shop.max_date}
+                      onClick={() => setFrom(datePlus(from, 7))}
+                    >
+                      Later <Icon name="right" size={14} />
+                    </button>
                   </div>
                   <div className="booking-dates" aria-label="Choose date">
                     {weekDays.map((d) => {
@@ -1356,13 +1472,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       );
                     })}
                   </div>
-                  <div className="slot-heading">
-                    <h3>{dateLabel(date, { weekday: "long", day: "numeric", month: "long" })}</h3>
-                    <span>
-                      <span className="available-dot" />
-                      {availability ? `${openCount} available` : "Checking…"}
-                    </span>
-                  </div>
+                  {anyBarber && (
                   <div className="filter-chips dayparts" role="group" aria-label="Part of the day">
                     {["All times", "Morning", "Afternoon", "Evening"].map((d) => (
                       <button key={d} aria-pressed={daypart === d} onClick={() => setDaypart(d)}>
@@ -1370,6 +1480,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       </button>
                     ))}
                   </div>
+                  )}
                   {slotError && (
                     <Notice tone="warning" icon="calendar">
                       {slotError}
@@ -1613,139 +1724,32 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                   </p>
                 </>
               )}
-              {step === 3 && !customer && sessionKnown && (
-                <form id="customer-auth" noValidate onSubmit={submitAuth} className="booking-auth" data-testid="booking-auth">
-                  <div className="auth-switch" role="tablist" aria-label="Sign in or create an account">
-                    <button type="button" role="tab" aria-selected={authMode === "register"} className={authMode === "register" ? "active" : ""} onClick={() => { setAuthMode("register"); setErrors({}); setAuthError(""); }} data-testid="auth-register">
-                      New here
-                    </button>
-                    <button type="button" role="tab" aria-selected={authMode === "login"} className={authMode === "login" ? "active" : ""} onClick={() => { setAuthMode("login"); setErrors({}); setAuthError(""); }} data-testid="auth-login">
-                      I have an account
-                    </button>
-                  </div>
-                  {authMode === "register" ? (
-                    <div className="customer-fields">
-                      {[
-                        { id: "name", label: "Your name", placeholder: "Jamie Taylor", type: "text", auto: "name" },
-                        { id: "phone", label: "Mobile number", placeholder: "07700 900123", type: "tel", auto: "tel" },
-                        { id: "email", label: "Email address", placeholder: "jamie@example.com", type: "email", auto: "email" },
-                        { id: "password", label: "Choose a password", placeholder: "", type: "password", auto: "new-password" },
-                      ].map((field) => (
-                        <label key={field.id}>
-                          <span id={`booking-${field.id}-label`}>{field.label}</span>
-                          <input
-                            aria-labelledby={`booking-${field.id}-label`}
-                            required
-                            type={field.type}
-                            name={field.id === "password" ? "new-password" : field.id}
-                            autoComplete={field.auto}
-                            minLength={field.id === "password" ? 8 : undefined}
-                            value={reg[field.id as keyof typeof reg]}
-                            placeholder={field.placeholder}
-                            onChange={(e) => {
-                              setReg((d) => ({ ...d, [field.id]: e.target.value }));
-                              setErrors((c) => ({ ...c, [field.id]: "" }));
-                            }}
-                            aria-invalid={!!errors[field.id]}
-                            aria-describedby={errors[field.id] ? `booking-${field.id}-error` : field.id === "password" ? "booking-password-hint" : undefined}
-                            data-testid={field.id === "password" ? "booking-password" : undefined}
-                          />
-                          {errors[field.id] ? (
-                            <span className="field-error" id={`booking-${field.id}-error`}>{errors[field.id]}</span>
-                          ) : field.id === "password" ? (
-                            <small className="field-hint" id="booking-password-hint">At least 8 characters. You'll use your email and this password to sign in.</small>
-                          ) : null}
-                        </label>
-                      ))}
-                      <div className="booking-consent" data-testid="booking-consent">
-                        {smsOffered && (
-                          <label className="booking-check">
-                            <input type="checkbox" checked={regTexts} onChange={(e) => setRegTexts(e.target.checked)} data-testid="booking-texts" />
-                            <span>Text me confirmations and reminders</span>
-                          </label>
-                        )}
-                        <label className="booking-check">
-                          <input type="checkbox" checked={regMarketing} onChange={(e) => setRegMarketing(e.target.checked)} data-testid="booking-marketing" />
-                          <span>Send me offers and news from {shop.shop.name} (optional, you can change this any time in your account)</span>
-                        </label>
-                      </div>
-                      {termsDue && (
-                        <div className={`booking-terms${errors.terms ? " has-error" : ""}`} data-testid="booking-terms">
-                          <label className="booking-check">
-                            <input type="checkbox" checked={termsTick} onChange={(e) => { setTermsTick(e.target.checked); setErrors((c) => ({ ...c, terms: "" })); }} aria-invalid={!!errors.terms} data-testid="booking-terms-tick" />
-                            <span>{termsAccepted > 0 ? `${shop.shop.name} has updated its booking terms. I accept the new terms.` : `I accept ${shop.shop.name}’s booking terms.`} <button type="button" className="link" onClick={() => setTermsOpen((v) => !v)} aria-expanded={termsOpen}>{termsOpen ? "Hide" : "Read them"}</button></span>
-                          </label>
-                          {termsOpen && <div className="booking-terms-text" data-testid="booking-terms-text">{shop.shop.terms!.text.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}</div>}
-                          {errors.terms && <span className="field-error">{errors.terms}</span>}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="customer-fields">
-                      <label>
-                        <span id="booking-email-label">Email address</span>
-                        <input aria-labelledby="booking-email-label" required type="email" name="email" autoComplete="username" value={login.email} onChange={(e) => { setLogin((d) => ({ ...d, email: e.target.value })); setErrors((c) => ({ ...c, email: "" })); }} aria-invalid={!!errors.email} aria-describedby={errors.email ? "booking-email-error" : undefined} data-testid="signin-email" />
-                        {errors.email && <span className="field-error" id="booking-email-error">{errors.email}</span>}
-                      </label>
-                      <label>
-                        <span id="booking-password-label">Password</span>
-                        <input aria-labelledby="booking-password-label" required type="password" name="current-password" autoComplete="current-password" value={login.password} onChange={(e) => { setLogin((d) => ({ ...d, password: e.target.value })); setErrors((c) => ({ ...c, password: "" })); }} aria-invalid={!!errors.password} aria-describedby={errors.password ? "booking-password-error" : undefined} data-testid="signin-password" />
-                        {errors.password && <span className="field-error" id="booking-password-error">{errors.password}</span>}
-                      </label>
-                      <a className="link small" href={shopPath(slug, "/me", "?forgot=1")} data-testid="auth-forgot">Forgot password?</a>
-                    </div>
-                  )}
-                  {authError && (
-                    <p className="workspace-error" role="alert" data-testid="auth-error">{authError}</p>
-                  )}
-                  <Notice icon="shield">
-                    Your account is with {shop.shop.name}. Your time is held while you sign in.
-                  </Notice>
-                </form>
-              )}
+              {step === 3 && !customer && sessionKnown && authForm}
               {step === 4 && (
                 <>
-                  <div className="review-appointment">
-                    <div className="review-icon">
-                      <Icon name="calendarCheck" size={32} />
-                    </div>
-                    <span className="eyebrow">YOUR VISIT</span>
-                    <h3>{dateLabel(date)}</h3>
-                    <p>
-                      {slot !== null ? time(slot) : "No time selected"} · {duration} minutes ·{" "}
-                      {shop.shop.timezone}
-                    </p>
-                    <div className="review-barber">
-                      {bookingStaffName && <Avatar initials={initials(bookingStaffName)} />}
-                      <span>
-                        {chosenService?.name}
-                        {bookingStaffName && (
-                          <>
-                            {" "}
-                            with <strong>{bookingStaffName.split(" ")[0]}</strong>
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  </div>
                   {/* Phone-first summary: what, who, when, price — one card, scannable in a glance. */}
+                  <p className="review-change-row"><button type="button" className="link" onClick={() => go(2)}>Change time</button></p>
                   <dl className="review-facts" data-testid="review-facts">
                     <div><dt><Icon name="scissors" size={16} /></dt><dd><strong>{chosenService?.name}</strong>{extraNames.length > 0 && <span> + {extraNames.join(", ")}</span>}<small>{duration} min</small></dd></div>
                     <div><dt><Icon name="userRound" size={16} /></dt><dd><strong>{bookingStaffName || "First available barber"}</strong><small>{bookingStaffName ? (anyBarber ? "First available" : chosenBarber?.title || chosenBarber?.role || "Barber") : "Whoever is free"}</small></dd></div>
                     <div><dt><Icon name="calendar" size={16} /></dt><dd><strong>{dateLabel(date, { weekday: "long", day: "numeric", month: "long" })}</strong><small>{slot !== null ? time(slot) : "No time selected"}</small></dd></div>
                     <div><dt><Icon name="wallet" size={16} /></dt><dd><strong>{priceLabel}</strong><small>{payMode === "PAY_AT_VISIT" ? "Pay in the shop" : depositOnline ? `${money(deposit)} by card next` : `Deposit ${money(deposit)}, payable in the shop`}</small></dd></div>
                   </dl>
-                  <section className="review-customer">
-                    <div>
-                      <h3>Booked by</h3>
-                      <a className="link small" href={shopPath(slug, "/me")} data-testid="signed-in-note">Signed in as {details.name.split(" ")[0]}</a>
-                    </div>
-                    <strong>{details.name}</strong>
-                    <p>
-                      {details.phone}
-                      {details.email && ` · ${details.email}`}
-                    </p>
-                  </section>
+                  {customer ? (
+                    <section className="review-customer">
+                      <div>
+                        <h3>Booked by</h3>
+                        <a className="link small" href={shopPath(slug, "/me")} data-testid="signed-in-note">Signed in as {details.name.split(" ")[0]}</a>
+                      </div>
+                      <strong>{details.name}</strong>
+                      <p>
+                        {details.phone}
+                        {details.email && ` · ${details.email}`}
+                      </p>
+                    </section>
+                  ) : sessionKnown ? (
+                    authForm
+                  ) : null}
                   <section className="review-repeat" data-testid="repeat-booking">
                     <h3><Icon name="repeat" size={16} /> Repeat this booking</h3>
                     <div className="repeat-choices" role="radiogroup" aria-label="Repeat this booking">
@@ -1765,7 +1769,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       </label>
                     )}
                   </section>
-                  <details className="review-more" open={forOther || !!details.notes || contactPref !== "AUTO"} data-testid="review-more">
+                  <details className="review-more" open={forOther || !!details.notes || contactPref !== "AUTO" || !!errors.terms} data-testid="review-more">
                     <summary><Icon name="settings" size={16} /> More options <small>someone else · how we message you · a note</small><Icon name="down" size={16} /></summary>
                   <section className="review-options">
                     <div className="attendee-block">
@@ -1838,7 +1842,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       </fieldset>
                     )}
 
-                    {termsDue && (
+                    {termsDue && customer && (
                       <div className={`booking-terms${errors.terms ? " has-error" : ""}`} data-testid="booking-terms">
                         <label className="booking-check">
                           <input type="checkbox" checked={termsTick} onChange={(e) => { setTermsTick(e.target.checked); setErrors((c) => ({ ...c, terms: "" })); }} aria-invalid={!!errors.terms} data-testid="booking-terms-tick" />
@@ -1886,7 +1890,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                   {saveError}
                 </p>
               )}
-              {step === 3 && !customer && (
+              {(step === 3 || step === 4) && !customer && (
                 <p className="booking-privacy" data-testid="booking-privacy">
                   {shop.shop.name} uses your details to run your appointments and send you confirmations and reminders by email{smsOffered ? " and, if you choose, by text" : ""}. It won't send marketing unless you say so. <a href="/legal/privacy" target="_blank" rel="noopener">How your data is handled</a> · <a href="/legal/terms" target="_blank" rel="noopener">Terms</a>.
                 </p>
@@ -1899,7 +1903,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                   </span>
                 )}
                 {step > 0 ? (
-                  <Button variant="secondary" className="booking-back-btn" aria-label="Back" onClick={() => go(step === 4 && customer ? 2 : step - 1)} disabled={busy}>
+                  <Button variant="secondary" className="booking-back-btn" aria-label="Back" onClick={() => go(step === 4 ? 2 : step - 1)} disabled={busy || authBusy}>
                     <Icon name="arrowLeft" />
                     <span>Back</span>
                   </Button>
@@ -1908,13 +1912,15 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                     <Icon name="shield" size={15} />A little care in every detail
                   </span>
                 )}
-                {step === 3 ? (
-                  <Button key="submit-auth" type="submit" form="customer-auth" disabled={authBusy} aria-busy={authBusy} data-testid="auth-submit">
-                    {authBusy ? (authMode === "register" ? "Creating account…" : "Signing in…") : authMode === "register" ? "Create account and continue" : "Sign in and continue"}
-                    <Icon name="arrowRight" />
+                {step === 3 || (step === 4 && !customer) ? (
+                  <Button key="submit-auth" type="submit" form="customer-auth" disabled={authBusy || busy || !sessionKnown} aria-busy={authBusy || busy} data-testid="auth-submit">
+                    {step === 3
+                      ? authBusy ? (authMode === "register" ? "Creating account…" : "Signing in…") : authMode === "register" ? "Create account and continue" : "Sign in and continue"
+                      : authBusy || busy ? (busy ? "Booking…" : authMode === "register" ? "Creating account…" : "Signing in…") : authMode === "register" ? "Create account & book" : "Sign in & book"}
+                    <Icon name={step === 3 ? "arrowRight" : "check"} />
                   </Button>
-                ) : step === 4 ? (
-                  <Button key="confirm" onClick={confirm} disabled={busy || slot === null || !availability || !bookingStaff} aria-busy={busy}>
+                ) : step === 1 ? null : step === 4 ? (
+                  <Button key="confirm" onClick={() => confirm()} disabled={busy || slot === null || !availability || !bookingStaff} aria-busy={busy}>
                     {busy ? "Confirming…" : depositOnline ? `Confirm and pay ${money(deposit)} deposit` : "Confirm booking"}
                     <Icon name="check" />
                   </Button>
@@ -1943,9 +1949,9 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                         (step === 1 && !barber) ||
                         (step === 2 && (slot === null || !availability || !bookingStaff))
                       }
-                      onClick={() => go(step === 2 && customer ? 4 : step + 1)}
+                      onClick={() => go(step === 2 ? 4 : step + 1)}
                     >
-                      {["Choose your barber", "Find a time", customer ? "Review booking" : "Sign in to book"][step]}
+                      {step === 2 ? (slot !== null ? `Continue · ${time(slot)}` : "Pick a time") : "Choose your barber"}
                       <Icon name="arrowRight" />
                     </Button>
                   </span>

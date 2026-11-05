@@ -242,7 +242,7 @@ test("browser: sign in on /<slug>/me, see usual and visits, rebook the usual wit
   await expect(flow.locator(".booking-summary")).toContainText("Jay");
   await expect(flow.getByRole("group", { name: "Choose an appointment time" }).locator("button[aria-pressed='true']")).toHaveCount(1);
   // Signed in: no account step — straight to the review with the member's details and barber notes.
-  await flow.getByRole("button", { name: "Review booking", exact: true }).click();
+  await flow.getByRole("button", { name: /^Continue · \d{2}:\d{2}/ }).click();
   await expect(flow.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
   await expect(flow.getByTestId("signed-in-note")).toContainText("Ada");
   await expect(flow.locator(".review-customer")).toContainText(PHONE);

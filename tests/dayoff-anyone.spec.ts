@@ -88,7 +88,7 @@ test("Anyone lists every barber's times and booking under one barber books that 
   expect(label).toContain(`with ${pick.name}`);
   await btn.click();
   await expect(btn).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: "Review booking" }).click();
+  await page.getByRole("button", { name: /^Continue · \d{2}:\d{2}/ }).click();
   await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
   await expect(page.getByText(pick.name).first()).toBeVisible();
   const termsTick = page.getByTestId("terms-tick");

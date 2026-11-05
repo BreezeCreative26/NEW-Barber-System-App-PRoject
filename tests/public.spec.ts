@@ -326,8 +326,8 @@ test.describe("public booking pages", () => {
     await expect(page.getByRole("heading", { name: "What are we doing today?" })).toBeVisible();
     await page.getByRole("button", { name: new RegExp(w.services[1].name) }).click();
     await page.getByRole("button", { name: "Choose your barber", exact: true }).click();
+    // Tapping a barber moves straight on to the time step.
     await page.getByRole("button", { name: new RegExp(w.staff[0].name) }).click();
-    await page.getByRole("button", { name: "Find a time", exact: true }).click();
     await expect(page.getByRole("heading", { name: "When suits you?" })).toBeVisible();
     // Move the date strip to the target week and pick an open time.
     const target = new Date(`${date}T12:00:00Z`);
@@ -344,9 +344,9 @@ test.describe("public booking pages", () => {
     }
     await page.getByRole("button", { name: new RegExp(`^${label},`) }).click();
     await page.getByRole("group", { name: "Choose an appointment time" }).locator(".time-slots button:not(.time-more):not([disabled])").first().click();
-    // Not signed in → the account step: create an account (or sign in) before the review.
-    await page.getByRole("button", { name: "Sign in to book", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Sign in to book." })).toBeVisible();
+    // Not signed in → the confirm step creates the account and books in one go.
+    await page.getByRole("button", { name: /^Continue · \d{2}:\d{2}/ }).click();
+    await expect(page.getByRole("heading", { name: "Last step: your account" })).toBeVisible();
     await page.getByLabel("Your name").fill("Browser Customer");
     await page.getByLabel("Mobile number").fill(`07${String(Date.now()).slice(-9)}`);
     await page.getByLabel("Email address", { exact: true }).fill("not-an-email");
@@ -356,10 +356,6 @@ test.describe("public booking pages", () => {
     const browserEmail = `browser-${Date.now()}@example.test`;
     await page.getByLabel("Email address", { exact: true }).fill(browserEmail);
     await page.getByTestId("auth-submit").click();
-    await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
-    await expect(page.getByText("Browser Customer")).toBeVisible();
-    await expect(page.getByTestId("signed-in-note")).toContainText("Browser");
-    await page.getByRole("button", { name: "Confirm booking" }).click();
     await expect(page.getByRole("heading", { level: 1, name: label })).toBeVisible();
     const reference = await page.locator(".public-reference").textContent();
     expect(reference).toMatch(/^BRB-\d{4}$/);
@@ -651,8 +647,8 @@ test.describe("public booking v2 UI", () => {
     await page.goto(`/book/${slug}`);
     await page.getByRole("button", { name: new RegExp(big.name) }).click();
     await page.getByRole("button", { name: "Choose your barber", exact: true }).click();
-    await expect(page.getByRole("button", { name: /First available/ })).toHaveAttribute("aria-pressed", "true");
-    await page.getByRole("button", { name: "Find a time", exact: true }).click();
+    await expect(page.getByTestId("barber-any")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("barber-any").click();
     await expect(page.getByRole("region", { name: "Soonest open times" })).toBeVisible();
     const label = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Europe/London" }).format(new Date(`${full}T12:00:00Z`));
     for (let i = 0; i < 3; i++) {
@@ -675,13 +671,11 @@ test.describe("public booking v2 UI", () => {
     // Soonest chip jumps to a bookable slot with an assigned barber; details are remembered from the waitlist form.
     await page.getByRole("region", { name: "Soonest open times" }).getByRole("button").first().click();
     await expect(page.locator(".slot-note")).toContainText("is free at");
-    await page.getByRole("button", { name: "Sign in to book", exact: true }).click();
+    await page.getByRole("button", { name: /^Continue · \d{2}:\d{2}/ }).click();
     await expect(page.getByLabel("Your name")).toHaveValue("Waiting Wanda");
     await page.getByLabel("Email address", { exact: true }).fill(`wanda-${Date.now()}@example.test`);
     await page.getByTestId("booking-password").fill("Fictional-test-pass-2026!");
     await page.getByTestId("auth-submit").click();
-    await expect(page.getByRole("heading", { name: "Check and confirm." })).toBeVisible();
-    await page.getByRole("button", { name: "Confirm booking" }).click();
     await expect(page.locator(".public-reference")).toHaveText(/^BRB-\d{4}$/);
     await expect(page.getByRole("link", { name: "Google Calendar" })).toHaveAttribute("href", /calendar\.google\.com/);
     // Owner: waitlist panel shows the entry; "Book them in" prefills the form; share panel creates a link.
