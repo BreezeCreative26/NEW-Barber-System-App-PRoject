@@ -2343,6 +2343,8 @@ export function Workspace() {
           w
             ? {
                 initials: initialsOf(w.account?.name || w.shop.name),
+                // Your own barber photo when you have one; otherwise the shop logo, then initials.
+                photo: (w.account?.staff_id && w.staff.find((s) => s.id === w.account!.staff_id)?.photo_url) || undefined,
                 logo: w.logo_url || undefined,
                 logoTone: w.logo_tone || "",
                 name: w.account?.name || w.shop.name,
