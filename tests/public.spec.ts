@@ -383,8 +383,9 @@ test.describe("public booking pages", () => {
       .last();
     const newTime = (await newSlot.textContent())!.trim().slice(0, 5);
     await newSlot.click();
-    await page.getByRole("button", { name: `Move to ${newTime}` }).click();
-    await expect(page.getByRole("status")).toHaveText("Your booking has moved.");
+    await page.getByTestId("move-continue").click();
+    await page.getByRole("button", { name: `Confirm move to ${newTime}` }).click();
+    await expect(page.getByRole("status")).toContainText("Your booking has moved.");
     await expect(page.getByText(new RegExp(`^${newTime} ·`))).toBeVisible();
     await page.getByRole("button", { name: "Cancel booking" }).click();
     await page.getByRole("button", { name: "Yes, cancel" }).click();

@@ -8,6 +8,7 @@ import { GroupBooking } from "./GroupBooking";
 import { ReviewCard, type OwnReview } from "./Reviews";
 import { applyThemeColor, brandStyle, serverBrand, themeClass, type ShopBrand, shopPath } from "./theme";
 import { ShopTabBar } from "./ShopTabBar";
+import { MoveFlow } from "./MoveFlow";
 
 // Connected customer booking for /book/:slug and /manage/:token.
 // Reads and writes the same local D1 records as the owner workspace.
@@ -2265,13 +2266,9 @@ export function ManageBooking({ token }: { token: string }) {
   const [review, setReview] = useState<{ review: OwnReview; can: boolean; google?: string }>({ review: null, can: false });
   const [error, setError] = useState("");
   const [mode, setMode] = useState<"view" | "move" | "cancel">("view");
-  const [date, setDate] = useState("");
-  const [slots, setSlots] = useState<Slot[] | null>(null);
-  const [slot, setSlot] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
-  const [meta, setMeta] = useState({ today: "", max_date: "" });
   const [payUrl, setPayUrl] = useState<string | null>(null);
   async function load() {
     setError("");
@@ -2292,7 +2289,6 @@ export function ManageBooking({ token }: { token: string }) {
       setBooking(r.booking);
       applyThemeColor(r.booking.shop.brand);
       setReview({ review: r.review ?? null, can: !!r.can_review, google: r.google_review_url || "" });
-      setDate((d) => d || r.booking.date);
     } catch (e) {
       setError(e instanceof Error ? e.message : "This link could not be opened.");
     }
@@ -2300,24 +2296,6 @@ export function ManageBooking({ token }: { token: string }) {
   useEffect(() => {
     load();
   }, [token]);
-  useEffect(() => {
-    if (mode !== "move" || !date) return;
-    let cancelled = false;
-    setSlots(null);
-    setActionError("");
-    api<{ slots: Slot[]; today: string; max_date: string }>(
-      `/manage/${token}/availability?date=${date}`,
-    )
-      .then((r) => {
-        if (cancelled) return;
-        setSlots(r.slots);
-        setMeta({ today: r.today, max_date: r.max_date });
-      })
-      .catch((e) => !cancelled && setActionError(e.message));
-    return () => {
-      cancelled = true;
-    };
-  }, [mode, date]);
   async function act(path: string, body: unknown) {
     if (!booking) return;
     setBusy(true);
@@ -2330,7 +2308,6 @@ export function ManageBooking({ token }: { token: string }) {
       );
       setBooking(r.booking);
       setMode("view");
-      setSlot(null);
       setNotice(
         path === "cancel"
           ? r.late
@@ -2342,7 +2319,6 @@ export function ManageBooking({ token }: { token: string }) {
       const err = e as ApiError;
       setActionError(err.message);
       if (err.code === "record_changed" || err.code === "invalid_transition") load();
-      if (err.code === "slot_taken") setSlot(null);
     } finally {
       setBusy(false);
     }
@@ -2373,9 +2349,6 @@ export function ManageBooking({ token }: { token: string }) {
     CANCELLED: "Cancelled",
     NO_SHOW: "Missed",
   };
-  const week = Array.from({ length: 7 }, (_, i) => datePlus(date, i - 3)).filter(
-    (d) => !meta.today || d >= meta.today,
-  );
   return (
     <div className={themeClass(booking.shop.brand, "booking-app standalone")} style={brandStyle(booking.shop.brand) as CSSProperties}>
       <TestBanner />
@@ -2539,72 +2512,18 @@ export function ManageBooking({ token }: { token: string }) {
             </section>
           )}
           {mode === "move" && (
-            <section className="review-customer" aria-labelledby="move-heading">
-              <div>
-                <h3 id="move-heading">Choose a new time</h3>
-              </div>
-              <p>
-                Same service and barber, {booking.duration_min} minutes. Currently{" "}
-                {dateLabel(booking.date, { weekday: "short", day: "numeric", month: "short" })} ·{" "}
-                {time(booking.start_min)}.
-              </p>
-              <div className="booking-dates" aria-label="Choose date">
-                {week.map((d) => (
-                  <button
-                    key={d}
-                    className={date === d ? "chosen" : ""}
-                    aria-pressed={date === d}
-                    disabled={!!meta.max_date && d > meta.max_date}
-                    onClick={() => {
-                      setDate(d);
-                      setSlot(null);
-                    }}
-                  >
-                    <span>{dateLabel(d, { weekday: "short" })}</span>
-                    <strong>{dateLabel(d, { day: "2-digit" })}</strong>
-                    <small>{dateLabel(d, { month: "short" })}</small>
-                  </button>
-                ))}
-              </div>
-              {actionError && (
-                <p className="workspace-error" role="alert">
-                  {actionError}
-                </p>
-              )}
-              <div className="time-slots" role="group" aria-label="Choose a new time" aria-busy={!slots}>
-                {(slots || []).map((s) => (
-                  <button
-                    key={s.start_min}
-                    disabled={!s.available}
-                    aria-pressed={slot === s.start_min}
-                    aria-label={`${time(s.start_min)}${s.available ? ", available" : `, ${s.reason}`}`}
-                    className={slot === s.start_min ? "chosen" : ""}
-                    onClick={() => setSlot(s.start_min)}
-                  >
-                    {time(s.start_min)}
-                    {slot === s.start_min && <Icon name="check" size={14} />}
-                  </button>
-                ))}
-              </div>
-              {slots && !slots.some((s) => s.available) && (
-                <Notice icon="calendar" tone="warning">
-                  No times left on this date. Try another day.
-                </Notice>
-              )}
-              <footer className="booking-actions">
-                <Button variant="secondary" onClick={() => setMode("view")} disabled={busy}>
-                  Back
-                </Button>
-                <Button
-                  disabled={busy || slot === null}
-                  onClick={() =>
-                    act("reschedule", { date, start_min: slot, version: booking.version })
-                  }
-                >
-                  {busy ? "Moving…" : `Move to ${slot !== null ? time(slot) : "…"}`}
-                </Button>
-              </footer>
-            </section>
+            <MoveFlow
+              base={`/manage/${token}`}
+              visit={booking}
+              shop={booking.shop}
+              onCancel={() => setMode("view")}
+              onDone={(b) => {
+                setBooking(b as CustomerBooking);
+                setMode("view");
+                setNotice("Your booking has moved. We've sent you a confirmation of the new time.");
+                window.scrollTo({ top: 0 });
+              }}
+            />
           )}
         </section>
         <footer className="booking-footer">
