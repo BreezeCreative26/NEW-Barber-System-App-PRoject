@@ -1420,6 +1420,38 @@ export async function moveOptions(c: Ctx, shop: Shop, booking: StoredBooking, da
     });
   return { slots, duration_min: booking.customer_duration_min ?? booking.duration_min, max_date: maxDate, today };
 }
+// The day strip for moving a visit: 14 days from `from`, each with how many times this visit fits
+// (same barber, same length; its own current slot counts as free). Mirrors /shops/:slug/days.
+export async function moveDays(c: Ctx, shop: Shop, booking: StoredBooking, fromQ?: string) {
+  const { today, minStart, maxDate } = limits(shop);
+  const from = fromQ && fromQ > today ? fromQ : today;
+  const to = datePlus(from, 13);
+  const ctx = await rangeContext(c, shop, [booking.staff_id], booking.service_id, from, to, []);
+  const staff = ctx.staff[0];
+  const others = ctx.bookings.filter((x) => x.id !== booking.id);
+  const days = Array.from({ length: 14 }, (_, i) => datePlus(from, i)).map((date) => {
+    if (date > maxDate) return { date, available: 0, closed: false, beyond: true };
+    const h = effectiveHours(
+      ctx.hours.find((x) => x.staff_id === staff.id && x.weekday === weekday(date)) ?? null,
+      ctx.overrides.find((o) => o.staff_id === staff.id && o.date === date) ?? null,
+    );
+    let available = 0;
+    let closed = true;
+    for (const m of dayStarts(shop, date)) {
+      const reason = slotReason(shop, staff, h, ctx.holidays, others, date, m, booking.duration_min, minStart, booking.id, ctx.daysOff, ctx.blocks);
+      if (!reason) available++;
+      if (!closedReasons.includes(reason)) closed = false;
+    }
+    return { date, available, closed, beyond: false };
+  });
+  return { from, to, today, max_date: maxDate, days };
+}
+pub.get("/manage/:token/days", async (c) => {
+  const p = z.object({ from: dateSchema.optional() }).safeParse(c.req.query());
+  if (!p.success) fail(400, "Supply a valid date");
+  const { shop, booking } = await bookingByToken(c);
+  return c.json(await moveDays(c, shop, booking, p.data!.from));
+});
 pub.get("/manage/:token/availability", async (c) => {
   const p = z.object({ date: dateSchema }).safeParse(c.req.query());
   if (!p.success) fail(400, "Supply a valid date");

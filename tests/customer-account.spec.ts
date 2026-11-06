@@ -195,28 +195,28 @@ test("browser: sign in on /<slug>/me, see usual and visits, rebook the usual wit
   const reference = (await firstRow.textContent())!.match(/BRB-\d{4}/)![0];
   const beforeWhen = await firstRow.locator(".ca-visit-when").textContent();
   await firstRow.getByTestId("move-visit").click();
-  const dialog = page.getByRole("dialog", { name: "Move your visit" });
+  // Move opens the booking flow's own "when" screen, full screen.
+  const dialog = page.getByTestId("move-flow");
+  await expect(dialog.getByRole("heading", { name: "Pick a new time" })).toBeVisible();
   await expect(dialog).toBeVisible();
-  // Walk forward until a day has a free slot.
+  // The strip opens on a day with times; if it has none other than the current one, walk forward.
+  const times = dialog.getByRole("group", { name: "Choose a new time" });
+  await expect(times).not.toHaveAttribute("aria-busy", "true");
   const days = dialog.getByRole("group", { name: "Choose a day" }).getByRole("button");
-  for (let i = 1; i < 14; i++) {
+  for (let i = 0; i < 7 && !(await dialog.locator('[data-testid="move-slot"]:not([disabled])').count()); i++) {
+    if (await days.nth(i).isDisabled()) continue;
     await days.nth(i).click();
-    await expect(dialog.getByRole("group", { name: "Choose a time" })).not.toHaveAttribute("aria-busy", "true");
-    if (await dialog.getByTestId("move-slot").count()) break;
+    await expect(times).not.toHaveAttribute("aria-busy", "true");
   }
-  // Pick a slot that differs from the current time so the row visibly changes.
-  const currentTime = beforeWhen!.match(/\d{2}:\d{2}/)![0];
-  const slots = dialog.getByTestId("move-slot");
-  const n = await slots.count();
-  let picked = false;
-  for (let i = 0; i < n; i++) {
-    if ((await slots.nth(i).textContent()) !== currentTime) {
-      await slots.nth(i).click();
-      picked = true;
-      break;
-    }
-  }
-  expect(picked).toBe(true);
+  // Pick any free time other than the current one (the current time is shown but disabled).
+  const free = dialog.locator('[data-testid="move-slot"]:not([disabled])');
+  await expect(free.first()).toBeVisible();
+  const picked = (await free.first().textContent())!.slice(0, 5);
+  await free.first().click();
+  // Step 2: confirm, showing the new time and the old one.
+  await dialog.getByTestId("move-continue").click();
+  await expect(dialog.getByRole("heading", { name: "Confirm your new time" })).toBeVisible();
+  await expect(dialog.getByTestId("move-review")).toContainText(picked);
   await dialog.getByTestId("confirm-move").click();
   await expect(page.getByRole("status")).toContainText("Your visit has moved");
   const movedRow = page.getByTestId("upcoming-list").locator("li").filter({ hasText: reference });

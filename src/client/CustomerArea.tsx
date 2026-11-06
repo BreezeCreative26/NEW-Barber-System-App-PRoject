@@ -8,6 +8,7 @@ import { Avatar, Button, Icon, Notice, StatusPill } from "./ui";
 import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { ReviewCard, type OwnReview } from "./Reviews";
 import { applyThemeColor, brandStyle, serverBrand, themeClass, type ShopBrand, shopPath } from "./theme";
+import { MoveFlow } from "./MoveFlow";
 
 type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; contact_pref?: "AUTO" | "EMAIL" | "NONE"; needs_sms_choice?: boolean; sms_stopped_at?: number | null; complete?: boolean; notes: string; version: number; member_since: number; has_password?: boolean; account_email?: string; email_verified?: boolean };
 type Visit = {
@@ -792,7 +793,19 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
           </Button>
         )}
       </section>
-      {moving && <MoveDialog visit={moving} me={me} A={A} onClose={() => setMoving(null)} onDone={(msg) => { setMoving(null); onChanged(msg); }} />}
+      {moving && (
+        <MoveFlow
+          base={`${A}/bookings/${moving.id}`}
+          visit={moving}
+          shop={me.shop}
+          onCancel={() => setMoving(null)}
+          onDone={() => {
+            setMoving(null);
+            onChanged("Your visit has moved. We've sent you a confirmation of the new time.");
+            window.scrollTo({ top: 0 });
+          }}
+        />
+      )}
       {cancelling && <CancelDialog visit={cancelling} A={A} onClose={() => setCancelling(null)} onDone={(msg) => { setCancelling(null); onChanged(msg); }} />}
     </>
   );
@@ -832,77 +845,6 @@ function CancelDialog({ visit, A, onClose, onDone }: { visit: Visit; A: string; 
           </Button>
           <Button variant="danger" onClick={go} disabled={busy} data-testid="confirm-cancel">
             {busy ? "Cancelling…" : "Cancel visit"}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MoveDialog({ visit, me, A, onClose, onDone }: { visit: Visit; me: Me; A: string; onClose: () => void; onDone: (msg: string) => void }) {
-  const [date, setDate] = useState(visit.date >= me.shop.today ? visit.date : me.shop.today);
-  const [slots, setSlots] = useState<{ start_min: number; available: boolean }[] | null>(null);
-  const [slot, setSlot] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    setSlots(null);
-    setSlot(null);
-    api<{ slots: { start_min: number; available: boolean }[] }>(`${A}/bookings/${visit.id}/availability?date=${date}`)
-      .then((r) => setSlots(r.slots))
-      .catch((e) => setError(e instanceof Error ? e.message : "Could not load times."));
-  }, [date]);
-  const days = Array.from({ length: 14 }, (_, i) => datePlus(me.shop.today, i));
-  async function go() {
-    if (slot === null) return;
-    setBusy(true);
-    setError("");
-    try {
-      await api(`${A}/bookings/${visit.id}/reschedule`, "POST", { date, start_min: slot, version: visit.version });
-      onDone("Your visit has moved.");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not move the visit.");
-    } finally {
-      setBusy(false);
-    }
-  }
-  const open = slots?.filter((s) => s.available) ?? [];
-  return (
-    <div className="ca-dialog-scrim" role="presentation" onClick={onClose}>
-      <div className="ca-dialog wide" role="dialog" aria-modal="true" aria-labelledby="move-heading" onClick={(e) => e.stopPropagation()}>
-        <h2 id="move-heading">Move your visit</h2>
-        <p>
-          {visit.service_name}
-          {visit.staff_name && ` with ${visit.staff_name}`} · currently {dateLabel(visit.date)} {time(visit.start_min)}.
-        </p>
-        <div className="ca-days" role="group" aria-label="Choose a day">
-          {days.map((d) => (
-            <button key={d} type="button" aria-pressed={d === date} onClick={() => setDate(d)}>
-              <small>{new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" })}</small>
-              <b>{d.slice(8)}</b>
-            </button>
-          ))}
-        </div>
-        <div className="ca-slots" role="group" aria-label="Choose a time" aria-busy={!slots}>
-          {!slots && !error && <span className="ca-muted">Loading times…</span>}
-          {slots && !open.length && <span className="ca-muted">No free times that day.</span>}
-          {open.map((s) => (
-            <button key={s.start_min} type="button" aria-pressed={slot === s.start_min} onClick={() => setSlot(s.start_min)} data-testid="move-slot">
-              {time(s.start_min)}
-            </button>
-          ))}
-        </div>
-        {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="ca-form-actions">
-          <Button variant="ghost" onClick={onClose}>
-            Keep current time
-          </Button>
-          <Button onClick={go} disabled={busy || slot === null} data-testid="confirm-move">
-            {busy ? "Moving…" : slot === null ? "Choose a time" : `Move to ${time(slot)}`}
           </Button>
         </div>
       </div>

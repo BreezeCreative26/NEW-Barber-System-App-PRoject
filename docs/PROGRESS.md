@@ -823,3 +823,10 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
   - Bottom bar: big "See times · any barber", plus "Pick a barber" (was "Choose your barber").
 - Staff booking form: staff may double-book. Times that overlap another appointment are now listed ("12:00 · overlaps") and keep the clicked time, with a note that both sit side by side; saving sends force (the server already allowed it for staff). Customers online still can't double-book.
 - Tests: new tests/booking-v5.spec.ts; staff-length, keep-time, catalogue updated for double-booking; button label updated in booking-v4, customer-screens, public, shop-page. 53/53 pass.
+
+## Customer reschedule = the booking screen (2026-11-06)
+- "Move" (account page) and "Move booking" (text/email manage link) now open a full-screen flow that looks like booking: step 1 "Pick a new time" (week strip with free-time counts, Earlier/Later, times grouped Morning/Afternoon/Evening, current time shown as "Now" and disabled); step 2 "Confirm your new time" (new time, old time struck through, service, barber, price unchanged, late-change warning) with a fixed "Confirm move to HH:MM" bar always on screen.
+- If the time is taken while confirming, it returns to the times, refreshed, with a message.
+- New read-only routes: `GET /api/public/manage/:token/days` and `GET /api/public/shops/:slug/account/bookings/:id/days` (14-day strip for the visit's barber and length). Same move rules as before (`moveByCustomer`).
+- New `src/client/MoveFlow.tsx`; old MoveDialog and the inline manage-page move panel removed.
+- Tests: customer-account, public, customer-screens updated (20/20).

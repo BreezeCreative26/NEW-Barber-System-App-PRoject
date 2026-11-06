@@ -4772,3 +4772,20 @@ html.ws-dark .bell-v3 .bell-undo button { color: #03785a; }
 /* Staff booking form: a chosen time that overlaps another appointment (double-booking is allowed). */
 .booking-overlap-note { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--warning-soft, #fff4e5); color: var(--warning-ink, #7a4b00); font-size: var(--fs-13); line-height: 1.4; }
 .booking-overlap-note svg { flex: none; }
+
+/* ---- Reschedule: full-screen move flow, same look as booking (2026-11-06) ---- */
+.booking-app.move-flow { position: fixed; inset: 0; z-index: 80; overflow-y: auto; overscroll-behavior: contain; background: var(--sp-bg, var(--canvas)); color: var(--sp-ink, var(--ink)); }
+.booking-app.move-flow .booking-back { border: 0; background: transparent; cursor: pointer; font: inherit; font-weight: 600; color: inherit; }
+.booking-app.move-flow .move-shop { font-size: var(--fs-14); font-weight: 600; }
+.booking-app.move-flow .booking-body { padding-bottom: 120px; }
+.booking-app.move-flow .move-bars { grid-template-columns: repeat(2, 1fr); }
+.booking-app.move-flow .step-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.booking-app.move-flow .move-now { color: var(--sp-muted, var(--muted)); font-size: var(--fs-13); }
+.booking-app.move-flow .time-slots button.current { opacity: .6; border-style: dashed; }
+.booking-app.move-flow .time-slots button small { font-size: 11px; margin-left: 4px; color: var(--sp-muted, var(--muted)); }
+.booking-app.move-flow .move-was s { color: var(--sp-muted, var(--muted)); font-weight: 600; }
+.booking-app.move-flow .move-note { margin: 4px 0 0; font-size: var(--fs-13); color: var(--sp-muted, var(--muted)); }
+.booking-app.move-flow .booking-actions { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center; margin: 0; padding: 12px clamp(16px, 4vw, 40px) calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--sp-surface, var(--surface)); border-top: 1px solid var(--sp-line, var(--line)); }
+.booking-app.move-flow .booking-actions .button:last-child { width: 100%; justify-content: center; min-height: 52px; }
+.booking-app.move-flow .booking-actions .booking-back-btn { min-height: 52px; }
+@media (min-width: 761px) { .booking-app.move-flow .booking-actions { left: 50%; right: auto; width: min(760px, 100%); transform: translateX(-50%); border-radius: 16px 16px 0 0; } }

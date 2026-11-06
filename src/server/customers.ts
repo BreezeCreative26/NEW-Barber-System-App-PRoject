@@ -21,6 +21,7 @@ import {
   moveBody,
   moveByCustomer,
   moveOptions,
+  moveDays,
   rangeContext,
   shopBySlug,
   slotFor,
@@ -391,6 +392,15 @@ acct.get("/bookings/:id/availability", async (c) => {
   if (!p.success) fail(400, "Supply a valid date");
   const { booking } = await ownBooking(c, shop, cust, c.req.param("id")!);
   return c.json(await moveOptions(c, shop, booking, p.data!.date));
+});
+acct.get("/bookings/:id/days", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug")!);
+  const a = await requireAccount(c, shop);
+  const cust = await linkedCustomer(c, shop, a);
+  const p = z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).safeParse(c.req.query());
+  if (!p.success) fail(400, "Supply a valid date");
+  const { booking } = await ownBooking(c, shop, cust, c.req.param("id")!);
+  return c.json(await moveDays(c, shop, booking, p.data!.from));
 });
 acct.post("/bookings/:id/cancel", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug")!);
