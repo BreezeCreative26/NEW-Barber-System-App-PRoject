@@ -62,6 +62,8 @@ export type PublicShop = {
   hours: { staff_id: string; weekday: number; enabled: number }[];
   today: string;
   max_date: string;
+  // The shop's most-booked services (up to three), most booked first.
+  top_services?: string[];
 };
 type Slot = {
   start_min: number;
@@ -317,6 +319,8 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const [barber, setBarber] = useState(preset?.staff || "");
   const [extraIds, setExtraIds] = useState<string[]>([]);
   const [category, setCategory] = useState("All services");
+  // Service descriptions open with "More" (the chosen service always shows its full description).
+  const [openDesc, setOpenDesc] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
   // Returning customers: their usual (most-booked service + barber) and its next free time.
@@ -957,6 +961,111 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       (category === "All services" || s.category === category) &&
       `${s.name} ${s.category}`.toLowerCase().includes(query.toLowerCase()),
   );
+  // "Most booked here": the shop's three most-booked services (or, for a new shop, the ones it marked
+  // popular). Shown first while browsing everything; they are not repeated in their own section.
+  const topIds = (shop.top_services?.length ? shop.top_services : shop.services.filter((s) => s.popular).map((s) => s.id))
+    .filter((id) => shop.services.some((s) => s.id === id))
+    .slice(0, 3);
+  const browsing = category === "All services" && !query.trim();
+  const topList = browsing && shop.services.length > 6 ? topIds.map((id) => shop.services.find((s) => s.id === id)!) : [];
+  const rest = shownServices.filter((s) => !topList.some((t) => t.id === s.id));
+  const serviceSections: { title: string; top?: boolean; items: PublicShop["services"] }[] = [
+    ...(topList.length ? [{ title: "Most booked here", top: true, items: topList }] : []),
+    ...(browsing && categories.length > 2
+      ? categories.slice(1).map((c) => ({ title: c, items: rest.filter((s) => s.category === c) })).filter((x) => x.items.length)
+      : [{ title: topList.length ? "Everything else" : "", items: rest }].filter((x) => x.items.length)),
+  ];
+  // The price a customer can expect: the cheapest barber who offers it ("From £18"), or one price.
+  const fromPrice = (sv: PublicShop["services"][number]) => {
+    const ps = shop.staff
+      .filter((b) => eligible(b.id, sv.id))
+      .map((b) => shop.service_rules.find((r) => r.staff_id === b.id && r.service_id === sv.id)?.price_pence ?? sv.price_pence);
+    const lo = ps.length ? Math.min(...ps) : sv.price_pence;
+    const hi = ps.length ? Math.max(...ps) : sv.price_pence;
+    return { lo, ranged: lo !== hi };
+  };
+  const renderService = (s: PublicShop["services"][number]) => {
+    const on = service === s.id;
+    const i = shop.services.findIndex((x) => x.id === s.id);
+    const fp = fromPrice(s);
+    const long = (s.description || "").length > 70;
+    const open = on || openDesc.includes(s.id);
+    return (
+      <div key={s.id} className={`service-item ${on ? "chosen" : ""}`}>
+        <button
+          type="button"
+          className={`service-choice ${on ? "chosen" : ""}`}
+          aria-pressed={on}
+          onClick={() => {
+            if (!on) setExtraIds([]);
+            setService(s.id);
+            setSlot(null);
+          }}
+        >
+          <span className={`service-thumb ${s.colour || thumbs[i % thumbs.length]}`}>
+            <Icon name="scissors" size={22} />
+          </span>
+          <span className="service-copy">
+            <strong>
+              {s.name}
+              {topIds.includes(s.id) ? <em className="popular-pill">Popular</em> : null}
+            </strong>
+            {s.description && <span id={`svc-desc-${s.id}`} className={open ? "open" : ""}>{s.description}</span>}
+            <small>
+              <Icon name="clock" size={12} />
+              {s.duration_min} min
+            </small>
+          </span>
+          <span className="choice-end">
+            <strong>{fp.ranged && <small className="from">From</small>}{money(fp.lo)}</strong>
+            <span className="choice-radio">{on && <Icon name="check" size={12} />}</span>
+          </span>
+        </button>
+        {long && !on && (
+          <button
+            type="button"
+            className="service-more"
+            aria-expanded={open}
+            aria-controls={`svc-desc-${s.id}`}
+            onClick={() => setOpenDesc((ids) => (ids.includes(s.id) ? ids.filter((v) => v !== s.id) : [...ids, s.id]))}
+          >
+            {open ? "Less" : "More"}
+          </button>
+        )}
+        {on && serviceAddons.length > 0 && (
+          <div className="service-extras" role="group" aria-label={`Extras for ${s.name}`} data-testid="service-extras">
+            <p>Add an extra?</p>
+            {serviceAddons.map((a) => {
+              const picked = extraIds.includes(a.id);
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  className={`extra-chip ${picked ? "chosen" : ""}`}
+                  aria-pressed={picked}
+                  aria-label={`${a.name}, plus ${money(a.price_pence)}, ${a.duration_min} minutes`}
+                  onClick={() => {
+                    setExtraIds((ids) => (ids.includes(a.id) ? ids.filter((v) => v !== a.id) : [...ids, a.id]));
+                    setSlot(null);
+                  }}
+                >
+                  <Icon name={picked ? "check" : "plus"} size={13} />
+                  {a.name} · {money(a.price_pence)}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+  // Service step total: the chosen service's real "From" price (cheapest barber) plus any extras.
+  const stepZeroTotal = (() => {
+    if (!chosenService) return "";
+    const fp = fromPrice(chosenService);
+    const extras = serviceAddons.filter((a) => extraIds.includes(a.id)).reduce((n, a) => n + a.price_pence, 0);
+    return `${fp.ranged ? "From " : ""}${money(fp.lo + extras)}`;
+  })();
   const est = anyBarber ? { ...anyEstimate(), overridden: false } : { ...estimate(barber), priceTo: estimate(barber).price };
   const slotRow = availability?.slots.find((x) => x.start_min === slot && x.available);
   const pickedOpt = anyBarber && assigned ? slotRow?.options?.find((o) => o.staff_id === assigned.id) : undefined;
@@ -1154,6 +1263,18 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
               })()}
               {step === 0 && (
                 <>
+                  {shop.staff.length > 1 && (
+                    <div className="who-switch" data-testid="who-switch">
+                      <p className="who-label" id="who-label">Who’s coming?</p>
+                      <div className="who-seg" role="group" aria-labelledby="who-label">
+                        <button type="button" aria-pressed="true">Just me</button>
+                        <button type="button" aria-pressed="false" disabled={!sessionKnown} onClick={() => (customer ? setGroup(true) : (setPendingGroup(true), go(3)))} data-testid="start-group">
+                          <Icon name="users" size={16} /> Me + someone else
+                        </button>
+                      </div>
+                      <small>Bringing your son or a friend? Book everyone in one go.</small>
+                    </div>
+                  )}
                   {usual && (
                     <section className="usual-card" data-testid="book-usual-card" aria-label="Your usual">
                       <span className="usual-avatar" aria-hidden="true">{initials(usual.staff_name || usual.service_name)}</span>
@@ -1208,66 +1329,12 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                     </div>
                   )}
                   <div className="service-cards" role="group" aria-label="Choose a service">
-                    {shownServices.map((s, i) => {
-                      const on = service === s.id;
-                      return (
-                        <div key={s.id} className={`service-item ${on ? "chosen" : ""}`}>
-                          <button
-                            type="button"
-                            className={`service-choice ${on ? "chosen" : ""}`}
-                            aria-pressed={on}
-                            onClick={() => {
-                              if (!on) setExtraIds([]);
-                              setService(s.id);
-                              setSlot(null);
-                            }}
-                          >
-                            <span className={`service-thumb ${s.colour || thumbs[i % thumbs.length]}`}>
-                              <Icon name="scissors" size={22} />
-                            </span>
-                            <span className="service-copy">
-                              <strong>
-                                {s.name}
-                                {s.popular ? <em className="popular-pill">Popular</em> : null}
-                              </strong>
-                              {s.description && <span>{s.description}</span>}
-                              <small>
-                                <Icon name="clock" size={12} />
-                                {s.duration_min} min
-                              </small>
-                            </span>
-                            <span className="choice-end">
-                              <strong>{money(s.price_pence)}</strong>
-                              <span className="choice-radio">{on && <Icon name="check" size={12} />}</span>
-                            </span>
-                          </button>
-                          {on && serviceAddons.length > 0 && (
-                            <div className="service-extras" role="group" aria-label={`Extras for ${s.name}`} data-testid="service-extras">
-                              <p>Add an extra?</p>
-                              {serviceAddons.map((a) => {
-                                const picked = extraIds.includes(a.id);
-                                return (
-                                  <button
-                                    key={a.id}
-                                    type="button"
-                                    className={`extra-chip ${picked ? "chosen" : ""}`}
-                                    aria-pressed={picked}
-                                    aria-label={`${a.name}, plus ${money(a.price_pence)}, ${a.duration_min} minutes`}
-                                    onClick={() => {
-                                      setExtraIds((ids) => (ids.includes(a.id) ? ids.filter((v) => v !== a.id) : [...ids, a.id]));
-                                      setSlot(null);
-                                    }}
-                                  >
-                                    <Icon name={picked ? "check" : "plus"} size={13} />
-                                    {a.name} · {money(a.price_pence)}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                    {serviceSections.map((sec) => (
+                      <div key={sec.title || "all"} className="service-section" data-testid={sec.top ? "most-booked" : undefined}>
+                        {sec.title && <h3 className="service-section-title">{sec.title}</h3>}
+                        {sec.items.map(renderService)}
+                      </div>
+                    ))}
                     {!shownServices.length && (
                       <div className="inline-empty">
                         <Icon name="search" />
@@ -1285,16 +1352,6 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       </div>
                     )}
                   </div>
-                  {shop.staff.length > 1 && (
-                    <button type="button" className="group-entry" disabled={!sessionKnown} onClick={() => (customer ? setGroup(true) : (setPendingGroup(true), go(3)))} data-testid="start-group">
-                      <Icon name="users" size={18} />
-                      <span>
-                        <strong>Booking for two or more?</strong>
-                        <small>Seat everyone together or back to back.</small>
-                      </span>
-                      <Icon name="right" size={16} />
-                    </button>
-                  )}
                 </>
               )}
               {step === 1 && (() => {
@@ -1898,7 +1955,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
               <footer className="booking-actions">
                 {step === 0 && (
                   <span className="mobile-checkout-total">
-                    <strong>{priceLabel}</strong>
+                    <strong>{stepZeroTotal || "—"}</strong>
                     <small>Total</small>
                   </span>
                 )}
@@ -1925,10 +1982,9 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                     <Icon name="check" />
                   </Button>
                 ) : (
-                  <span className="booking-next-group" data-total={step === 0 ? priceLabel : undefined}>
+                  <span className={`booking-next-group ${step === 0 && barbers.length > 1 ? "two-ways" : ""}`} data-total={step === 0 ? stepZeroTotal : undefined}>
                     {step === 0 && barbers.length > 1 && (
                       <Button
-                        variant="secondary"
                         disabled={!service}
                         onClick={() => {
                           setBarber(ANY);
@@ -1938,12 +1994,13 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                         data-testid="any-barber-skip"
                         title="Skip choosing a barber and see every open time"
                       >
-                        <Icon name="sparkles" size={16} />
-                        Any barber, see all times
+                        See times · any barber
+                        <Icon name="arrowRight" />
                       </Button>
                     )}
                     <Button
                       key={`next-${step}`}
+                      variant={step === 0 && barbers.length > 1 ? "secondary" : "primary"}
                       disabled={
                         (step === 0 && !service) ||
                         (step === 1 && !barber) ||
@@ -1951,8 +2008,8 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       }
                       onClick={() => go(step === 2 ? 4 : step + 1)}
                     >
-                      {step === 2 ? (slot !== null ? `Continue · ${time(slot)}` : "Pick a time") : "Choose your barber"}
-                      <Icon name="arrowRight" />
+                      {step === 2 ? (slot !== null ? `Continue · ${time(slot)}` : "Pick a time") : "Pick a barber"}
+                      {!(step === 0 && barbers.length > 1) && <Icon name="arrowRight" />}
                     </Button>
                   </span>
                 )}

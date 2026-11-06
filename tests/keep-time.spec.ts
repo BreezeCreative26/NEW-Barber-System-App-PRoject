@@ -35,7 +35,7 @@ test("the clicked time stays when a different service is chosen", async ({ page 
   }
 });
 
-test("if the new service no longer fits at the clicked time, it says so and asks for another time", async ({ page }) => {
+test("if the new service overlaps the next appointment, the time stays and staff are told it will sit side by side", async ({ page }) => {
   const { date, barber, svcs } = await setup(page);
   const short = svcs.find((s) => s.duration_min <= 30)!;
   const long = svcs.find((s) => s.duration_min >= 45)!;
@@ -51,11 +51,12 @@ test("if the new service no longer fits at the clicked time, it says so and asks
   await service.selectOption(short.id);
   const select = page.getByLabel("Available start time");
   await expect(select).toHaveValue("660");
+  // Staff may double-book: the longer service keeps 11:00 and says it overlaps.
   await service.selectOption(long.id);
-  await expect(page.getByText(/11:00 overlaps another appointment/)).toBeVisible();
-  await expect(select).toHaveValue("");
-  // Picking another time clears the message.
-  const other = await select.locator("option").evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value).filter(Boolean)[0]);
-  await select.selectOption(other);
-  await expect(page.getByText(/11:00 overlaps another appointment/)).toHaveCount(0);
+  await expect(select).toHaveValue("660");
+  await expect(page.getByTestId("overlap-notice")).toContainText("side by side");
+  // Picking a free time clears the note.
+  const free = await select.locator("option").evaluateAll((os) => os.map((o) => o as HTMLOptionElement).find((o) => o.value && !o.text.includes("overlaps"))?.value);
+  await select.selectOption(free!);
+  await expect(page.getByTestId("overlap-notice")).toHaveCount(0);
 });

@@ -29,7 +29,7 @@ test("customer screen tour", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "What are we doing today?" })).toBeVisible();
   await shot(page, "02-book-service");
   await page.getByRole("button", { name: new RegExp(w.services[1].name) }).click();
-  await page.getByRole("button", { name: "Choose your barber", exact: true }).click();
+  await page.getByRole("button", { name: "Pick a barber", exact: true }).click();
   await shot(page, "03-book-barber");
   await page.getByRole("button", { name: new RegExp(w.staff[0].name) }).click();
   await expect(page.getByRole("heading", { name: "When suits you?" })).toBeVisible();

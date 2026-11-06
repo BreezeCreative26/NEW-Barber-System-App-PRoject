@@ -219,10 +219,16 @@ pub.get("/shops/:slug", async (c) => {
     c.env.DB.prepare(
       "SELECT staff_id,weekday,enabled,starts,ends FROM staff_hours WHERE shop_id=?",
     ).bind(sid),
+    // The shop's three most-booked services over the last 90 days (ids only, never counts). A service
+    // needs a few bookings to qualify, so a brand-new shop falls back to the services it marked popular.
+    c.env.DB.prepare(
+      "SELECT service_id FROM bookings WHERE shop_id=? AND status<>'CANCELLED' AND created_at>? GROUP BY service_id HAVING COUNT(*)>=3 ORDER BY COUNT(*) DESC, service_id LIMIT 3",
+    ).bind(sid, Date.now() - 90 * 86400000),
   ]);
   const { today, maxDate } = limits(shop);
   return c.json({
     shop: publicShop(shop),
+    top_services: (r[6].results as { service_id: string }[]).map((x) => x.service_id),
     staff: r[0].results,
     services: r[1].results,
     addons: r[2].results,

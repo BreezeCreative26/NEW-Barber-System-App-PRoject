@@ -49,7 +49,7 @@ test("shop page renders the seeded sections and every shortcut deep-links into t
   await page.goto(`/${slug}`);
   await page.getByTestId("barber-book").filter({ hasText: "Marcus" }).click();
   await expect(flow.getByRole("heading", { name: "What are we doing today?" })).toBeVisible();
-  await flow.getByRole("button", { name: "Choose your barber", exact: true }).click();
+  await flow.getByRole("button", { name: "Pick a barber", exact: true }).click();
   await expect(flow.getByRole("button", { name: /Marcus Reed/ })).toHaveAttribute("aria-pressed", "true");
 
   // Soonest chip -> time step, that slot pre-selected.
