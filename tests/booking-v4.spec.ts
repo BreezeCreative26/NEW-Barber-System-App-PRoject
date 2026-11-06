@@ -67,7 +67,7 @@ test("4-step flow: bars, extras under the service, compact barber list, Continue
   await expect(chip).toHaveAttribute("aria-pressed", "true");
 
   // Barber list: Anyone first, one compact row per barber with their next free time.
-  await page.getByRole("button", { name: "Choose your barber", exact: true }).click();
+  await page.getByRole("button", { name: "Pick a barber", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Who’s cutting?" })).toBeVisible();
   await expect(page.getByTestId("step-summary")).toContainText(withExtras!);
   const list = page.getByTestId("barber-list");

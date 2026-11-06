@@ -806,3 +806,20 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - Checked on live, read-only: the 5-minute cron is running, Telnyx delivers (~97% delivered), and nothing is stuck in the queue. Reminders have sent none yet only because nothing is booked within 24h; the first visits are on 9 Nov, and reminders for those will go out on 8 Nov.
 - Not code: the Telnyx balance is low ($17.59, no credit limit, ~$0.10 per 2-part text). When it runs out, texts stop. Carrier rejections (40008) are individual numbers, mostly from the 3 Nov announcement.
 - Test: tests/booking-upgrades.spec.ts asserts an SMS confirmation per group visit.
+
+## Booking screen v5 + staff double-booking (2026-11-06)
+- Customer service step (mock-up PR #93): "Who's coming?" (Just me / Me + someone else) at the top; "Most booked here" first, using the shop's real top 3 from the last 90 days (`top_services` on `GET /api/public/shops/:slug`, ids only; a new shop falls back to the services it marked popular); "Popular" shown only on those; services grouped under the shop's own category headings; "From £x" = cheapest barber's price; "More" opens long descriptions; bottom bar shows the From total, a full-width "See times · any barber" and a "Pick a barber" button.
+- Staff booking form: staff may double-book. Times that overlap another appointment are listed as "12:00 · overlaps"; choosing one shows "Both will sit side by side" and saves with force. A clicked or kept time is no longer cleared when a longer service overlaps.
+- Tests: new tests/booking-v5.spec.ts; staff-length, keep-time and catalogue updated for double-booking; "Choose your barber" renamed "Pick a barber" in flow tests.
+- Known, not from this change: series-fix tests book today+2, which is Sunday 8 Nov (shop closed), so they fail on 6 Nov.
+
+## Booking screen v5 + staff double-booking (2026-11-06)
+- Customer service step (mock-up PR #93, approved):
+  - "Who's coming?" at the top: Just me / Me + someone else (opens the group flow, so a dad and son can book together).
+  - "Most booked here" first: the shop's 3 most-booked services over 90 days (new `top_services` in `GET /api/public/shops/:slug`, ids only; a service needs 3+ bookings; falls back to services marked popular). "Popular" tag only on those.
+  - Services grouped under the shop's own category headings; filtering or searching shows a flat list.
+  - Real "From £x" price per service (cheapest barber who offers it); the bottom-bar total uses it too.
+  - "More / Less" opens long descriptions; the chosen service shows its full description.
+  - Bottom bar: big "See times · any barber", plus "Pick a barber" (was "Choose your barber").
+- Staff booking form: staff may double-book. Times that overlap another appointment are now listed ("12:00 · overlaps") and keep the clicked time, with a note that both sit side by side; saving sends force (the server already allowed it for staff). Customers online still can't double-book.
+- Tests: new tests/booking-v5.spec.ts; staff-length, keep-time, catalogue updated for double-booking; button label updated in booking-v4, customer-screens, public, shop-page. 53/53 pass.

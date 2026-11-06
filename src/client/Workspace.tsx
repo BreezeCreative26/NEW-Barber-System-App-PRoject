@@ -7728,11 +7728,14 @@ function CustomerPicker({
 }
 // Reasons a slot is greyed but the shop may still book it (mirrors OVERRIDABLE_REASONS on the server).
 const SOFT_SLOT_REASONS = ["Slot taken", "Outside working hours", "Lunch break", "Barber off duty", "Blocked time"];
-// Staff booking list: every time the shop can actually book. Only times that overlap an appointment are
-// hidden (plus ones that can't be saved at all: past, shop closed, day off). Out-of-hours, breaks and
-// blocked time are ordinary choices with no label; the save quietly books over them.
+// Staff booking list: every time the shop can actually book. Staff may double-book: a time that overlaps
+// another appointment is offered (marked "overlaps") and saved side by side. Only times that can't be
+// saved at all are left out (past, shop closed, day off). Out-of-hours, breaks and blocked time are
+// ordinary choices with no label; the save quietly books over them.
 const staffCanPick = (x: { reason: string; taken?: boolean; past?: boolean }) =>
-  !x.taken && !x.past && (!x.reason || (x.reason !== "Slot taken" && SOFT_SLOT_REASONS.includes(x.reason)));
+  !x.past && (x.taken || !x.reason || SOFT_SLOT_REASONS.includes(x.reason));
+// What the save needs to book over: an overlap is "Slot taken"; otherwise the slot's soft reason.
+const overrideFor = (x?: { reason: string; taken?: boolean }) => (x?.taken ? "Slot taken" : x?.reason || "");
 function BookingForm({
   w,
   initialDate,
@@ -7923,12 +7926,10 @@ function BookingForm({
             const at = s.slots.find((slot) => slot.start_min === draftPending.current);
             if (at && staffCanPick(at)) {
               setStart(String(at.start_min));
-              setOverride(at.reason);
+              setOverride(overrideFor(at));
             } else
               setError(
-                at?.reason === "Slot taken" || at?.taken
-                  ? `${time(draftPending.current)} overlaps another appointment for this service. Choose another time.`
-                  : at?.reason ? `${time(draftPending.current)}: ${at.reason}. Choose another time.` : `${time(draftPending.current)} doesn't fit this service. Choose another time or service.`,
+                at?.reason ? `${time(draftPending.current)}: ${at.reason}. Choose another time.` : `${time(draftPending.current)} doesn't fit this service. Choose another time or service.`,
               );
             draftPending.current = undefined;
           }
@@ -8338,8 +8339,9 @@ function BookingForm({
               // opening-hours time); earlier times follow in their own group.
               const anchor = draft?.start ?? pickable.find((x) => !x.outside)?.start_min;
               const ordered = anchor === undefined ? pickable : [...pickable.filter((x) => x.start_min >= anchor), ...pickable.filter((x) => x.start_min < anchor)];
-              const firstFree = pickable.find((x) => !x.reason && !x.outside) || pickable[0];
-              const opt = (x: { start_min: number }) => <option key={x.start_min} value={x.start_min}>{time(x.start_min)}</option>;
+              const firstFree = pickable.find((x) => !x.reason && !x.outside && !x.taken) || pickable.find((x) => !x.taken) || pickable[0];
+              const opt = (x: { start_min: number; taken?: boolean }) => <option key={x.start_min} value={x.start_min}>{time(x.start_min)}{x.taken ? " · overlaps" : ""}</option>;
+              const chosen = start ? slots.slots.find((x) => String(x.start_min) === start) : undefined;
               return (
                 <>
                   <div className="booking-time-picker" data-testid="booking-time-picker">
@@ -8362,7 +8364,7 @@ function BookingForm({
                           setStart(e.target.value);
                           setError("");
                           const at = slots.slots.find((x) => String(x.start_min) === e.target.value);
-                          setOverride(at?.reason || "");
+                          setOverride(overrideFor(at));
                         }}
                         required
                       >
@@ -8386,13 +8388,19 @@ function BookingForm({
                           markDraft(e.currentTarget);
                           setStart(String(firstFree.start_min));
                           setError("");
-                          setOverride(firstFree.reason);
+                          setOverride(overrideFor(firstFree));
                         }}
                       >
                         Use first available time
                       </Button>
                     )}
                   </div>
+                  {chosen?.taken && (
+                    <p className="booking-overlap-note" role="status" data-testid="overlap-notice">
+                      <Icon name="alert" size={15} />
+                      Overlaps another appointment for {w.staff.find((x) => x.id === staff)?.name.split(" ")[0] || "this barber"}. Both will sit side by side.
+                    </p>
+                  )}
                   {!pickable.length && <Notice tone="warning">No available times. Try another day or barber.</Notice>}
                 </>
               );

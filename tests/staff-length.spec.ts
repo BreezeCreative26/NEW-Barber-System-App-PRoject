@@ -127,7 +127,7 @@ test("booking form: a clicked out-of-hours slot is used the same way, with no la
   await expect(page.locator(".slot-grid")).toHaveCount(0);
 });
 
-test("time list starts at the clicked time and hides only times that overlap an appointment", async ({ page }) => {
+test("time list starts at the clicked time; overlapping times are offered, marked, and book side by side", async ({ page }) => {
   await openFixtureShop(page);
   const date = await futureWeekday(page);
   const w = (await (await page.request.get(base + "/workspace")).json()) as Omit<W, "staff"> & { staff: { id: string; name: string; active: number }[] };
@@ -146,10 +146,33 @@ test("time list starts at the clicked time and hides only times that overlap an 
   // Starts at the clicked time (11:00); earlier times come after, in their own group.
   expect(values[0]).toBe(660);
   await expect(select.locator('optgroup[label="Earlier"]')).toHaveCount(1);
-  // Times that would overlap the 12:00 appointment are gone; the rest of the day is there.
-  for (const m of [720, 735]) expect(values).not.toContain(m);
+  // Staff may double-book: times overlapping the 12:00 appointment are offered and marked "overlaps".
+  for (const m of [720, 735]) expect(values).toContain(m);
   expect(values).toContain(780);
-  // No reason text anywhere in the list.
-  const labels = await select.locator("option").allTextContents();
-  expect(labels.slice(1).every((t) => /^\d\d:\d\d$/.test(t.trim()))).toBe(true);
+  await expect(select.locator('option[value="720"]')).toHaveText(/12:00 · overlaps/);
+  await expect(select.locator('option[value="780"]')).toHaveText(/^13:00$/);
+  // Picking an overlapping time shows the side-by-side note; a free time doesn't.
+  await select.selectOption("720");
+  await expect(page.getByTestId("overlap-notice")).toContainText("side by side");
+  await select.selectOption("780");
+  await expect(page.getByTestId("overlap-notice")).toHaveCount(0);
+});
+
+test("staff can save a booking that overlaps another appointment", async ({ page }) => {
+  await openFixtureShop(page);
+  const date = await futureWeekday(page);
+  const w = (await (await page.request.get(base + "/workspace")).json()) as Omit<W, "staff"> & { staff: { id: string; name: string; active: number }[] };
+  const barber = w.staff.find((s) => s.active)!;
+  const svc = w.services.find((s) => s.duration_min === 30) || w.services[0];
+  const a = await (await page.request.get(base + `/availability?date=${date}&staff_id=${barber.id}&service_id=${svc.id}`)).json();
+  const first = await page.request.post(base + "/bookings", { headers: { Origin: origin }, data: { request_id: crypto.randomUUID(), staff_id: barber.id, service_id: svc.id, customer_name: "First Client", phone: "07700 900621", notes: "", date, start_min: 720, source: "TEST_BOOKING", quote: a.quote, addon_ids: [], notify: false, force: true } });
+  expect(first.status(), await first.text()).toBe(201);
+  // The same time again for the same barber: refused without force, saved with it (as the form sends).
+  const body = { staff_id: barber.id, service_id: svc.id, customer_name: "Second Client", phone: "07700 900622", notes: "", date, start_min: 720, source: "TEST_BOOKING", quote: a.quote, addon_ids: [], notify: false };
+  const refused = await page.request.post(base + "/bookings", { headers: { Origin: origin }, data: { ...body, request_id: crypto.randomUUID() } });
+  expect(refused.status()).toBe(409);
+  const saved = await page.request.post(base + "/bookings", { headers: { Origin: origin }, data: { ...body, request_id: crypto.randomUUID(), force: true } });
+  expect(saved.status(), await saved.text()).toBe(201);
+  const day = await (await page.request.get(base + `/bookings?date=${date}&staff_id=${barber.id}`)).json();
+  expect(day.bookings.filter((b: { start_min: number; status: string }) => b.start_min === 720 && b.status === "CONFIRMED")).toHaveLength(2);
 });

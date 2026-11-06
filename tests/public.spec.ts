@@ -325,7 +325,7 @@ test.describe("public booking pages", () => {
     await page.goto(`/book/${slug}`);
     await expect(page.getByRole("heading", { name: "What are we doing today?" })).toBeVisible();
     await page.getByRole("button", { name: new RegExp(w.services[1].name) }).click();
-    await page.getByRole("button", { name: "Choose your barber", exact: true }).click();
+    await page.getByRole("button", { name: "Pick a barber", exact: true }).click();
     // Tapping a barber moves straight on to the time step.
     await page.getByRole("button", { name: new RegExp(w.staff[0].name) }).click();
     await expect(page.getByRole("heading", { name: "When suits you?" })).toBeVisible();
@@ -646,7 +646,7 @@ test.describe("public booking v2 UI", () => {
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto(`/book/${slug}`);
     await page.getByRole("button", { name: new RegExp(big.name) }).click();
-    await page.getByRole("button", { name: "Choose your barber", exact: true }).click();
+    await page.getByRole("button", { name: "Pick a barber", exact: true }).click();
     await expect(page.getByTestId("barber-any")).toHaveAttribute("aria-pressed", "true");
     await page.getByTestId("barber-any").click();
     await expect(page.getByRole("region", { name: "Soonest open times" })).toBeVisible();

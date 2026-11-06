@@ -4743,3 +4743,32 @@ html.ws-dark .bell-v3 .bell-undo button { color: #03785a; }
 .booking-app.standalone .booking-date-toolbar h3, .booking-app .booking-date-toolbar h3 { flex: 1 1 auto; min-width: 0; text-align: center; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Top bar: the signed-in person's own photo, cropped to the round avatar. */
 .account-pill .avatar-photo { object-fit: cover; padding: 0; background: var(--line-2); flex: 0 0 auto; }
+
+/* ---- Booking v5: who's coming, sections, most booked, From prices, More (2026-11-06) ---- */
+.booking-app .who-switch { border: 1px solid var(--sp-line, var(--line)); border-radius: 16px; padding: 12px; margin-bottom: 14px; background: var(--sp-surface, var(--surface)); }
+.booking-app .who-switch .who-label { margin: 0 0 8px; font-size: var(--fs-13); color: var(--sp-muted, var(--muted)); font-weight: 600; }
+.booking-app .who-seg { display: grid; grid-template-columns: 1fr 1.4fr; gap: 4px; padding: 4px; border-radius: 12px; background: var(--sp-bg, var(--canvas, #f4f4f2)); }
+.booking-app .who-seg button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; border: 0; border-radius: 9px; background: transparent; color: var(--sp-ink, var(--ink)); font: 600 15px/1.2 inherit; font-family: inherit; cursor: pointer; }
+.booking-app .who-seg button[aria-pressed="true"] { background: var(--sp-ink, var(--ink)); color: var(--sp-bg, #fff); }
+.booking-app .who-seg button:not([aria-pressed="true"]):hover { background: color-mix(in srgb, var(--sp-ink, var(--ink)) 8%, transparent); }
+.booking-app .who-seg button:disabled { opacity: .55; cursor: default; }
+.booking-app .who-switch > small { display: block; margin-top: 8px; font-size: var(--fs-12); color: var(--sp-muted, var(--muted)); }
+.booking-app .service-section { display: grid; gap: inherit; }
+.booking-app .service-section + .service-section { margin-top: 10px; }
+.booking-app .service-section-title { margin: 6px 2px 2px; font-size: var(--fs-13); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--sp-muted, var(--muted)); }
+.booking-app .service-copy > span:not(.open) { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.booking-app .service-copy > span.open { display: block; -webkit-line-clamp: unset; }
+.booking-app.standalone .service-copy > span.open { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.booking-app .service-more { display: block; margin: -6px 0 6px 16px; padding: 4px 6px; border: 0; background: transparent; color: var(--sp-ink, var(--ink)); font: 600 13px inherit; font-family: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.booking-app .choice-end > strong { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
+.booking-app .choice-end > strong .from { font-size: 11px; font-weight: 600; color: var(--sp-muted, var(--muted)); letter-spacing: .02em; }
+@media (max-width: 760px) {
+  /* Two clear ways on: a full-width "See times · any barber", with "Pick a barber" beside the total. */
+  .booking-app.standalone .booking-actions:has(.mobile-checkout-total) .booking-next-group.two-ways { grid-template-columns: auto minmax(0, 1fr); }
+  .booking-app.standalone .booking-actions:has(.mobile-checkout-total) .booking-next-group.two-ways .button:not(.secondary) { grid-column: 1 / -1; order: 2; }
+  .booking-app.standalone .booking-actions:has(.mobile-checkout-total) .booking-next-group.two-ways .button.secondary { grid-column: 2; order: 1; min-height: 48px; font-size: 15px; padding: 0 14px; border: 1px solid var(--sp-line, var(--line)); background: transparent; text-decoration: none; justify-content: center; color: var(--sp-ink, var(--ink)); }
+  .booking-app.standalone .booking-actions:has(.mobile-checkout-total) .booking-next-group.two-ways::before { grid-column: 1; order: 0; font-size: 20px; }
+}
+/* Staff booking form: a chosen time that overlaps another appointment (double-booking is allowed). */
+.booking-overlap-note { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--warning-soft, #fff4e5); color: var(--warning-ink, #7a4b00); font-size: var(--fs-13); line-height: 1.4; }
+.booking-overlap-note svg { flex: none; }

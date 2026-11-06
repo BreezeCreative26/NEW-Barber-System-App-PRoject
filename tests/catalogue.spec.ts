@@ -530,11 +530,13 @@ test("changing add-ons invalidates a selected slot, preserves contact fields and
   await page.getByLabel("Mobile number", { exact: true }).fill("07700900123");
   await page.getByLabel("Email address").fill("new.customer@example.test");
   await page.getByLabel("Long finish", { exact: false }).check();
-  await expect(page.getByLabel("Available start time")).toHaveValue("");
-  // 09:00 now overlaps the earlier appointment, so it is simply not offered.
+  // 09:00 now overlaps the earlier appointment. Staff may double-book, so the time stays, marked
+  // "overlaps", with a note that both will sit side by side.
+  await expect(page.getByLabel("Available start time")).toHaveValue("540");
   await expect(
     page.getByLabel("Available start time").locator('option[value="540"]'),
-  ).toHaveCount(0);
+  ).toHaveText(/overlaps/);
+  await expect(page.getByTestId("overlap-notice")).toContainText("side by side");
   await expect(page.getByLabel("Customer name", { exact: true })).toHaveValue(
     "Preserved addon draft",
   );
