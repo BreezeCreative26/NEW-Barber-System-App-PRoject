@@ -1,0 +1,338 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Booking screen v5 — mock-up (The Doghouse Gentlemen's Barbers)</title>
+<style>
+@font-face{font-family:Geist;src:url("../../public/static/fonts/geist-latin-wght-normal.woff2") format("woff2");font-weight:100 900}
+@font-face{font-family:Oswald;src:url("../../public/static/fonts/oswald-latin-wght-normal.woff2") format("woff2");font-weight:200 700}
+*{box-sizing:border-box}body{margin:0;background:#2a2a2e;font-family:Geist,system-ui,sans-serif;color:#f4f4f2;padding:28px;display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap}
+.intro{width:100%;color:#cfcfca;font-size:14px;max-width:1240px}.intro h2{color:#fff;margin:0 0 6px;font-size:20px}
+.wrap{display:flex;flex-direction:column;gap:10px}.cap{color:#fff;font-weight:600;font-size:14px}
+.phone{width:390px;background:#0d0d0f;border-radius:26px;padding:14px 14px 0;position:relative;overflow:hidden;border:1px solid #333}
+.top{display:flex;align-items:center;gap:10px;padding:4px 2px 10px}.top .shop{flex:1;font-family:Oswald,sans-serif;font-weight:600;font-size:15px;letter-spacing:.02em}.ic{opacity:.8}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:11px;color:#77777a;margin-bottom:14px}.steps span{border-top:3px solid #2b2b2e;padding-top:5px}.steps .on{border-color:#f4f4f2;color:#f4f4f2}
+h1{font-family:Oswald,sans-serif;font-size:24px;margin:0 0 12px;text-transform:uppercase;letter-spacing:.01em}
+.who{background:#17171a;border:1px solid #2b2b2e;border-radius:16px;padding:12px;margin-bottom:12px}.who-l{font-size:12px;color:#9a9a9e;margin-bottom:8px}
+.seg{display:grid;grid-template-columns:1fr 1.4fr;gap:6px;background:#0d0d0f;border-radius:12px;padding:4px}.seg button{border:0;border-radius:9px;padding:10px 6px;font:600 14px Geist,sans-serif;background:transparent;color:#cfcfca}.seg .on{background:#f4f4f2;color:#0d0d0f}
+.who-hint{font-size:12px;color:#9a9a9e;margin-top:8px}
+.search{border:1px solid #2b2b2e;border-radius:14px;padding:12px 14px;color:#77777a;margin-bottom:10px}
+.chips{display:flex;gap:6px;overflow:hidden;margin-bottom:6px;padding:4px 0;position:sticky;top:0;background:#0d0d0f}.chip{white-space:nowrap;border:1px solid #2b2b2e;border-radius:999px;padding:7px 12px;font-size:13px;color:#cfcfca}.chip.on{background:#f4f4f2;color:#0d0d0f;border-color:#f4f4f2;font-weight:600}
+.sec{display:flex;justify-content:space-between;align-items:baseline;margin:16px 2px 8px;font-family:Oswald,sans-serif;text-transform:uppercase;font-size:15px;letter-spacing:.03em}.sec small{font-family:Geist;color:#77777a;font-size:12px}
+.svc{display:flex;gap:10px;border:1px solid #232326;background:#141416;border-radius:14px;padding:12px 12px;margin-bottom:8px}.svc.sel{border-color:#f4f4f2;background:#1b1b1e}
+.svc-main{flex:1;min-width:0}.svc-name{font-weight:650;font-size:15px}.pop{font-size:10px;font-weight:700;background:#00e8b0;color:#0b0b0c;border-radius:999px;padding:2px 7px;margin-left:4px;vertical-align:2px}
+.svc-meta{font-size:13px;color:#cfcfca;margin-top:3px;font-weight:600}.svc-desc{font-size:12.5px;color:#9a9a9e;margin-top:4px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}.svc-desc.open{display:block}.more{font-size:12px;color:#f4f4f2;text-decoration:underline}
+.extras{margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}.extras-l{font-size:12px;color:#9a9a9e}.chip-x{border:1px dashed #555;border-radius:999px;padding:5px 10px;font-size:12px}
+.tick{width:24px;height:24px;border-radius:50%;border:2px solid #3a3a3e;flex:none;display:grid;place-items:center;font-size:13px;font-weight:800}.tick.on{background:#f4f4f2;color:#0d0d0f;border-color:#f4f4f2}
+.fade{color:#77777a;font-size:12px;text-align:center;padding:10px 0 4px}
+.bar{position:sticky;bottom:0;margin:12px -14px 0;background:#0d0d0f;border-top:1px solid #2b2b2e;padding:12px 14px 16px}.bar.empty{color:#77777a;font-size:13px;text-align:center}
+.bar-sum strong{display:block;font-size:14px}.bar-sum span{font-size:12px;color:#9a9a9e}
+.bar-btns{display:grid;grid-template-columns:1fr 1.5fr;gap:8px;margin-top:10px}.bar-btns button{border-radius:12px;padding:12px 8px;font:650 13.5px Geist,sans-serif}.b1{background:#f4f4f2;color:#0d0d0f;border:0}.b2{background:transparent;color:#f4f4f2;border:1px solid #3a3a3e}
+.person{border:1px solid #2b2b2e;border-radius:16px;padding:12px;margin-bottom:10px;background:#121214}.person.active{border-color:#f4f4f2}
+.p-h{display:flex;gap:10px;align-items:center}.p-h div{flex:1}.p-h strong{display:block;font-size:14px}.p-h small{font-size:12px;color:#9a9a9e}.av{width:28px;height:28px;border-radius:50%;background:#f4f4f2;color:#0d0d0f;display:grid;place-items:center;font-weight:800;font-size:13px}.edit{font-size:12px;text-decoration:underline}
+.name-in{border:1px solid #2b2b2e;border-radius:12px;padding:10px 12px;color:#77777a;font-size:13px;margin:10px 0}
+.add-p{border:1px dashed #3a3a3e;border-radius:14px;padding:12px;text-align:center;font-weight:600;font-size:14px}.add-p small{color:#77777a;font-weight:400}
+</style></head><body>
+<div class="intro"><h2>Booking screen: proposed changes (mock-up, real The Doghouse Gentlemen's Barbers services and prices)</h2>
+1. "Who's coming?" at the top, so dad and son can book together. 2. Services grouped under the shop's own category headings, with "Most booked here" first. 3. "Popular" only on the 3 most-booked services (Standard Haircut, Skin Fade, Taper). 4. "More" opens the full description. 5. A big "See times · any barber" button. 6. A real "From" price for each service, plus a note that the price depends on the barber.</div>
+<section class="wrap"><div class="cap">1 · Arriving: nothing chosen yet</div><div class="phone" id="f1">
+  <div class="top"><span class="ic">←</span><span class="shop">THE DOGHOUSE GENTLEMEN'S BARBERS</span><span class="ic">◯</span></div>
+  <div class="steps"><span class="on">Service</span><span>Barber</span><span>Time</span><span>Confirm</span></div>
+  <h1>What are we doing today?</h1>
+  <div class="who">
+    <div class="who-l">Who's coming?</div>
+    <div class="seg"><button class="on">Just me</button><button class="">👥 Me + someone else</button></div>
+    <div class="who-hint">Dad and son? Book both in one go.</div>
+  </div><div class="search">⌕ <span>Search services…</span></div><div class="chips"><span class="chip on">All</span><span class="chip">Adult Hair Only</span><span class="chip">Adult Hair &amp; Beard Combo</span><span class="chip">Beard Services</span><span class="chip">Over 65's Services</span><span class="chip">Under 14's Services</span><span class="chip">Under 7's Services</span></div>
+  <div class="sec"><span>Most booked here</span></div>
+  
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Standard Haircut <span class="pop">Popular</span></div>
+      <div class="svc-meta">From £18 · 30 min</div>
+      <div class="svc-desc">A classic cut, trim, or restyle tailored to your head shape and finished with styling product</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Skin Fade <span class="pop">Popular</span></div>
+      <div class="svc-meta">From £20 · 30 min</div>
+      <div class="svc-desc">A high-precision cut blending the hair down to the skin, transitioning from zero to your desired length.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Taper <span class="pop">Popular</span></div>
+      <div class="svc-meta">From £19 · 30 min</div>
+      <div class="svc-desc">A clean, subtle blend focused strictly on the sideburns and neckline, leaving the rest of your hair length natural and intact for a sharp, modern cleanup.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="sec"><span>Adult Hair Only</span><small>7</small></div>
+  
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Burst Fade</div>
+      <div class="svc-meta">From £19 · 30 min</div>
+      <div class="svc-desc">A modern, technical fade that curves tightly around the ear, leaving length at the back.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Mullet</div>
+      <div class="svc-meta">From £19 · 30 min</div>
+      <div class="svc-desc">A tailored, textured cut blending sharp side transitions with flowing length down the neck.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Skin Fade <span class="pop">Popular</span></div>
+      <div class="svc-meta">From £20 · 30 min</div>
+      <div class="svc-desc">A high-precision cut blending the hair down to the skin, transitioning from zero to your desired length.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Standard Haircut <span class="pop">Popular</span></div>
+      <div class="svc-meta">From £18 · 30 min</div>
+      <div class="svc-desc">A classic cut, trim, or restyle tailored to your head shape and finished with styling product</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Taper <span class="pop">Popular</span></div>
+      <div class="svc-meta">From £19 · 30 min</div>
+      <div class="svc-desc">A clean, subtle blend focused strictly on the sideburns and neckline, leaving the rest of your hair length natural and intact for a sharp, modern cleanup.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Line Up</div>
+      <div class="svc-meta">£12 · 15 min</div>
+      <div class="svc-desc">A quick clean-up focusing strictly on sharpening the hairline, temples, and neck contour.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Single Grade</div>
+      <div class="svc-meta">From £10 · 15 min</div>
+      
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="sec"><span>Adult Hair &amp; Beard Combo</span><small>6</small></div>
+  
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Burst Fade &amp; Beard Trim</div>
+      <div class="svc-meta">From £24 · 45 min</div>
+      <div class="svc-desc">The trending curved fade around the ear, paired with a clean beard shape-up and line-up.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Haircut &amp; Beard Trim</div>
+      <div class="svc-meta">From £22 · 45 min</div>
+      
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Mullet &amp; Beard Trim</div>
+      <div class="svc-meta">From £22 · 45 min</div>
+      <div class="svc-desc">A modern, textured mullet cut combined with a full beard trim to keep the entire look dialled in.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Skin Fade &amp; Beard Trim</div>
+      <div class="svc-meta">From £25 · 45 min</div>
+      <div class="svc-desc">Precision skin fade blended to zero, paired with a sharp, tailored beard grooming service.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Skin Taper &amp; Beard Trim</div>
+      <div class="svc-meta">From £24 · 45 min</div>
+      <div class="svc-desc">Precision clean-up blending the sideburns and neckline down to the skin, paired with a meticulous beard shape-up and sharp edge-up.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Single Grade &amp; Beard Trim</div>
+      <div class="svc-meta">From £18 · 30 min</div>
+      
+      
+    </div>
+    <span class="tick"></span>
+  </div><div class="fade">… Beard · Over 65s · Under 14s · Under 7s sections follow</div>
+  <div class="bar empty"><span>Choose a service to see times</span></div></div></section>
+<section class="wrap"><div class="cap">2 · Skin Fade chosen</div><div class="phone" id="f2">
+  <div class="top"><span class="ic">←</span><span class="shop">THE DOGHOUSE GENTLEMEN'S BARBERS</span><span class="ic">◯</span></div>
+  <div class="steps"><span class="on">Service</span><span>Barber</span><span>Time</span><span>Confirm</span></div>
+  <h1>What are we doing today?</h1>
+  <div class="who">
+    <div class="who-l">Who's coming?</div>
+    <div class="seg"><button class="on">Just me</button><button class="">👥 Me + someone else</button></div>
+    <div class="who-hint">Dad and son? Book both in one go.</div>
+  </div><div class="search">⌕ <span>Search services…</span></div><div class="chips"><span class="chip on">Adult Hair Only</span><span class="chip">All</span><span class="chip">Adult Hair &amp; Beard Combo</span><span class="chip">Beard Services</span><span class="chip">Over 65's Services</span><span class="chip">Under 14's Services</span><span class="chip">Under 7's Services</span></div>
+  <div class="sec"><span>Adult Hair Only</span><small>7</small></div>
+  
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Burst Fade</div>
+      <div class="svc-meta">From £19 · 30 min</div>
+      <div class="svc-desc">A modern, technical fade that curves tightly around the ear, leaving length at the back.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Mullet</div>
+      <div class="svc-meta">From £19 · 30 min</div>
+      <div class="svc-desc">A tailored, textured cut blending sharp side transitions with flowing length down the neck.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc sel">
+    <div class="svc-main">
+      <div class="svc-name">Skin Fade <span class="pop">Popular</span></div>
+      <div class="svc-meta">From £20 · 30 min</div>
+      <div class="svc-desc open">A high-precision cut blending the hair down to the skin, transitioning from zero to your desired length.</div>
+      <div class="extras"><span class="extras-l">Add an extra</span><span class="chip-x">+ Hair Wash · £5</span></div>
+    </div>
+    <span class="tick on">✓</span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Standard Haircut <span class="pop">Popular</span></div>
+      <div class="svc-meta">From £18 · 30 min</div>
+      <div class="svc-desc">A classic cut, trim, or restyle tailored to your head shape and finished with styling product</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Taper <span class="pop">Popular</span></div>
+      <div class="svc-meta">From £19 · 30 min</div>
+      <div class="svc-desc">A clean, subtle blend focused strictly on the sideburns and neckline, leaving the rest of your hair length natural and intact for a sharp, modern cleanup.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Line Up</div>
+      <div class="svc-meta">£12 · 15 min</div>
+      <div class="svc-desc">A quick clean-up focusing strictly on sharpening the hairline, temples, and neck contour.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">Single Grade</div>
+      <div class="svc-meta">From £10 · 15 min</div>
+      
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="bar">
+    <div class="bar-sum"><strong>Skin Fade</strong><span>From £20 · 30 min · price set by the barber you pick</span></div>
+    <div class="bar-btns"><button class="b2">Pick a barber</button><button class="b1">See times · any barber →</button></div>
+  </div></div></section>
+<section class="wrap"><div class="cap">3 · Me + someone else (dad and son)</div><div class="phone" id="f3">
+  <div class="top"><span class="ic">←</span><span class="shop">THE DOGHOUSE GENTLEMEN'S BARBERS</span><span class="ic">◯</span></div>
+  <div class="steps"><span class="on">Service</span><span>Barber</span><span>Time</span><span>Confirm</span></div>
+  <h1>Who's being booked?</h1>
+  <div class="who">
+    <div class="who-l">Who's coming?</div>
+    <div class="seg"><button class="">Just me</button><button class="on">👥 Me + someone else</button></div>
+    
+  </div>
+  <div class="person done"><div class="p-h"><span class="av">1</span><div><strong>You</strong><small>Skin Fade · From £20 · 30 min</small></div><span class="edit">Change</span></div></div>
+  <div class="person active"><div class="p-h"><span class="av">2</span><div><strong>Second person</strong><small>Name (optional)</small></div></div>
+    <div class="name-in">e.g. Jack</div>
+    <div class="chips"><span class="chip on">Under 14's Services</span><span class="chip">All</span><span class="chip">Adult Hair Only</span><span class="chip">Adult Hair &amp; Beard Combo</span><span class="chip">Beard Services</span><span class="chip">Over 65's Services</span><span class="chip">Under 7's Services</span></div>
+    
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">U14's Burst Fade</div>
+      <div class="svc-meta">From £16 · 30 min</div>
+      <div class="svc-desc">The trending curved fade around the ear, keeping the back long and sides sharp.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">U14's Mullet</div>
+      <div class="svc-meta">From £15 · 30 min</div>
+      <div class="svc-desc">A fresh, textured take on the modern mullet, customized to be school-friendly.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">U14's Skin Fade</div>
+      <div class="svc-meta">From £16 · 30 min</div>
+      <div class="svc-desc">A high-precision, skin-tight blend down to zero, crafted with patience.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  <div class="svc sel">
+    <div class="svc-main">
+      <div class="svc-name">U14's Standard Haircut</div>
+      <div class="svc-meta">From £15 · 30 min</div>
+      <div class="svc-desc">clean, classic scissor or clipper cut tailored for younger clients.</div><span class="more">More</span>
+      <div class="extras"><span class="extras-l">Add an extra</span><span class="chip-x">+ Hair Wash · £5</span></div>
+    </div>
+    <span class="tick on">✓</span>
+  </div>
+  <div class="svc">
+    <div class="svc-main">
+      <div class="svc-name">U14's Taper</div>
+      <div class="svc-meta">From £16 · 30 min</div>
+      <div class="svc-desc">A fresh, modern skin-tight blend focused strictly on the sideburns and neckline. Crafted with patience to keep your child looking sharp and feeling confident.</div><span class="more">More</span>
+      
+    </div>
+    <span class="tick"></span>
+  </div>
+  </div>
+  <div class="add-p">+ Add another person <small>(up to 4)</small></div>
+  <div class="bar">
+    <div class="bar-sum"><strong>2 people · Skin Fade + U14's Standard Haircut</strong><span>From £35 total</span></div>
+    <div class="bar-btns"><button class="b2">Back to back, one barber</button><button class="b1">Same time, two barbers →</button></div>
+  </div></div></section>
+</body></html>
