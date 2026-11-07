@@ -28,7 +28,8 @@ for (const vp of [{ name: "desktop", width: 1280, height: 860 }, { name: "phone"
     }
     await expect(page.locator(".calendar-board.shop-closed-day")).toBeVisible();
     await expect(page.getByTestId("shop-closed-banner")).toContainText("Shop closed · Staff training");
-    await expect(page.locator(".timetable-slot:enabled")).toHaveCount(0);
+    // Greyed but still bookable by staff ("book anyway").
+    await expect(page.getByRole("button", { name: /09:00,.*Shop closed/ }).first()).toBeEnabled();
     // Still announced to screen readers, but no visible "Shop closed" text repeated in slots.
     expect(await page.getByRole("button", { name: /09:00,.*Shop closed/ }).count()).toBeGreaterThan(0);
     const slotTexts = await page.locator(".timetable-slot").allInnerTexts();

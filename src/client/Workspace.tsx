@@ -7727,11 +7727,11 @@ function CustomerPicker({
   );
 }
 // Reasons a slot is greyed but the shop may still book it (mirrors OVERRIDABLE_REASONS on the server).
-const SOFT_SLOT_REASONS = ["Slot taken", "Outside working hours", "Lunch break", "Barber off duty", "Blocked time"];
+const SOFT_SLOT_REASONS = ["Slot taken", "Outside working hours", "Lunch break", "Barber off duty", "Blocked time", "Barber has a day off", "Shop closed"];
 // Staff booking list: every time the shop can actually book. Staff may double-book: a time that overlaps
 // another appointment is offered (marked "overlaps") and saved side by side. Only times that can't be
-// saved at all are left out (past, shop closed, day off). Out-of-hours, breaks and blocked time are
-// ordinary choices with no label; the save quietly books over them.
+// saved at all are left out (past). Out-of-hours, breaks, blocked time, a barber's day off and a closed
+// day are ordinary choices; the save quietly books over them.
 const staffCanPick = (x: { reason: string; taken?: boolean; past?: boolean }) =>
   !x.past && (x.taken || !x.reason || SOFT_SLOT_REASONS.includes(x.reason));
 // What the save needs to book over: an overlap is "Slot taken"; otherwise the slot's soft reason.
@@ -8339,7 +8339,9 @@ function BookingForm({
               // opening-hours time); earlier times follow in their own group.
               const anchor = draft?.start ?? pickable.find((x) => !x.outside)?.start_min;
               const ordered = anchor === undefined ? pickable : [...pickable.filter((x) => x.start_min >= anchor), ...pickable.filter((x) => x.start_min < anchor)];
-              const firstFree = pickable.find((x) => !x.reason && !x.outside && !x.taken) || pickable.find((x) => !x.taken) || pickable[0];
+              // On a day off / closed day nothing is free, so start at the usual opening time rather than midnight.
+              const closedDay = pickable.length > 0 && pickable.every((x) => x.reason === "Shop closed" || x.reason === "Barber has a day off") ? pickable[0].reason : "";
+              const firstFree = pickable.find((x) => !x.reason && !x.outside && !x.taken) || (closedDay ? pickable.find((x) => x.start_min >= w.shop.opens && !x.taken) : undefined) || pickable.find((x) => !x.taken) || pickable[0];
               const opt = (x: { start_min: number; taken?: boolean }) => <option key={x.start_min} value={x.start_min}>{time(x.start_min)}{x.taken ? " · overlaps" : ""}</option>;
               const chosen = start ? slots.slots.find((x) => String(x.start_min) === start) : undefined;
               return (
@@ -8399,6 +8401,14 @@ function BookingForm({
                     <p className="booking-overlap-note" role="status" data-testid="overlap-notice">
                       <Icon name="alert" size={15} />
                       Overlaps another appointment for {w.staff.find((x) => x.id === staff)?.name.split(" ")[0] || "this barber"}. Both will sit side by side.
+                    </p>
+                  )}
+                  {closedDay && (
+                    <p className="booking-overlap-note" role="status" data-testid="closed-day-notice">
+                      <Icon name="alert" size={15} />
+                      {closedDay === "Shop closed"
+                        ? "The shop is closed this day. You can still book it; customers can't book online."
+                        : `${w.staff.find((x) => x.id === staff)?.name.split(" ")[0] || "This barber"} has a day off. You can still book it; customers can't book online.`}
                     </p>
                   )}
                   {!pickable.length && <Notice tone="warning">No available times. Try another day or barber.</Notice>}

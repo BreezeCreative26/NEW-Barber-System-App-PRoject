@@ -72,8 +72,9 @@ function tick() {
   }
 }
 // Slot reasons the shop may knowingly book over from the calendar. Mirrors OVERRIDABLE_REASONS server-side.
-const SOFT_REASONS = new Set(["Outside hours", "Off duty", "Break", "Occupied", "Blocked"]);
-const HARD_REASONS = new Set(["Past time", "Shop closed", "Day off", "Inactive barber"]);
+// A barber's day off and a closed day are greyed like out-of-hours time but still bookable by staff.
+const SOFT_REASONS = new Set(["Outside hours", "Off duty", "Break", "Occupied", "Blocked", "Day off", "Shop closed"]);
+const HARD_REASONS = new Set(["Past time", "Inactive barber"]);
 // Out-of-hours cells: greyed flat (not hatched) — the shop is simply shut, but staff may still book.
 const OUTSIDE_REASONS = new Set(["Outside hours", "Off duty"]);
 // Fixed 24-hour board: midnight to midnight, every day.
