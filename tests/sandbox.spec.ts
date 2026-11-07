@@ -276,6 +276,10 @@ test("staff days off persist, isolate shops, reject bookings and moves, and rele
     ),
   ).toBe(true);
   expect((await r.post(base + "/bookings", { data: p })).status()).toBe(409);
+  // Staff can still book the barber on their day off on purpose ("book anyway").
+  const anyway = await r.post(base + "/bookings", { data: { ...payload(w, 690), force: true } });
+  expect(anyway.status(), await anyway.text()).toBe(201);
+  expect((await workspace(r)).issues.map((i) => i.booking_id)).not.toContain((await anyway.json()).booking.id);
   expect(
     (
       await r.post(base + `/bookings/${second.id}/reschedule`, {
@@ -703,6 +707,11 @@ test("weekly hours, holidays, shop settings and deactivation flag affected booki
   expect(
     (await r.post(base + "/bookings", { data: payload(w, 900) })).status(),
   ).toBe(409);
+  // Staff may book a closed day on purpose ("book anyway"); it is then not flagged as an issue.
+  const anyway = await r.post(base + "/bookings", { data: { ...payload(w, 900), force: true } });
+  expect(anyway.status(), await anyway.text()).toBe(201);
+  const anywayId = (await anyway.json()).booking.id;
+  expect((await workspace(r)).issues.map((i) => i.booking_id)).not.toContain(anywayId);
   expect((await r.delete(base + "/holidays/" + hid)).status()).toBe(200);
   expect(
     (
@@ -713,7 +722,7 @@ test("weekly hours, holidays, shop settings and deactivation flag affected booki
   ).toBe(200);
   after = await workspace(r);
   expect(after.issues[0].reason).toBe("Barber unavailable");
-  expect(after.bookings).toHaveLength(1);
+  expect(after.bookings).toHaveLength(2); // the original plus the closed-day "book anyway"
   const { id, ...rest } = w.shop;
   const settings = {
     name: "Updated test shop",
@@ -724,7 +733,7 @@ test("weekly hours, holidays, shop settings and deactivation flag affected booki
     deposit_pence: 700,
     cancel_hours: 48,
     no_show_grace: 20,
-    version: 0,
+    version: after.shop.version,
   };
   expect((await r.put(base + "/shop", { data: settings })).status()).toBe(200);
   const updated = (await workspace(r)).shop;
@@ -742,8 +751,11 @@ test("weekly hours, holidays, shop settings and deactivation flag affected booki
   expect((await r.put(base + `/staff/${barber.id}/hours`, { data: { version: barber.version, rows: lateRows } })).status()).toBe(200);
   const thu = await (await r.get(base + `/availability?date=${nextThu}&staff_id=${barber.id}&service_id=${w.services[0].id}`)).json();
   const sat = await (await r.get(base + `/availability?date=${nextSat}&staff_id=${barber.id}&service_id=${w.services[0].id}`)).json();
-  expect(thu.slots.some((x: { start_min: number; reason?: string }) => x.start_min === 1110 && !x.reason)).toBe(true);
-  expect(sat.slots.some((x: { start_min: number; reason?: string }) => x.start_min === 1110 && !x.reason)).toBe(false);
+  // Staff may book out of hours, so the slot comes back flagged "outside" rather than refused.
+  type S = { start_min: number; reason?: string; outside?: boolean };
+  expect(thu.slots.some((x: S) => x.start_min === 1110 && !x.reason && !x.outside)).toBe(true);
+  expect(sat.slots.some((x: S) => x.start_min === 1110 && !x.reason && !x.outside)).toBe(false);
+  expect(sat.slots.find((x: S) => x.start_min === 1110)?.outside).toBe(true);
   await r.dispose();
 });
 

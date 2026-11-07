@@ -826,8 +826,8 @@ CREATE OR REPLACE FUNCTION ollo_booking_slot_checks(b bookings) RETURNS void LAN
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM staff WHERE id=b.staff_id AND shop_id=b.shop_id AND active=1) THEN PERFORM ollo_abort('barber_unavailable'); END IF;
   IF EXISTS (SELECT 1 FROM staff_service_rules r WHERE r.shop_id=b.shop_id AND r.staff_id=b.staff_id AND r.service_id=b.service_id AND r.enabled=0) THEN PERFORM ollo_abort('service_ineligible'); END IF;
-  IF EXISTS (SELECT 1 FROM holidays WHERE shop_id=b.shop_id AND date=b.date) THEN PERFORM ollo_abort('shop_closed'); END IF;
-  IF EXISTS (SELECT 1 FROM staff_days_off d WHERE d.shop_id=b.shop_id AND d.staff_id=b.staff_id AND d.date=b.date) THEN PERFORM ollo_abort('staff_day_off'); END IF;
+  IF NOT ollo_force_slot() AND EXISTS (SELECT 1 FROM holidays WHERE shop_id=b.shop_id AND date=b.date) THEN PERFORM ollo_abort('shop_closed'); END IF;
+  IF NOT ollo_force_slot() AND EXISTS (SELECT 1 FROM staff_days_off d WHERE d.shop_id=b.shop_id AND d.staff_id=b.staff_id AND d.date=b.date) THEN PERFORM ollo_abort('staff_day_off'); END IF;
   IF NOT ollo_force_slot() AND NOT EXISTS (
     SELECT 1 FROM staff_hours h JOIN shops s ON s.id=h.shop_id
     LEFT JOIN staff_schedule_overrides o ON o.shop_id=h.shop_id AND o.staff_id=h.staff_id AND o.date=b.date
@@ -845,11 +845,6 @@ BEGIN
     SELECT 1 FROM staff_blocks k WHERE k.shop_id=b.shop_id AND k.staff_id=b.staff_id AND k.date=b.date
       AND b.start_min < k.end_min AND b.start_min + b.duration_min + b.buffer_min > k.start_min
   ) THEN PERFORM ollo_abort('outside_hours'); END IF;
-  IF ollo_force_slot() AND NOT EXISTS (
-    SELECT 1 FROM shops s WHERE s.id=b.shop_id
-      AND ((s.week_json::jsonb)->ollo_weekday(b.date)->>'enabled')::int = 1
-      AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(s.closed_days::jsonb) d WHERE d::int = ollo_weekday(b.date))
-  ) THEN PERFORM ollo_abort('shop_closed'); END IF;
   IF NOT ollo_force_slot() AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE','COMPLETED') AND EXISTS (
     SELECT 1 FROM bookings x WHERE x.shop_id=b.shop_id AND x.staff_id=b.staff_id AND x.id<>b.id
       AND x.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE','COMPLETED')

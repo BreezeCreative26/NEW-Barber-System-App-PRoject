@@ -830,3 +830,8 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - New read-only routes: `GET /api/public/manage/:token/days` and `GET /api/public/shops/:slug/account/bookings/:id/days` (14-day strip for the visit's barber and length). Same move rules as before (`moveByCustomer`).
 - New `src/client/MoveFlow.tsx`; old MoveDialog and the inline manage-page move panel removed.
 - Tests: customer-account, public, customer-screens updated (20/20).
+
+## Staff can book on days off and closed days (book anyway)
+- A barber's day off, a shop holiday and a closed weekday are now soft "book anyway" reasons for staff, like out-of-hours and breaks. Calendar slots are greyed but clickable; the booking form offers the times with a notice and "first available" starts at opening time.
+- Migration 0067: `ollo_booking_slot_checks` only refuses day-off/holiday/closed-weekday bookings when not forced (staff force). Online customers are unchanged and still can't book those days.
+- Repeat series still skip days off and closed days. Deliberate bookings there aren't flagged as issues.

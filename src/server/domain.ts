@@ -1155,7 +1155,10 @@ export function isOutsideHours(shop: Shop, hours: Hours | null, date: string, st
   const day = shopDay(shop, weekday(date));
   return start < Math.max(day.starts, hours.starts) || start + duration + shopBuffer(shop) > Math.min(day.ends, hours.ends);
 }
-export const OVERRIDABLE_REASONS = new Set(["Slot taken", "Outside working hours", "Lunch break", "Barber off duty", "Blocked time"]);
+// A barber's day off and a closed day (weekday off or holiday) are also staff-overridable "book anyway"
+// reasons; repeat series still skip them (see CLOSED_DAY_REASONS) so a weekly run never lands there by itself.
+export const CLOSED_DAY_REASONS = new Set(["Barber has a day off", "Shop closed"]);
+export const OVERRIDABLE_REASONS = new Set(["Slot taken", "Outside working hours", "Lunch break", "Barber off duty", "Blocked time", ...CLOSED_DAY_REASONS]);
 export function overridable(reason: string) {
   return OVERRIDABLE_REASONS.has(reason);
 }

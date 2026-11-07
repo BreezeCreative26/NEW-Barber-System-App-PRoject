@@ -433,12 +433,11 @@ test("E1 unavailable chair time distinguishes past, leave, breaks and shop closu
   await page.getByRole("dialog", { name: "Scheduled team" }).getByLabel(new RegExp(w.staff[0].name)).check();
   await page.getByRole("dialog", { name: "Scheduled team" }).getByRole("button", { name: "Done" }).click();
   await expect(page.getByRole("dialog", { name: "Scheduled team" })).toHaveCount(0);
-  await expect(
-    page.locator('.timetable-slot[data-column="0"]:enabled'),
-  ).toHaveCount(0);
+  // A day off is greyed but staff can still book it ("book anyway").
   await expect(
     page.getByRole("button", { name: /09:00,.*Day off/ }),
   ).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /09:00,.*Day off/ })).toBeEnabled();
   // Breaks are greyed but clickable (book anyway), so they are enabled buttons.
   await expect(page.getByRole("button", { name: /12:45,.*Break/ })).toHaveCount(
     1,
@@ -450,10 +449,11 @@ test("E1 unavailable chair time distinguishes past, leave, breaks and shop closu
   });
   expect(closure.status(), await closure.text()).toBe(201);
   await refreshView(page);
-  await expect(page.locator(".timetable-slot:enabled")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: /09:00,.*Shop closed/ }),
   ).toHaveCount(2);
+  // Closed days are bookable by staff too (greyed, "book anyway").
+  await expect(page.getByRole("button", { name: /09:00,.*Shop closed/ }).first()).toBeEnabled();
 });
 
 for (const width of [320, 390, 768, 1024, 1440])
@@ -703,13 +703,11 @@ test("pending status save blocks action switching and first-time shortcut never 
   await page
     .getByLabel("Booking date", { exact: true })
     .fill(sunday.toISOString().slice(0, 10));
-  await expect(
-    page.getByRole("button", { name: "Use first available time", exact: true }),
-  ).toBeDisabled();
+  // A closed day is still bookable by staff: it says so, and "first available" starts at opening time, not midnight.
+  await expect(page.getByTestId("closed-day-notice")).toContainText("The shop is closed this day");
   await expect(page.getByLabel("Available start time")).toHaveValue("");
-  await expect(
-    page.getByText("No available times.", { exact: false }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Use first available time", exact: true }).click();
+  expect(Number(await page.getByLabel("Available start time").inputValue())).toBeGreaterThanOrEqual(8 * 60);
 });
 
 for (const width of [320, 390, 768, 844, 1024, 1440, 1920])

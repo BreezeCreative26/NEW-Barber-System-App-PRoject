@@ -43,6 +43,7 @@ import {
   shopToday,
   slotReason,
   overridable,
+  CLOSED_DAY_REASONS,
   isOutsideHours,
   dueAtBooking,
   paymentModeFor,
@@ -527,7 +528,7 @@ async function seriesPreview(c: Ctx, b: z.infer<typeof seriesSchema>) {
       const reason = slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, date, at, duration, now, undefined, data.daysOff, data.blocks, true);
       if (instant === null || instant < now) return { reason: reason && !overridable(reason) ? reason : "Time has passed", force: false };
       if (overlaps) return { reason: "Clashes with another appointment", force: false };
-      if (reason && !overridable(reason)) return { reason, force: false };
+      if (reason && (!overridable(reason) || CLOSED_DAY_REASONS.has(reason))) return { reason, force: false };
       return { reason: "", force: !!reason };
     };
     const r = check(start);
@@ -733,7 +734,7 @@ sandbox.get("/workspace", async (c) => {
   const deliberate = new Set(
     (
       await c.env.DB.prepare(
-        "SELECT entity_id FROM audit_events WHERE shop_id=? AND entity_type='booking' AND action IN ('BOOKING_CREATED','RESCHEDULED') AND reason ILIKE '%outside normal working hours%' AND entity_id IN (SELECT id FROM bookings WHERE shop_id=? AND start_at>?)",
+        "SELECT entity_id FROM audit_events WHERE shop_id=? AND entity_type='booking' AND action IN ('BOOKING_CREATED','RESCHEDULED') AND (reason ILIKE '%outside normal working hours%' OR reason ILIKE '%overrode: barber has a day off%' OR reason ILIKE '%overrode: shop closed%') AND entity_id IN (SELECT id FROM bookings WHERE shop_id=? AND start_at>?)",
       )
         .bind(sid, sid, Date.now())
         .all<{ entity_id: string }>()
@@ -769,7 +770,8 @@ sandbox.get("/workspace", async (c) => {
             undefined,
             daysOff,
           );
-      if (reason === "Outside working hours" && deliberate.has(b.id)) return [];
+      // Booked there on purpose by the shop (outside hours, or "book anyway" on a day off / closed day).
+      if ((reason === "Outside working hours" || CLOSED_DAY_REASONS.has(reason)) && deliberate.has(b.id)) return [];
       return reason ? [{ booking_id: b.id, ref: ref(b), reason }] : [];
     });
   const payments = (
