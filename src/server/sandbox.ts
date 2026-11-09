@@ -3574,7 +3574,7 @@ sandbox.patch("/bookings/:id/items", async (c) => {
     c.env.DB.prepare(
       "UPDATE bookings SET service_id=?,service_name=?,price_pence=?,duration_min=?,customer_duration_min=?,items_json=?,end_at=?,items_edited_at=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
     ).bind(body.service_id, items[0].name, price, duration, customerLength, JSON.stringify(items), start + duration * 60000, edited ? now : null, now, c.get("shopId"), b.id, body.version),
-    audit(c, "booking", b.id, "ITEMS_UPDATED", `${summary}. ${body.reason}${overridden ? ` (overrode: ${reason})` : ""}`, true),
+    audit(c, "booking", b.id, "ITEMS_UPDATED", `${summary}${body.reason ? `. ${body.reason}` : ""}${overridden ? ` (overrode: ${reason})` : ""}`, true),
   ]);
   const fresh = await readBooking(c, b.id);
   if (fresh.version === b.version) fail(409, "record_changed");
@@ -3734,12 +3734,13 @@ sandbox.post("/bookings/:id/checkout", async (c) => {
     );
     statements.push(audit(c, "payment", pid, "PAYMENT_RECORDED", `${t.method} ${t.service_pence}p service + ${t.tip_pence}p tip for ${ref(b)}`));
   }
-  if (!ids.length && !depositToPost) fail(400, "Nothing to record");
+  // Nothing taken is fine when nothing is owed (a £0 / free visit): it simply completes.
+  if (!ids.length && !depositToPost && !(body.complete && due === 0)) fail(400, "Nothing to record");
   if (body.complete && b.status !== "COMPLETED") {
     statements.push(
       c.env.DB.prepare("UPDATE bookings SET status='COMPLETED',version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(now, c.get("shopId"), b.id, version),
     );
-    statements.push(audit(c, "booking", b.id, "COMPLETED", "Checked out; payment recorded in the ledger.", true));
+    statements.push(audit(c, "booking", b.id, "COMPLETED", !ids.length && !depositToPost ? `Checked out at £0${body.discount_pence ? ` (£${(body.discount_pence / 100).toFixed(2)} off)` : ""}; nothing to take.` : "Checked out; payment recorded in the ledger.", true));
   }
   await c.env.DB.batch(statements);
   const booking = await readBooking(c, b.id);

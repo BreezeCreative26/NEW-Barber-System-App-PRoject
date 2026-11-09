@@ -729,10 +729,6 @@ function EditItems({
       onSubmit={async (e) => {
         e.preventDefault();
         setError("");
-        if (reason.trim().length < 3) {
-          setError("Say why in a few words — it shows in the history.");
-          return;
-        }
         try {
           const r = await onSave({
             service_id: serviceId,
@@ -816,8 +812,8 @@ function EditItems({
         </Notice>
       )}
       <label className="panel-reason">
-        <span>Why?</span>
-        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. went for a skin fade instead" minLength={3} maxLength={300} required data-testid="items-reason" />
+        <span>Note <small>(optional)</small></span>
+        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. mate's rates" maxLength={300} data-testid="items-reason" />
       </label>
       {error && <p className="workspace-error" role="alert">{error}</p>}
       <div className="panel-actions-row">
