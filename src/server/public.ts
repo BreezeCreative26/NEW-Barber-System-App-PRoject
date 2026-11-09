@@ -46,7 +46,7 @@ import customerAccounts from "./customers";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, pushFor, waAvailable, type Channel, type MessageTemplate, type Recipient } from "./messaging";
 import { currentAccount as currentCustomerAccount, customerPassword, ensureAccount, openSession as openCustomerSession, sendWelcome } from "./customerAuth";
 import { autoOffer, slotFreed, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
-import { leaveReview, ownReviewView, publicReviews, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
+import { leaveReview, ownReviewView, publicReviews, publicReviewsByStaff, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
 import { CARDS_READY_SQL, createDepositSession, depositView, depositsOnline, paymentPolicy, expireHolds, keepDepositInLedger, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
 import { shopUrl } from "./hosts";
 import {
@@ -355,7 +355,7 @@ const addonQuery = z
 pub.get("/shops/:slug/page", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug"));
   const sid = shop.id;
-  const [page, staff, services, hours, holidays, daysOff, reviews] = await Promise.all([
+  const [page, staff, services, hours, holidays, daysOff, reviews, staffReviews] = await Promise.all([
     c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>(),
     c.env.DB.prepare("SELECT id,name,role,title,bio,colour,photo_url,skills,instagram FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name").bind(sid).all(),
     c.env.DB.prepare("SELECT s.id,s.name,s.category,s.duration_min,s.price_pence,s.description,s.colour,s.popular FROM services s LEFT JOIN service_categories k ON k.shop_id=s.shop_id AND k.name=s.category WHERE s.shop_id=? AND s.active=1 AND s.online_bookable=1 ORDER BY COALESCE(k.sort_order,9999),s.category,s.popular DESC,s.sort_order,s.name").bind(sid).all(),
@@ -363,6 +363,7 @@ pub.get("/shops/:slug/page", async (c) => {
     c.env.DB.prepare("SELECT date,label FROM holidays WHERE shop_id=? AND date>=? ORDER BY date LIMIT 6").bind(sid, shopToday(shop.timezone)).all<{ date: string; label: string }>(),
     c.env.DB.prepare("SELECT staff_id,date FROM staff_days_off WHERE shop_id=? AND date>=? AND date<=?").bind(sid, shopToday(shop.timezone), datePlus(shopToday(shop.timezone), 14)).all<{ staff_id: string; date: string }>(),
     publicReviews(c.env.DB, sid),
+    publicReviewsByStaff(c.env.DB, sid),
   ]);
   const content = page ?? defaultShopPage(sid);
   // Hidden pages are not public; /book/<slug> still works.
@@ -437,6 +438,8 @@ pub.get("/shops/:slug/page", async (c) => {
     soonest,
     reviews: reviews.reviews,
     rating: reviews.summary,
+    // Each barber's own shown reviews, for "Read reviews" on their team card.
+    staff_reviews: staffReviews,
     now,
   });
 });

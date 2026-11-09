@@ -788,3 +788,14 @@
 .shop-page.accent-ink .sp-cta-card .button.sp-cta-btn { background: #fff; color: #111318; }
 .shop-page.mode-dark.accent-ink .sp-cta-card .button.sp-cta-btn { background: var(--sp-ink); color: var(--sp-bg); }
 .shop-page.mode-dark:not(.accent-ink) .sp-cta-card .button.sp-cta-btn { background: var(--sp-accent-ink); color: var(--sp-accent); }
+
+/* Team card: each barber's own rating and "Read reviews" (only reviews the shop shows). */
+.shop-page .sp-barber-rating { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--sp-ink-2); }
+.shop-page .sp-barber-rating .stars { display: inline-flex; gap: 1px; }
+.shop-page .sp-read-reviews { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 6px 0; font: inherit; font-size: 14px; font-weight: 600; color: var(--sp-accent-dark, var(--sp-ink)); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.shop-page .sp-read-reviews:focus-visible { outline: 2px solid var(--sp-accent, currentColor); outline-offset: 2px; border-radius: 4px; }
+.shop-page .sp-barber-reviews { grid-column: 1 / -1; list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 10px; max-height: 420px; overflow: auto; }
+.shop-page .sp-barber-reviews .sp-review { border: 1px solid var(--sp-line); border-radius: var(--sp-r-card, 14px); padding: 12px; background: var(--sp-surface-2, transparent); }
+.shop-page .sp-barber-reviews .sp-review header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; }
+.shop-page .sp-barber-reviews .sp-review header span { color: var(--sp-muted); }
+.shop-page .sp-barber-reviews .sp-review p { margin: 6px 0 0; font-size: 14px; }

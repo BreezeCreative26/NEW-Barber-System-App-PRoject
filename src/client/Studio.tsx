@@ -19,6 +19,7 @@ import { BarberPayoutCard } from "./Payouts";
 import { PhotoUpload } from "./Media";
 import { BarberHoursPanel, BarberServicesPanel, summariseWeek } from "./BarberHub";
 import { StaffLoginPanel } from "./StaffLogin";
+import { ReviewsPanel } from "./ReviewsAdmin";
 import type { PayRun } from "../server/domain";
 
 export const COLOURS: { key: string; label: string }[] = [
@@ -936,7 +937,7 @@ const staffForm = (staff: Staff | null) => ({
   ...payFormOf(staff),
 });
 type Perf = { barbers: { staff_id: string; n: number; minutes: number; completed_value: number; no_shows: number }[]; from: string; to: string };
-export type BarberTab = "profile" | "schedule" | "services" | "pay" | "performance" | "upcoming" | "login";
+export type BarberTab = "profile" | "schedule" | "services" | "pay" | "performance" | "reviews" | "upcoming" | "login";
 function BarberEditor({
   w,
   api,
@@ -1065,6 +1066,7 @@ function BarberEditor({
           <button type="button" aria-pressed={tab === "services"} onClick={() => setTab("services")}>Services</button>
           <button type="button" aria-pressed={tab === "pay"} onClick={() => setTab("pay")}>Pay</button>
           <button type="button" aria-pressed={tab === "performance"} onClick={() => setTab("performance")}>Performance</button>
+          <button type="button" aria-pressed={tab === "reviews"} onClick={() => setTab("reviews")} data-testid="barber-tab-reviews">Reviews</button>
           <button type="button" aria-pressed={tab === "upcoming"} onClick={() => setTab("upcoming")}>Upcoming</button>
           {canEdit && <button type="button" aria-pressed={tab === "login"} onClick={() => setTab("login")} data-testid="barber-tab-login">Login</button>}
         </div>
@@ -1266,6 +1268,7 @@ function BarberEditor({
           {!perf && <p className="workspace-footnote">Loading…</p>}
         </div>
       )}
+      {tab === "reviews" && staff && <ReviewsPanel w={w} api={api} staffId={staff.id} />}
       {tab === "upcoming" && staff && (
         <ol className="customer-history" aria-label="Upcoming appointments">
           {upcoming === null && <li className="workspace-footnote">Loading…</li>}
