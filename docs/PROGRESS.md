@@ -835,3 +835,10 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - A barber's day off, a shop holiday and a closed weekday are now soft "book anyway" reasons for staff, like out-of-hours and breaks. Calendar slots are greyed but clickable; the booking form offers the times with a notice and "first available" starts at opening time.
 - Migration 0067: `ollo_booking_slot_checks` only refuses day-off/holiday/closed-weekday bookings when not forced (staff force). Online customers are unchanged and still can't book those days.
 - Repeat series still skip days off and closed days. Deliberate bookings there aren't flagged as issues.
+
+## Wallet money check: per-barber cash / card reader / owed, from each barber's pay setup
+- Wallet "By barber" now uses the pay-run engine with the same inputs (rota days, hours, leave, period length, deductions). Before, it passed hours=0 and no rota days, so daily chair rent and hourly pay showed £0 and chair-rent barbers looked owed money instead of owing rent.
+- Every active barber is listed (a chair renter with no takings still shows the rent they owe), not just people paid in the range.
+- Each barber card: Cash, Card reader, Card online (+ transfer/other), their deal (incl. tiered commission), share, tips, deductions, earned, cash already kept, and "Shop owes X" / "X owes the shop".
+- New "Card reader" tender for the shop's own machine (Revolut), migration 0068. It lands in the shop's account, so a chair renter is owed it rather than treated as already holding it. Old hand-logged CARD rows are treated the same way.
+- Fixed: pay-run split counted payment rows as visits.

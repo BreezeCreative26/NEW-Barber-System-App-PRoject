@@ -1169,7 +1169,7 @@ export type Payment = {
   staff_id: string;
   customer_id: string | null;
   date: string;
-  method: "CARD" | "CASH" | "TRANSFER" | "VOUCHER" | "OTHER" | "ONLINE";
+  method: "CARD" | "CASH" | "TRANSFER" | "VOUCHER" | "OTHER" | "ONLINE" | "READER";
   service_pence: number;
   tip_pence: number;
   discount_pence: number;
@@ -1185,7 +1185,8 @@ export type Payment = {
   platform_fee_pence?: number;
   pay_run_id?: string | null;
 };
-export const paymentMethods = ["CARD", "CASH", "TRANSFER", "VOUCHER", "OTHER", "ONLINE"] as const;
+// READER: card taken on the shop's own card machine (e.g. a Revolut reader) — money lands in the shop's account.
+export const paymentMethods = ["CARD", "CASH", "TRANSFER", "VOUCHER", "OTHER", "ONLINE", "READER"] as const;
 // Checkout: one or more tenders against a visit. Service amount defaults to the booking price
 // less discount; tips are recorded separately and belong to the barber.
 export const checkoutSchema = z

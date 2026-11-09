@@ -4789,3 +4789,22 @@ html.ws-dark .bell-v3 .bell-undo button { color: #03785a; }
 .booking-app.move-flow .booking-actions .button:last-child { width: 100%; justify-content: center; min-height: 52px; }
 .booking-app.move-flow .booking-actions .booking-back-btn { min-height: 52px; }
 @media (min-width: 761px) { .booking-app.move-flow .booking-actions { left: 50%; right: auto; width: min(760px, 100%); transform: translateX(-50%); border-radius: 16px 16px 0 0; } }
+
+/* Wallet: one card per barber — how it was paid, what their pay setup gives them, who owes whom. */
+.wallet-barbers { display: grid; gap: 10px; }
+.wallet-barber { border: 1px solid var(--line, #e6e3dc); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; background: var(--surface, #fff); }
+.wallet-barber header { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.wallet-barber header span { font-size: 13px; color: var(--muted, #6b6b6b); }
+.wallet-barber dl { margin: 0; display: grid; gap: 4px; }
+.wallet-barber dl div { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.wallet-barber dt { display: flex; align-items: center; gap: 6px; color: var(--muted, #6b6b6b); }
+.wallet-barber dt small { color: var(--muted, #8a8a8a); }
+.wallet-barber dd { margin: 0; font-variant-numeric: tabular-nums; }
+.wallet-barber-split { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); background: var(--soft, #f6f4ef); border-radius: 8px; padding: 8px 10px; }
+.wallet-barber-split div { flex-direction: column; gap: 2px; }
+.wallet-barber-split dd { font-weight: 600; font-size: 15px; }
+.wallet-barber-calc .strong { font-weight: 600; border-top: 1px solid var(--line, #e6e3dc); padding-top: 4px; }
+.wallet-barber-calc .strong dt { color: inherit; }
+.wallet-barber-owed { margin: 0; font-weight: 600; font-size: 14px; padding: 6px 10px; border-radius: 8px; background: var(--soft, #f6f4ef); }
+.wallet-barber-owed.owed { background: #eaf5ee; color: #1f6b3a; }
+.wallet-barber-owed.owes-shop { background: #fdf0e6; color: #8a4a12; }

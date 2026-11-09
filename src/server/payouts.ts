@@ -82,23 +82,36 @@ export type SplitFigures = {
   card_service_pence: number; card_tips_pence: number; cash_service_pence: number; cash_tips_pence: number;
   platform_fee_pence: number; stripe_fee_pence: number;
   payment_ids: string[];
+  // Part of the cash bucket taken on the shop's own card machine (e.g. a Revolut reader): it is not on
+  // foliyo's balance, but it is in the shop's account, never in the barber's pocket.
+  reader_pence?: number;
 };
+// Where a tender's money sits: on foliyo's Stripe balance, in the shop's own card-machine account
+// (Revolut etc.), or in someone's hand (cash, bank transfer, voucher, other).
+export function tenderKind(method: string, intent = ""): "STRIPE" | "READER" | "HAND" {
+  if (method === "ONLINE" || (method === "CARD" && !!intent)) return "STRIPE";
+  // A hand-logged card (no Stripe intent) was taken on the shop's own machine too.
+  if (method === "READER" || method === "CARD") return "READER";
+  return "HAND";
+}
 // CARD via Terminal and ONLINE deposits are "card" (on the platform balance); CASH/TRANSFER/VOUCHER
 // are "cash" (in someone's hand already). Only unsettled rows (no pay_run_id) count.
-export async function splitFigures(db: DB, shopId: string, staffId: string, from: string, to: string): Promise<SplitFigures> {
+export async function splitFigures(db: DB, shopId: string, staffId: string, from: string, to: string, opts: { includeSettled?: boolean } = {}): Promise<SplitFigures> {
   const rows = (await db
-    .prepare("SELECT id, method, service_pence, tip_pence, platform_fee_pence, stripe_fee_pence, stripe_payment_intent FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND pay_run_id IS NULL")
-    .bind(shopId, staffId, from, to)
-    .all<{ id: string; method: string; service_pence: number; tip_pence: number; platform_fee_pence: number; stripe_fee_pence: number; stripe_payment_intent: string }>()).results;
+    .prepare("SELECT id, booking_id, method, service_pence, tip_pence, platform_fee_pence, stripe_fee_pence, stripe_payment_intent FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND (?=1 OR pay_run_id IS NULL)")
+    .bind(shopId, staffId, from, to, opts.includeSettled ? 1 : 0)
+    .all<{ id: string; booking_id: string; method: string; service_pence: number; tip_pence: number; platform_fee_pence: number; stripe_fee_pence: number; stripe_payment_intent: string }>()).results;
   const f: SplitFigures = { service_pence: 0, tips_pence: 0, visits: 0, card_service_pence: 0, card_tips_pence: 0, cash_service_pence: 0, cash_tips_pence: 0, platform_fee_pence: 0, stripe_fee_pence: 0, payment_ids: [] };
   const bookings = new Set<string>();
   for (const r of rows) {
-    const card = r.method === "ONLINE" || (r.method === "CARD" && !!r.stripe_payment_intent);
+    const kind = tenderKind(r.method, r.stripe_payment_intent);
+    const card = kind === "STRIPE";
     f.service_pence += r.service_pence; f.tips_pence += r.tip_pence;
+    if (kind === "READER") f.reader_pence = (f.reader_pence ?? 0) + r.service_pence + r.tip_pence;
     if (card) { f.card_service_pence += r.service_pence; f.card_tips_pence += r.tip_pence; } else { f.cash_service_pence += r.service_pence; f.cash_tips_pence += r.tip_pence; }
     f.platform_fee_pence += r.platform_fee_pence; f.stripe_fee_pence += r.stripe_fee_pence;
     f.payment_ids.push(r.id);
-    bookings.add(r.id);
+    bookings.add(r.booking_id);
   }
   f.visits = bookings.size;
   return f;
@@ -131,7 +144,8 @@ export function settlementFor(terms: PayTerms, result: ReturnType<typeof calcula
   const reserve = Math.round((barberCard * opts.reserve_bps) / 10000);
   const transfer = Math.max(0, barberCard - reserve);
   const shopTransfer = Math.max(0, shopCard);
-  const cashHeld = opts.cashHeldBy === "BARBER" ? f.cash_service_pence + f.cash_tips_pence : 0;
+  // Card-machine money (Revolut etc.) is in the shop's account even when the barber keeps their cash.
+  const cashHeld = opts.cashHeldBy === "BARBER" ? f.cash_service_pence + f.cash_tips_pence - (f.reader_pence ?? 0) : 0;
   // Everything the barber is owed that hasn't gone by card and isn't already in their pocket.
   const cashResidual = result.net_pence - barberCard - cashHeld + (terms.pay_model === "CHAIR_RENT" ? 0 : 0);
   return { transfer_pence: transfer, shop_transfer_pence: shopTransfer, reserve_pence: reserve, cash_residual_pence: cashResidual, barber_card_pence: barberCard };
