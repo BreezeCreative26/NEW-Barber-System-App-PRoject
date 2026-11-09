@@ -4895,3 +4895,46 @@ html.ws-dark .bell-v3 .bell-undo button { color: #03785a; }
 .payments-barber-list li { border: 0; border-bottom: 1px solid var(--line-2); border-radius: 0; background: transparent; padding-left: 0; padding-right: 0; }
 .payments-barber-list li:last-child { border-bottom: 0; }
 .workspace-toggle { border: 0; background: var(--soft); }
+
+/* ==========================================================================
+   Reviews (drawer + barber tab): no outline, text never touches an edge,
+   clear name / meta / comment / actions rhythm
+   ========================================================================== */
+.workspace .reviews-drawer .workspace-card,
+.workspace .reviews-panel.workspace-card {
+  border: 0; box-shadow: none; background: transparent; border-radius: 0; padding: 0; margin: 0;
+}
+.reviews-panel { display: grid; gap: var(--s-3); min-width: 0; }
+.reviews-panel > .workspace-card-head { display: grid; gap: var(--s-3); margin: 0; padding: 0; border: 0; }
+.reviews-panel > .workspace-card-head h2 { margin: 0 0 4px; }
+.reviews-panel > .workspace-card-head p { margin: 0; color: var(--muted); font-size: var(--fs-14); line-height: 1.5; max-width: 60ch; }
+.reviews-panel > .workspace-card-head p strong { color: var(--ink); }
+
+/* Barber summary chips: pills that wrap, never clipped */
+.reviews-panel .review-people { flex-wrap: wrap; margin: 0; gap: 6px; }
+.reviews-panel .review-people button { flex: 0 0 auto; min-height: 40px; padding: 6px 12px; border-radius: 999px; gap: 6px; white-space: nowrap; }
+.reviews-panel .review-people button b { font-size: 15px; }
+
+/* Rows */
+.reviews-panel .review-admin-list { border-top: 1px solid var(--line-2); }
+.reviews-panel .review-admin { padding: var(--s-4) 0; gap: 6px; min-width: 0; }
+.reviews-panel .review-admin header { display: grid; gap: 2px; color: inherit; font-size: inherit; }
+.review-admin-who { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.review-admin-who strong { font-size: var(--fs-15, 15px); color: var(--ink); }
+.review-admin-meta { font-size: var(--fs-13); color: var(--muted); overflow-wrap: anywhere; }
+.reviews-panel .review-admin-body { margin: 2px 0 0; font-size: var(--fs-15, 15px); line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
+.reviews-panel .review-admin-body.muted { color: var(--muted); font-size: var(--fs-14); }
+.reviews-panel .review-reply { margin: 4px 0 0; padding: 8px 12px; border-left: 0; border-radius: 10px; background: var(--soft); font-size: var(--fs-14); line-height: 1.45; overflow-wrap: anywhere; }
+.reviews-panel .review-reply strong { font-size: var(--fs-11, 11px); }
+
+/* Actions: compact text buttons lined up with the text above */
+.reviews-panel .review-admin-actions { gap: 4px 16px; margin-top: 2px; }
+.workspace .reviews-panel .review-admin-actions .button,
+.reviews-panel .review-admin-actions .button { min-height: 36px; height: 36px; padding: 0 8px; margin-left: -8px; font-size: var(--fs-13); font-weight: 600; color: var(--accent-dark); background: transparent; border: 0; }
+.reviews-panel .review-admin-actions .button + .button { margin-left: 0; }
+.reviews-panel .review-admin-actions .button:hover { background: var(--soft); }
+.reviews-panel .review-admin.hidden { opacity: 1; }
+.reviews-panel .review-admin.hidden .review-admin-who strong,
+.reviews-panel .review-admin.hidden .review-admin-body,
+.reviews-panel .review-admin.hidden .stars { opacity: .55; }
+.reviews-panel .review-reply-form textarea { width: 100%; box-sizing: border-box; }
