@@ -188,6 +188,8 @@ test("browser: group booking together then confirm; owner calendar marks the gro
   await expect(flow.getByTestId("group-next")).toBeDisabled(); // second person needs a name
   await flow.getByTestId("member-name").nth(0).fill("Dad");
   await flow.getByTestId("member-name").nth(1).fill("Little Sam");
+  // Nobody starts with a service: each person's is the one picked for them.
+  await flow.getByTestId("member-service").nth(0).selectOption({ index: 1 });
   await flow.getByTestId("member-service").nth(1).selectOption({ index: 3 });
   await flow.getByTestId("add-member").click();
   await expect(flow.getByTestId("group-member")).toHaveCount(3);

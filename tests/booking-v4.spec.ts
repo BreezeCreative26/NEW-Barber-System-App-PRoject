@@ -129,10 +129,12 @@ test("returning customer: Book your usual opens the time step with service and b
   const me = await page.evaluate(async (s) => (await fetch(`/api/public/shops/${s}/account/me`, { credentials: "same-origin" })).json(), slug);
   expect(me.usual, "Ada has a usual").toBeTruthy();
   await page.goto(`/book/${slug}`);
+  // The card now shows what they booked last time (falls back to the usual).
+  const again = me.last || me.usual;
   const card = page.getByTestId("book-usual-card");
-  await expect(card).toContainText(me.usual.service_name);
+  await expect(card).toContainText(again.service_name);
   await card.getByTestId("book-usual-again").click();
   await expect(page.getByRole("heading", { name: "When suits you?" })).toBeVisible();
-  await expect(page.getByTestId("step-summary")).toContainText(me.usual.service_name);
-  if (me.usual.staff_name) await expect(page.getByTestId("step-summary")).toContainText(me.usual.staff_name.split(" ")[0]);
+  await expect(page.getByTestId("step-summary")).toContainText(again.service_name);
+  if (again.staff_name) await expect(page.getByTestId("step-summary")).toContainText(again.staff_name.split(" ")[0]);
 });

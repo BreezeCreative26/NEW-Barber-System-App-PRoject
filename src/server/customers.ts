@@ -289,28 +289,31 @@ acct.get("/me", async (c) => {
     const gap = gaps.length ? Math.max(1, Math.round(gaps.reduce((s, g) => s + g, 0) / gaps.length)) : null;
     usual = { service_id: best.b.service_id, service_name: best.b.service_name, staff_id: best.b.staff_id, staff_name: best.b.staff_name, gap_weeks: gap, price_pence: best.b.price_pence, count: best.n };
   }
-  // Next free slot for the usual, if the service and barber are still bookable online.
-  let next_usual: null | { date: string; start_min: number; price_pence: number } = null;
-  if (usual) {
+  // "Last time": the most recent visit they actually had (completed), else their most recent booking
+  // that wasn't cancelled. Offered as a one-tap rebook; it never pre-selects anything by itself.
+  const lastRow = completed[0] ?? all.filter((b) => b.status !== "CANCELLED").sort((x, y) => y.start_at - x.start_at)[0] ?? null;
+  const last = lastRow ? { service_id: lastRow.service_id, service_name: lastRow.service_name, staff_id: lastRow.staff_id, staff_name: lastRow.staff_name, price_pence: lastRow.price_pence, date: lastRow.date } : null;
+  // Next free slot for a service + barber, if both are still bookable online (for "Book again").
+  const nextFree = async (serviceId: string, staffId: string) => {
     try {
       const { today, minStart } = limits(shop);
       const horizon = datePlus(today, Math.min(shop.booking_window_days, 21));
-      const ctx = await rangeContext(c, shop, [usual.staff_id], usual.service_id, today, horizon, []);
+      const ctx = await rangeContext(c, shop, [staffId], serviceId, today, horizon, []);
       const st = ctx.staff[0];
-      outer: for (let d = 0; d <= 21; d++) {
+      for (let d = 0; d <= 21; d++) {
         const date = datePlus(today, d);
         if (date > horizon) break;
         for (const m of dayStarts(shop, date)) {
-          if (!slotFor(shop, ctx, st, date, m, minStart)) {
-            next_usual = { date, start_min: m, price_pence: ctx.quotes.get(st.id)!.price_pence };
-            break outer;
-          }
+          if (!slotFor(shop, ctx, st, date, m, minStart)) return { date, start_min: m, price_pence: ctx.quotes.get(st.id)!.price_pence };
         }
       }
     } catch {
-      next_usual = null;
+      /* service or barber no longer bookable online */
     }
-  }
+    return null;
+  };
+  const next_usual = usual ? await nextFree(usual.service_id, usual.staff_id) : null;
+  const next_last = last ? (usual && usual.service_id === last.service_id && usual.staff_id === last.staff_id ? next_usual : await nextFree(last.service_id, last.staff_id)) : null;
   const staff = await c.env.DB.prepare("SELECT id,name FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name").bind(shop.id).all<{ id: string; name: string }>();
   // Waiting-list requests (open or with an offer pending) for this customer at this shop.
   const waiting = await c.env.DB.prepare(
@@ -328,6 +331,8 @@ acct.get("/me", async (c) => {
     history,
     usual,
     next_usual,
+    last,
+    next_last,
     staff: staff.results,
     stats: { visits: completed.length, spent_pence: completed.reduce((s, b) => s + b.price_pence, 0), first_visit: completed.at(-1)?.date ?? null },
     now,

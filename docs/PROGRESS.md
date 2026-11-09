@@ -842,3 +842,11 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - Each barber card: Cash, Card reader, Card online (+ transfer/other), their deal (incl. tiered commission), share, tips, deductions, earned, cash already kept, and "Shop owes X" / "X owes the shop".
 - New "Card reader" tender for the shop's own machine (Revolut), migration 0068. It lands in the shop's account, so a chair renter is owed it rather than treated as already holding it. Old hand-logged CARD rows are treated the same way.
 - Fixed: pay-run split counted payment rows as visits.
+
+## The service tapped is the service booked (no pre-selection)
+- Booking screen no longer picks the first service on the menu (Burst Fade at The Doghouse) on arrival. "See times · any barber" and "Pick a barber" stay disabled until a service is tapped; the bottom bar says "Pick a service", then the chosen service's name.
+- Returning customers see a "Last time" card (their most recent visit: service, barber, price, next free time) with "Book again". Showing it never selects it.
+- Group booking: each person starts with "Choose a service…"; Next stays off until everyone has one.
+- Online bookings now record what was submitted in the booking history ("Chose: Standard Haircut"), so a disputed booking can be checked.
+- Why: Dec Smith (normally a Standard Haircut) was booked for a Burst Fade with no later edits. Burst Fade's share of online bookings went from 5% to 12% after the v5 screen, which put "Most booked" above the pre-selected first service.
+- Also: "Off today" label readable on dark-themed shops.

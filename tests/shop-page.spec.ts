@@ -49,6 +49,10 @@ test("shop page renders the seeded sections and every shortcut deep-links into t
   await page.goto(`/${slug}`);
   await page.getByTestId("barber-book").filter({ hasText: "Marcus" }).click();
   await expect(flow.getByRole("heading", { name: "What are we doing today?" })).toBeVisible();
+  // No service is picked for them: "Pick a barber" waits until they tap one.
+  await expect(flow.locator('.service-choice[aria-pressed="true"]')).toHaveCount(0);
+  await expect(flow.getByRole("button", { name: "Pick a barber", exact: true })).toBeDisabled();
+  await flow.locator(".service-choice").first().click();
   await flow.getByRole("button", { name: "Pick a barber", exact: true }).click();
   await expect(flow.getByRole("button", { name: /Marcus Reed/ })).toHaveAttribute("aria-pressed", "true");
 

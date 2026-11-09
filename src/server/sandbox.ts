@@ -3430,9 +3430,11 @@ export async function createBooking(
         bookingId,
         "BOOKING_CREATED",
         channel === "ONLINE"
-          ? options.depositHoldMin
+          ? (options.depositHoldMin
             ? `Customer booked online. Slot held ${options.depositHoldMin} min for the deposit.`
-            : "Customer booked online. Deposit payable in the shop; confirmation queued."
+            : "Customer booked online. Deposit payable in the shop; confirmation queued.") +
+            // Exactly what the customer submitted, so "did they really pick this?" can be answered later.
+            ` Chose: ${quote.items.map((it) => it.name).join(" + ")}.`
           : (b.source === "WALK_IN" ? "Walk-in seated." : start < now ? "Added after the visit by the shop. No message sent." : "Appointment saved by the shop.") + (reason && overridden ? ` Overrode: ${reason}.` : "") + (outsideHours ? " Booked outside normal working hours." : "") + (customerLength !== null ? ` Calendar length set to ${block} min (customer sees ${customerLength} min).` : ""),
       ),
     ]);

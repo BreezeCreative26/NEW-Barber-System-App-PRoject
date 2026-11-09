@@ -36,7 +36,8 @@ test("customer screen tour", async ({ page }) => {
   // Pick the first open day next week (Northline is closed Sundays and Mondays).
   await page.getByRole("button", { name: "Next week" }).click();
   const dateStrip = page.getByRole("group", { name: "Choose a date" }).or(page.locator(".booking-dates")).first();
-  const openDay = dateStrip.locator("button:not([disabled])").filter({ hasNotText: /Closed/ }).first();
+  // Skip shop-closed days and the barber's own days off (labelled "Day off").
+  const openDay = dateStrip.locator("button:not([disabled])").filter({ hasNotText: /Closed|Day off/i }).first();
   await expect(openDay).toHaveAttribute("aria-label", / times$/);
   const label = ((await openDay.getAttribute("aria-label")) || "").split(",")[0];
   await openDay.click();

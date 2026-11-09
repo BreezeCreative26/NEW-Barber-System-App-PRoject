@@ -76,10 +76,13 @@ test("service step: who's coming, most booked first, sections, From prices, More
     await expect(page.locator(".service-more").first()).toHaveText("Less");
   }
 
-  // A service is chosen (the first is pre-selected on arrival): both ways on are enabled and the
-  // total shows that service's price.
+  // Nothing is pre-selected: both ways on wait for a tap. Once a service is chosen they are
+  // enabled and the total shows that service's price.
   const anyBtn = page.getByTestId("any-barber-skip");
   const pick = page.getByRole("button", { name: "Pick a barber", exact: true });
+  await expect(page.locator('.service-choice[aria-pressed="true"]')).toHaveCount(0);
+  await expect(anyBtn).toBeDisabled();
+  await expect(pick).toBeDisabled();
   await page.locator(".service-choice").first().click();
   await expect(page.locator(".service-choice").first()).toHaveAttribute("aria-pressed", "true");
   await expect(anyBtn).toBeEnabled();

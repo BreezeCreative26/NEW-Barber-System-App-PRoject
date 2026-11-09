@@ -29,7 +29,8 @@ const emailOk = (s: string) => !s || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 const initials = (n: string) => n.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 
 export function GroupBooking({ shop, slug, customer, onExit }: { shop: PublicShop; slug: string; customer?: BookingCustomer | null; onExit: () => void }) {
-  const first = shop.services[0]?.id || "";
+  // Nobody starts with a service picked: each person's service is the one tapped for them.
+  const first = "";
   const [members, setMembers] = useState<Member[]>([
     { attendee: customer?.name || "", service: first, staff: "any", addons: [] },
     { attendee: "", service: first, staff: "any", addons: [] },
@@ -214,7 +215,9 @@ export function GroupBooking({ shop, slug, customer, onExit }: { shop: PublicSho
               </label>
               <label>
                 <span>Service</span>
-                <select value={m.service} onChange={(e) => update(i, { service: e.target.value })} data-testid="member-service">
+                <select value={m.service} onChange={(e) => update(i, { service: e.target.value })} required data-testid="member-service">
+                  {/* A blank first choice, so what the box shows is always what gets booked. */}
+                  <option value="" disabled>Choose a service…</option>
                   {shop.services.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name} · {money(s.price_pence)} · {s.duration_min} min
