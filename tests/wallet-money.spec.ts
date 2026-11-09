@@ -51,6 +51,11 @@ test("wallet shows cash, card reader and owed per barber, following each barber'
 
   // Payments are filed on the day they are taken (today), not the appointment day.
   const day = w.today as string;
+  // The shop's card reader charges 1.5% (off by default; set in Settings → Payments).
+  const ps = await (await r.get(base + "/shop/payments")).json();
+  const save = (bps: number) => r.put(base + "/shop/payments", { data: { ...ps.settings, deposit_pence: undefined, card_reader_fee_bps: bps } });
+  let put = await save(150);
+  expect(put.status(), await put.text()).toBe(200);
   // 1) Chair renter, £35 a rostered day, keeps their own cash.
   await putTerms(r, jay.id, { pay_model: "CHAIR_RENT", deductions: [DAILY_RENT], tip_share_pct: 100 });
   let wallet = await (await r.get(base + `/wallet?from=${day}&to=${day}`)).json();
@@ -60,10 +65,14 @@ test("wallet shows cash, card reader and owed per barber, following each barber'
   // Same engine and inputs as the pay run for the same days (rent is £35 × rostered days that day: 0 or 1).
   const p = await (await r.get(base + `/pay-runs/preview?staff_id=${jay.id}&from=${day}&to=${day}`)).json();
   const rent = p.input.working_days * 3500;
-  expect(me.deductions).toBe(rent);
-  expect(me.earnings).toBe(price + 300 - rent);
+  // Card reader fee (1.5% by default) on the barber's own card-reader money, first, before chair rent.
+  const readerMoney = price - 1000 + 300;
+  const fee = Math.round((readerMoney * 150) / 10000);
+  expect(me.deduction_lines[0]).toMatchObject({ label: "Card reader fee", pence: fee });
+  expect(me.deductions).toBe(fee + rent);
+  expect(me.earnings).toBe(price + 300 - fee - rent);
   expect(me.cash_held_by_barber).toBe(1000); // card-machine money is in the shop's account, not their pocket
-  expect(me.owed).toBe(price + 300 - rent - 1000);
+  expect(me.owed).toBe(price + 300 - fee - rent - 1000);
   expect(me.earnings).toBe(p.result.net_pence);
   expect(me.owed).toBe(p.settlement.cash_residual_pence + p.settlement.barber_card_pence);
 
@@ -72,9 +81,19 @@ test("wallet shows cash, card reader and owed per barber, following each barber'
   wallet = await (await r.get(base + `/wallet?from=${day}&to=${day}`)).json();
   me = wallet.by_staff.find((s: any) => s.staff_id === jay.id);
   expect(me.commission).toBe(Math.round(price * 0.6));
-  expect(me.earnings).toBe(Math.round(price * 0.6) + 300);
+  expect(me.earnings).toBe(Math.round(price * 0.6) + 300 - fee); // the barber still pays the reader fee on their payments
   expect(me.cash_held_by_barber).toBe(0);
   expect(me.owed).toBe(me.earnings);
+
+  // 2b) The rate is a shop setting: at 0% there is no fee line.
+  put = await save(0);
+  expect(put.status(), await put.text()).toBe(200);
+  wallet = await (await r.get(base + `/wallet?from=${day}&to=${day}`)).json();
+  me = wallet.by_staff.find((s: any) => s.staff_id === jay.id);
+  expect(me.deduction_lines.find((d: any) => d.label === "Card reader fee")).toBeFalsy();
+  expect(me.earnings).toBe(Math.round(price * 0.6) + 300);
+  put = await save(150);
+  expect(put.status(), await put.text()).toBe(200);
 
   // 3) A chair renter with no takings that day still shows what they owe in rent.
   const other = (w.staff as Staff[]).find((s) => s.id !== jay.id && s.active)!;

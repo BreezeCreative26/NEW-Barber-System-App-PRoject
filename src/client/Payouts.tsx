@@ -13,7 +13,7 @@ type BarberRow = { id: string; name: string; role: string; active: number; accou
 export type PaymentsData = {
   stripe: { provider: "stripe" | "none"; mode: "live" | "test" | "preview"; connect: boolean; webhook: boolean };
   platform: { fee_bps: number; fee_fixed_pence: number; fast_payouts: number };
-  settings: { deposits_online: number; deposit_hold_min: number; payment_mode: "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT"; deposit_pence: number; payout_tier: "STANDARD" | "FAST"; payrun_auto: "OFF" | "DAILY" | "WEEKLY"; payrun_reserve_bps: number; pay_show_owner_share?: number };
+  settings: { deposits_online: number; deposit_hold_min: number; payment_mode: "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT"; deposit_pence: number; payout_tier: "STANDARD" | "FAST"; payrun_auto: "OFF" | "DAILY" | "WEEKLY"; payrun_reserve_bps: number; card_reader_fee_bps?: number; pay_show_owner_share?: number };
   shop_account: ({ id: string; payout_schedule: string; details_submitted: number; payouts_enabled: number; state: AcctState }) | null;
   barbers: BarberRow[];
   active: boolean;
@@ -322,6 +322,11 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
                 <option value="DAILY">Daily — yesterday's card money, every morning</option>
                 <option value="WEEKLY">Weekly — Monday for last Mon–Sun</option>
               </select>
+            </label>
+            <label className="workspace-field narrow">
+              <span>Card reader fee (%)</span>
+              <input type="number" min={0} max={10} step="0.05" inputMode="decimal" data-testid="reader-fee-pct" value={(form.card_reader_fee_bps ?? 0) / 100} onChange={(e) => setForm({ ...form, card_reader_fee_bps: Math.max(0, Math.min(1000, Math.round((Number(e.target.value) || 0) * 100))) })} />
+              <small className="field-help">Your own card machine (e.g. Revolut). Each barber pays it on their own card-reader payments, before chair rent.</small>
             </label>
             <label className="workspace-field narrow">
               <span>Hold back against disputes (%)</span>
