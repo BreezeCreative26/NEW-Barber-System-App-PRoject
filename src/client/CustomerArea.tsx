@@ -758,7 +758,7 @@ function Visits({ me, A, onChanged }: { me: Me; A: string; onChanged: (msg: stri
                     canReview={!!v.can_review}
                     googleUrl={me.shop.google_review_url || ""}
                     post={async (rating, body) => {
-                      return api<{ review: OwnReview; google_review_url?: string }>(`/bookings/${v.id}/review`, "POST", { rating, body });
+                      return api<{ review: OwnReview; google_review_url?: string }>(`${A}/bookings/${v.id}/review`, "POST", { rating, body });
                     }}
                   />
                 )}

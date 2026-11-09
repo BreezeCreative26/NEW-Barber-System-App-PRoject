@@ -850,3 +850,9 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - Online bookings now record what was submitted in the booking history ("Chose: Standard Haircut"), so a disputed booking can be checked.
 - Why: Dec Smith (normally a Standard Haircut) was booked for a Burst Fade with no later edits. Burst Fade's share of online bookings went from 5% to 12% after the v5 screen, which put "Most booked" above the pre-selected first service.
 - Also: "Off today" label readable on dark-themed shops.
+
+## Reviews: "Send review" on the customer account page was broken (fixed)
+- Review request emails send account holders to <shop>/me?visit=<id>. The "How was it?" card there posted to /api/public/bookings/<id>/review (missing the shop/account prefix), got a 404 and showed "Request failed". No review could be left from the email for anyone with an account.
+- Live impact: The Doghouse sent 5 review emails (Ben, Cameron, Josh, Harry, plus one deleted booking); all recipients have accounts, so none could leave a review. 0 reviews on live across all shops.
+- Fix: post to `${A}/bookings/<id>/review`. The manage-link review (guests) and the owner Reviews drawer (list, reply, hide/show) were already working.
+- New tests/review-from-email.spec.ts: opens the exact email link, leaves a 5-star review, checks it saves once, appears in the owner's Reviews and on the public shop page; owner reply + hide/show in the drawer.
