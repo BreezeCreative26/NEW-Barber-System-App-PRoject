@@ -127,13 +127,15 @@ export function ReviewsPanel({ w, api, staffId }: { w: WorkspaceData; api: Api; 
           {rows.map((r) => (
             <li key={r.id} className={`review-admin ${r.status === "HIDDEN" ? "hidden" : ""}`} data-testid="review-row" data-staff={r.staff_id || ""}>
               <header>
-                {stars(r.rating)}
-                <strong>{r.display_name}</strong>
-                <span>
+                <div className="review-admin-who">
+                  <strong>{r.display_name}</strong>
+                  {stars(r.rating)}
+                  {r.status === "HIDDEN" && <StatusPill tone="note">Hidden from website</StatusPill>}
+                </div>
+                <span className="review-admin-meta">
                   {r.service_name}
                   {r.staff_name && !staffId ? ` · ${r.staff_name.split(" ")[0]}` : ""} · {r.visit_date}
                 </span>
-                {r.status === "HIDDEN" && <StatusPill tone="note">Hidden from website</StatusPill>}
               </header>
               {r.body ? <p className="review-admin-body">{r.body}</p> : <p className="review-admin-body muted">No comment</p>}
               {r.reply && replying?.id !== r.id && (
