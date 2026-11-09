@@ -4978,3 +4978,35 @@ html, body { touch-action: pan-x pan-y; }
   .modal:has(.booking-workflow) .modal-header, .modal:has(.booking-workflow) .workspace-save-actions { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
   .sidebar-backdrop { backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
+
+/* ==========================================================================
+   Inputs with a £ / min / % label inside: ONE box. The global `.workspace input` border was
+   drawn again inside the wrapper (box in a box). The wrapper is the field; the input is bare.
+   ========================================================================== */
+.matrix-input, .checkout-money-input, .slug-input, .setup-slug-input {
+  display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box;
+  min-height: var(--ctl-h, 40px); padding: 0 10px; border: 1px solid var(--line); border-radius: var(--ctl-r, 10px);
+  background: var(--surface); color: var(--muted); font-size: var(--fs-14);
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.slug-input, .setup-slug-input { display: flex; padding-right: 0; }
+.workspace .matrix-input input, .workspace .checkout-money-input input, .workspace .slug-input input, .workspace .setup-slug-input input,
+.matrix-input input, .checkout-money-input input, .slug-input input, .setup-slug-input input {
+  border: 0 !important; box-shadow: none !important; background: transparent !important; outline: none;
+  min-height: calc(var(--ctl-h, 40px) - 2px); height: auto; padding: 0 !important; margin: 0;
+  flex: 1 1 auto; min-width: 0; width: 64px; font: inherit; font-size: var(--fs-14); color: var(--ink);
+  font-variant-numeric: tabular-nums; -moz-appearance: textfield; appearance: textfield;
+}
+.matrix-input input::-webkit-inner-spin-button, .matrix-input input::-webkit-outer-spin-button,
+.checkout-money-input input::-webkit-inner-spin-button, .checkout-money-input input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.checkout-money-input input { text-align: right; }
+.matrix-input:hover, .checkout-money-input:hover { border-color: #cdd1d8; }
+.matrix-input:focus-within, .checkout-money-input:focus-within, .slug-input:focus-within, .setup-slug-input:focus-within {
+  outline: 0; border-color: var(--accent); box-shadow: var(--ring, 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent));
+}
+.matrix-input:has(input:disabled) { background: var(--soft); }
+.matrix-input > span, .checkout-money-input > span { flex: none; color: var(--muted); font-size: var(--fs-13); }
+html.ws-dark .matrix-input, html.ws-dark .checkout-money-input, html.ws-dark .slug-input, html.ws-dark .setup-slug-input { background: #10131a; border-color: var(--line); }
+html.ws-dark .workspace .matrix-input input, html.ws-dark .workspace .checkout-money-input input { background: transparent !important; }
+/* Plain small fields (add-on price, length stepper) match the control height. */
+.workspace .items-addon-price input, .workspace .items-stepper input { min-height: 36px; }

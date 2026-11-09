@@ -1789,7 +1789,7 @@ sandbox.get("/shop/payments", async (c) => {
   return c.json({
     stripe: stripeStatus(),
     platform: { fee_bps: policy.fee_bps, fee_fixed_pence: policy.fee_fixed_pence, fast_payouts: policy.fast_payouts },
-    settings: { deposits_online: shop.deposits_online ?? 0, deposit_hold_min: shop.deposit_hold_min ?? 15, payment_mode: shop.payment_mode ?? "DEPOSIT", deposit_pence: shop.deposit_pence, payout_tier: shop.payout_tier ?? "STANDARD", payrun_auto: shop.payrun_auto ?? "OFF", payrun_reserve_bps: shop.payrun_reserve_bps ?? 0, pay_show_owner_share: shop.pay_show_owner_share ?? 1 },
+    settings: { deposits_online: shop.deposits_online ?? 0, deposit_hold_min: shop.deposit_hold_min ?? 15, payment_mode: shop.payment_mode ?? "DEPOSIT", deposit_pence: shop.deposit_pence, payout_tier: shop.payout_tier ?? "STANDARD", payrun_auto: shop.payrun_auto ?? "OFF", payrun_reserve_bps: shop.payrun_reserve_bps ?? 0, pay_show_owner_share: shop.pay_show_owner_share ?? 1, card_reader_fee_bps: shop.card_reader_fee_bps ?? 0 },
     shop_account: mine ? null : shopAcct && { ...shopAcct, state: accountState(shopAcct) },
     barbers: staff
       .filter((st) => !mine || st.id === mine)
@@ -1829,6 +1829,7 @@ const paymentsSchema = z
     payrun_auto: z.enum(["OFF", "DAILY", "WEEKLY"]).default("OFF"),
     payrun_reserve_bps: z.number().int().min(0).max(5000).default(0),
     pay_show_owner_share: z.union([z.literal(0), z.literal(1)]).default(1),
+    card_reader_fee_bps: z.number().int().min(0).max(1000).optional(),
   })
   .strict();
 sandbox.put("/shop/payments", async (c) => {
@@ -1848,7 +1849,7 @@ sandbox.put("/shop/payments", async (c) => {
   const policy = await platformPolicy(c.env.DB);
   if (b.payout_tier === "FAST" && !policy.fast_payouts) fail(409, "Fast payouts are not available on this plan");
   await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE shops SET deposits_online=?, deposit_hold_min=?, payment_mode=?, payout_tier=?, payrun_auto=?, payrun_reserve_bps=?, pay_show_owner_share=?, version=version+1 WHERE id=?").bind(b.deposits_online, b.deposit_hold_min, b.payment_mode, b.payout_tier, b.payrun_auto, b.payrun_reserve_bps, b.pay_show_owner_share, shop.id),
+    c.env.DB.prepare("UPDATE shops SET deposits_online=?, deposit_hold_min=?, payment_mode=?, payout_tier=?, payrun_auto=?, payrun_reserve_bps=?, pay_show_owner_share=?, card_reader_fee_bps=?, version=version+1 WHERE id=?").bind(b.deposits_online, b.deposit_hold_min, b.payment_mode, b.payout_tier, b.payrun_auto, b.payrun_reserve_bps, b.pay_show_owner_share, b.card_reader_fee_bps ?? shop.card_reader_fee_bps ?? 0, shop.id),
     audit(c, "shop", shop.id, "PAYMENTS_UPDATED", `Online payment: ${b.payment_mode.toLowerCase().replace(/_/g, " ")}; deposits by card ${b.deposits_online ? `on (hold ${b.deposit_hold_min} min)` : "off"}; payouts ${b.payout_tier.toLowerCase()}; auto pay runs ${b.payrun_auto.toLowerCase()}; reserve ${b.payrun_reserve_bps / 100}%.`),
   ]);
   return c.json({ ok: true, settings: b });
@@ -3950,8 +3951,8 @@ export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: strin
   const sid = shop.id;
   const [pay, hoursRows, offRows, overrideRows, staff] = await Promise.all([
     db.prepare(
-      "SELECT COALESCE(SUM(service_pence),0) AS service, COALESCE(SUM(tip_pence),0) AS tips, COUNT(DISTINCT booking_id) AS visits FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND (?=1 OR pay_run_id IS NULL)",
-    ).bind(sid, staffId, from, to, opts.includeSettled ? 1 : 0).first<{ service: number; tips: number; visits: number }>(),
+      "SELECT COALESCE(SUM(service_pence),0) AS service, COALESCE(SUM(tip_pence),0) AS tips, COUNT(DISTINCT booking_id) AS visits, COALESCE(SUM(CASE WHEN method='READER' OR (method='CARD' AND stripe_payment_intent='') THEN service_pence+tip_pence ELSE 0 END),0) AS reader FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND (?=1 OR pay_run_id IS NULL)",
+    ).bind(sid, staffId, from, to, opts.includeSettled ? 1 : 0).first<{ service: number; tips: number; visits: number; reader: number }>(),
     db.prepare("SELECT * FROM staff_hours WHERE shop_id=? AND staff_id=?").bind(sid, staffId).all<Hours>(),
     db.prepare("SELECT date FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<{ date: string }>(),
     db.prepare("SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<ScheduleOverride>(),
@@ -3992,7 +3993,7 @@ export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: strin
   return {
     staff,
     terms,
-    input: { service_pence: pay?.service ?? 0, tips_pence: pay?.tips ?? 0, visits: pay?.visits ?? 0, hours_x100: Math.round((minutes / 60) * 100), periods, days, leave_days, working_days, booked_days },
+    input: { service_pence: pay?.service ?? 0, tips_pence: pay?.tips ?? 0, visits: pay?.visits ?? 0, hours_x100: Math.round((minutes / 60) * 100), periods, days, leave_days, working_days, booked_days, reader_pence: Number(pay?.reader ?? 0), reader_fee_bps: shop.card_reader_fee_bps ?? 0 },
     auto_adjustments: openAdj.map((a) => ({ label: a.label, pence: a.pence, adjustment_id: a.id })),
   };
 }

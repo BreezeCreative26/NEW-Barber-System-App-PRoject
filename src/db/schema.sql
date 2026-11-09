@@ -959,3 +959,7 @@ CREATE TRIGGER bookings_skip_reminders AFTER UPDATE OF start_at ON bookings
 ALTER TABLE shops ADD COLUMN IF NOT EXISTS customer_code_signin INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE shops DROP CONSTRAINT IF EXISTS shops_customer_code_signin_check;
 ALTER TABLE shops ADD CONSTRAINT shops_customer_code_signin_check CHECK (customer_code_signin IN (0,1));
+-- Card reader fee (0069): % of each card-reader payment, paid by the barber, before chair rent.
+ALTER TABLE shops ADD COLUMN IF NOT EXISTS card_reader_fee_bps INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE shops DROP CONSTRAINT IF EXISTS shops_card_reader_fee_bps_check;
+ALTER TABLE shops ADD CONSTRAINT shops_card_reader_fee_bps_check CHECK (card_reader_fee_bps BETWEEN 0 AND 1000);
