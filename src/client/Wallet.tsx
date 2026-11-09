@@ -41,16 +41,21 @@ function rangeFor(key: RangeKey, today: string) {
 
 export function WalletDrawer({
   w,
+  day: startDay,
   api,
   onClose,
   onOpenBooking,
 }: {
   w: WorkspaceData;
+  // The day the timetable is showing; the first tab shows that day's money.
+  day?: string;
   api: <T>(path: string) => Promise<T>;
   onClose: () => void;
   onOpenBooking: (id: string) => void;
 }) {
   const [range, setRange] = useState<RangeKey>("today");
+  const day = startDay && startDay <= w.today ? startDay : w.today;
+  const dayLabel = day === w.today ? "Today" : new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(day + "T12:00:00Z"));
   const [data, setData] = useState<WalletData | null>(null);
   const [error, setError] = useState("");
   const barberView = w.account?.role === "BARBER";
@@ -67,7 +72,7 @@ export function WalletDrawer({
   }, []);
   useEffect(() => {
     let cancelled = false;
-    const r = rangeFor(range, w.today);
+    const r = range === "today" ? { from: day, to: day } : rangeFor(range, w.today);
     setError("");
     api<WalletData>(`/wallet?from=${r.from}&to=${r.to}`)
       .then((d) => !cancelled && setData(d))
@@ -75,12 +80,12 @@ export function WalletDrawer({
     return () => {
       cancelled = true;
     };
-  }, [range, w.now, w.payments.length]);
+  }, [range, day, w.now, w.payments.length]);
 
   const t = data?.totals;
   const mine = barberView ? data?.by_staff.find((s) => s.staff_id === w.account?.staff_id) : null;
   const headline = barberView ? (mine?.earnings ?? 0) : (t ? t.service + t.tips : 0);
-  const label = RANGES.find((r) => r.key === range)!.label.toLowerCase();
+  const label = range === "today" ? (day === w.today ? "today" : dayLabel) : RANGES.find((r) => r.key === range)!.label.toLowerCase();
 
   return (
     <>
@@ -94,7 +99,7 @@ export function WalletDrawer({
         <div className="segmented wallet-range" aria-label="Wallet period">
           {RANGES.map((r) => (
             <button key={r.key} type="button" aria-pressed={range === r.key} onClick={() => setRange(r.key)}>
-              {r.label}
+              {r.key === "today" ? dayLabel : r.label}
             </button>
           ))}
         </div>
@@ -123,8 +128,8 @@ export function WalletDrawer({
         />
         {!barberView && (
           <div className="method-grid" aria-label="By payment method">
-            {METHODS.map((m) => (
-              <div className="method-tile" key={m.key}>
+            {METHODS.filter((m) => m.key === "CASH" || m.key === "READER" || (data?.by_method[m.key]?.service ?? 0) + (data?.by_method[m.key]?.tips ?? 0) > 0).map((m) => (
+              <div className="method-tile" key={m.key} data-method={m.key}>
                 <Icon name={m.icon} size={18} />
                 <b>{money((data?.by_method[m.key]?.service ?? 0) + (data?.by_method[m.key]?.tips ?? 0))}</b>
                 {m.label}

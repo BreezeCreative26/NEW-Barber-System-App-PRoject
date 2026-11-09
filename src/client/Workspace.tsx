@@ -2200,10 +2200,14 @@ export function Workspace() {
     setDirectorySearch("");
     setDirectoryStatus("");
   }
-  // Wallet chip reads the ledger: money actually recorded today (services + tips), not bookings.
-  const todayPayments = (w?.payments || []).filter((p) => p.date === (w?.today || "") && !p.voided_at);
+  // Wallet chip reads the ledger: money actually recorded (services + tips), not bookings. On the
+  // timetable it follows the day being viewed, so stepping back a day shows that day's total.
+  const walletDay = tab === "Appointments" && date ? date : w?.today || "";
+  const walletIsToday = walletDay === (w?.today || "");
+  const todayPayments = (w?.payments || []).filter((p) => p.date === walletDay && !p.voided_at);
   const todayTaken = todayPayments.reduce((n, p) => n + p.service_pence + p.tip_pence, 0);
   const todayVisits = new Set(todayPayments.map((p) => p.booking_id)).size;
+  const walletDayText = walletIsToday ? "today" : new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(walletDay + "T12:00:00Z"));
   // Waitlist lives in the notifications drawer (bell) rather than on top of the timetable.
   useEffect(() => {
     if (!w) return;
@@ -2328,7 +2332,7 @@ export function Workspace() {
           w
             ? {
                 amount: money(todayTaken),
-                caption: `${w.account?.role === "BARBER" ? "Taken" : "Taken today"} · ${todayVisits} visit${todayVisits === 1 ? "" : "s"}`,
+                caption: walletDay > w.today ? `${walletDayText} · not taken yet` : `${w.account?.role === "BARBER" && walletIsToday ? "Taken" : `Taken ${walletDayText}`} · ${todayVisits} visit${todayVisits === 1 ? "" : "s"}`,
                 open: walletOpen,
               }
             : null
@@ -2410,6 +2414,7 @@ export function Workspace() {
       {w && walletOpen && (
         <WalletDrawer
           w={w}
+          day={walletDay}
           api={(path) => api(path)}
           onClose={() => setWalletOpen(false)}
           onOpenBooking={(id) => {
