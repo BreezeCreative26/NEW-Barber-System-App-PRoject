@@ -1123,7 +1123,8 @@ export const bookingItemsSchema = z
     service_price_pence: z.number().int().min(0).max(1000000).optional(),
     service_duration_min: z.number().int().min(5).max(480).refine((v) => v % 5 === 0, "Use 5-minute steps").optional(),
     addon_prices: z.record(z.string().uuid(), z.number().int().min(0).max(1000000)).default({}),
-    reason: z.string().trim().min(3).max(300),
+    // Optional: a quick price change doesn't need explaining (the history still shows old → new).
+    reason: z.string().trim().max(300).default(""),
     version,
     force: z.boolean().default(false),
   })
@@ -1202,8 +1203,8 @@ export const checkoutSchema = z
           tip_pence: z.number().int().min(0).max(100000).default(0),
         }),
       )
-      .min(1)
-      .max(4),
+      .max(4)
+      .default([]), // empty = a £0 visit (free / fully discounted) checked out with nothing taken
     complete: z.boolean().default(true),
   })
   .strict();

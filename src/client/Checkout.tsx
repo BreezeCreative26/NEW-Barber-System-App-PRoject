@@ -71,12 +71,14 @@ export function Checkout({
   const remaining = due - splitPaid;
   const tipPence = customTip !== "" ? Math.max(0, Math.round(Number(customTip) * 100) || 0) : tip;
   const barber = w.staff.find((s) => s.id === booking.staff_id);
-  const canRecord = !busy && remaining >= 0 && (remaining > 0 || tipPence > 0 || split.length > 0 || depositCredit > 0);
+  // Nothing owed (free visit / £0 price / fully discounted): it can still be completed, nothing taken.
+  const free = due === 0 && splitPaid === 0 && tipPence === 0 && depositCredit === 0;
+  const canRecord = !busy && remaining >= 0 && (remaining > 0 || tipPence > 0 || split.length > 0 || depositCredit > 0 || free);
 
   async function record(all: boolean) {
     const tenders: Tender[] = [...split];
     if (remaining > 0 || tipPence > 0) tenders.push({ method, service_pence: all ? remaining : 0, tip_pence: tipPence });
-    if (!tenders.length && !depositCredit) return;
+    if (!tenders.length && !depositCredit && !free) return;
     await onRecord({ version: booking.version, discount_pence: discount, note: note.trim(), tenders, complete: all });
   }
 
@@ -197,7 +199,12 @@ export function Checkout({
         <CardAtChair api={api} booking={booking} amount={{ service_pence: remaining, tip_pence: tipPence, discount_pence: discount, complete: true, note: note.trim() }} live={!!cardLive} onPaid={async () => { await onPaid?.(); }} onClose={() => setCard(false)} />
       )}
       <div className="panel-actions-row checkout-actions">
-        {method === "CARD" && cardLive && api ? (
+        {free ? (
+          <Button disabled={!canRecord} onClick={() => record(true)} data-testid="record-payment">
+            <Icon name="checks" size={16} />
+            {busy ? "Completing…" : "Complete · £0, nothing to take"}
+          </Button>
+        ) : method === "CARD" && cardLive && api ? (
           !card && (
             <Button disabled={remaining + tipPence <= 0 || busy} onClick={() => setCard(true)} data-testid="take-card">
               <Icon name="card" size={16} /> Charge {money(remaining + tipPence)} by card
