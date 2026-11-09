@@ -221,16 +221,19 @@ export function Calendar({
     timer: number | null; // long-press arm on touch
   } | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
-  // Once a touch long-press has armed a drag, stop the page scrolling under the finger. Cards
-  // use touch-action: pan-y (so a normal swipe still scrolls the day); without this the first
-  // vertical move would start a scroll and the browser would cancel the drag.
-  useEffect(() => {
+  // Once a touch long-press has armed a drag, stop the day scrolling under the finger. Cards use
+  // touch-action: pan-y (so a normal swipe still scrolls); without this the first vertical move
+  // would start a scroll and the browser would cancel the drag. The blocking listener sits on each
+  // draggable card only (never the whole page), so a swipe anywhere else stays a native,
+  // off-main-thread scroll with the phone's own momentum.
+  const cardTouchRef = useRef((node: HTMLButtonElement | null) => {
+    if (!node) return;
     const block = (e: TouchEvent) => {
       if (dragRef.current?.armed || resizeRef.current) e.preventDefault();
     };
-    document.addEventListener("touchmove", block, { passive: false });
-    return () => document.removeEventListener("touchmove", block);
-  }, []);
+    node.addEventListener("touchmove", block, { passive: false });
+    return () => node.removeEventListener("touchmove", block);
+  }).current;
   const [hover, setHover] = useState<{ staffId: string; start: number } | null>(null);
   const [focusedSlot, setFocusedSlot] = useState<
     (CalendarDraft & { date: string }) | null
@@ -909,6 +912,7 @@ export function Calendar({
                         data-resizing={resizing?.id === b.id ? "true" : undefined}
                         onClick={() => { if (!(b as { busy?: number }).busy) onOpen(b); }}
                         data-draggable={!!onMove && b.status === "CONFIRMED" && !disabled && canEdit?.(b) !== false ? "true" : undefined}
+                        ref={!!onMove && b.status === "CONFIRMED" && !disabled && canEdit?.(b) !== false ? cardTouchRef : undefined}
                         onPointerDown={(e) => onEventPointerDown(e, b)}
                         onPointerMove={onEventPointerMove}
                         onPointerUp={onEventPointerUp}

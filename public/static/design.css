@@ -4938,3 +4938,43 @@ html.ws-dark .bell-v3 .bell-undo button { color: #03785a; }
 .reviews-panel .review-admin.hidden .review-admin-body,
 .reviews-panel .review-admin.hidden .stars { opacity: .55; }
 .reviews-panel .review-reply-form textarea { width: 100%; box-sizing: border-box; }
+
+/* ==========================================================================
+   Smooth phone scrolling
+   - Zoom lock in CSS (pan only), so no JavaScript touch listener sits on the page.
+   - Scroll areas keep the phone's own momentum and never drag the page behind them
+     (overscroll contained): drawers, sheets, dialogs and sideways chip rows.
+   - Sticky / fixed bars are solid on phones: a live blur behind a bar is repainted on
+     every scrolled frame and is the main cause of judder on mid-range phones.
+   ========================================================================== */
+html, body { touch-action: pan-x pan-y; }
+@media (pointer: coarse) {
+  /* Vertical scrollers: own momentum, never chain to the page behind. */
+  .drawer-right, .history-drawer, .reviews-drawer, .appointment-panel .panel-body, .modal, .sidebar.rail,
+  .booking-app.move-flow, .notifications-drawer {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Sideways rows (tabs, day strips, filter chips): a sideways swipe stays in the row and never
+     triggers browser back/forward or drags the page. */
+  .studio .segmented[aria-label="Barber sections"], .settings-nav, .workspace .customers-filters,
+  .calendar-summary-stats, .modal .booking-day-strip, .ca-days, .group-days, .series-strip,
+  .booking-app.standalone .filter-chips, .booking-app.standalone .next-chips, .booking-app.standalone .booking-dates,
+  .shop-page .sp-gallery-section.v-strip .sp-gallery, .shop-page .sp-reviews.v-carousel .sp-review-list,
+  .reviews-panel .review-people, .pay-runs-table-wrap, .shifts-week-wrap, .workspace .topbar .topbar-actions {
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Timetable: native momentum inside the board, nothing leaks to the page. */
+  .workspace .connected-calendar > .connected-scroll { -webkit-overflow-scrolling: touch; overscroll-behavior: none; }
+}
+@media (max-width: 900px), (pointer: coarse) {
+  /* Solid bars instead of frosted glass while scrolling. */
+  .workspace .topbar { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .barber-bottom-nav { background: var(--surface, #fff); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .shop-page .shop-tabbar { background: var(--sp-surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .shop-page .sp-nav, .shop-page .booking-topbar { background: var(--sp-surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .booking-actions { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .modal:has(.booking-workflow) .modal-header, .modal:has(.booking-workflow) .workspace-save-actions { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .sidebar-backdrop { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
