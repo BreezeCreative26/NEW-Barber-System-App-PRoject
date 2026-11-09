@@ -217,7 +217,10 @@ function payLine(st?: WorkspaceData["staff"][number]) {
   const rent = (() => { try { return (JSON.parse(st.deductions_json || "[]") as { label: string; kind: string; amount_pence: number; cadence: string; active: number }[]).filter((d) => d.active && d.kind === "FIXED").map((d) => `${d.label.toLowerCase()} ${money(d.amount_pence)}/${d.cadence === "DAILY" ? "day" : d.cadence === "WEEKLY" ? "week" : d.cadence === "MONTHLY" ? "month" : "run"}`); } catch { return []; } })();
   const tiers = (() => { try { return (JSON.parse(st.commission_tiers || "[]") as { from_pence: number; pct: number }[]).sort((a, b) => a.from_pence - b.from_pence); } catch { return []; } })();
   const commission = tiers.length ? tiers.map((t, i) => (i === 0 && t.from_pence === 0 ? `${t.pct}%` : `${t.pct}% above ${money(t.from_pence)}`)).join(", ") + " commission" : `${st.commission_pct}% commission`;
-  const main = st.pay_model === "CHAIR_RENT" ? "Chair rent · keeps takings" : st.pay_model === "COMMISSION" ? commission : st.pay_model === "HOURLY" ? `${money(st.hourly_pence)}/hour` : st.pay_model === "SALARY" ? `${money(st.base_pence)} salary` : `${money(st.base_pence)} + ${st.commission_pct}%`;
+  // Keeps-all-takings with no rent set (e.g. the owner): say so plainly instead of "Chair rent".
+  const isOwner = /owner/i.test(st.role || "");
+  const keeps = rent.length || st.rent_pence ? "Chair rent · keeps takings" : isOwner ? "Owner · keeps all takings" : "Keeps all takings · no rent";
+  const main = st.pay_model === "CHAIR_RENT" ? keeps : st.pay_model === "COMMISSION" ? commission : st.pay_model === "HOURLY" ? `${money(st.hourly_pence)}/hour` : st.pay_model === "SALARY" ? `${money(st.base_pence)} salary` : `${money(st.base_pence)} + ${st.commission_pct}%`;
   return [main, ...rent, `tips ${st.tip_share_pct}%`].join(" · ");
 }
 const longDate = (d: string) => new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(d + "T12:00:00Z"));
