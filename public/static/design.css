@@ -4810,3 +4810,88 @@ html.ws-dark .bell-v3 .bell-undo button { color: #03785a; }
 .wallet-barber-owed { margin: 0; font-weight: 600; font-size: 14px; padding: 6px 10px; border-radius: 8px; background: var(--soft, #f6f4ef); }
 .wallet-barber-owed.owed { background: #eaf5ee; color: #1f6b3a; }
 .wallet-barber-owed.owes-shop { background: #fdf0e6; color: #8a4a12; }
+
+/* ==========================================================================
+   Border clean-up: no grey "box inside a box". Anything sitting inside a
+   card/panel drops its outline; groups use a soft tint, lists use thin
+   dividers. Interactive inputs, pills and buttons keep their borders.
+   ========================================================================== */
+/* A card placed inside a panel (e.g. barber editor → Reviews tab) is flat */
+.workspace .workspace-panel .workspace-card,
+.workspace .studio-detail .workspace-card,
+.workspace .workspace-card .workspace-card {
+  border: 0; box-shadow: none; padding: 0; background: transparent; border-radius: 0;
+}
+
+/* Review rows: divider list, not boxed cards */
+.review-admin-list { gap: 0; }
+.review-admin {
+  border: 0; border-bottom: 1px solid var(--line-2); border-radius: 0;
+  background: transparent; padding: var(--s-3) 0;
+}
+.review-admin:last-child { border-bottom: 0; }
+.review-admin.hidden { background: transparent; opacity: .62; }
+
+/* Grouped blocks inside cards: soft tint instead of an outline */
+.pay-section,
+.pay-settlement-col,
+.holiday-tracker,
+.sender-field,
+.review-ask,
+.wallet-barber,
+.workspace .workspace-panel .panel-card,
+.workspace .workspace-card .panel-card,
+.workspace .account-member {
+  border: 0; box-shadow: none; background: var(--soft);
+}
+.pay-section-head:hover { background: var(--soft-2); }
+
+/* Channel cards: tint; the active one gets a slim accent edge, no box */
+.chan-card { border: 0; background: var(--soft); box-shadow: none; }
+.chan-card.on { border: 0; box-shadow: inset 3px 0 0 #006b4d; }
+
+/* Rows/lists: plain dividers */
+.switch-row,
+.workspace-switch-row,
+.workspace .switch-row,
+.workspace .workspace-switch-row,
+.workspace .workspace-check,
+.workspace .workspace-checks label {
+  border: 0; border-radius: 0; border-bottom: 1px solid var(--line-2);
+  background: transparent; padding-left: 0; padding-right: 0;
+}
+.switch-row:last-child,
+.workspace-switch-row:last-child,
+.workspace .switch-row:last-child,
+.workspace .workspace-switch-row:last-child,
+.workspace .workspace-check:last-child,
+.workspace .workspace-checks label:last-child { border-bottom: 0; }
+.workspace .workspace-checks { gap: 0 !important; }
+.workspace .review-ask .workspace-switch-row { border-bottom-color: var(--line); }
+
+/* "I understand texts cost…" acknowledgement: tint, no dashed outline */
+.sms-bill-ack { border: 0; background: var(--canvas); }
+.sms-bill-ack.on { border: 0; background: #eef5f1; box-shadow: inset 3px 0 0 #006b4d; }
+
+.hub-week,
+.hub-coming,
+.pay-statement { border: 0; border-radius: 0; background: transparent; }
+.hub-week li,
+.hub-coming li { padding-left: 0; padding-right: 0; border-bottom-color: var(--line-2); }
+.hub-week li.off { background: transparent; }
+.pay-statement-group { padding-left: 0; padding-right: 0; }
+.pay-statement-group:last-child { border-bottom: 0; }
+
+.hub-cat { border: 0; border-radius: 0; overflow: visible; }
+.hub-cat-head { background: transparent; padding-left: 0; padding-right: 0; }
+
+.history-row { border: 0; border-bottom: 1px solid var(--line-2); border-radius: 0; padding-left: 0; padding-right: 0; margin-bottom: 0; }
+
+/* Save bar: keep it floating (shadow) but drop the outline */
+.hub-savebar { border: 0; background: var(--soft); }
+.hub-savebar[data-visible="true"] { border: 0; box-shadow: inset 3px 0 0 var(--accent); }
+.hub-savebar.sticky { background: var(--surface); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12); }
+.payments-barber-list { gap: 0; }
+.payments-barber-list li { border: 0; border-bottom: 1px solid var(--line-2); border-radius: 0; background: transparent; padding-left: 0; padding-right: 0; }
+.payments-barber-list li:last-child { border-bottom: 0; }
+.workspace-toggle { border: 0; background: var(--soft); }
