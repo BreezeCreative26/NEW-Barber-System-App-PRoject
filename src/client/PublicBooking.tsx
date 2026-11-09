@@ -327,6 +327,9 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   // Returning customers: their usual (most-booked service + barber) and its next free time.
   type Usual = { service_id: string; service_name: string; staff_id: string; staff_name: string | null; price_pence: number; count: number; next: { date: string; start_min: number } | null };
   const [usual, setUsual] = useState<Usual | null>(null);
+  // What they booked last time, offered as a one-tap shortcut (never pre-selected).
+  type Last = { service_id: string; service_name: string; staff_id: string; staff_name: string | null; price_pence: number; date: string; next: { date: string; start_min: number } | null };
+  const [last, setLast] = useState<Last | null>(null);
   // Barber list: each barber's next free time, and who is off today, for the chosen service.
   type TeamNext = { staff_id: string; off_today: boolean; next: { date: string; start_min: number } | null; price_pence: number; duration_min: number };
   const [teamNext, setTeamNext] = useState<{ key: string; team: TeamNext[] } | null>(null);
@@ -408,7 +411,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       onLoaded?.(s);
       setFrom((f) => f || preset?.date || s.today);
       setDate((d) => d || preset?.date || s.today);
-      setService((v) => v || s.services[0]?.id || "");
+      // No service is picked for them: the service they tap is the service they book.
       setBarber((b) => b || (s.staff.length > 1 ? ANY : s.staff[0]?.id || ""));
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Could not load this shop.");
@@ -444,11 +447,13 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     !!shop && offersService(shop.service_rules, staffId, serviceId);
   const barbers = shop?.staff.filter((s) => eligible(s.id, service)) || [];
   useEffect(() => {
-    if (!shop) return;
+    if (!shop || !service) return;
     if (barber && barber !== ANY && !eligible(barber, service)) setBarber(barbers.length > 1 ? ANY : barbers[0]?.id || "");
     if (barber === ANY && barbers.length === 1) setBarber(barbers[0].id);
   }, [service, shop]);
   const anyBarber = barber === ANY;
+  // Before a service is tapped, judge by the whole team so the buttons don't jump about.
+  const multiBarber = service ? barbers.length > 1 : (shop?.staff.length ?? 0) > 1;
   const chosenService = shop?.services.find((s) => s.id === service);
   const chosenBarber = shop?.staff.find((b) => b.id === barber);
   const serviceAddons =
@@ -485,17 +490,18 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   };
   const addonQuery = extraIds.length ? `&addon_ids=${[...extraIds].sort().join(",")}` : "";
   useEffect(() => {
-    if (!customer || !shop) { setUsual(null); return; }
+    if (!customer || !shop) { setUsual(null); setLast(null); return; }
     let cancelled = false;
-    api<{ usual: Omit<Usual, "next"> | null; next_usual: { date: string; start_min: number } | null }>(`/shops/${encodeURIComponent(slug)}/account/me`)
+    api<{ usual: Omit<Usual, "next"> | null; next_usual: { date: string; start_min: number } | null; last?: Omit<Last, "next"> | null; next_last?: { date: string; start_min: number } | null }>(`/shops/${encodeURIComponent(slug)}/account/me`)
       .then((d) => {
         if (cancelled) return;
+        // Only offer a shortcut while that service and barber can still be booked online.
+        const bookable = (x: { service_id: string; staff_id: string } | null | undefined) => !!x && shop.services.some((v) => v.id === x.service_id) && shop.staff.some((v) => v.id === x.staff_id) && offersService(shop.service_rules, x.staff_id, x.service_id);
         const u = d.usual;
-        // Only offer it while the service and barber can still be booked online.
-        const ok = u && shop.services.some((x) => x.id === u.service_id) && shop.staff.some((x) => x.id === u.staff_id) && offersService(shop.service_rules, u.staff_id, u.service_id);
-        setUsual(ok ? { ...u!, next: d.next_usual ? { date: d.next_usual.date, start_min: d.next_usual.start_min } : null } : null);
+        setUsual(bookable(u) ? { ...u!, next: d.next_usual ? { date: d.next_usual.date, start_min: d.next_usual.start_min } : null } : null);
+        setLast(bookable(d.last) ? { ...d.last!, next: d.next_last ? { date: d.next_last.date, start_min: d.next_last.start_min } : null } : null);
       })
-      .catch(() => !cancelled && setUsual(null));
+      .catch(() => { if (!cancelled) { setUsual(null); setLast(null); } });
     return () => { cancelled = true; };
   }, [customer?.phone, !!shop, slug]);
   useEffect(() => {
@@ -1276,39 +1282,42 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       <small>Bringing your son or a friend? Book everyone in one go.</small>
                     </div>
                   )}
-                  {usual && (
-                    <section className="usual-card" data-testid="book-usual-card" aria-label="Your usual">
-                      <span className="usual-avatar" aria-hidden="true">{initials(usual.staff_name || usual.service_name)}</span>
-                      <div>
-                        <small>Your usual</small>
-                        <strong>{usual.service_name}{usual.staff_name ? ` with ${usual.staff_name.split(" ")[0]}` : ""}</strong>
-                        <span>
-                          {money(usual.price_pence)}
-                          {usual.next ? ` · next free ${usual.next.date === shop.today ? "today" : usual.next.date === datePlus(shop.today, 1) ? "tomorrow" : dateLabel(usual.next.date, { weekday: "short", day: "numeric", month: "short" })} at ${time(usual.next.start_min)}` : ""}
-                        </span>
-                      </div>
-                      <Button
-                        onClick={() => {
-                          setService(usual.service_id);
-                          setExtraIds([]);
-                          setBarber(usual.staff_id);
-                          setSlot(null);
-                          setAssigned(null);
-                          if (usual.next) {
-                            pickedDateRef.current = true;
-                            dateRef.current = usual.next.date;
-                            setPickedDate(true);
-                            setFrom(usual.next.date);
-                            setDate(usual.next.date);
-                          }
-                          go(2);
-                        }}
-                        data-testid="book-usual-again"
-                      >
-                        Book again
-                      </Button>
-                    </section>
-                  )}
+                  {(() => {
+                    const again = last || usual;
+                    if (!again) return null;
+                    const nextLabel = again.next ? `next free ${again.next.date === shop.today ? "today" : again.next.date === datePlus(shop.today, 1) ? "tomorrow" : dateLabel(again.next.date, { weekday: "short", day: "numeric", month: "short" })} at ${time(again.next.start_min)}` : "";
+                    return (
+                      <section className="usual-card" data-testid="book-usual-card" aria-label={last ? "Last time" : "Your usual"}>
+                        <span className="usual-avatar" aria-hidden="true">{initials(again.staff_name || again.service_name)}</span>
+                        <div>
+                          <small>{last ? "Last time" : "Your usual"}</small>
+                          <strong data-testid="book-usual-service">{again.service_name}{again.staff_name ? ` with ${again.staff_name.split(" ")[0]}` : ""}</strong>
+                          <span>{[money(again.price_pence), nextLabel].filter(Boolean).join(" · ")}</span>
+                        </div>
+                        <Button
+                          onClick={() => {
+                            setService(again.service_id);
+                            setExtraIds([]);
+                            setBarber(again.staff_id);
+                            setSlot(null);
+                            setAssigned(null);
+                            if (again.next) {
+                              pickedDateRef.current = true;
+                              dateRef.current = again.next.date;
+                              setPickedDate(true);
+                              setFrom(again.next.date);
+                              setDate(again.next.date);
+                            }
+                            go(2);
+                          }}
+                          aria-label={`Book ${again.service_name} again`}
+                          data-testid="book-usual-again"
+                        >
+                          Book again
+                        </Button>
+                      </section>
+                    );
+                  })()}
                   {shop.services.length > 8 && (
                   <label className="service-search">
                     <Icon name="search" />
@@ -1956,8 +1965,8 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
               <footer className="booking-actions">
                 {step === 0 && (
                   <span className="mobile-checkout-total">
-                    <strong>{stepZeroTotal || "—"}</strong>
-                    <small>Total</small>
+                    <strong data-testid="step0-total">{stepZeroTotal || "—"}</strong>
+                    <small>{chosenService ? chosenService.name : "Pick a service"}</small>
                   </span>
                 )}
                 {step > 0 ? (
@@ -1983,8 +1992,8 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                     <Icon name="check" />
                   </Button>
                 ) : (
-                  <span className={`booking-next-group ${step === 0 && barbers.length > 1 ? "two-ways" : ""}`} data-total={step === 0 ? stepZeroTotal : undefined}>
-                    {step === 0 && barbers.length > 1 && (
+                  <span className={`booking-next-group ${step === 0 && multiBarber ? "two-ways" : ""}`} data-total={step === 0 ? stepZeroTotal : undefined}>
+                    {step === 0 && multiBarber && (
                       <Button
                         disabled={!service}
                         onClick={() => {
@@ -2001,7 +2010,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                     )}
                     <Button
                       key={`next-${step}`}
-                      variant={step === 0 && barbers.length > 1 ? "secondary" : "primary"}
+                      variant={step === 0 && multiBarber ? "secondary" : "primary"}
                       disabled={
                         (step === 0 && !service) ||
                         (step === 1 && !barber) ||
@@ -2010,7 +2019,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       onClick={() => go(step === 2 ? 4 : step + 1)}
                     >
                       {step === 2 ? (slot !== null ? `Continue · ${time(slot)}` : "Pick a time") : "Pick a barber"}
-                      {!(step === 0 && barbers.length > 1) && <Icon name="arrowRight" />}
+                      {!(step === 0 && multiBarber) && <Icon name="arrowRight" />}
                     </Button>
                   </span>
                 )}
