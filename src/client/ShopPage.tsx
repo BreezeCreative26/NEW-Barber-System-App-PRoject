@@ -26,6 +26,8 @@ export type PageData = {
   soonest: { staff_id: string; staff_name: string; date: string; start_min: number; service_id: string; price_pence: number }[];
   reviews: PublicReview[];
   rating: { count: number; average: number | null };
+  // Each barber's own shown reviews (hidden ones are left out by the server).
+  staff_reviews?: Record<string, { count: number; average: number; reviews: PublicReview[] }>;
 };
 export type MemberHome = {
   profile: { name: string; phone: string; email: string; notes: string };
@@ -156,6 +158,8 @@ export function ShopPage({ slug }: { slug: string }) {
 export function ShopPageView({ data, me, mine, preview = false, onSelect, selected }: { data: PageData; me: { name: string } | null; mine: MemberHome | null; preview?: boolean; onSelect?: (el: string, section: string) => void; selected?: string }) {
   const slug = data.shop.slug;
   const scopeId = preview ? "sp-editor-scope" : "sp-live-scope";
+  // Which barber's reviews are open under their team card ("Read reviews").
+  const [openReviews, setOpenReviews] = useState<string | null>(null);
   // Editor: mark the selected element(s) so the canvas can outline them.
   useEffect(() => {
     if (!onSelect) return;
@@ -417,6 +421,11 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
                         <Icon name="clock" size={13} /> Next free {soon.date === data.today ? "today" : dateLabel(soon.date, { weekday: "short" })} {time(soon.start_min)}
                       </span>
                     )}
+                    {data.staff_reviews?.[b.id] && (
+                      <span className="sp-barber-rating" data-testid="barber-rating">
+                        <Stars value={data.staff_reviews[b.id].average} size={13} label={`${data.staff_reviews[b.id].average} out of 5`} /> <strong>{data.staff_reviews[b.id].average}</strong> · {data.staff_reviews[b.id].count} review{data.staff_reviews[b.id].count === 1 ? "" : "s"}
+                      </span>
+                    )}
                     {b.bio && <p>{b.bio}</p>}
                     {b.skills && JSON.parse(b.skills).length > 0 && (
                       <span className="sp-skills">
@@ -435,7 +444,38 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
                         @{b.instagram}
                       </a>
                     )}
+                    {data.staff_reviews?.[b.id] && (
+                      <button
+                        type="button"
+                        className="sp-read-reviews"
+                        aria-expanded={openReviews === b.id}
+                        aria-controls={`barber-reviews-${b.id}`}
+                        onClick={() => setOpenReviews(openReviews === b.id ? null : b.id)}
+                        data-testid="barber-read-reviews"
+                      >
+                        <Icon name="star" size={14} /> {openReviews === b.id ? "Hide reviews" : `Read reviews (${data.staff_reviews[b.id].count})`}
+                      </button>
+                    )}
                   </div>
+                  {openReviews === b.id && data.staff_reviews?.[b.id] && (
+                    <ul className="sp-barber-reviews" id={`barber-reviews-${b.id}`} aria-label={`Reviews for ${b.name}`} data-testid="barber-reviews">
+                      {data.staff_reviews[b.id].reviews.map((r) => (
+                        <li key={r.id} className="sp-review" data-testid="barber-review">
+                          <header>
+                            <Stars value={r.rating} size={13} />
+                            <strong>{r.display_name}</strong>
+                            <span>{r.service_name} · {new Date(r.created_at).toLocaleDateString("en-GB", { month: "short", year: "numeric" })}</span>
+                          </header>
+                          {r.body && <p>{r.body}</p>}
+                          {r.reply && (
+                            <p className="sp-review-reply">
+                              <Icon name="messageReply" size={14} /> <strong>Shop reply</strong> {r.reply}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
                 );
               })}

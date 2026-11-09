@@ -39,6 +39,7 @@ import { HolidayTracker, KIND_LABEL } from "./Holidays";
 import { BillingPanel } from "./Billing";
 import { ConflictResolver, ConflictOutcome, type Preview as ConflictPreview, type Decision as ConflictDecision, type Outcome as ConflictOutcomeRow, type ScheduleChange } from "./ConflictResolver";
 import { WalletDrawer } from "./Wallet";
+import { ReviewsPanel } from "./ReviewsAdmin";
 import { PaymentsPanel } from "./Payouts";
 import { SetupWizard } from "./Setup";
 import { BarberHome } from "./BarberHome";
@@ -2421,7 +2422,7 @@ export function Workspace() {
         <div className="drawer-scrim history-scrim" onClick={(e) => e.target === e.currentTarget && setReviewsOpen(false)}>
           <aside className="drawer history-drawer reviews-drawer" aria-label="Reviews" data-testid="reviews-drawer">
             <Button variant="ghost" className="history-close" onClick={() => setReviewsOpen(false)} aria-label="Close reviews"><Icon name="close" size={16} /></Button>
-            <ReviewsPanel w={w} />
+            <ReviewsPanel w={w} api={api} />
           </aside>
         </div>
       )}
@@ -4484,139 +4485,6 @@ const TEMPLATE_LABELS: Record<string, { label: string; hint: string }> = {
   waitlist_released: { label: "Declined or expired", hint: "{first} {shop} {date}" },
 };
 // Settings → Reviews: everything customers have left, hide/show and a public reply.
-type ReviewRowView = { id: string; rating: number; body: string; display_name: string; status: "PUBLISHED" | "HIDDEN"; reply: string; reply_at: number | null; version: number; created_at: number; service_name: string; staff_name: string | null; visit_date: string };
-function ReviewsPanel({ w }: { w: WorkspaceData }) {
-  const [data, setData] = useState<{ reviews: ReviewRowView[]; summary: { count: number; average: number | null; hidden: number }; by_staff?: { staff_id: string; name: string; count: number; average: number; low: number }[]; scope?: "all" | "own" } | null>(null);
-  const [who, setWho] = useState("");
-  const [error, setError] = useState("");
-  const [replying, setReplying] = useState<{ id: string; text: string } | null>(null);
-  const [filter, setFilter] = useState<"ALL" | "PUBLISHED" | "HIDDEN">("ALL");
-  const canModerate = !w.account || ["OWNER", "MANAGER"].includes(w.account.role);
-  const load = () =>
-    api<NonNullable<typeof data>>("/reviews")
-      .then((r) => {
-        setData(r);
-        setError("");
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "Could not load reviews."));
-  useEffect(() => {
-    load();
-  }, []);
-  async function act(id: string, path: string, body: unknown) {
-    try {
-      await api(`/reviews/${id}/${path}`, "POST", body);
-      setReplying(null);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "That change did not save.");
-      if ((e as ApiError).status === 409) load();
-    }
-  }
-  const rows = (data?.reviews || []).filter((r) => (filter === "ALL" || r.status === filter) && (!who || (r as { staff_id?: string }).staff_id === who));
-  const stars = (n: number) => (
-    <span className="stars" role="img" aria-label={`${n} out of 5`}>
-      {[1, 2, 3, 4, 5].map((i) => (
-        <Icon key={i} name="star" size={14} className={i <= n ? "on" : "off"} />
-      ))}
-    </span>
-  );
-  return (
-    <section className="workspace-card reviews-panel" data-testid="reviews-panel" aria-labelledby="reviews-panel-heading">
-      <header className="workspace-card-head">
-        <div>
-          <h2 id="reviews-panel-heading">Reviews</h2>
-          <p>
-            Only people who had a booked visit can leave one. You can hide a review from the shop page and reply publicly; the customer's words are never edited.
-            {data && data.summary.count > 0 && (
-              <>
-                {" "}
-                <strong data-testid="reviews-summary">
-                  {data.summary.average} · {data.summary.count} shown
-                </strong>
-                {data.summary.hidden > 0 && ` · ${data.summary.hidden} hidden`}
-              </>
-            )}
-          </p>
-        </div>
-        <div className="queue-filters" role="group" aria-label="Filter reviews">
-          {(["ALL", "PUBLISHED", "HIDDEN"] as const).map((f) => (
-            <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)}>
-              {f === "ALL" ? "All" : f === "PUBLISHED" ? "Shown" : "Hidden"}
-            </button>
-          ))}
-        </div>
-      </header>
-      {error && <Notice tone="warning">{error}</Notice>}
-      {data && data.by_staff && data.by_staff.length > 0 && (
-        <div className="review-people" data-testid="review-people" role="group" aria-label="Ratings by barber">
-          {data.by_staff.length > 1 && (
-            <button type="button" aria-pressed={!who} onClick={() => setWho("")}>
-              <b>{data.summary.average ?? "–"}</b><span>Everyone · {data.summary.count}</span>
-            </button>
-          )}
-          {data.by_staff.map((p) => (
-            <button type="button" key={p.staff_id} aria-pressed={data.by_staff!.length === 1 || who === p.staff_id} onClick={() => setWho(who === p.staff_id ? "" : p.staff_id)} data-testid="review-person">
-              <b>{p.average}</b><span>{p.name.split(" ")[0]} · {p.count}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      {!data ? (
-        <p className="muted">Loading…</p>
-      ) : rows.length === 0 ? (
-        <p className="muted" data-testid="reviews-empty">
-          No reviews yet. Customers are asked for one after each completed visit. Turn this on or off in Settings → Reviews & Google.
-        </p>
-      ) : (
-        <ul className="review-admin-list">
-          {rows.map((r) => (
-            <li key={r.id} className={`review-admin ${r.status === "HIDDEN" ? "hidden" : ""}`} data-testid="review-row">
-              <header>
-                {stars(r.rating)}
-                <strong>{r.display_name}</strong>
-                <span>
-                  {r.service_name}
-                  {r.staff_name ? ` · ${r.staff_name.split(" ")[0]}` : ""} · {r.visit_date}
-                </span>
-                {r.status === "HIDDEN" && <StatusPill tone="note">Hidden</StatusPill>}
-              </header>
-              {r.body ? <p className="review-admin-body">{r.body}</p> : <p className="review-admin-body muted">No comment</p>}
-              {r.reply && replying?.id !== r.id && (
-                <p className="review-reply">
-                  <strong>Your reply</strong>
-                  {r.reply}
-                </p>
-              )}
-              {replying?.id === r.id && (
-                <div className="review-reply-form">
-                  <textarea rows={3} maxLength={400} value={replying.text} onChange={(e) => setReplying({ id: r.id, text: e.target.value })} aria-label="Reply" data-testid="reply-text" />
-                  <div className="review-actions">
-                    <Button variant="ghost" onClick={() => setReplying(null)}>
-                      Cancel
-                    </Button>
-                    <Button variant="primary" onClick={() => act(r.id, "reply", { reply: replying.text.trim(), version: r.version })} data-testid="reply-save">
-                      <Icon name="messageReply" size={14} /> {r.reply ? "Update reply" : "Post reply"}
-                    </Button>
-                  </div>
-                </div>
-              )}
-              {canModerate && replying?.id !== r.id && (
-                <div className="review-admin-actions">
-                  <Button variant="ghost" onClick={() => setReplying({ id: r.id, text: r.reply })} data-testid="review-reply">
-                    <Icon name="messageReply" size={14} /> {r.reply ? "Edit reply" : "Reply"}
-                  </Button>
-                  <Button variant="ghost" onClick={() => act(r.id, "status", { status: r.status === "HIDDEN" ? "PUBLISHED" : "HIDDEN", version: r.version })} data-testid="review-toggle">
-                    <Icon name={r.status === "HIDDEN" ? "eye" : "eyeOff"} size={14} /> {r.status === "HIDDEN" ? "Show" : "Hide"}
-                  </Button>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
 const MSG_LABELS: Record<string, string> = {
   booking_confirmed: "Booking confirmed", booking_moved: "Booking moved", booking_cancelled: "Booking cancelled",
   booking_reminder: "Reminder (day before)", booking_reminder_soon: "Reminder (2 hours before)", signin_code: "Sign-in code",

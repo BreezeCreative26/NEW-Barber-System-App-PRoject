@@ -102,6 +102,24 @@ export async function publicReviews(db: D1Database, shopId: string, limit = 12) 
   };
 }
 
+// Per-barber reviews for the shop page's team cards ("Read reviews"): only PUBLISHED ones, so a
+// review the shop hides disappears from the barber's card as well as the shop-wide list.
+export async function publicReviewsByStaff(db: D1Database, shopId: string, perBarber = 20) {
+  const rows = (await db
+    .prepare("SELECT r.id,r.staff_id,r.rating,r.body,r.display_name,r.reply,r.reply_at,r.created_at,r.service_name,s.name AS staff_name FROM reviews r LEFT JOIN staff s ON s.shop_id=r.shop_id AND s.id=r.staff_id WHERE r.shop_id=? AND r.status='PUBLISHED' AND r.staff_id IS NOT NULL ORDER BY r.created_at DESC LIMIT 1000")
+    .bind(shopId)
+    .all<{ id: string; staff_id: string; rating: number; body: string; display_name: string; reply: string; reply_at: number | null; created_at: number; service_name: string; staff_name: string | null }>()).results;
+  const out: Record<string, { count: number; average: number; reviews: typeof rows }> = {};
+  for (const r of rows) {
+    const b = (out[r.staff_id] ??= { count: 0, average: 0, reviews: [] });
+    b.count += 1;
+    b.average += r.rating;
+    if (b.reviews.length < perBarber) b.reviews.push(r);
+  }
+  for (const k of Object.keys(out)) out[k].average = Math.round((out[k].average / out[k].count) * 10) / 10;
+  return out;
+}
+
 // ---- Media (R2) -----------------------------------------------------------------------
 export type MediaRow = { id: string; shop_id: string; kind: "cover" | "gallery" | "staff" | "logo"; object_key: string; content_type: string; bytes: number; width: number | null; height: number | null; alt: string; uploaded_by: string; created_at: number; tone?: string };
 export const MEDIA_MAX_BYTES = 5 * 1024 * 1024;

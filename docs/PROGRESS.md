@@ -856,3 +856,10 @@ In-place edit of service/add-ons/price/duration (`PATCH /bookings/:id/items`, mi
 - Live impact: The Doghouse sent 5 review emails (Ben, Cameron, Josh, Harry, plus one deleted booking); all recipients have accounts, so none could leave a review. 0 reviews on live across all shops.
 - Fix: post to `${A}/bookings/<id>/review`. The manage-link review (guests) and the owner Reviews drawer (list, reply, hide/show) were already working.
 - New tests/review-from-email.spec.ts: opens the exact email link, leaves a 5-star review, checks it saves once, appears in the owner's Reviews and on the public shop page; owner reply + hide/show in the drawer.
+
+## Reviews per barber (website, Reviews drawer, barber page tab)
+- Website: each barber's team card shows their own rating ("4.6 · 7 reviews") and a "Read reviews" button that opens their reviews underneath (up to 20, newest first, with shop replies). Only shown reviews appear; hiding one removes it from that barber's card and the shop-wide list.
+- New `staff_reviews` on GET /shops/:slug/page (publicReviewsByStaff in presence.ts), grouped by barber, PUBLISHED only.
+- Reviews drawer (top-bar star): every active barber has a button, even with no reviews yet (shows "–"), plus former barbers who have reviews; tap one to see only theirs, "Everyone" to go back. Buttons show shown count and "(+N hidden)".
+- Barber page: new Reviews tab with only that barber's reviews; Reply and "Hide from website" / "Show on website".
+- ReviewsPanel moved to src/client/ReviewsAdmin.tsx (shared by the drawer and the barber tab).
