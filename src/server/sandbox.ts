@@ -774,11 +774,14 @@ sandbox.get("/workspace", async (c) => {
       if ((reason === "Outside working hours" || CLOSED_DAY_REASONS.has(reason)) && deliberate.has(b.id)) return [];
       return reason ? [{ booking_id: b.id, ref: ref(b), reason }] : [];
     });
+  // Money is personal: a barber without "pay" only ever receives their own payments, so the wallet
+  // chip and anything else built from this list shows their takings, never the shop's.
+  const payScope = ownScope(account, "pay");
   const payments = (
     await c.env.DB.prepare(
       "SELECT * FROM payments WHERE shop_id=? AND (? IS NULL OR staff_id=?) AND date>=? ORDER BY created_at DESC LIMIT 2000",
     )
-      .bind(sid, assigned, assigned, new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10))
+      .bind(sid, payScope, payScope, new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10))
       .all<Payment>()
   ).results;
   return c.json({
