@@ -3859,25 +3859,59 @@ sandbox.get("/wallet", async (c) => {
   const live = rows.filter((r) => !r.voided_at);
   const sum = (list: typeof live, f: (r: Payment) => number) => list.reduce((n, r) => n + f(r), 0);
   const byMethod = Object.fromEntries(
-    ["CARD", "CASH", "TRANSFER", "VOUCHER", "OTHER"].map((m) => {
+    ["CARD", "READER", "CASH", "TRANSFER", "VOUCHER", "OTHER", "ONLINE"].map((m) => {
       const l = live.filter((r) => r.method === m);
       return [m, { service: sum(l, (r) => r.service_pence), tips: sum(l, (r) => r.tip_pence), count: l.length }];
     }),
   );
-  const staffIds = [...new Set(live.map((r) => r.staff_id))];
-  // Earnings use the same engine as pay runs (tiers, base, chair rent, deductions) so the barber's
-  // wallet and the owner's pay run never disagree.
-  const staffRows = staffIds.length ? (await c.env.DB.prepare(`SELECT * FROM staff WHERE shop_id=? AND id IN (${staffIds.map(() => "?").join(",")})`).bind(c.get("shopId"), ...staffIds).all<Staff>()).results : [];
-  const rangeDays = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
-  const byStaff = staffIds.map((sid) => {
+  // Every active barber (a chair renter owes rent even on a day with no takings) plus anyone paid in range.
+  const activeIds = (await c.env.DB.prepare("SELECT id FROM staff WHERE shop_id=? AND active=1 AND (? IS NULL OR id=?)").bind(c.get("shopId"), assigned, assigned).all<{ id: string }>()).results.map((r) => r.id);
+  const staffIds = [...new Set([...activeIds, ...live.map((r) => r.staff_id)])];
+  // Earnings use exactly the pay-run engine and inputs (rota days, hours, leave, period length,
+  // deductions), so the wallet, the barber's "My pay" and the owner's pay run never disagree.
+  const byStaff = (await Promise.all(staffIds.map(async (sid) => {
     const l = live.filter((r) => r.staff_id === sid);
-    const service = sum(l, (r) => r.service_pence);
-    const tips = sum(l, (r) => r.tip_pence);
-    const st = staffRows.find((x) => x.id === sid);
-    const terms = st ? payTermsOf(st) : null;
-    const calc = terms ? calculatePayRun(terms, { service_pence: service, tips_pence: tips, visits: new Set(l.map((r) => r.booking_id)).size, hours_x100: 0, periods: 1, days: rangeDays }) : null;
-    return { staff_id: sid, service, tips, commission: calc?.staff_share_pence ?? 0, earnings: calc ? calc.net_pence : tips, deductions: calc?.deductions_pence ?? 0, owner_share: calc?.owner_share_pence ?? 0, visits: new Set(l.map((r) => r.booking_id)).size, estimate: !!calc && calc.deductions.some((d) => (terms!.deductions.find((x) => x.id === d.id)?.kind === "FIXED")) };
-  });
+    const figs = await payRunFiguresDb(c.env.DB, shop, sid, from, to, { includeSettled: true }).catch(() => null);
+    if (!figs) return null;
+    const { terms, input, auto_adjustments } = figs;
+    const calc = calculatePayRun(terms, input, auto_adjustments.map(({ label, pence }) => ({ label, pence })));
+    const split = await splitFigures(c.env.DB, c.get("shopId"), sid, from, to, { includeSettled: true });
+    // Who physically has the cash: a chair renter keeps their own takings; otherwise the till/shop does.
+    const cashHeldBy = terms.pay_model === "CHAIR_RENT" ? "BARBER" : "SHOP";
+    const st = settlementFor(terms, calc, split, { reserve_bps: shop.payrun_reserve_bps ?? 0, cashHeldBy });
+    const methodSum = (keys: string[]) => l.filter((r) => keys.includes(r.method) && !(r.method === "CARD" && !r.stripe_payment_intent)).reduce((n, r) => n + r.service_pence + r.tip_pence, 0);
+    const reader = l.filter((r) => r.method === "READER" || (r.method === "CARD" && !r.stripe_payment_intent)).reduce((n, r) => n + r.service_pence + r.tip_pence, 0);
+    const cashHeld = cashHeldBy === "BARBER" ? split.cash_service_pence + split.cash_tips_pence - (split.reader_pence ?? 0) : 0;
+    // Positive: the shop owes the barber this much. Negative: the barber owes the shop (e.g. chair rent
+    // when they kept their cash). Card money through foliyo is part of it and is paid by the pay run.
+    const owed = calc.net_pence - cashHeld;
+    return {
+      staff_id: sid,
+      pay_model: terms.pay_model,
+      service: input.service_pence,
+      tips: input.tips_pence,
+      commission: calc.staff_share_pence,
+      tip_share: calc.tip_pence,
+      earnings: calc.net_pence,
+      deductions: calc.deductions_pence,
+      deduction_lines: calc.deductions,
+      owner_share: calc.owner_share_pence,
+      owed_to_business: calc.owed_to_business_pence,
+      visits: input.visits,
+      estimate: calc.deductions.some((d) => terms.deductions.find((x) => x.id === d.id)?.kind === "FIXED") || terms.pay_model === "HOURLY" || terms.pay_model === "SALARY" || terms.pay_model === "HYBRID",
+      basis: { working_days: input.working_days ?? 0, leave_days: input.leave_days ?? 0, booked_days: input.booked_days ?? 0, hours_x100: input.hours_x100, periods: input.periods, days: input.days ?? 0 },
+      // Where the money is.
+      cash: methodSum(["CASH"]),
+      card: methodSum(["CARD", "ONLINE"]),
+      reader,
+      other: methodSum(["TRANSFER", "VOUCHER", "OTHER"]),
+      cash_held_by: cashHeldBy,
+      cash_held_by_barber: cashHeld,
+      owed,
+      by_stripe: st.transfer_pence,
+      by_hand: st.cash_residual_pence,
+    };
+  }))).filter((x): x is NonNullable<typeof x> => !!x);
   // Booked but not yet paid within the range (served or upcoming today).
   const unpaid = await c.env.DB.prepare(
     "SELECT COALESCE(SUM(b.price_pence),0) AS value, COUNT(*) AS n FROM bookings b WHERE b.shop_id=? AND (? IS NULL OR b.staff_id=?) AND b.date BETWEEN ? AND ? AND b.status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE') ",
@@ -3909,12 +3943,12 @@ async function payRunFigures(c: Ctx, staffId: string, from: string, to: string) 
   return payRunFiguresDb(c.env.DB, await readShop(c), staffId, from, to);
 }
 // Ctx-free so scheduled runs (sweep) use exactly the same maths as the owner's button.
-export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: string, from: string, to: string) {
+export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: string, from: string, to: string, opts: { includeSettled?: boolean } = {}) {
   const sid = shop.id;
   const [pay, hoursRows, offRows, overrideRows, staff] = await Promise.all([
     db.prepare(
-      "SELECT COALESCE(SUM(service_pence),0) AS service, COALESCE(SUM(tip_pence),0) AS tips, COUNT(DISTINCT booking_id) AS visits FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND pay_run_id IS NULL",
-    ).bind(sid, staffId, from, to).first<{ service: number; tips: number; visits: number }>(),
+      "SELECT COALESCE(SUM(service_pence),0) AS service, COALESCE(SUM(tip_pence),0) AS tips, COUNT(DISTINCT booking_id) AS visits FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND (?=1 OR pay_run_id IS NULL)",
+    ).bind(sid, staffId, from, to, opts.includeSettled ? 1 : 0).first<{ service: number; tips: number; visits: number }>(),
     db.prepare("SELECT * FROM staff_hours WHERE shop_id=? AND staff_id=?").bind(sid, staffId).all<Hours>(),
     db.prepare("SELECT date FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<{ date: string }>(),
     db.prepare("SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<ScheduleOverride>(),

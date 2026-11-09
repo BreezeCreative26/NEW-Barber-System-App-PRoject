@@ -8,6 +8,8 @@ import { money, currencySymbol } from "./fixtures";
 export type Tender = { method: Payment["method"]; service_pence: number; tip_pence: number };
 export const METHODS: { key: Payment["method"]; label: string; icon: string; till?: boolean }[] = [
   { key: "CARD", label: "Card", icon: "card", till: true },
+  // The shop's own card machine (e.g. a Revolut reader): money lands in the shop's account, not foliyo's.
+  { key: "READER", label: "Card reader", icon: "card", till: true },
   { key: "CASH", label: "Cash", icon: "banknote", till: true },
   { key: "TRANSFER", label: "Transfer", icon: "landmark", till: true },
   { key: "VOUCHER", label: "Voucher", icon: "gift", till: true },
@@ -163,10 +165,11 @@ export function Checkout({
               <Icon name={m.icon} size={18} />
               <b>{m.label}</b>
               {m.key === "CARD" && <small>Tap on their phone or reader</small>}
+              {m.key === "READER" && <small>Your own machine (Revolut)</small>}
             </button>
           ))}
         </div>
-        {!cardLive && <small className="helper" data-testid="card-not-set-up">Card payments need online payments set up (Settings → Payments). Until then, record cash, transfer, voucher or other here.</small>}
+        {!cardLive && <small className="helper" data-testid="card-not-set-up">Card payments need online payments set up (Settings → Payments). Until then, use Card reader for your own machine (Revolut), or record cash, transfer, voucher or other.</small>}
       </fieldset>
 
       {split.length > 0 && (
