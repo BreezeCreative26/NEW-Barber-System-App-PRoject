@@ -5023,3 +5023,44 @@ html.ws-dark .workspace .matrix-input input, html.ws-dark .workspace .checkout-m
 .pay-to-settle h3 small { font-weight: 400; }
 .pay-settle-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .pay-settle-acts { white-space: nowrap; }
+
+/* Phone: the shop logo + name moves from the top bar into the slide-out menu header, so the
+   top bar has room for the wallet (amount + caption). Desktop keeps the brand in the top bar. */
+@media (min-width: 768px) {
+  .workspace .sidebar.rail .sidebar-shop { display: none; }
+}
+@media (max-width: 767px) {
+  .workspace .sidebar.rail .sidebar-shop, .workspace .sidebar.rail.collapsed .sidebar-shop { display: flex; flex: 1; }
+  .workspace .sidebar.rail .sidebar-shop .brand-mark { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px; object-fit: contain; }
+  .workspace .sidebar.rail .sidebar-shop .brand-shop-initial { display: grid; place-items: center; font-weight: 800; }
+  .workspace .topbar .brand, .topbar .brand { display: none !important; }
+  .workspace .topbar .wallet-chip { flex: 0 1 auto; min-width: 0; max-width: 60vw; padding-left: 8px; padding-right: 10px; }
+  .workspace .topbar .wallet-chip > span:not(.chip-ic) { min-width: 0; overflow: hidden; }
+  .workspace .topbar .wallet-chip b { font-size: var(--fs-15, 15px); white-space: nowrap; }
+  .workspace .topbar .wallet-chip small { display: block !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (max-width: 360px) {
+  .workspace .topbar .wallet-chip small { display: none !important; }
+}
+.account-pill .avatar-logo-alt { display: none; }
+@media (max-width: 767px) {
+  .workspace .topbar .account-pill .avatar-logo { display: none; }
+  .workspace .topbar .account-pill .avatar-logo-alt { display: grid; }
+  /* The wallet amount is never cut; only its caption shortens. */
+  .workspace .topbar .wallet-chip { flex: 0 0 auto; max-width: none; }
+  .workspace .topbar .wallet-chip > span:not(.chip-ic) { overflow: visible; }
+  .workspace .topbar .wallet-chip small { max-width: 76px; }
+  .workspace .topbar .queue-chip, .workspace .topbar .reviews-chip { flex: 0 1 auto; min-width: 0; padding-left: 6px; padding-right: 8px; }
+}
+@media (max-width: 767px) {
+  .workspace .topbar .queue-chip, .workspace .topbar .reviews-chip { flex: 0 0 auto; }
+  .workspace .topbar .queue-chip .chip-ic, .workspace .topbar .wallet-chip .chip-ic { flex: 0 0 auto; }
+  .workspace .topbar .wallet-chip small { max-width: 64px; }
+}
+@media (max-width: 767px) {
+  .workspace .topbar { gap: 4px; padding-left: 4px; padding-right: 8px; }
+  .workspace .topbar .wallet-chip { gap: 6px; padding-left: 6px; padding-right: 8px; }
+  .workspace .topbar .wallet-chip small { max-width: 58px; }
+  .workspace .topbar .account-pill { padding: 2px; flex: 0 0 auto; }
+  .workspace .topbar .account-pill .lucide-chevron-down { display: none; }
+}
