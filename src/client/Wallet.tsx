@@ -63,7 +63,8 @@ export function WalletDrawer({
   const dayLabel = day === w.today ? "Today" : new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(day + "T12:00:00Z"));
   const [data, setData] = useState<WalletData | null>(null);
   const [error, setError] = useState("");
-  const barberView = w.account?.role === "BARBER";
+  // Personal view for anyone without "See pay runs and wallets" (the server only sends their own money).
+  const barberView = !!w.account && w.account.role !== "OWNER" && !(w.account.perms as Record<string, boolean> | undefined)?.pay;
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const onKey = (e: KeyboardEvent) => {
@@ -190,7 +191,7 @@ export function WalletDrawer({
 // One barber's money for the period: what was taken and how (cash / card / card reader), what their
 // pay setup gives them, and who owes whom. Uses the same engine as pay runs.
 type StaffMoney = WalletData["by_staff"][number];
-function BarberMoney({ s, name, terms, self }: { s: StaffMoney; name: string; terms?: string; self?: boolean }) {
+export function BarberMoney({ s, name, terms, self }: { s: StaffMoney; name: string; terms?: string; self?: boolean }) {
   const first = self ? "You" : name.split(" ")[0];
   const owedLine =
     s.owed === 0
