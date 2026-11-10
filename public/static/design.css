@@ -5010,3 +5010,10 @@ html.ws-dark .matrix-input, html.ws-dark .checkout-money-input, html.ws-dark .sl
 html.ws-dark .workspace .matrix-input input, html.ws-dark .workspace .checkout-money-input input { background: transparent !important; }
 /* Plain small fields (add-on price, length stepper) match the control height. */
 .workspace .items-addon-price input, .workspace .items-stepper input { min-height: 36px; }
+
+/* Checkout: card reader (Revolut) tip question */
+.checkout-reader-tip { border: 1px solid var(--line, #e3e3e3); border-radius: 12px; padding: 10px 12px 12px; margin: 10px 0; display: grid; gap: 8px; }
+.checkout-reader-tip legend { font-weight: 600; padding: 0 4px; }
+.checkout-reader-tip small { color: var(--muted); font-size: var(--fs-11, 11px); }
+.checkout-reader-tip-amount { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.checkout-reader-tip-amount > span:first-child { font-size: var(--fs-13, 13px); }
