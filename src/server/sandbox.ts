@@ -4233,8 +4233,9 @@ sandbox.put("/pay-runs/:id", async (c) => {
   // Settling by hand claims the period's payments into this run (the Stripe path does the same in
   // executeRun) so they can never be paid twice and later periods stay clean.
   if (next === "PAID") {
-    await c.env.DB.prepare("UPDATE payments SET pay_run_id=? WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND pay_run_id IS NULL")
-      .bind(run.id, c.get("shopId"), run.staff_id, run.period_from, run.period_to).run();
+    // Only what the run counted (recorded before it was made); later payments stay unpaid.
+    await c.env.DB.prepare("UPDATE payments SET pay_run_id=? WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND pay_run_id IS NULL AND created_at<=?")
+      .bind(run.id, c.get("shopId"), run.staff_id, run.period_from, run.period_to, run.created_at).run();
   }
   // Voiding hands everything back so a fresh run picks it up: deposit-refund adjustments always, and
   // the payments unless Stripe already moved the money for them.

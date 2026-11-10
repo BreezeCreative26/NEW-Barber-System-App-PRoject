@@ -5017,3 +5017,9 @@ html.ws-dark .workspace .matrix-input input, html.ws-dark .workspace .checkout-m
 .checkout-reader-tip small { color: var(--muted); font-size: var(--fs-11, 11px); }
 .checkout-reader-tip-amount { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .checkout-reader-tip-amount > span:first-child { font-size: var(--fs-13, 13px); }
+
+/* Pay runs: To settle list */
+.pay-to-settle { margin: 12px 0; }
+.pay-to-settle h3 small { font-weight: 400; }
+.pay-settle-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.pay-settle-acts { white-space: nowrap; }
