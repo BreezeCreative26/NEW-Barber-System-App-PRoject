@@ -2220,6 +2220,10 @@ export function Workspace() {
   const todayTaken = todayPayments.reduce((n, p) => n + p.service_pence + p.tip_pence, 0);
   const todayVisits = new Set(todayPayments.map((p) => p.booking_id)).size;
   const walletDayText = walletIsToday ? "today" : new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(walletDay + "T12:00:00Z"));
+  // On today the chip is a running total: everything recorded and not yet paid out, carrying on across
+  // days until a pay run is settled. Looking back at another day still shows that day's takings.
+  const runOpen = walletIsToday && !!w?.wallet_open;
+  const openSince = w?.wallet_open?.since && w.wallet_open.since < (w?.today || "") ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(w.wallet_open.since + "T12:00:00Z")) : "";
   // Waitlist lives in the notifications drawer (bell) rather than on top of the timetable.
   useEffect(() => {
     if (!w) return;
@@ -2343,8 +2347,10 @@ export function Workspace() {
         wallet={
           w
             ? {
-                amount: money(todayTaken),
-                caption: walletDay > w.today ? `${walletDayText} · not taken yet` : `${w.account?.role === "BARBER" && walletIsToday ? "Taken" : `Taken ${walletDayText}`} · ${todayVisits} visit${todayVisits === 1 ? "" : "s"}`,
+                amount: money(runOpen ? w.wallet_open!.total : todayTaken),
+                caption: runOpen
+                  ? `Unpaid${openSince ? ` since ${openSince}` : ""} · ${w.wallet_open!.visits} visit${w.wallet_open!.visits === 1 ? "" : "s"}`
+                  : walletDay > w.today ? `${walletDayText} · not taken yet` : `${w.account?.role === "BARBER" && walletIsToday ? "Taken" : `Taken ${walletDayText}`} · ${todayVisits} visit${todayVisits === 1 ? "" : "s"}`,
                 open: walletOpen,
               }
             : null

@@ -404,6 +404,8 @@ export type WorkspaceData = {
   now: number;
   mode: "sandbox";
   issues: { booking_id: string; ref: string; reason: string }[];
+  // Running wallet total: money recorded but not yet paid to the barber(s), since the oldest unpaid day.
+  wallet_open?: { total: number; visits: number; since: string | null };
   entitlements?: import("./billing").Entitlements | null;
 };
 

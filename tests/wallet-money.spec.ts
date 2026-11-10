@@ -130,6 +130,10 @@ test("wallet drawer shows a money card per barber with cash, card reader and who
   await page.getByTestId("wallet-chip").click();
   const drawer = page.getByTestId("wallet-drawer");
   await expect(drawer).toBeVisible();
+  // The drawer opens on the running unpaid total; this checks today's split, so switch to Today.
+  await expect(drawer.getByTestId("wallet-hero")).toContainText("Unpaid");
+  await drawer.getByRole("button", { name: "Today", exact: true }).click();
+  await expect(drawer.getByTestId("wallet-hero")).toContainText("Taken today");
   const card = drawer.locator(`[data-testid="wallet-barber"][data-staff="${jay.id}"]`);
   await expect(card).toBeVisible();
   await expect(card.getByTestId("wb-cash")).toHaveText("£10");

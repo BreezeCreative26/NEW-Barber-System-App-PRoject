@@ -96,10 +96,14 @@ export function tenderKind(method: string, intent = ""): "STRIPE" | "READER" | "
 }
 // CARD via Terminal and ONLINE deposits are "card" (on the platform balance); CASH/TRANSFER/VOUCHER
 // are "cash" (in someone's hand already). Only unsettled rows (no pay_run_id) count.
-export async function splitFigures(db: DB, shopId: string, staffId: string, from: string, to: string, opts: { includeSettled?: boolean } = {}): Promise<SplitFigures> {
-  const rows = (await db
-    .prepare("SELECT id, booking_id, method, service_pence, tip_pence, platform_fee_pence, stripe_fee_pence, stripe_payment_intent FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND (?=1 OR pay_run_id IS NULL)")
-    .bind(shopId, staffId, from, to, opts.includeSettled ? 1 : 0)
+// A pay run has actually paid the barber when it is marked settled, or Stripe sent it and nothing was
+// left to settle by hand. A run "sent to Stripe" that still owes cash by hand is not paid yet.
+export const SETTLED_RUN_SQL = "(r.status='PAID' OR (r.status='TRANSFERRED' AND r.cash_residual_pence=0))";
+export const OPEN_PAYMENT_SQL = (alias = "payments") => `NOT EXISTS (SELECT 1 FROM pay_runs r WHERE r.id=${alias}.pay_run_id AND ${SETTLED_RUN_SQL})`;
+export async function splitFigures(db: DB, shopId: string, staffId: string, from: string, to: string, opts: { includeSettled?: boolean; openOnly?: boolean } = {}): Promise<SplitFigures> {
+  const rows = (await (opts.openOnly
+    ? db.prepare(`SELECT id, booking_id, method, service_pence, tip_pence, platform_fee_pence, stripe_fee_pence, stripe_payment_intent FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND ${OPEN_PAYMENT_SQL()}`).bind(shopId, staffId, from, to)
+    : db.prepare("SELECT id, booking_id, method, service_pence, tip_pence, platform_fee_pence, stripe_fee_pence, stripe_payment_intent FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND (?=1 OR pay_run_id IS NULL)").bind(shopId, staffId, from, to, opts.includeSettled ? 1 : 0))
     .all<{ id: string; booking_id: string; method: string; service_pence: number; tip_pence: number; platform_fee_pence: number; stripe_fee_pence: number; stripe_payment_intent: string }>()).results;
   const f: SplitFigures = { service_pence: 0, tips_pence: 0, visits: 0, card_service_pence: 0, card_tips_pence: 0, cash_service_pence: 0, cash_tips_pence: 0, platform_fee_pence: 0, stripe_fee_pence: 0, payment_ids: [] };
   const bookings = new Set<string>();

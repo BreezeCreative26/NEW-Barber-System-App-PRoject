@@ -99,7 +99,7 @@ import { mountShopCampaigns } from "./shopCampaigns";
 import { mountDomains } from "./domains";
 import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
-import { accountFor, accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, type ConnectedAccount } from "./payouts";
+import { accountFor, accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, OPEN_PAYMENT_SQL, type ConnectedAccount } from "./payouts";
 import { walletsCsv, walletsSummary } from "./wallets";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
 import { RESERVED_SUBDOMAINS, shopUrl } from "./hosts";
@@ -784,7 +784,13 @@ sandbox.get("/workspace", async (c) => {
       .bind(sid, payScope, payScope, new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10))
       .all<Payment>()
   ).results;
+  // Wallet chip: a running total of money not yet paid to the barber(s). It carries on across days
+  // until a pay run is settled (marked paid, or sent by Stripe with nothing left to settle by hand).
+  const open = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(service_pence+tip_pence),0) AS total, COUNT(DISTINCT booking_id) AS visits, MIN(date) AS since FROM payments WHERE shop_id=? AND (? IS NULL OR staff_id=?) AND voided_at IS NULL AND ${OPEN_PAYMENT_SQL()}`,
+  ).bind(sid, payScope, payScope).first<{ total: number; visits: number; since: string | null }>();
   return c.json({
+    wallet_open: { total: Number(open?.total ?? 0), visits: Number(open?.visits ?? 0), since: open?.since ?? null },
     shop,
     cards_ready: await shopCanTakeCards(c.env.DB, sid),
     logo_url: (result[11].results[0] as { logo_url?: string } | undefined)?.logo_url || "",
@@ -3866,12 +3872,18 @@ sandbox.get("/wallet", async (c) => {
   const a = c.get("account");
   const assigned = ownScope(a, "pay");
   const today = shopToday(shop.timezone);
-  const from = dateSchema.safeParse(c.req.query("from")).success ? (c.req.query("from") as string) : today;
-  const to = dateSchema.safeParse(c.req.query("to")).success ? (c.req.query("to") as string) : from;
+  // unpaid=1: the running total — everything not yet paid to the barber, from the oldest unpaid
+  // payment up to today. It keeps adding up across days until a pay run is settled.
+  const unpaidMode = c.req.query("unpaid") === "1";
+  const oldestOpen = unpaidMode
+    ? (await c.env.DB.prepare(`SELECT MIN(date) AS d FROM payments WHERE shop_id=? AND (? IS NULL OR staff_id=?) AND voided_at IS NULL AND ${OPEN_PAYMENT_SQL()}`).bind(c.get("shopId"), assigned, assigned).first<{ d: string | null }>())?.d
+    : null;
+  const from = unpaidMode ? (oldestOpen && oldestOpen < today ? oldestOpen : today) : dateSchema.safeParse(c.req.query("from")).success ? (c.req.query("from") as string) : today;
+  const to = unpaidMode ? today : dateSchema.safeParse(c.req.query("to")).success ? (c.req.query("to") as string) : from;
   if (to < from) fail(400, "to must be on or after from");
   const rows = (
     await c.env.DB.prepare(
-      "SELECT p.*, b.customer_name, b.service_name, b.start_min FROM payments p JOIN bookings b ON b.shop_id=p.shop_id AND b.id=p.booking_id WHERE p.shop_id=? AND (? IS NULL OR p.staff_id=?) AND p.date BETWEEN ? AND ? ORDER BY p.created_at DESC LIMIT 1000",
+      `SELECT p.*, b.customer_name, b.service_name, b.start_min FROM payments p JOIN bookings b ON b.shop_id=p.shop_id AND b.id=p.booking_id WHERE p.shop_id=? AND (? IS NULL OR p.staff_id=?) AND p.date BETWEEN ? AND ?${unpaidMode ? ` AND ${OPEN_PAYMENT_SQL("p")}` : ""} ORDER BY p.created_at DESC LIMIT 1000`,
     )
       .bind(c.get("shopId"), assigned, assigned, from, to)
       .all<Payment & { customer_name: string; service_name: string; start_min: number }>()
@@ -3891,11 +3903,11 @@ sandbox.get("/wallet", async (c) => {
   // deductions), so the wallet, the barber's "My pay" and the owner's pay run never disagree.
   const byStaff = (await Promise.all(staffIds.map(async (sid) => {
     const l = live.filter((r) => r.staff_id === sid);
-    const figs = await payRunFiguresDb(c.env.DB, shop, sid, from, to, { includeSettled: true }).catch(() => null);
+    const figs = await payRunFiguresDb(c.env.DB, shop, sid, from, to, unpaidMode ? { openOnly: true } : { includeSettled: true }).catch(() => null);
     if (!figs) return null;
     const { terms, input, auto_adjustments } = figs;
     const calc = calculatePayRun(terms, input, auto_adjustments.map(({ label, pence }) => ({ label, pence })));
-    const split = await splitFigures(c.env.DB, c.get("shopId"), sid, from, to, { includeSettled: true });
+    const split = await splitFigures(c.env.DB, c.get("shopId"), sid, from, to, unpaidMode ? { openOnly: true } : { includeSettled: true });
     // Who physically has the cash: a chair renter keeps their own takings; otherwise the till/shop does.
     const cashHeldBy = terms.pay_model === "CHAIR_RENT" ? "BARBER" : "SHOP";
     const st = settlementFor(terms, calc, split, { reserve_bps: shop.payrun_reserve_bps ?? 0, cashHeldBy });
@@ -3942,6 +3954,7 @@ sandbox.get("/wallet", async (c) => {
     from,
     to,
     today,
+    unpaid: unpaidMode,
     till_access: shop.till_access,
     totals: {
       service: sum(live, (r) => r.service_pence),
@@ -3963,12 +3976,15 @@ async function payRunFigures(c: Ctx, staffId: string, from: string, to: string) 
   return payRunFiguresDb(c.env.DB, await readShop(c), staffId, from, to);
 }
 // Ctx-free so scheduled runs (sweep) use exactly the same maths as the owner's button.
-export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: string, from: string, to: string, opts: { includeSettled?: boolean } = {}) {
+export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: string, from: string, to: string, opts: { includeSettled?: boolean; openOnly?: boolean } = {}) {
   const sid = shop.id;
+  const paySql = "SELECT COALESCE(SUM(service_pence),0) AS service, COALESCE(SUM(tip_pence),0) AS tips, COUNT(DISTINCT booking_id) AS visits, COALESCE(SUM(CASE WHEN method='READER' OR (method='CARD' AND stripe_payment_intent='') THEN service_pence+tip_pence ELSE 0 END),0) AS reader FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND ";
   const [pay, hoursRows, offRows, overrideRows, staff] = await Promise.all([
-    db.prepare(
-      "SELECT COALESCE(SUM(service_pence),0) AS service, COALESCE(SUM(tip_pence),0) AS tips, COUNT(DISTINCT booking_id) AS visits, COALESCE(SUM(CASE WHEN method='READER' OR (method='CARD' AND stripe_payment_intent='') THEN service_pence+tip_pence ELSE 0 END),0) AS reader FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND (?=1 OR pay_run_id IS NULL)",
-    ).bind(sid, staffId, from, to, opts.includeSettled ? 1 : 0).first<{ service: number; tips: number; visits: number; reader: number }>(),
+    // openOnly: money not yet paid to the barber (the wallet's running "until paid" total).
+    (opts.openOnly
+      ? db.prepare(paySql + OPEN_PAYMENT_SQL()).bind(sid, staffId, from, to)
+      : db.prepare(paySql + "(?=1 OR pay_run_id IS NULL)").bind(sid, staffId, from, to, opts.includeSettled ? 1 : 0)
+    ).first<{ service: number; tips: number; visits: number; reader: number }>(),
     db.prepare("SELECT * FROM staff_hours WHERE shop_id=? AND staff_id=?").bind(sid, staffId).all<Hours>(),
     db.prepare("SELECT date FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<{ date: string }>(),
     db.prepare("SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<ScheduleOverride>(),
