@@ -28,7 +28,16 @@ test("price to £0 with no reason, then check out with nothing taken", async ({ 
   expect(co.status(), await co.text()).toBe(201);
   const out = await co.json();
   expect(out.booking.status).toBe("COMPLETED");
-  expect(out.payments.length).toBe(0);
+  // Logged as a £0 payment so the visit shows as paid and counts in the wallet.
+  expect(out.payments.length).toBe(1);
+  expect(out.payments[0]).toMatchObject({ method: "OTHER", service_pence: 0, tip_pence: 0 });
+  const wallet = await (await r.get(base + `/wallet?from=${w.today}&to=${w.today}`)).json();
+  expect(wallet.payments.some((p: any) => p.booking_id === b.id && p.service_pence === 0)).toBe(true);
+  expect(wallet.totals.visits).toBeGreaterThanOrEqual(1);
+  // Checking out again does not add a second £0 row.
+  await r.post(base + `/bookings/${b.id}/checkout`, { headers: { Origin: origin }, data: { version: out.booking.version, tenders: [], complete: true } });
+  const rows = (await (await r.get(base + "/workspace")).json()).payments.filter((p: any) => p.booking_id === b.id && !p.voided_at);
+  expect(rows.length).toBe(1);
   // 3) A visit that still owes money can't be completed with nothing taken.
   const made2 = await r.post(base + "/bookings", { headers: { Origin: origin }, data: { request_id: crypto.randomUUID(), staff_id: st.id, service_id: svc.id, date, start_min: start + 120, customer_name: "Owes Money", phone: "07700900778", source: "TEST_BOOKING", quote } });
   if (made2.status() === 201) {
@@ -68,5 +77,7 @@ test("checkout screen shows 'Complete · £0' for a free visit", async ({ page }
     const ws = await (await r.get(base + "/workspace")).json();
     return ws.bookings.find((x: any) => x.id === b.id)?.status;
   }).toBe("COMPLETED");
+  // The appointment now shows the £0 as paid.
+  await expect(page.locator(".paid-strip")).toContainText("Free visit · £0");
   console.log("UI-FREE-OK");
 });

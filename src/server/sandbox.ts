@@ -3693,10 +3693,10 @@ sandbox.post("/bookings/:id/checkout", async (c) => {
     : { id: "n/a" };
   const depositToPost = depositRow ? 0 : Math.min(b.deposit_paid_pence ?? 0, b.price_pence);
   const already = await c.env.DB.prepare(
-    "SELECT COALESCE(SUM(service_pence),0) AS paid FROM payments WHERE shop_id=? AND booking_id=? AND voided_at IS NULL",
+    "SELECT COALESCE(SUM(service_pence),0) AS paid, COUNT(*) AS n FROM payments WHERE shop_id=? AND booking_id=? AND voided_at IS NULL",
   )
     .bind(c.get("shopId"), b.id)
-    .first<{ paid: number }>();
+    .first<{ paid: number; n: number }>();
   const due = Math.max(0, b.price_pence - body.discount_pence - (already?.paid ?? 0) - depositToPost);
   const service = body.tenders.reduce((n, t) => n + t.service_pence, 0);
   if (body.discount_pence > b.price_pence) fail(400, "Discount cannot exceed the visit price");
@@ -3740,11 +3740,24 @@ sandbox.post("/bookings/:id/checkout", async (c) => {
   }
   // Nothing taken is fine when nothing is owed (a £0 / free visit): it simply completes.
   if (!ids.length && !depositToPost && !(body.complete && due === 0)) fail(400, "Nothing to record");
+  // A free visit with nothing recorded yet gets a £0 row, so it shows as paid (£0) on the appointment
+  // and counts as a visit in the wallet. £0 changes no pay figures.
+  if (!ids.length && !depositToPost && body.complete && due === 0 && Number(already?.n ?? 0) === 0) {
+    const pid = id();
+    ids.push(pid);
+    statements.push(
+      c.env.DB.prepare(
+        "INSERT INTO payments(id,shop_id,booking_id,staff_id,customer_id,date,method,service_pence,tip_pence,discount_pence,commission_pct,note,recorded_by,created_at) VALUES(?,?,?,?,?,?,'OTHER',0,0,?,?,?,?,?)",
+      ).bind(pid, c.get("shopId"), b.id, b.staff_id, b.customer_id, shopToday(shop.timezone, now), body.discount_pence, staff?.commission_pct ?? 50, body.note || "Free visit (£0)", c.get("actor"), now),
+    );
+    statements.push(audit(c, "payment", pid, "PAYMENT_RECORDED", `£0 free visit for ${ref(b)}`));
+  }
   if (body.complete && b.status !== "COMPLETED") {
     statements.push(
       c.env.DB.prepare("UPDATE bookings SET status='COMPLETED',version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(now, c.get("shopId"), b.id, version),
     );
-    statements.push(audit(c, "booking", b.id, "COMPLETED", !ids.length && !depositToPost ? `Checked out at £0${body.discount_pence ? ` (£${(body.discount_pence / 100).toFixed(2)} off)` : ""}; nothing to take.` : "Checked out; payment recorded in the ledger.", true));
+    const zero = body.tenders.every((t) => t.service_pence === 0 && t.tip_pence === 0) && !depositToPost;
+    statements.push(audit(c, "booking", b.id, "COMPLETED", zero ? `Checked out at £0${body.discount_pence ? ` (£${(body.discount_pence / 100).toFixed(2)} off)` : ""}; nothing to take.` : "Checked out; payment recorded in the ledger.", true));
   }
   await c.env.DB.batch(statements);
   const booking = await readBooking(c, b.id);
