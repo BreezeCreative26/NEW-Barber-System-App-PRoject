@@ -2051,6 +2051,18 @@ export function Workspace() {
   const w = data;
   // Schedule issues this login hasn't dismissed in the bell (the banner follows the bell).
   const openIssues = (w?.issues ?? []).filter((i) => !(inbox?.dismissed ?? []).includes(issueKey(i)));
+  // Dismiss from the calendar banner: same as the bell (per login; the appointment itself is left as booked).
+  async function dismissIssues(keys: string[]) {
+    if (!keys.length) return;
+    setInbox((v) => (v ? { ...v, dismissed: [...(v.dismissed ?? []), ...keys] } : v));
+    try {
+      await api("/inbox/dismiss", "POST", { keys });
+      setNotice(keys.length === 1 ? "Dismissed. The appointment stays as booked." : `Dismissed ${keys.length}. The appointments stay as booked.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not dismiss.");
+    }
+    await loadInbox();
+  }
   useEffect(() => {
     if (!w || reviewsOpen) return;
     api<{ summary: { average: number | null; count: number } }>("/reviews").then((r) => setRatingChip(r.summary)).catch(() => setRatingChip(null));
@@ -2620,14 +2632,25 @@ export function Workspace() {
                   >
                     Open notifications
                   </button>
+                  {openIssues.length > 1 && (
+                    <>
+                      {" "}
+                      <button className="workspace-text-button" onClick={() => dismissIssues(openIssues.map(issueKey))} data-testid="banner-dismiss-all">
+                        Dismiss all
+                      </button>
+                    </>
+                  )}
                   {openIssues.map((issue) => (
-                    <p key={issue.booking_id}>
+                    <p key={issueKey(issue)} data-testid="banner-issue">
                       {issue.ref}: {issue.reason}.{" "}
                       <button
                         className="workspace-text-button"
                         onClick={() => openBooking(issue.booking_id)}
                       >
                         Review appointment
+                      </button>{" "}
+                      <button className="workspace-text-button" onClick={() => dismissIssues([issueKey(issue)])} data-testid="banner-dismiss">
+                        Dismiss
                       </button>
                     </p>
                   ))}

@@ -82,8 +82,17 @@ export function Checkout({
     await onRecord({ version: booking.version, discount_pence: discount, note: note.trim(), tenders, complete: all });
   }
 
+  // Open where it can be seen: on a phone the sheet is scrolled to the customer card, and the checkout
+  // renders lower down, so tapping Checkout looked like nothing happened.
+  const boxRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => el.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+  }, []);
+
   return (
-    <section className="panel-card checkout" aria-label="Checkout" data-testid="checkout">
+    <section ref={boxRef} className="panel-card checkout" aria-label="Checkout" data-testid="checkout">
       <header className="checkout-head">
         <strong>
           <Icon name="wallet" size={16} /> Checkout
@@ -364,7 +373,7 @@ export function PaidStrip({ payments, booking, canVoid, onVoid }: { payments: Pa
         <li key={p.id} className={p.voided_at ? "voided" : ""}>
           <Icon name={METHODS.find((m) => m.key === p.method)?.icon || "card"} size={14} />
           <span>
-            {METHODS.find((m) => m.key === p.method)?.label} · {money(p.service_pence)}
+            {p.service_pence === 0 && p.tip_pence === 0 && p.method === "OTHER" ? "Free visit" : METHODS.find((m) => m.key === p.method)?.label} · {money(p.service_pence)}
             {p.tip_pence ? ` + ${money(p.tip_pence)} tip` : ""}
             {p.discount_pence ? ` (−${money(p.discount_pence)} discount)` : ""}
           </span>
