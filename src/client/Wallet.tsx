@@ -57,7 +57,8 @@ export function WalletDrawer({
   onOpenBooking: (id: string) => void;
 }) {
   // Opens on the running unpaid total; looking back at another day opens that day instead.
-  const [range, setRange] = useState<RangeKey>(startDay && startDay < w.today ? "today" : "unpaid");
+  // Always opens on the wallet itself: the running unpaid total.
+  const [range, setRange] = useState<RangeKey>("unpaid");
   const day = startDay && startDay <= w.today ? startDay : w.today;
   const dayLabel = day === w.today ? "Today" : new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(day + "T12:00:00Z"));
   const [data, setData] = useState<WalletData | null>(null);
