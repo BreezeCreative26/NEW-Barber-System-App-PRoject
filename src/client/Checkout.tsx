@@ -66,6 +66,8 @@ export function Checkout({
   const [split, setSplit] = useState<Tender[]>([]);
   const [note, setNote] = useState("");
   const [card, setCard] = useState(false);
+  // Card reader (Revolut): the customer can add a tip on the machine, so ask every time.
+  const [readerTip, setReaderTip] = useState<null | "yes" | "no">(null);
   const due = Math.max(0, booking.price_pence - discount - paid.service - depositCredit);
   const splitPaid = split.reduce((n, t) => n + t.service_pence, 0);
   const remaining = due - splitPaid;
@@ -73,7 +75,9 @@ export function Checkout({
   const barber = w.staff.find((s) => s.id === booking.staff_id);
   // Nothing owed (free visit / £0 price / fully discounted): it can still be completed, nothing taken.
   const free = due === 0 && splitPaid === 0 && tipPence === 0 && depositCredit === 0;
-  const canRecord = !busy && remaining >= 0 && (remaining > 0 || tipPence > 0 || split.length > 0 || depositCredit > 0 || free);
+  const readerAsk = method === "READER" && !free && remaining > 0;
+  const readerAnswered = !readerAsk || readerTip === "no" || (readerTip === "yes" && tipPence > 0);
+  const canRecord = !busy && remaining >= 0 && (remaining > 0 || tipPence > 0 || split.length > 0 || depositCredit > 0 || free) && readerAnswered;
 
   async function record(all: boolean) {
     const tenders: Tender[] = [...split];
@@ -143,7 +147,7 @@ export function Checkout({
         </div>
       </dl>
 
-      <fieldset className="checkout-tips">
+      {!readerAsk && <fieldset className="checkout-tips">
         <legend>Tip for {barber?.name.split(" ")[0] || "the barber"}</legend>
         <div className="checkout-chips">
           {TIPS.map((t) => (
@@ -166,13 +170,13 @@ export function Checkout({
           </span>
         </div>
         <small>Tips are recorded against the barber, 100%.</small>
-      </fieldset>
+      </fieldset>}
 
       <fieldset className="checkout-methods">
         <legend>How are they paying?</legend>
         <div className="method-grid">
           {tillMethodsFor(!!cardLive).map((m) => (
-            <button key={m.key} type="button" className="method-tile" aria-pressed={method === m.key} data-testid={`method-${m.key.toLowerCase()}`} onClick={() => { setMethod(m.key); setCard(false); }}>
+            <button key={m.key} type="button" className="method-tile" aria-pressed={method === m.key} data-testid={`method-${m.key.toLowerCase()}`} onClick={() => { setMethod(m.key); setCard(false); setReaderTip(null); }}>
               <Icon name={m.icon} size={18} />
               <b>{m.label}</b>
               {m.key === "CARD" && <small>Tap on their phone or reader</small>}
@@ -182,6 +186,30 @@ export function Checkout({
         </div>
         {!cardLive && <small className="helper" data-testid="card-not-set-up">Card payments need online payments set up (Settings → Payments). Until then, use Card reader for your own machine (Revolut), or record cash, transfer, voucher or other.</small>}
       </fieldset>
+
+      {readerAsk && (
+        <fieldset className="checkout-reader-tip" data-testid="reader-tip">
+          <legend>Was a tip added on the card reader?</legend>
+          <div className="checkout-chips">
+            <button type="button" className="chip" aria-pressed={readerTip === "no"} data-testid="reader-tip-no" onClick={() => { setReaderTip("no"); setTip(0); setCustomTip(""); }}>
+              No tip
+            </button>
+            <button type="button" className="chip" aria-pressed={readerTip === "yes"} data-testid="reader-tip-yes" onClick={() => { setReaderTip("yes"); if (customTip === "" && tip > 0) setCustomTip((tip / 100).toString()); setTip(0); }}>
+              Yes, a tip was added
+            </button>
+          </div>
+          {readerTip === "yes" && (
+            <label className="checkout-reader-tip-amount">
+              <span>Tip on the reader</span>
+              <span className="checkout-money-input">
+                <span aria-hidden="true">{currencySymbol()}</span>
+                <input aria-label="Tip on the card reader" type="number" inputMode="decimal" min={0} step="0.5" placeholder="0.00" value={customTip} autoFocus onChange={(e) => setCustomTip(e.target.value)} data-testid="reader-tip-amount" />
+              </span>
+            </label>
+          )}
+          <small>{readerTip === null ? "Check the receipt on the machine, then choose one." : readerTip === "yes" && tipPence <= 0 ? "Enter the tip shown on the receipt." : `Total on the reader: ${money(remaining + tipPence)}`}</small>
+        </fieldset>
+      )}
 
       {split.length > 0 && (
         <ul className="checkout-split" aria-label="Split payment so far">
@@ -222,7 +250,7 @@ export function Checkout({
         ) : (
           <Button disabled={!canRecord} onClick={() => record(true)} data-testid="record-payment">
             <Icon name="checks" size={16} />
-            {busy ? "Recording…" : `${method === "CASH" ? "Cash taken" : "Paid"} · ${money(remaining + tipPence)} · complete`}
+            {busy ? "Recording…" : readerAsk && !readerAnswered ? "Answer the tip question first" : `${method === "CASH" ? "Cash taken" : "Paid"} · ${money(remaining + tipPence)} · complete`}
           </Button>
         )}
         {remaining > 0 && (
