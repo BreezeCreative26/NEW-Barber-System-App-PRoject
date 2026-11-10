@@ -69,6 +69,8 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
     try {
       const { deposit_pence: _ro, ...body } = form;
       void _ro;
+      // No card payouts: barbers are paid by hand, so automatic (Stripe) pay runs stay off.
+      if (!data?.payouts_ready) body.payrun_auto = "OFF";
       await api("/shop/payments", "PUT", body);
       setState({ kind: "saved", text: "Saved." });
       await load();
@@ -308,30 +310,30 @@ export function PaymentsPanel({ api, canEdit, isOwner }: { api: Api; canEdit: bo
               <span>Hold the slot for (minutes)</span>
               <input type="number" min={5} max={120} data-testid="deposit-hold" value={form.deposit_hold_min} onChange={(e) => setForm({ ...form, deposit_hold_min: Number(e.target.value) || 15 })} />
             </label>
-            <label className="workspace-field">
+            {data!.payouts_ready && <label className="workspace-field">
               <span>Payout speed</span>
               <select data-testid="payout-tier" value={form.payout_tier} onChange={(e) => setForm({ ...form, payout_tier: e.target.value as "STANDARD" | "FAST" })}>
                 <option value="STANDARD">Standard — after card settlement (about 3 working days)</option>
                 <option value="FAST" disabled={!data!.platform.fast_payouts}>Fast — same day the run is approved</option>
               </select>
-            </label>
-            <label className="workspace-field">
+            </label>}
+            {data!.payouts_ready && <label className="workspace-field">
               <span>Automatic pay runs</span>
               <select data-testid="payrun-auto" value={form.payrun_auto} onChange={(e) => setForm({ ...form, payrun_auto: e.target.value as "OFF" | "DAILY" | "WEEKLY" })}>
                 <option value="OFF">Off — I approve each run</option>
                 <option value="DAILY">Daily — yesterday's card money, every morning</option>
                 <option value="WEEKLY">Weekly — Monday for last Mon–Sun</option>
               </select>
-            </label>
+            </label>}
             <label className="workspace-field narrow">
               <span>Card reader fee (%)</span>
               <input type="number" min={0} max={10} step="0.05" inputMode="decimal" data-testid="reader-fee-pct" value={(form.card_reader_fee_bps ?? 0) / 100} onChange={(e) => setForm({ ...form, card_reader_fee_bps: Math.max(0, Math.min(1000, Math.round((Number(e.target.value) || 0) * 100))) })} />
               <small className="field-help">Your own card machine (e.g. Revolut). Each barber pays it on their own card-reader payments, before chair rent.</small>
             </label>
-            <label className="workspace-field narrow">
+            {data!.payouts_ready && <label className="workspace-field narrow">
               <span>Hold back against disputes (%)</span>
               <input type="number" min={0} max={50} step="0.5" data-testid="reserve-pct" value={form.payrun_reserve_bps / 100} onChange={(e) => setForm({ ...form, payrun_reserve_bps: Math.round((Number(e.target.value) || 0) * 100) })} />
-            </label>
+            </label>}
           </div>
           <label className="setup-check"><input type="checkbox" checked={(form.pay_show_owner_share ?? 1) === 1} onChange={(e) => setForm({ ...form, pay_show_owner_share: e.target.checked ? 1 : 0 })} data-testid="pay-show-owner" /><span>Show the owner's share and "owed to business" on barbers' pay statements <small className="helper">(they always see their own share, deductions and what they're owed)</small></span></label>
           {state.text && (

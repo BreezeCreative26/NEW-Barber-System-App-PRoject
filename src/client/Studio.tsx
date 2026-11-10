@@ -1238,7 +1238,7 @@ function BarberEditor({
             </div>
           </section>
           <PayRuns w={w} api={api} staff={staff} canEdit={canEdit} runs={payRuns} onChanged={loadPayRuns} />
-          <BarberPayoutCard
+          {w.cards_ready && <BarberPayoutCard
             api={api}
             staffId={staff.id}
             staffName={staff.name}
@@ -1247,7 +1247,7 @@ function BarberEditor({
             to={w.today}
             earned={payRuns.filter((r) => r.staff_id === staff.id && r.status !== "VOID").reduce((n, r) => n + Math.max(0, r.net_pence), 0)}
             cash={payRuns.filter((r) => r.staff_id === staff.id && r.status !== "VOID").reduce((n, r) => n + (r.cash_service_pence ?? 0) + (r.cash_tips_pence ?? 0), 0)}
-          />
+          />}
         </div>
       )}
       {tab === "performance" && staff && (

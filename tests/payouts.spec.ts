@@ -167,10 +167,17 @@ test("browser: Settings → Payments panel and barber Pay tab show the honest pr
   await page.getByTestId("team-card").filter({ hasText: "Jay Carter" }).click();
   await page.getByRole("button", { name: "Pay", exact: true }).click();
   await expect(page.getByTestId("pay-runs")).toBeVisible();
-  await expect(page.getByTestId("barber-payout")).toBeVisible();
-  await expect(page.getByTestId("barber-payout-state")).toContainText(/Not connected|Finish|Active|Restricted/);
   await expect(page.getByTestId("pay-settlement")).toBeVisible();
-  await expect(page.getByTestId("settle-barber")).toHaveText("£0");
+  const pay = await (await page.request.get(base + "/shop/payments")).json();
+  if (pay.stripe.provider === "none") {
+    // No card payouts: barbers are paid by hand. No Stripe payout card, no "by card" split.
+    await expect(page.getByTestId("barber-payout")).toHaveCount(0);
+    await expect(page.getByTestId("pay-settlement")).toContainText("Settled by hand");
+    await expect(page.getByTestId("pay-settlement")).not.toContainText("Stripe");
+  } else {
+    await expect(page.getByTestId("barber-payout")).toBeVisible();
+    await expect(page.getByTestId("settle-barber")).toHaveText("£0");
+  }
 });
 
 test("card at the chair (preview mode): routes exist and refuse honestly; readers list empty; pay page 404s for unknown id", async () => {

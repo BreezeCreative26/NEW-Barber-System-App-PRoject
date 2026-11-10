@@ -364,7 +364,7 @@ ${run.deductions_pence ? row("Deductions", `+ ${money(run.deductions_pence)}`) :
 ${run.adjustments_pence ? row(run.adjustments_pence > 0 ? "less one-off payments" : "one-off charges", `${run.adjustments_pence > 0 ? "− " : "+ "}${money(Math.abs(run.adjustments_pence))}`) : ""}
 ${row("Owed to business", money(run.owed_to_business_pence ?? 0), "", "sub")}` : ""}
 </table>
-${run.status === "PAID" ? `<p class="muted"><small>Settled${run.paid_method ? ` by ${esc(String(run.paid_method).toLowerCase())}` : ""}${run.paid_reference ? ` · ${esc(run.paid_reference)}` : ""}${run.transferred_at ? " · card money sent by Stripe" : ""}.</small></p>` : ""}
+${run.status === "PAID" ? `<p class="muted"><small>Settled${run.paid_method ? ` by ${esc(String(run.paid_method).toLowerCase())}` : ""}${run.paid_reference ? ` · ${esc(run.paid_reference)}` : ""}${run.transferred_at && ((run.transfer_pence ?? 0) + (run.shop_transfer_pence ?? 0)) > 0 ? " · card money sent by Stripe" : ""}.</small></p>` : ""}
 ${run.note ? `<p class="muted"><small>${esc(run.note)}</small></p>` : ""}
 <footer>Terms, shares and deductions were fixed when this run was created${run.leave_days ? ` · ${run.leave_days} approved leave day${run.leave_days === 1 ? "" : "s"} in the period` : ""}.</footer>
 </article></body></html>`;

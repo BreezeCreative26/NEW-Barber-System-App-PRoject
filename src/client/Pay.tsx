@@ -388,6 +388,10 @@ export function periodBounds(period: PayPeriod, today: string, offset = 0) {
 }
 const statusTone: Record<PayRun["status"], "good" | "next" | "paid" | "warn" | "note"> = { DRAFT: "note", APPROVED: "next", TRANSFERRED: "good", PAID: "good", VOID: "warn" };
 const statusLabel: Record<PayRun["status"], string> = { DRAFT: "draft", APPROVED: "approved", TRANSFERRED: "sent to Stripe", PAID: "settled", VOID: "void" };
+// A run marked "transferred" with nothing actually sent (a shop that pays barbers by hand) is just approved.
+export const nothingSent = (r: PayRun) => !(r.transfer_pence ?? 0) && !(r.shop_transfer_pence ?? 0);
+export const runLabel = (r: PayRun) => (r.status === "TRANSFERRED" && nothingSent(r) ? "approved" : statusLabel[r.status]);
+export const runTone = (r: PayRun) => (r.status === "TRANSFERRED" && nothingSent(r) ? "next" : statusTone[r.status]);
 
 export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: WorkspaceData; api: Api; staff: Staff; canEdit: boolean; runs: PayRun[]; onChanged: () => void }) {
   const [offset, setOffset] = useState(-1); // previous period by default: it is complete
@@ -441,7 +445,7 @@ export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: Worksp
           <Icon name="right" />
         </Button>
         <span className="toolbar-grow" />
-        {existing && <StatusPill tone={statusTone[existing.status]} data-testid="pay-run-status">{statusLabel[existing.status]}</StatusPill>}
+        {existing && <StatusPill tone={runTone(existing)} data-testid="pay-run-status">{runLabel(existing)}</StatusPill>}
       </div>
       {error && (
         <p className="workspace-error" role="alert">
@@ -472,6 +476,7 @@ export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: Worksp
           barber={staff.name.split(" ")[0]}
           status={existing?.status}
           ready={!!preview.payouts_ready}
+          manual={!w.cards_ready}
         />
       )}
       {canEdit && !existing && preview && (
@@ -527,8 +532,8 @@ export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: Worksp
           )}
           {existing?.status === "PAID" && (
             <span className="workspace-footnote">
-              {existing.transferred_at ? "Card money sent by Stripe" : ""}
-              {existing.paid_method ? `${existing.transferred_at ? " · remainder " : "Settled "}by ${existing.paid_method.toLowerCase()}` : ""}
+              {existing.transferred_at && !nothingSent(existing) ? "Card money sent by Stripe" : ""}
+              {existing.paid_method && existing.paid_method !== "STRIPE" ? `${existing.transferred_at && !nothingSent(existing) ? " · remainder " : "Settled "}by ${existing.paid_method.toLowerCase()}` : ""}
               {existing.paid_reference ? ` · ${existing.paid_reference}` : ""} · frozen
             </span>
           )}
@@ -562,7 +567,7 @@ export function PayRuns({ w, api, staff, canEdit, runs, onChanged }: { w: Worksp
                     {money(Math.abs(r.net_pence))}
                   </td>
                   <td>
-                    <StatusPill tone={statusTone[r.status]}>{statusLabel[r.status]}</StatusPill>
+                    <StatusPill tone={runTone(r)}>{runLabel(r)}</StatusPill>
                   </td>
                 </tr>
               ))}
@@ -650,8 +655,26 @@ function Line({ label, value, sub, onRemove }: { label: string; value: string; s
   );
 }
 // What foliyo moves by card versus what changes hands at the chair.
-function Settlement({ card, cash, toBarber, toShop, reserve, residual, barber, status, ready }: { card: number; cash: number; toBarber: number; toShop: number; reserve: number; residual: number; barber: string; status?: PayRun["status"]; ready: boolean }) {
+function Settlement({ card, cash, toBarber, toShop, reserve, residual, barber, status, ready, manual }: { card: number; cash: number; toBarber: number; toShop: number; reserve: number; residual: number; barber: string; status?: PayRun["status"]; ready: boolean; manual?: boolean }) {
   if (card === 0 && cash === 0) return null;
+  // Shop with no card payouts: the owner pays barbers by hand. Nothing moves online, so just the balance.
+  if (manual)
+    return (
+      <section className="pay-settlement manual" aria-label="How this is settled" data-testid="pay-settlement">
+        <div className="pay-settlement-col">
+          <h4>
+            <Icon name="banknote" size={14} /> Settled by hand · {money(card + cash)} taken
+          </h4>
+          <p className="workspace-footnote">You pay {barber} yourself (bank transfer or cash). Card-reader money is in the shop's account; cash is wherever it was taken. Nothing is sent online.</p>
+          <dl>
+            <div>
+              <dt>{residual === 0 ? "Nothing to settle" : residual > 0 ? `Shop pays ${barber}` : `${barber} pays the shop`}</dt>
+              <dd data-testid="settle-residual">{residual === 0 ? "—" : money(Math.abs(residual))}</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+    );
   const sent = status === "TRANSFERRED" || status === "PAID";
   return (
     <section className="pay-settlement" aria-label="How this is settled" data-testid="pay-settlement">
@@ -698,7 +721,7 @@ function Settlement({ card, cash, toBarber, toShop, reserve, residual, barber, s
   );
 }
 function MarkPaid({ run, busy, onPaid }: { run: PayRun; busy: boolean; onPaid: (method: "BANK" | "CASH" | "OTHER" | "STRIPE", ref: string) => void }) {
-  const stripeOnly = run.status === "TRANSFERRED" && !(run.cash_residual_pence ?? 0);
+  const stripeOnly = run.status === "TRANSFERRED" && !(run.cash_residual_pence ?? 0) && !nothingSent(run);
   if (stripeOnly)
     return (
       <Button disabled={busy} data-testid="mark-paid" onClick={() => onPaid("STRIPE", run.transfer_group ?? "")}>
