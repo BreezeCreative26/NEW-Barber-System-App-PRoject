@@ -91,6 +91,9 @@ test("checkout records service + tip by method, completes the visit, updates the
   await page.getByTestId("wallet-chip").click();
   const drawer = page.getByTestId("wallet-drawer");
   await expect(drawer).toBeVisible();
+  // Opens on the running unpaid total; the visit just paid is in it.
+  await expect(drawer.getByTestId("wallet-hero")).toContainText("Unpaid");
+  await drawer.getByRole("button", { name: "Today", exact: true }).click();
   await expect(drawer.getByTestId("wallet-hero")).toContainText("Taken today");
   if (booking.date === wallet.today) {
     await expect(drawer.getByText("Till Test Client")).toBeVisible();

@@ -10,6 +10,7 @@ export type WalletData = {
   from: string;
   to: string;
   today: string;
+  unpaid?: boolean;
   till_access: "OWNER" | "ALL";
   totals: { service: number; tips: number; discounts: number; visits: number; voided: number; unpaid_value: number; unpaid_visits: number };
   by_method: Record<string, { service: number; tips: number; count: number }>;
@@ -23,6 +24,8 @@ export type WalletData = {
 };
 
 const RANGES = [
+  // Runs on across days until a pay run is settled (marked paid / sent with nothing left by hand).
+  { key: "unpaid", label: "Unpaid" },
   { key: "today", label: "Today" },
   { key: "week", label: "This week" },
   { key: "month", label: "This month" },
@@ -30,7 +33,7 @@ const RANGES = [
 type RangeKey = (typeof RANGES)[number]["key"];
 
 function rangeFor(key: RangeKey, today: string) {
-  if (key === "today") return { from: today, to: today };
+  if (key === "today" || key === "unpaid") return { from: today, to: today };
   if (key === "week") {
     const d = new Date(today + "T12:00:00Z");
     const monday = datePlus(today, -((d.getUTCDay() + 6) % 7));
@@ -53,7 +56,8 @@ export function WalletDrawer({
   onClose: () => void;
   onOpenBooking: (id: string) => void;
 }) {
-  const [range, setRange] = useState<RangeKey>("today");
+  // Opens on the running unpaid total; looking back at another day opens that day instead.
+  const [range, setRange] = useState<RangeKey>(startDay && startDay < w.today ? "today" : "unpaid");
   const day = startDay && startDay <= w.today ? startDay : w.today;
   const dayLabel = day === w.today ? "Today" : new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(day + "T12:00:00Z"));
   const [data, setData] = useState<WalletData | null>(null);
@@ -74,7 +78,7 @@ export function WalletDrawer({
     let cancelled = false;
     const r = range === "today" ? { from: day, to: day } : rangeFor(range, w.today);
     setError("");
-    api<WalletData>(`/wallet?from=${r.from}&to=${r.to}`)
+    api<WalletData>(range === "unpaid" ? "/wallet?unpaid=1" : `/wallet?from=${r.from}&to=${r.to}`)
       .then((d) => !cancelled && setData(d))
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Could not load the wallet."));
     return () => {
@@ -85,7 +89,7 @@ export function WalletDrawer({
   const t = data?.totals;
   const mine = barberView ? data?.by_staff.find((s) => s.staff_id === w.account?.staff_id) : null;
   const headline = barberView ? (mine?.earnings ?? 0) : (t ? t.service + t.tips : 0);
-  const label = range === "today" ? (day === w.today ? "today" : dayLabel) : RANGES.find((r) => r.key === range)!.label.toLowerCase();
+  const label = range === "unpaid" ? (data && data.from < data.to ? `since ${shortDate(data.from)}` : "so far") : range === "today" ? (day === w.today ? "today" : dayLabel) : RANGES.find((r) => r.key === range)!.label.toLowerCase();
 
   return (
     <>
@@ -109,7 +113,7 @@ export function WalletDrawer({
           </p>
         )}
         <WalletHero
-          label={barberView ? `Earned ${label}` : `Taken ${label}`}
+          label={range === "unpaid" ? (barberView ? `Earned, not yet paid · ${label}` : `Unpaid ${label}`) : barberView ? `Earned ${label}` : `Taken ${label}`}
           pill={data ? `${t!.visits} paid visit${t!.visits === 1 ? "" : "s"}` : undefined}
           amount={money(headline)}
           stats={
