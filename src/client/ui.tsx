@@ -578,7 +578,13 @@ export function TopBar({
       )}
       {account && (
         <button type="button" className="account-pill" onClick={onAccount} aria-haspopup="menu" aria-expanded={accountOpen ? "true" : "false"} aria-label={`Account: ${account.name}, ${account.caption}`} data-testid="account-pill">
-          {account.photo ? <img className="avatar-ink avatar-photo" src={account.photo} alt="" data-testid="account-photo" /> : account.logo ? <img className={`avatar-ink avatar-logo${account.logoTone ? ` tone-${account.logoTone}` : ""}`} src={account.logo} alt="" /> : <span className="avatar-ink">{account.initials}</span>}
+          {account.photo ? <img className="avatar-ink avatar-photo" src={account.photo} alt="" data-testid="account-photo" /> : account.logo ? (
+            <>
+              <img className={`avatar-ink avatar-logo${account.logoTone ? ` tone-${account.logoTone}` : ""}`} src={account.logo} alt="" />
+              {/* Phone: the shop logo lives in the menu, so the account button shows initials. */}
+              <span className="avatar-ink avatar-logo-alt" aria-hidden="true">{account.initials}</span>
+            </>
+          ) : <span className="avatar-ink">{account.initials}</span>}
           <span className="account-pill-text">
             <b>{account.name}</b>
             <small>{account.online !== false && <span className="presence-dot" aria-hidden="true" />}{account.caption}</small>
@@ -676,7 +682,23 @@ export function Sidebar({
         data-collapsed={collapsed ? "true" : "false"}
       >
         <div className="sidebar-head">
-          <span className="sidebar-head-spacer" />
+          {/* Phone only (CSS): the shop's logo and name live at the top of the menu, which
+              frees the top bar for the wallet. Desktop keeps the brand in the top bar. */}
+          {shop ? (
+            <span className="sidebar-shop" data-testid="sidebar-shop">
+              {shop.logo ? (
+                <img className={`brand-mark brand-shop-logo${shop.tone ? ` tone-${shop.tone}` : ""}`} src={shop.logo} alt="" width={33} height={33} />
+              ) : (
+                <span className="brand-mark brand-shop-initial" aria-hidden="true">{shop.name.trim().slice(0, 1).toUpperCase() || "·"}</span>
+              )}
+              <span className="sidebar-shop-text">
+                <b>{shop.name}</b>
+                {shop.caption && <small>{shop.caption}</small>}
+              </span>
+            </span>
+          ) : (
+            <span className="sidebar-head-spacer" />
+          )}
           <button
             type="button"
             className="sidebar-toggle"

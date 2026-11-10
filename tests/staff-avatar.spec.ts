@@ -31,7 +31,15 @@ test("the owner login (no barber profile of its own) keeps the shop logo or init
   const pill = page.getByTestId("account-pill");
   await expect(pill).toBeVisible();
   await expect(pill.getByTestId("account-photo")).toHaveCount(0);
-  await expect(pill.locator(".avatar-logo, span.avatar-ink")).toHaveCount(1);
+  // Exactly one avatar shows. On a phone the shop logo lives in the side menu, so the top bar
+  // shows the owner's initials instead of repeating the logo.
+  await expect(pill.locator(".avatar-logo:visible, span.avatar-ink:visible")).toHaveCount(1);
+  await expect(pill.locator(".avatar-logo")).toBeHidden();
+  await expect(pill.locator("span.avatar-ink:visible")).toHaveText(/^[A-Z]{1,2}$/);
+  // Desktop keeps the shop logo in the account button.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(pill.locator(".avatar-logo:visible, span.avatar-ink:visible")).toHaveCount(1);
+  if (w.logo_url) await expect(pill.locator(".avatar-logo")).toBeVisible();
 });
 
 test("a barber whose profile has no photo sees their initials", async ({ page }) => {
