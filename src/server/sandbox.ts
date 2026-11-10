@@ -99,7 +99,7 @@ import { mountShopCampaigns } from "./shopCampaigns";
 import { mountDomains } from "./domains";
 import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
-import { accountFor, accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, OPEN_PAYMENT_SQL, type ConnectedAccount } from "./payouts";
+import { accountFor, accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, OPEN_PAYMENT_SQL, SETTLED_RUN_SQL, UNCOVERED_SQL, type ConnectedAccount } from "./payouts";
 import { walletsCsv, walletsSummary } from "./wallets";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
 import { RESERVED_SUBDOMAINS, shopUrl } from "./hosts";
@@ -138,6 +138,28 @@ type Who = { role: string; staff_id: string | null; perms?: Record<string, boole
 const can = (a: Who, k: PermKey) => !a || a.role === "OWNER" || !!a.perms?.[k];
 function ownScope(a: Who, perm: PermKey): string | null {
   return a?.role === "BARBER" && !a.perms?.[perm] ? a.staff_id : null;
+}
+// Money (wallets and pay): the owner, or anyone the owner gave "See pay runs and wallets", sees the
+// whole shop. Everyone else (barbers, a manager with it switched off, the shop device) sees only their
+// own chair, or nothing when their login has no chair.
+const NO_STAFF = "-";
+function moneyScope(a: Who): string | null {
+  if (!a || a.role === "OWNER" || a.perms?.pay) return null;
+  return a.staff_id || NO_STAFF;
+}
+function requirePay(c: Ctx) {
+  const a = c.get("account");
+  if (a && a.role !== "OWNER" && !a.perms?.pay) fail(403, "You can only see your own pay");
+}
+// Creating, approving and settling pay runs: the owner, or a manager with pay access.
+function requirePayAdmin(c: Ctx) {
+  const a = c.get("account");
+  if (a && !(a.role === "OWNER" || (a.role === "MANAGER" && a.perms?.pay))) fail(403, "Only the owner or a manager with pay access can change pay runs");
+}
+// One barber's pay figures: their own, or anyone's with pay access.
+function ownPay(c: Ctx, staffId: string) {
+  const a = c.get("account");
+  if (a && a.role !== "OWNER" && !a.perms?.pay && a.staff_id !== staffId) fail(403, "You can only see your own pay");
 }
 function scopeStaff(c: Ctx, staffId: string) {
   const a = c.get("account");
@@ -776,12 +798,13 @@ sandbox.get("/workspace", async (c) => {
     });
   // Money is personal: a barber without "pay" only ever receives their own payments, so the wallet
   // chip and anything else built from this list shows their takings, never the shop's.
-  const payScope = ownScope(account, "pay");
+  const payScope = moneyScope(account);
+  const listScope = ownScope(account, "pay");
   const payments = (
     await c.env.DB.prepare(
       "SELECT * FROM payments WHERE shop_id=? AND (? IS NULL OR staff_id=?) AND date>=? ORDER BY created_at DESC LIMIT 2000",
     )
-      .bind(sid, payScope, payScope, new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10))
+      .bind(sid, listScope, listScope, new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10))
       .all<Payment>()
   ).results;
   // Wallet chip: a running total of money not yet paid to the barber(s). It carries on across days
@@ -1792,7 +1815,7 @@ sandbox.get("/shop/payments", async (c) => {
   const moved = await c.env.DB.prepare("SELECT COALESCE(SUM(CASE WHEN kind='PAYOUT' AND owner_type='STAFF' THEN amount_pence ELSE 0 END),0)::int AS to_barbers, COALESCE(SUM(CASE WHEN kind='PAYOUT' AND owner_type='SHOP' THEN amount_pence ELSE 0 END),0)::int AS to_shop, COALESCE(SUM(CASE WHEN kind='REVERSAL' THEN -amount_pence ELSE 0 END),0)::int AS reversed FROM transfers WHERE shop_id=? AND created_at>?").bind(shop.id, since).first();
   const accounts = await accountsForShop(c.env.DB, shop.id);
   const staff = (await c.env.DB.prepare("SELECT id,name,role,active FROM staff WHERE shop_id=? ORDER BY sort_order,name").bind(shop.id).all<{ id: string; name: string; role: string; active: number }>()).results;
-  const mine = ownScope(a, "pay");
+  const mine = moneyScope(a);
   const shopAcct = accounts.find((x) => x.owner_type === "SHOP") ?? null;
   const policy = await platformPolicy(c.env.DB);
   return c.json({
@@ -1935,7 +1958,7 @@ sandbox.get("/payments/wallet", async (c) => {
   if (!q.success) fail(400, "Supply owner, from and to");
   const a = c.get("account");
   const ownerId = q.data!.owner === "SHOP" ? c.get("shopId") : q.data!.id || a?.staff_id || "";
-  if (q.data!.owner === "STAFF") scopeStaff(c, ownerId);
+  if (q.data!.owner === "STAFF") ownPay(c, ownerId);
   else if (a && !["OWNER", "MANAGER"].includes(a.role)) fail(403, "Owner or manager required");
   return c.json(await walletFor(c.env.DB, c.get("shopId"), { type: q.data!.owner, id: ownerId }, q.data!.from, q.data!.to));
 });
@@ -3872,7 +3895,7 @@ sandbox.post("/me/onboarded", async (c) => {
 sandbox.get("/wallet", async (c) => {
   const shop = await readShop(c);
   const a = c.get("account");
-  const assigned = ownScope(a, "pay");
+  const assigned = moneyScope(a);
   const today = shopToday(shop.timezone);
   // unpaid=1: the running total — everything not yet paid to the barber, from the oldest unpaid
   // payment up to today. It keeps adding up across days until a pay run is settled.
@@ -3985,7 +4008,7 @@ export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: strin
     // openOnly: money not yet paid to the barber (the wallet's running "until paid" total).
     (opts.openOnly
       ? db.prepare(paySql + OPEN_PAYMENT_SQL()).bind(sid, staffId, from, to)
-      : db.prepare(paySql + "(?=1 OR pay_run_id IS NULL)").bind(sid, staffId, from, to, opts.includeSettled ? 1 : 0)
+      : db.prepare(paySql + `(?=1 OR (pay_run_id IS NULL AND ${UNCOVERED_SQL()}))`).bind(sid, staffId, from, to, opts.includeSettled ? 1 : 0)
     ).first<{ service: number; tips: number; visits: number; reader: number }>(),
     db.prepare("SELECT * FROM staff_hours WHERE shop_id=? AND staff_id=?").bind(sid, staffId).all<Hours>(),
     db.prepare("SELECT date FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<{ date: string }>(),
@@ -3995,13 +4018,22 @@ export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: strin
   if (!staff) return fail(404, "Barber not found");
   const holidays = (await db.prepare("SELECT date FROM holidays WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, from, to).all<{ date: string }>()).results.map((h) => h.date);
   const off = new Set(offRows.results.map((r) => r.date));
+  // Days another pay run already covers are left out (their takings and their rent), so nothing is
+  // counted twice: in the running unpaid view, days a settled run paid for; for a new run or a preview,
+  // days any live run covers (it owns that money even before it is marked paid).
+  const settledRuns = opts.includeSettled
+    ? []
+    : (await db.prepare(`SELECT period_from, period_to FROM pay_runs r WHERE r.shop_id=? AND r.staff_id=? AND r.period_to>=? AND r.period_from<=? AND ${opts.openOnly ? SETTLED_RUN_SQL : "r.status<>'VOID'"}`).bind(sid, staffId, from, to).all<{ period_from: string; period_to: string }>()).results;
+  const settledDay = (d: string) => settledRuns.some((r) => r.period_from <= d && r.period_to >= d);
   // Rostered minutes across the period (weekly hours + dated overrides, less leave/closures/breaks),
   // plus the day counts daily rent uses: days they worked on the rota, and days off that landed on a
   // day they would have worked (a day off on their usual day off isn't "leave" for rent purposes).
   let minutes = 0;
   let working_days = 0;
   let leave_days = 0;
+  let settled_days = 0;
   for (let d = from; d <= to; d = datePlusServer(d, 1)) {
+    if (settledDay(d)) { settled_days += 1; continue; }
     const day = shopDay(shop, weekday(d));
     if (holidays.includes(d) || !day.enabled) continue;
     const h = effectiveHours(hoursRows.results.find((x) => x.weekday === weekday(d)) ?? null, overrideRows.results.find((o) => o.date === d) ?? null);
@@ -4015,11 +4047,11 @@ export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: strin
     minutes += Math.max(0, Math.max(0, Math.min(h.ends, day.ends) - Math.max(h.starts, day.starts)) - breakMin);
   }
   const booked = await db
-    .prepare("SELECT COUNT(DISTINCT date) AS n FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL")
+    .prepare(`SELECT COUNT(DISTINCT date) AS n FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL${opts.openOnly ? ` AND ${OPEN_PAYMENT_SQL()}` : opts.includeSettled ? "" : ` AND ${UNCOVERED_SQL()}`}`)
     .bind(sid, staffId, from, to)
     .first<{ n: number }>();
   const booked_days = Number(booked?.n ?? 0);
-  const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+  const days = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1 - settled_days);
   const terms = payTermsOf(staff);
   const periods = periodsCovered(terms.pay_period, days);
   // Deposit refunds caused by re-pricing a visit below the deposit: recovered from the barber here.
@@ -4082,7 +4114,7 @@ function datePlusServer(d: string, n: number) {
 sandbox.get("/pay-runs/preview", async (c) => {
   const q = z.object({ staff_id: z.string().uuid(), from: dateSchema, to: dateSchema }).safeParse(c.req.query());
   if (!q.success) fail(400, "Supply staff_id, from and to");
-  scopeStaff(c, q.data!.staff_id);
+  ownPay(c, q.data!.staff_id);
   const { terms, input, auto_adjustments } = await payRunFigures(c, q.data!.staff_id, q.data!.from, q.data!.to);
   const result = calculatePayRun(terms, input, withAuto([], auto_adjustments));
   const shop = await readShop(c);
@@ -4094,7 +4126,7 @@ sandbox.get("/pay-runs/preview", async (c) => {
 // Everyone for one period: figures + any existing run, so the owner can see the whole payroll and
 // create drafts in one go.
 sandbox.get("/pay-runs/period", async (c) => {
-  requireRole(c, ["OWNER", "MANAGER"]);
+  requirePay(c);
   const q = z.object({ from: dateSchema, to: dateSchema }).safeParse(c.req.query());
   if (!q.success) fail(400, "Supply from and to");
   const shop = await readShop(c);
@@ -4113,14 +4145,14 @@ sandbox.get("/pay-runs/period", async (c) => {
 });
 // Create drafts for every barber with activity in the period who has no run yet.
 sandbox.post("/pay-runs/bulk", async (c) => {
-  requireRole(c, ["OWNER", "MANAGER"]);
+  requirePayAdmin(c);
   const b = await input(c, z.object({ from: dateSchema, to: dateSchema, staff_ids: z.array(z.string().uuid()).max(100).optional() }).strict());
   const shop = await readShop(c);
   const staff = (await c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND active=1").bind(shop.id).all<Staff>()).results.filter((st) => !b.staff_ids || b.staff_ids.includes(st.id));
   const created: string[] = [], skipped: { name: string; why: string }[] = [];
   for (const st of staff) {
     const exists = await overlappingRun(c.env.DB, shop.id, st.id, b.from, b.to);
-    if (exists) { skipped.push({ name: st.name, why: exists.period_from === b.from && exists.period_to === b.to ? "already has a run" : `has a run for ${exists.period_from === exists.period_to ? exists.period_from : `${exists.period_from}–${exists.period_to}`}` }); continue; }
+    if (exists && exists.period_from === b.from && exists.period_to === b.to) { skipped.push({ name: st.name, why: "already has a run" }); continue; }
     const { terms, input: figures, auto_adjustments } = await payRunFiguresDb(c.env.DB, shop, st.id, b.from, b.to);
     const r = calculatePayRun(terms, figures, withAuto([], auto_adjustments));
     if (!figures.service_pence && !figures.tips_pence && !r.deductions_pence && !auto_adjustments.length) { skipped.push({ name: st.name, why: "nothing to pay" }); continue; }
@@ -4137,7 +4169,7 @@ sandbox.post("/pay-runs/bulk", async (c) => {
   return c.json({ created: created.length, skipped }, 201);
 });
 sandbox.get("/pay-runs/export.csv", async (c) => {
-  requireRole(c, ["OWNER", "MANAGER"]);
+  requirePay(c);
   const q = z.object({ from: dateSchema, to: dateSchema }).safeParse(c.req.query());
   if (!q.success) fail(400, "Supply from and to");
   const rows = (await c.env.DB.prepare("SELECT r.*, s.name AS staff_name FROM pay_runs r JOIN staff s ON s.id=r.staff_id AND s.shop_id=r.shop_id WHERE r.shop_id=? AND r.period_from>=? AND r.period_to<=? ORDER BY r.period_from, s.name").bind(c.get("shopId"), q.data!.from, q.data!.to).all<PayRun & { staff_name: string }>()).results;
@@ -4153,7 +4185,7 @@ sandbox.get("/pay-runs/export.csv", async (c) => {
 // Stripe balances layered on top. The range is capped so a mistyped year can't scan the whole table.
 const walletsQuery = z.object({ from: dateSchema, to: dateSchema, fresh: z.enum(["1"]).optional() }).strict();
 async function walletsFor(c: Ctx) {
-  requireRole(c, ["OWNER", "MANAGER"]);
+  requirePay(c);
   const shop = await readShop(c);
   const raw = c.req.query();
   const today = new Date().toISOString().slice(0, 10);
@@ -4173,7 +4205,7 @@ sandbox.get("/wallets.csv", async (c) => {
 });
 sandbox.get("/pay-runs", async (c) => {
   const a = c.get("account");
-  const assigned = ownScope(a, "pay");
+  const assigned = moneyScope(a);
   const rows = await c.env.DB.prepare(
     "SELECT * FROM pay_runs WHERE shop_id=? AND (? IS NULL OR staff_id=?) ORDER BY period_from DESC, created_at DESC LIMIT 300",
   )
@@ -4186,9 +4218,11 @@ async function overlappingRun(db: D1Database, shopId: string, staffId: string, f
   return db.prepare("SELECT period_from, period_to FROM pay_runs WHERE shop_id=? AND staff_id=? AND status<>'VOID' AND period_from<=? AND period_to>=? LIMIT 1").bind(shopId, staffId, to, from).first<{ period_from: string; period_to: string }>();
 }
 sandbox.post("/pay-runs", async (c) => {
+  requirePayAdmin(c);
   const b = await input(c, payRunCreateSchema);
+  // Days another live run already covers are left out of this one automatically (see payRunFiguresDb).
   const clash = await overlappingRun(c.env.DB, c.get("shopId"), b.staff_id, b.period_from, b.period_to);
-  if (clash) fail(409, clash.period_from === b.period_from && clash.period_to === b.period_to ? "A pay run already exists for this barber and period" : `This barber already has a pay run for ${clash.period_from === clash.period_to ? clash.period_from : `${clash.period_from} to ${clash.period_to}`}. Settle or void it first.`);
+  if (clash && clash.period_from === b.period_from && clash.period_to === b.period_to) fail(409, "A pay run already exists for this barber and period");
   const { staff, terms, input: figures, auto_adjustments } = await payRunFigures(c, b.staff_id, b.period_from, b.period_to);
   const allAdjustments = withAuto(b.adjustments, auto_adjustments);
   const r = calculatePayRun(terms, figures, allAdjustments);
@@ -4211,6 +4245,7 @@ sandbox.post("/pay-runs", async (c) => {
   return c.json({ pay_run: run }, 201);
 });
 sandbox.put("/pay-runs/:id", async (c) => {
+  requirePayAdmin(c);
   const b = await input(c, payRunUpdateSchema);
   const run = await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<PayRun>();
   if (!run) return fail(404, "Pay run not found");
@@ -4221,6 +4256,10 @@ sandbox.put("/pay-runs/:id", async (c) => {
   if (next !== "VOID" && order.indexOf(next) < order.indexOf(run.status)) fail(409, "Pay runs only move forward: draft → approved → paid");
   if (run.status === "PAID" && next !== "VOID") fail(409, "Paid runs are frozen; void it to redo");
   if (next === "VOID" && b.reason.length < 3) fail(400, "A reason of at least three characters is required to void");
+  if (next === "VOID") {
+    const later = await c.env.DB.prepare("SELECT period_from, period_to FROM pay_runs WHERE shop_id=? AND staff_id=? AND id<>? AND status<>'VOID' AND created_at>? AND period_from<=? AND period_to>=? LIMIT 1").bind(c.get("shopId"), run.staff_id, run.id, run.created_at, run.period_to, run.period_from).first<{ period_from: string; period_to: string }>();
+    if (later) fail(409, `A later pay run (${later.period_from} to ${later.period_to}) left these days out because this run covered them. Void that run first, then this one.`);
+  }
   // A transferred run with no cash residual is fully settled by Stripe — no method needed.
   if (next === "PAID" && !(b.paid_method ?? run.paid_method) && !(run.status === "TRANSFERRED" && !run.cash_residual_pence)) fail(400, "Record how the remainder was settled (bank, cash or other)");
   // Adjustments/note only change on drafts; recompute net.
@@ -4241,9 +4280,9 @@ sandbox.put("/pay-runs/:id", async (c) => {
   // Settling by hand claims the period's payments into this run (the Stripe path does the same in
   // executeRun) so they can never be paid twice and later periods stay clean.
   if (next === "PAID") {
-    // Only what the run counted (recorded before it was made); later payments stay unpaid.
-    await c.env.DB.prepare("UPDATE payments SET pay_run_id=? WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND pay_run_id IS NULL AND created_at<=?")
-      .bind(run.id, c.get("shopId"), run.staff_id, run.period_from, run.period_to, run.created_at).run();
+    // Only what the run counted: recorded before it was made, and not on a day an earlier live run covers.
+    await c.env.DB.prepare("UPDATE payments SET pay_run_id=? WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND pay_run_id IS NULL AND created_at<=? AND NOT EXISTS (SELECT 1 FROM pay_runs o WHERE o.shop_id=payments.shop_id AND o.staff_id=payments.staff_id AND o.id<>? AND o.status<>'VOID' AND o.created_at<? AND payments.date BETWEEN o.period_from AND o.period_to)")
+      .bind(run.id, c.get("shopId"), run.staff_id, run.period_from, run.period_to, run.created_at, run.id, run.created_at).run();
   }
   // Voiding hands everything back so a fresh run picks it up: deposit-refund adjustments always, and
   // the payments unless Stripe already moved the money for them.
@@ -4268,7 +4307,7 @@ sandbox.put("/pay-runs/:id", async (c) => {
 // Retry / trigger the Stripe transfers for an approved run (e.g. after settlement, or a barber
 // finished onboarding). Idempotent.
 sandbox.post("/pay-runs/:id/transfer", async (c) => {
-  requireRole(c, ["OWNER", "MANAGER"]);
+  requirePayAdmin(c);
   await input(c, z.object({}).strict());
   const run = await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<PayRun>();
   if (!run) return fail(404, "Pay run not found");
@@ -4285,7 +4324,7 @@ sandbox.post("/pay-runs/:id/transfer", async (c) => {
 sandbox.get("/pay-runs/:id/transfers", async (c) => {
   const run = await c.env.DB.prepare("SELECT staff_id FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), c.req.param("id")).first<{ staff_id: string }>();
   if (!run) return fail(404, "Pay run not found");
-  scopeStaff(c, run.staff_id);
+  ownPay(c, run.staff_id);
   const rows = await c.env.DB.prepare("SELECT * FROM transfers WHERE shop_id=? AND pay_run_id=? ORDER BY created_at").bind(c.get("shopId"), c.req.param("id")).all();
   return c.json({ transfers: rows.results });
 });

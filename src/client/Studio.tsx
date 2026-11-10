@@ -1064,7 +1064,7 @@ function BarberEditor({
           <button type="button" aria-pressed={tab === "profile"} onClick={() => setTab("profile")}>Profile</button>
           <button type="button" aria-pressed={tab === "schedule"} onClick={() => setTab("schedule")}>Hours</button>
           <button type="button" aria-pressed={tab === "services"} onClick={() => setTab("services")}>Services</button>
-          <button type="button" aria-pressed={tab === "pay"} onClick={() => setTab("pay")}>Pay</button>
+          {(!w.account || w.account.role === "OWNER" || !!(w.account.perms as Record<string, boolean> | undefined)?.pay) && <button type="button" aria-pressed={tab === "pay"} onClick={() => setTab("pay")}>Pay</button>}
           <button type="button" aria-pressed={tab === "performance"} onClick={() => setTab("performance")}>Performance</button>
           <button type="button" aria-pressed={tab === "reviews"} onClick={() => setTab("reviews")} data-testid="barber-tab-reviews">Reviews</button>
           <button type="button" aria-pressed={tab === "upcoming"} onClick={() => setTab("upcoming")}>Upcoming</button>

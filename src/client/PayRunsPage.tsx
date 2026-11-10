@@ -8,6 +8,7 @@ import { PAY_MODELS, PayStatement, payFormOf, resultOfRun, summariseTerms, descr
 import { BarberPayoutCard } from "./Payouts";
 import { WalletsPanel } from "./Wallets";
 import { HolidayTracker } from "./Holidays";
+import { BarberMoney, type WalletData } from "./Wallet";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 const fmt = (d: string) => new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(d + "T12:00:00Z"));
@@ -90,11 +91,14 @@ export function MyPay({ w, api }: { w: WorkspaceData; api: Api }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [err, setErr] = useState("");
+  // Their wallet: everything recorded and not yet paid to them, across days, until a run is marked paid.
+  const [unpaid, setUnpaid] = useState<WalletData | null>(null);
   const period = me?.pay_period ?? "WEEKLY";
   const cur = bounds(period, w.today, 0);
   useEffect(() => {
     if (!me) return;
     api<{ pay_runs: PayRun[] }>("/pay-runs").then((r) => setRuns(r.pay_runs)).catch(() => {});
+    api<WalletData>("/wallet?unpaid=1").then(setUnpaid).catch(() => setUnpaid(null));
     api<Preview>(`/pay-runs/preview?staff_id=${me.id}&from=${cur.from}&to=${cur.to}`).then(setPreview).catch((e) => setErr(e instanceof Error ? e.message : "Could not calculate"));
   }, [me?.id, me?.version, cur.from, cur.to, w.payments.length]);
   if (!me) return <Notice>Your login isn't linked to a chair yet — ask the owner to connect your account under Team.</Notice>;
@@ -119,14 +123,24 @@ export function MyPay({ w, api }: { w: WorkspaceData; api: Api }) {
           <p className="workspace-footnote">Live estimate from what's been recorded at checkout. Your statement is final once the owner creates the pay run.</p>
         </div>
       </div>
+      <div className="workspace-panel" data-testid="my-pay-unpaid">
+        <h3>Not paid yet <small className="muted">· {unpaid ? (unpaid.from < unpaid.to ? `since ${fmt(unpaid.from)}` : "so far") : "…"}</small></h3>
+        {(() => {
+          const mine = unpaid?.by_staff.find((s) => s.staff_id === me.id);
+          if (!unpaid) return <p className="workspace-footnote">Loading…</p>;
+          if (!mine || (!mine.service && !mine.tips && !mine.deductions)) return <p className="muted">Nothing waiting: you're paid up.</p>;
+          return <BarberMoney s={mine} name="You" self />;
+        })()}
+        <p className="workspace-footnote">Everything taken that hasn't been settled with you yet. It drops when the owner marks a pay run paid.</p>
+      </div>
       <div className="workspace-panel">
         <HolidayTracker w={w} staff={me} canEdit={false} own />
       </div>
       <div className="workspace-panel">
-        <h3>Statements</h3>
+        <h3>Payment history</h3>
         {runs.length === 0 ? <p className="muted">No pay runs yet.</p> : (
           <table className="pay-history-table" data-testid="my-pay-history">
-            <thead><tr><th>Period</th><th className="num">Sales</th><th className="num">Owed to you</th><th>Status</th><th /></tr></thead>
+            <thead><tr><th>Period</th><th className="num">Sales</th><th className="num">Owed to you</th><th>Status</th><th>Paid</th><th /></tr></thead>
             <tbody>
               {runs.map((r) => (
                 <>
@@ -135,10 +149,11 @@ export function MyPay({ w, api }: { w: WorkspaceData; api: Api }) {
                     <td className="num">{money(r.service_pence)}</td>
                     <td className="num">{r.net_pence < 0 ? `you owe ${money(-r.net_pence)}` : money(r.net_pence)}</td>
                     <td><StatusPill tone={runTone(r)}>{runLabel(r)}</StatusPill></td>
+                    <td><small className="muted">{r.status === "PAID" ? `${r.paid_method && r.paid_method !== "STRIPE" ? r.paid_method.toLowerCase() : "paid"} · ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(r.updated_at))}${r.paid_reference && r.paid_method !== "STRIPE" ? ` · ${r.paid_reference}` : ""}` : "—"}</small></td>
                     <td className="admin-actions"><Button variant="ghost" onClick={() => setOpen(open === r.id ? null : r.id)}>{open === r.id ? "Hide" : "Breakdown"}</Button>{r.view_token && <a className="button ghost" href={`/pay-run/${r.id}?t=${r.view_token}`} target="_blank" rel="noreferrer">Print</a>}</td>
                   </tr>
                   {open === r.id && (
-                    <tr key={r.id + "x"} className="my-pay-detail"><td colSpan={5}>
+                    <tr key={r.id + "x"} className="my-pay-detail"><td colSpan={6}>
                       <PayStatement barber={first} terms={{ ...form, ...(JSON.parse(r.terms_json) as Partial<typeof form>) }} input={{ service_pence: r.service_pence, tips_pence: r.tips_pence, visits: r.visits, hours_x100: r.hours_x100, periods: 1 }} result={resultOfRun(r)} adjustments={JSON.parse(r.adjustments_json)} split={{ card: r.card_service_pence ?? 0, cash: r.cash_service_pence ?? 0 }} showOwner={showOwner} frozen />
                     </td></tr>
                   )}

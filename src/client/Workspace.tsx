@@ -2119,6 +2119,9 @@ export function Workspace() {
     (b) => !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
   const manager = !w?.account || w.account.role === "OWNER" || !!(w.account as { perms?: { setup?: boolean } }).perms?.setup;
+  // Money: the owner, or anyone given "See pay runs and wallets", sees everyone's. Others see their own.
+  const canPay = !w?.account || w.account.role === "OWNER" || !!(w.account as { perms?: { pay?: boolean } }).perms?.pay;
+  const hasChair = !!w?.account?.staff_id;
   const userPref = (() => { try { return (JSON.parse(w?.account?.prefs_json || "{}") as { calendar_density?: string }).calendar_density; } catch { return undefined; } })();
   // Personal workspace look: local copy first (no flash), then the account's saved choice wins.
   useEffect(() => {
@@ -2164,14 +2167,14 @@ export function Workspace() {
       ? [
           { key: "Team", label: "Team", icon: "users" },
           { key: "Shifts", label: "Shifts", icon: "clock" },
-          { key: "Pay", label: "Pay runs", icon: "payrun" },
+          ...(canPay ? [{ key: "Pay", label: "Pay runs", icon: "payrun" }] : hasChair ? [{ key: "MyPay", label: "My pay", icon: "payrun" }] : []),
           { key: "Services", label: "Services", icon: "scissors" },
           { key: "Marketing", label: "Marketing", icon: "megaphone" },
           { key: "Website", label: "Website", icon: "globe" },
           { key: "Settings", label: "Settings", icon: "settings" },
           { key: "Audit", label: "Audit", icon: "shield" },
         ]
-      : [{ key: "MyPay", label: "My pay", icon: "payrun" }]),
+      : canPay ? [{ key: "Pay", label: "Pay runs", icon: "payrun" }] : hasChair ? [{ key: "MyPay", label: "My pay", icon: "payrun" }] : []),
     { key: "Accounts", label: "Accounts", icon: "userRound" },
   ];
   // Barbers on a phone get their own app: Today (own agenda), Week (own calendar column),
@@ -2337,7 +2340,7 @@ export function Workspace() {
         menuOpen={sidebarOpen}
         onSearch={() => w && setSearchOpen(true)}
         wallet={
-          w
+          w && (canPay || hasChair)
             ? {
                 amount: money(walletOpen0.total),
                 caption: `Unpaid${openSince ? ` since ${openSince}` : ""} · ${walletOpen0.visits} visit${walletOpen0.visits === 1 ? "" : "s"}`,
