@@ -2212,18 +2212,10 @@ export function Workspace() {
     setDirectorySearch("");
     setDirectoryStatus("");
   }
-  // Wallet chip reads the ledger: money actually recorded (services + tips), not bookings. On the
-  // timetable it follows the day being viewed, so stepping back a day shows that day's total.
-  const walletDay = tab === "Appointments" && date ? date : w?.today || "";
-  const walletIsToday = walletDay === (w?.today || "");
-  const todayPayments = (w?.payments || []).filter((p) => p.date === walletDay && !p.voided_at);
-  const todayTaken = todayPayments.reduce((n, p) => n + p.service_pence + p.tip_pence, 0);
-  const todayVisits = new Set(todayPayments.map((p) => p.booking_id)).size;
-  const walletDayText = walletIsToday ? "today" : new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(walletDay + "T12:00:00Z"));
-  // On today the chip is a running total: everything recorded and not yet paid out, carrying on across
-  // days until a pay run is settled. Looking back at another day still shows that day's takings.
-  const runOpen = walletIsToday && !!w?.wallet_open;
-  const openSince = w?.wallet_open?.since && w.wallet_open.since < (w?.today || "") ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(w.wallet_open.since + "T12:00:00Z")) : "";
+  // Wallet chip: the wallet, not a day. It shows everything recorded and not yet paid out, and stays the
+  // same whichever day the calendar shows, until a pay run covering that money is marked paid.
+  const walletOpen0 = w?.wallet_open ?? { total: 0, visits: 0, since: null };
+  const openSince = walletOpen0.since && walletOpen0.since < (w?.today || "") ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(walletOpen0.since + "T12:00:00Z")) : "";
   // Waitlist lives in the notifications drawer (bell) rather than on top of the timetable.
   useEffect(() => {
     if (!w) return;
@@ -2347,10 +2339,8 @@ export function Workspace() {
         wallet={
           w
             ? {
-                amount: money(runOpen ? w.wallet_open!.total : todayTaken),
-                caption: runOpen
-                  ? `Unpaid${openSince ? ` since ${openSince}` : ""} · ${w.wallet_open!.visits} visit${w.wallet_open!.visits === 1 ? "" : "s"}`
-                  : walletDay > w.today ? `${walletDayText} · not taken yet` : `${w.account?.role === "BARBER" && walletIsToday ? "Taken" : `Taken ${walletDayText}`} · ${todayVisits} visit${todayVisits === 1 ? "" : "s"}`,
+                amount: money(walletOpen0.total),
+                caption: `Unpaid${openSince ? ` since ${openSince}` : ""} · ${walletOpen0.visits} visit${walletOpen0.visits === 1 ? "" : "s"}`,
                 open: walletOpen,
               }
             : null
@@ -2432,7 +2422,7 @@ export function Workspace() {
       {w && walletOpen && (
         <WalletDrawer
           w={w}
-          day={walletDay}
+          day={w.today}
           api={(path) => api(path)}
           onClose={() => setWalletOpen(false)}
           onOpenBooking={(id) => {
