@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { PayPeriod, PayRun, Staff, WorkspaceData } from "../server/domain";
 import { Button, Icon, Notice, StatusPill } from "./ui";
 import { money, datePlus } from "./fixtures";
-import { PAY_MODELS, PayStatement, payFormOf, resultOfRun, summariseTerms, describeDeduction } from "./Pay";
+import { PAY_MODELS, PayStatement, payFormOf, resultOfRun, summariseTerms, describeDeduction, nothingSent, runLabel, runTone } from "./Pay";
 import { BarberPayoutCard } from "./Payouts";
 import { WalletsPanel } from "./Wallets";
 import { HolidayTracker } from "./Holidays";
@@ -22,8 +22,6 @@ function bounds(period: PayPeriod, today: string, offset: number) {
   const monday = datePlus(today, -dow + offset * len);
   return { from: monday, to: datePlus(monday, len - 1) };
 }
-const tone: Record<PayRun["status"], "good" | "next" | "paid" | "warn" | "note"> = { DRAFT: "note", APPROVED: "next", TRANSFERRED: "good", PAID: "good", VOID: "warn" };
-const label: Record<PayRun["status"], string> = { DRAFT: "draft", APPROVED: "approved", TRANSFERRED: "sent to Stripe", PAID: "settled", VOID: "void" };
 
 type PeriodRow = { staff_id: string; name: string; pay_model: string; existing: PayRun | null; sales_pence: number; tips_pence: number; visits: number; owed_to_staff_pence: number; owed_to_business_pence: number; deductions_pence: number; has_activity: boolean };
 
@@ -70,7 +68,7 @@ export function PayRunsPage({ w, api, onOpenBarber }: { w: WorkspaceData; api: A
                 <td className="num">{r.deductions_pence ? `− ${money(r.deductions_pence)}` : "—"}</td>
                 <td className={`num ${r.owed_to_staff_pence < 0 ? "neg" : ""}`}>{r.owed_to_staff_pence < 0 ? `owes ${money(-r.owed_to_staff_pence)}` : money(r.owed_to_staff_pence)}</td>
                 <td className="num">{money(r.owed_to_business_pence)}</td>
-                <td>{r.existing ? <StatusPill tone={tone[r.existing.status]}>{label[r.existing.status]}</StatusPill> : r.has_activity ? <small className="muted">not created</small> : <small className="muted">nothing to pay</small>}</td>
+                <td>{r.existing ? <StatusPill tone={runTone(r.existing)}>{runLabel(r.existing)}</StatusPill> : r.has_activity ? <small className="muted">not created</small> : <small className="muted">nothing to pay</small>}</td>
                 <td><Button variant="secondary" onClick={() => onOpenBarber(r.staff_id)}>{r.existing ? "Open" : "Review"}</Button></td>
               </tr>
             ))}
@@ -136,7 +134,7 @@ export function MyPay({ w, api }: { w: WorkspaceData; api: Api }) {
                     <td>{fmt(r.period_from)} – {fmt(r.period_to)}</td>
                     <td className="num">{money(r.service_pence)}</td>
                     <td className="num">{r.net_pence < 0 ? `you owe ${money(-r.net_pence)}` : money(r.net_pence)}</td>
-                    <td><StatusPill tone={tone[r.status]}>{label[r.status]}</StatusPill></td>
+                    <td><StatusPill tone={runTone(r)}>{runLabel(r)}</StatusPill></td>
                     <td className="admin-actions"><Button variant="ghost" onClick={() => setOpen(open === r.id ? null : r.id)}>{open === r.id ? "Hide" : "Breakdown"}</Button>{r.view_token && <a className="button ghost" href={`/pay-run/${r.id}?t=${r.view_token}`} target="_blank" rel="noreferrer">Print</a>}</td>
                   </tr>
                   {open === r.id && (
@@ -150,7 +148,7 @@ export function MyPay({ w, api }: { w: WorkspaceData; api: Api }) {
           </table>
         )}
       </div>
-      <BarberPayoutCard api={api} staffId={me.id} staffName={me.name} canEdit={false} from={cur.from} to={cur.to} earned={preview?.result.net_pence ?? 0} cash={preview?.split?.cash_service_pence ?? 0} />
+      {w.cards_ready && <BarberPayoutCard api={api} staffId={me.id} staffName={me.name} canEdit={false} from={cur.from} to={cur.to} earned={preview?.result.net_pence ?? 0} cash={preview?.split?.cash_service_pence ?? 0} />}
     </section>
   );
 }
@@ -158,7 +156,7 @@ export type { Staff };
 
 // ---- To settle: every open run with its balance, settled one by one or all at once ------------------
 type PaidBy = "BANK" | "CASH" | "OTHER";
-const stripeOnly = (r: PayRun) => r.status === "TRANSFERRED" && !(r.cash_residual_pence ?? 0);
+const stripeOnly = (r: PayRun) => r.status === "TRANSFERRED" && !(r.cash_residual_pence ?? 0) && !nothingSent(r);
 function balanceText(r: PayRun, name: string) {
   const res = r.cash_residual_pence ?? 0;
   if (stripeOnly(r)) return "Sent by Stripe · nothing left by hand";
@@ -186,7 +184,7 @@ function ToSettle({ w, api, runs, busy, act }: { w: WorkspaceData; api: Api; run
     <section className="workspace-panel pay-to-settle" aria-label="Pay runs to settle" data-testid="to-settle">
       <h3>To settle <small className="muted">· {runs.length} open run{runs.length === 1 ? "" : "s"}</small></h3>
       <p className="workspace-footnote">
-        Every pay run that hasn't been marked paid, including the nightly automatic ones. Marking a run paid takes its money out of the wallet's running unpaid total.
+        Every pay run that hasn't been marked paid yet. Pay the barber (or collect from them) yourself, then mark it paid: its money leaves the wallet's running unpaid total.
         {payable.length > 0 && <> By hand: shop pays barbers <b data-testid="to-settle-to-barbers">{money(toBarbers)}</b> · barbers pay the shop <b data-testid="to-settle-to-shop">{money(toShop)}</b>.</>}
       </p>
       <div className="pay-runs-table-wrap"><table className="pay-runs-table" data-testid="to-settle-table">
@@ -201,7 +199,7 @@ function ToSettle({ w, api, runs, busy, act }: { w: WorkspaceData; api: Api; run
                 <td className="num">{money(r.service_pence + r.tips_pence)}<br /><small className="muted">{r.visits} visit{r.visits === 1 ? "" : "s"}</small></td>
                 <td className="num">{r.net_pence < 0 ? `owes ${money(-r.net_pence)}` : money(r.net_pence)}{(r.deductions_pence ?? 0) > 0 && <><br /><small className="muted">after − {money(r.deductions_pence ?? 0)}</small></>}</td>
                 <td data-testid="to-settle-balance">{balanceText(r, first)}</td>
-                <td><StatusPill tone={tone[r.status]}>{label[r.status]}</StatusPill></td>
+                <td><StatusPill tone={runTone(r)}>{runLabel(r)}</StatusPill></td>
                 <td className="pay-settle-acts">
                   {r.status === "DRAFT" ? (
                     <Button variant="secondary" disabled={!!busy} data-testid="settle-approve" onClick={() => act(() => api(`/pay-runs/${r.id}`, "PUT", { version: r.version, status: "APPROVED" }), `approve-${r.id}`)}>Approve</Button>

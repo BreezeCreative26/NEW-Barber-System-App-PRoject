@@ -1855,6 +1855,8 @@ sandbox.put("/shop/payments", async (c) => {
   if (b.deposits_online && b.payment_mode === "DEPOSIT" && shop.deposit_pence <= 0) fail(409, "Set a deposit amount above zero first");
   if (b.payment_mode === "PREPAY" && !b.deposits_online) fail(409, "Pre-payment needs card payments at booking switched on");
   if (b.payrun_auto !== "OFF" && !stripeLive()) fail(409, "Automatic pay runs need card payments switched on");
+  // Automatic runs move card money by Stripe; a shop that pays barbers by hand creates and settles runs itself.
+  if (b.payrun_auto !== "OFF" && !(await shopCanTakeCards(c.env.DB, shop.id))) fail(409, "Automatic pay runs need card payouts set up. You pay barbers by hand, so create and settle runs from Pay runs.");
   const policy = await platformPolicy(c.env.DB);
   if (b.payout_tier === "FAST" && !policy.fast_payouts) fail(409, "Fast payouts are not available on this plan");
   await c.env.DB.batch([
@@ -4117,8 +4119,8 @@ sandbox.post("/pay-runs/bulk", async (c) => {
   const staff = (await c.env.DB.prepare("SELECT * FROM staff WHERE shop_id=? AND active=1").bind(shop.id).all<Staff>()).results.filter((st) => !b.staff_ids || b.staff_ids.includes(st.id));
   const created: string[] = [], skipped: { name: string; why: string }[] = [];
   for (const st of staff) {
-    const exists = await c.env.DB.prepare("SELECT 1 FROM pay_runs WHERE shop_id=? AND staff_id=? AND period_from=? AND period_to=? AND status<>'VOID'").bind(shop.id, st.id, b.from, b.to).first();
-    if (exists) { skipped.push({ name: st.name, why: "already has a run" }); continue; }
+    const exists = await overlappingRun(c.env.DB, shop.id, st.id, b.from, b.to);
+    if (exists) { skipped.push({ name: st.name, why: exists.period_from === b.from && exists.period_to === b.to ? "already has a run" : `has a run for ${exists.period_from === exists.period_to ? exists.period_from : `${exists.period_from}–${exists.period_to}`}` }); continue; }
     const { terms, input: figures, auto_adjustments } = await payRunFiguresDb(c.env.DB, shop, st.id, b.from, b.to);
     const r = calculatePayRun(terms, figures, withAuto([], auto_adjustments));
     if (!figures.service_pence && !figures.tips_pence && !r.deductions_pence && !auto_adjustments.length) { skipped.push({ name: st.name, why: "nothing to pay" }); continue; }
@@ -4179,8 +4181,14 @@ sandbox.get("/pay-runs", async (c) => {
     .all<PayRun>();
   return c.json({ pay_runs: rows.results });
 });
+// A barber can't have two live runs covering the same day, or the same money could be paid twice.
+async function overlappingRun(db: D1Database, shopId: string, staffId: string, from: string, to: string) {
+  return db.prepare("SELECT period_from, period_to FROM pay_runs WHERE shop_id=? AND staff_id=? AND status<>'VOID' AND period_from<=? AND period_to>=? LIMIT 1").bind(shopId, staffId, to, from).first<{ period_from: string; period_to: string }>();
+}
 sandbox.post("/pay-runs", async (c) => {
   const b = await input(c, payRunCreateSchema);
+  const clash = await overlappingRun(c.env.DB, c.get("shopId"), b.staff_id, b.period_from, b.period_to);
+  if (clash) fail(409, clash.period_from === b.period_from && clash.period_to === b.period_to ? "A pay run already exists for this barber and period" : `This barber already has a pay run for ${clash.period_from === clash.period_to ? clash.period_from : `${clash.period_from} to ${clash.period_to}`}. Settle or void it first.`);
   const { staff, terms, input: figures, auto_adjustments } = await payRunFigures(c, b.staff_id, b.period_from, b.period_to);
   const allAdjustments = withAuto(b.adjustments, auto_adjustments);
   const r = calculatePayRun(terms, figures, allAdjustments);
@@ -4241,7 +4249,9 @@ sandbox.put("/pay-runs/:id", async (c) => {
   // the payments unless Stripe already moved the money for them.
   if (next === "VOID") {
     const release = [c.env.DB.prepare("UPDATE booking_adjustments SET pay_run_id=NULL WHERE shop_id=? AND pay_run_id=?").bind(c.get("shopId"), run.id)];
-    if (!run.transferred_at) release.push(c.env.DB.prepare("UPDATE payments SET pay_run_id=NULL WHERE shop_id=? AND pay_run_id=?").bind(c.get("shopId"), run.id));
+    // "Transferred" with nothing actually sent (paid by hand) gives its payments back like any other run.
+    const moved = run.transferred_at ? await c.env.DB.prepare("SELECT 1 AS x FROM transfers WHERE pay_run_id=? AND kind='PAYOUT' LIMIT 1").bind(run.id).first() : null;
+    if (!moved) release.push(c.env.DB.prepare("UPDATE payments SET pay_run_id=NULL WHERE shop_id=? AND pay_run_id=?").bind(c.get("shopId"), run.id));
     await c.env.DB.batch(release);
   }
   let fresh = await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND id=?").bind(c.get("shopId"), run.id).first<PayRun>();

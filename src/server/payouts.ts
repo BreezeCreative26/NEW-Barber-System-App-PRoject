@@ -98,7 +98,9 @@ export function tenderKind(method: string, intent = ""): "STRIPE" | "READER" | "
 // are "cash" (in someone's hand already). Only unsettled rows (no pay_run_id) count.
 // A pay run has actually paid the barber when it is marked settled, or Stripe sent it and nothing was
 // left to settle by hand. A run "sent to Stripe" that still owes cash by hand is not paid yet.
-export const SETTLED_RUN_SQL = "(r.status='PAID' OR (r.status='TRANSFERRED' AND r.cash_residual_pence=0))";
+// "Transferred" only counts when Stripe actually sent something; a run that moved nothing (a shop paying
+// barbers by hand) is paid only once it is marked paid.
+export const SETTLED_RUN_SQL = "(r.status='PAID' OR (r.status='TRANSFERRED' AND r.cash_residual_pence=0 AND (r.transfer_pence>0 OR r.shop_transfer_pence>0)))";
 export const OPEN_PAYMENT_SQL = (alias = "payments") => `NOT EXISTS (SELECT 1 FROM pay_runs r WHERE r.id=${alias}.pay_run_id AND ${SETTLED_RUN_SQL})`;
 export async function splitFigures(db: DB, shopId: string, staffId: string, from: string, to: string, opts: { includeSettled?: boolean; openOnly?: boolean } = {}): Promise<SplitFigures> {
   const rows = (await (opts.openOnly
@@ -316,6 +318,10 @@ export async function scheduledPayRuns(db: DB, now = Date.now()) {
   const shops = (await db.prepare("SELECT * FROM shops WHERE payrun_auto<>'OFF'").all<Shop>()).results;
   let n = 0;
   for (const shop of shops) {
+    // Only shops whose card money is paid out by Stripe. A shop that pays barbers by hand never gets
+    // automatic runs (they would claim its payments and charge rent for days it settles itself).
+    const shopAcct = await accountFor(db, shop.id, "SHOP", shop.id);
+    if (!shopAcct?.payouts_enabled) continue;
     const today = new Date(now).toLocaleDateString("en-CA", { timeZone: shop.timezone });
     const yesterday = new Date(Date.parse(today) - 86400000).toISOString().slice(0, 10);
     let from = yesterday, to = yesterday;
