@@ -24,7 +24,7 @@ async function todayBooking(page: any, name: string) {
   return b;
 }
 
-test("card reader checkout asks about a tip; yes + amount records it on the reader payment", async ({ page }) => {
+test("card reader checkout asks about a tip; 20% records it on the reader payment", async ({ page }) => {
   test.setTimeout(120000);
   await page.setViewportSize({ width: 390, height: 844 });
   await openFixtureShop(page, "owner");
@@ -37,17 +37,18 @@ test("card reader checkout asks about a tip; yes + amount records it on the read
   const btn = co.getByTestId("record-payment");
   await expect(btn).toBeDisabled();
   await expect(btn).toContainText("Answer the tip question first");
-  await co.getByTestId("reader-tip-yes").click();
-  await expect(btn).toBeDisabled();
-  await co.getByTestId("reader-tip-amount").fill("3");
+  // The machine's options: 10% / 20% / 30% of what is charged.
+  const tip = Math.round((b.price_pence * 20) / 100);
+  await expect(co.getByTestId("reader-tip-20")).toContainText(`20% · £${(tip / 100).toFixed(2).replace(/\.00$/, "")}`);
+  await co.getByTestId("reader-tip-20").click();
   await expect(btn).toBeEnabled();
-  await expect(btn).toContainText(`£${((b.price_pence + 300) / 100).toFixed(2).replace(/\.00$/, "")}`);
+  await expect(btn).toContainText(`£${((b.price_pence + tip) / 100).toFixed(2).replace(/\.00$/, "")}`);
   await page.screenshot({ path: "test-results/reader-tip.png" });
   await btn.click();
   await expect.poll(async () => (await (await page.request.get(base + `/bookings/${b.id}`)).json()).booking.status).toBe("COMPLETED");
   const pays = (await (await page.request.get(base + "/workspace")).json()).payments.filter((p: any) => p.booking_id === b.id && !p.voided_at);
   expect(pays).toHaveLength(1);
-  expect(pays[0]).toMatchObject({ method: "READER", service_pence: b.price_pence, tip_pence: 300 });
+  expect(pays[0]).toMatchObject({ method: "READER", service_pence: b.price_pence, tip_pence: tip });
 });
 
 test("card reader checkout: 'No tip' records the reader payment with no tip", async ({ page }) => {

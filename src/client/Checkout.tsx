@@ -67,16 +67,20 @@ export function Checkout({
   const [note, setNote] = useState("");
   const [card, setCard] = useState(false);
   // Card reader (Revolut): the customer can add a tip on the machine, so ask every time.
-  const [readerTip, setReaderTip] = useState<null | "yes" | "no">(null);
+  // The machine offers 10% / 20% / 30% of the amount charged; "other" covers a custom tip typed on it.
+  const [readerTip, setReaderTip] = useState<null | "no" | 10 | 20 | 30 | "other">(null);
   const due = Math.max(0, booking.price_pence - discount - paid.service - depositCredit);
   const splitPaid = split.reduce((n, t) => n + t.service_pence, 0);
   const remaining = due - splitPaid;
-  const tipPence = customTip !== "" ? Math.max(0, Math.round(Number(customTip) * 100) || 0) : tip;
+  const readerPct = method === "READER" && typeof readerTip === "number" && remaining > 0 ? readerTip : 0;
+  const tipPence = readerPct
+    ? Math.round((remaining * readerPct) / 100)
+    : customTip !== "" ? Math.max(0, Math.round(Number(customTip) * 100) || 0) : tip;
   const barber = w.staff.find((s) => s.id === booking.staff_id);
   // Nothing owed (free visit / £0 price / fully discounted): it can still be completed, nothing taken.
   const free = due === 0 && splitPaid === 0 && tipPence === 0 && depositCredit === 0;
   const readerAsk = method === "READER" && !free && remaining > 0;
-  const readerAnswered = !readerAsk || readerTip === "no" || (readerTip === "yes" && tipPence > 0);
+  const readerAnswered = !readerAsk || readerTip === "no" || typeof readerTip === "number" || (readerTip === "other" && tipPence > 0);
   const canRecord = !busy && remaining >= 0 && (remaining > 0 || tipPence > 0 || split.length > 0 || depositCredit > 0 || free) && readerAnswered;
 
   async function record(all: boolean) {
@@ -194,11 +198,16 @@ export function Checkout({
             <button type="button" className="chip" aria-pressed={readerTip === "no"} data-testid="reader-tip-no" onClick={() => { setReaderTip("no"); setTip(0); setCustomTip(""); }}>
               No tip
             </button>
-            <button type="button" className="chip" aria-pressed={readerTip === "yes"} data-testid="reader-tip-yes" onClick={() => { setReaderTip("yes"); if (customTip === "" && tip > 0) setCustomTip((tip / 100).toString()); setTip(0); }}>
-              Yes, a tip was added
+            {([10, 20, 30] as const).map((pct) => (
+              <button key={pct} type="button" className="chip" aria-pressed={readerTip === pct} data-testid={`reader-tip-${pct}`} onClick={() => { setReaderTip(pct); setTip(0); setCustomTip(""); }}>
+                {pct}% · {money(Math.round((remaining * pct) / 100))}
+              </button>
+            ))}
+            <button type="button" className="chip" aria-pressed={readerTip === "other"} data-testid="reader-tip-other" onClick={() => { setReaderTip("other"); setTip(0); setCustomTip(""); }}>
+              Other amount
             </button>
           </div>
-          {readerTip === "yes" && (
+          {readerTip === "other" && (
             <label className="checkout-reader-tip-amount">
               <span>Tip on the reader</span>
               <span className="checkout-money-input">
@@ -207,7 +216,7 @@ export function Checkout({
               </span>
             </label>
           )}
-          <small>{readerTip === null ? "Check the receipt on the machine, then choose one." : readerTip === "yes" && tipPence <= 0 ? "Enter the tip shown on the receipt." : `Total on the reader: ${money(remaining + tipPence)}`}</small>
+          <small>{readerTip === null ? "Check the receipt on the machine, then choose one." : readerTip === "other" && tipPence <= 0 ? "Enter the tip shown on the receipt." : `Total on the reader: ${money(remaining + tipPence)}`}</small>
         </fieldset>
       )}
 
