@@ -405,7 +405,7 @@ export type WorkspaceData = {
   mode: "sandbox";
   issues: { booking_id: string; ref: string; reason: string }[];
   // Running wallet total: money recorded but not yet paid to the barber(s), since the oldest unpaid day.
-  wallet_open?: { total: number; visits: number; since: string | null };
+  wallet_open?: { total: number; taken?: number; visits: number; since: string | null };
   entitlements?: import("./billing").Entitlements | null;
 };
 
@@ -1328,6 +1328,9 @@ export type PayRunInput = {
   service_pence: number; tips_pence: number; visits: number; hours_x100: number; periods: number; days?: number; leave_days?: number; working_days?: number; booked_days?: number;
   // Money this barber took on the shop's own card reader (service + tips) and the reader's fee rate.
   reader_pence?: number; reader_fee_bps?: number;
+  // The reader fee worked out per payment (as the card machine charges it) and summed. When given it is
+  // used as-is, so a period's fee always equals the sum of its days' fees.
+  reader_fee_pence?: number;
 };
 export type DeductionLine = { label: string; pence: number; detail: string; id?: string };
 const CADENCE_DAYS: Record<DeductionCadence, number> = { DAILY: 1, WEEKLY: 7, FORTNIGHTLY: 14, MONTHLY: 365 / 12, PER_RUN: 0 };
@@ -1350,7 +1353,8 @@ export function deductionLines(terms: PayTerms, input: PayRunInput, staffShare: 
   const readerPence = Math.max(0, input.reader_pence ?? 0), readerBps = Math.max(0, input.reader_fee_bps ?? 0);
   if (readerPence > 0 && readerBps > 0) {
     const pct = (readerBps / 100).toFixed(2).replace(/\.?0+$/, "");
-    out.push({ id: "card_reader_fee", label: "Card reader fee", pence: Math.round((readerPence * readerBps) / 10000), detail: `${pct}% of ${gbp(readerPence)} on the card reader` });
+    const fee = input.reader_fee_pence != null ? Math.max(0, input.reader_fee_pence) : Math.round((readerPence * readerBps) / 10000);
+    out.push({ id: "card_reader_fee", label: "Card reader fee", pence: fee, detail: `${pct}% of ${gbp(readerPence)} on the card reader` });
   }
   for (const d of terms.deductions ?? []) {
     if (!d.active) continue;

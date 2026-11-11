@@ -12,8 +12,8 @@ test("wallet chip stays the same when moving to other days in the calendar", asy
   const chip = page.getByTestId("wallet-chip");
   await expect.poll(async () => pence(await chip.locator("b").innerText())).toBe(ws.wallet_open.total);
   const before = (await chip.getAttribute("aria-label")) ?? "";
-  expect(before).toContain("Unpaid");
-  await expect(chip).toContainText("Unpaid");
+  expect(before).toContain("Owed");
+  await expect(chip).toContainText("Owed");
   for (const dir of ["Next day", "Next day", "Previous day", "Previous day", "Previous day"]) {
     await page.getByRole("button", { name: dir }).first().click();
     await page.waitForTimeout(300);

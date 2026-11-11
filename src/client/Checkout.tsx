@@ -82,6 +82,8 @@ export function Checkout({
   const readerAsk = method === "READER" && !free && remaining > 0;
   const readerAnswered = !readerAsk || readerTip === "no" || typeof readerTip === "number" || (readerTip === "other" && tipPence > 0);
   const canRecord = !busy && remaining >= 0 && (remaining > 0 || tipPence > 0 || split.length > 0 || depositCredit > 0 || free) && readerAnswered;
+  // Nothing left to take (a £0 / free visit, or already covered): no payment method to choose.
+  const noMethod = remaining === 0 && tipPence === 0;
 
   async function record(all: boolean) {
     const tenders: Tender[] = [...split];
@@ -176,7 +178,9 @@ export function Checkout({
         <small>Tips are recorded against the barber, 100%.</small>
       </fieldset>}
 
-      <fieldset className="checkout-methods">
+      {noMethod ? (
+        <p className="checkout-nothing" data-testid="checkout-no-method"><Icon name="checks" size={14} /> {free ? "£0 visit: nothing to take, no payment method needed." : "Nothing left to pay."}</p>
+      ) : <fieldset className="checkout-methods">
         <legend>How are they paying?</legend>
         <div className="method-grid">
           {tillMethodsFor(!!cardLive).map((m) => (
@@ -189,7 +193,7 @@ export function Checkout({
           ))}
         </div>
         {!cardLive && <small className="helper" data-testid="card-not-set-up">Card payments need online payments set up (Settings → Payments). Until then, use Card reader for your own machine (Revolut), or record cash, transfer, voucher or other.</small>}
-      </fieldset>
+      </fieldset>}
 
       {readerAsk && (
         <fieldset className="checkout-reader-tip" data-testid="reader-tip">
@@ -249,6 +253,11 @@ export function Checkout({
           <Button disabled={!canRecord} onClick={() => record(true)} data-testid="record-payment">
             <Icon name="checks" size={16} />
             {busy ? "Completing…" : "Complete · £0, nothing to take"}
+          </Button>
+        ) : noMethod ? (
+          <Button disabled={!canRecord} onClick={() => record(true)} data-testid="record-payment">
+            <Icon name="checks" size={16} />
+            {busy ? "Completing…" : "Complete · nothing left to pay"}
           </Button>
         ) : method === "CARD" && cardLive && api ? (
           !card && (

@@ -67,10 +67,10 @@ test("checkout screen shows 'Complete · £0' for a free visit", async ({ page }
   await page.reload(); await page.waitForLoadState("networkidle");
   for (let i = 0; i < ahead; i++) { await page.getByRole("button", { name: "Next day" }).click(); await page.waitForTimeout(400); }
   await page.getByRole("button", { name: /^Zero Pound/ }).first().click();
-  const take = page.getByRole("button", { name: /Take payment|Checkout|Check out/i }).first();
-  await take.click();
-  const btn = page.getByTestId("record-payment");
+  // A £0 visit completes straight from the appointment: no checkout screen, no payment method.
+  const btn = page.getByTestId("complete-free");
   await expect(btn).toContainText("Complete · £0");
+  await expect(page.getByTestId("take-payment")).toHaveCount(0);
   await page.screenshot({ path: "test-results/free-checkout.png" });
   await btn.click();
   await expect.poll(async () => {

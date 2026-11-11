@@ -8,7 +8,7 @@ import { PAY_MODELS, PayStatement, payFormOf, resultOfRun, summariseTerms, descr
 import { BarberPayoutCard } from "./Payouts";
 import { WalletsPanel } from "./Wallets";
 import { HolidayTracker } from "./Holidays";
-import { BarberMoney, type WalletData } from "./Wallet";
+import { WalletPage, BarberWallet, PaidHistory, type OpenResp } from "./WalletPage";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 const fmt = (d: string) => new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(d + "T12:00:00Z"));
@@ -44,8 +44,14 @@ export function PayRunsPage({ w, api, onOpenBarber }: { w: WorkspaceData; api: A
   const loadOpen = () => api<{ pay_runs: PayRun[] }>("/pay-runs").then((r) => setOpenRuns(r.pay_runs.filter((x) => x.status === "DRAFT" || x.status === "APPROVED" || x.status === "TRANSFERRED"))).catch(() => setOpenRuns([]));
   useEffect(() => { void loadOpen(); }, []);
   const act = async (fn: () => Promise<unknown>, what: string) => { setBusy(what); setMsg(""); try { const r = (await fn()) as { created?: number; skipped?: { name: string; why: string }[] }; if (r?.created != null) setMsg(`${r.created} draft${r.created === 1 ? "" : "s"} created${r.skipped?.length ? ` · skipped ${r.skipped.map((s) => `${s.name} (${s.why})`).join(", ")}` : ""}.`); await load(); await loadOpen(); } catch (e) { setMsg(e instanceof Error ? e.message : "Failed"); await loadOpen(); } finally { setBusy(""); } };
+  const canSettle = !w.account || w.account.role === "OWNER" || (w.account.role === "MANAGER" && !!(w.account.perms as { pay?: boolean } | undefined)?.pay);
   return (
     <section className="pay-runs-page" data-testid="pay-runs-page">
+      <div className="workspace-panel" data-testid="pay-barbers">
+        <h3>Pay barbers <small className="muted">· what each barber is owed since they were last paid</small></h3>
+        <p className="workspace-footnote">Barbers can be paid on any day. Mark paid when you've paid one: their wallet goes back to £0 and the payment, with everything it covered, goes into their paid history. Owed is card money only (less the card reader fee and rent); cash and transfers stay with the barber.</p>
+        <WalletPage w={w} api={api} canSettle={canSettle} embedded onPaid={() => { void load(); void loadOpen(); }} />
+      </div>
       <div className="toolbar pay-period-bar">
         <div className="segmented" role="tablist" aria-label="Pay period">{(["WEEKLY", "FORTNIGHTLY", "MONTHLY"] as PayPeriod[]).map((p) => <button key={p} type="button" role="tab" aria-selected={period === p} onClick={() => { setPeriod(p); setOffset(-1); }}>{p[0] + p.slice(1).toLowerCase()}</button>)}</div>
         <Button variant="ghost" className="icon-only" aria-label="Previous period" onClick={() => setOffset((o) => o - 1)}><Icon name="left" /></Button>
@@ -92,13 +98,13 @@ export function MyPay({ w, api }: { w: WorkspaceData; api: Api }) {
   const [open, setOpen] = useState<string | null>(null);
   const [err, setErr] = useState("");
   // Their wallet: everything recorded and not yet paid to them, across days, until a run is marked paid.
-  const [unpaid, setUnpaid] = useState<WalletData | null>(null);
+  const [unpaid, setUnpaid] = useState<OpenResp | null>(null);
   const period = me?.pay_period ?? "WEEKLY";
   const cur = bounds(period, w.today, 0);
   useEffect(() => {
     if (!me) return;
     api<{ pay_runs: PayRun[] }>("/pay-runs").then((r) => setRuns(r.pay_runs)).catch(() => {});
-    api<WalletData>("/wallet?unpaid=1").then(setUnpaid).catch(() => setUnpaid(null));
+    api<OpenResp>("/wallet/open").then(setUnpaid).catch(() => setUnpaid(null));
     api<Preview>(`/pay-runs/preview?staff_id=${me.id}&from=${cur.from}&to=${cur.to}`).then(setPreview).catch((e) => setErr(e instanceof Error ? e.message : "Could not calculate"));
   }, [me?.id, me?.version, cur.from, cur.to, w.payments.length]);
   if (!me) return <Notice>Your login isn't linked to a chair yet — ask the owner to connect your account under Team.</Notice>;
@@ -124,14 +130,15 @@ export function MyPay({ w, api }: { w: WorkspaceData; api: Api }) {
         </div>
       </div>
       <div className="workspace-panel" data-testid="my-pay-unpaid">
-        <h3>Not paid yet <small className="muted">· {unpaid ? (unpaid.from < unpaid.to ? `since ${fmt(unpaid.from)}` : "so far") : "…"}</small></h3>
-        {(() => {
-          const mine = unpaid?.by_staff.find((s) => s.staff_id === me.id);
-          if (!unpaid) return <p className="workspace-footnote">Loading…</p>;
-          if (!mine || (!mine.service && !mine.tips && !mine.deductions)) return <p className="muted">Nothing waiting: you're paid up.</p>;
-          return <BarberMoney s={mine} name="You" self />;
+        <h3>My wallet <small className="muted">· not paid yet</small></h3>
+        {!unpaid ? <p className="workspace-footnote">Loading…</p> : (() => {
+          const mine = unpaid.wallets.find((x) => x.staff_id === me.id);
+          return mine ? <BarberWallet wallet={mine} api={api} today={unpaid.today} canSettle={false} self /> : <p className="muted">Nothing waiting: you're paid up.</p>;
         })()}
-        <p className="workspace-footnote">Everything taken that hasn't been settled with you yet. It drops when the owner marks a pay run paid.</p>
+        <p className="workspace-footnote">Owed to you is your card payments (less the card reader fee and rent). Cash and transfers you've already got. It goes back to £0 when the owner marks you paid.</p>
+      </div>
+      <div className="workspace-panel">
+        <PaidHistory staffId={me.id} name={me.name} api={api} reloadKey={w.payments.length} self />
       </div>
       <div className="workspace-panel">
         <HolidayTracker w={w} staff={me} canEdit={false} own />

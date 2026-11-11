@@ -39,6 +39,7 @@ import { HolidayTracker, KIND_LABEL } from "./Holidays";
 import { BillingPanel } from "./Billing";
 import { ConflictResolver, ConflictOutcome, type Preview as ConflictPreview, type Decision as ConflictDecision, type Outcome as ConflictOutcomeRow, type ScheduleChange } from "./ConflictResolver";
 import { WalletDrawer } from "./Wallet";
+import { WalletPage } from "./WalletPage";
 import { ReviewsPanel } from "./ReviewsAdmin";
 import { PaymentsPanel } from "./Payouts";
 import { SetupWizard } from "./Setup";
@@ -1631,6 +1632,15 @@ export function Workspace() {
 
   const [queueOpen, setQueueOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
+  // Full wallet screen: which barber to open on (from the quick view).
+  const [walletStaff, setWalletStaff] = useState<string | null>(null);
+  const [walletFull, setWalletFull] = useState(false);
+  useEffect(() => {
+    if (!walletFull) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setWalletFull(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [walletFull]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [focusService, setFocusService] = useState<string | null>(null);
@@ -2343,7 +2353,7 @@ export function Workspace() {
           w && (canPay || hasChair)
             ? {
                 amount: money(walletOpen0.total),
-                caption: `Unpaid${openSince ? ` since ${openSince}` : ""} · ${walletOpen0.visits} visit${walletOpen0.visits === 1 ? "" : "s"}`,
+                caption: `Owed${openSince ? ` since ${openSince}` : ""} · ${walletOpen0.visits} visit${walletOpen0.visits === 1 ? "" : "s"}`,
                 open: walletOpen,
               }
             : null
@@ -2432,7 +2442,31 @@ export function Workspace() {
             setWalletOpen(false);
             openBooking(id);
           }}
+          onOpenFull={() => {
+            setWalletOpen(false);
+            setWalletStaff(null);
+            setWalletFull(true);
+          }}
         />
+      )}
+      {w && walletFull && (canPay || hasChair) && (
+        <div className="wallet-fullscreen" role="dialog" aria-modal="true" aria-label="Full wallet" data-testid="wallet-fullscreen">
+          <header className="wallet-fullscreen-bar">
+            <Button variant="ghost" onClick={() => { setWalletFull(false); setWalletOpen(true); }} data-testid="wallet-full-back"><Icon name="left" size={16} /> Quick view</Button>
+            <strong>{canPay ? "Wallet · every barber" : "My wallet"}</strong>
+            <IconButton name="close" label="Close full wallet" onClick={() => setWalletFull(false)} />
+          </header>
+          <div className="wallet-fullscreen-body">
+            <WalletPage
+              w={w}
+              api={api}
+              canSettle={!w.account || w.account.role === "OWNER" || (w.account.role === "MANAGER" && !!(w.account.perms as { pay?: boolean } | undefined)?.pay)}
+              initialStaff={walletStaff}
+              onPaid={() => refresh().catch(() => {})}
+              onOpenBooking={(id) => { setWalletFull(false); openBooking(id); }}
+            />
+          </div>
+        </div>
       )}
       {w && reviewsOpen && (
         <div className="drawer-scrim history-scrim" onClick={(e) => e.target === e.currentTarget && setReviewsOpen(false)}>

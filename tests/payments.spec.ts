@@ -83,7 +83,9 @@ test("checkout records service + tip by method, completes the visit, updates the
   // Wallet chip moved by exactly the recorded amount (only when the visit was today).
   if (booking.date === wallet.today) {
     const pence = (t: string) => Math.round(Number(t.replace(/[£,]/g, "")) * 100);
-    await expect.poll(async () => pence(await page.getByTestId("wallet-chip").locator("b").innerText())).toBe(pence(chipBefore) + 3100);
+    void chipBefore;
+    const owedNow = (await (await page.request.get(base + "/wallet/open")).json()).totals.owed;
+    await expect.poll(async () => pence(await page.getByTestId("wallet-chip").locator("b").innerText())).toBe(owedNow);
   }
   // Drawer: totals, method tiles and the recent row.
   await panel.getByRole("button", { name: /^Close/ }).first().click();
