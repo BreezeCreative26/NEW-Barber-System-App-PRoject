@@ -25,7 +25,9 @@ test("wallet unpaid total runs until a pay run is settled", async () => {
 
   // 1) It joins the running total (chip) and the drawer's Unpaid view.
   const mid = (await (await r.get(base + "/workspace")).json()).wallet_open;
-  expect(mid.total).toBe(before.total + made.price_pence + 200);
+  // Taken grows by the whole payment; owed (the chip) only by what the shop owes the barber for it.
+  expect(mid.taken).toBe(before.taken + made.price_pence + 200);
+  expect(mid.total).toBe((await (await r.get(base + "/wallet/open")).json()).totals.owed);
   let unpaid = await (await r.get(base + "/wallet?unpaid=1")).json();
   expect(unpaid.unpaid).toBe(true);
   expect(unpaid.to).toBe(w.today);

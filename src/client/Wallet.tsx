@@ -5,6 +5,7 @@ import type { Payment, WorkspaceData } from "../server/domain";
 import { Button, Icon, IconButton, StatusPill, TxRow, WalletHero } from "./ui";
 import { METHODS } from "./Checkout";
 import { money, time, datePlus } from "./fixtures";
+import type { OpenResp } from "./WalletPage";
 
 export type WalletData = {
   from: string;
@@ -48,6 +49,7 @@ export function WalletDrawer({
   api,
   onClose,
   onOpenBooking,
+  onOpenFull,
 }: {
   w: WorkspaceData;
   // The day the timetable is showing; the first tab shows that day's money.
@@ -55,6 +57,8 @@ export function WalletDrawer({
   api: <T>(path: string) => Promise<T>;
   onClose: () => void;
   onOpenBooking: (id: string) => void;
+  /** More detail: the full wallet (day by day, calendar, every pay window). */
+  onOpenFull?: () => void;
 }) {
   // Opens on the running unpaid total; looking back at another day opens that day instead.
   // Always opens on the wallet itself: the running unpaid total.
@@ -88,9 +92,16 @@ export function WalletDrawer({
     };
   }, [range, day, w.now, w.payments.length]);
 
+  // Owed (card money less the card reader fee and rent): the same figure as the wallet chip.
+  const [owed, setOwed] = useState<OpenResp["totals"] | null>(null);
+  useEffect(() => {
+    let off = false;
+    api<OpenResp>("/wallet/open").then((d) => !off && setOwed(d.totals)).catch(() => {});
+    return () => { off = true; };
+  }, [w.now, w.payments.length]);
   const t = data?.totals;
   const mine = barberView ? data?.by_staff.find((s) => s.staff_id === w.account?.staff_id) : null;
-  const headline = barberView ? (mine?.earnings ?? 0) : (t ? t.service + t.tips : 0);
+  const headline = range === "unpaid" ? (owed?.owed ?? 0) : barberView ? (mine?.earnings ?? 0) : (t ? t.service + t.tips : 0);
   const label = range === "unpaid" ? (data && data.from < data.to ? `since ${shortDate(data.from)}` : "so far") : range === "today" ? (day === w.today ? "today" : dayLabel) : RANGES.find((r) => r.key === range)!.label.toLowerCase();
 
   return (
@@ -99,6 +110,7 @@ export function WalletDrawer({
       <aside className="drawer-right wallet-drawer" aria-label={barberView ? "My earnings" : "Shop wallet"} data-testid="wallet-drawer">
         <h2>
           {barberView ? "My earnings" : "Shop wallet"}
+          {onOpenFull && <IconButton name="maximize" label="More detail" onClick={onOpenFull} data-testid="wallet-expand" />}
           <small>{data ? (data.from === data.to ? longDate(data.from) : `${shortDate(data.from)} – ${shortDate(data.to)}`) : "Loading…"}</small>
           <IconButton name="close" label="Close wallet" onClick={onClose} />
         </h2>
@@ -115,11 +127,17 @@ export function WalletDrawer({
           </p>
         )}
         <WalletHero
-          label={range === "unpaid" ? (barberView ? `Earned, not yet paid · ${label}` : `Unpaid ${label}`) : barberView ? `Earned ${label}` : `Taken ${label}`}
+          label={range === "unpaid" ? (barberView ? `Owed to you, not yet paid · ${label}` : `Unpaid · owed to barbers ${label}`) : barberView ? `Earned ${label}` : `Taken ${label}`}
           pill={data ? `${t!.visits} paid visit${t!.visits === 1 ? "" : "s"}` : undefined}
           amount={money(headline)}
           stats={
-            barberView
+            range === "unpaid"
+              ? [
+                  { value: money(owed?.taken ?? 0), label: "Taken" },
+                  { value: money(owed?.card ?? 0), label: "Card" },
+                  { value: money(owed?.kept ?? 0), label: "Cash & transfer kept" },
+                ]
+              : barberView
               ? [
                   { value: money(mine?.commission ?? 0), label: mine?.pay_model === "CHAIR_RENT" ? "Your takings" : mine?.pay_model === "COMMISSION" ? "Commission" : "Pay" },
                   { value: money(mine?.tip_share ?? 0), label: "Tips" },
@@ -178,6 +196,11 @@ export function WalletDrawer({
           </StatusPill>
         )}
         <div className="drawer-foot">
+          {onOpenFull && (
+            <Button onClick={onOpenFull} data-testid="wallet-open-full">
+              <Icon name="maximize" size={16} /> More detail
+            </Button>
+          )}
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>

@@ -99,8 +99,9 @@ import { mountShopCampaigns } from "./shopCampaigns";
 import { mountDomains } from "./domains";
 import { buildRows, detectMapping, parseCsv, type ImportPreview } from "./import";
 import { cancelReaderAction, connectionToken, createLinkRequest, createTerminalRequest, ensureLocation, listReaders, pollRequest, refreshReader, registerReader, removeReader, type PaymentRequest } from "./chair";
-import { accountFor, accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, walletFor, OPEN_PAYMENT_SQL, SETTLED_RUN_SQL, UNCOVERED_SQL, type ConnectedAccount } from "./payouts";
+import { accountFor, accountState, accountsForShop, beginOnboarding, dashboardLink, executeRun, platformPolicy, refreshAccount, reverseForPayment, settlementFor, splitFigures, tenderKind, walletFor, OPEN_PAYMENT_SQL, SETTLED_RUN_SQL, UNCOVERED_SQL, type ConnectedAccount, type SplitFigures } from "./payouts";
 import { walletsCsv, walletsSummary } from "./wallets";
+import { loadOpenWallets, loadPaidWindows, loadWalletDays, owedTotal, periodCalc, type OpenWallet } from "./walletDays";
 import { MEDIA_MAX_BYTES, imageSize, mediaKinds, mediaUrl, replySchema, reviewStatusSchema, scrubMediaReferences, sniffImage, type MediaRow, type ReviewRow } from "./presence";
 import { RESERVED_SUBDOMAINS, shopUrl } from "./hosts";
 import { setMarketingChoice } from "./consent";
@@ -285,6 +286,8 @@ sandbox.use("*", async (c, next) => {
       (method === "GET" && /^\/waitlist\/[^/]+\/matches$/.test(path)) ||
       (method === "POST" && /^\/waitlist\/[^/]+\/offer$/.test(path)) ||
       (method === "GET" && ["/bookings/range", "/insights", "/wallet", "/pay-runs", "/shop/page"].includes(path)) ||
+      // Wallet v2 reads: each route limits a barber to their own money (moneyScope / ownPay).
+      (method === "GET" && ["/wallet/open", "/wallet/days", "/wallet/history"].includes(path)) ||
       (method === "GET" && path === "/pay-runs/preview") ||
       (method === "GET" && path === "/pay-runs/period") ||
       (method === "GET" && path === "/pay-runs/export.csv") ||
@@ -337,6 +340,8 @@ sandbox.use("*", async (c, next) => {
       (method === "GET" && /^\/staff\/[^/]+\/pay-history$/.test(path)) ||
       (method === "GET" && (path === "/shop/alerts" || path.startsWith("/shop/voice"))) ||
       (method === "GET" && ["/wallets", "/wallets.csv"].includes(path)) ||
+      // Mark paid from the wallet: owner / manager with pay access (the route checks requirePayAdmin).
+      (method === "POST" && path === "/wallet/settle") ||
       (method === "POST" && path === "/shop/voice/rotate") ||
       (method === "POST" && ["/notifications/test", "/notifications/sweep", "/shop/payments/connect"].includes(path)) ||
       (method === "POST" && /^\/notifications\/[^/]+\/resend$/.test(path)) ||
@@ -354,7 +359,7 @@ sandbox.use("*", async (c, next) => {
       operational ||
       (["OWNER", "MANAGER"].includes(account.role) && setup) ||
       // A barber the owner trusted with setup: services, hours and shop settings, never billing or pay.
-      (account.perms?.setup && setup && !path.startsWith("/billing") && !path.startsWith("/pay-runs") && !path.startsWith("/wallets"))
+      (account.perms?.setup && setup && !path.startsWith("/billing") && !path.startsWith("/pay-runs") && !path.startsWith("/wallets") && path !== "/wallet/settle")
     ))
       fail(403, "Your account cannot perform this operation");
   }
@@ -809,11 +814,12 @@ sandbox.get("/workspace", async (c) => {
   ).results;
   // Wallet chip: a running total of money not yet paid to the barber(s). It carries on across days
   // until a pay run is settled (marked paid, or sent by Stripe with nothing left to settle by hand).
-  const open = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(service_pence+tip_pence),0) AS total, COUNT(DISTINCT booking_id) AS visits, MIN(date) AS since FROM payments WHERE shop_id=? AND (? IS NULL OR staff_id=?) AND voided_at IS NULL AND ${OPEN_PAYMENT_SQL()}`,
-  ).bind(sid, payScope, payScope).first<{ total: number; visits: number; since: string | null }>();
+  // Wallet chip: what the shop owes the barber(s) right now — card money in the shop's account less the
+  // card reader fee and rent. Cash / transfers are already with the barber, so they never count here.
+  const openWallets = await loadOpenWallets(c.env.DB, shop, { staffIds: payScope ? [payScope] : null, to: shopToday(shop.timezone) }).catch(() => [] as OpenWallet[]);
+  const openSinceDay = openWallets.filter((x) => !x.empty).map((x) => x.from).sort()[0] ?? null;
   return c.json({
-    wallet_open: { total: Number(open?.total ?? 0), visits: Number(open?.visits ?? 0), since: open?.since ?? null },
+    wallet_open: { total: owedTotal(openWallets), taken: openWallets.reduce((n, x) => n + x.period.taken, 0), visits: openWallets.reduce((n, x) => n + x.period.visits, 0), since: openSinceDay },
     shop,
     cards_ready: await shopCanTakeCards(c.env.DB, sid),
     logo_url: (result[11].results[0] as { logo_url?: string } | undefined)?.logo_url || "",
@@ -3996,6 +4002,103 @@ sandbox.get("/wallet", async (c) => {
   });
 });
 
+
+// ---- Wallet (v2): what each barber is owed, day by day, and every pay window they've been paid for ----
+// Owed = money that landed in the shop's account (card reader / online card) less the card reader fee and
+// chair rent. Cash, transfers and other hand payments are already with the barber: shown, never owed.
+const publicWallet = ({ rota: _r, ...w }: OpenWallet) => w;
+const walletScope = (c: Ctx) => { const s = moneyScope(c.get("account")); return s ? [s] : null; };
+sandbox.get("/wallet/open", async (c) => {
+  const shop = await readShop(c);
+  const today = shopToday(shop.timezone);
+  const to = dateSchema.safeParse(c.req.query("to")).success && (c.req.query("to") as string) <= today ? (c.req.query("to") as string) : today;
+  const wallets = await loadOpenWallets(c.env.DB, shop, { staffIds: walletScope(c), to });
+  return c.json({
+    today, to, card_reader_fee_bps: shop.card_reader_fee_bps ?? 0,
+    totals: {
+      owed: owedTotal(wallets),
+      owed_to_shop: wallets.reduce((n, w) => n + Math.max(0, -w.period.owed), 0),
+      taken: wallets.reduce((n, w) => n + w.period.taken, 0),
+      card: wallets.reduce((n, w) => n + w.period.reader + w.period.online, 0),
+      kept: wallets.reduce((n, w) => n + w.period.cash + w.period.transfer + w.period.other, 0),
+      visits: wallets.reduce((n, w) => n + w.period.visits, 0),
+    },
+    wallets: wallets.map(publicWallet),
+  });
+});
+sandbox.get("/wallet/days", async (c) => {
+  const q = z.object({ from: dateSchema, to: dateSchema, payments: z.enum(["1"]).optional() }).safeParse(c.req.query());
+  if (!q.success) fail(400, "Supply from and to as YYYY-MM-DD");
+  const { from, to } = q.data!;
+  if (to < from) fail(400, "to must be on or after from");
+  if ((Date.parse(to) - Date.parse(from)) / 86400000 > 62) fail(400, "Choose two months or less");
+  const shop = await readShop(c);
+  return c.json(await loadWalletDays(c.env.DB, shop, { staffIds: walletScope(c), from, to, withPayments: q.data!.payments === "1" }));
+});
+sandbox.get("/wallet/history", async (c) => {
+  const staffId = z.string().uuid().safeParse(c.req.query("staff_id"));
+  if (!staffId.success) fail(400, "Choose a barber");
+  ownPay(c, staffId.data!);
+  const shop = await readShop(c);
+  return c.json({ windows: await loadPaidWindows(c.env.DB, shop, staffId.data!) });
+});
+// Mark paid: settles everything in the barber's wallet up to `to` in one go, whatever dates it spans
+// (barbers are paid on different, irregular days). Writes a PAID pay run with exactly the figures the
+// wallet showed, claims those payments, and replaces any older run that was made but never paid.
+sandbox.post("/wallet/settle", async (c) => {
+  requirePayAdmin(c);
+  const b = await input(c, z.object({
+    staff_id: z.string().uuid(), to: dateSchema,
+    paid_method: z.enum(["BANK", "CASH", "OTHER"]), paid_reference: z.string().trim().max(80).default(""),
+    // The amount on screen; if the wallet changed since (a payment added or voided), nothing is saved.
+    expected_owed: z.number().int().min(-100000000).max(100000000),
+  }).strict());
+  const shop = await readShop(c);
+  if (b.to > shopToday(shop.timezone)) fail(400, "You can only pay for days that have happened");
+  const runId = id(), now = Date.now();
+  const outcome = await c.env.DB.transaction(async (tx) => {
+    // One settle per barber at a time.
+    const staff = await tx.prepare("SELECT * FROM staff WHERE shop_id=? AND id=? FOR UPDATE").bind(shop.id, b.staff_id).first<Staff>();
+    if (!staff) return fail(404, "Barber not found");
+    const [w] = await loadOpenWallets(tx, shop, { staffIds: [staff.id], to: b.to });
+    if (!w || w.empty || (!w.payments.length && !w.period.rent && !w.period.adjustments.length)) fail(409, `Nothing to pay ${staff.name.split(" ")[0]} up to that day`);
+    if (w.period.owed !== b.expected_owed) fail(409, `The wallet changed while you were looking: ${staff.name.split(" ")[0]} is now owed £${(w.period.owed / 100).toFixed(2)}. Check it and mark paid again.`);
+    if (w.unsettled_runs.some((r) => r.transfers && r.period_from <= b.to)) fail(409, "An older pay run for this barber sent money by Stripe. Settle it on the Pay runs page first.");
+    // Older runs that were made but never paid are replaced by this one (their money is in this wallet).
+    for (const r of w.unsettled_runs.filter((x) => x.period_from <= b.to)) {
+      await tx.prepare("UPDATE pay_runs SET status='VOID', note=?, updated_at=?, version=version+1 WHERE shop_id=? AND id=? AND status NOT IN ('PAID','VOID')").bind(`Replaced by the wallet payment up to ${b.to}`, now, shop.id, r.id).run();
+      await tx.prepare("UPDATE booking_adjustments SET pay_run_id=NULL WHERE shop_id=? AND pay_run_id=?").bind(shop.id, r.id).run();
+      await runIn(tx, audit(c, "pay_run", r.id, "PAY_RUN_VOID", `Replaced by the wallet payment up to ${b.to} (run ${runId.slice(0, 8)})`));
+    }
+    const adjustments = w.period.adjustments;
+    const { terms, input: figures, calc } = periodCalc(shop, staff, w.payments, w.rota ?? [], adjustments);
+    if (calc.net_pence - w.period.held !== w.period.owed) fail(409, "Could not reproduce the wallet figures; nothing was saved. Refresh and try again.");
+    const split: SplitFigures = { service_pence: 0, tips_pence: 0, visits: figures.visits, card_service_pence: 0, card_tips_pence: 0, cash_service_pence: 0, cash_tips_pence: 0, platform_fee_pence: 0, stripe_fee_pence: 0, payment_ids: [], reader_pence: 0 };
+    for (const p of w.payments) {
+      const kind = tenderKind(p.method, p.stripe_payment_intent);
+      split.service_pence += p.service_pence; split.tips_pence += p.tip_pence; split.payment_ids.push(p.id);
+      if (kind === "READER") split.reader_pence! += p.service_pence + p.tip_pence;
+      if (kind === "STRIPE") { split.card_service_pence += p.service_pence; split.card_tips_pence += p.tip_pence; } else { split.cash_service_pence += p.service_pence; split.cash_tips_pence += p.tip_pence; }
+      split.platform_fee_pence += p.platform_fee_pence ?? 0; split.stripe_fee_pence += p.stripe_fee_pence ?? 0;
+    }
+    // Paid by hand: nothing goes through Stripe, the whole balance is what changed hands.
+    const st = { ...settlementFor(terms, calc, split, { reserve_bps: 0, cashHeldBy: terms.pay_model === "CHAIR_RENT" ? "BARBER" : "SHOP" }), transfer_pence: 0, shop_transfer_pence: 0, reserve_pence: 0, cash_residual_pence: w.period.owed };
+    await payRunInsert(tx, { runId, shopId: shop.id, staff, from: w.from, to: b.to, terms, figures, r: calc, adjustments, split, st, status: "APPROVED", note: "Paid from the wallet", actor: c.get("actor"), now }).run();
+    await tx.prepare("UPDATE pay_runs SET status='PAID', paid_method=?, paid_reference=?, updated_at=?, version=version+1 WHERE shop_id=? AND id=?").bind(b.paid_method, b.paid_reference, now, shop.id, runId).run();
+    if (w.payments.length) {
+      const ids = w.payments.map((p) => p.id);
+      const claimed = await tx.prepare(`UPDATE payments SET pay_run_id=? WHERE shop_id=? AND staff_id=? AND voided_at IS NULL AND id IN (${ids.map(() => "?").join(",")})`).bind(runId, shop.id, staff.id, ...ids).run();
+      if (claimed.meta.changes !== ids.length) fail(409, "A payment changed while saving; nothing was saved. Refresh and try again.");
+    }
+    if (w.adjustment_ids.length) await tx.prepare(`UPDATE booking_adjustments SET pay_run_id=? WHERE shop_id=? AND id IN (${w.adjustment_ids.map(() => "?").join(",")})`).bind(runId, shop.id, ...w.adjustment_ids).run();
+    const owedText = w.period.owed >= 0 ? `shop paid ${staff.name} £${(w.period.owed / 100).toFixed(2)}` : `${staff.name} paid the shop £${(-w.period.owed / 100).toFixed(2)}`;
+    await runIn(tx, audit(c, "pay_run", runId, "PAY_RUN_PAID", `Wallet settled ${w.from}..${b.to}: ${owedText} by ${b.paid_method.toLowerCase()}${b.paid_reference ? ` · ${b.paid_reference}` : ""} · taken £${(w.period.taken / 100).toFixed(2)}, card £${((w.period.reader + w.period.online) / 100).toFixed(2)}, kept £${((w.period.cash + w.period.transfer + w.period.other) / 100).toFixed(2)}, fee £${(w.period.fee / 100).toFixed(2)}, rent £${(w.period.rent / 100).toFixed(2)} · ${w.payments.length} payments`));
+    return { from: w.from, owed: w.period.owed };
+  });
+  const run = await c.env.DB.prepare("SELECT * FROM pay_runs WHERE shop_id=? AND id=?").bind(shop.id, runId).first<PayRun>();
+  return c.json({ pay_run: run, ...outcome }, 201);
+});
+
 // ---- Pay runs: settle a barber for a period from the ledger + their pay terms ----
 async function payRunFigures(c: Ctx, staffId: string, from: string, to: string) {
   return payRunFiguresDb(c.env.DB, await readShop(c), staffId, from, to);
@@ -4003,13 +4106,14 @@ async function payRunFigures(c: Ctx, staffId: string, from: string, to: string) 
 // Ctx-free so scheduled runs (sweep) use exactly the same maths as the owner's button.
 export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: string, from: string, to: string, opts: { includeSettled?: boolean; openOnly?: boolean } = {}) {
   const sid = shop.id;
-  const paySql = "SELECT COALESCE(SUM(service_pence),0) AS service, COALESCE(SUM(tip_pence),0) AS tips, COUNT(DISTINCT booking_id) AS visits, COALESCE(SUM(CASE WHEN method='READER' OR (method='CARD' AND stripe_payment_intent='') THEN service_pence+tip_pence ELSE 0 END),0) AS reader FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND ";
+  // reader_fee: the card machine's fee per payment, rounded per payment and summed (see walletDays.ts).
+  const paySql = "SELECT COALESCE(SUM(service_pence),0) AS service, COALESCE(SUM(tip_pence),0) AS tips, COUNT(DISTINCT booking_id) AS visits, COALESCE(SUM(CASE WHEN method='READER' OR (method='CARD' AND stripe_payment_intent='') THEN service_pence+tip_pence ELSE 0 END),0) AS reader, COALESCE(SUM(CASE WHEN method='READER' OR (method='CARD' AND stripe_payment_intent='') THEN ROUND((service_pence+tip_pence)*?/10000.0) ELSE 0 END),0) AS reader_fee FROM payments WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND ";
   const [pay, hoursRows, offRows, overrideRows, staff] = await Promise.all([
     // openOnly: money not yet paid to the barber (the wallet's running "until paid" total).
     (opts.openOnly
-      ? db.prepare(paySql + OPEN_PAYMENT_SQL()).bind(sid, staffId, from, to)
-      : db.prepare(paySql + `(?=1 OR (pay_run_id IS NULL AND ${UNCOVERED_SQL()}))`).bind(sid, staffId, from, to, opts.includeSettled ? 1 : 0)
-    ).first<{ service: number; tips: number; visits: number; reader: number }>(),
+      ? db.prepare(paySql + OPEN_PAYMENT_SQL()).bind(shop.card_reader_fee_bps ?? 0, sid, staffId, from, to)
+      : db.prepare(paySql + `(?=1 OR (pay_run_id IS NULL AND ${UNCOVERED_SQL()}))`).bind(shop.card_reader_fee_bps ?? 0, sid, staffId, from, to, opts.includeSettled ? 1 : 0)
+    ).first<{ service: number; tips: number; visits: number; reader: number; reader_fee: number | string }>(),
     db.prepare("SELECT * FROM staff_hours WHERE shop_id=? AND staff_id=?").bind(sid, staffId).all<Hours>(),
     db.prepare("SELECT date FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<{ date: string }>(),
     db.prepare("SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND staff_id=? AND date BETWEEN ? AND ?").bind(sid, staffId, from, to).all<ScheduleOverride>(),
@@ -4059,13 +4163,13 @@ export async function payRunFiguresDb(db: D1Database, shop: Shop, staffId: strin
   return {
     staff,
     terms,
-    input: { service_pence: pay?.service ?? 0, tips_pence: pay?.tips ?? 0, visits: pay?.visits ?? 0, hours_x100: Math.round((minutes / 60) * 100), periods, days, leave_days, working_days, booked_days, reader_pence: Number(pay?.reader ?? 0), reader_fee_bps: shop.card_reader_fee_bps ?? 0 },
+    input: { service_pence: pay?.service ?? 0, tips_pence: pay?.tips ?? 0, visits: pay?.visits ?? 0, hours_x100: Math.round((minutes / 60) * 100), periods, days, leave_days, working_days, booked_days, reader_pence: Number(pay?.reader ?? 0), reader_fee_bps: shop.card_reader_fee_bps ?? 0, reader_fee_pence: Number(pay?.reader_fee ?? 0) },
     auto_adjustments: openAdj.map((a) => ({ label: a.label, pence: a.pence, adjustment_id: a.id })),
   };
 }
 // One place that writes a pay run row (owner button and scheduled runs), so the statement fields
 // (staff share, owner share, deductions, owed both ways) are always present and consistent.
-function payRunInsert(db: D1Database, args: { runId: string; shopId: string; staff: Staff; from: string; to: string; terms: PayTerms; figures: { service_pence: number; tips_pence: number; visits: number; hours_x100: number; periods: number; days?: number; leave_days?: number }; r: ReturnType<typeof calculatePayRun>; adjustments: { label: string; pence: number }[]; split: Awaited<ReturnType<typeof splitFigures>>; st: ReturnType<typeof settlementFor>; status: "DRAFT" | "APPROVED"; note: string; actor: string; now: number }) {
+function payRunInsert(db: D1Database, args: { runId: string; shopId: string; staff: Staff; from: string; to: string; terms: PayTerms; figures: { service_pence: number; tips_pence: number; visits: number; hours_x100: number; periods: number; days?: number; leave_days?: number }; r: ReturnType<typeof calculatePayRun>; adjustments: { label: string; pence: number }[]; split: SplitFigures; st: ReturnType<typeof settlementFor>; status: "DRAFT" | "APPROVED"; note: string; actor: string; now: number }) {
   const { runId, shopId, staff, from, to, terms, figures, r, adjustments, split, st, status, note, actor, now } = args;
   const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
   return db.prepare(

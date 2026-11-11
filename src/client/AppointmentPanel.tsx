@@ -622,11 +622,16 @@ export function AppointmentPanel({
           {["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && (
             <>
               {canTakePayment && onCheckout ? (
-                !checkout && (
+                !checkout && (outstanding === 0 && booking.price_pence === 0 && !(booking.deposit_paid_pence ?? 0) ? (
+                  // £0 visit: nothing to take, so no payment method — one tap completes it.
+                  <Button disabled={!!busy} onClick={() => onCheckout({ version: booking.version, discount_pence: 0, note: "", tenders: [], complete: true })} data-testid="complete-free">
+                    <Icon name="checks" size={16} /> {busy ? "Completing…" : "Complete · £0"}
+                  </Button>
+                ) : (
                   <Button disabled={!!busy} onClick={() => setCheckout(true)} data-testid="take-payment">
                     <Icon name="wallet" size={16} /> Checkout · {money(outstanding)}
                   </Button>
-                )
+                ))
               ) : (
                 <Button disabled={!!busy} onClick={() => onStatus("COMPLETED", "")}>
                   <Icon name="checks" size={16} /> {busy === "COMPLETED" ? "Saving…" : "Mark done"}

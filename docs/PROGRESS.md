@@ -1,5 +1,16 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-11 — Wallet: owed is card money only, day by day, paid history, Mark paid on any date; £0 checkout with no method
+- **Owed = card money in the shop's account (card reader / online card) less the 1.5% card reader fee and chair rent.** Cash, transfers and other hand payments are shown as "kept" and never owed; £0 visits count as visits only. The wallet chip shows this owed figure (was total taken).
+- **Quick view unchanged:** tapping the wallet opens the same drawer (Unpaid / Today / week / month, method tiles, per-barber cards). Desktop has an expand icon in the header, phones a **More detail** button. Both open the **full wallet** overlay (Back returns to the quick view, Escape closes): day by day with ‹ › and a month calendar (each day shows taken and owed), each barber's open wallet (taken by method, fee, rent, owed, every payment) and **every paid window** (dates, paid on, how, amount, tally, days, payments).
+- **Mark paid** (owner, or manager with "See pay runs and wallets"): settles a barber up to any day, whatever dates it spans; writes a PAID pay run with exactly the figures shown, claims those payments, replaces older runs that were never paid. Refused if the amount changed meanwhile. The wallet goes back to £0 and the payment goes into the history. Also on the Pay runs page ("Pay barbers").
+- **Permissions:** owner / "See pay runs and wallets" see every barber; everyone else (barbers) only their own, everywhere (quick view, full wallet, My pay, history). Barbers cannot mark paid.
+- **£0 visits** complete from the appointment in one tap ("Complete · £0"); the checkout screen also hides the method tiles when nothing is due.
+- Card reader fee is rounded per payment (as the machine charges), so a period's fee equals the sum of its days.
+- Routes: `GET /wallet/open`, `/wallet/days`, `/wallet/history`; `POST /wallet/settle`. Code: `src/server/walletDays.ts`, `src/client/WalletPage.tsx`, `src/client/WalletDays.tsx`.
+- Live data (The Doghouse): Sam's 10:00 Harry Fitzgerald £23 corrected CASH → card reader (void + new row, backup in `.migrate/backups`). Read-only check of 9–11 Nov: day and period totals agree; owed now Josh £563.67, Sam £129.51, Owen £110.70, Roan £81.10 (chip £884.98).
+- Tests: `tests/wallet-v2.spec.ts` (6). free-checkout, wallet-chip-fixed, wallet-money, wallet-unpaid, wallet-own-only, money-access, payments, payruns, settle-runs, reader-tip, pay, mobile-logo-menu, wallets pass (older wallet tests updated for the owed figure). vitest: 6 failures in outbox-claim / payments-money are the same on main without this change.
+
 ## 2026-11-05 — Staff booking: the clicked time stays when the service changes
 - Booking from the timetable used to clear the start time whenever the service or extras changed (only a length change kept it). Now the time picked or clicked stays through service, extras, length and barber changes; it is re-checked against the new times.
 - If the new choice can't fit there (e.g. a longer service runs into the next appointment), the time is cleared with a message naming it ("11:00 overlaps another appointment for this service. Choose another time."). Picking a time clears the message.

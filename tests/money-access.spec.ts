@@ -39,7 +39,11 @@ test("money is personal: barbers see their own, pay access sees everyone, nobody
   expect(jw.payments.every((p: any) => p.staff_id === jay.id)).toBe(true);
   const jws = await (await jayCtx.get(base + "/workspace")).json();
   const jayOpen = (await (await owner.get(base + "/wallet?unpaid=1")).json()).by_staff.find((s: any) => s.staff_id === jay.id);
-  expect(jws.wallet_open.total).toBe(jayOpen.service + jayOpen.tips);
+  void jayOpen;
+  const ownerOpen = (await (await owner.get(base + "/wallet/open")).json()).wallets.find((x: any) => x.staff_id === jay.id);
+  expect(jws.wallet_open.total).toBe(Math.max(0, ownerOpen.period.owed));
+  const jayOwn = await (await jayCtx.get(base + "/wallet/open")).json();
+  expect(jayOwn.wallets.map((x: any) => x.staff_id)).toEqual([jay.id]);
   expect((await jayCtx.get(base + `/pay-runs/preview?staff_id=${other.id}&from=${w.today}&to=${w.today}`)).status()).toBe(403);
   expect((await jayCtx.get(base + `/pay-runs/preview?staff_id=${jay.id}&from=${w.today}&to=${w.today}`)).status()).toBe(200);
   expect((await jayCtx.get(base + `/pay-runs/period?from=${w.today}&to=${w.today}`)).status()).toBe(403);
