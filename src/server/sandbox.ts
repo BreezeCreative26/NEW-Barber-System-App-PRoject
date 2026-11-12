@@ -455,7 +455,7 @@ sandbox.get("/bookings/range", async (c) => {
     .all<{ staff_id: string }>();
   return c.json({ from, to, bookings: rows.results.map((b) => redact(a, b)), truncated: rows.results.length >= 2000 });
 });
-// Insights: aggregates computed from saved records only. Not payment or accounting data.
+// Insights: visits from saved appointments; money from the payments ledger (the same figures as the wallet).
 sandbox.get("/insights", async (c) => {
   const p = z.object({ days: z.coerce.number().int().min(7).max(365).default(30) }).safeParse(c.req.query());
   if (!p.success) fail(400, "Invalid insights query");
@@ -464,53 +464,84 @@ sandbox.get("/insights", async (c) => {
   const a = c.get("account");
   const assigned = ownScope(a, "insights");
   const today = shopToday(shop.timezone);
+  const now = Date.now();
   const d = new Date(`${today}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() - (days - 1));
   const from = d.toISOString().slice(0, 10);
   const sid = c.get("shopId");
+  // Only appointments that have happened count as activity; today's later ones are upcoming.
+  const HAPPENED = "date BETWEEN ? AND ? AND (start_at<=? OR status IN ('COMPLETED','NO_SHOW'))";
+  const VISIT = "status NOT IN ('CANCELLED','NO_SHOW')";
+  const SCOPE = "(? IS NULL OR staff_id=?)";
+  const h = [from, today, now];
+  const s = [assigned, assigned];
   const r = await c.env.DB.batch([
     c.env.DB.prepare(
-      `SELECT status, channel, COUNT(*) AS n, SUM(price_pence) AS value FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND (? IS NULL OR staff_id=?) GROUP BY status, channel`,
-    ).bind(sid, from, today, assigned, assigned),
+      `SELECT status, channel, COUNT(*)::int AS n, COALESCE(SUM(price_pence),0)::int AS value FROM bookings WHERE shop_id=? AND ${HAPPENED} AND ${SCOPE} GROUP BY status, channel`,
+    ).bind(sid, ...h, ...s),
     c.env.DB.prepare(
-      `SELECT service_name AS name, COUNT(*) AS n, SUM(CASE WHEN status='COMPLETED' THEN price_pence ELSE 0 END) AS completed_value FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR staff_id=?) GROUP BY service_name ORDER BY n DESC LIMIT 8`,
-    ).bind(sid, from, today, assigned, assigned),
+      `SELECT b.service_name AS name, COUNT(*)::int AS n, COALESCE(SUM(p.taken),0)::int AS taken
+       FROM bookings b LEFT JOIN (SELECT booking_id, SUM(service_pence+tip_pence) AS taken FROM payments WHERE shop_id=? AND voided_at IS NULL GROUP BY booking_id) p ON p.booking_id=b.id
+       WHERE b.shop_id=? AND b.date BETWEEN ? AND ? AND (b.start_at<=? OR b.status IN ('COMPLETED','NO_SHOW')) AND b.status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR b.staff_id=?)
+       GROUP BY b.service_name ORDER BY n DESC, b.service_name LIMIT 8`,
+    ).bind(sid, sid, ...h, ...s),
+    // Visits and hours leave out no-shows (nobody sat in the chair); no-shows have their own column.
     c.env.DB.prepare(
-      `SELECT b.staff_id, s.name, COUNT(*) AS n, SUM(b.duration_min) AS minutes, SUM(CASE WHEN b.status='COMPLETED' THEN b.price_pence ELSE 0 END) AS completed_value, SUM(CASE WHEN b.status='NO_SHOW' THEN 1 ELSE 0 END) AS no_shows FROM bookings b JOIN staff s ON s.shop_id=b.shop_id AND s.id=b.staff_id WHERE b.shop_id=? AND b.date BETWEEN ? AND ? AND b.status NOT IN ('CANCELLED') AND (? IS NULL OR b.staff_id=?) GROUP BY b.staff_id, s.name ORDER BY n DESC`,
-    ).bind(sid, from, today, assigned, assigned),
+      `SELECT b.staff_id, s.name, COUNT(*) FILTER (WHERE b.status<>'NO_SHOW')::int AS n, COALESCE(SUM(b.duration_min) FILTER (WHERE b.status<>'NO_SHOW'),0)::int AS minutes, COALESCE(SUM(CASE WHEN b.status='COMPLETED' THEN b.price_pence ELSE 0 END),0)::int AS completed_value, COUNT(*) FILTER (WHERE b.status='NO_SHOW')::int AS no_shows
+       FROM bookings b JOIN staff s ON s.shop_id=b.shop_id AND s.id=b.staff_id
+       WHERE b.shop_id=? AND b.date BETWEEN ? AND ? AND (b.start_at<=? OR b.status IN ('COMPLETED','NO_SHOW')) AND b.status<>'CANCELLED' AND (? IS NULL OR b.staff_id=?)
+       GROUP BY b.staff_id, s.name ORDER BY n DESC, s.name`,
+    ).bind(sid, ...h, ...s),
     c.env.DB.prepare(
-      `SELECT (start_min/60) AS hour, COUNT(*) AS n FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR staff_id=?) GROUP BY hour ORDER BY hour`,
-    ).bind(sid, from, today, assigned, assigned),
+      `SELECT (start_min/60) AS hour, COUNT(*)::int AS n FROM bookings WHERE shop_id=? AND ${HAPPENED} AND ${VISIT} AND ${SCOPE} GROUP BY hour ORDER BY hour`,
+    ).bind(sid, ...h, ...s),
     c.env.DB.prepare(
-      `SELECT ollo_weekday(date) AS weekday, COUNT(*) AS n FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR staff_id=?) GROUP BY weekday`,
-    ).bind(sid, from, today, assigned, assigned),
+      `SELECT ollo_weekday(date) AS weekday, COUNT(*)::int AS n FROM bookings WHERE shop_id=? AND ${HAPPENED} AND ${VISIT} AND ${SCOPE} GROUP BY weekday`,
+    ).bind(sid, ...h, ...s),
     c.env.DB.prepare(
-      `SELECT date, COUNT(*) AS n, SUM(CASE WHEN status='COMPLETED' THEN price_pence ELSE 0 END) AS completed_value FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? AND status NOT IN ('CANCELLED','NO_SHOW') AND (? IS NULL OR staff_id=?) GROUP BY date ORDER BY date`,
-    ).bind(sid, from, today, assigned, assigned),
+      `SELECT date, COUNT(*)::int AS n, COALESCE(SUM(CASE WHEN status='COMPLETED' THEN price_pence ELSE 0 END),0)::int AS completed_value FROM bookings WHERE shop_id=? AND ${HAPPENED} AND ${VISIT} AND ${SCOPE} GROUP BY date ORDER BY date`,
+    ).bind(sid, ...h, ...s),
+    // Customers seen: people who actually came in, one per customer. Walk-ins with no number are not
+    // one shared customer. New: their first visit at the shop (any barber) is in this period.
     c.env.DB.prepare(
-      `SELECT COUNT(DISTINCT phone) AS customers, SUM(CASE WHEN first_seen>=? THEN 1 ELSE 0 END) AS new_customers FROM (SELECT phone, MIN(date) AS first_seen FROM bookings WHERE shop_id=? AND status NOT IN ('CANCELLED') AND (? IS NULL OR staff_id=?) GROUP BY phone) WHERE phone IN (SELECT phone FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ?)`,
-    ).bind(from, sid, assigned, assigned, sid, from, today),
+      `SELECT COUNT(*)::int AS customers, COUNT(*) FILTER (WHERE f.first_seen >= ?)::int AS new_customers
+       FROM (SELECT DISTINCT COALESCE(customer_id, phone) AS who FROM bookings WHERE shop_id=? AND phone<>'' AND ${HAPPENED} AND ${VISIT} AND ${SCOPE}) v
+       JOIN (SELECT COALESCE(customer_id, phone) AS who, MIN(date) AS first_seen FROM bookings WHERE shop_id=? AND phone<>'' AND ${VISIT} GROUP BY 1) f ON f.who=v.who`,
+    ).bind(from, sid, ...h, ...s, sid),
     c.env.DB.prepare(
-      `SELECT COUNT(*) AS n, SUM(price_pence) AS value FROM bookings WHERE shop_id=? AND date>? AND status IN ('CONFIRMED','CHECKED_IN') AND (? IS NULL OR staff_id=?)`,
-    ).bind(sid, today, assigned, assigned),
+      `SELECT COUNT(*)::int AS n, COALESCE(SUM(price_pence),0)::int AS value FROM bookings WHERE shop_id=? AND start_at>? AND status IN ('CONFIRMED','CHECKED_IN') AND ${SCOPE}`,
+    ).bind(sid, now, ...s),
     c.env.DB.prepare(
       `SELECT COUNT(*) AS n FROM waitlist_entries WHERE shop_id=? AND status='OPEN' AND date>=?`,
     ).bind(sid, today),
+    c.env.DB.prepare(
+      `SELECT staff_id, COALESCE(SUM(service_pence),0)::int AS service, COALESCE(SUM(tip_pence),0)::int AS tips FROM payments WHERE shop_id=? AND date BETWEEN ? AND ? AND voided_at IS NULL AND ${SCOPE} GROUP BY staff_id`,
+    ).bind(sid, from, today, ...s),
+    c.env.DB.prepare(`SELECT MIN(date) AS history_from FROM bookings WHERE shop_id=?`).bind(sid),
   ]);
+  const money = r[9].results as { staff_id: string; service: number; tips: number }[];
+  const barbers = (r[2].results as { staff_id: string }[]).map((b) => {
+    const m = money.find((x) => x.staff_id === b.staff_id);
+    return { ...b, taken: m ? m.service + m.tips : 0 };
+  });
+  const cust = r[6].results[0] as { customers: number; new_customers: number };
+  // "New" needs bookings from before the period; without them every customer would look new.
+  const historyFrom = (r[10].results[0] as { history_from: string | null }).history_from;
   return c.json({
     from,
     to: today,
     days,
     by_status: r[0].results,
     services: r[1].results,
-    barbers: r[2].results,
+    barbers,
     hours: r[3].results,
     weekdays: r[4].results,
     daily: r[5].results,
-    customers: r[6].results[0],
+    customers: { customers: cust.customers, new_customers: historyFrom && historyFrom < from ? cust.new_customers : null },
+    taken: { service: money.reduce((n, m) => n + m.service, 0), tips: money.reduce((n, m) => n + m.tips, 0) },
     upcoming: r[7].results[0],
     waitlist_open: (r[8].results[0] as { n: number }).n,
-    note: "Saved appointment records only. Value is booked service price, not collected payment.",
+    note: "Visits from saved appointments; Taken from the payments ledger (same as the wallet).",
   });
 });
 // Standing bookings: preview every date with the same guards, then create in one pass.

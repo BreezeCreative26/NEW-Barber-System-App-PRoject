@@ -3581,12 +3581,13 @@ type Insights = {
   to: string;
   days: number;
   by_status: { status: string; channel: string; n: number; value: number }[];
-  services: { name: string; n: number; completed_value: number }[];
-  barbers: { staff_id: string; name: string; n: number; minutes: number; completed_value: number; no_shows: number }[];
+  services: { name: string; n: number; taken: number }[];
+  barbers: { staff_id: string; name: string; n: number; minutes: number; completed_value: number; no_shows: number; taken: number }[];
   hours: { hour: number; n: number }[];
   weekdays: { weekday: number; n: number }[];
   daily: { date: string; n: number; completed_value: number }[];
   customers: { customers: number; new_customers: number | null };
+  taken: { service: number; tips: number };
   upcoming: { n: number; value: number | null };
   waitlist_open: number;
 };
@@ -3633,22 +3634,21 @@ function InsightsPanel({ w }: { w: WorkspaceData }) {
   }, [days, w.now]);
   const sum = (f: (r: Insights["by_status"][number]) => boolean) =>
     (data?.by_status || []).filter(f).reduce((n, r) => n + r.n, 0);
-  const value = (f: (r: Insights["by_status"][number]) => boolean) =>
-    (data?.by_status || []).filter(f).reduce((n, r) => n + (r.value || 0), 0);
   const total = sum(() => true);
   const completed = sum((r) => r.status === "COMPLETED");
   const noShows = sum((r) => r.status === "NO_SHOW");
   const cancelled = sum((r) => r.status === "CANCELLED");
-  const online = sum((r) => r.channel === "ONLINE" && !["CANCELLED", "NO_SHOW"].includes(r.status));
+  // Same base as the denominator (everything not cancelled, no-shows included).
+  const online = sum((r) => r.channel === "ONLINE" && r.status !== "CANCELLED");
   const kept = total - cancelled;
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const cards = data
     ? [
         { label: "Appointments", value: String(kept), foot: `${cancelled} cancelled · last ${days} days`, icon: "calendarCheck" },
-        { label: "Completed value", value: money(value((r) => r.status === "COMPLETED")), foot: `${completed} completed · booked price, not payments`, icon: "wallet" },
+        { label: "Taken", value: money(data.taken.service + data.taken.tips), foot: `${completed} completed · incl. ${money(data.taken.tips)} tips · as in the wallet`, icon: "wallet" },
         { label: "No-show rate", value: kept ? `${Math.round((noShows / kept) * 100)}%` : "—", foot: `${noShows} no-shows of ${kept}`, icon: "user" },
         { label: "Booked online", value: kept ? `${Math.round((online / kept) * 100)}%` : "—", foot: `${online} of ${kept} came through your booking page`, icon: "trend" },
-        { label: "Customers seen", value: String(data.customers.customers), foot: `${data.customers.new_customers ?? 0} new in this period`, icon: "users" },
+        { label: "Customers seen", value: String(data.customers.customers), foot: data.customers.new_customers === null ? "New shows once there's booking history before this period" : `${data.customers.new_customers} new in this period`, icon: "users" },
         { label: "Upcoming", value: String(data.upcoming.n), foot: `${money(data.upcoming.value || 0)} booked ahead${w.shop.waitlist_enabled !== 0 ? ` · ${data.waitlist_open} on waitlist` : ""}`, icon: "calendar" },
       ]
     : [];
@@ -3660,8 +3660,8 @@ function InsightsPanel({ w }: { w: WorkspaceData }) {
           <div>
             <h2>Shop insights</h2>
             <p className="workspace-footnote">
-              {data ? `${data.from} to ${data.to}` : "Loading…"} · saved appointment records only; value is booked service
-              price, not collected payment.
+              {data ? `${data.from} to ${data.to}` : "Loading…"} · visits from saved appointments; Taken is money recorded at
+              checkout, the same as the wallet.
             </p>
           </div>
           <div className="segmented" aria-label="Period">
@@ -3698,8 +3698,12 @@ function InsightsPanel({ w }: { w: WorkspaceData }) {
                 <h3>By hour</h3>
                 <Bars
                   label="Appointments by start hour"
-                  rows={Array.from({ length: Math.ceil(w.shop.closes / 60) - Math.floor(w.shop.opens / 60) }, (_, i) => {
-                    const hour = Math.floor(w.shop.opens / 60) + i;
+                  rows={(() => {
+                    // Opening hours, widened to any hour that had appointments (early or late extras).
+                    const first = Math.min(Math.floor(w.shop.opens / 60), ...data.hours.map((h) => h.hour));
+                    const last = Math.max(Math.ceil(w.shop.closes / 60) - 1, ...data.hours.map((h) => h.hour));
+                    return Array.from({ length: last - first + 1 }, (_, i) => first + i);
+                  })().map((hour) => {
                     return { key: String(hour), label: `${String(hour).padStart(2, "0")}:00`, value: data.hours.find((h) => h.hour === hour)?.n || 0 };
                   })}
                 />
@@ -3721,7 +3725,7 @@ function InsightsPanel({ w }: { w: WorkspaceData }) {
                 {data.services.length ? (
                   <Bars
                     label="Services by bookings"
-                    rows={data.services.map((s) => ({ key: s.name, label: s.name, value: s.n, sub: money(s.completed_value) }))}
+                    rows={data.services.map((s) => ({ key: s.name, label: s.name, value: s.n, sub: money(s.taken) }))}
                   />
                 ) : (
                   <p className="workspace-footnote">No services booked yet.</p>
@@ -3736,7 +3740,7 @@ function InsightsPanel({ w }: { w: WorkspaceData }) {
                         <th scope="col">Barber</th>
                         <th scope="col">Visits</th>
                         <th scope="col">Hours</th>
-                        <th scope="col">Completed</th>
+                        <th scope="col">Taken</th>
                         <th scope="col">No-shows</th>
                       </tr>
                     </thead>
@@ -3746,7 +3750,7 @@ function InsightsPanel({ w }: { w: WorkspaceData }) {
                           <td className="customer-name">{b.name}</td>
                           <td className="num" data-label="Visits">{b.n}</td>
                           <td className="num" data-label="Hours">{(b.minutes / 60).toFixed(1)}</td>
-                          <td className="num" data-label="Completed">{money(b.completed_value)}</td>
+                          <td className="num" data-label="Taken">{money(b.taken)}</td>
                           <td className="num" data-label="No-shows">{b.no_shows}</td>
                         </tr>
                       ))}
