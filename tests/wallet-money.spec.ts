@@ -134,11 +134,12 @@ test("wallet drawer shows a money card per barber with cash, card reader and who
   await expect(drawer.getByTestId("wallet-hero")).toContainText("Unpaid");
   await drawer.getByRole("button", { name: "Today", exact: true }).click();
   await expect(drawer.getByTestId("wallet-hero")).toContainText("Taken today");
-  const card = drawer.locator(`[data-testid="wallet-barber"][data-staff="${jay.id}"]`);
+  // The day tab shows one card per barber for that day: taken, card, cash, fee/rent and owed.
+  const card = drawer.locator(`[data-testid="wallet-day-barber"][data-staff="${jay.id}"]`);
   await expect(card).toBeVisible();
-  await expect(card.getByTestId("wb-cash")).toHaveText("£10");
-  await expect(card.getByTestId("wb-reader")).toContainText("£");
-  await expect(card.getByTestId("wb-owed")).not.toBeEmpty();
+  await expect(card.getByTestId("wdb-cash")).toHaveText("£10");
+  await expect(card.getByTestId("wdb-card")).toContainText("£");
+  await expect(card.getByTestId("wdb-owed")).not.toBeEmpty();
   // Jay's fixture deal is tiered (55%, 65% above £1,000): the card says so, not the flat fallback %.
   await expect(card).toContainText("55%, 65% above £1,000 commission");
   await page.screenshot({ path: "test-results/wallet/drawer.png", fullPage: false });

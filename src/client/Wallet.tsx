@@ -6,6 +6,8 @@ import { Button, Icon, IconButton, StatusPill, TxRow, WalletHero } from "./ui";
 import { METHODS } from "./Checkout";
 import { money, time, datePlus } from "./fixtures";
 import type { OpenResp } from "./WalletPage";
+import type { WalletDay } from "../server/walletDays";
+import { MonthGrid, walletMonthEnd, walletMonthStart } from "./WalletDays";
 
 export type WalletData = {
   from: string;
@@ -63,7 +65,12 @@ export function WalletDrawer({
   // Opens on the running unpaid total; looking back at another day opens that day instead.
   // Always opens on the wallet itself: the running unpaid total.
   const [range, setRange] = useState<RangeKey>("unpaid");
-  const day = startDay && startDay <= w.today ? startDay : w.today;
+  // The day tab can step back through any day (‹ ›) or jump to one from the calendar.
+  const [day, setDay] = useState(startDay && startDay <= w.today ? startDay : w.today);
+  const [calOpen, setCalOpen] = useState(false);
+  const [calMonth, setCalMonth] = useState(walletMonthStart(day));
+  const [monthDays, setMonthDays] = useState<WalletDay[]>([]);
+  const stepDay = (n: number) => { const d = datePlus(day, n); if (d <= w.today) { setDay(d); setCalMonth(walletMonthStart(d)); } };
   const dayLabel = day === w.today ? "Today" : new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(day + "T12:00:00Z"));
   const [data, setData] = useState<WalletData | null>(null);
   const [error, setError] = useState("");
@@ -92,6 +99,24 @@ export function WalletDrawer({
     };
   }, [range, day, w.now, w.payments.length]);
 
+  // The picked day through the wallet's own day maths (same figures as the full wallet and the calendar).
+  const [dayInfo, setDayInfo] = useState<WalletDay | null>(null);
+  useEffect(() => {
+    if (range !== "today") return;
+    let off = false;
+    setDayInfo(null);
+    api<{ days: WalletDay[] }>(`/wallet/days?from=${day}&to=${day}`).then((d) => !off && setDayInfo(d.days[0] ?? null)).catch(() => {});
+    return () => { off = true; };
+  }, [range, day, w.now, w.payments.length]);
+  // Calendar: each day's taken / owed for the month on show (scoped to the barber's own money server-side).
+  useEffect(() => {
+    if (!calOpen) return;
+    let off = false;
+    const to = walletMonthEnd(calMonth) < w.today ? walletMonthEnd(calMonth) : w.today;
+    if (calMonth > w.today) { setMonthDays([]); return; }
+    api<{ days: WalletDay[] }>(`/wallet/days?from=${calMonth}&to=${to}`).then((d) => !off && setMonthDays(d.days)).catch(() => !off && setMonthDays([]));
+    return () => { off = true; };
+  }, [calOpen, calMonth, w.now, w.payments.length]);
   // Owed (card money less the card reader fee and rent): the same figure as the wallet chip.
   const [owed, setOwed] = useState<OpenResp["totals"] | null>(null);
   useEffect(() => {
@@ -101,7 +126,8 @@ export function WalletDrawer({
   }, [w.now, w.payments.length]);
   const t = data?.totals;
   const mine = barberView ? data?.by_staff.find((s) => s.staff_id === w.account?.staff_id) : null;
-  const headline = range === "unpaid" ? (owed?.owed ?? 0) : barberView ? (mine?.earnings ?? 0) : (t ? t.service + t.tips : 0);
+  const headline = range === "unpaid" ? (owed?.owed ?? 0) : range === "today" ? (dayInfo?.taken ?? (barberView ? (mine ? mine.service + mine.tips : 0) : (t ? t.service + t.tips : 0))) : barberView ? (mine?.earnings ?? 0) : (t ? t.service + t.tips : 0);
+
   const label = range === "unpaid" ? (data && data.from < data.to ? `since ${shortDate(data.from)}` : "so far") : range === "today" ? (day === w.today ? "today" : dayLabel) : RANGES.find((r) => r.key === range)!.label.toLowerCase();
 
   return (
@@ -116,18 +142,32 @@ export function WalletDrawer({
         </h2>
         <div className="segmented wallet-range" aria-label="Wallet period">
           {RANGES.map((r) => (
-            <button key={r.key} type="button" aria-pressed={range === r.key} onClick={() => setRange(r.key)}>
+            <button key={r.key} type="button" aria-pressed={range === r.key} onClick={() => { setRange(r.key); if (r.key !== "today") setCalOpen(false); }}>
               {r.key === "today" ? dayLabel : r.label}
             </button>
           ))}
         </div>
+        {range === "today" && (
+          <div className="wq-day" data-testid="wallet-drawer-day">
+            <div className="wq-daybar">
+              <IconButton name="left" label="Previous day" onClick={() => stepDay(-1)} data-testid="wallet-prev-day" />
+              <button type="button" className="wq-daylabel" aria-expanded={calOpen} onClick={() => { setCalOpen((v) => !v); setCalMonth(walletMonthStart(day)); }} data-testid="wallet-day-label">
+                <Icon name="calendar" size={15} /> {day === w.today ? `Today · ${longDate(day)}` : longDate(day)}
+              </button>
+              <IconButton name="right" label="Next day" disabled={day >= w.today} onClick={() => stepDay(1)} data-testid="wallet-next-day" />
+            </div>
+            {calOpen && (
+              <MonthGrid month={calMonth} today={w.today} selected={day} days={monthDays} onMonth={setCalMonth} onPick={(d) => { setDay(d); setCalOpen(false); }} owedLabel={barberView ? "owed to you" : "owed to barbers"} />
+            )}
+          </div>
+        )}
         {error && (
           <p className="workspace-error" role="alert">
             {error}
           </p>
         )}
         <WalletHero
-          label={range === "unpaid" ? (barberView ? `Owed to you, not yet paid · ${label}` : `Unpaid · owed to barbers ${label}`) : barberView ? `Earned ${label}` : `Taken ${label}`}
+          label={range === "unpaid" ? (barberView ? `Owed to you, not yet paid · ${label}` : `Unpaid · owed to barbers ${label}`) : range === "today" ? (barberView ? `You took ${label}` : `Taken ${label}`) : barberView ? `Earned ${label}` : `Taken ${label}`}
           pill={data ? `${t!.visits} paid visit${t!.visits === 1 ? "" : "s"}` : undefined}
           amount={money(headline)}
           stats={
@@ -136,6 +176,12 @@ export function WalletDrawer({
                   { value: money(owed?.taken ?? 0), label: "Taken" },
                   { value: money(owed?.card ?? 0), label: "Card" },
                   { value: money(owed?.kept ?? 0), label: "Cash & transfer kept" },
+                ]
+              : range === "today"
+              ? [
+                  { value: money(dayInfo?.reader ?? 0), label: "Card" },
+                  { value: money(dayInfo?.kept ?? 0), label: "Cash & transfer kept" },
+                  { value: money(dayInfo?.owed_to_barbers ?? 0), label: barberView ? "Owed to you" : "Owed to barbers" },
                 ]
               : barberView
               ? [
@@ -161,8 +207,36 @@ export function WalletDrawer({
             ))}
           </div>
         )}
-        {barberView && mine && <BarberMoney s={mine} name="You" self />}
-        {!barberView && data && data.by_staff.length > 0 && (
+        {range === "today" && dayInfo && (
+          <section data-testid="wallet-drawer-daybarbers">
+            <p className="list-label">{barberView ? "Your day" : "Each barber this day"}</p>
+            {dayInfo.barbers.length === 0 && <p className="drawer-note left">Nothing taken on {longDate(day)}.</p>}
+            <div className="wq-barbers">
+              {dayInfo.barbers.map((b) => (
+                <div key={b.staff_id} className="wq-daycard" data-testid="wallet-day-barber" data-staff={b.staff_id}>
+                  <header>
+                    <strong>{barberView ? "You" : b.name}</strong>
+                    {b.paid ? <StatusPill tone="paid">Paid</StatusPill> : <span className="muted">{b.visits} visit{b.visits === 1 ? "" : "s"}{b.zero_visits ? ` · ${b.zero_visits} at £0` : ""}</span>}
+                  </header>
+                  {!barberView && <small className="muted">{payLine(w.staff.find((x) => x.id === b.staff_id))}</small>}
+                  <dl className="wq-dayline">
+                    <div><dt>Taken</dt><dd data-testid="wdb-taken">{money(b.taken)}</dd></div>
+                    <div><dt>Card</dt><dd data-testid="wdb-card">{money(b.reader + b.online)}</dd></div>
+                    <div><dt>Cash</dt><dd data-testid="wdb-cash">{money(b.cash)}</dd></div>
+                    <div><dt>Transfer</dt><dd>{money(b.transfer + b.other)}</dd></div>
+                  </dl>
+                  <p className="wq-dayowed">
+                    {b.fee > 0 && <span>Fee − {money(b.fee)}</span>}
+                    {b.rent > 0 && <span>Rent − {money(b.rent)}</span>}
+                    <b className={b.owed < 0 ? "neg" : ""} data-testid="wdb-owed">{b.owed < 0 ? `${barberView ? "You owe" : "Owes"} the shop ${money(-b.owed)}` : `Owed ${money(b.owed)}`}</b>
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+        {barberView && mine && range !== "today" && <BarberMoney s={mine} name="You" self />}
+        {!barberView && range !== "today" && data && data.by_staff.length > 0 && (
           <section>
             <p className="list-label">By barber</p>
             <div className="wallet-barbers" data-testid="wallet-barbers">

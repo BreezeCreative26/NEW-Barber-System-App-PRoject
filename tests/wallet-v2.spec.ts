@@ -234,3 +234,52 @@ test("£0 visit completes without choosing a payment method", async ({ page }) =
   expect(rows.length).toBe(1);
   expect(rows[0]).toMatchObject({ service_pence: 0, tip_pence: 0 });
 });
+
+test("side panel: step through each day and see what each barber took; barber sees only their own days", async ({ page, browser }) => {
+  test.setTimeout(120000);
+  await openFixtureShop(page, "owner");
+  const w = await (await page.request.get(base + "/workspace")).json();
+  await page.getByTestId("wallet-chip").click();
+  const drawer = page.getByTestId("wallet-drawer");
+  // Opens on Unpaid = what's owed now.
+  await expect(drawer.getByTestId("wallet-hero")).toContainText("owed to barbers");
+  // Day tab: today, then step back a day, then pick from the calendar.
+  await drawer.getByRole("button", { name: "Today", exact: true }).click();
+  await expect(drawer.getByTestId("wallet-hero")).toContainText("Taken today");
+  await drawer.getByTestId("wallet-prev-day").click();
+  await expect(drawer.getByTestId("wallet-day-label")).not.toContainText("Today");
+  const yesterday = new Date(w.today + "T12:00:00Z"); yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const y = yesterday.toISOString().slice(0, 10);
+  const api = await (await page.request.get(base + `/wallet/days?from=${y}&to=${y}`)).json();
+  const taken = api.days[0].taken;
+  // Each barber's card on the day matches the day figures.
+  for (const b of api.days[0].barbers) {
+    const card = drawer.locator(`[data-testid="wallet-day-barber"][data-staff="${b.staff_id}"]`);
+    await expect(card.getByTestId("wdb-taken")).toHaveText(new RegExp("£" + (b.taken / 100).toLocaleString("en-GB", { minimumFractionDigits: b.taken % 100 ? 2 : 0 }).replace(".", "\\.")));
+  }
+  const pence = (t: string) => Math.round(Number(t.replace(/[^0-9.]/g, "")) * 100);
+  await expect.poll(async () => pence(await drawer.getByTestId("wallet-hero").locator(".hero-amount").innerText())).toBe(taken);
+  await drawer.getByTestId("wallet-day-label").click();
+  await expect(drawer.getByTestId("wallet-calendar")).toBeVisible();
+  await page.screenshot({ path: "test-results/wallet-side-days.png" });
+  await drawer.locator('[data-testid="wallet-cal-day"]:not([disabled])').first().click();
+  await expect(drawer.getByTestId("wallet-calendar")).toBeHidden();
+  await expect(drawer.getByTestId("wallet-next-day")).toBeEnabled();
+
+  // A barber: own money only, day by day.
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const bp = await ctx.newPage();
+  await openFixtureShop(bp, "barber");
+  const bw = await (await bp.request.get(base + "/workspace")).json();
+  await bp.getByTestId("wallet-chip").click();
+  const bd = bp.getByTestId("wallet-drawer");
+  await expect(bd).toContainText("My earnings");
+  await bd.getByRole("button", { name: "Today", exact: true }).click();
+  await expect(bd.getByTestId("wallet-hero")).toContainText("You took today");
+  await bd.getByTestId("wallet-prev-day").click();
+  for (const el of await bd.getByTestId("wallet-day-barber").all()) await expect(el).toHaveAttribute("data-staff", bw.account.staff_id);
+  const days = await (await bp.request.get(base + `/wallet/days?from=${y}&to=${y}`)).json();
+  expect(days.days[0].barbers.every((b: any) => b.staff_id === bw.account.staff_id)).toBe(true);
+  await bp.screenshot({ path: "test-results/wallet-side-days-barber.png" });
+  await ctx.close();
+});
