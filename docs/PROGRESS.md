@@ -1,5 +1,11 @@
 # Barbershop OS — Progress and next-session handoff
 
+## 2026-11-12 — Wallet side panel: step through any day, per barber
+- The day tab in the wallet side panel now has ‹ › and a month calendar (each day shows taken and owed). Pick any past day to see what was taken (card / cash & transfer kept) and what it added to the wallet, with one card per barber: taken, card, cash, transfer, fee, rent, owed, visits and £0 visits, and "Paid" once that day has been settled.
+- Unpaid (the opening tab) is still what each barber is owed now. Barbers only ever see their own day and their own wallet (server-scoped via `/wallet/days`).
+- Day figures come from `/wallet/days`, the same maths as the full wallet and the calendar.
+- Tests: `tests/wallet-v2.spec.ts` (+1, side panel days for owner and barber); wallet-money updated for the per-day barber card. payments, wallet-chip-fixed, wallet-own-only pass.
+
 ## 2026-11-11 — Wallet: owed is card money only, day by day, paid history, Mark paid on any date; £0 checkout with no method
 - **Owed = card money in the shop's account (card reader / online card) less the 1.5% card reader fee and chair rent.** Cash, transfers and other hand payments are shown as "kept" and never owed; £0 visits count as visits only. The wallet chip shows this owed figure (was total taken).
 - **Quick view unchanged:** tapping the wallet opens the same drawer (Unpaid / Today / week / month, method tiles, per-barber cards). Desktop has an expand icon in the header, phones a **More detail** button. Both open the **full wallet** overlay (Back returns to the quick view, Escape closes): day by day with ‹ › and a month calendar (each day shows taken and owed), each barber's open wallet (taken by method, fee, rent, owed, every payment) and **every paid window** (dates, paid on, how, amount, tally, days, payments).

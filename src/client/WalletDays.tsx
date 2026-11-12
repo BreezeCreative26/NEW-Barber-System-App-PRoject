@@ -84,7 +84,9 @@ export function WalletDays({ w, api, self, onOpenBooking }: { w: WorkspaceData; 
 }
 
 // Month calendar: each day shows what was taken and what it added to the wallet.
-function MonthGrid({ month, today, selected, days, onMonth, onPick }: { month: string; today: string; selected: string; days: WalletDay[]; onMonth: (m: string) => void; onPick: (d: string) => void }) {
+export const walletMonthStart = monthStart;
+export const walletMonthEnd = monthEnd;
+export function MonthGrid({ month, today, selected, days, onMonth, onPick, owedLabel = "owed to barbers" }: { month: string; today: string; selected: string; days: WalletDay[]; onMonth: (m: string) => void; onPick: (d: string) => void; owedLabel?: string }) {
   const first = new Date(month + "T12:00:00Z");
   const lead = (first.getUTCDay() + 6) % 7;
   const end = monthEnd(month);
@@ -114,7 +116,7 @@ function MonthGrid({ month, today, selected, days, onMonth, onPick }: { month: s
           );
         })}
       </div>
-      <p className="drawer-note left"><small>top</small> taken · <em>bottom</em> owed to barbers</p>
+      <p className="drawer-note left"><small>top</small> taken · <em>bottom</em> {owedLabel}</p>
     </div>
   );
 }
