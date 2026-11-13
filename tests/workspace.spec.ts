@@ -592,7 +592,7 @@ test("insights tab renders period-scoped aggregates from saved records at deskto
   // Switching the period re-reads and keeps the pressed state in sync.
   await period.getByRole("button", { name: "Year" }).click();
   await expect(period.getByRole("button", { name: "Year" })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText(/saved appointment records only/)).toBeVisible();
+  await expect(page.getByText(/visits from saved appointments; Taken is money/)).toBeVisible();
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     await expect(page.getByRole("heading", { name: "Shop insights" })).toBeVisible();
