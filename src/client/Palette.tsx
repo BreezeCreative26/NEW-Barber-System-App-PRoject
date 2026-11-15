@@ -156,7 +156,8 @@ export function SearchPalette({
   );
 }
 
-// Account menu under the top-right pill: who you are, switch section, password, sign out.
+// Account menu under the top-right pill: just you (account, shop page, sign out). Sections live in
+// the sidebar on desktop and the bottom bar on phones, so they are not repeated here.
 export function AccountMenu({
   w,
   onClose,
@@ -197,13 +198,8 @@ export function AccountMenu({
         </small>
       </div>
       <button type="button" role="menuitem" onClick={() => { onClose(); onAccounts(); }}>
-        <Icon name="userRound" size={16} /> Account & team access
+        <Icon name="userRound" size={16} /> My account & team access
       </button>
-      {onSettings && (
-        <button type="button" role="menuitem" onClick={() => { onClose(); onSettings(); }}>
-          <Icon name="settings" size={16} /> Shop settings
-        </button>
-      )}
       {onPublicPage && (
         <button type="button" role="menuitem" onClick={() => { onClose(); onPublicPage(); }}>
           <Icon name="globe" size={16} /> View shop page as a customer

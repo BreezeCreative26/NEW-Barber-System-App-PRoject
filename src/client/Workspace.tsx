@@ -1630,6 +1630,25 @@ export function Workspace() {
   // Team inbox: what happened (bookings, cancellations, moves, no-shows) for this login only.
   const [inbox, setInbox] = useState<TeamInbox | null>(null);
   const loadInbox = () => api<TeamInbox>("/inbox").then(setInbox).catch(() => {});
+  // Mark read locally first so the bell badge clears the instant you tap (no ids = everything).
+  const markInboxRead = (ids?: string[]) =>
+    setInbox((cur) => {
+      if (!cur) return cur;
+      const events = cur.events.map((e) => (!ids || ids.includes(e.id) ? { ...e, unread: false } : e));
+      return { ...cur, events, unread: events.filter((e) => e.unread).length };
+    });
+  // Keep the phone/app icon badge and the tray in step with the bell: once something is read, its
+  // push notification is closed too, so nothing lingers on the home screen or lock screen.
+  useEffect(() => {
+    if (!inbox) return;
+    const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    (inbox.unread ? nav.setAppBadge?.(inbox.unread) : nav.clearAppBadge?.())?.catch(() => {});
+    const unreadTags = new Set(inbox.events.filter((e) => e.unread).map((e) => `evt-${e.id}`));
+    navigator.serviceWorker?.getRegistration("/workspace")
+      .then((reg) => reg?.getNotifications())
+      .then((list) => list?.forEach((n) => { if (!unreadTags.has(n.tag)) n.close(); }))
+      .catch(() => {});
+  }, [inbox]);
 
   const [queueOpen, setQueueOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
@@ -2204,8 +2223,12 @@ export function Workspace() {
         { key: "Appointments", label: "Today", icon: "sun" },
         { key: "Insights", label: "Insights", icon: "trend" },
         { key: "Customers", label: "Customers", icon: "contact" },
+        // Barbers have no "More": their one extra (pay) sits on the bar itself.
+        ...(manager ? [] : navItems.filter((n) => n.key === "Pay" || n.key === "MyPay")),
       ];
-  const phoneMore = barberApp ? [] : navItems.filter((n) => !phoneNav.some((p) => p.key === n.key));
+  // Phone has one menu for sections (the bottom bar, + More for owners/managers) and one for you
+  // (the avatar: account, shop page, sign out). Accounts lives in the avatar menu, not in More.
+  const phoneMore = barberApp || !manager ? [] : navItems.filter((n) => n.key !== "Accounts" && !phoneNav.some((p) => p.key === n.key));
   function goTo(name: string) {
     if (setupOpen) { setSetupOpen(false); history.replaceState(null, "", "/workspace"); }
     if (name === "Week") {
@@ -2347,7 +2370,6 @@ export function Workspace() {
         Skip to content
       </a>
       <TopBar
-        onMenu={w && !barberApp ? () => setSidebarOpen((v) => !v) : undefined}
         menuOpen={sidebarOpen}
         onSearch={() => w && setSearchOpen(true)}
         wallet={
@@ -2389,7 +2411,6 @@ export function Workspace() {
           w={w}
           onClose={() => setAccountOpen(false)}
           onAccounts={() => goTo("Accounts")}
-          onSettings={manager ? () => goTo("Settings") : undefined}
           onPublicPage={w.shop.slug && w.shop.online_booking ? () => window.open(`/${w.shop.slug}`, "_blank", "noopener") : undefined}
           onSignOut={async () => {
             if (!canNavigate()) return;
@@ -2482,6 +2503,7 @@ export function Workspace() {
           w={w}
           inbox={inbox}
           onInbox={loadInbox}
+          onRead={markInboxRead}
           onOpenBooking={(id) => {
             setNotificationsOpen(false);
             openBooking(id);
@@ -5348,7 +5370,7 @@ function agoLabel(at: number, now = Date.now()) {
   if (day === "Yesterday") return `Yesterday ${d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
   return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 }
-function NotificationsDrawer({ w, inbox, onInbox, onOpenBooking, onReview, onClose }: { w: WorkspaceData; inbox: TeamInbox | null; onInbox: () => void | Promise<void>; onOpenBooking: (bookingId: string) => void; onReview: (bookingId: string) => void; onClose: () => void }) {
+function NotificationsDrawer({ w, inbox, onInbox, onRead, onOpenBooking, onReview, onClose }: { w: WorkspaceData; inbox: TeamInbox | null; onInbox: () => void | Promise<void>; onRead: (ids?: string[]) => void; onOpenBooking: (bookingId: string) => void; onReview: (bookingId: string) => void; onClose: () => void }) {
   // Opening the bell no longer marks anything read: use "Mark all read", or open an item.
   const [tab, setTab] = useState<"activity" | "attention">(() => (!inbox?.unread && w.issues.some((i) => !(inbox?.dismissed ?? []).includes(issueKey(i))) ? "attention" : "activity"));
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -5419,13 +5441,19 @@ function NotificationsDrawer({ w, inbox, onInbox, onOpenBooking, onReview, onClo
       unhide([...u.cleared.map((id) => `e:${id}`), ...u.dismissed.map((k) => `i:${k}`)]);
     } catch (e) { fail(e); }
   }
+  // Read state flips on screen (and on the bell badge) at once; the server catches up behind it.
   async function markAll() {
     setError("");
-    try { await api("/inbox/read", "POST", {}); onInbox(); } catch (e) { fail(e); }
+    onRead();
+    try { await api("/inbox/read", "POST", {}); } catch (e) { fail(e); }
+    onInbox();
   }
   const open = (ev: TeamInbox["events"][number]) => {
-    if (ev.unread) api("/inbox/read", "POST", { ids: [ev.id] }).then(onInbox).catch(() => {});
-    if (ev.booking_id) onOpenBooking(ev.booking_id);
+    if (ev.unread) {
+      onRead([ev.id]);
+      api("/inbox/read", "POST", { ids: [ev.id] }).then(onInbox).catch(() => {});
+    }
+    if (ev.booking_id && ev.kind !== "cancelled") onOpenBooking(ev.booking_id);
   };
   const now = Date.now();
   const groups = (["Today", "Yesterday", "Earlier"] as const).map((d) => [d, events.filter((e) => dayLabel(e.created_at, now) === d)] as const).filter(([, l]) => l.length);
@@ -5433,76 +5461,89 @@ function NotificationsDrawer({ w, inbox, onInbox, onOpenBooking, onReview, onClo
   return (
     <>
       <div className="drawer-scrim" onClick={onClose} aria-hidden="true" />
-      <aside className="drawer-right notifications-drawer bell-v3" aria-label="Notifications" ref={ref} data-testid="notifications">
-        <h2>
-          Notifications
-          <small data-testid="bell-summary">{summary}</small>
+      <aside className="drawer-right notifications-drawer bell-v3 bell-v4" aria-label="Notifications" ref={ref} data-testid="notifications">
+        <header className="bell-head">
+          <div>
+            <h2>Notifications</h2>
+            <small data-testid="bell-summary">{summary}</small>
+          </div>
+          {tab === "activity" && unread > 0 && (
+            <button type="button" className="bell-markall" onClick={markAll} data-testid="bell-mark-all">
+              <Icon name="check" size={14} /> Mark all read
+            </button>
+          )}
           <IconButton name="close" label="Close notifications" onClick={onClose} />
-        </h2>
-        <div className="bell-tabs" role="tablist" aria-label="Notification type">
+        </header>
+        <div className="bell-seg" role="tablist" aria-label="Notification type">
           <button type="button" role="tab" aria-selected={tab === "activity"} className={tab === "activity" ? "on" : ""} onClick={() => setTab("activity")} data-testid="bell-tab-activity">
             Activity{unread > 0 && <span className="n">{unread}</span>}
           </button>
           <button type="button" role="tab" aria-selected={tab === "attention"} className={tab === "attention" ? "on" : ""} onClick={() => setTab("attention")} data-testid="bell-tab-attention">
-            Needs attention{issues.length > 0 && <span className="n">{issues.length}</span>}
+            Needs attention{issues.length > 0 && <span className="n warn">{issues.length}</span>}
           </button>
         </div>
         {error && <p className="bell-error" role="alert">{error}</p>}
         {tab === "activity" ? (
-          <>
-            {events.length > 0 && (
-              <div className="bell-actions">
-                <button type="button" className="workspace-text-button" onClick={markAll} disabled={!unread} data-testid="bell-mark-all">Mark all read</button>
-                <button type="button" className="workspace-text-button muted" onClick={clearAll} data-testid="bell-clear-all">Clear all</button>
+          <div className="bell-list" data-testid="team-events">
+            {groups.map(([day, list]) => (
+              <section key={day} aria-label={day}>
+                <h3 className="bell-day">{day}</h3>
+                <ul className="bell-items">
+                  {list.map((ev) => (
+                    <li key={ev.id} className={`bell-item${ev.unread ? " unread" : ""}`} data-testid="bell-item">
+                      <button type="button" className="bell-row" onClick={() => open(ev)} aria-label={`${ev.title}. ${ev.body}${ev.unread ? ". Unread" : ""}`}>
+                        <span className={`bell-ic ${ev.kind}`} aria-hidden="true"><Icon name={BELL_ICON[ev.kind] || "bell"} size={16} /></span>
+                        <span className="bell-tx">
+                          <strong>{ev.title}</strong>
+                          <span className="bell-body">{ev.body}</span>
+                          <time dateTime={new Date(ev.created_at).toISOString()}>{agoLabel(ev.created_at, now)}{ev.booking_id && ev.kind !== "cancelled" ? " · Open booking" : ""}</time>
+                        </span>
+                        {ev.unread && <span className="bell-dot" aria-hidden="true" />}
+                      </button>
+                      <button type="button" className="bell-clr" aria-label={`Clear: ${ev.title}`} title="Clear" onClick={() => clearOne(ev.id)} data-testid="bell-clear">
+                        <Icon name="close" size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+            {!events.length && (
+              <div className="bell-empty">
+                <span className="bell-empty-ic"><Icon name="bell" size={22} /></span>
+                <b>You're all caught up</b>
+                <span>New bookings, cancellations and moves{inbox && !inbox.all ? " for your bookings" : ""} will show here.</span>
               </div>
             )}
-            <div className="bell-list" data-testid="team-events">
-              {groups.map(([day, list]) => (
-                <section key={day} aria-label={day}>
-                  <h3 className="bell-day">{day}</h3>
-                  <ul className="bell-items">
-                    {list.map((ev) => (
-                      <li key={ev.id} className={`bell-item${ev.unread ? " unread" : ""}`} data-testid="bell-item">
-                        <span className={`bell-ic ${ev.kind}`} aria-hidden="true"><Icon name={BELL_ICON[ev.kind] || "bell"} size={15} /></span>
-                        <div className="bell-tx">
-                          <strong>{ev.title}<time dateTime={new Date(ev.created_at).toISOString()}>{agoLabel(ev.created_at, now)}</time></strong>
-                          <p>{ev.body}</p>
-                          {ev.booking_id && ev.kind !== "cancelled" && (
-                            <div className="bell-acts"><button type="button" onClick={() => open(ev)}>Open booking</button></div>
-                          )}
-                        </div>
-                        <button type="button" className="bell-clr" aria-label={`Clear: ${ev.title}`} title="Clear" onClick={() => clearOne(ev.id)} data-testid="bell-clear">
-                          <Icon name="close" size={14} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ))}
-              {!events.length && (
-                <p className="bell-empty"><Icon name="bell" size={26} />No notifications{inbox && !inbox.all ? " for your bookings" : ""}. New bookings, cancellations and moves will show here.</p>
-              )}
-            </div>
-          </>
+            {events.length > 0 && (
+              <button type="button" className="bell-clearall" onClick={clearAll} data-testid="bell-clear-all">Clear all notifications</button>
+            )}
+          </div>
         ) : (
           <div className="bell-list" data-testid="bell-attention">
-            {issues.length > 0 && <p className="bell-note">Appointments that no longer fit the rota, hours or closures.</p>}
+            {issues.length > 0 && <p className="bell-note">Appointments that no longer fit the rota, opening hours or closures.</p>}
             <ul className="bell-items">
               {issues.map((issue) => (
-                <li key={issueKey(issue)} className="bell-item" data-testid="bell-issue">
-                  <span className="bell-ic review" aria-hidden="true"><Icon name="alert" size={15} /></span>
+                <li key={issueKey(issue)} className="bell-item bell-issue" data-testid="bell-issue">
+                  <span className="bell-ic review" aria-hidden="true"><Icon name="alert" size={16} /></span>
                   <div className="bell-tx">
                     <strong>{issue.ref}</strong>
-                    <p>{issue.reason}</p>
+                    <span className="bell-body">{issue.reason}</span>
                     <div className="bell-acts">
-                      <button type="button" onClick={() => onReview(issue.booking_id)}>Review appointment</button>
+                      <button type="button" className="primary" onClick={() => onReview(issue.booking_id)}>Review</button>
                       <button type="button" onClick={() => dismiss(issueKey(issue))} data-testid="bell-dismiss">Dismiss</button>
                     </div>
                   </div>
                 </li>
               ))}
             </ul>
-            {!issues.length && <p className="bell-empty"><Icon name="paid" size={26} />Nothing needs your attention.</p>}
+            {!issues.length && (
+              <div className="bell-empty">
+                <span className="bell-empty-ic ok"><Icon name="check" size={22} /></span>
+                <b>Nothing needs your attention</b>
+                <span>Clashes with the rota, hours or closures show up here.</span>
+              </div>
+            )}
           </div>
         )}
         {undo && (
