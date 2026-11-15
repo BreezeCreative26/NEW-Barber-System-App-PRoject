@@ -1,7 +1,7 @@
 // Public shop home page at /<slug>: the customer's front door. Booking lives on its own page
 // (/book on the shop's host); every card here deep-links into that flow with the choice made.
 import { Boot, useLive } from "./boot";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { type BookingPreset } from "./PublicBooking";
 import { Avatar, Icon } from "./ui";
 import { ShopTabBar } from "./ShopTabBar";
@@ -123,12 +123,34 @@ export function ShopPage({ slug }: { slug: string }) {
     const q = new URLSearchParams(location.search);
     if (location.hash === "#book" || ["service", "staff", "date", "start", "step"].some((k) => q.has(k))) location.replace(bookHref(slug, presetFromQuery(q)));
   }, [slug]);
+  const [missing, setMissing] = useState(false);
+  const missingRef = useRef(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    fetch(`/api/public/shops/${encodeURIComponent(slug)}/page`)
-      .then(async (r) => {
-        if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.message || "This shop page is not available.");
-        return r.json() as Promise<PageData>;
-      })
+    // A busy moment on the server shouldn't show "Shop not found": retry quietly, and only call the
+    // shop missing when the server says so (404).
+    const load = async (): Promise<PageData> => {
+      let last = "Could not load this shop.";
+      for (let i = 0; i < 3; i++) {
+        try {
+          const r = await fetch(`/api/public/shops/${encodeURIComponent(slug)}/page`);
+          if (r.ok) return (await r.json()) as PageData;
+          const body = (await r.json().catch(() => ({}))) as { message?: string; error?: string };
+          if (r.status === 404 && body.error !== "database_unavailable") {
+            missingRef.current = true;
+            setMissing(true);
+            throw new Error(body.message || "This shop page is not available.");
+          }
+          last = body.message || last;
+        } catch (e) {
+          if (e instanceof Error && e.message && missingRef.current) throw e;
+        }
+        await new Promise((res) => setTimeout(res, 400 * (i + 1)));
+      }
+      throw new Error(last);
+    };
+    setError("");
+    load()
       .then((d) => {
         setCurrency(d.shop.currency);
         setData(d);
@@ -136,12 +158,18 @@ export function ShopPage({ slug }: { slug: string }) {
         document.title = `${d.shop.name} · Book online`;
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load this shop."));
-  }, [slug]);
+  }, [slug, attempt]);
   if (error)
-    return (
+    return missing ? (
       <main className="state-card">
         <h1>Shop not found</h1>
         <p>{error}</p>
+      </main>
+    ) : (
+      <main className="state-card">
+        <h1>Couldn't load the shop</h1>
+        <p>Something went wrong on our side. Please try again.</p>
+        <button type="button" className="button primary" onClick={() => setAttempt((n) => n + 1)} data-testid="shop-retry">Try again</button>
       </main>
     );
   if (!data)
