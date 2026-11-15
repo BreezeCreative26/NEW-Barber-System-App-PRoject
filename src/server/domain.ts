@@ -389,6 +389,12 @@ export type StoredBooking = {
   stripe_refund_id?: string;
   items_edited_at?: number | null;
   payment_mode?: PaymentMode;
+  /** 1 = the customer chose this barber themselves (not "anyone"). */
+  requested_staff?: number;
+  /** Worked out per response: no earlier completed visit at this shop. */
+  first_visit?: boolean;
+  /** Worked out per response: this is the customer's usual (or set preferred) barber. */
+  fav_barber?: boolean;
 };
 export type BookingAdjustment = {
   id: string;
@@ -1076,6 +1082,8 @@ export const publicBookingSchema = z
     contact_pref: z.enum(["AUTO", "SMS", "WA", "EMAIL"]).default("AUTO"),
     // Version of the shop's terms the customer ticked on this booking (0 = none shown).
     accept_terms_version: z.number().int().min(0).optional(),
+    // The customer picked this barber themselves rather than "anyone available".
+    requested_barber: z.boolean().optional(),
     notes: z.string().trim().max(500).default(""),
     date: dateSchema,
     start_min: z

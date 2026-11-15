@@ -696,6 +696,7 @@ sandbox.get("/bookings", async (c) => {
     .bind(...values, q.limit + 1)
     .all<StoredBooking>();
   const rows = result.results.slice(0, q.limit).map((b) => redact(account, b));
+  await visitFlags(c, rows).catch(() => rows);
   // Shop-made bookings keep the email on the customer record; surface it so the calendar can
   // offer "Email" when telling someone their appointment moved.
   const ids = [...new Set(rows.filter((r) => !r.email && r.customer_id).map((r) => r.customer_id!))];
@@ -728,6 +729,33 @@ sandbox.get("/changes", async (c) => {
   const held = await holdsCursor(c.env.DB, c.get("shopId")).catch(() => "0");
   return c.json({ cursor: `${row?.at ?? 0}:${row?.n ?? 0}:${held}`, at: Number(row?.at ?? 0), now: Date.now() });
 });
+// Calendar flags worked out per response (not stored): a customer's first visit, and whether this is
+// their usual barber (set as preferred on their record, or the barber they've seen most, 2+ visits).
+async function visitFlags<T extends { customer_id?: string | null; staff_id: string; start_at: number; first_visit?: boolean; fav_barber?: boolean }>(c: Ctx, rows: T[]): Promise<T[]> {
+  const ids = [...new Set(rows.filter((r) => r.customer_id && !(r as { busy?: number }).busy).map((r) => r.customer_id!))];
+  if (!ids.length) return rows;
+  const marks = ids.map(() => "?").join(",");
+  const [visits, prefs] = await Promise.all([
+    c.env.DB.prepare(`SELECT customer_id, staff_id, COUNT(*)::int AS n, MIN(start_at) AS first_at FROM bookings WHERE shop_id=? AND status='COMPLETED' AND customer_id IN (${marks}) GROUP BY customer_id, staff_id`).bind(c.get("shopId"), ...ids).all<{ customer_id: string; staff_id: string; n: number; first_at: number }>(),
+    c.env.DB.prepare(`SELECT id, preferred_staff_id FROM customers WHERE shop_id=? AND id IN (${marks})`).bind(c.get("shopId"), ...ids).all<{ id: string; preferred_staff_id: string | null }>(),
+  ]);
+  const first = new Map<string, number>(), top = new Map<string, { staff: string; n: number }>();
+  for (const v of visits.results) {
+    const at = Number(v.first_at);
+    if (!first.has(v.customer_id) || at < first.get(v.customer_id)!) first.set(v.customer_id, at);
+    const t = top.get(v.customer_id);
+    if (!t || v.n > t.n) top.set(v.customer_id, { staff: v.staff_id, n: v.n });
+  }
+  const pref = new Map(prefs.results.map((p) => [p.id, p.preferred_staff_id]));
+  for (const r of rows) {
+    if (!r.customer_id || (r as { busy?: number }).busy) continue;
+    const f = first.get(r.customer_id);
+    r.first_visit = f === undefined || f >= Number(r.start_at);
+    const t = top.get(r.customer_id);
+    r.fav_barber = !r.first_visit && (pref.get(r.customer_id) === r.staff_id || (!!t && t.staff === r.staff_id && t.n >= 2));
+  }
+  return rows;
+}
 sandbox.get("/workspace", async (c) => {
   const sid = c.get("shopId");
   const shop = await readShop(c);
@@ -782,7 +810,7 @@ sandbox.get("/workspace", async (c) => {
   const services = result[1].results as Service[];
   const hours = result[2].results as Hours[];
   const holidays = result[3].results as Holiday[];
-  const bookings = (result[4].results as StoredBooking[]).map((b) => redact(account, b));
+  const bookings = await visitFlags(c, (result[4].results as StoredBooking[]).map((b) => redact(account, b))).catch(() => (result[4].results as StoredBooking[]).map((b) => redact(account, b)));
   const daysOff = result[6].results as StaffDayOff[];
   const rules = result[9].results as StaffServiceRule[];
   const overrides = result[10].results as ScheduleOverride[];
@@ -3393,7 +3421,7 @@ export async function createBooking(
   // `force` is a shop-side decision, not part of what the customer asked for, so it stays out of the hash.
   // contact_pref is how we talk to the customer, not what they booked: like `force` it stays out
   // of the idempotency hash so an older client (no picker) replays cleanly.
-  const { addon_ids, email, customer_id, attendee_name, force: _force, contact_pref: _pref, notify: _notify, ...originalPayload } = b as typeof b & { customer_id?: string; attendee_name?: string; force?: boolean; contact_pref?: string; notify?: boolean };
+  const { addon_ids, email, customer_id, attendee_name, force: _force, contact_pref: _pref, notify: _notify, requested_barber: _req, ...originalPayload } = b as typeof b & { customer_id?: string; attendee_name?: string; force?: boolean; contact_pref?: string; notify?: boolean; requested_barber?: boolean };
   const contactPref = b.contact_pref && ["SMS", "WA", "EMAIL"].includes(b.contact_pref) ? b.contact_pref : "AUTO";
   const requestHash = await hash(
     JSON.stringify({
@@ -3488,8 +3516,8 @@ export async function createBooking(
     force: channel === "OWNER" && !!options.force, ownHash: options.holdKey ? await holderHash(sid, options.holdKey) : "", now,
   });
   const statement = c.env.DB.prepare(
-    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id,deposit_status,deposit_hold_until,payment_mode,contact_pref,buffer_min,customer_duration_min)
-  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
+    `INSERT INTO bookings(id,shop_id,sequence,request_id,request_hash,staff_id,service_id,customer_name,phone,notes,date,start_min,start_at,end_at,duration_min,service_name,price_pence,deposit_policy_pence,cancel_hours_snapshot,source,created_at,updated_at,quoted_service_version,quoted_shop_version,items_json,channel,email,series_id,customer_id,attendee_name,group_id,deposit_status,deposit_hold_until,payment_mode,contact_pref,buffer_min,customer_duration_min,requested_staff)
+  SELECT ?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM bookings WHERE shop_id=?`,
   ).bind(
     bookingId,
     sid,
@@ -3530,6 +3558,7 @@ export async function createBooking(
     contactPref,
     shopBuffer(data.shop),
     customerLength,
+    channel === "ONLINE" && (b as { requested_barber?: boolean }).requested_barber ? 1 : 0,
     sid,
   );
   try {

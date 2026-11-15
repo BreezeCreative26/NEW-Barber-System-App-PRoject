@@ -842,6 +842,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       addon_ids: [...extraIds].sort(),
       quote: availability.quote,
       ...(contact !== "AUTO" ? { contact_pref: contact } : {}),
+      ...(!anyBarber && barbers.length > 1 ? { requested_barber: true } : {}),
       ...(due || (accepted !== undefined && termsVersion > 0) ? { accept_terms_version: termsVersion } : {}),
       ...(repeatWeeks ? { repeat_weeks: repeatWeeks, repeat_visits: repeatVisits } : {}),
     };
