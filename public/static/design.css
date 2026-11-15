@@ -5813,3 +5813,17 @@ html.ws-dark .calendar-event.no-show, html.ws-dark .week-card.no-show { backgrou
   .workspace .week-person .week-card.one-line > strong { flex-direction: row; align-items: baseline; gap: 4px; }
   .workspace .week-person .week-card.one-line > strong time { display: none; }
 }
+
+/* ===== Appointment icons v3: calmer, max three per card + "+N" ===== */
+.bi { width: 15px; height: 15px; flex-basis: 15px; border-radius: 4px; box-shadow: none; }
+.bi svg { width: 9px !important; height: 9px !important; stroke-width: 2.5; }
+.bi-first { background: #fef9c3; color: #a16207; }
+.bi-fav { background: #ffe4e6; color: #e11d48; }
+.bi-fav svg { fill: currentColor; }
+.bi-requested { background: #e0e7ff; color: #4338ca; }
+.bi-series { background: #f1f5f9; color: #475569; }
+.bi-online, .bi-walkin { background: #f1f5f9; color: #475569; }
+.bi-more { width: auto; min-width: 15px; padding: 0 3px; background: rgba(15,23,42,.08); color: #334155; font: 700 9.5px/15px var(--font, system-ui); letter-spacing: -.02em; }
+.calendar-event .block-icons { gap: 2px; }
+.calendar-event.finished .bi { opacity: .75; }
+html.ws-dark .bi-online, html.ws-dark .bi-walkin, html.ws-dark .bi-series, html.ws-dark .bi-notes, html.ws-dark .bi-more { background: rgba(255,255,255,.12); color: #e5e7eb; }

@@ -301,12 +301,6 @@ export function Calendar({
     const ends = h.left_at ? Math.min(h.expires_at, h.left_at + 120000) : h.expires_at;
     return Math.max(0, ends - (Date.now() + skew.current));
   };
-  // Returning customers: the same customer record holds more than one saved visit in the workspace snapshot.
-  const regulars = (() => {
-    const seen = new Map<string, number>();
-    for (const b of w.bookings) if (b.customer_id && b.status !== "CANCELLED") seen.set(b.customer_id, (seen.get(b.customer_id) ?? 0) + 1);
-    return new Set([...seen].filter(([, n]) => n > 1).map(([id]) => id));
-  })();
   const occupied = bookings.filter(
     (b) => !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
@@ -981,16 +975,19 @@ export function Calendar({
                           const px = (b.duration_min / 15) * step;
                           const icons = (
                             <BlockIcons
-                              online={b.channel === "ONLINE"}
-                              series={!!b.series_id}
-                              walkIn={b.source === "WALK_IN"}
+                              max={lane.lanes > 1 ? 2 : 3}
+                              noShow={b.status === "NO_SHOW"}
                               paid={paid.has(b.id)}
-                              regular={!!b.customer_id && regulars.has(b.customer_id)}
                               deposit={b.deposit_status === "PAID"}
                               depositDue={b.deposit_status === "PENDING"}
+                              firstVisit={!!b.first_visit && b.source !== "WALK_IN"}
+                              fav={!!b.fav_barber}
+                              requested={!!b.requested_staff}
                               notes={!!b.notes?.trim()}
                               group={!!b.group_id}
-                              noShow={b.status === "NO_SHOW"}
+                              series={!!b.series_id}
+                              online={b.channel === "ONLINE"}
+                              walkIn={b.source === "WALK_IN"}
                             />
                           );
                           // How many lines fit: the preset caps it, the card's height decides.

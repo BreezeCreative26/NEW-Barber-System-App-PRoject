@@ -831,32 +831,42 @@ export function StatusPill({ tone = "good", children, ...rest }: { tone?: "good"
   );
 }
 
-// The small icons on an appointment card. Each has a plain-English meaning shown on hover (desktop)
-// and read out by screen readers; IconLegend lists them all under "How the timetable works".
+// The small icons on an appointment card, most important first. A card shows at most three; the rest
+// fold into a "+N" badge whose hover tip lists them. Each has a plain-English meaning on hover
+// (desktop) and for screen readers; IconLegend lists them all under "How the timetable works".
 export const BLOCK_ICONS: { key: string; icon: string; label: string; hint: string; tone: string }[] = [
   { key: "noShow", icon: "alert", label: "No-show", hint: "The customer didn't turn up. Kept on the calendar in red.", tone: "noshow" },
   { key: "paid", icon: "paid", label: "Paid", hint: "Payment has been taken for this visit.", tone: "paid" },
   { key: "deposit", icon: "wallet", label: "Deposit paid", hint: "A deposit was paid online; the rest is due in the shop.", tone: "deposit" },
   { key: "depositDue", icon: "hourglass", label: "Deposit waiting", hint: "Waiting for the customer to pay their deposit.", tone: "due" },
+  { key: "firstVisit", icon: "sparkles", label: "First visit", hint: "New customer: their first visit to the shop.", tone: "first" },
+  { key: "fav", icon: "heart", label: "Favourite barber", hint: "This is their usual barber (the one they see most, or set as preferred).", tone: "fav" },
+  { key: "requested", icon: "userRound", label: "Asked for this barber", hint: "They chose this barber when booking online, not \"anyone\".", tone: "requested" },
+  { key: "notes", icon: "file", label: "Has notes", hint: "There are notes on this appointment. Open it to read them.", tone: "notes" },
+  { key: "group", icon: "users", label: "Group booking", hint: "Booked together with other people.", tone: "group" },
+  { key: "series", icon: "repeat", label: "Standing booking", hint: "Part of a repeating booking.", tone: "series" },
   { key: "online", icon: "globe", label: "Booked online", hint: "The customer booked themselves online.", tone: "online" },
   { key: "walkIn", icon: "footprints", label: "Walk-in", hint: "Came in without a booking.", tone: "walkin" },
-  { key: "regular", icon: "heart", label: "Returning customer", hint: "Has visited before.", tone: "regular" },
-  { key: "series", icon: "repeat", label: "Standing booking", hint: "Part of a repeating booking.", tone: "series" },
-  { key: "group", icon: "users", label: "Group booking", hint: "Booked together with other people.", tone: "group" },
-  { key: "notes", icon: "file", label: "Has notes", hint: "There are notes on this appointment. Open it to read them.", tone: "notes" },
 ];
-export function BlockIcons(props: { online?: boolean; regular?: boolean; series?: boolean; walkIn?: boolean; paid?: boolean; deposit?: boolean; depositDue?: boolean; notes?: boolean; group?: boolean; noShow?: boolean }) {
+export type BlockIconFlags = { online?: boolean; series?: boolean; walkIn?: boolean; paid?: boolean; deposit?: boolean; depositDue?: boolean; notes?: boolean; group?: boolean; noShow?: boolean; firstVisit?: boolean; fav?: boolean; requested?: boolean };
+export function BlockIcons({ max = 3, ...props }: BlockIconFlags & { max?: number }) {
   const on = (k: string) => !!(props as Record<string, boolean | undefined>)[k] && !(k === "deposit" && props.paid);
-  const shown = BLOCK_ICONS.filter((i) => on(i.key));
-  if (!shown.length) return null;
+  const all = BLOCK_ICONS.filter((i) => on(i.key));
+  if (!all.length) return null;
+  // Room for "+N" means one fewer icon; never fold away just a single icon.
+  const shown = all.length > max ? all.slice(0, max - 1) : all;
+  const rest = all.slice(shown.length);
   return (
-    <span className="block-icons" aria-label={shown.map((i) => i.label).join(", ")}>
+    <span className="block-icons" aria-label={all.map((i) => i.label).join(", ")}>
       {shown.map((i) => (
         <span key={i.key} className={`bi bi-${i.tone}`} data-tip={i.label} aria-hidden="true">
           <Icon name={i.icon} size={10} />
         </span>
       ))}
-      <span className="visually-hidden">{shown.map((i) => i.label).join(", ")}</span>
+      {rest.length > 0 && (
+        <span className="bi bi-more" data-tip={rest.map((i) => i.label).join(" · ")} aria-hidden="true">+{rest.length}</span>
+      )}
+      <span className="visually-hidden">{all.map((i) => i.label).join(", ")}</span>
     </span>
   );
 }
