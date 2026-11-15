@@ -172,12 +172,12 @@ export function accountLink(origin: string, shop: Shop, token: string, purpose: 
 
 // Welcome message after a booking created an account. With a password already chosen the link
 // opens the account; without one (legacy/code-only accounts) it is a one-time "set your password" link.
-export async function sendWelcome(c: Ctx, shop: Shop, account: AccountRow, origin: string, now = Date.now(), created = !account.password_hash) {
+export async function sendWelcome(c: Ctx, shop: Shop, account: AccountRow, origin: string, now = Date.now(), created = !account.password_hash, extra: Record<string, string | number> = {}) {
   if (!created) return [];
   const ms = await msgShop(c, shop.id);
   const vars = account.password_hash
-    ? { link: shopUrl(shop.slug || "", "/me", origin), install: 1, ready: 1, email: account.email }
-    : { link: accountLink(origin, shop, await issueToken(c, shop, account, "WELCOME", now), "WELCOME"), install: 1 };
+    ? { link: shopUrl(shop.slug || "", "/me", origin), install: 1, ready: 1, email: account.email, ...extra }
+    : { link: accountLink(origin, shop, await issueToken(c, shop, account, "WELCOME", now), "WELCOME"), install: 1, ...extra };
   return enqueue(c.env.DB, ms, { name: account.name, phone: account.phone, email: account.email }, "account_welcome", vars, { related: { type: "customer_account", id: account.id }, origin, channel: account.email ? "EMAIL" : "AUTO", now });
 }
 

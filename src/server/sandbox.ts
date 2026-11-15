@@ -3610,7 +3610,31 @@ sandbox.post("/bookings", async (c) => {
     if (b.notify) notified = await tellCustomer(c, result.booking, "booking_confirmed");
     await bellFor(c, "new_booking", result.booking);
   }
-  return c.json({ ...result, notified }, result.replayed ? 200 : 201);
+  // No account at this shop yet: create one and email the customer a branded "set your password"
+  // link, so they can see and manage their visits. Only with an email, only when the shop takes
+  // online bookings (that's where the account lives) and only if staff left "tell the customer" on.
+  let account_invite = "";
+  if (!result.replayed && b.notify && b.email && b.phone) {
+    try {
+      const shop = await readShop(c);
+      if (shop.slug && shop.online_booking === 1) {
+        const { byPhone, ensureAccount, sendWelcome } = await import("./customerAuth");
+        if (!(await byPhone(c, shop.id, b.phone))) {
+          const r = await ensureAccount(c, shop, { name: b.customer_name, phone: b.phone, email: b.email });
+          if (r.created && !r.conflict) {
+            const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
+            const welcome = await sendWelcome(c, shop, r.account, origin, Date.now(), true, { booked: 1 });
+            if (welcome.length) {
+              await c.env.DB.batch(welcome);
+              await drain(c.env.DB, welcome.length, Date.now(), { type: "customer_account", id: r.account.id }).catch(() => {});
+              account_invite = r.account.email;
+            }
+          }
+        }
+      }
+    } catch { /* the booking stands even if the account invite fails */ }
+  }
+  return c.json({ ...result, notified, account_invite }, result.replayed ? 200 : 201);
 });
 sandbox.get("/bookings/:id", async (c) =>
   c.json({ booking: redact(c.get("account"), await readBooking(c, c.req.param("id"), true)) }),
