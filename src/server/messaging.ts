@@ -229,9 +229,9 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
           }
         : {
             sms: `${n}: your account is ready. Set a password to see and manage your visits: ${v.link}`,
-            subject: `Your ${s} account`,
+            subject: v.booked ? `${s} has set up your account` : `Your ${s} account`,
             heading: who !== "there" ? `Welcome, ${who}.` : "Welcome.",
-            lines: [`Your ${s} account keeps every visit in one place: move or cancel, rebook your usual, and get reminders.`, "Set a password to finish. The link works once and lasts 24 hours.", v.install ? "Tip: add the shop to your home screen from the account page for one-tap access and reminders." : ""].filter(Boolean),
+            lines: [v.booked ? `${s} has booked you in and set up an account for you. It keeps every visit in one place: move or cancel, rebook your usual, and get reminders.` : `Your ${s} account keeps every visit in one place: move or cancel, rebook your usual, and get reminders.`, "Set a password to finish. The link works once and lasts 24 hours.", v.install ? "Tip: add the shop to your home screen from the account page for one-tap access and reminders." : ""].filter(Boolean),
             cta: { label: "Set my password", href: String(v.link) },
           };
     case "account_reset":
