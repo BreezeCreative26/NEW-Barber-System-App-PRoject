@@ -209,6 +209,13 @@ export function Calendar({
   // Bottom-edge resize: the card's END snaps to 15 minutes; duration = end - start.
   const [resizing, setResizing] = useState<{ id: string; duration: number; tick: number } | null>(null);
   const resizeRef = useRef<{ id: string; pointerId: number; origin: number } | null>(null);
+  // Touch: the bottom edge only starts a resize after a still hold, so a swipe that happens to land
+  // on it scrolls the day instead of stretching the appointment.
+  const resizePending = useRef<{ id: string; pointerId: number; startX: number; startY: number; timer: number } | null>(null);
+  const clearResizePending = () => {
+    if (resizePending.current) window.clearTimeout(resizePending.current.timer);
+    resizePending.current = null;
+  };
   const dragRef = useRef<{
     id: string;
     pointerId: number;
@@ -422,6 +429,23 @@ export function Calendar({
   function onResizePointerDown(e: ReactPointerEvent<HTMLSpanElement>, b: StoredBooking) {
     if (!onResize || b.status !== "CONFIRMED" || disabled || e.button !== 0) return;
     e.stopPropagation();
+    if (e.pointerType === "touch") {
+      clearResizePending();
+      const pointerId = e.pointerId;
+      resizePending.current = {
+        id: b.id, pointerId, startX: e.clientX, startY: e.clientY,
+        timer: window.setTimeout(() => {
+          const p = resizePending.current;
+          if (!p || p.id !== b.id) return;
+          resizePending.current = null;
+          resizeRef.current = { id: b.id, pointerId, origin: b.duration_min };
+          setResizing({ id: b.id, duration: b.duration_min, tick: 0 });
+          document.body.classList.add("is-dragging-appointment");
+          navigator.vibrate?.(12);
+        }, 450),
+      };
+      return;
+    }
     e.preventDefault();
     resizeRef.current = { id: b.id, pointerId: e.pointerId, origin: b.duration_min };
     setResizing({ id: b.id, duration: b.duration_min, tick: 0 });
@@ -429,6 +453,12 @@ export function Calendar({
     e.currentTarget.setPointerCapture(e.pointerId);
   }
   function onResizePointerMove(e: ReactPointerEvent<HTMLSpanElement>, b: StoredBooking) {
+    const p = resizePending.current;
+    if (p && p.pointerId === e.pointerId) {
+      // Moved before the hold finished: it's a scroll.
+      if (Math.hypot(e.clientX - p.startX, e.clientY - p.startY) > 8) clearResizePending();
+      return;
+    }
     const r = resizeRef.current;
     if (!r || r.pointerId !== e.pointerId) return;
     const timeline = boardRef.current?.querySelector<HTMLElement>(".calendar-timeline");
@@ -443,6 +473,7 @@ export function Calendar({
     });
   }
   function onResizePointerUp(e: ReactPointerEvent<HTMLSpanElement>, b: StoredBooking) {
+    if (resizePending.current?.pointerId === e.pointerId) { clearResizePending(); return; }
     const r = resizeRef.current;
     if (!r || r.pointerId !== e.pointerId) return;
     resizeRef.current = null;
@@ -504,7 +535,7 @@ export function Calendar({
             tick();
             setDragging({ id: b.id, overStaff: b.staff_id, overStart: b.start_min, tick: 0 });
             document.body.classList.add("is-dragging-appointment");
-          }, 260)
+          }, 400)
         : null,
     };
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -1001,6 +1032,7 @@ export function Calendar({
                             onPointerMove={(e) => onResizePointerMove(e, b)}
                             onPointerUp={(e) => onResizePointerUp(e, b)}
                             onPointerCancel={() => {
+                              clearResizePending();
                               resizeRef.current = null;
                               setResizing(null);
                               document.body.classList.remove("is-dragging-appointment");
@@ -1058,7 +1090,7 @@ export function Calendar({
             work, you just confirm you mean it. Press and drag a confirmed appointment to move it: the top
             edge is the new start time and it snaps every 15 minutes, sideways moves it to another barber;
             drag the bottom edge to change its length. Undo sits in the green message after each change.
-            On a phone, hold for a moment first. Overlapping appointments sit side by side. Click the hours
+            On a phone, swipe to scroll; to move or change the length, hold the appointment (or its bottom edge) still for a moment first. Overlapping appointments sit side by side. Click the hours
             under a barber's name to change that day's shift; the ⋯ beside it blocks time with a reason,
             books a day off or seats a walk-in. Right-click a cell to block from that time. Tab reaches
             one free slot per barber; arrow keys move between slots, Home / End jump within a barber.

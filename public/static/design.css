@@ -5274,3 +5274,12 @@ html.ws-dark .workspace .matrix-input input, html.ws-dark .workspace .checkout-m
   .workspace .insights .insight-bars.wide .insight-bar-value { grid-area: value; }
   .workspace .insights .insight-trend { height: 110px; }
 }
+
+/* Phone timetable: swipes scroll in any direction (also sideways across barbers) even when they
+   start on an appointment; moving or stretching one needs a still hold first (see Calendar.tsx). */
+@media (pointer: coarse) {
+  .workspace .calendar-event[data-draggable="true"] { touch-action: pan-x pan-y; }
+  .workspace .calendar-event .resize-handle { touch-action: pan-x pan-y; height: 12px; }
+  .workspace .calendar-event[data-resizing="true"] .resize-handle { touch-action: none; }
+  .workspace .calendar-event { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+}
