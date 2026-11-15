@@ -9,7 +9,8 @@ import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { ReviewCard, type OwnReview } from "./Reviews";
 import { applyThemeColor, brandStyle, serverBrand, themeClass, type ShopBrand, shopPath } from "./theme";
 import { MoveFlow } from "./MoveFlow";
-import { InstallPrompt, isIOS, promptInstall, registerShopWorker, standalone, swScope, useInstallEvent } from "./InstallPrompt";
+import { CustomerPrompts } from "./ReviewPrompt";
+import { isIOS, promptInstall, registerShopWorker, standalone, swScope, useInstallEvent } from "./InstallPrompt";
 
 type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; contact_pref?: "AUTO" | "EMAIL" | "NONE"; needs_sms_choice?: boolean; sms_stopped_at?: number | null; complete?: boolean; notes: string; version: number; member_since: number; has_password?: boolean; account_email?: string; email_verified?: boolean };
 type Visit = {
@@ -171,7 +172,7 @@ export function CustomerArea({ slug }: { slug: string }) {
         </span>
         <span className="sp-powered">Powered by foliyo</span>
       </footer>
-      <InstallPrompt slug={me.shop.slug} shopName={me.shop.name} signedIn brand={me.shop.brand} />
+      <CustomerPrompts slug={me.shop.slug} shopName={me.shop.name} signedIn brand={me.shop.brand} />
       <ShopTabBar slug={me.shop.slug} active={tab === "profile" ? "account" : "visits"} signedIn />
     </div>
   );
