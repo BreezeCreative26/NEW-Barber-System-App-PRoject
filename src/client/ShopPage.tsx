@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { type BookingPreset } from "./PublicBooking";
 import { Avatar, Icon } from "./ui";
 import { ShopTabBar } from "./ShopTabBar";
+import { InstallPrompt } from "./InstallPrompt";
 import { money, time, dateLabel, setCurrency } from "./fixtures";
 import { PublicReviews, Stars, type PublicReview } from "./Reviews";
 import { applyThemeColor, brandStyle, serverBrand, themeClass, type ShopBrand, type ShopTheme, shopPath } from "./theme";
@@ -178,7 +179,12 @@ export function ShopPage({ slug }: { slug: string }) {
         <Boot label="Opening the shop…" />
       </div>
     );
-  return <ShopPageView data={data} me={me} mine={mine} />;
+  return (
+    <>
+      <ShopPageView data={data} me={me} mine={mine} />
+      <InstallPrompt slug={data.shop.slug} shopName={data.shop.name} signedIn={!!me} />
+    </>
+  );
 }
 
 // The page itself, free of data loading, so the website builder can render the real thing as its

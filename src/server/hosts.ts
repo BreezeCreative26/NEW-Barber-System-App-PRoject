@@ -99,6 +99,7 @@ function rewritePath(slug: string, pathname: string): string | null {
   if (pathname === "/me" || pathname === "/me/") return `/${slug}/me`;
   if (pathname === "/manifest.webmanifest") return `/${slug}/manifest.webmanifest`;
   if (/^\/icon-(192|512)\.png$/.test(pathname)) return `/${slug}${pathname}`;
+  if (pathname === "/favicon.ico") return `/${slug}/icon-192.png`;
   return null; // everything else (api, workspace, staff, manage, offer, pay, static) is host-agnostic
 }
 

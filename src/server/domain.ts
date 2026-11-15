@@ -88,6 +88,19 @@ export function shopWeek(shop: Pick<Shop, "opens" | "closes" | "closed_days"> & 
   const closed = new Set<number>(JSON.parse(shop.closed_days || "[]"));
   return DEFAULT_WEEK.map((_, wd) => ({ enabled: closed.has(wd) ? 0 : 1, starts: shop.opens, ends: shop.closes }));
 }
+// Home-screen label for the shop's app: whole words, about 12 characters (what phones show under the
+// icon), and never just a leading "The". "The Doghouse Gentlemen's Barbers" → "The Doghouse".
+export function appShortName(name: string): string {
+  const words = (name || "").trim().split(/\s+/).filter(Boolean);
+  let out = "";
+  for (const w of words) {
+    const next = out ? `${out} ${w}` : w;
+    if (next.length > 12 && out && !/^(the|a|an)$/i.test(out)) break;
+    out = next;
+    if (out.length >= 12) break;
+  }
+  return out.length > 15 ? out.slice(0, 15).trim() : out;
+}
 export const shopDay = (shop: Parameters<typeof shopWeek>[0], wd: number): ShopDay => shopWeek(shop)[wd];
 // 15-minute start candidates within the shop's hours on a given date (empty when the shop is shut).
 export function dayStarts(shop: Parameters<typeof shopWeek>[0], date: string): number[] {
