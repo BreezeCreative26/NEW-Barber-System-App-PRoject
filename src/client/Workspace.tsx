@@ -1663,6 +1663,15 @@ export function Workspace() {
   }, [walletFull]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  // Top-bar panels (wallet, waiting list, bell, reviews, account menu) are one-at-a-time: opening one
+  // closes whichever is already open, so two drawers never stack on top of each other.
+  const closePanels = () => {
+    setWalletOpen(false);
+    setQueueOpen(false);
+    setNotificationsOpen(false);
+    setReviewsOpen(false);
+    setAccountOpen(false);
+  };
   const [focusService, setFocusService] = useState<string | null>(null);
   const [focusBarber, setFocusBarber] = useState<string | null>(null);
   // Editor tab to land on when a barber is opened from Pay runs (Pay) vs search (Profile).
@@ -2381,13 +2390,13 @@ export function Workspace() {
               }
             : null
         }
-        onWallet={() => setWalletOpen((v) => !v)}
+        onWallet={() => { const next = !walletOpen; closePanels(); setWalletOpen(next); }}
         queue={w && w.shop.waitlist_enabled !== 0 && can("waitlist") ? { count: waitlist.length, offered: waitlist.filter((e) => e.status === "OFFERED").length, open: queueOpen } : null}
-        onQueue={() => setQueueOpen((v) => !v)}
+        onQueue={() => { const next = !queueOpen; closePanels(); setQueueOpen(next); }}
         bell={w ? { count: inbox?.unread ?? 0, open: notificationsOpen } : null}
-        onBell={() => setNotificationsOpen((v) => !v)}
+        onBell={() => { const next = !notificationsOpen; closePanels(); setNotificationsOpen(next); }}
         reviews={w && ratingChip ? { ...ratingChip, open: reviewsOpen } : null}
-        onReviews={() => setReviewsOpen((v) => !v)}
+        onReviews={() => { const next = !reviewsOpen; closePanels(); setReviewsOpen(next); }}
         account={
           w
             ? {
@@ -2401,7 +2410,7 @@ export function Workspace() {
               }
             : null
         }
-        onAccount={() => setAccountOpen((v) => !v)}
+        onAccount={() => { const next = !accountOpen; closePanels(); setAccountOpen(next); }}
         accountOpen={accountOpen}
         shop={w ? { name: w.shop.name, logo: w.logo_url || null, tone: w.logo_tone || "" } : null}
       >
@@ -2684,7 +2693,7 @@ export function Workspace() {
                   </strong>{" "}
                   <button
                     className="workspace-text-button"
-                    onClick={() => setNotificationsOpen(true)}
+                    onClick={() => { closePanels(); setNotificationsOpen(true); }}
                   >
                     Open notifications
                   </button>
@@ -2869,7 +2878,10 @@ export function Workspace() {
                             {manager && <button type="button" role="menuitem" onClick={() => act("hours")}><Icon name="clock" size={14} /> Edit today's hours</button>}
                             <button type="button" role="menuitem" disabled={date < w.today} onClick={() => act("block")}><Icon name="blocked" size={14} /> Block time…</button>
                             {manager && <button type="button" role="menuitem" onClick={() => act("dayOff")}><Icon name="sun" size={14} /> Day off</button>}
-                            {manager && <button type="button" role="menuitem" disabled={date < w.today} onClick={() => act("ooh")} data-testid="day-menu-ooh"><Icon name="sparkles" size={14} /> Out of hours…</button>}
+                            {manager && (() => {
+                              const win = (w.ooh || []).find((o) => o.staff_id === target.id && o.date === date);
+                              return <button type="button" role="menuitem" disabled={date < w.today} onClick={() => act("ooh")} data-testid="day-menu-ooh"><Icon name="sparkles" size={14} /> {win ? `Out of hours ${time(win.starts)}–${time(win.ends)}…` : "Out of hours…"}</button>;
+                            })()}
                           </div>
                         );
                       })()}
