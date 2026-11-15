@@ -5827,3 +5827,24 @@ html.ws-dark .calendar-event.no-show, html.ws-dark .week-card.no-show { backgrou
 .calendar-event .block-icons { gap: 2px; }
 .calendar-event.finished .bi { opacity: .75; }
 html.ws-dark .bi-online, html.ws-dark .bi-walkin, html.ws-dark .bi-series, html.ws-dark .bi-notes, html.ws-dark .bi-more { background: rgba(255,255,255,.12); color: #e5e7eb; }
+
+/* ===== Barber column heading: name, then the day's totals (always), hours chip beside them ===== */
+.workspace .connected-calendar .staff-column-heading .staff-head-text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; gap: 2px; }
+.workspace .connected-calendar .staff-column-heading .staff-head-meta { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: nowrap; }
+.workspace .connected-calendar .staff-column-heading .staff-head-meta > .staff-totals { display: inline-block !important; margin: 0; font-size: 11px; line-height: 1.2; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.workspace .connected-calendar .staff-column-heading .staff-head-meta > .staff-totals b { color: var(--ink); font-weight: 700; }
+.workspace .connected-calendar .staff-column-heading .staff-head-meta .staff-hours-chip { flex: 0 0 auto; height: 18px; line-height: 16px; padding: 0 6px; font-size: 10px; margin: 0; }
+@media (max-width: 1440px) and (min-width: 768px) {
+  .workspace .connected-calendar .staff-column-heading > .staff-head-text { display: flex !important; grid-area: name; }
+  .workspace .connected-calendar .staff-column-heading { grid-template-areas: "avatar name menu"; }
+}
+/* Narrow columns (tablet / phone): totals stay, the hours chip steps aside (it's in the ⋯ menu). */
+@media (max-width: 1180px) {
+  .workspace .connected-calendar .staff-column-heading .staff-head-meta .staff-hours-chip { display: none; }
+}
+@media (max-width: 767px) {
+  .workspace .connected-calendar .staff-column-heading .staff-head-meta > .staff-totals { font-size: 10px; }
+}
+
+/* Reviews chip: a solid star. */
+.workspace .topbar .reviews-chip svg, .reviews-chip svg { fill: #f5a524; color: #f5a524; }

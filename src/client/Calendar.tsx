@@ -627,6 +627,7 @@ export function Calendar({
             {staff.map((s) => {
               const mine = occupied.filter((b) => b.staff_id === s.id);
               const taken = mine.reduce((n, b) => n + b.price_pence, 0);
+              const hidden = mine.some((b) => (b as { busy?: number }).busy);
               return (
                 <div className="staff-column-heading" key={s.id}>
                   <Avatar
@@ -638,13 +639,15 @@ export function Calendar({
                     colour={s.colour || ["sage", "sand", "blue", "clay"][w.staff.findIndex((member) => member.id === s.id) % 4]}
                     src={s.photo_url}
                   />
-                  <div>
+                  <div className="staff-head-text">
                     {/* Phone columns are ~120px: first name only so it isn't cut to "Jay Cart…". */}
                     <strong title={s.name}>{compact ? s.name.split(" ")[0] : s.name}</strong>
-                    <span aria-label={`${money(taken)} booked, ${mine.length} visit${mine.length === 1 ? "" : "s"}`}>
-                      {money(taken)} · {mine.length} visit{mine.length === 1 ? "" : "s"}
-                    </span>
-                  </div>
+                    <div className="staff-head-meta">
+                      {/* The day's totals, always under the name. A colleague's prices hidden from this
+                          login (no "see all calendars") show the visit count only. */}
+                      <span className="staff-totals" data-testid="staff-totals" aria-label={`${hidden ? "" : `${money(taken)} booked, `}${mine.length} visit${mine.length === 1 ? "" : "s"}`}>
+                        {hidden ? "" : <b>{money(taken)}</b>}{hidden ? "" : " · "}{mine.length} visit{mine.length === 1 ? "" : "s"}
+                      </span>
                   {onHours && canSetHours && (() => {
                     const ov = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date);
                     const wk = w.hours.find((h) => h.staff_id === s.id && h.weekday === weekdayOf);
@@ -657,14 +660,8 @@ export function Calendar({
                       </button>
                     );
                   })()}
-                  {onAction && canSetHours && (() => {
-                    const win = (w.ooh || []).find((o) => o.staff_id === s.id && o.date === date);
-                    return (
-                      <button type="button" className={`staff-hours-chip ooh-chip ${win ? "on" : ""}`} onClick={() => onAction("ooh", s)} title={win ? "Out-of-hours time open this day · change or close it" : "Open out-of-hours time this day"} aria-label={`${s.name}: ${win ? `out of hours ${time(win.starts)}–${time(win.ends)}` : "open out-of-hours time"}`} data-testid="staff-ooh-chip">
-                        <Icon name="sparkles" size={11} /> {win ? `OOH ${time(win.starts)}–${time(win.ends)}` : "Out of hours"}
-                      </button>
-                    );
-                  })()}
+                    </div>
+                  </div>
                   {onAction && columnMenu !== false && (
                     <div className="staff-menu">
                       <button
@@ -693,11 +690,14 @@ export function Calendar({
                               <Icon name="sun" size={14} /> Day off
                             </button>
                           )}
-                          {canSetHours && (
-                            <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("ooh", s); }} disabled={date < today}>
-                              <Icon name="sparkles" size={14} /> Out of hours…
-                            </button>
-                          )}
+                          {canSetHours && (() => {
+                            const win = (w.ooh || []).find((o) => o.staff_id === s.id && o.date === date);
+                            return (
+                              <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("ooh", s); }} disabled={date < today} data-testid="staff-menu-ooh">
+                                <Icon name="sparkles" size={14} /> {win ? `Out of hours ${time(win.starts)}–${time(win.ends)}…` : "Out of hours…"}
+                              </button>
+                            );
+                          })()}
                           <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("walkIn", s); }} disabled={date !== today}>
                             <Icon name="footprints" size={14} /> Add walk-in
                           </button>
