@@ -2290,8 +2290,8 @@ sandbox.post("/staff", async (c) => {
     return fail(403, "An individual account is just you. Switch to a business account to add more barbers.");
   const writes = [
     c.env.DB.prepare(
-      "INSERT INTO staff(id,shop_id,name,role,active,title,bio,colour,photo_url,online_visible,skills,instagram,start_date,sort_order,follows_shop_hours) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)",
-    ).bind(staffId, sid, b.name, b.role, b.active, b.title, b.bio, b.colour, b.photo_url, b.online_visible, JSON.stringify(b.skills), b.instagram.replace(/^@/, ""), b.start_date || null, b.sort_order),
+      "INSERT INTO staff(id,shop_id,name,role,active,title,bio,colour,photo_url,online_visible,skills,instagram,start_date,sort_order,follows_shop_hours,review_message) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)",
+    ).bind(staffId, sid, b.name, b.role, b.active, b.title, b.bio, b.colour, b.photo_url, b.online_visible, JSON.stringify(b.skills), b.instagram.replace(/^@/, ""), b.start_date || null, b.sort_order, b.review_message ?? ""),
   ];
   for (let day = 0; day < 7; day++)
     writes.push(
@@ -2335,7 +2335,7 @@ sandbox.put("/staff/:id", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE staff SET name=?,role=?,active=?,title=?,bio=?,colour=?,photo_url=?,online_visible=?,skills=?,instagram=?,start_date=?,sort_order=?,commission_pct=?,pay_model=?,pay_period=?,base_pence=?,hourly_pence=?,rent_pence=?,commission_threshold_pence=?,commission_tiers=?,tip_share_pct=?,product_commission_pct=?,employment=?,pay_notes=?,deductions_json=?,ooh_fee_pence=COALESCE(?,ooh_fee_pence),version=version+1 WHERE shop_id=? AND id=? AND version=?",
+      "UPDATE staff SET name=?,role=?,active=?,title=?,bio=?,colour=?,photo_url=?,online_visible=?,skills=?,instagram=?,start_date=?,sort_order=?,commission_pct=?,pay_model=?,pay_period=?,base_pence=?,hourly_pence=?,rent_pence=?,commission_threshold_pence=?,commission_tiers=?,tip_share_pct=?,product_commission_pct=?,employment=?,pay_notes=?,deductions_json=?,ooh_fee_pence=COALESCE(?,ooh_fee_pence),review_message=COALESCE(?,review_message),version=version+1 WHERE shop_id=? AND id=? AND version=?",
     ).bind(
       b.name,
       b.role,
@@ -2363,6 +2363,7 @@ sandbox.put("/staff/:id", async (c) => {
       b.pay_notes,
       JSON.stringify(b.deductions),
       b.ooh_fee_pence ?? null,
+      b.review_message ?? null,
       c.get("shopId"),
       c.req.param("id"),
       b.version,

@@ -8,8 +8,9 @@ import type { CSSProperties } from "react";
 import { Avatar, Button, Icon } from "./ui";
 import { brandStyle, serverBrand, themeClass, type ShopBrand } from "./theme";
 import { InstallPrompt } from "./InstallPrompt";
+import { reviewMessage } from "../server/domain";
 
-type ReviewAsk = { id: string; service_name: string; date: string; start_min: number; staff_name: string | null; staff_photo: string; staff_colour: string; google_review_url: string };
+type ReviewAsk = { id: string; service_name: string; date: string; start_min: number; staff_name: string | null; staff_photo: string; staff_colour: string; review_message?: string; google_review_url: string };
 type Prompts = { install_seen: boolean; first_name?: string; review: ReviewAsk | null };
 
 const base = (slug: string) => `/api/public/shops/${encodeURIComponent(slug)}/account`;
@@ -86,7 +87,7 @@ function ReviewPrompt({ slug, shopName, brand, ask, firstName, onClose }: { slug
           <>
             <h2 id="review-pop-title">How did I do?</h2>
             <p className="review-pop-msg">
-              Hi{firstName ? ` ${firstName}` : ""}, thanks for coming in for your {ask.service_name.toLowerCase()} on {dayOf(ask.date)}. I'd love to know how it went — it only takes a few seconds.
+              {reviewMessage(ask.review_message, { first_name: firstName, service: ask.service_name, date: dayOf(ask.date), shop: shopName, barber: barberFirst })}
               <span className="review-pop-sign">— {barberFirst}{ask.staff_name ? `, ${shopName}` : ""}</span>
             </p>
             <div className="star-input review-pop-stars" role="radiogroup" aria-label="Rating">

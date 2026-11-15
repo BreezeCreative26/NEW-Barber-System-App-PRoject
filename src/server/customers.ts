@@ -437,8 +437,8 @@ acct.get("/prompts", async (c) => {
   const visit = reviewed
     ? null
     : await c.env.DB.prepare(
-        "SELECT b.id, b.service_name, b.date, b.start_min, s.name AS staff_name, COALESCE(s.photo_url,'') AS staff_photo, COALESCE(s.colour,'sage') AS staff_colour FROM bookings b LEFT JOIN staff s ON s.shop_id=b.shop_id AND s.id=b.staff_id WHERE b.shop_id=? AND (b.customer_id=? OR b.phone=?) AND b.status='COMPLETED' AND b.end_at>? ORDER BY b.start_at DESC LIMIT 1",
-      ).bind(shop.id, cust.id, cust.phone, Date.now() - REVIEW_WINDOW_MS).first<{ id: string; service_name: string; date: string; start_min: number; staff_name: string | null; staff_photo: string; staff_colour: string }>();
+        "SELECT b.id, b.service_name, b.date, b.start_min, s.name AS staff_name, COALESCE(s.photo_url,'') AS staff_photo, COALESCE(s.colour,'sage') AS staff_colour, COALESCE(s.review_message,'') AS review_message FROM bookings b LEFT JOIN staff s ON s.shop_id=b.shop_id AND s.id=b.staff_id WHERE b.shop_id=? AND (b.customer_id=? OR b.phone=?) AND b.status='COMPLETED' AND b.end_at>? ORDER BY b.start_at DESC LIMIT 1",
+      ).bind(shop.id, cust.id, cust.phone, Date.now() - REVIEW_WINDOW_MS).first<{ id: string; service_name: string; date: string; start_min: number; staff_name: string | null; staff_photo: string; staff_colour: string; review_message: string }>();
   const gp = visit ? await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ google_review_url: string }>() : null;
   return c.json({
     install_seen: !!flags?.install_prompt_at,

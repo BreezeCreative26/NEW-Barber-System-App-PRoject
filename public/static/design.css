@@ -5297,3 +5297,54 @@ html.ws-dark .workspace .matrix-input input, html.ws-dark .workspace .checkout-m
 .review-pop-text { width: 100%; box-sizing: border-box; margin: 0 0 12px; padding: 10px 12px; font: inherit; font-size: 15px; color: var(--sp-ink, #111318); background: var(--sp-bg, transparent); border: 1px solid var(--sp-line, #d5d7dd); border-radius: var(--sp-r, 12px); resize: vertical; }
 .install-pop p.review-pop-error { color: #c0392b; margin-bottom: 10px; }
 .install-pop-backdrop .install-pop-actions a.button.primary { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+
+/* Barber settings: grouped cards, cleaner tabs, review message editor */
+.studio-detail .segmented { display: flex; overflow-x: auto; scrollbar-width: none; max-width: 100%; height: auto; min-height: var(--ctl-h, 38px); margin: 4px 0 6px; }
+.studio-detail .segmented::-webkit-scrollbar { display: none; }
+.studio-detail .segmented button { flex: 0 0 auto; white-space: nowrap; padding: 0 14px; }
+.studio-detail-head.barber { padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface, #fff); }
+.studio-detail-head.barber .team-photo.large, .studio-detail-head.barber .avatar.large { width: 64px; height: 64px; }
+.barber-settings { gap: 16px; }
+.settings-card { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface, #fff); min-width: 0; }
+.settings-card-head { display: flex; gap: 12px; align-items: flex-start; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.settings-card-head h3 { margin: 0; font-size: 15px; font-weight: 700; }
+.settings-card-head p { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.settings-card-icon { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: var(--soft-2, #f1f2f5); color: var(--accent); }
+.settings-card .workspace-form-grid { gap: 12px 14px; align-items: start; }
+.settings-card .workspace-field > span { display: flex; align-items: center; gap: 6px; }
+.field-tag { font-style: normal; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 999px; background: var(--soft-2, #f1f2f5); color: var(--muted); }
+.field-count { justify-self: end; }
+.barber-photo-row { display: flex; gap: 16px; align-items: flex-start; }
+.barber-photo-row > .team-photo, .barber-photo-row > .avatar { width: 72px; height: 72px; flex: 0 0 auto; font-size: 22px; }
+.barber-photo-row > .workspace-field { flex: 1 1 auto; min-width: 0; }
+.money-input { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden; max-width: 160px; }
+.money-input b { padding: 0 4px 0 11px; color: var(--muted); font-weight: 600; }
+.workspace-field .money-input input { border: 0; border-radius: 0; padding-left: 2px; }
+.money-input:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.settings-card .studio-switches { gap: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.settings-card .studio-switches .switch-row { border: 0; border-radius: 0; border-bottom: 1px solid var(--line); }
+.settings-card .studio-switches .switch-row:last-child { border-bottom: 0; }
+.studio-detail .panel-actions-row { position: sticky; bottom: 0; z-index: 3; padding: 12px 0; background: linear-gradient(to top, var(--bg, #f6f7f9) 70%, transparent); }
+.studio-form[data-dirty="true"] .panel-actions-row .button.primary { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15); }
+.review-msg-editor { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.review-msg-input { display: grid; gap: 10px; min-width: 0; }
+.review-msg-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.review-msg-tags small { color: var(--muted); font-size: 12px; margin-right: 2px; }
+.chip-button { border: 1px solid var(--line); background: var(--soft-2, #f4f5f7); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 12px; color: var(--ink); cursor: pointer; }
+.chip-button:hover { border-color: var(--accent); color: var(--accent); }
+.review-msg-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.review-msg-foot .linklike { font-size: 12.5px; }
+.review-msg-preview { margin: 0; display: grid; gap: 6px; }
+.review-msg-preview figcaption { font-size: 12px; font-weight: 600; color: var(--muted); }
+.review-msg-phone { display: grid; justify-items: center; gap: 8px; padding: 18px 16px; border-radius: 18px; background: #17181e; color: #f4f4f6; text-align: center; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
+.review-msg-phone .team-photo, .review-msg-phone .avatar { width: 52px; height: 52px; border: 2px solid var(--accent, #c8a24a); box-shadow: none; }
+.review-msg-phone strong { font-size: 15px; letter-spacing: 0.02em; text-transform: uppercase; }
+.review-msg-phone p { margin: 0; text-align: left; font-size: 13px; line-height: 1.45; background: rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 10px 12px; color: #f4f4f6; word-break: break-word; }
+.review-msg-phone p span { display: block; margin-top: 4px; font-size: 12px; font-style: italic; color: #b9bbc4; }
+.review-msg-stars { display: flex; gap: 4px; color: #5d6070; }
+@media (max-width: 760px) {
+  .review-msg-editor { grid-template-columns: 1fr; }
+  .settings-card { padding: 14px; border-radius: 14px; }
+  .barber-photo-row > .team-photo, .barber-photo-row > .avatar { width: 56px; height: 56px; }
+  .studio-detail .panel-actions-row .button { width: 100%; justify-content: center; }
+}

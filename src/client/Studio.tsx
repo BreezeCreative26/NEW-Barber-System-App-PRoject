@@ -15,6 +15,7 @@ import { Avatar, Badge, Button, Icon, Notice } from "./ui";
 import { money, time, currencySymbol } from "./fixtures";
 import { PayTermsForm, PayRuns, PayHistory, payFormOf, periodBounds, summariseTerms, type PayForm } from "./Pay";
 import type { PayRunInput } from "../server/domain";
+import { DEFAULT_REVIEW_MESSAGE, REVIEW_MESSAGE_TAGS, reviewMessage } from "../server/domain";
 import { BarberPayoutCard } from "./Payouts";
 import { PhotoUpload } from "./Media";
 import { BarberHoursPanel, BarberServicesPanel, summariseWeek } from "./BarberHub";
@@ -935,6 +936,7 @@ const staffForm = (staff: Staff | null) => ({
   active: staff ? staff.active : 1,
   sort_order: staff?.sort_order ?? 0,
   ooh_fee_pence: staff?.ooh_fee_pence ?? 500,
+  review_message: staff?.review_message || "",
   ...payFormOf(staff),
 });
 type Perf = { barbers: { staff_id: string; n: number; minutes: number; completed_value: number; no_shows: number }[]; from: string; to: string };
@@ -1108,72 +1110,105 @@ function BarberEditor({
             }
           }}
         >
-          <fieldset disabled={!canEdit} className="studio-fieldset">
-            <div className="workspace-form-grid">
+          <fieldset disabled={!canEdit} className="studio-fieldset barber-settings">
+            <section className="settings-card" aria-labelledby="bs-about">
+              <header className="settings-card-head">
+                <span className="settings-card-icon"><Icon name="user" size={16} /></span>
+                <div><h3 id="bs-about">About</h3><p>Shown to customers on the booking page.</p></div>
+              </header>
+              <div className="workspace-form-grid">
+                <label className="workspace-field">
+                  <span>Full name</span>
+                  <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required minLength={2} maxLength={100} />
+                </label>
+                <label className="workspace-field">
+                  <span>Job title</span>
+                  <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} maxLength={60} placeholder="Senior barber" />
+                </label>
+                <label className="workspace-field">
+                  <span>Role <em className="field-tag">team only</em></span>
+                  <input value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} required minLength={2} maxLength={50} />
+                </label>
+                <label className="workspace-field">
+                  <span>Started</span>
+                  <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
+                </label>
+              </div>
               <label className="workspace-field">
-                <span>Full name</span>
-                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required minLength={2} maxLength={100} />
+                <span>Bio</span>
+                <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} maxLength={600} rows={3} placeholder="Specialities, experience, style." />
+                <small className="helper field-count">{form.bio.length}/600</small>
               </label>
-              <label className="workspace-field">
-                <span>Job title (shown to customers)</span>
-                <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} maxLength={60} placeholder="Senior barber" />
-              </label>
-              <label className="workspace-field">
-                <span>Role (internal)</span>
-                <input value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} required minLength={2} maxLength={50} />
-              </label>
-              <label className="workspace-field">
-                <span>Started</span>
-                <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
-              </label>
-            </div>
-            <label className="workspace-field">
-              <span>Bio</span>
-              <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} maxLength={600} rows={4} placeholder="Specialities, experience, style — shown on the online booking page." />
-            </label>
-            <TagInput label="Skills" tags={form.skills} onChange={(skills) => setForm({ ...form, skills })} suggestions={["Skin fades", "Beards", "Scissor work", "Kids", "Hot towel shaves", "Afro hair", "Colour", "Long hair"]} />
-            <div className="workspace-form-grid">
-              <div className="workspace-field">
-                <span id="barber-photo-label">Photo (upload or https URL)</span>
-                <div className="photo-field">
-                  <input type="text" inputMode="url" aria-labelledby="barber-photo-label" value={form.photo_url} onChange={(e) => setForm({ ...form, photo_url: e.target.value })} placeholder="https://…/photo.jpg" maxLength={500} />
-                  <PhotoUpload kind="staff" label="Upload" testId="upload-staff-photo" onUploaded={([u]) => setForm({ ...form, photo_url: u })} />
+              <TagInput label="Skills" tags={form.skills} onChange={(skills) => setForm({ ...form, skills })} suggestions={["Skin fades", "Beards", "Scissor work", "Kids", "Hot towel shaves", "Afro hair", "Colour", "Long hair"]} />
+            </section>
+
+            <section className="settings-card" aria-labelledby="bs-look">
+              <header className="settings-card-head">
+                <span className="settings-card-icon"><Icon name="image" size={16} /></span>
+                <div><h3 id="bs-look">Photo &amp; look</h3><p>Their photo on the booking page and colour on the calendar.</p></div>
+              </header>
+              <div className="barber-photo-row">
+                {form.photo_url ? <img className={`team-photo large ${form.colour}`} src={form.photo_url} alt="" /> : <Avatar initials={initials(form.name || "?")} colour={form.colour} size="large" />}
+                <div className="workspace-field">
+                  <span id="barber-photo-label">Photo</span>
+                  <div className="photo-field">
+                    <input type="text" inputMode="url" aria-labelledby="barber-photo-label" value={form.photo_url} onChange={(e) => setForm({ ...form, photo_url: e.target.value })} placeholder="Upload, or paste an https:// link" maxLength={500} />
+                    <PhotoUpload kind="staff" label="Upload" testId="upload-staff-photo" onUploaded={([u]) => setForm({ ...form, photo_url: u })} />
+                  </div>
+                  <span className="helper">Head and shoulders on a plain background. Square or portrait works best.</span>
                 </div>
-                <span className="helper">Head and shoulders, face in the upper half, plain background. Square or portrait works best — we crop to fit each card and keep the face in frame.</span>
               </div>
-              <label className="workspace-field">
-                <span>Instagram</span>
-                <input value={form.instagram} onChange={(e) => setForm({ ...form, instagram: e.target.value })} placeholder="@handle" maxLength={40} />
-              </label>
-            </div>
-            <ColourPicker label="Calendar colour" value={form.colour} onChange={(colour) => setForm({ ...form, colour })} />
-            <div className="studio-switches">
-              <div className="switch-row">
-                <span>
-                  <strong>Show on online booking</strong>
-                  <small>Hidden barbers can still be booked by the team.</small>
-                </span>
-                <label className="switch"><input type="checkbox" checked={!!form.online_visible} onChange={(e) => setForm({ ...form, online_visible: e.target.checked ? 1 : 0 })} aria-label="Show on online booking" /><span /></label>
+              <div className="workspace-form-grid">
+                <label className="workspace-field">
+                  <span>Instagram</span>
+                  <input value={form.instagram} onChange={(e) => setForm({ ...form, instagram: e.target.value })} placeholder="@handle" maxLength={40} />
+                </label>
+                <ColourPicker label="Calendar colour" value={form.colour} onChange={(colour) => setForm({ ...form, colour })} />
               </div>
-              <div className="switch-row">
-                <span>
-                  <strong>Active and bookable</strong>
-                  <small>Deactivating keeps history and flags future visits.</small>
-                </span>
-                <label className="switch"><input type="checkbox" checked={!!form.active} onChange={(e) => setForm({ ...form, active: e.target.checked ? 1 : 0 })} aria-label="Active and bookable" /><span /></label>
+            </section>
+
+            <section className="settings-card" aria-labelledby="bs-booking">
+              <header className="settings-card-head">
+                <span className="settings-card-icon"><Icon name="calendarCheck" size={16} /></span>
+                <div><h3 id="bs-booking">Booking</h3><p>Whether customers can book them, and extras.</p></div>
+              </header>
+              <div className="studio-switches">
+                <div className="switch-row">
+                  <span>
+                    <strong>Show on online booking</strong>
+                    <small>Hidden barbers can still be booked by the team.</small>
+                  </span>
+                  <label className="switch"><input type="checkbox" checked={!!form.online_visible} onChange={(e) => setForm({ ...form, online_visible: e.target.checked ? 1 : 0 })} aria-label="Show on online booking" /><span /></label>
+                </div>
+                <div className="switch-row">
+                  <span>
+                    <strong>Active and bookable</strong>
+                    <small>Turning this off keeps their history and flags future visits.</small>
+                  </span>
+                  <label className="switch"><input type="checkbox" checked={!!form.active} onChange={(e) => setForm({ ...form, active: e.target.checked ? 1 : 0 })} aria-label="Active and bookable" /><span /></label>
+                </div>
               </div>
-            </div>
-            <div className="workspace-form-grid">
-              <label className="workspace-field narrow">
-                <span>Order on the timetable</span>
-                <input type="number" min={0} max={999} value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })} />
-              </label>
-              <label className="workspace-field narrow">
-                <span>Out-of-hours charge (£)</span>
-                <input type="number" min={0} max={1000} step={0.5} value={form.ooh_fee_pence / 100} onChange={(e) => setForm({ ...form, ooh_fee_pence: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) })} data-testid="staff-ooh-fee" />
-                <small className="helper">Added when a customer books time this barber opened out of hours.</small>
-              </label>
-            </div>
+              <div className="workspace-form-grid">
+                <label className="workspace-field">
+                  <span>Out-of-hours charge</span>
+                  <span className="money-input"><b>£</b><input type="number" min={0} max={1000} step={0.5} value={form.ooh_fee_pence / 100} onChange={(e) => setForm({ ...form, ooh_fee_pence: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) })} data-testid="staff-ooh-fee" /></span>
+                  <small className="helper">Added when a customer books time this barber opened out of hours.</small>
+                </label>
+                <label className="workspace-field">
+                  <span>Position on the calendar</span>
+                  <input type="number" min={0} max={999} value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })} />
+                  <small className="helper">Lower numbers show first.</small>
+                </label>
+              </div>
+            </section>
+
+            <section className="settings-card" aria-labelledby="bs-review">
+              <header className="settings-card-head">
+                <span className="settings-card-icon"><Icon name="star" size={16} /></span>
+                <div><h3 id="bs-review">Review message</h3><p>What customers see when the app asks them to review a visit with {(form.name || "this barber").split(" ")[0]}.</p></div>
+              </header>
+              <ReviewMessageEditor value={form.review_message} onChange={(review_message) => setForm({ ...form, review_message })} barber={form.name} photo={form.photo_url} colour={form.colour} shopName={w.shop.name} />
+            </section>
           </fieldset>
           {canEdit ? (
             <div className="panel-actions-row">
@@ -1291,6 +1326,50 @@ function BarberEditor({
         </ol>
       )}
     </section>
+  );
+}
+// Barber's own wording for the customer's "how did I do?" pop-up, with a live preview.
+function ReviewMessageEditor({ value, onChange, barber, photo, colour, shopName }: { value: string; onChange: (v: string) => void; barber: string; photo: string; colour: string; shopName: string }) {
+  const first = (barber || "Your barber").split(" ")[0];
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const insert = (tag: string) => {
+    const el = ref.current;
+    const base = value || DEFAULT_REVIEW_MESSAGE;
+    const at = el && value ? el.selectionStart : base.length;
+    const next = (base.slice(0, at) + `{${tag}}` + base.slice(at)).slice(0, 400);
+    onChange(next);
+    requestAnimationFrame(() => { el?.focus(); const p = at + tag.length + 2; el?.setSelectionRange(p, p); });
+  };
+  const tagLabels: Record<string, string> = { first_name: "Customer's first name", service: "Service", date: "Visit date", shop: "Shop name", barber: "Barber's name" };
+  const preview = reviewMessage(value, { first_name: "Sam", service: "Skin fade", date: "Friday 13 November", shop: shopName, barber: first });
+  return (
+    <div className="review-msg-editor">
+      <div className="review-msg-input">
+        <label className="workspace-field">
+          <span>Message</span>
+          <textarea ref={ref} rows={4} maxLength={400} value={value} placeholder={DEFAULT_REVIEW_MESSAGE} onChange={(e) => onChange(e.target.value)} data-testid="staff-review-message" />
+        </label>
+        <div className="review-msg-tags" aria-label="Insert a detail">
+          <small>Insert:</small>
+          {REVIEW_MESSAGE_TAGS.map((t) => (
+            <button type="button" key={t} className="chip-button" onClick={() => insert(t)} title={`Fills in the ${tagLabels[t].toLowerCase()}`}>{tagLabels[t]}</button>
+          ))}
+        </div>
+        <div className="review-msg-foot">
+          <small className="helper">{value ? `${value.length}/400` : "Using the standard message. Type to make it personal."}</small>
+          {value && <button type="button" className="linklike" onClick={() => onChange("")}>Use standard message</button>}
+        </div>
+      </div>
+      <figure className="review-msg-preview" aria-label="Preview">
+        <figcaption>Preview</figcaption>
+        <div className="review-msg-phone">
+          {photo ? <img className={`team-photo ${colour}`} src={photo} alt="" /> : <Avatar initials={initials(barber || "?")} colour={colour} />}
+          <strong>How did I do?</strong>
+          <p>{preview}<span>— {first}, {shopName}</span></p>
+          <div className="review-msg-stars" aria-hidden="true">{[1, 2, 3, 4, 5].map((n) => <Icon key={n} name="star" size={18} />)}</div>
+        </div>
+      </figure>
+    </div>
   );
 }
 export function StudioNotice({ children }: { children: ReactNode }) {
