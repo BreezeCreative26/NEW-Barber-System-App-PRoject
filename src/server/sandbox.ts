@@ -451,7 +451,7 @@ sandbox.get("/bookings/range", async (c) => {
   if (span > 31) fail(400, "Range is limited to 31 days");
   const a = c.get("account");
   const rows = await c.env.DB.prepare(
-    "SELECT id,staff_id,service_id,customer_name,service_name,date,start_min,start_at,end_at,duration_min,price_pence,status,channel,source,series_id FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? ORDER BY date,start_at,id LIMIT 2000",
+    "SELECT id,staff_id,service_id,customer_name,COALESCE(attendee_name,'') AS attendee_name,service_name,date,start_min,start_at,end_at,duration_min,price_pence,status,channel,source,series_id FROM bookings WHERE shop_id=? AND date BETWEEN ? AND ? ORDER BY date,start_at,id LIMIT 2000",
   )
     .bind(c.get("shopId"), from, to)
     .all<{ staff_id: string }>();

@@ -5769,3 +5769,47 @@ html.ws-dark .rv2 .rv2-reply { background: #16201c !important; }
   .workspace .topbar .wallet-chip .chip-ic, .workspace .topbar .queue-chip .chip-ic { width: 24px; height: 24px; }
   .workspace .topbar .brand .brand-mark { width: 34px; height: 34px; }
 }
+
+/* ===== Appointment icons (v2): small tinted badges, each with a hover tip on desktop ===== */
+.block-icons { display: inline-flex; align-items: center; gap: 3px; flex-wrap: nowrap; }
+.bi { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 5px; flex: 0 0 16px; background: rgba(255,255,255,.85); color: #4b5563; box-shadow: inset 0 0 0 1px rgba(0,0,0,.06); }
+.bi svg { width: 10px !important; height: 10px !important; stroke-width: 2.4; }
+.bi-paid { background: #dcfce7; color: #15803d; }
+.bi-deposit { background: #fef3c7; color: #a16207; }
+.bi-due { background: #ffedd5; color: #c2410c; }
+.bi-online { background: #e0f2fe; color: #0369a1; }
+.bi-walkin { background: #ede9fe; color: #6d28d9; }
+.bi-regular { background: #ffe4e6; color: #e11d48; }
+.bi-series { background: #e0e7ff; color: #4338ca; }
+.bi-group { background: #ccfbf1; color: #0f766e; }
+.bi-notes { background: #f1f5f9; color: #334155; }
+.bi-noshow { background: #dc2626; color: #fff; }
+.workspace .connected-calendar .calendar-event .block-icons { opacity: 1; color: inherit; }
+.workspace .connected-calendar .calendar-event .event-inline-icons { margin-left: auto; padding-left: 4px; display: inline-flex; }
+.workspace .connected-calendar .calendar-event .event-inline-icons .block-icons svg { width: 10px; height: 10px; }
+.workspace .connected-calendar .calendar-event > strong { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ollo-tip { position: fixed; left: 0; top: 0; z-index: 10000; pointer-events: none; opacity: 0; transition: opacity .12s; max-width: 240px; padding: 5px 9px; border-radius: 7px; background: #111317; color: #fff; font: 600 12px/1.3 var(--font, system-ui); box-shadow: 0 6px 20px rgba(0,0,0,.22); white-space: nowrap; }
+.icon-legend { list-style: none; margin: 10px 0 4px; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 16px; }
+.icon-legend li { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.35; color: var(--muted); }
+.icon-legend li .bi { margin-top: 1px; }
+.icon-legend b { color: var(--ink); font-weight: 650; }
+
+/* ===== No-shows stay on the calendar, in red ===== */
+.calendar-event.no-show, .week-card.no-show { background: #fee2e2 !important; border-color: #dc2626 !important; color: #991b1b !important; }
+.calendar-event.no-show strong, .week-card.no-show strong { color: #991b1b; }
+.calendar-event.no-show .event-inline, .calendar-event.no-show > span, .week-card.no-show .week-card-name { text-decoration: line-through; text-decoration-color: rgba(153,27,27,.45); }
+html.ws-dark .calendar-event.no-show, html.ws-dark .week-card.no-show { background: rgba(220,38,38,.18) !important; color: #fecaca !important; }
+
+/* ===== Week view: time + name on one line so names always show ===== */
+.workspace .week-person .week-card { padding: 4px 6px; gap: 1px; align-content: start; }
+.workspace .week-person .week-card > strong { display: flex; align-items: baseline; gap: 5px; min-width: 0; font-size: 11.5px; line-height: 1.25; white-space: nowrap; overflow: hidden; }
+.workspace .week-person .week-card > strong time { flex: 0 0 auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+.workspace .week-person .week-card > strong .week-card-name { flex: 1 1 auto; min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; -webkit-line-clamp: unset; }
+.workspace .week-person .week-card > small { font-size: 11px; line-height: 1.25; opacity: .85; }
+.workspace .week-person .week-card.one-line { padding-top: 2px; padding-bottom: 2px; align-content: center; }
+.workspace .week-person .week-card-dot { align-self: center; }
+@media (max-width: 1100px) {
+  .workspace .week-person .week-card > strong { flex-direction: column; align-items: flex-start; gap: 0; }
+  .workspace .week-person .week-card.one-line > strong { flex-direction: row; align-items: baseline; gap: 4px; }
+  .workspace .week-person .week-card.one-line > strong time { display: none; }
+}
