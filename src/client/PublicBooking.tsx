@@ -75,10 +75,13 @@ type Slot = {
   barbers?: number;
   price_pence?: number;
   duration_min?: number;
+  // Out-of-hours time the barber opened: shown orange, carries their charge (already in price_pence).
+  ooh?: boolean;
+  ooh_fee_pence?: number;
   // Any-barber: every barber free at this time.
   options?: SlotOption[];
 };
-type SlotOption = { staff_id: string; staff_name: string; price_pence: number; duration_min: number };
+type SlotOption = { staff_id: string; staff_name: string; price_pence: number; duration_min: number; ooh?: boolean; ooh_fee_pence?: number };
 type TeamDay = { id: string; name: string; off: boolean; price_pence: number; duration_min: number };
 type Availability = {
   slots: Slot[];
@@ -1076,7 +1079,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   const est = anyBarber ? { ...anyEstimate(), overridden: false } : { ...estimate(barber), priceTo: estimate(barber).price };
   const slotRow = availability?.slots.find((x) => x.start_min === slot && x.available);
   const pickedOpt = anyBarber && assigned ? slotRow?.options?.find((o) => o.staff_id === assigned.id) : undefined;
-  const chosenSlot = slotRow ? { ...slotRow, ...(pickedOpt ? { price_pence: pickedOpt.price_pence, duration_min: pickedOpt.duration_min } : {}) } : undefined;
+  const chosenSlot = slotRow ? { ...slotRow, ...(pickedOpt ? { price_pence: pickedOpt.price_pence, duration_min: pickedOpt.duration_min, ooh: pickedOpt.ooh, ooh_fee_pence: pickedOpt.ooh_fee_pence } : {}) } : undefined;
   const price = chosenSlot?.price_pence ?? (anyBarber ? est.price : availability?.price_pence ?? est.price);
   const priceTo = chosenSlot?.price_pence ?? (anyBarber ? est.priceTo : price);
   const duration = chosenSlot?.duration_min ?? availability?.duration_min ?? est.duration;
@@ -1108,11 +1111,11 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
   // off that day stay listed with "Day off" so it never looks as if the shop is shut.
   const barberRows = (() => {
     if (!anyBarber || !availability?.team) return [];
-    const byStaff = new Map<string, { start_min: number }[]>();
+    const byStaff = new Map<string, { start_min: number; ooh?: boolean; ooh_fee_pence?: number }[]>();
     for (const sl of openSlots) for (const o of sl.options || []) {
       if (!inDaypart(sl.start_min, daypart)) continue;
       const list = byStaff.get(o.staff_id) || [];
-      list.push({ start_min: sl.start_min });
+      list.push({ start_min: sl.start_min, ooh: o.ooh, ooh_fee_pence: o.ooh_fee_pence });
       byStaff.set(o.staff_id, list);
     }
     const team = fairOrder(availability.team, date);
@@ -1592,13 +1595,14 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                                 return (
                                   <button
                                     key={t.start_min}
-                                    aria-label={`${time(t.start_min)} with ${r.name}`}
+                                    aria-label={`${time(t.start_min)} with ${r.name}${t.ooh ? ", out of hours" : ""}`}
                                     aria-pressed={on}
                                     disabled={slotsStale}
-                                    className={on ? "chosen" : ""}
+                                    className={`${on ? "chosen" : ""} ${t.ooh ? "ooh" : ""}`}
                                     onClick={() => pickWith(r.id, r.name, t.start_min)}
                                   >
                                     {time(t.start_min)}
+                                    {t.ooh && <small>+{money(t.ooh_fee_pence ?? 0)}</small>}
                                     {on && <Icon name="check" size={14} />}
                                   </button>
                                 );
@@ -1636,14 +1640,15 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                                   <button
                                     key={s.start_min}
                                     title={`${s.duration_min ?? duration}-minute appointment${anyBarber && s.staff_name ? ` with ${s.staff_name}` : ""}`}
-                                    aria-label={`${time(s.start_min)}, available${anyBarber && s.staff_name ? ` with ${s.staff_name}` : ""}`}
+                                    aria-label={`${time(s.start_min)}, available${anyBarber && s.staff_name ? ` with ${s.staff_name}` : ""}${s.ooh ? ", out of hours" : ""}`}
                                     aria-pressed={slot === s.start_min}
                                     // Times on screen belong to the previous day while a new day loads.
                                     disabled={slotsStale}
                                     onClick={() => pickSlot(s)}
-                                    className={slot === s.start_min ? "chosen" : ""}
+                                    className={`${slot === s.start_min ? "chosen" : ""} ${s.ooh ? "ooh" : ""}`}
                                   >
                                     {time(s.start_min)}
+                                    {s.ooh && !anyBarber && <small>+{money(s.ooh_fee_pence ?? 0)}</small>}
                                     {anyBarber && s.staff_name && <small>{s.staff_name.split(" ")[0]}</small>}
                                     {slot === s.start_min && <Icon name="check" size={14} />}
                                   </button>
@@ -1660,6 +1665,14 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       </div>
                     ))}
                   </div>
+                  {chosenSlot?.ooh && (
+                    <div className="ooh-notice" role="alert" data-testid="ooh-notice">
+                      <strong><Icon name="clock" size={14} /> This is an out-of-hours appointment</strong>
+                      <p>
+                        {(assigned?.name || chosenSlot.staff_name || "Your barber").split(" ")[0]} has opened {time(chosenSlot.start_min)} outside normal opening hours. An out-of-hours charge of {money(chosenSlot.ooh_fee_pence ?? 0)} is included in the price ({money(chosenSlot.price_pence ?? 0)}).
+                      </p>
+                    </div>
+                  )}
                   {availability && openCount > 0 && groups.length === 0 && (
                     <Notice icon="clock">No {daypart.toLowerCase()} times left on this day. Try another part of the day.</Notice>
                   )}

@@ -209,7 +209,12 @@ export type Staff = {
   deductions_json?: string;
   /** 1 = this barber works the shop's opening hours; a change to those hours can be applied to them in one go. */
   follows_shop_hours?: number;
+  /** Charge added when a customer books this barber's out-of-hours time (pence). */
+  ooh_fee_pence?: number;
 };
+/** Time a barber has opened outside their normal hours for one day (can be a day off). */
+export type OohWindow = { id: string; shop_id: string; staff_id: string; date: string; starts: number; ends: number; note: string; created_at: number };
+export type OohSlot = Pick<OohWindow, "starts" | "ends"> & Partial<Pick<OohWindow, "staff_id" | "date">>;
 export type ServiceCategory = { id: string; shop_id: string; name: string; description: string; sort_order: number };
 export type Service = {
   id: string;
@@ -264,7 +269,7 @@ export type ScheduleOverride = {
   version: number;
 };
 export type BookingItem = {
-  kind: "SERVICE" | "ADDON";
+  kind: "SERVICE" | "ADDON" | "OOH";
   id: string;
   name: string;
   price_pence: number;
@@ -403,6 +408,7 @@ export type WorkspaceData = {
   today: string;
   // Online customers mid-booking ("Booking in progress" on the timetable). See holds.ts.
   holds?: import("./holds").SlotHold[];
+  ooh?: OohWindow[];
   now: number;
   mode: "sandbox";
   issues: { booking_id: string; ref: string; reason: string }[];
@@ -494,6 +500,7 @@ export const staffSchema = z
     product_commission_pct: z.number().int().min(0).max(100).default(0),
     employment: z.enum(["SELF_EMPLOYED", "EMPLOYED"]).default("SELF_EMPLOYED"),
     pay_notes: z.string().trim().max(600).default(""),
+    ooh_fee_pence: z.number().int().min(0).max(100000).optional(),
     deductions: z
       .array(z.object({
         id: z.string().trim().min(1).max(40),
@@ -1601,31 +1608,36 @@ export function slotReason(
   // Shop-side view: times outside the working hours are ordinary bookable times for staff and
   // barbers (customers never get this view, so they are only ever offered opening hours).
   staffView = false,
+  // Out-of-hours windows the barber opened: inside one, hours/day off/closures don't apply.
+  ooh: OohSlot[] = [],
 ): string {
   if (!staff?.active) return "Barber unavailable";
   const buf = shopBuffer(shop);
-  if (
-    daysOff.some(
-      (d) =>
-        d.staff_id === staff.id && d.date === date && d.shop_id === shop.id,
+  const inOoh = ooh.some((w) => (!w.staff_id || w.staff_id === staff.id) && (!w.date || w.date === date) && start >= w.starts && start + duration + buf <= w.ends);
+  if (!inOoh) {
+    if (
+      daysOff.some(
+        (d) =>
+          d.staff_id === staff.id && d.date === date && d.shop_id === shop.id,
+      )
     )
-  )
-    return "Barber has a day off";
-  const day = shopDay(shop, weekday(date));
-  if (!day.enabled || holidays.some((h) => h.date === date)) return "Shop closed";
-  if (!hours?.enabled) return "Barber off duty";
-  if (
-    !staffView &&
-    (start < workBounds(shop, hours, date)[0] ||
-      start + duration + buf > workBounds(shop, hours, date)[1])
-  )
-    return "Outside working hours";
-  if (
-    hours.break_end > hours.break_start &&
-    start < hours.break_end &&
-    start + duration + buf > hours.break_start
-  )
-    return "Lunch break";
+      return "Barber has a day off";
+    const day = shopDay(shop, weekday(date));
+    if (!day.enabled || holidays.some((h) => h.date === date)) return "Shop closed";
+    if (!hours?.enabled) return "Barber off duty";
+    if (
+      !staffView &&
+      (start < workBounds(shop, hours, date)[0] ||
+        start + duration + buf > workBounds(shop, hours, date)[1])
+    )
+      return "Outside working hours";
+    if (
+      hours.break_end > hours.break_start &&
+      start < hours.break_end &&
+      start + duration + buf > hours.break_start
+    )
+      return "Lunch break";
+  }
   if (blocks.some((k) => k.staff_id === staff.id && k.date === date && start < k.end_min && start + duration + buf > k.start_min)) return "Blocked time";
   const instant = localInstant(date, start, shop.timezone);
   if (instant === null) return "Ambiguous or invalid local time";

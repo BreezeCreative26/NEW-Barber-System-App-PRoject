@@ -934,6 +934,7 @@ const staffForm = (staff: Staff | null) => ({
   start_date: staff?.start_date || "",
   active: staff ? staff.active : 1,
   sort_order: staff?.sort_order ?? 0,
+  ooh_fee_pence: staff?.ooh_fee_pence ?? 500,
   ...payFormOf(staff),
 });
 type Perf = { barbers: { staff_id: string; n: number; minutes: number; completed_value: number; no_shows: number }[]; from: string; to: string };
@@ -1166,6 +1167,11 @@ function BarberEditor({
               <label className="workspace-field narrow">
                 <span>Order on the timetable</span>
                 <input type="number" min={0} max={999} value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })} />
+              </label>
+              <label className="workspace-field narrow">
+                <span>Out-of-hours charge (£)</span>
+                <input type="number" min={0} max={1000} step={0.5} value={form.ooh_fee_pence / 100} onChange={(e) => setForm({ ...form, ooh_fee_pence: Math.max(0, Math.round(Number(e.target.value || 0) * 100)) })} data-testid="staff-ooh-fee" />
+                <small className="helper">Added when a customer books time this barber opened out of hours.</small>
               </label>
             </div>
           </fieldset>

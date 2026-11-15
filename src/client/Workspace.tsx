@@ -1349,6 +1349,7 @@ type Editor =
   | { kind: "addon"; item?: Addon }
   | { kind: "overrides"; item: Staff }
   | { kind: "override"; item: Staff; override?: ScheduleOverride }
+  | { kind: "ooh"; item: Staff; date: string }
   | { kind: "removeOverride"; item: ScheduleOverride }
   | { kind: "hours"; item: Staff }
   | { kind: "daysOff"; item: Staff }
@@ -2828,9 +2829,10 @@ export function Workspace() {
                         const list = w.staff.filter((s) => s.active);
                         const target = list.find((s) => s.id === (dayMenuStaff || barber)) || list[0];
                         if (!target) return null;
-                        const act = (action: "hours" | "block" | "dayOff") => {
+                        const act = (action: "hours" | "block" | "dayOff" | "ooh") => {
                           setDayMenuOpen(false);
                           if (action === "hours") setEditor({ kind: "override", item: target, override: w.schedule_overrides.find((o) => o.staff_id === target.id && o.date === date) });
+                          else if (action === "ooh") setEditor({ kind: "ooh", item: target, date });
                           else if (action === "block") setEditor({ kind: "block", item: target });
                           else setEditor({ kind: "daysOff", item: target });
                         };
@@ -2845,6 +2847,7 @@ export function Workspace() {
                             {manager && <button type="button" role="menuitem" onClick={() => act("hours")}><Icon name="clock" size={14} /> Edit today's hours</button>}
                             <button type="button" role="menuitem" disabled={date < w.today} onClick={() => act("block")}><Icon name="blocked" size={14} /> Block time…</button>
                             {manager && <button type="button" role="menuitem" onClick={() => act("dayOff")}><Icon name="sun" size={14} /> Day off</button>}
+                            {manager && <button type="button" role="menuitem" disabled={date < w.today} onClick={() => act("ooh")} data-testid="day-menu-ooh"><Icon name="sparkles" size={14} /> Out of hours…</button>}
                           </div>
                         );
                       })()}
@@ -3056,6 +3059,7 @@ export function Workspace() {
                           canSetHours={manager}
                           onAction={(action, staffMember, at) => {
                             if (action === "hours") setEditor({ kind: "override", item: staffMember, override: w.schedule_overrides.find((o) => o.staff_id === staffMember.id && o.date === date) });
+                            else if (action === "ooh") setEditor({ kind: "ooh", item: staffMember, date });
                             else if (action === "block") setEditor({ kind: "block", item: staffMember, at });
                             else if (action === "dayOff") setEditor({ kind: "daysOff", item: staffMember });
                             else setEditor({ kind: "walkin", staffId: staffMember.id });
@@ -6683,7 +6687,9 @@ function WorkspaceEditor({
     void onRefresh().catch(() => {});
   }
   const title =
-    e.kind === "addon"
+    e.kind === "ooh"
+      ? `${e.item.name.split(" ")[0]} · out of hours`
+      : e.kind === "addon"
       ? e.item
         ? "Edit add-on"
         : "Add add-on"
@@ -6782,6 +6788,7 @@ function WorkspaceEditor({
           </section>
         </>
       )}
+      {e.kind === "ooh" && <OohEditor staff={e.item} date={e.date} w={w} saved={saved} />}
       {e.kind === "override" && (
         <OverrideEditor
           staff={e.item}
@@ -7299,6 +7306,30 @@ function OverrideEditor({
         />
       </Field>
       <p className="workspace-footnote">Equal break times mean no break. These hours apply this day even outside normal opening hours, including online.</p>
+    </SaveForm>
+  );
+}
+// Out-of-hours time for one barber on one day: customers can book it online (shown orange) and pay
+// the barber's out-of-hours charge on top. Works on days off too.
+function OohEditor({ staff, date, w, saved }: { staff: Staff; date: string; w: WorkspaceData; saved: EditorProps["saved"] }) {
+  const win = (w.ooh || []).find((o) => o.staff_id === staff.id && o.date === date);
+  const first = staff.name.split(" ")[0];
+  const fee = staff.ooh_fee_pence ?? 500;
+  return (
+    <SaveForm
+      label={win ? "Save out-of-hours time" : "Open out-of-hours time"}
+      onSave={(f) => saved(`/staff/${staff.id}/ooh`, "POST", { date: text(f, "date"), starts: minute(text(f, "starts")), ends: minute(text(f, "ends")), note: text(f, "note") })}
+      footer={win ? <Button type="button" variant="secondary" onClick={() => void saved(`/staff/${staff.id}/ooh/${win.id}`, "DELETE")} data-testid="ooh-close">Close out-of-hours time</Button> : undefined}
+    >
+      <Notice icon="clock">
+        <strong>{first} · {new Date(date + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}.</strong> These times show to the team as out of hours and glow orange on online booking. Customers see a notice and pay {first}'s out-of-hours charge of <strong>{money(fee)}</strong> on top (change it in Barbers › Profile). Works on days off too.
+      </Notice>
+      <Field label="Date"><input name="date" type="date" required defaultValue={win?.date ?? date} /></Field>
+      <div className="workspace-form-grid">
+        <Field label="From"><input name="starts" type="time" step={900} required defaultValue={clock(win?.starts ?? 18 * 60)} /></Field>
+        <Field label="Until"><input name="ends" type="time" step={900} required defaultValue={clock(win?.ends ?? 20 * 60)} /></Field>
+      </div>
+      <Field label="Note for the team (optional)"><input name="note" maxLength={100} defaultValue={win?.note ?? ""} placeholder="e.g. Late cuts before the wedding" /></Field>
     </SaveForm>
   );
 }

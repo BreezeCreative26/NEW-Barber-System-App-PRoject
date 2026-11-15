@@ -17,6 +17,7 @@ import {
   type AddonLink,
   type StaffServiceRule,
   type ScheduleOverride,
+  type OohWindow,
   type BookingItem,
   bookingSchema,
   publicBookingSchema,
@@ -775,6 +776,7 @@ sandbox.get("/workspace", async (c) => {
     c.env.DB.prepare("SELECT logo_url, logo_tone FROM shop_pages WHERE shop_id=?").bind(sid),
     scoped("SELECT * FROM staff_blocks WHERE shop_id=? AND (? IS NULL OR staff_id=?) AND date>=? ORDER BY date,start_min", [shopToday(shop.timezone)]),
     c.env.DB.prepare("SELECT * FROM service_categories WHERE shop_id=? ORDER BY sort_order,name").bind(sid),
+    c.env.DB.prepare("SELECT * FROM staff_ooh WHERE shop_id=? AND date>=? ORDER BY date,starts").bind(sid, datePlusServer(shopToday(shop.timezone), -62)),
   ]);
   const staff = result[0].results as Staff[];
   const services = result[1].results as Service[];
@@ -829,6 +831,8 @@ sandbox.get("/workspace", async (c) => {
             undefined,
             daysOff,
           );
+      // Booked into out-of-hours time the barber opened: fine.
+      if (reason && b.items_json?.includes('"OOH"')) return [];
       // Booked there on purpose by the shop (outside hours, or "book anyway" on a day off / closed day).
       if ((reason === "Outside working hours" || CLOSED_DAY_REASONS.has(reason)) && deliberate.has(b.id)) return [];
       return reason ? [{ booking_id: b.id, ref: ref(b), reason }] : [];
@@ -871,6 +875,7 @@ sandbox.get("/workspace", async (c) => {
     service_rules: rules,
     service_categories: (result[13]?.results ?? []) as ServiceCategory[],
     schedule_overrides: overrides,
+    ooh: (result[14]?.results ?? []) as OohWindow[],
     today: shopToday(shop.timezone),
     // Online customers mid-booking: shown as "Booking in progress" on the timetable.
     holds: await liveHolds(c.env.DB, sid, shopToday(shop.timezone)).catch(() => []),
@@ -2330,7 +2335,7 @@ sandbox.put("/staff/:id", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE staff SET name=?,role=?,active=?,title=?,bio=?,colour=?,photo_url=?,online_visible=?,skills=?,instagram=?,start_date=?,sort_order=?,commission_pct=?,pay_model=?,pay_period=?,base_pence=?,hourly_pence=?,rent_pence=?,commission_threshold_pence=?,commission_tiers=?,tip_share_pct=?,product_commission_pct=?,employment=?,pay_notes=?,deductions_json=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
+      "UPDATE staff SET name=?,role=?,active=?,title=?,bio=?,colour=?,photo_url=?,online_visible=?,skills=?,instagram=?,start_date=?,sort_order=?,commission_pct=?,pay_model=?,pay_period=?,base_pence=?,hourly_pence=?,rent_pence=?,commission_threshold_pence=?,commission_tiers=?,tip_share_pct=?,product_commission_pct=?,employment=?,pay_notes=?,deductions_json=?,ooh_fee_pence=COALESCE(?,ooh_fee_pence),version=version+1 WHERE shop_id=? AND id=? AND version=?",
     ).bind(
       b.name,
       b.role,
@@ -2357,6 +2362,7 @@ sandbox.put("/staff/:id", async (c) => {
       b.employment,
       b.pay_notes,
       JSON.stringify(b.deductions),
+      b.ooh_fee_pence ?? null,
       c.get("shopId"),
       c.req.param("id"),
       b.version,
@@ -3000,6 +3006,34 @@ async function saveOverride(c: Ctx, overrideId: string, editing: boolean) {
   );
   return c.json({ id: overrideId }, editing ? 200 : 201);
 }
+// Out-of-hours: one window per barber per day, bookable online (orange) with the barber's charge.
+const oohSchema = z
+  .object({ date: dateSchema, starts: z.number().int().min(0).max(1425), ends: z.number().int().min(15).max(1440), note: z.string().trim().max(100).default("") })
+  .strict()
+  .refine((o) => o.ends > o.starts && o.starts % 15 === 0 && o.ends % 15 === 0, "Pick start and finish times on the quarter hour, finishing after the start");
+sandbox.post("/staff/:id/ooh", async (c) => {
+  const staffId = c.req.param("id");
+  scopeStaff(c, staffId);
+  await requireStaff(c, staffId);
+  const b = await input(c, oohSchema);
+  const sid = c.get("shopId");
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO staff_ooh(id,shop_id,staff_id,date,starts,ends,note,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT (shop_id,staff_id,date) DO UPDATE SET starts=EXCLUDED.starts, ends=EXCLUDED.ends, note=EXCLUDED.note")
+      .bind(id(), sid, staffId, b.date, b.starts, b.ends, b.note, Date.now()),
+    audit(c, "staff", staffId, "OUT_OF_HOURS_SET", `${b.date} ${fmtTime(b.starts)}–${fmtTime(b.ends)} opened out of hours${b.note ? `: ${b.note}` : ""}.`),
+  ]);
+  return c.json({ ok: true }, 201);
+});
+sandbox.delete("/staff/:id/ooh/:oohId", async (c) => {
+  const staffId = c.req.param("id");
+  scopeStaff(c, staffId);
+  const r = await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM staff_ooh WHERE shop_id=? AND staff_id=? AND id=?").bind(c.get("shopId"), staffId, c.req.param("oohId")),
+    audit(c, "staff", staffId, "OUT_OF_HOURS_CLOSED", "Out-of-hours time closed; bookings already made stay.", true),
+  ]);
+  if (!r[0].meta.changes) fail(404, "Out-of-hours time not found");
+  return c.json({ ok: true });
+});
 sandbox.post("/staff/:id/overrides", (c) => saveOverride(c, id(), false));
 sandbox.put("/staff/:id/overrides/:overrideId", (c) =>
   saveOverride(c, c.req.param("overrideId"), true),
@@ -3214,6 +3248,7 @@ export async function availabilityContext(
       "SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND staff_id=? AND date=?",
     ).bind(sid, staffId, date),
     c.env.DB.prepare("SELECT * FROM staff_blocks WHERE shop_id=? AND staff_id=? AND date=?").bind(sid, staffId, date),
+    c.env.DB.prepare("SELECT * FROM staff_ooh WHERE shop_id=? AND staff_id=? AND date=?").bind(sid, staffId, date),
   ]);
   const staff = result[0].results[0] as Staff | undefined;
   const service = result[1].results[0] as Service | undefined;
@@ -3234,6 +3269,7 @@ export async function availabilityContext(
     bookings: result[4].results as StoredBooking[],
     daysOff: result[5].results as StaffDayOff[],
     blocks: result[10].results as StaffBlock[],
+    ooh: (result[11]?.results ?? []) as OohWindow[],
   };
 }
 sandbox.get("/availability", async (c) => {
@@ -3422,6 +3458,7 @@ export async function createBooking(
     data.daysOff,
     data.blocks,
     channel === "OWNER",
+    data.ooh,
   );
   // Outside the working hours is an ordinary bookable time for the shop (never for customers online).
   const outsideHours = channel === "OWNER" && isOutsideHours(data.shop, data.hours, b.date, b.start_min, block);
@@ -3431,6 +3468,13 @@ export async function createBooking(
   const inPast = startInstant === null || startInstant < (options.minStart ?? Date.now());
   const overridden = (!!reason && channel === "OWNER" && !!options.force && overridable(reason) && !inPast) || (outsideHours && !reason);
   if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
+  // Out-of-hours: inside a window the barber opened and outside their normal hours → their charge applies.
+  const inOohWindow = data.ooh.some((w) => b.start_min >= w.starts && b.start_min + block + shopBuffer(data.shop) <= w.ends);
+  const oohFee = inOohWindow && !!slotReason(data.shop, data.staff, data.hours, data.holidays, [], b.date, b.start_min, block, 0, undefined, data.daysOff, [], false) ? data.staff.ooh_fee_pence ?? 0 : 0;
+  if (oohFee > 0) {
+    quote.items.push({ kind: "OOH", id: "ooh", name: "Out-of-hours", price_pence: oohFee, duration_min: 0 });
+    quote.price_pence += oohFee;
+  }
   const start = localInstant(b.date, b.start_min, data.shop.timezone)!;
   const now = Date.now();
   const bookingId = id();
@@ -3622,9 +3666,11 @@ sandbox.patch("/bookings/:id/items", async (c) => {
       return { ...it, price_pence: body.service_price_pence ?? it.price_pence, duration_min: body.service_duration_min ?? it.duration_min };
     return { ...it, price_pence: body.addon_prices[it.id] ?? it.price_pence };
   });
+  const keptOoh = (JSON.parse(b.items_json) as BookingItem[]).find((it) => it.kind === "OOH");
+  if (keptOoh) items.push(keptOoh);
   const price = items.reduce((n, it) => n + it.price_pence, 0);
   const duration = items.reduce((n, it) => n + it.duration_min, 0);
-  const edited = items.some((it, i) => it.price_pence !== quote.items[i].price_pence || it.duration_min !== quote.items[i].duration_min);
+  const edited = items.some((it, i) => !!quote.items[i] && (it.price_pence !== quote.items[i].price_pence || it.duration_min !== quote.items[i].duration_min));
   // Roster + overlap for the new footprint (only re-checked when it grows or moves service).
   const reason = duration !== b.duration_min || body.service_id !== b.service_id
     ? slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, b.date, b.start_min, duration, 0, b.id, data.daysOff, data.blocks, true)
