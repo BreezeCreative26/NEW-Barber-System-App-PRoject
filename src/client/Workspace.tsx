@@ -4871,7 +4871,7 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
               </div>
               <p className="chan-body">Confirmations, reminders and sign-in codes when we have a mobile number.{smsLive ? ` Sent as "${msg.msg_sms_sender || "your shop name"}".` : ""}</p>
               {msg.msg_sms === 1 && data.sms_billing && <SmsBillingAck unitPence={data.sms_billing.unit_pence} acknowledgedAt={data.sms_billing.acknowledged_at} checked={smsAck} onChange={setSmsAck} testId="msg-sms-billing-ack" />}
-              {msg.msg_sms === 1 && <SmsKindsPicker value={msg.msg_sms_kinds ?? "confirm,reminder,change,waitlist,review"} onChange={(v) => setMsg({ ...msg, msg_sms_kinds: v })} />}
+              {msg.msg_sms === 1 && <SmsKindsPicker value={msg.msg_sms_kinds ?? ""} onChange={(v) => setMsg({ ...msg, msg_sms_kinds: v })} />}
               {msg.msg_sms !== 1 && <p className="chan-body" data-testid="sms-off-note">Texts are off. Customers are not asked about texts while they are off. Switch them on to choose which texts to send; customers are then asked once, next time they sign in.</p>}
             </div>
             <div className={`chan-card${msg.msg_email ? " on" : ""}`} data-testid="chan-email">

@@ -85,6 +85,7 @@ import { billingSummary, entitlements, setFeature, syncSeats, hasFeature, featur
 import { runningStatement, statementCsv } from "./statement";
 import { billingLive, cardSetupSession, paymentMethodSummary, portalSession } from "./stripeBilling";
 import { applyDecisions, changeSchema, decisionSchema, describeChange, previewChange, type ScheduleChange } from "./schedule";
+import { SMS_KINDS, LEGACY_SMS_KINDS, normaliseSmsKinds } from "./smsKinds";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, providerStatus, pushFor, sweepReminders, reminderSteps, MESSAGE_TEMPLATES, smsKindsOf, type Recipient } from "./messaging";
 import { agentPrompt, newSecret, voiceEndpoints, voiceOf, voiceSettingsSchema } from "./voice";
 import { CARDS_NOT_READY, StripeError, cardsReadyFor, depositsOnline, expireHolds, expireSession, depositStripeFee, keepDepositInLedger, platformBalance, platformFee, refundDeposit, refundIntent, setPayoutSchedule, shopCanTakeCards, stripeConnect, stripeLive, stripeStatus } from "./stripe";
@@ -1688,8 +1689,8 @@ const messagingSchema = z
     msg_sms_sender: z.string().trim().max(11).regex(/^[A-Za-z0-9 ]*$/, "Letters and numbers only"),
     // Owner confirms texts are billed per message (shown with the rate). Required the first time SMS is switched on.
     sms_billing_ack: z.boolean().optional(),
-    // Which texts go out: any of confirm, reminder, change, waitlist, review. Older clients omit it: left as it is.
-    msg_sms_kinds: z.string().trim().regex(/^((confirm|reminder|change|waitlist|review)(,(confirm|reminder|change|waitlist|review)){0,4})?$/, "Unknown kind of text").optional(),
+    // Which texts go out (one id per text; old group names are still accepted). Older clients omit it: left as it is.
+    msg_sms_kinds: z.string().trim().max(300).refine((v) => v === "" || v.split(",").every((k) => (SMS_KINDS as readonly string[]).includes(k.trim()) || LEGACY_SMS_KINDS.includes(k.trim())), "Unknown kind of text").transform((v) => normaliseSmsKinds(v).join(",")).optional(),
   })
   .strict();
 // Per-text price and whether this shop's owner has accepted it.
