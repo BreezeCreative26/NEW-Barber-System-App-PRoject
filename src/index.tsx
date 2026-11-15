@@ -144,6 +144,16 @@ app.route("/api/voice", voice);
 app.route("/api/admin", admin);
 app.route("/api/admin-public", adminPublic);
 app.route("/u", marketingPublic);
+// Short links in texts (see shortLink in messaging.ts): any host, redirect to the stored URL.
+app.get("/s/:code", async (c) => {
+  const code = c.req.param("code");
+  c.header("Cache-Control", "no-store");
+  c.header("X-Robots-Tag", "noindex");
+  if (!/^[A-Za-z0-9]{8}$/.test(code)) return c.text("Link not found", 404);
+  const row = await c.env.DB.prepare("SELECT url FROM sms_links WHERE code=?").bind(code).first<{ url: string }>();
+  if (!row) return c.text("This link is not valid any more.", 404);
+  return c.redirect(row.url, 302);
+});
 app.get("/pay-run/:id", (c) => adminPublic.fetch(new Request(new URL(`/pay-run/${c.req.param("id")}${new URL(c.req.url).search}`, c.req.url), c.req.raw), c.env));
 // Printable invoice / credit note (token in the query string; emailed to billing contacts).
 app.get("/invoice/:id", (c) => adminPublic.fetch(new Request(new URL(`/invoice/${c.req.param("id")}${new URL(c.req.url).search}`, c.req.url), c.req.raw), c.env));

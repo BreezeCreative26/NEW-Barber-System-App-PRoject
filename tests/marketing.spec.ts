@@ -41,7 +41,7 @@ test("marketing: csv in, engine extracts, campaign sends in the dev mailbox, uns
   const aud = await (await r.get(base + `/marketing/campaigns/${made.id}/audience`)).json();
   expect(aud.sms).toBe(2);
   expect(aud.email).toBe(2);
-  expect(aud.sms_text).toContain("Reply STOP");
+  expect(aud.sms_text).toContain("Opt out: "); // alpha senders cannot take a STOP reply
   expect(aud.email_html).toContain("/u/");
   expect(aud.email_html.toLowerCase()).toContain("unsubscribe");
 

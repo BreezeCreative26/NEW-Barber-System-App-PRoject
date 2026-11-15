@@ -9,6 +9,7 @@ import type { AppEnv } from "./accounts";
 import { digest } from "./accounts";
 import { drain, emailHtml, smsKindAllowed, type MessageTemplate } from "./messaging";
 import { brandOf } from "./domain";
+import { smsName } from "./smsText";
 import { shopUrl } from "./hosts";
 
 type Ctx = Context<AppEnv>;
@@ -177,7 +178,7 @@ export async function sweep(c: Ctx, shop: Shop & ShopQueueSettings, now = Date.n
     statements.push(
       c.env.DB.prepare("UPDATE waitlist_offers SET status='EXPIRED',responded_at=? WHERE id=? AND status='PENDING'").bind(now, o.id),
       c.env.DB.prepare("UPDATE waitlist_entries SET status='OPEN',offer_id=NULL,version=version+1,updated_at=? WHERE id=? AND status='OFFERED' AND offer_id=?").bind(now, o.entry_id, o.id),
-      queueMessage(c, shop, o, "waitlist_released", render(templates.waitlist_released, { first: o.customer_name.split(" ")[0], shop: shop.name, date: fmtDate(o.entry_date) }), { type: "waitlist", id: o.entry_id }),
+      queueMessage(c, shop, o, "waitlist_released", render(templates.waitlist_released, { first: o.customer_name.split(" ")[0], shop: smsName(shop.name), date: fmtDate(o.entry_date) }), { type: "waitlist", id: o.entry_id }),
       c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shop.id, "waitlist", o.entry_id, "WAITLIST_OFFER_EXPIRED", "system:waitlist", `Offer for ${o.date} ${fmtTime(o.start_min)} expired unanswered; customer returned to the queue.`, now),
     );
   }
@@ -199,7 +200,7 @@ export async function makeOffer(c: Ctx, shop: Shop & ShopQueueSettings, entry: W
   const expires = now + shop.waitlist_offer_hold_min * 60000;
   const link = shopUrl(shop.slug!, `/offer/${raw}`, new URL(c.req.url).origin);
   const templates = templatesOf(shop);
-  const body = render(templates.waitlist_offer, { first: entry.customer_name.split(" ")[0], shop: shop.name, service: service.name, barber: staff.name.split(" ")[0], date: fmtDate(entry.date), time: fmtTime(slot.start_min), expires: fmtStamp(expires, shop.timezone), link });
+  const body = render(templates.waitlist_offer, { first: entry.customer_name.split(" ")[0], shop: smsName(shop.name), service: service.name, barber: staff.name.split(" ")[0], date: fmtDate(entry.date), time: fmtTime(slot.start_min), expires: fmtStamp(expires, shop.timezone), link });
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE waitlist_offers SET status='SUPERSEDED',responded_at=? WHERE shop_id=? AND entry_id=? AND status='PENDING'").bind(now, shop.id, entry.id),
     c.env.DB.prepare("INSERT INTO waitlist_offers(id,shop_id,entry_id,staff_id,service_id,date,start_min,token_hash,status,source,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,'PENDING',?,?,?)").bind(offerId, shop.id, entry.id, slot.staff_id, entry.service_id, entry.date, slot.start_min, await digest(raw), source, expires, now),
@@ -253,7 +254,7 @@ export async function announceToAll(c: Ctx, shop: Shop & ShopQueueSettings, free
     if (!matches.find((m) => m.staff_id === freed.staff_id && m.start_min === freed.start_min)) continue;
     const service = await c.env.DB.prepare("SELECT name FROM services WHERE shop_id=? AND id=?").bind(shop.id, e.service_id).first<{ name: string }>();
     const link = shopUrl(shop.slug!, `/book?service=${e.service_id}&staff=${freed.staff_id}&date=${freed.date}&start=${freed.start_min}&step=2&wl=${e.id}`, origin);
-    const body = render(templates.waitlist_open, { first: e.customer_name.split(" ")[0], shop: shop.name, service: service?.name || "visit", barber: staff.name.split(" ")[0], date: fmtDate(freed.date), time: fmtTime(freed.start_min), link });
+    const body = render(templates.waitlist_open, { first: e.customer_name.split(" ")[0], shop: smsName(shop.name), service: service?.name || "visit", barber: staff.name.split(" ")[0], date: fmtDate(freed.date), time: fmtTime(freed.start_min), link });
     stmts.push(
       c.env.DB.prepare("INSERT INTO waitlist_announcements(id,shop_id,entry_id,staff_id,date,start_min,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING").bind(uid(), shop.id, e.id, freed.staff_id, freed.date, freed.start_min, now),
       queueMessage(c, shop, e, "waitlist_open", body, { type: "waitlist", id: e.id }),
@@ -346,7 +347,7 @@ export async function queueReviewRequest(c: Ctx, shopId: string, bookingId: stri
   // account area instead, where the customer can review from their history.
   const hasAccount = !!(await c.env.DB.prepare("SELECT 1 FROM customer_accounts WHERE shop_id=? AND phone=? AND password_hash<>''").bind(shop.id, b.phone).first());
   const link = hasAccount || !raw ? shopUrl(shop.slug!, `/me?visit=${encodeURIComponent(bookingId)}`, new URL(c.req.url).origin) : shopUrl(shop.slug!, `/manage/${raw}`, new URL(c.req.url).origin);
-  const body = render(templatesOf(shop).review_request, { first: (b.attendee_name || b.customer_name).split(" ")[0], shop: shop.name, service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], link });
+  const body = render(templatesOf(shop).review_request, { first: (b.attendee_name || b.customer_name).split(" ")[0], shop: smsName(shop.name), service: b.service_name, barber: (b.staff_name || "us").split(" ")[0], link });
   // Review asks follow their own switches: email is free, text is billed so it is opt-in.
   const flags = shop as unknown as { review_ask_sms?: number; review_ask_email?: number; msg_sms?: number; msg_email?: number };
   const askSms = flags.review_ask_sms === 1 && (flags.msg_sms ?? 1) === 1;

@@ -1,4 +1,4 @@
-import { gsmSafe } from "./smsText";
+import { fitSms, gsmSafe, smsName } from "./smsText";
 import { recordUsage } from "./billing";
 // Messaging: the outbox becomes a real delivery queue.
 //
@@ -67,12 +67,14 @@ const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g,
 // Copy for each template. SMS is short and link-first; email gets a heading, lines and a button.
 export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name: string }): Rendered {
   const s = shop.name;
+  // Texts use a short form of the name (whole words, at most 22 characters) so they fit one part.
+  const n = smsName(s);
   const who = first(v.first as string);
   const when = [v.date, v.time].filter(Boolean).join(" at ");
   switch (template) {
     case "booking_confirmed":
       return {
-        sms: `${s}: you're booked — ${v.service} with ${v.barber}, ${when}. Ref ${v.ref}. Move or cancel: ${v.link}`,
+        sms: `${n}: you're booked - ${v.service} with ${v.barber}, ${when}. Move or cancel: ${v.link}`,
         subject: `You're booked at ${s} — ${v.date}`,
         heading: who !== "there" ? `See you ${v.date}, ${who}.` : `See you ${v.date}.`,
         lines: [`${v.service} with ${v.barber}`, `${when}`, v.address ? String(v.address) : "", v.price ? `${v.price} · ${v.deposit_note || "pay in the shop"}` : "", `Reference ${v.ref}`].filter(Boolean),
@@ -81,7 +83,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "booking_moved":
       return {
-        sms: `${s}: your visit has moved — ${v.service} with ${v.barber} is now ${when}. Ref ${v.ref}. ${v.link}`,
+        sms: `${n}: your visit has moved - ${v.service} with ${v.barber} is now ${when}. ${v.link}`,
         subject: `Your visit at ${s} has moved to ${v.date}`,
         heading: `New time: ${when}.`,
         lines: [`${v.service} with ${v.barber}`, v.was ? `Was ${v.was}` : "", `Reference ${v.ref}`].filter(Boolean),
@@ -89,7 +91,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "booking_cancelled":
       return {
-        sms: `${s}: your ${v.service} on ${when} is cancelled. ${v.refund_note ? `${v.refund_note} ` : ""}Ref ${v.ref}. Book again: ${v.book_link}`,
+        sms: `${n}: your ${v.service} on ${when} is cancelled. ${v.refund_note ? `${v.refund_note} ` : ""}Book again: ${v.book_link}`,
         subject: `Your visit at ${s} on ${v.date} is cancelled`,
         heading: `Cancelled: ${v.service}, ${when}.`,
         lines: [`Reference ${v.ref}`, v.refund_note ? String(v.refund_note) : "", "Nothing else to do. Whenever you're ready, book again below."].filter(Boolean),
@@ -97,7 +99,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "booking_reminder":
       return {
-        sms: `${s}: reminder — ${v.service} with ${v.barber} tomorrow, ${when}. Need to change it? ${v.link}`,
+        sms: `${n}: reminder — ${v.service} with ${v.barber} tomorrow, ${when}. Need to change it? ${v.link}`,
         subject: `Tomorrow at ${s}: ${v.service}, ${v.time}`,
         heading: `Tomorrow, ${v.time}.`,
         lines: [`${v.service} with ${v.barber}`, v.address ? String(v.address) : "", `Reference ${v.ref}`].filter(Boolean),
@@ -105,7 +107,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "booking_reminder_soon":
       return {
-        sms: `${s}: see you at ${v.time} today for your ${v.service} with ${v.barber}.${v.address ? ` ${v.address}` : ""}`,
+        sms: `${n}: see you at ${v.time} today for your ${v.service} with ${v.barber}.${v.address ? ` ${v.address}` : ""}`,
         subject: `Today at ${v.time}: ${s}`,
         heading: `See you at ${v.time}.`,
         lines: [`${v.service} with ${v.barber}`, v.address ? String(v.address) : ""].filter(Boolean),
@@ -114,14 +116,14 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "signin_code":
       return {
-        sms: `${s}: your sign-in code is ${v.code}. It expires in 10 minutes.`,
+        sms: `${n}: your sign-in code is ${v.code}. It expires in 10 minutes.`,
         subject: `${v.code} is your ${s} sign-in code`,
         heading: `${v.code}`,
         lines: ["Enter this code to see your visits. It expires in 10 minutes.", "If you didn't ask for it, ignore this message."],
       };
     case "staff_invite":
       return {
-        sms: `${s}: ${v.inviter} has set up your login for the booking system. Choose a password here: ${v.link}`,
+        sms: `${n}: ${v.inviter} has set up your login for the booking system. Choose a password here: ${v.link}`,
         subject: `Your ${s} login`,
         heading: `${v.inviter} has set you up at ${s}.`,
         lines: [`You're joining as ${String(v.role).toLowerCase()}. Tap the button to choose a password — it takes a minute — and we'll show you round: your profile, your week and how to put the app on your phone.`, "This link works once and lasts 7 days."],
@@ -129,14 +131,14 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "waitlist_joined":
       return {
-        sms: `${s}: you're on the list for ${v.date} (${v.daypart}). We'll message you if a time opens up.`,
+        sms: `${n}: you're on the list for ${v.date} (${v.daypart}). We'll message you if a time opens up.`,
         subject: `You're on the list at ${s} for ${v.date}`,
         heading: `On the list for ${v.date}.`,
         lines: [`${v.service}${v.barber ? ` with ${v.barber}` : ""}, ${v.daypart}`, "We'll message you as soon as a time opens up."],
       };
     case "waitlist_offer":
       return {
-        sms: `${s}: a ${v.service} with ${v.barber} has opened on ${when}. Held for you until ${v.expires}: ${v.link}`,
+        sms: `${n}: a ${v.service} with ${v.barber} has opened on ${when}. Held for you until ${v.expires}: ${v.link}`,
         subject: `A time has opened at ${s}: ${when}`,
         heading: `${when} is yours if you want it.`,
         lines: [`${v.service} with ${v.barber}`, `Held until ${v.expires}.`],
@@ -144,7 +146,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "waitlist_open":
       return {
-        sms: `${s}: a ${v.service} with ${v.barber} has just opened on ${when}. First to book gets it: ${v.link}`,
+        sms: `${n}: a ${v.service} with ${v.barber} has just opened on ${when}. First to book gets it: ${v.link}`,
         subject: `A time has just opened at ${s}: ${when}`,
         heading: `${when} has just opened.`,
         lines: [`${v.service} with ${v.barber}`, "First to book gets it."],
@@ -152,7 +154,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "waitlist_booked":
       return {
-        sms: `${s}: you're booked — ${v.service} with ${v.barber}, ${when}. Ref ${v.ref}. Manage: ${v.link}`,
+        sms: `${n}: you're booked - ${v.service} with ${v.barber}, ${when}. Manage: ${v.link}`,
         subject: `You're booked at ${s} — ${v.date}`,
         heading: `Booked: ${when}.`,
         lines: [`${v.service} with ${v.barber}`, `Reference ${v.ref}`],
@@ -160,14 +162,14 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "waitlist_released":
       return {
-        sms: `${s}: no problem — you're back on the list for ${v.date}.`,
+        sms: `${n}: no problem — you're back on the list for ${v.date}.`,
         subject: `Back on the list at ${s}`,
         heading: `Back on the list for ${v.date}.`,
         lines: ["We'll message you if another time opens up."],
       };
     case "google_review":
       return {
-        sms: `${s}: thanks for the ${v.rating}★, ${who}! If you have 30 seconds, the same on Google helps us a lot: ${v.link}`,
+        sms: `${n}: thanks for the ${v.rating}-star review, ${who}! The same on Google would help us a lot: ${v.link}`,
         subject: `Thanks for the ${v.rating}★ — one more favour?`,
         heading: `Thanks, ${who}.`,
         lines: [`You gave your ${v.service} with ${v.barber} ${v.rating} stars. If you have 30 seconds, the same review on Google helps other people find us.`],
@@ -175,7 +177,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "review_request":
       return {
-        sms: `Thanks for coming in, ${who}. How was your ${v.service} with ${v.barber} at ${s}? Leave a quick rating: ${v.link}`,
+        sms: `Thanks for coming in, ${who}. How was your ${v.service} with ${v.barber} at ${n}? Leave a quick rating: ${v.link}`,
         subject: `How was your visit to ${s}?`,
         heading: `Thanks for coming in, ${who}.`,
         lines: [`How was your ${v.service} with ${v.barber}? A quick rating helps the team and other customers.`],
@@ -183,7 +185,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "pay_link":
       return {
-        sms: `${s}: pay ${v.amount} for your ${v.service} by card here: ${v.link}`,
+        sms: `${n}: pay ${v.amount} for your ${v.service} by card here: ${v.link}`,
         subject: `Pay ${v.amount} to ${s}`,
         heading: `${v.amount} for your ${v.service}`,
         lines: ["Tap the button to pay by card. The link is valid for 30 minutes."],
@@ -191,7 +193,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "test_message":
       return {
-        sms: `${s}: this is a test message from your booking system. Messages are working.`,
+        sms: `${n}: this is a test message from your booking system. Messages are working.`,
         subject: `Test message from ${s}`,
         heading: "Messages are working.",
         lines: ["This is a test from your booking system's Settings → Messages panel.", `Sent ${new Date().toLocaleString("en-GB")}.`],
@@ -199,7 +201,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
     // ---- Shop-side (owner/manager) messages. Same branding rule: the shop's name, never foliyo. ----
     case "verify_contact":
       return {
-        sms: `${s}: ${v.code} is your verification code. It expires in 10 minutes.`,
+        sms: `${n}: ${v.code} is your verification code. It expires in 10 minutes.`,
         subject: `${v.code} is your ${s} verification code`,
         heading: `${v.code}`,
         lines: [`Enter this code to confirm this is ${s}'s ${v.kind === "PHONE" ? "mobile number" : "email address"}. It expires in 10 minutes.`, "If you didn't ask for it, ignore this message."],
@@ -208,7 +210,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       // Shop-branded: an invited team member confirming the address they signed up with, or an
       // owner re-sending from the workspace nudge.
       return {
-        sms: `${s}: confirm your sign-in email here (24 h): ${v.link}`,
+        sms: `${n}: confirm your sign-in email here (24 h): ${v.link}`,
         subject: `Confirm your email for ${s}`,
         heading: who !== "there" ? `Nearly there, ${who}.` : "Nearly there.",
         lines: [`Tap the button to confirm that ${v.email} is yours. That's what we'll use for sign-in help and password resets.`, "The link works once and expires in 24 hours.", "If you didn't create this account, ignore this message."],
@@ -218,14 +220,14 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       // Customer account created from a booking or the shop app. `ready`: password already chosen.
       return v.ready
         ? {
-            sms: `${s}: your account is ready. Sign in with ${v.email} to see and manage your visits: ${v.link}`,
+            sms: `${n}: your account is ready. Sign in with ${v.email} to see and manage your visits: ${v.link}`,
             subject: `Your ${s} account is ready`,
             heading: who !== "there" ? `Welcome, ${who}.` : "Welcome.",
             lines: [`Your ${s} account keeps every visit in one place: move or cancel, rebook your usual, and get reminders.`, `Sign in any time with ${v.email} and the password you chose.`, v.install ? "Tip: add the shop to your home screen from the account page for one-tap access and reminders." : ""].filter(Boolean),
             cta: { label: "Open my account", href: String(v.link) },
           }
         : {
-            sms: `${s}: your account is ready. Set a password to see and manage your visits: ${v.link}`,
+            sms: `${n}: your account is ready. Set a password to see and manage your visits: ${v.link}`,
             subject: `Your ${s} account`,
             heading: who !== "there" ? `Welcome, ${who}.` : "Welcome.",
             lines: [`Your ${s} account keeps every visit in one place: move or cancel, rebook your usual, and get reminders.`, "Set a password to finish. The link works once and lasts 24 hours.", v.install ? "Tip: add the shop to your home screen from the account page for one-tap access and reminders." : ""].filter(Boolean),
@@ -233,7 +235,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
           };
     case "account_reset":
       return {
-        sms: `${s}: reset your password here (30 min): ${v.link}`,
+        sms: `${n}: reset your password here (30 min): ${v.link}`,
         subject: `Reset your ${s} password`,
         heading: "Reset your password.",
         lines: ["Someone asked to reset the password for your account. If it was you, use the button below within 30 minutes.", "If it wasn't you, ignore this message — nothing has changed."],
@@ -242,7 +244,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
     case "shop_address":
       // Owner/staff asked "where do I sign in?" on the foliyo home page.
       return {
-        sms: `${s}: sign in at ${v.link}`,
+        sms: `${n}: sign in at ${v.link}`,
         subject: `Where to sign in for ${s}`,
         heading: "Here's your sign-in address.",
         lines: [`${s}'s team signs in at the shop's own address. Bookmark it or add it to your home screen.`, "If you didn't ask for this, ignore it — nothing changes."],
@@ -250,7 +252,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "password_reset":
       return {
-        sms: `${s}: reset your booking system password here (30 min): ${v.link}`,
+        sms: `${n}: reset your booking system password here (30 min): ${v.link}`,
         subject: `Reset your ${s} password`,
         heading: "Reset your password.",
         lines: ["Someone asked to reset the password for this address. If it was you, use the button below within 30 minutes.", "If it wasn't you, ignore this message — your password has not changed."],
@@ -259,7 +261,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
     // ---- foliyo → shop owner (billing / account). `s` here is the platform name, not a shop. ----
     case "invoice":
       return {
-        sms: `${s}: invoice ${v.number} for ${v.total}${v.due ? `, due ${v.due}` : ""}. View: ${v.link}`,
+        sms: `${n}: invoice ${v.number} for ${v.total}${v.due ? `, due ${v.due}` : ""}. View: ${v.link}`,
         subject: `${s} invoice ${v.number} · ${v.total}${v.status === "PAID" ? " (paid)" : ""}`,
         heading: v.status === "PAID" ? `Receipt for ${v.shop}.` : `Your ${s} invoice for ${v.shop}.`,
         lines: [`Invoice ${v.number} · ${v.total}${v.due && v.status !== "PAID" ? ` · due ${v.due}` : ""}.`, v.status === "PAID" ? "This invoice has been settled — no action needed." : v.bank ? `Pay by bank transfer using the details on the invoice, quoting ${v.number}.` : "Your card on file will be charged automatically.", "Reply to this email if anything looks wrong."],
@@ -267,7 +269,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "credit_note":
       return {
-        sms: `${s}: credit note ${v.number} for ${v.total} has been issued. View: ${v.link}`,
+        sms: `${n}: credit note ${v.number} for ${v.total} has been issued. View: ${v.link}`,
         subject: `${s} credit note ${v.number} · ${v.total}`,
         heading: `Credit note for ${v.shop}.`,
         lines: [`Credit note ${v.number} · ${v.total}.`, "It has been applied to your account — the invoice shows how."],
@@ -275,7 +277,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "trial_ending":
       return {
-        sms: `${s}: your free trial for ${v.shop} ends ${v.ends}. Add a payment method to keep bookings flowing: ${v.link}`,
+        sms: `${n}: your free trial for ${v.shop} ends ${v.ends}. Add a payment method to keep bookings flowing: ${v.link}`,
         subject: `Your ${s} trial ends in ${v.days} day${v.days === 1 ? "" : "s"}`,
         heading: `${v.days} day${v.days === 1 ? "" : "s"} left on your trial.`,
         lines: [`Your free trial for ${v.shop} ends on ${v.ends}.`, "Nothing changes until then. When it ends, your calendar stays visible but new bookings pause until a plan is active.", "Prices are what you pay — no VAT is added, and you can cancel any time."],
@@ -283,7 +285,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "trial_ended":
       return {
-        sms: `${s}: your trial for ${v.shop} has ended. Bookings are paused until a plan is active: ${v.link}`,
+        sms: `${n}: your trial for ${v.shop} has ended. Bookings are paused until a plan is active: ${v.link}`,
         subject: `Your ${s} trial has ended`,
         heading: "Your trial has ended.",
         lines: [`The free trial for ${v.shop} finished on ${v.ends}.`, "Everything you set up is safe. Your team can still sign in and see the calendar, but new bookings are paused until a plan is active.", "Pick up where you left off in a minute — or reply to this email if you'd like a hand."],
@@ -291,7 +293,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "payment_overdue":
       return {
-        sms: `${s}: invoice ${v.number} (${v.amount}) for ${v.shop} is overdue. Pay by ${v.readonly_on} to avoid bookings pausing: ${v.link}`,
+        sms: `${n}: invoice ${v.number} (${v.amount}) for ${v.shop} is overdue. Pay by ${v.readonly_on} to avoid bookings pausing: ${v.link}`,
         subject: `Payment overdue${v.amount ? ` · ${v.amount}` : ""} · ${v.shop}`,
         heading: "A payment is overdue.",
         lines: [`${String(v.number).startsWith("your") ? `The payment for ${v.shop}` : `Invoice ${v.number}`}${v.amount ? ` for ${v.amount}` : ""} is past its due date.`, `Please pay by ${v.readonly_on}. After that, new bookings pause until the balance is cleared — your calendar and customers stay exactly as they are.`, "If you've already paid, ignore this — it can take a day to show."],
@@ -299,7 +301,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "account_readonly":
       return {
-        sms: `${s}: bookings for ${v.shop} are paused — invoice ${v.number} (${v.amount}) is unpaid. ${v.link}`,
+        sms: `${n}: bookings for ${v.shop} are paused — invoice ${v.number} (${v.amount}) is unpaid. ${v.link}`,
         subject: `Bookings paused for ${v.shop}`,
         heading: "Bookings are paused.",
         lines: [`${String(v.number).startsWith("your") ? "Your subscription" : `Invoice ${v.number}`}${v.amount ? ` (${v.amount})` : ""} is still unpaid after the ${v.grace_days}-day grace period, so new bookings for ${v.shop} are paused.`, "Your team can still sign in and see everything. Settle the invoice and bookings resume straight away.", "Something wrong with the invoice? Reply to this email and we'll sort it."],
@@ -315,7 +317,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "broadcast":
       return {
-        sms: `${s}: ${v.subject}${v.cta_url ? ` ${v.cta_url}` : ""}`,
+        sms: `${n}: ${v.subject}${v.cta_url ? ` ${v.cta_url}` : ""}`,
         subject: String(v.subject),
         heading: String(v.heading || v.subject),
         lines: String(v.body || "").split(/\n{2,}/).map((p) => p.trim()).filter(Boolean),
@@ -323,7 +325,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "admin_alert_digest":
       return {
-        sms: `${s} admin: ${v.count} alert${v.count === 1 ? "" : "s"} need attention. ${v.link}`,
+        sms: `${n} admin: ${v.count} alert${v.count === 1 ? "" : "s"} need attention. ${v.link}`,
         subject: `${v.count} foliyo alert${v.count === 1 ? "" : "s"} need attention`,
         heading: `${v.count} thing${v.count === 1 ? "" : "s"} to look at.`,
         lines: String(v.items || "").split("\n").filter(Boolean),
@@ -332,7 +334,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
     case "owner_welcome":
       // foliyo → a brand-new owner, moments after signup. Doubles as the email confirmation.
       return {
-        sms: `${s}: welcome! Confirm your email and finish setting up ${v.shop}: ${v.link}`,
+        sms: `${n}: welcome! Confirm your email and finish setting up ${v.shop}: ${v.link}`,
         subject: `Welcome to ${s} — confirm your email`,
         heading: who !== "there" ? `Welcome, ${who}.` : "Welcome.",
         lines: [`${v.shop} is ready for you. Tap the button to confirm this address — it's how you'll get back in if you ever forget your password.`, "Then finish the short setup: opening hours, services, your team and your booking link. Most shops take bookings the same day.", "The link works once and expires in 24 hours. If you didn't sign up, ignore this email."],
@@ -341,7 +343,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "owner_signin_link":
       return {
-        sms: `${s}: your one-time sign-in link (15 min): ${v.link}`,
+        sms: `${n}: your one-time sign-in link (15 min): ${v.link}`,
         subject: `Your ${s} sign-in link`,
         heading: "Sign in with one tap.",
         lines: [`${s} support sent you this link so you can get back into ${v.shop}. It works once and expires in 15 minutes.`, "Once you're in, set a new password under Settings → Account.", "Didn't ask for this? Ignore it — nothing changes."],
@@ -349,7 +351,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "owner_new_booking":
       return {
-        sms: `${s}: new booking — ${v.customer}, ${v.service} with ${v.barber}, ${when}. Ref ${v.ref}.`,
+        sms: `${n}: new booking — ${v.customer}, ${v.service} with ${v.barber}, ${when}. Ref ${v.ref}.`,
         subject: `New booking: ${v.customer} · ${when}`,
         heading: `${v.customer} booked online.`,
         lines: [`${v.service} with ${v.barber}`, `${when} · ref ${v.ref}`, v.deposit ? `Deposit: ${v.deposit}` : ""].filter(Boolean),
@@ -357,7 +359,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "owner_cancelled":
       return {
-        sms: `${s}: ${v.customer} cancelled ${v.service} with ${v.barber}, ${when}. Ref ${v.ref}.${v.deposit ? ` Deposit ${v.deposit}.` : ""}`,
+        sms: `${n}: ${v.customer} cancelled ${v.service} with ${v.barber}, ${when}. Ref ${v.ref}.${v.deposit ? ` Deposit ${v.deposit}.` : ""}`,
         subject: `Cancelled: ${v.customer} · ${when}`,
         heading: `${v.customer} cancelled.`,
         lines: [`${v.service} with ${v.barber}`, `${when} · ref ${v.ref}`, v.deposit ? `Deposit: ${v.deposit}` : "", v.waitlist ? `${v.waitlist} on the waitlist for that day.` : ""].filter(Boolean),
@@ -365,7 +367,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "owner_moved":
       return {
-        sms: `${s}: ${v.customer} moved ${v.service} with ${v.barber} to ${when}${v.was ? ` (was ${v.was})` : ""}. Ref ${v.ref}.`,
+        sms: `${n}: ${v.customer} moved ${v.service} with ${v.barber} to ${when}${v.was ? ` (was ${v.was})` : ""}. Ref ${v.ref}.`,
         subject: `Moved: ${v.customer} · ${when}`,
         heading: `${v.customer} moved their booking.`,
         lines: [`${v.service} with ${v.barber}`, `Now ${when} · ref ${v.ref}`, v.was ? `Was ${v.was}` : ""].filter(Boolean),
@@ -373,7 +375,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "owner_review":
       return {
-        sms: `${s}: new ${v.rating}-star review from ${v.customer} for ${v.service}.${v.comment ? ` "${String(v.comment).slice(0, 80)}"` : ""}`,
+        sms: `${n}: new ${v.rating}-star review from ${v.customer} for ${v.service}.${v.comment ? ` "${String(v.comment).slice(0, 80)}"` : ""}`,
         subject: `New ${v.rating}-star review from ${v.customer}`,
         heading: `${v.customer} left you ${v.rating} ${Number(v.rating) === 1 ? "star" : "stars"}.`,
         lines: [`${v.service} with ${v.barber}`, v.comment ? `"${String(v.comment).slice(0, 400)}"` : "No comment left."].filter(Boolean),
@@ -381,14 +383,14 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "owner_no_show":
       return {
-        sms: `${s}: no-show — ${v.customer}, ${v.service} with ${v.barber}, ${when}.`,
+        sms: `${n}: no-show — ${v.customer}, ${v.service} with ${v.barber}, ${when}.`,
         subject: `No-show: ${v.customer} · ${when}`,
         heading: `${v.customer} didn't turn up.`,
         lines: [`${v.service} with ${v.barber}`, `${when} · ref ${v.ref}`, v.count ? `That's ${v.count} no-shows from this customer.` : ""].filter(Boolean),
       };
     case "owner_callback":
       return {
-        sms: `${s}: the AI receptionist took a message — ${v.customer}${v.phone ? ` (${v.phone})` : ""}: ${v.note}`,
+        sms: `${n}: the AI receptionist took a message — ${v.customer}${v.phone ? ` (${v.phone})` : ""}: ${v.note}`,
         subject: `Call back: ${v.customer}`,
         heading: `${v.customer} would like a call back.`,
         lines: [v.phone ? `Number: ${v.phone}` : "No number left.", `"${v.note}"`, "Taken by the AI receptionist."],
@@ -396,7 +398,7 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
       };
     case "owner_daily_summary":
       return {
-        sms: `${s} today: ${v.count} booked, first at ${v.first_time}, ${v.online} online. ${v.gaps ? `${v.gaps} free slots.` : "Full day."}`,
+        sms: `${n} today: ${v.count} booked, first at ${v.first_time}, ${v.online} online. ${v.gaps ? `${v.gaps} free slots.` : "Full day."}`,
         subject: `${s} — today, ${v.date}`,
         heading: `${v.count} visits today.`,
         lines: [`First at ${v.first_time}, last at ${v.last_time}.`, `${v.online} booked online, ${v.walkin} in the shop.`, `${v.gaps ? `${v.gaps} slots still free.` : "No gaps."}`, v.deposits ? `Deposits taken: ${v.deposits}.` : ""].filter(Boolean),
@@ -644,7 +646,7 @@ export function toE164(phone: string, defaultCountry = "GB"): string | null {
   return null;
 }
 async function sendSms(row0: Row, db?: DB): Promise<Delivery> {
-  const row = { ...row0, body: gsmSafe(row0.body) };
+  const row = { ...row0, body: await fitSms(row0.body, db ? (u) => shortLink(db, row0.shop_id, u, row0.id) : undefined) };
   const e = env();
   // A STOP reply is honoured (for that shop, or platform-wide if we couldn't tell which shop), on every SMS provider, before we spend a message.
   if (db) {
@@ -686,7 +688,13 @@ async function sendClickSend(row: Row, e: Record<string, string>): Promise<Deliv
   const to = toE164(row.recipient);
   if (!to) return { ok: false, provider: "clicksend", error: "Not a valid mobile number", permanent: true };
   const from = (row.msg_sms_sender || e.CLICKSEND_FROM || "").replace(/[^A-Za-z0-9 ]/g, "").slice(0, 11).trim();
-  const message: Record<string, string> = { source: "ollo", to, body: row.body.slice(0, 918) };
+  // A retry after an unclear failure (timeout, dropped connection) can follow a text ClickSend did
+  // accept. Look for it by our id first so the customer isn't texted, and we aren't charged, twice.
+  if (row.attempts > 0) {
+    const prior = await clicksendSentAlready(row.id, e);
+    if (prior) return { ok: true, provider: "clicksend", id: prior };
+  }
+  const message: Record<string, string> = { source: "ollo", to, body: row.body.slice(0, 918), custom_string: row.id };
   if (from) message.from = from;
   const res = await fetch(e.CLICKSEND_API_URL || "https://rest.clicksend.com/v3/sms/send", {
     method: "POST",
@@ -702,6 +710,20 @@ async function sendClickSend(row: Row, e: Record<string, string>): Promise<Deliv
   return { ok: false, provider: "clicksend", error: `${status} ${j.response_msg || "send failed"}`.trim(), permanent: /INVALID_RECIPIENT|INVALID_SENDER|BODY_TOO_LONG/.test(status) };
 }
 
+async function clicksendSentAlready(id: string, e: Record<string, string>): Promise<string | null> {
+  const auth = `Basic ${btoa(`${e.CLICKSEND_USERNAME}:${e.CLICKSEND_API_KEY}`)}`;
+  const since = Math.floor(Date.now() / 1000) - 2 * 86400; // retries give up within a day
+  for (let page = 1; page <= 10; page++) {
+    const res = await fetch(`https://rest.clicksend.com/v3/sms/history?date_from=${since}&page=${page}&limit=100`, { headers: { Authorization: auth }, signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) }).catch(() => null);
+    if (!res?.ok) return null;
+    const j = (await res.json().catch(() => null)) as { data?: { last_page?: number; data?: { custom_string?: string; message_id?: string }[] } } | null;
+    const hit = j?.data?.data?.find((m) => m.custom_string === id);
+    if (hit?.message_id) return hit.message_id;
+    if (!j?.data?.last_page || page >= j.data.last_page) return null;
+  }
+  return null;
+}
+
 async function sendWa(db: DB, row: Row): Promise<Delivery> {
   const provider = waLive() ? "infobip" : "mailbox";
   let payload: import("./whatsapp").WaPayload | null = null;
@@ -711,6 +733,23 @@ async function sendWa(db: DB, row: Row): Promise<Delivery> {
   if (!to) return { ok: false, provider, error: "Not a valid mobile number", permanent: true };
   // sendWhatsApp handles opt-outs and the preview mailbox itself.
   return sendWhatsApp(db, to, payload);
+}
+
+// ---- Short links for texts -----------------------------------------------------------------------
+// A long link (a guest's manage link is ~100 characters) pushes a text into two or three billed parts.
+// fitSms swaps any link over 45 characters for <same origin>/s/<code>; /s/:code redirects to it. The
+// code comes from the message id and the URL, so a retry reuses it. The full link is already stored
+// in the message body, so keeping it here exposes nothing new.
+const B62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+export async function shortLink(db: DB, shopId: string, url: string, seed: string): Promise<string> {
+  let origin: string;
+  try { origin = new URL(url).origin; } catch { return url; }
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${seed}|${url}`)));
+  let code = "";
+  for (let i = 0; i < 8; i++) code += B62[h[i] % 62];
+  await db.prepare("INSERT INTO sms_links(code,shop_id,url,created_at) VALUES(?,?,?,?) ON CONFLICT (code) DO NOTHING").bind(code, shopId || "", url, Date.now()).run();
+  const got = await db.prepare("SELECT url FROM sms_links WHERE code=?").bind(code).first<{ url: string }>();
+  return got?.url === url ? `${origin}/s/${code}` : url; // a clash keeps the long link
 }
 
 // ---- Drain ---------------------------------------------------------------------
@@ -784,6 +823,14 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
       const fb = process.env.APP_ORIGIN || "";
       row.html = toCustomerDomain(row.html, row.shop_slug, row.custom_web_domain, fb);
       row.body = toCustomerDomain(row.body, row.shop_slug, row.custom_web_domain, fb);
+    }
+    // Texts are fitted to one part (one charge) before sending; the log keeps exactly what went out.
+    if (row.channel === "SMS") {
+      const fitted = await fitSms(row.body, (u) => shortLink(db, row.shop_id, u, row.id));
+      if (fitted !== row.body) {
+        await db.prepare("UPDATE notifications SET body=? WHERE id=?").bind(fitted, row.id).run();
+        row.body = fitted;
+      }
     }
     const attempt = row.attempts + 1;
     let d: Delivery;
@@ -939,7 +986,7 @@ export function renderPlatformEmail(shell: MsgShop, pb: { company_name?: string;
   return emailHtml(sender, brandOf(sender), origin, { sms: "", ...r }, { email: pb.company_email, unsubscribe });
 }
 export async function deliverDirect(db: DB, m: { channel: "SMS" | "EMAIL"; to: string; subject?: string; body: string; html?: string; fromName: string; replyTo?: string }): Promise<{ ok: true; provider: string; id: string } | { ok: false; provider: string; error: string; permanent?: boolean }> {
-  const row: Row = { id: uid(), shop_id: "", channel: m.channel, recipient: m.to, template: "marketing", body: m.body, subject: m.subject || "", html: m.html || "", attempts: 1, shop_name: m.fromName, msg_reply_to: m.replyTo || "", msg_sms_sender: smsSenderFor(m.fromName), msg_sms: 1 };
+  const row: Row = { id: uid(), shop_id: "", channel: m.channel, recipient: m.to, template: "marketing", body: m.body, subject: m.subject || "", html: m.html || "", attempts: 0, shop_name: m.fromName, msg_reply_to: m.replyTo || "", msg_sms_sender: smsSenderFor(m.fromName), msg_sms: 1 };
   try {
     return m.channel === "EMAIL" ? await sendEmail(row) : await sendSms(row, db);
   } catch (e) {

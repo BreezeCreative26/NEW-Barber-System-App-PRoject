@@ -84,7 +84,7 @@ describe("message templates", () => {
       expect(html).not.toMatch(/undefined|\[object/);
       // 2) SMS is one message-ish (≤ 320 chars = 2 segments) and starts with the sender's name
       //    so the recipient knows who it's from even with a numeric sender.
-      expect(r.sms.length, `${t} sms length`).toBeLessThanOrEqual(320);
+      expect(r.sms.length, `${t} sms length`).toBeLessThanOrEqual(320); // fitted to 160 at send time (sms-text.test.ts)
       expect(r.sms.startsWith(sender.name) || r.sms.includes(sender.name), `${t} sms names sender`).toBe(true);
       // 3) Subject present; heading present; CTA (if any) is an absolute URL.
       expect(r.subject.trim().length).toBeGreaterThan(3);

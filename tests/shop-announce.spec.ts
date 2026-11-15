@@ -22,7 +22,7 @@ test("shop announcement: shop-branded email, mobiles only for texts, opt-out sti
   expect(prev.email).toBe(2);
   expect(prev.sms).toBe(3);
   expect(prev.cost_pence).toBe(24);
-  expect(prev.sms_text).toContain("Reply STOP");
+  expect(prev.sms_text).toContain("Opt out: "); // alpha senders cannot take a STOP reply
   expect(prev.email_html).toContain("Northline Cuts");
   expect(prev.email_html.toLowerCase()).not.toContain("foliyo");
   expect(prev.email_html).toContain("/u/c/");

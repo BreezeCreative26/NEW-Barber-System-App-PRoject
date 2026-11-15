@@ -9,7 +9,7 @@ type Channel = "SMS" | "EMAIL" | "BOTH";
 type Preset = { kind: string; title: string; blurb: string; audience: Audience; channel: Channel; copy: { subject: string; heading: string; body: string; cta_label: string; sms_body: string } };
 type Campaign = { id: string; name: string; kind: string; channel: string; created_at: number; scheduled_for: number; sms_count: number; email_count: number; sent: number; failed: number; waiting: number };
 type Info = { campaigns: Campaign[]; presets: Preset[]; link: string; sms_on: boolean; email_on: boolean; sms_acked: boolean; sms_pence: number; has_page: boolean };
-type Prev = { problems: string[]; customers: number; sms: number; email: number; landline: number; no_contact: number; sms_text: string; sms_length: number; email_html: string | null; cost_pence: number; sms_window_open: boolean; held_back?: number };
+type Prev = { problems: string[]; customers: number; sms: number; email: number; landline: number; no_contact: number; sms_text: string; sms_length: number; sms_parts?: number; email_html: string | null; cost_pence: number; sms_window_open: boolean; held_back?: number };
 
 async function call<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const r = await fetch(`/api/app${path}`, { method, credentials: "same-origin", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
@@ -196,7 +196,7 @@ function Composer({ info, preset, onBack }: { info: Info; preset: Preset; onBack
             <section className="workspace-panel">
               <h3>Text</h3>
               <label className="workspace-field"><span>Message</span><textarea rows={4} value={f.sms_body} onChange={(e) => set("sms_body", e.target.value)} maxLength={480} data-testid="mkt-sms" /></label>
-              <p className="workspace-footnote">{prev?.sms_length ?? 0} characters. "Reply STOP to opt out." is added for you.</p>
+              <p className="workspace-footnote" data-testid="mkt-sms-length">{prev?.sms_length ?? 0} of 160 characters as sent, with the booking and opt-out links (shortened). Over 160 costs two texts each, so it can't be sent.</p>
             </section>
           )}
           <p className="workspace-footnote">Use {"{first}"} for their first name, {"{shop}"} for your shop name and {"{link}"} for your booking page.</p>
@@ -226,7 +226,7 @@ function Composer({ info, preset, onBack }: { info: Info; preset: Preset; onBack
           {err && <p className="workspace-error" role="alert">{err}</p>}
           {!err && prev?.problems.map((p) => <p key={p} className="workspace-error" role="status">{p}</p>)}
           {note && <p className="workspace-success" role="status">{note}</p>}
-          <label className="mkt-consent"><input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} data-testid="mkt-confirm" /><span>These are my own customers. Everyone can opt out: texts say STOP and emails have an unsubscribe link.</span></label>
+          <label className="mkt-consent"><input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} data-testid="mkt-confirm" /><span>These are my own customers. Everyone can opt out: texts and emails carry an opt-out link.</span></label>
           {needAck && <label className="mkt-consent"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} data-testid="mkt-ack" /><span>Texts cost {info.sms_pence}p each and are added to your bill. This send is about {gbp(prev!.cost_pence)}.</span></label>}
         </div>
         <div className="mkt-sendbtns">
