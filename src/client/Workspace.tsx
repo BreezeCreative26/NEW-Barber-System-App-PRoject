@@ -2171,22 +2171,22 @@ export function Workspace() {
   // (a payouts-enabled account); the workspace says so per shop. Everyone else logs cash / transfer / voucher / other.
   const cardLive = !!w?.cards_ready;
   const navItems: NavItem[] = [
-    { key: "Appointments", label: "Appointments", icon: "calendar" },
-    { key: "Insights", label: "Insights", icon: "trend" },
-    { key: "Customers", label: "Customers", icon: "contact" },
+    { key: "Appointments", label: "Appointments", icon: "calendar", group: "Daily" },
+    { key: "Insights", label: "Insights", icon: "trend", group: "Daily" },
+    { key: "Customers", label: "Customers", icon: "contact", group: "Daily" },
     ...(manager
       ? [
-          { key: "Team", label: "Team", icon: "users" },
-          { key: "Shifts", label: "Shifts", icon: "clock" },
-          ...(canPay ? [{ key: "Pay", label: "Pay runs", icon: "payrun" }] : hasChair ? [{ key: "MyPay", label: "My pay", icon: "payrun" }] : []),
-          { key: "Services", label: "Services", icon: "scissors" },
-          { key: "Marketing", label: "Marketing", icon: "megaphone" },
-          { key: "Website", label: "Website", icon: "globe" },
-          { key: "Settings", label: "Settings", icon: "settings" },
-          { key: "Audit", label: "Audit", icon: "shield" },
+          { key: "Team", label: "Team", icon: "users", group: "Team" },
+          { key: "Shifts", label: "Shifts", icon: "clock", group: "Team" },
+          ...(canPay ? [{ key: "Pay", label: "Pay runs", icon: "payrun", group: "Team" }] : hasChair ? [{ key: "MyPay", label: "My pay", icon: "payrun", group: "Team" }] : []),
+          { key: "Services", label: "Services", icon: "scissors", group: "Shop" },
+          { key: "Marketing", label: "Marketing", icon: "megaphone", group: "Shop" },
+          { key: "Website", label: "Website", icon: "globe", group: "Shop" },
+          { key: "Settings", label: "Settings", icon: "settings", group: "Shop" },
+          { key: "Audit", label: "Audit", icon: "shield", group: "Account" },
         ]
       : canPay ? [{ key: "Pay", label: "Pay runs", icon: "payrun" }] : hasChair ? [{ key: "MyPay", label: "My pay", icon: "payrun" }] : []),
-    { key: "Accounts", label: "Accounts", icon: "userRound" },
+    { key: "Accounts", label: "Accounts", icon: "userRound", group: "Account" },
   ];
   // Barbers on a phone get their own app: Today (own agenda), Week (own calendar column),
   // Customers (own), My pay, Account. Owners/managers keep the wider set.
@@ -3404,7 +3404,7 @@ export function Workspace() {
                           <ol className="workspace-audit">
                             {w.audit.map((a) => (
                               <li key={a.id}>
-                                <strong>{a.action.replaceAll("_", " ")}</strong>
+                                <strong>{(() => { const t = a.action.replaceAll("_", " ").toLowerCase(); return t.charAt(0).toUpperCase() + t.slice(1); })()}</strong>
                                 <time>{new Date(a.created_at).toLocaleString("en-GB")}</time>
                                 <p>{a.reason || a.entity_type}</p>
                                 <small>{a.actor}</small>
@@ -3448,7 +3448,7 @@ export function Workspace() {
                   <ol className="workspace-audit">
                     {w.audit.map((a) => (
                       <li key={a.id}>
-                        <strong>{a.action.replaceAll("_", " ")}</strong>
+                        <strong>{(() => { const t = a.action.replaceAll("_", " ").toLowerCase(); return t.charAt(0).toUpperCase() + t.slice(1); })()}</strong>
                         <time>
                           {new Date(a.created_at).toLocaleString("en-GB")}
                         </time>

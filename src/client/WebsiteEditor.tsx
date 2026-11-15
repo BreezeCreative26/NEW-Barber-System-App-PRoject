@@ -176,7 +176,7 @@ export function WebsiteEditor({ w, api, onClose, onPublished }: { w: WorkspaceDa
       page: { ...form, gallery: form.gallery.filter(Boolean), logo_tone: (w as { logo_tone?: "light" | "dark" | "colour" | "" }).logo_tone || "" },
       staff, services: services.map((x) => ({ ...x, category: x.category || "Services" })),
       week: week.map((d, i) => (d.enabled ? { weekday: i, open: true as const, starts: d.starts, ends: d.ends } : { weekday: i, open: false as const })),
-      open_now: true, today, closures: [],
+      open_now: !!week[new Date(today + "T12:00:00Z").getUTCDay()]?.enabled, today, closures: [],
       soonest: staff.slice(0, 4).map((st, i) => ({ staff_id: st.id, staff_name: st.name, date: today, start_min: 600 + i * 30, service_id: services[0]?.id || "", price_pence: services[0]?.price_pence || 0 })),
       reviews: [
         { id: "p1", rating: 5, body: "Best fade I've had in years. Booked online in a minute, in and out on time.", display_name: "Jordan", reply: "", reply_at: null, created_at: Date.now() - 864e5 * 9, service_name: services[0]?.name || "Cut", staff_name: staff[0]?.name || null },

@@ -485,7 +485,7 @@ export function Boundary({
 }
 
 /* ---------------- Shell components (see docs/DESIGN.md) ---------------- */
-export type NavItem = { key: string; label: string; icon: string };
+export type NavItem = { key: string; label: string; icon: string; group?: string };
 
 export function TopBar({
   search,
@@ -715,7 +715,13 @@ export function Sidebar({
             </button>
           )}
         </div>
-        <div className="sidebar-items">{items.map(render)}</div>
+        <div className="sidebar-items">
+          {items.map((n, i) => {
+            const grouped = new Set(items.map((x) => x.group || "")).size > 1;
+            const head = grouped && n.group && n.group !== items[i - 1]?.group;
+            return head ? [<span key={`g-${n.group}`} className="sidebar-group" aria-hidden="true">{n.group}</span>, render(n)] : render(n);
+          })}
+        </div>
         {bottom && bottom.length > 0 && (
           <>
             <span className="rail-spacer" />
@@ -758,12 +764,13 @@ export function TabBar({ items, more = [], current, onSelect, fab }: { items: Na
       )}
       {open && (
         <div className="tab-sheet" role="menu" aria-label="More sections">
-          {more.map((n) => (
+          {more.map((n, i) => [
+            n.group && n.group !== more[i - 1]?.group ? <span key={`g-${n.group}`} className="tab-sheet-group" aria-hidden="true">{n.group}</span> : null,
             <button key={n.key} type="button" role="menuitem" aria-current={current === n.key ? "page" : undefined} onClick={() => { setOpen(false); onSelect(n.key); }}>
               <Icon name={n.icon} />
               {n.label}
-            </button>
-          ))}
+            </button>,
+          ])}
         </div>
       )}
     </nav>
