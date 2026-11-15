@@ -1067,3 +1067,6 @@ END $$;
 --   review_prompt_booking: the visit whose review pop-up they dismissed with "Not now"
 ALTER TABLE customer_accounts ADD COLUMN IF NOT EXISTS install_prompt_at BIGINT;
 ALTER TABLE customer_accounts ADD COLUMN IF NOT EXISTS review_prompt_booking TEXT;
+
+-- 0074_staff_review_message
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS review_message TEXT NOT NULL DEFAULT '';

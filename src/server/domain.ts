@@ -90,6 +90,18 @@ export function shopWeek(shop: Pick<Shop, "opens" | "closes" | "closed_days"> & 
 }
 // Home-screen label for the shop's app: whole words, about 12 characters (what phones show under the
 // icon), and never just a leading "The". "The Doghouse Gentlemen's Barbers" → "The Doghouse".
+/** Review pop-up wording. Barbers can write their own; {first_name} {service} {date} {shop} {barber} fill in. */
+export const DEFAULT_REVIEW_MESSAGE = "Hi {first_name}, thanks for coming in for your {service} on {date}. I'd love to know how it went — it only takes a few seconds.";
+export const REVIEW_MESSAGE_TAGS = ["first_name", "service", "date", "shop", "barber"] as const;
+export function reviewMessage(template: string | null | undefined, v: { first_name?: string; service?: string; date?: string; shop?: string; barber?: string }): string {
+  const t = (template || "").trim() || DEFAULT_REVIEW_MESSAGE;
+  const vals: Record<string, string> = { first_name: v.first_name || "", service: (v.service || "").toLowerCase(), date: v.date || "", shop: v.shop || "", barber: v.barber || "" };
+  return t
+    .replace(/\{(\w+)\}/g, (m, k: string) => (k in vals ? vals[k] : m))
+    .replace(/^Hi ,/, "Hi,")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
 export function appShortName(name: string): string {
   const words = (name || "").trim().split(/\s+/).filter(Boolean);
   let out = "";
@@ -224,6 +236,8 @@ export type Staff = {
   follows_shop_hours?: number;
   /** Charge added when a customer books this barber's out-of-hours time (pence). */
   ooh_fee_pence?: number;
+  /** Personal note in the customer's review pop-up; blank = the standard wording. */
+  review_message?: string;
 };
 /** Time a barber has opened outside their normal hours for one day (can be a day off). */
 export type OohWindow = { id: string; shop_id: string; staff_id: string; date: string; starts: number; ends: number; note: string; created_at: number };
@@ -514,6 +528,7 @@ export const staffSchema = z
     employment: z.enum(["SELF_EMPLOYED", "EMPLOYED"]).default("SELF_EMPLOYED"),
     pay_notes: z.string().trim().max(600).default(""),
     ooh_fee_pence: z.number().int().min(0).max(100000).optional(),
+    review_message: z.string().trim().max(400).optional(),
     deductions: z
       .array(z.object({
         id: z.string().trim().min(1).max(40),
