@@ -2692,7 +2692,7 @@ sandbox.post("/services", async (c) => {
   await c.env.DB.batch([
     ensureCategory(c, b.category),
     c.env.DB.prepare(
-      "INSERT INTO services(id,shop_id,name,category,duration_min,price_pence,active,description,colour,online_bookable,popular,sort_order,payment_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO services(id,shop_id,name,category,duration_min,price_pence,active,description,colour,online_bookable,popular,sort_order,payment_mode,price_from) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     ).bind(
       serviceId,
       c.get("shopId"),
@@ -2707,6 +2707,7 @@ sandbox.post("/services", async (c) => {
       b.popular,
       b.sort_order,
       b.payment_mode,
+      b.price_from,
     ),
     audit(c, "service", serviceId, "SERVICE_CREATED"),
   ]);
@@ -2785,7 +2786,7 @@ sandbox.put("/services/:id", async (c) => {
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE services SET name=?,category=?,duration_min=?,price_pence=?,active=?,description=?,colour=?,online_bookable=?,popular=?,sort_order=?,payment_mode=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
+      "UPDATE services SET name=?,category=?,duration_min=?,price_pence=?,active=?,description=?,colour=?,online_bookable=?,popular=?,sort_order=?,payment_mode=?,price_from=?,version=version+1 WHERE shop_id=? AND id=? AND version=?",
     ).bind(
       b.name,
       b.category,
@@ -2798,6 +2799,7 @@ sandbox.put("/services/:id", async (c) => {
       b.popular,
       b.sort_order,
       b.payment_mode,
+      b.price_from,
       c.get("shopId"),
       c.req.param("id"),
       b.version,

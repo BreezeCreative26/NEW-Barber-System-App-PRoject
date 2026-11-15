@@ -378,6 +378,13 @@ export function ServiceStudio({
     try { await api(`/service-categories/${g.id}`, "DELETE"); setCategoryMsg({ kind: "ok", text: `Category "${g.name}" deleted.` }); await refresh(); } catch (e) { setCategoryMsg({ kind: "error", text: e instanceof Error ? e.message : "Could not delete." }); }
   }
   const offers = (s: Service) => w.staff.filter((b) => b.active && offersService(w.service_rules, b.id, s.id));
+  // Same "From" rule customers see: cheapest barber when prices differ, or the service's own "From" switch.
+  const fromLabel = (s: Service) => {
+    const ps = offers(s).map((b) => w.service_rules.find((r) => r.staff_id === b.id && r.service_id === s.id)?.price_pence ?? s.price_pence);
+    const lo = ps.length ? Math.min(...ps) : s.price_pence;
+    const ranged = (ps.length && Math.max(...ps) !== lo) || !!s.price_from;
+    return `${ranged ? "From " : ""}${money(lo)}`;
+  };
   const selectedService = selected && selected !== "new" ? w.services.find((s) => s.id === selected) || null : null;
   const upcoming = (s: Service) => w.bookings.filter((b) => b.service_id === s.id && ["CONFIRMED", "CHECKED_IN"].includes(b.status)).length;
   return (
@@ -492,7 +499,7 @@ export function ServiceStudio({
                     </span>
                     {s.description && <small className="service-card-desc">{s.description}</small>}
                     <span className="service-card-meta">
-                      <strong>{money(s.price_pence)}</strong> · {s.duration_min} min · {offers(s).length}/{w.staff.filter((b) => b.active).length} barbers
+                      <strong>{fromLabel(s)}</strong> · {s.duration_min} min · {offers(s).length}/{w.staff.filter((b) => b.active).length} barbers
                       {upcoming(s) ? ` · ${upcoming(s)} upcoming` : ""}
                     </span>
                   </button>
@@ -562,6 +569,7 @@ const serviceForm = (service: Service | null, fallbackCategory: string) => ({
   popular: service?.popular ?? 0,
   active: service ? service.active : 1,
   sort_order: service?.sort_order ?? 0,
+  price_from: service?.price_from ?? 0,
 });
 function ServiceEditor({ w, api, service, onClose, onSaved, startCategory = null }: { w: WorkspaceData; api: Api; service: Service | null; onClose: () => void; onSaved: (id?: string) => Promise<WorkspaceData | undefined>; startCategory?: string | null }) {
   const [tab, setTabRaw] = useState<"details" | "barbers" | "addons">("details");
@@ -594,6 +602,7 @@ function ServiceEditor({ w, api, service, onClose, onSaved, startCategory = null
         popular: service.popular,
         active: service.active,
         sort_order: service.sort_order,
+        price_from: service.price_from ?? 0,
       })
     : true;
   return (
@@ -721,6 +730,13 @@ function ServiceEditor({ w, api, service, onClose, onSaved, startCategory = null
                 <small>Off keeps it for walk-ins and owner bookings only.</small>
               </span>
               <label className="switch"><input type="checkbox" checked={!!form.online_bookable} onChange={(e) => setForm({ ...form, online_bookable: e.target.checked ? 1 : 0 })} aria-label="Bookable online" /><span /></label>
+            </div>
+            <div className="switch-row">
+              <span>
+                <strong>Show price as "From"</strong>
+                <small>{priceRange.some((p) => p !== form.price_pence) ? "Already shows \"From\" because barbers charge different prices." : "For services where the final price can go up, e.g. longer hair."}</small>
+              </span>
+              <label className="switch"><input type="checkbox" checked={!!form.price_from || priceRange.some((p) => p !== form.price_pence)} disabled={priceRange.some((p) => p !== form.price_pence)} onChange={(e) => setForm({ ...form, price_from: e.target.checked ? 1 : 0 })} aria-label="Show price as From" data-testid="service-price-from" /><span /></label>
             </div>
             <div className="switch-row">
               <span>

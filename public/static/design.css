@@ -5348,3 +5348,113 @@ html.ws-dark .workspace .matrix-input input, html.ws-dark .workspace .checkout-m
   .barber-photo-row > .team-photo, .barber-photo-row > .avatar { width: 56px; height: 56px; }
   .studio-detail .panel-actions-row .button { width: 100%; justify-content: center; }
 }
+
+/* ===== Messages as pop-ups: errors and "Saved" confirmations sit in the bottom-right corner =====
+   toaster.ts tags every .workspace-error / .workspace-success with data-toast and a stack offset. */
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+[data-toast] {
+  position: fixed !important; right: 20px; bottom: calc(20px + var(--toast-stack, 0px)); left: auto; top: auto; z-index: 2147483000;
+  width: min(380px, calc(100vw - 32px)); max-width: none; box-sizing: border-box; margin: 0 !important;
+  display: flex !important; align-items: flex-start; gap: 10px; flex-wrap: wrap;
+  padding: 12px 14px 12px 42px !important; border-radius: 14px !important; border: 1px solid transparent !important;
+  font-size: 13.5px; line-height: 1.45; font-weight: 500; cursor: pointer;
+  box-shadow: 0 12px 32px rgba(14, 15, 18, 0.18), 0 2px 6px rgba(14, 15, 18, 0.08);
+  animation: toast-in .22s cubic-bezier(.2, .8, .2, 1) both;
+  transition: bottom .2s ease;
+}
+[data-toast] > p { margin: 0; }
+[data-toast]::before { content: ""; position: absolute; left: 14px; top: 13px; width: 18px; height: 18px; border-radius: 50%; background-repeat: no-repeat; background-position: center; background-size: 12px; }
+[data-toast="error"] { background: #fff !important; color: #8f2a26 !important; border-color: #f2d4d1 !important; }
+[data-toast="error"]::before { background-color: #d9483f; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round'%3E%3Cpath d='M12 6v7M12 17.5v.5'/%3E%3C/svg%3E"); }
+[data-toast="ok"] { background: #111318 !important; color: #f4f5f7 !important; }
+[data-toast="ok"]::before { background-color: #2fbf71; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E"); }
+[data-toast] .button, [data-toast] button { cursor: pointer; }
+[data-toast="ok"] .button.secondary, [data-toast="ok"] .undo-button { background: rgba(255,255,255,.12); color: #fff; border-color: transparent; }
+[data-toast="ok"] .notice-close { color: #fff; }
+[data-toast][data-toast-hidden] { display: none !important; }
+/* "Saved." still fades away by itself (4 s, 8 s with Undo) — only now from the corner. */
+[data-toast="ok"]:not([data-keep]) { animation: toast-in .22s cubic-bezier(.2, .8, .2, 1) both, foliyo-notice-out .35s ease 4s forwards; }
+[data-toast="ok"]:has(.undo-button) { animation-delay: 0s, 8s; }
+html.ws-dark [data-toast="error"] { background: #2a1716 !important; color: #ffd9d6 !important; border-color: #4a2523 !important; }
+@media (max-width: 760px) {
+  [data-toast] { right: 12px; left: 12px; width: auto; bottom: calc(84px + env(safe-area-inset-bottom) + var(--toast-stack, 0px)); }
+}
+@media (prefers-reduced-motion: reduce) { [data-toast] { animation: none !important; transition: none; } }
+
+/* ===== Settings: one clean surface per card, no boxes inside boxes ===== */
+.settings-shell { gap: 28px; }
+.settings-nav { border: 0; box-shadow: none; background: transparent; padding: 0; gap: 2px; }
+.settings-nav-group + .settings-nav-group { border-top: 0; margin-top: 14px; padding-top: 0; }
+.settings-nav-label { font-size: 11px !important; letter-spacing: .08em; color: var(--muted) !important; padding: 0 12px 4px !important; min-height: 0 !important; }
+.settings-nav button[role="tab"] { min-height: 48px; padding: 8px 12px; border-radius: 10px; }
+.settings-nav button[role="tab"] svg { width: 18px; height: 18px; }
+.settings-nav button[role="tab"][aria-selected="true"] { background: var(--surface); box-shadow: 0 1px 2px rgba(14,15,18,.06), 0 4px 14px rgba(14,15,18,.05); }
+.settings-body { gap: 16px; max-width: 880px; }
+.settings-head { padding: 0 2px 4px; }
+.settings-head h2 { font-size: 24px; font-weight: 700; }
+.settings-head p { max-width: 640px; line-height: 1.5; }
+.workspace .settings-body .workspace-panel, .workspace .studio-detail .settings-card {
+  border: 0 !important; border-radius: 18px; background: var(--surface);
+  box-shadow: 0 1px 2px rgba(14,15,18,.05), 0 6px 24px rgba(14,15,18,.05);
+  padding: 24px 26px;
+}
+.workspace .settings-body .workspace-panel .workspace-panel { box-shadow: none; padding: 0; background: transparent; border-radius: 0; }
+.workspace .settings-body .workspace-panel > h2, .workspace .settings-body .workspace-section-heading h2, .workspace .settings-body .workspace-panel > header h2 { font-size: 16px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; }
+/* Rows and tiles inside a card: soft fill instead of another grey outline */
+.workspace .settings-body :is(.customer-pages li, .billing-card-row, .billing-timeline li, .tpl, .workspace-closure),
+.workspace .settings-body .week-hours-row,
+.workspace .studio-detail .settings-card .studio-switches,
+.workspace .settings-body .studio-switches .switch-row,
+.workspace .settings-body .switch-row {
+  border: 0 !important; background: var(--canvas, #f5f6f8); border-radius: 12px;
+}
+.workspace .studio-detail .settings-card .studio-switches { overflow: hidden; }
+.workspace .studio-detail .settings-card .studio-switches .switch-row { background: transparent; border-radius: 0; }
+.workspace .studio-detail .settings-card .studio-switches .switch-row + .switch-row { border-top: 1px solid var(--surface) !important; }
+.workspace .settings-body .notice, .workspace .studio-detail .notice { border: 0 !important; background: var(--canvas, #f5f6f8); border-radius: 12px; color: var(--muted); }
+.workspace .settings-body .notice svg { color: var(--muted); }
+.workspace .studio-detail .settings-card-head { border-bottom: 0; padding-bottom: 0; }
+.workspace .studio-detail .settings-card-icon { background: var(--ollo-soft, #e9f8f2); color: var(--accent-dark, var(--accent)); }
+/* Inputs: one quiet outline, a clear focus ring */
+.workspace .settings-body :is(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]), select, textarea),
+.workspace .studio-detail :is(input:not([type="checkbox"]):not([type="radio"]):not([type="color"]), select, textarea) {
+  border: 1px solid #e3e5ea; background: #fff; border-radius: 10px; box-shadow: none; min-height: 42px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.workspace .settings-body :is(input, select, textarea):focus-visible, .workspace .studio-detail :is(input, select, textarea):focus-visible {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.workspace .studio-detail .money-input { border-color: #e3e5ea; }
+.workspace .studio-detail .money-input input { border: 0 !important; box-shadow: none !important; min-height: 40px; }
+.workspace .settings-body .workspace-field > span, .workspace .studio-detail .workspace-field > span { font-size: 12.5px; font-weight: 600; color: var(--ink); opacity: .78; }
+.workspace .settings-body .field-help, .workspace .settings-body .helper { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.workspace .settings-body .workspace-form-grid { gap: 16px 18px; align-items: start; }
+.workspace .settings-body .panel-actions-row, .workspace .settings-body form > .button.primary, .workspace .settings-body form > .button[type="submit"] { margin-top: 6px; }
+/* Opening hours: the day name sits next to its switch (an old rule floated it to the far right) */
+.workspace .week-hours .week-hours-day span { position: static !important; transform: none !important; font-size: 14px; font-weight: 600; color: var(--ink); }
+.workspace .week-hours .week-hours-closed { position: static !important; transform: none !important; font-size: 13px; color: var(--muted); }
+.workspace .week-hours .week-hours-dash { position: static !important; transform: none !important; font-size: 14px; color: var(--muted); }
+.workspace .settings-body .week-hours legend { display: none; }
+.workspace .settings-body .week-hours { gap: 6px; }
+.workspace .settings-body .week-hours-row { padding: 6px 8px 6px 14px; min-height: 52px; }
+.workspace .settings-body .week-hours-row input[type="time"] { background: #fff; }
+/* Barber detail head and tab bar: cleaner surfaces */
+.workspace .studio-detail-head.barber { border: 0; box-shadow: 0 1px 2px rgba(14,15,18,.05), 0 6px 24px rgba(14,15,18,.05); border-radius: 18px; }
+.workspace .studio-detail .hub-overview button { border: 0; background: var(--surface); box-shadow: 0 1px 2px rgba(14,15,18,.05), 0 4px 16px rgba(14,15,18,.04); border-radius: 14px; }
+.workspace .studio-detail .hub-overview li.warn button { background: #fff8e8; }
+.workspace .studio-detail.workspace-panel { border: 0 !important; box-shadow: none !important; background: transparent !important; padding: 0 !important; }
+.workspace .studio-detail .studio-form > .studio-fieldset:not(.barber-settings) { background: var(--surface); border-radius: 18px; padding: 22px 24px; box-shadow: 0 1px 2px rgba(14,15,18,.05), 0 6px 24px rgba(14,15,18,.05); }
+html.ws-dark .workspace .settings-body :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea),
+html.ws-dark .workspace .studio-detail :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { background: #10131a; border-color: var(--line); }
+html.ws-dark .workspace .settings-body :is(.customer-pages li, .billing-card-row, .billing-timeline li, .tpl, .workspace-closure, .week-hours-row, .switch-row, .notice) { background: #1d2127; }
+@media (max-width: 900px) {
+  .workspace .settings-body .workspace-panel, .workspace .studio-detail .settings-card { padding: 18px; border-radius: 16px; }
+  .settings-nav { background: var(--surface); padding: 6px; border-radius: 14px; box-shadow: 0 1px 2px rgba(14,15,18,.05); }
+  .settings-nav-group + .settings-nav-group { margin-top: 0; }
+}
+/* "From £x" on the shop page menu */
+.sp-service-meta .sp-from { font-size: .62em; font-weight: 600; opacity: .7; letter-spacing: .02em; margin-right: 2px; }
+@media (max-width: 900px) {
+  .settings-nav .settings-nav-label { background: transparent !important; padding: 10px 12px 4px !important; }
+  .settings-nav-group[data-open="true"] .settings-nav-label { color: var(--ink) !important; }
+}

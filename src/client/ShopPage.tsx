@@ -19,7 +19,7 @@ export type PageData = {
   shop: { id: string; name: string; address: string; slug: string; timezone: string; currency?: string; opens: number; closes: number; deposit_pence: number; cancel_hours: number; lead_time_min: number; booking_window_days: number; deposit_online?: boolean; payment_mode?: string | null; payment?: { mode: string; deposit_pence: number; line: string } };
   page: { strapline: string; about: string; cover_url: string; logo_url: string; gallery: string[]; phone: string; email: string; instagram: string; map_url: string; transport_note: string; policy_text: string; sections: string[]; accent: string; theme?: ShopTheme; logo_tone?: "light" | "dark" | "colour" | ""; primary_hex?: string; secondary_hex?: string; variants?: SectionVariants; element_styles?: ElementStyles; copy?: PageCopy; google_review_url?: string; published: number };
   staff: { id: string; name: string; role: string; title?: string; bio?: string; colour?: string; photo_url?: string; skills?: string; instagram?: string }[];
-  services: { id: string; name: string; category: string; duration_min: number; price_pence: number; description?: string; colour?: string; popular?: number }[];
+  services: { id: string; name: string; category: string; duration_min: number; price_pence: number; description?: string; colour?: string; popular?: number; price_from?: number; from_pence?: number; ranged?: boolean }[];
   week: ({ weekday: number; open: false } | { weekday: number; open: true; starts: number; ends: number })[];
   open_now: boolean;
   today: string;
@@ -420,7 +420,7 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
                             {s.description && <small>{s.description}</small>}
                           </span>
                           <span className="sp-service-meta">
-                            <b data-el="services.price">{money(s.price_pence)}</b>
+                            <b data-el="services.price">{s.ranged && <small className="sp-from">From </small>}{money(s.from_pence ?? s.price_pence)}</b>
                             <small>{s.duration_min} min</small>
                           </span>
                           <span className="sp-service-go" aria-hidden="true">

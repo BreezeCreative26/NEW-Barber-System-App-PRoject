@@ -271,7 +271,7 @@ export function StepOnline({ w, api, refresh, setNotice, setError, goTo, onNext,
           <F label="How far ahead" hint="How many days into the future the calendar opens."><select value={window_} onChange={(e) => setWindow(Number(e.target.value))}><option value={14}>2 weeks</option><option value={28}>4 weeks</option><option value={42}>6 weeks</option><option value={90}>3 months</option></select></F>
         </div>
       </div>
-      {!ready && <p className="workspace-error" role="alert">Add at least one service and one team member before going live — otherwise there's nothing to book.</p>}
+      {!ready && <p className="workspace-error" role="alert" data-inline>Add at least one service and one team member before going live — otherwise there's nothing to book.</p>}
       {share?.qr && (
         <div className="setup-share" data-testid="setup-share">
           <img src={share.qr} alt={`QR code for ${share.url}`} width={140} height={140} />

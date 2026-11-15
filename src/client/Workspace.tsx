@@ -1378,8 +1378,8 @@ type SettingsGroup = "Business" | "Bookings" | "Website" | "Customers" | "Team" 
 const SETTINGS_TABS: { key: SettingsTabKey; label: string; hint: string; icon: string; group: SettingsGroup; owner?: boolean }[] = [
   { key: "general", label: "Business details", hint: "Name, contact, legal, currency", icon: "settings", group: "Business" },
   { key: "hours", label: "Hours & closures", hint: "Opening times, holidays", icon: "clock", group: "Business" },
-  { key: "calendar", label: "Diary & policies", hint: "Deposits, notice, density", icon: "calendar", group: "Business" },
-  { key: "booking", label: "Online booking", hint: "Link, window, terms", icon: "globe", group: "Bookings" },
+  { key: "calendar", label: "Diary & policies", hint: "Cancellations, deposit, diary look", icon: "calendar", group: "Business" },
+  { key: "booking", label: "Online booking", hint: "Your link, notice, terms", icon: "globe", group: "Bookings" },
   { key: "domain", label: "Your web address", hint: "Your own domain, emails from it", icon: "globe", group: "Website", owner: true },
   { key: "waitlist", label: "Waiting list", hint: "Optional · freed slots, who gets told", icon: "bell", group: "Bookings" },
   { key: "payments", label: "Payments & deposits", hint: "Cards, payouts, pay runs", icon: "card", group: "Bookings" },
@@ -3258,7 +3258,7 @@ export function Workspace() {
                     {settingsTab === "hours" && (
                       <>
                         <header className="settings-head"><h2>Hours &amp; closures</h2><p>When the shop is open, and dated closures like bank holidays. Each team member has their own hours under Team.</p></header>
-                        <section className="workspace-panel">
+                        <section className="workspace-panel settings-hours">
                           <h2>Opening hours</h2>
                           <ShopSaveForm w={w} saved={saved} label="Save hours">
                             <WeekHoursEditor week={shopWeekOf(w.shop)} />
@@ -3283,7 +3283,7 @@ export function Workspace() {
                     )}
                     {settingsTab === "calendar" && (
                       <>
-                        <header className="settings-head"><h2>Calendar &amp; workspace</h2><p>Booking policies, how the diary looks, and who can take payment.</p></header>
+                        <header className="settings-head"><h2>Diary &amp; policies</h2><p>Deposits and cancellation rules, how the diary looks, and who can take payment.</p></header>
                         <section className="workspace-panel">
                           <h2>Booking policies</h2>
                           <ShopSaveForm w={w} saved={saved} label="Save policies">
@@ -3344,7 +3344,7 @@ export function Workspace() {
                     )}
                     {settingsTab === "page" && (
                       <>
-                        <header className="settings-head"><h2>Shop page</h2><p>How your business looks to the public: photos, theme and content, with a live preview.</p></header>
+                        <header className="settings-head"><h2>Design &amp; content</h2><p>How your business looks to the public: photos, theme and content, with a live preview.</p></header>
                         <WebsiteLauncher w={w} onOpen={() => openEditor(true)} />
                       </>
                     )}
@@ -3363,7 +3363,7 @@ export function Workspace() {
                     )}
                     {settingsTab === "messages" && (
                       <>
-                        <header className="settings-head"><h2>Messages</h2><p>Text and email channels, reminders, a test send, and every message with its delivery status.</p></header>
+                        <header className="settings-head"><h2>Messages &amp; reminders</h2><p>Text and email channels, reminders, a test send, and every message with its delivery status.</p></header>
                         <WaitlistSettingsPanel w={w} show="messages" />
                       </>
                     )}
@@ -3381,7 +3381,7 @@ export function Workspace() {
                     )}
                     {settingsTab === "payments" && (
                       <>
-                        <header className="settings-head"><h2>Payments</h2><p>Card payments, deposits, payouts and pay runs.</p></header>
+                        <header className="settings-head"><h2>Payments &amp; deposits</h2><p>Card payments, deposits, payouts and pay runs.</p></header>
                         <PaymentsPanel api={api} canEdit={manager} isOwner={!w.account || w.account.role === "OWNER"} />
                       </>
                     )}
@@ -4041,7 +4041,6 @@ function WorkspaceLookPanel({ w }: { w: WorkspaceData }) {
             ))}
           </div>
         </div>
-        <p className="helper">A dark look for the admin side is coming; the customer pages already have one under Settings → Shop page.</p>
         {state && <p className="workspace-success" role="status">{state}</p>}
       </div>
     </section>
@@ -5826,7 +5825,7 @@ function OnlineBookingPanel({
   return (
     <section className="workspace-panel" aria-labelledby="online-booking-heading">
       <div className="workspace-section-heading">
-        <h2 id="online-booking-heading">Online booking</h2>
+        <h2 id="online-booking-heading">Booking link &amp; rules</h2>
         <Badge tone={w.shop.online_booking ? "" : "warning"}>
           {w.shop.online_booking ? "Customers can book" : "Off"}
         </Badge>
