@@ -3599,17 +3599,19 @@ function Bars({
   rows,
   max,
   label,
+  wide = false,
 }: {
   rows: { key: string; label: string; value: number; sub?: string }[];
   max?: number;
   label: string;
+  wide?: boolean;
 }) {
   const top = max ?? Math.max(1, ...rows.map((r) => r.value));
   return (
-    <ul className="insight-bars" aria-label={label}>
+    <ul className={`insight-bars${wide ? " wide" : ""}`} aria-label={label}>
       {rows.map((r) => (
         <li key={r.key}>
-          <span className="insight-bar-label">{r.label}</span>
+          <span className="insight-bar-label" title={r.label}>{r.label}</span>
           <span className="insight-bar-track" aria-hidden="true">
             <span className="insight-bar-fill" style={{ width: `${Math.round((r.value / top) * 100)}%` }} />
           </span>
@@ -3648,24 +3650,28 @@ function InsightsPanel({ w }: { w: WorkspaceData }) {
   const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const cards = data
     ? [
-        { label: "Appointments", value: String(kept), foot: `${cancelled} cancelled · last ${days} days`, icon: "calendarCheck" },
-        { label: "Taken", value: money(data.taken.service + data.taken.tips), foot: `${completed} completed · incl. ${money(data.taken.tips)} tips · as in the wallet`, icon: "wallet" },
+        { label: "Appointments", value: String(kept), foot: [`${completed} completed`, noShows ? `${noShows} no-show${noShows === 1 ? "" : "s"}` : "", kept - completed - noShows > 0 ? `${kept - completed - noShows} not checked out` : "", `${cancelled} cancelled (not counted)`].filter(Boolean).join(" · "), icon: "calendarCheck" },
+        { label: "Taken", value: money(data.taken.service + data.taken.tips), foot: `Incl. ${money(data.taken.tips)} tips · matches the wallet`, icon: "wallet" },
         { label: "No-show rate", value: kept ? `${Math.round((noShows / kept) * 100)}%` : "—", foot: `${noShows} no-shows of ${kept}`, icon: "user" },
-        { label: "Booked online", value: kept ? `${Math.round((online / kept) * 100)}%` : "—", foot: `${online} of ${kept} came through your booking page`, icon: "trend" },
+        { label: "Booked online", value: kept ? `${Math.round((online / kept) * 100)}%` : "—", foot: `${online} of ${kept} through your booking page`, icon: "trend" },
         { label: "Customers seen", value: String(data.customers.customers), foot: data.customers.new_customers === null ? "New shows once there's booking history before this period" : `${data.customers.new_customers} new in this period`, icon: "users" },
         { label: "Upcoming", value: String(data.upcoming.n), foot: `${money(data.upcoming.value || 0)} booked ahead${w.shop.waitlist_enabled !== 0 ? ` · ${data.waitlist_open} on waitlist` : ""}`, icon: "calendar" },
       ]
     : [];
   const peakHour = data?.hours.length ? data.hours.reduce((a, b) => (b.n > a.n ? b : a)) : null;
+  const peakDay = data?.weekdays.length ? data.weekdays.reduce((a, b) => (b.n > a.n ? b : a)) : null;
+  const visits = (data?.daily || []).reduce((n, d) => n + d.n, 0);
+  // "17 Oct – 15 Nov 2026": readable range (year only once unless it changes).
+  const nice = (iso: string, year: boolean) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(year ? { year: "numeric" } : {}), timeZone: "UTC" });
+  const range = data ? `${nice(data.from, data.from.slice(0, 4) !== data.to.slice(0, 4))} – ${nice(data.to, true)}` : "";
   return (
     <div className="workspace-settings insights">
       <section className="workspace-panel">
         <div className="workspace-section-heading">
           <div>
             <h2>Shop insights</h2>
-            <p className="workspace-footnote">
-              {data ? `${data.from} to ${data.to}` : "Loading…"} · visits from saved appointments; Taken is money recorded at
-              checkout, the same as the wallet.
+            <p className="workspace-footnote" data-testid="insights-range">
+              {data ? range : "Loading…"} · visits from saved appointments; Taken is money recorded at checkout, the same as the wallet.
             </p>
           </div>
           <div className="segmented" aria-label="Period">
@@ -3695,7 +3701,9 @@ function InsightsPanel({ w }: { w: WorkspaceData }) {
           <section className="workspace-panel">
             <h2>Busiest times</h2>
             <p className="workspace-footnote">
-              {peakHour ? `Peak hour ${String(peakHour.hour).padStart(2, "0")}:00 with ${peakHour.n} starts.` : "No appointments in this period."}
+              {peakHour && peakDay
+                ? `Busiest hour ${String(peakHour.hour).padStart(2, "0")}:00 (${peakHour.n} appointment${peakHour.n === 1 ? "" : "s"}) · busiest day ${dayNames[peakDay.weekday]} (${peakDay.n}).`
+                : "No appointments in this period."}
             </p>
             <div className="insight-grid">
               <div>
@@ -3725,10 +3733,11 @@ function InsightsPanel({ w }: { w: WorkspaceData }) {
             <h2>Services and barbers</h2>
             <div className="insight-grid">
               <div>
-                <h3>Most booked services</h3>
+                <h3>Most booked services <small>bookings · taken</small></h3>
                 {data.services.length ? (
                   <Bars
                     label="Services by bookings"
+                    wide
                     rows={data.services.map((s) => ({ key: s.name, label: s.name, value: s.n, sub: money(s.taken) }))}
                   />
                 ) : (
@@ -3768,7 +3777,9 @@ function InsightsPanel({ w }: { w: WorkspaceData }) {
           </section>
           <section className="workspace-panel">
             <h2>Daily trend</h2>
+            <p className="workspace-footnote">{visits} visit{visits === 1 ? "" : "s"} in this period (no-shows not counted) · hover a bar for the day.</p>
             {data.daily.length ? (
+              <>
               <div className="insight-trend" role="img" aria-label={`Appointments per day over ${days} days`}>
                 {(() => {
                   const start = new Date(`${data.from}T12:00:00Z`);
@@ -3786,11 +3797,17 @@ function InsightsPanel({ w }: { w: WorkspaceData }) {
                       key={c.date}
                       className="insight-trend-bar"
                       style={{ height: `${Math.max(4, Math.round((c.n / max) * 100))}%` }}
-                      title={`${c.date}: ${c.n} appointments, ${money(c.value)} completed`}
+                      title={`${nice(c.date, false)}: ${c.n} appointment${c.n === 1 ? "" : "s"}`}
                     />
                   ));
                 })()}
               </div>
+              <div className="insight-trend-axis" aria-hidden="true">
+                <span>{nice(data.from, false)}</span>
+                <span>Most in one day: {Math.max(...data.daily.map((d) => d.n))}</span>
+                <span>{nice(data.to, false)}</span>
+              </div>
+              </>
             ) : (
               <p className="workspace-footnote">No appointments in this period.</p>
             )}

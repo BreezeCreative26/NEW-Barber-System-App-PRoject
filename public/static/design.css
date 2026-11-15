@@ -5236,3 +5236,41 @@ html.ws-dark .workspace .matrix-input input, html.ws-dark .workspace .checkout-m
   .install-pop-backdrop, .install-pop-backdrop.shop-page { align-items: center; padding: 20px; }
   .install-pop { border-radius: var(--sp-r-lg, 20px); border-bottom: 1px solid var(--sp-line, transparent); padding-bottom: 24px; }
 }
+
+/* ---------- Insights layout ---------- */
+/* One full-width column: stat cards in a single row, then two-up chart panels. */
+.workspace .workspace-settings.insights { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.workspace .insights .workspace-panel { margin: 0; }
+.workspace .insights .insight-cards { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin: 16px 0 0; }
+.workspace .insights .insight-cards .stat-card { padding: 16px; min-width: 0; }
+.workspace .insights .insight-cards .stat-label { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; white-space: nowrap; font-size: 12px; }
+.workspace .insights .insight-cards .stat-value { font-size: 28px; line-height: 1.15; margin: 6px 0 4px; font-variant-numeric: tabular-nums; }
+.workspace .insights .insight-cards .stat-foot { min-height: 0; font-size: 12px; line-height: 1.45; }
+.workspace .insights .workspace-section-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.workspace .insights .workspace-section-heading .workspace-footnote { margin: 4px 0 0; max-width: 62ch; }
+.workspace .insights h3 small { font-weight: 500; text-transform: none; letter-spacing: 0; margin-left: 6px; color: var(--muted); }
+.workspace .insights .insight-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 40px; }
+/* Long labels (service names) get room and wrap instead of being cut to "Signatu…". */
+.workspace .insights .insight-bars li { grid-template-columns: 56px minmax(0, 1fr) auto; font-size: 13px; }
+.workspace .insights .insight-bars.wide li { grid-template-columns: minmax(110px, 38%) minmax(0, 1fr) auto; }
+.workspace .insights .insight-bars.wide .insight-bar-label { white-space: normal; overflow: visible; line-height: 1.3; color: var(--ink); }
+.workspace .insights .insight-bar-value { white-space: nowrap; }
+.workspace .insights .insight-trend { height: 140px; }
+.workspace .insights .insight-trend-axis { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
+@media (max-width: 1280px) {
+  .workspace .insights .insight-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .workspace .insights .insight-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 767px) {
+  .workspace .insights .insight-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .workspace .insights .insight-cards .stat-card { padding: 14px; }
+  .workspace .insights .insight-cards .stat-value { font-size: 24px; }
+  /* Service name on its own line above the bar so it's never cut short. */
+  .workspace .insights .insight-bars.wide li { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "label value" "bar bar"; row-gap: 4px; }
+  .workspace .insights .insight-bars.wide .insight-bar-label { grid-area: label; }
+  .workspace .insights .insight-bars.wide .insight-bar-track { grid-area: bar; }
+  .workspace .insights .insight-bars.wide .insight-bar-value { grid-area: value; }
+  .workspace .insights .insight-trend { height: 110px; }
+}
