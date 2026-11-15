@@ -51,6 +51,7 @@ export type PublicShop = {
     colour?: string;
     popular?: number;
     payment_mode?: "PREPAY" | "DEPOSIT" | "PAY_AT_VISIT" | null;
+    price_from?: number;
   }[];
   addons: { id: string; name: string; price_pence: number; duration_min: number }[];
   addon_links: { addon_id: string; service_id: string }[];
@@ -994,7 +995,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
       .map((b) => shop.service_rules.find((r) => r.staff_id === b.id && r.service_id === sv.id)?.price_pence ?? sv.price_pence);
     const lo = ps.length ? Math.min(...ps) : sv.price_pence;
     const hi = ps.length ? Math.max(...ps) : sv.price_pence;
-    return { lo, ranged: lo !== hi };
+    return { lo, ranged: lo !== hi || !!sv.price_from };
   };
   const renderService = (s: PublicShop["services"][number]) => {
     const on = service === s.id;

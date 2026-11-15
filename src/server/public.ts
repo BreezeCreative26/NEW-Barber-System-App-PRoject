@@ -206,7 +206,7 @@ pub.get("/shops/:slug", async (c) => {
       "SELECT id,name,role,title,bio,colour,photo_url,skills,instagram FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name",
     ).bind(sid),
     c.env.DB.prepare(
-      "SELECT s.id,s.name,s.category,s.duration_min,s.price_pence,s.version,s.description,s.colour,s.popular,s.payment_mode FROM services s LEFT JOIN service_categories k ON k.shop_id=s.shop_id AND k.name=s.category WHERE s.shop_id=? AND s.active=1 AND s.online_bookable=1 ORDER BY COALESCE(k.sort_order,9999),s.category,s.popular DESC,s.sort_order,s.name",
+      "SELECT s.id,s.name,s.category,s.duration_min,s.price_pence,s.version,s.description,s.colour,s.popular,s.payment_mode,COALESCE(s.price_from,0) AS price_from FROM services s LEFT JOIN service_categories k ON k.shop_id=s.shop_id AND k.name=s.category WHERE s.shop_id=? AND s.active=1 AND s.online_bookable=1 ORDER BY COALESCE(k.sort_order,9999),s.category,s.popular DESC,s.sort_order,s.name",
     ).bind(sid),
     c.env.DB.prepare(
       "SELECT id,name,price_pence,duration_min FROM addons WHERE shop_id=? AND active=1 ORDER BY name",
@@ -363,16 +363,28 @@ const addonQuery = z
 pub.get("/shops/:slug/page", async (c) => {
   const shop = await shopBySlug(c, c.req.param("slug"));
   const sid = shop.id;
-  const [page, staff, services, hours, holidays, daysOff, reviews, staffReviews] = await Promise.all([
+  const [page, staff, services, hours, holidays, daysOff, reviews, staffReviews, priceRules] = await Promise.all([
     c.env.DB.prepare("SELECT * FROM shop_pages WHERE shop_id=?").bind(sid).first<ShopPage>(),
     c.env.DB.prepare("SELECT id,name,role,title,bio,colour,photo_url,skills,instagram FROM staff WHERE shop_id=? AND active=1 AND online_visible=1 ORDER BY sort_order,name").bind(sid).all(),
-    c.env.DB.prepare("SELECT s.id,s.name,s.category,s.duration_min,s.price_pence,s.description,s.colour,s.popular FROM services s LEFT JOIN service_categories k ON k.shop_id=s.shop_id AND k.name=s.category WHERE s.shop_id=? AND s.active=1 AND s.online_bookable=1 ORDER BY COALESCE(k.sort_order,9999),s.category,s.popular DESC,s.sort_order,s.name").bind(sid).all(),
+    c.env.DB.prepare("SELECT s.id,s.name,s.category,s.duration_min,s.price_pence,s.description,s.colour,s.popular,COALESCE(s.price_from,0) AS price_from FROM services s LEFT JOIN service_categories k ON k.shop_id=s.shop_id AND k.name=s.category WHERE s.shop_id=? AND s.active=1 AND s.online_bookable=1 ORDER BY COALESCE(k.sort_order,9999),s.category,s.popular DESC,s.sort_order,s.name").bind(sid).all(),
     c.env.DB.prepare("SELECT staff_id,weekday,enabled,starts,ends FROM staff_hours WHERE shop_id=?").bind(sid).all<{ staff_id: string; weekday: number; enabled: number; starts: number; ends: number }>(),
     c.env.DB.prepare("SELECT date,label FROM holidays WHERE shop_id=? AND date>=? ORDER BY date LIMIT 6").bind(sid, shopToday(shop.timezone)).all<{ date: string; label: string }>(),
     c.env.DB.prepare("SELECT staff_id,date FROM staff_days_off WHERE shop_id=? AND date>=? AND date<=?").bind(sid, shopToday(shop.timezone), datePlus(shopToday(shop.timezone), 14)).all<{ staff_id: string; date: string }>(),
     publicReviews(c.env.DB, sid),
     publicReviewsByStaff(c.env.DB, sid),
+    c.env.DB.prepare("SELECT r.staff_id,r.service_id,r.price_pence FROM staff_service_rules r JOIN staff t ON t.shop_id=r.shop_id AND t.id=r.staff_id WHERE r.shop_id=? AND r.enabled=1 AND t.active=1 AND t.online_visible=1").bind(sid).all<{ staff_id: string; service_id: string; price_pence: number | null }>(),
   ]);
+  // "From £x": the cheapest barber's price when barbers charge differently, or when the shop chose "from".
+  {
+    const list = services.results as { id: string; price_pence: number; price_from?: number; from_pence?: number; ranged?: boolean }[];
+    for (const sv of list) {
+      const ps = priceRules.results.filter((r) => r.service_id === sv.id).map((r) => r.price_pence ?? sv.price_pence);
+      const lo = ps.length ? Math.min(...ps) : sv.price_pence;
+      const hi = ps.length ? Math.max(...ps) : sv.price_pence;
+      sv.from_pence = lo;
+      sv.ranged = lo !== hi || !!sv.price_from;
+    }
+  }
   const content = page ?? defaultShopPage(sid);
   // Hidden pages are not public; /book/<slug> still works.
   if (!content.published) fail(404, "This shop page is not available");

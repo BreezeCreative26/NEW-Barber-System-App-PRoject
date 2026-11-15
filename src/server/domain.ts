@@ -258,6 +258,8 @@ export type Service = {
   payment_mode?: PaymentMode | null;
   popular: number;
   sort_order: number;
+  /** 1 = always show the price as "From £x" to customers. */
+  price_from?: number;
 };
 export type Addon = {
   id: string;
@@ -566,6 +568,7 @@ export const serviceSchema = z
     payment_mode: z.any().optional().transform(() => null),
     popular: active.default(0),
     sort_order: z.number().int().min(0).max(999).default(0),
+    price_from: active.default(0),
   })
   .strict();
 // Batch of per-barber rules for one service (or one barber): the service studio matrix.

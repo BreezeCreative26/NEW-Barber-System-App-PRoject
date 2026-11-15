@@ -377,7 +377,7 @@ export function CardAtChair({ api, booking, amount, live, onPaid, onClose }: { a
             </>
           )}
           {req.status === "PAID" && <p className="workspace-success" role="status" data-testid="card-paid" data-keep><Icon name="check" size={14} /> Paid {total}. Recorded and checked out — it goes on the barber’s next pay run.</p>}
-          {(req.status === "EXPIRED" || req.status === "CANCELLED") && <p className="workspace-error" role="alert">This link is no longer valid.</p>}
+          {(req.status === "EXPIRED" || req.status === "CANCELLED") && <p className="workspace-error" role="alert" data-inline>This link is no longer valid.</p>}
           <Button variant="ghost" onClick={cancel}>{req.status === "OPEN" ? "Cancel" : "Done"}</Button>
         </div>
       )}
@@ -385,7 +385,7 @@ export function CardAtChair({ api, booking, amount, live, onPaid, onClose }: { a
         <div className="card-reader-view">
           {req.status === "OPEN" && <p><Icon name="card" size={16} /> <strong>{total}</strong> on the reader — ask the customer to tap.</p>}
           {req.status === "PAID" && <p className="workspace-success" role="status" data-testid="card-paid" data-keep><Icon name="check" size={14} /> Paid {total} by card. Recorded and checked out.</p>}
-          {(req.status === "EXPIRED" || req.status === "CANCELLED") && <p className="workspace-error" role="alert">The reader didn’t complete the payment.</p>}
+          {(req.status === "EXPIRED" || req.status === "CANCELLED") && <p className="workspace-error" role="alert" data-inline>The reader didn’t complete the payment.</p>}
           <Button variant="ghost" onClick={cancel}>{req.status === "OPEN" ? "Cancel on reader" : "Done"}</Button>
         </div>
       )}

@@ -224,7 +224,7 @@ function Composer({ info, preset, onBack }: { info: Info; preset: Preset; onBack
       <div className="mkt-sendbar">
         <div className="mkt-sendcopy">
           {err && <p className="workspace-error" role="alert">{err}</p>}
-          {!err && prev?.problems.map((p) => <p key={p} className="workspace-error" role="status">{p}</p>)}
+          {!err && prev?.problems.map((p) => <p key={p} className="workspace-error" role="status" data-inline>{p}</p>)}
           {note && <p className="workspace-success" role="status">{note}</p>}
           <label className="mkt-consent"><input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} data-testid="mkt-confirm" /><span>These are my own customers. Everyone can opt out: texts and emails carry an opt-out link.</span></label>
           {needAck && <label className="mkt-consent"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} data-testid="mkt-ack" /><span>Texts cost {info.sms_pence}p each and are added to your bill. This send is about {gbp(prev!.cost_pence)}.</span></label>}

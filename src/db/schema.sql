@@ -1070,3 +1070,6 @@ ALTER TABLE customer_accounts ADD COLUMN IF NOT EXISTS review_prompt_booking TEX
 
 -- 0074_staff_review_message
 ALTER TABLE staff ADD COLUMN IF NOT EXISTS review_message TEXT NOT NULL DEFAULT '';
+
+-- 0075_service_price_from
+ALTER TABLE services ADD COLUMN IF NOT EXISTS price_from INTEGER NOT NULL DEFAULT 0;

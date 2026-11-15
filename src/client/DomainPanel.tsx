@@ -62,7 +62,7 @@ export function DomainPanel({ api, isOwner }: { api: Api; isOwner: boolean }) {
             <li data-state={d.mail}><b>Emails from your address</b><span data-testid="domain-mail">{say(d.mail)}</span></li>
           </ul>
           {d.web === "VERIFIED" && d.mail === "VERIFIED" && <p className="workspace-success" role="status">All set. Booking links in every email now use your address, and emails come from <code>bookings@{d.domain}</code> under your shop's name.</p>}
-          {d.error && <p className="workspace-error" role="status" data-testid="domain-error">{d.error}</p>}
+          {d.error && <p className="workspace-error" role="status" data-testid="domain-error" data-inline>{d.error}</p>}
           {d.records.some((r) => r.status !== "verified") && (
             <>
               <h4>Add these records where you bought your domain</h4>
