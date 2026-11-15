@@ -3,7 +3,9 @@
 // Android/Chrome: one-tap Install. iPhone/iPad: Share → Add to Home Screen.
 import { useEffect, useState } from "react";
 import { Button, Icon } from "./ui";
-import { onShopHost } from "./theme";
+import type { CSSProperties } from "react";
+import { brandStyle, onShopHost, serverBrand, themeClass, type ShopBrand } from "./theme";
+import { appShortName } from "../server/domain";
 
 export type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 export const standalone = () =>
@@ -42,7 +44,8 @@ export async function promptInstall(evt: InstallEvent) {
 }
 
 const seenKey = (slug: string) => `foliyo:${slug}:install-pop`;
-export function InstallPrompt({ slug, shopName, signedIn }: { slug: string; shopName: string; signedIn: boolean }) {
+// Wears the shop's own website look: colours, light/dark, fonts and corner style.
+export function InstallPrompt({ slug, shopName, signedIn, brand }: { slug: string; shopName: string; signedIn: boolean; brand?: Partial<ShopBrand> | null }) {
   const evt = useInstallEvent();
   const [open, setOpen] = useState(false);
   const ios = typeof navigator !== "undefined" && isIOS();
@@ -60,18 +63,19 @@ export function InstallPrompt({ slug, shopName, signedIn }: { slug: string; shop
     setOpen(false);
   };
   const icon = onShopHost(slug) ? "/icon-192.png" : `/${encodeURIComponent(slug)}/icon-192.png`;
+  const look = brand || serverBrand()?.brand || null;
   return (
-    <div className="install-pop-backdrop" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
+    <div className={themeClass(look, "install-pop-backdrop")} style={brandStyle(look) as CSSProperties | undefined} role="presentation" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
       <section className="install-pop" role="dialog" aria-modal="true" aria-labelledby="install-pop-title" data-testid="install-popup">
         <img src={icon} alt="" width={64} height={64} className="install-pop-icon" />
-        <h2 id="install-pop-title">Get the {shopName} app</h2>
-        <p>Add it to your home screen to book in a couple of taps and keep your visits to hand.</p>
+        <h2 id="install-pop-title">Add {appShortName(shopName)} to your home screen</h2>
+        <p>Book in a couple of taps and keep your {shopName} visits to hand.</p>
         {evt ? (
           <div className="install-pop-actions">
             <Button onClick={async () => { await promptInstall(evt).catch(() => false); close(); }} data-testid="install-popup-install">
               <Icon name="download" size={16} /> Install
             </Button>
-            <button type="button" className="link" onClick={close} data-testid="install-popup-later">Not now</button>
+            <button type="button" className="install-pop-later" onClick={close} data-testid="install-popup-later">Not now</button>
           </div>
         ) : (
           <>

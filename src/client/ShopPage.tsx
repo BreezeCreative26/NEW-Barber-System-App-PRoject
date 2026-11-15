@@ -182,7 +182,7 @@ export function ShopPage({ slug }: { slug: string }) {
   return (
     <>
       <ShopPageView data={data} me={me} mine={mine} />
-      <InstallPrompt slug={data.shop.slug} shopName={data.shop.name} signedIn={!!me} />
+      <InstallPrompt slug={data.shop.slug} shopName={data.shop.name} signedIn={!!me} brand={{ accent: data.page.accent, theme: data.page.theme as ShopTheme, logo_url: data.page.logo_url, logo_tone: (data.page.logo_tone || "") as ShopBrand["logo_tone"], primary_hex: data.page.primary_hex, secondary_hex: data.page.secondary_hex }} />
     </>
   );
 }
