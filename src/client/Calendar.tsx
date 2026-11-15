@@ -85,7 +85,7 @@ export function blockLabel(b: Pick<StaffBlock, "kind" | "reason">) {
   return b.reason || BLOCK_LABELS[b.kind];
 }
 // What a barber may do from the ⋯ menu beside their name on the timetable.
-export type StaffAction = "hours" | "block" | "dayOff" | "walkIn";
+export type StaffAction = "hours" | "block" | "dayOff" | "walkIn" | "ooh";
 // Native buttons remain buttons (not an incomplete ARIA grid). One free slot
 // per barber is tabbable; arrows move focus only and never mutate bookings.
 function navigateSlots(event: KeyboardEvent<HTMLButtonElement>) {
@@ -629,6 +629,14 @@ export function Calendar({
                       </button>
                     );
                   })()}
+                  {onAction && canSetHours && (() => {
+                    const win = (w.ooh || []).find((o) => o.staff_id === s.id && o.date === date);
+                    return (
+                      <button type="button" className={`staff-hours-chip ooh-chip ${win ? "on" : ""}`} onClick={() => onAction("ooh", s)} title={win ? "Out-of-hours time open this day · change or close it" : "Open out-of-hours time this day"} aria-label={`${s.name}: ${win ? `out of hours ${time(win.starts)}–${time(win.ends)}` : "open out-of-hours time"}`} data-testid="staff-ooh-chip">
+                        <Icon name="sparkles" size={11} /> {win ? `OOH ${time(win.starts)}–${time(win.ends)}` : "Out of hours"}
+                      </button>
+                    );
+                  })()}
                   {onAction && columnMenu !== false && (
                     <div className="staff-menu">
                       <button
@@ -655,6 +663,11 @@ export function Calendar({
                           {canSetHours && (
                             <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("dayOff", s); }}>
                               <Icon name="sun" size={14} /> Day off
+                            </button>
+                          )}
+                          {canSetHours && (
+                            <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("ooh", s); }} disabled={date < today}>
+                              <Icon name="sparkles" size={14} /> Out of hours…
                             </button>
                           )}
                           <button type="button" role="menuitem" onClick={() => { setMenu(null); onAction("walkIn", s); }} disabled={date !== today}>
@@ -730,7 +743,9 @@ export function Calendar({
                   const from = dated ? shift!.starts : Math.max(dayHours.starts, shift?.starts ?? 0);
                   const to = dated ? shift!.ends : Math.min(dayHours.ends, shift?.ends ?? 0);
                   const after = !reason && !!shift?.enabled && (start < from || start >= to);
-                  return { start, reason, busy, after };
+                  // Out-of-hours time this barber opened: bookable (online too), shown orange.
+                  const ooh = s.active && !!(w.ooh || []).some((o) => o.staff_id === s.id && o.date === date && start >= o.starts && start < o.ends);
+                  return ooh ? { start, reason: "", busy, after: false, ooh } : { start, reason, busy, after, ooh: false };
                 },
               );
               const enabledSlots = slots.filter(
@@ -756,7 +771,7 @@ export function Calendar({
                   }}
                   onPointerLeave={() => setHover((h) => (h?.staffId === s.id ? null : h))}
                 >
-                  {slots.map(({ start, reason, busy, after }, n) => {
+                  {slots.map(({ start, reason, busy, after, ooh }, n) => {
                     // Greyed but clickable (Fresha): only truly impossible times are disabled.
                     const hard = HARD_REASONS.has(reason);
                     const outside = OUTSIDE_REASONS.has(reason);
@@ -764,7 +779,7 @@ export function Calendar({
                       <button
                         key={start}
                         type="button"
-                        className={`timetable-slot ${reason ? "blocked" : busy ? "occupied" : ""} ${reason && !hard ? "soft" : ""} ${outside ? "outside" : ""} ${after ? "after-hours" : ""}`}
+                        className={`timetable-slot ${reason ? "blocked" : busy ? "occupied" : ""} ${reason && !hard ? "soft" : ""} ${outside ? "outside" : ""} ${after ? "after-hours" : ""} ${ooh ? "ooh" : ""}`}
                         data-column={i}
                         data-minute={start}
                         tabIndex={start === activeMinute ? 0 : -1}
@@ -786,7 +801,9 @@ export function Calendar({
                               ? `${reason} · click to book anyway`
                               : busy
                                 ? `Occupied · click to book alongside at ${time(start)}`
-                                : after
+                                : ooh
+                                  ? `Out of hours · add booking at ${time(start)}`
+                                  : after
                                   ? `Add booking at ${time(start)} (outside normal hours, staff only)`
                                   : `Add booking at ${time(start)}`
                         }
@@ -813,7 +830,9 @@ export function Calendar({
                               : ""
                             : busy
                               ? "Occupied"
-                              : `${time(start)} +`}
+                              : ooh && (n === 0 || !slots[n - 1].ooh)
+                                ? "Out of hours"
+                                : `${time(start)} +`}
                         </span>
                       </button>
                     );

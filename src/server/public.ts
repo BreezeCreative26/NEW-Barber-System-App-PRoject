@@ -23,6 +23,7 @@ import {
   type Holiday,
   type Hours,
   type ScheduleOverride,
+  type OohWindow,
   type Service,
   type Shop,
   type Staff,
@@ -274,6 +275,7 @@ export async function rangeContext(
     c.env.DB.prepare("SELECT * FROM addon_services WHERE shop_id=? AND service_id=?").bind(sid, serviceId),
     c.env.DB.prepare("SELECT * FROM staff_blocks WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, from, to),
     c.env.DB.prepare(`SELECT h.id,h.staff_id,h.start_at,h.end_at FROM slot_holds h WHERE h.shop_id=? AND h.date BETWEEN ? AND ? AND ${LIVE} AND h.holder_hash<>?`).bind(sid, from, to, ...liveArgs(), ownHold),
+    c.env.DB.prepare("SELECT * FROM staff_ooh WHERE shop_id=? AND date BETWEEN ? AND ?").bind(sid, from, to),
   ]);
   const held = (r[11].results as { id: string; staff_id: string; start_at: number; end_at: number }[]).map(
     (h) => ({ id: `hold:${h.id}`, staff_id: h.staff_id, start_at: Number(h.start_at), end_at: Number(h.end_at), buffer_min: 0, status: "CONFIRMED" }) as unknown as StoredBooking,
@@ -309,6 +311,7 @@ export async function rangeContext(
     daysOff: r[5].results as StaffDayOff[],
     bookings: [...(r[6].results as StoredBooking[]), ...held],
     blocks: r[10].results as StaffBlock[],
+    ooh: (r[12]?.results ?? []) as OohWindow[],
   };
 }
 export type Range = Awaited<ReturnType<typeof rangeContext>>;
@@ -320,9 +323,10 @@ export function holdKeyOf(c: Ctx) {
 // Start times to try on a day: the shop's opening hours plus any dated hours a barber works outside them.
 export function startsFor(shop: Shop, ctx: Range, date: string): number[] {
   const base = dayStarts(shop, date);
-  if (!base.length) return base;
   const set = new Set(base);
-  for (const o of ctx.overrides) if (o.date === date && o.enabled) for (let m = Math.ceil(o.starts / 15) * 15; m < o.ends; m += 15) set.add(m);
+  if (base.length) for (const o of ctx.overrides) if (o.date === date && o.enabled) for (let m = Math.ceil(o.starts / 15) * 15; m < o.ends; m += 15) set.add(m);
+  // Out-of-hours windows count even on days the shop or barber is otherwise off.
+  for (const o of ctx.ooh) if (o.date === date) for (let m = Math.ceil(o.starts / 15) * 15; m < o.ends; m += 15) set.add(m);
   return [...set].sort((a, b) => a - b);
 }
 export function slotFor(shop: Shop, ctx: Range, staff: Staff, date: string, minute: number, minStart: number) {
@@ -330,20 +334,16 @@ export function slotFor(shop: Shop, ctx: Range, staff: Staff, date: string, minu
     ctx.hours.find((x) => x.staff_id === staff.id && x.weekday === weekday(date)) ?? null,
     ctx.overrides.find((o) => o.staff_id === staff.id && o.date === date) ?? null,
   );
-  return slotReason(
-    shop,
-    staff,
-    h,
-    ctx.holidays,
-    ctx.bookings,
-    date,
-    minute,
-    ctx.quotes.get(staff.id)!.duration_min,
-    minStart,
-    undefined,
-    ctx.daysOff,
-    ctx.blocks,
+  return slotReason(shop, staff, h, ctx.holidays, ctx.bookings, date, minute, ctx.quotes.get(staff.id)!.duration_min, minStart, undefined, ctx.daysOff, ctx.blocks, false, ctx.ooh);
+}
+// True when an open time is only open because the barber opened out-of-hours time (it carries their charge).
+export function isOohSlot(shop: Shop, ctx: Range, staff: Staff, date: string, minute: number) {
+  if (!ctx.ooh.some((o) => o.staff_id === staff.id && o.date === date)) return false;
+  const h = effectiveHours(
+    ctx.hours.find((x) => x.staff_id === staff.id && x.weekday === weekday(date)) ?? null,
+    ctx.overrides.find((o) => o.staff_id === staff.id && o.date === date) ?? null,
   );
+  return !!slotReason(shop, staff, h, ctx.holidays, [], date, minute, ctx.quotes.get(staff.id)!.duration_min, 0, undefined, ctx.daysOff, [], false, []);
 }
 const closedReasons = ["Shop closed", "Barber off duty", "Barber has a day off"];
 // Never disclose who holds a slot or why a barber blocked their time.
@@ -668,9 +668,14 @@ pub.get("/shops/:slug/availability", async (c) => {
   const load = new Map(ctx.staff.map((s) => [s.id, ctx.bookings.filter((b) => b.staff_id === s.id).length]));
   const slots = startsFor(shop, ctx, q.date)
     .map((start_min) => {
+      const ooh = new Map<string, boolean>();
       const open = ctx.staff
         .filter((s) => !slotFor(shop, ctx, s, q.date, start_min, minStart))
-        .sort((a, b) => load.get(a.id)! - load.get(b.id)! || a.name.localeCompare(b.name));
+        .map((s) => (ooh.set(s.id, isOohSlot(shop, ctx, s, q.date, start_min)), s))
+        // Any-barber: someone working normal hours is offered before an out-of-hours opening.
+        .sort((a, b) => Number(ooh.get(a.id)) - Number(ooh.get(b.id)) || load.get(a.id)! - load.get(b.id)! || a.name.localeCompare(b.name));
+      const fee = (s: Staff) => (ooh.get(s.id) ? s.ooh_fee_pence ?? 0 : 0);
+      const oohOf = (s: Staff) => (ooh.get(s.id) ? { ooh: true, ooh_fee_pence: fee(s) } : {});
       if (open.length) {
         const chosen = open[0];
         return {
@@ -680,11 +685,12 @@ pub.get("/shops/:slug/availability", async (c) => {
           staff_id: chosen.id,
           staff_name: chosen.name,
           barbers: open.length,
-          price_pence: ctx.quotes.get(chosen.id)!.price_pence,
+          price_pence: ctx.quotes.get(chosen.id)!.price_pence + fee(chosen),
           duration_min: ctx.quotes.get(chosen.id)!.duration_min,
+          ...oohOf(chosen),
           // Any-barber: every barber free at this time, so the customer can pick who.
           ...(q.staff_id ? {} : {
-            options: open.map((s) => ({ staff_id: s.id, staff_name: s.name, price_pence: ctx.quotes.get(s.id)!.price_pence, duration_min: ctx.quotes.get(s.id)!.duration_min })),
+            options: open.map((s) => ({ staff_id: s.id, staff_name: s.name, price_pence: ctx.quotes.get(s.id)!.price_pence + fee(s), duration_min: ctx.quotes.get(s.id)!.duration_min, ...oohOf(s) })),
           }),
         };
       }

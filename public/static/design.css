@@ -5201,3 +5201,17 @@ html.ws-dark .workspace .matrix-input input, html.ws-dark .workspace .checkout-m
 .wallet-drawer > h2 [data-testid="wallet-expand"] { margin-left: auto; }
 @media (max-width: 767px) { .wallet-drawer > h2 [data-testid="wallet-expand"] { display: none; } }
 .wallet-day-section h3 { margin: 0; font-size: var(--fs-15); }
+
+/* Out-of-hours slots: orange glow online, orange wash on the timetable. */
+.time-slots button.ooh { background: #fff4e5; border-color: #f59e0b; color: #9a3412; box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35), 0 0 14px rgba(245, 158, 11, 0.45); }
+.time-slots button.ooh > small { color: #b45309; font-weight: 600; }
+.time-slots button.ooh.chosen { background: #f59e0b; border-color: #d97706; color: #fff; }
+.time-slots button.ooh.chosen > small { color: #fff; }
+.ooh-notice { margin: 12px 0; padding: 12px 14px; border-radius: var(--r, 10px); background: #fff7ed; border: 1px solid #fdba74; color: #7c2d12; }
+.ooh-notice strong { display: flex; align-items: center; gap: 6px; }
+.ooh-notice p { margin: 4px 0 0; font-size: 14px; }
+.workspace .timetable-slot.ooh { background: #fff1dc; box-shadow: inset 3px 0 0 #f59e0b; }
+.workspace .timetable-slot.ooh span { color: #b45309; }
+.workspace .timetable-slot.ooh:hover { background: #ffe4bf; }
+.workspace .staff-hours-chip.ooh-chip { border-color: #fdba74; color: #b45309; }
+.workspace .staff-hours-chip.ooh-chip.on { background: #fff1dc; border-color: #f59e0b; }
