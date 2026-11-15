@@ -5504,3 +5504,76 @@ html:not(.ws-dark) .sidebar.light .sidebar-group { color: var(--muted); }
 .workspace .workspace-heading { padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid var(--line-2); }
 .workspace .workspace-heading h1 { letter-spacing: -0.02em; }
 .workspace .workspace-heading p { max-width: 680px; }
+
+/* ===== Spacing pass: every settings card spaces its own contents evenly (no text touching a box) ===== */
+.workspace .settings-body .workspace-panel { display: grid; gap: 18px; align-content: start; }
+.workspace .settings-body .workspace-panel > :is(h2, h3, p, .workspace-section-heading, form, .notice) { margin: 0; }
+.workspace .settings-body .workspace-section-heading { align-items: flex-start; gap: 16px; }
+.workspace .settings-body .workspace-section-heading p { margin: 4px 0 0; }
+.workspace .settings-body .workspace-footnote { line-height: 1.55; color: #555a66; }
+.workspace .settings-body .workspace-form { display: grid; gap: 16px; }
+.workspace .settings-body .workspace-form > h3 { margin: 0; font-size: 15px; font-weight: 700; }
+.workspace .settings-body .workspace-form-actions { padding-top: 2px; }
+.workspace .settings-body .test-message-form, .workspace .settings-body .outbox { padding-top: 20px; border-top: 1px solid var(--line-2); margin-top: 4px; }
+.workspace .settings-body .account-settings h3 { margin: 22px 0 10px; }
+.workspace .settings-body .account-settings h3:first-child { margin-top: 0; }
+.workspace .pay-runs-page > .workspace-panel { display: grid; gap: 14px; }
+.workspace .pay-runs-page > .workspace-panel > :is(h3, p) { margin: 0; }
+
+/* ===== Messages & reminders: clean white cards, readable text, balanced layout =====
+   Texts (the long one) takes the left column; Emails, Reminders and Sign-in codes stack on the right. */
+.workspace .settings-body .chan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 0; align-items: start; }
+.workspace .settings-body .chan-grid > [data-testid="chan-sms"] { grid-row: span 3; }
+.workspace .settings-body .chan-card,
+.workspace .settings-body .chan-card.on {
+  background: #fff !important; border: 1px solid #e6e8ed !important; box-shadow: none !important;
+  border-radius: 16px; padding: 18px 20px; gap: 14px; min-height: 0;
+}
+.workspace .settings-body .chan-head { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+.workspace .settings-body .chan-ic { width: 40px; height: 40px; border-radius: 12px; background: #f2f3f6; color: #3d414b; }
+.workspace .settings-body .chan-card.on .chan-ic { background: var(--ollo-soft, #e8f6f0); color: var(--accent-dark, #006b4d); }
+.workspace .settings-body .chan-text { gap: 3px; padding-top: 1px; }
+.workspace .settings-body .chan-text strong { font-size: 15px; font-weight: 700; color: var(--ink); }
+.workspace .settings-body .chan-text small { font-size: 13px; color: #555a66; line-height: 1.4; }
+.workspace .settings-body .chan-text small b { color: var(--ink); }
+.workspace .settings-body .chan-head .switch { margin-top: 6px; }
+.workspace .settings-body .chan-body { font-size: 13.5px; color: #4b505b; line-height: 1.55; margin: 0; }
+/* Which texts: clear groups with breathing room */
+.workspace .settings-body .sms-kinds { gap: 14px; padding-top: 14px; border-top: 1px solid var(--line-2); }
+.workspace .settings-body .sms-kinds legend { font-size: 11.5px; letter-spacing: .07em; color: #6b707b; margin-bottom: 4px; padding-top: 14px; float: left; width: 100%; }
+.workspace .settings-body .sms-kinds-group { display: grid; gap: 10px; clear: both; }
+.workspace .settings-body .sms-kinds-group > .helper { font-size: 12px; color: var(--ink); margin-bottom: -2px; }
+.workspace .settings-body .sms-kinds-group > .helper strong { font-weight: 700; }
+.workspace .settings-body .sms-kinds .setup-check { gap: 12px; font-size: 14px; }
+.workspace .settings-body .sms-kinds .setup-check strong { font-weight: 600; color: var(--ink); }
+.workspace .settings-body .sms-kinds .setup-check small { font-size: 12.5px; color: #5d616c; }
+.workspace .settings-body .sms-kinds > .helper { padding: 10px 12px; background: #f6f7f9; border-radius: 10px; color: #555a66; font-size: 12.5px; }
+.workspace .settings-body .sms-kinds .setup-check input,
+.workspace .settings-body .rem-quiet-toggle input, .workspace .settings-body .sms-bill-ack input { accent-color: var(--accent-dark, #006b4d); }
+/* "Texts cost 8p each" acknowledgement: one calm box, no dashed outline */
+.workspace .settings-body .sms-bill-ack { border: 1px solid #e6e8ed; border-style: solid; background: #f8f9fb; border-radius: 12px; padding: 12px 14px; }
+.workspace .settings-body .sms-bill-ack.on { border-color: color-mix(in srgb, var(--accent) 40%, #e6e8ed); background: #f4faf7; }
+.workspace .settings-body .sms-bill-ack span { color: #4b505b; font-size: 12.5px; line-height: 1.5; }
+.workspace .settings-body .sms-bill-ack strong { color: var(--ink); font-size: 14px; }
+/* Reminders: chips and quiet hours spaced out */
+.workspace .settings-body .rem-sched { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--line-2); }
+.workspace .settings-body .rem-sched > .chan-body { margin: 0 !important; }
+.workspace .settings-body .rem-steps { display: flex; flex-wrap: wrap; gap: 8px; }
+.workspace .settings-body .rem-chip { background: #f2f3f6; border: 0; color: var(--ink); font-weight: 600; font-size: 13px; padding: 6px 6px 6px 12px; border-radius: 999px; display: inline-flex; align-items: center; gap: 8px; }
+.workspace .settings-body .rem-chip button { background: #fff; color: #3d414b; border: 1px solid #e0e2e7; }
+.workspace .settings-body .rem-quiet-head { display: grid; gap: 4px; padding: 0; }
+.workspace .settings-body .rem-quiet-head small { color: #5d616c; font-size: 12.5px; padding-left: 28px; }
+.workspace .settings-body .rem-quiet { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* Text sender name: same white card language */
+.workspace .settings-body .sender-field { background: #fff; border: 1px solid #e6e8ed !important; border-radius: 16px; padding: 18px 20px; gap: 24px; }
+.workspace .settings-body .sender-chip { background: #f2f3f6; border-color: transparent; }
+.workspace .settings-body .sender-chip.on { background: var(--ink); color: #fff; }
+.workspace .settings-body .sender-rules { color: #5d616c; }
+@media (max-width: 900px) {
+  .workspace .settings-body .chan-grid { grid-template-columns: 1fr; }
+  .workspace .settings-body .chan-grid > [data-testid="chan-sms"] { grid-row: auto; }
+  .workspace .settings-body .chan-card, .workspace .settings-body .sender-field { padding: 16px; }
+}
+/* Right column cards sit snug under each other; the last row soaks up the Texts card's extra height */
+.workspace .settings-body .chan-grid { grid-template-rows: auto auto 1fr; }
+@media (max-width: 900px) { .workspace .settings-body .chan-grid { grid-template-rows: none; } }
