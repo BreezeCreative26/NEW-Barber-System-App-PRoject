@@ -181,7 +181,7 @@ export function legalPage(doc: LegalDoc, origin: string): string {
   const body = d.sections.map((s) => `<section><h2>${esc(s.h)}</h2>${s.p.map((p) => `<p>${esc(p)}</p>`).join("")}</section>`).join("");
   return `<!doctype html><html lang="en-GB"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>${esc(d.title)} · foliyo</title><meta name="description" content="${esc(d.summary)}"/><link rel="canonical" href="${esc(origin)}/legal/${doc}"/>
-<link rel="icon" href="/favicon.svg"/>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/>
 <style>
 :root{--ink:#14151a;--muted:#5b6178;--line:#e2e4ee;--accent:#3a7563;--canvas:#f5f6fb}
 *{box-sizing:border-box}body{margin:0;background:var(--canvas);color:var(--ink);font:16px/1.6 -apple-system,Segoe UI,Inter,Arial,sans-serif}

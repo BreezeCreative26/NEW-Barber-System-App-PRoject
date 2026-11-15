@@ -6,7 +6,7 @@ import sandbox from "./server/sandbox";
 import pub from "./server/public";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { brandOf, type Shop } from "./server/domain";
+import { appShortName, brandOf, type Shop } from "./server/domain";
 import { headData, shopPageHead, type MediaRow } from "./server/presence";
 import { shopManifest } from "./server/customerAuth";
 import { CUSTOM_HOST_HEADER, SHOP_HOST_HEADER, shopOrigin, shopUrl } from "./server/hosts";
@@ -309,7 +309,7 @@ async function workspaceShell(c: Context<{ Bindings: AppBindings }>) {
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'",
   );
   return c.html(
-    `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>foliyo</title>${meta}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/>${hostSlug ? `<link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png"/><link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png"/><link rel="manifest" href="/team.webmanifest"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-title" content="${attr(hostName || hostSlug)}"/>` : `<link rel="apple-touch-icon" href="/foliyo-apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>`}${STYLES}<script src="/static/zoomlock.js" defer></script></head><body><div id="root"><p class="boot-message">Opening workspace…</p></div><noscript>JavaScript is required.</noscript>${entryTags("app")}</body></html>`,
+    `<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>foliyo</title>${meta}${hostSlug ? `<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png"/>` : `<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/>`}${hostSlug ? `<link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png"/><link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png"/><link rel="manifest" href="/team.webmanifest"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-title" content="${attr(appShortName(hostName || hostSlug))}"/>` : `<link rel="apple-touch-icon" href="/foliyo-apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>`}${STYLES}<script src="/static/zoomlock.js" defer></script></head><body><div id="root"><p class="boot-message">Opening workspace…</p></div><noscript>JavaScript is required.</noscript>${entryTags("app")}</body></html>`,
   );
 }
 // Hand-written stylesheets, versioned by build so a deploy invalidates them everywhere at once.
@@ -341,7 +341,7 @@ function bootScreen(b?: BootBrand) {
 const bootThemeColor = (b?: BootBrand) => (b?.dark ? "#17181e" : "#ffffff");
 // Head is either the generic private one (noindex) or a server-rendered SEO head for shop pages.
 const shell = (head: string, brand?: BootBrand) =>
-  `<!doctype html><html lang="en"${brand?.dark ? ' class="boot-dark"' : ""}><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="${bootThemeColor(brand)}"/>${head}<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/>${head.includes("data-shop") ? "" : `<link rel="apple-touch-icon" href="/foliyo-apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>`}${STYLES}<script src="/static/zoomlock.js" defer></script></head><body><div id="root">${bootScreen(brand)}</div><noscript>Online booking needs JavaScript.</noscript>${brandScript(brand)}${entryTags("shop")}</body></html>`;
+  `<!doctype html><html lang="en"${brand?.dark ? ' class="boot-dark"' : ""}><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/><meta name="theme-color" content="${bootThemeColor(brand)}"/>${head}${head.includes("data-shop") ? "" : `<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/><link rel="icon" href="/favicon.ico" sizes="32x32"/><link rel="apple-touch-icon" href="/foliyo-apple-touch-icon.png"/><link rel="manifest" href="/site.webmanifest"/>`}${STYLES}<script src="/static/zoomlock.js" defer></script></head><body><div id="root">${bootScreen(brand)}</div><noscript>Online booking needs JavaScript.</noscript>${brandScript(brand)}${entryTags("shop")}</body></html>`;
 // Brand for the boot screen of /book and /me: one small read, cached per process for a minute.
 async function bootBrand(db: Database, slug: string): Promise<BootBrand | undefined> {
   const hit = bootCache.get(slug);
@@ -364,7 +364,7 @@ const publicPage = (title: string, description: string, slug?: string, onHost = 
 // service worker registered at the shop's scope. Overrides the platform manifest in shell().
 const attr = (t: string) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] as string);
 // The name a phone pre-fills when someone adds the app to their home screen: the shop's own name.
-const shopAppHead = (slug: string, onHost = false, dark = false, name = "") => `${onHost ? `<meta name="foliyo-shop" content="${slug}"/>` : ""}<link rel="manifest" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/manifest.webmanifest" data-shop/><link rel="apple-touch-icon" sizes="192x192" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/icon-192.png"/><link rel="apple-touch-icon" sizes="512x512" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/icon-512.png"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-title" content="${attr(name || slug)}"/><meta name="apple-mobile-web-app-status-bar-style" content="${dark ? "black-translucent" : "default"}"/>`;
+const shopAppHead = (slug: string, onHost = false, dark = false, name = "") => `${onHost ? `<meta name="foliyo-shop" content="${slug}"/>` : ""}<link rel="manifest" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/manifest.webmanifest" data-shop/><link rel="icon" type="image/png" sizes="192x192" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/icon-192.png"/><link rel="apple-touch-icon" sizes="192x192" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/icon-192.png"/><link rel="apple-touch-icon" sizes="512x512" href="${onHost ? "" : `/${encodeURIComponent(slug)}`}/icon-512.png"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-title" content="${attr(appShortName(name || slug))}"/><meta name="apple-mobile-web-app-status-bar-style" content="${dark ? "black-translucent" : "default"}"/>`;
 // Public origin as the visitor sees it (dev proxies rewrite Host).
 const publicOrigin = (c: { req: { url: string; header: (k: string) => string | undefined } }) => {
   const u = new URL(c.req.url);
@@ -455,7 +455,7 @@ app.get("/team.webmanifest", async (c) => {
   return c.body(JSON.stringify({
     id: "/workspace",
     name: `${shop.name} team`,
-    short_name: shop.name.length > 12 ? shop.name.split(/\s+/)[0].slice(0, 12) : shop.name,
+    short_name: appShortName(shop.name),
     description: `Run ${shop.name}: calendar, customers and till.`,
     start_url: "/workspace?source=pwa",
     scope: "/",
@@ -463,7 +463,7 @@ app.get("/team.webmanifest", async (c) => {
     orientation: "any",
     background_color: dark ? "#0b0b0c" : "#ffffff",
     theme_color: dark ? "#0b0b0c" : colour,
-    icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }, { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" }],
+    icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }, { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" }, { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" }],
   }));
 });
 // Installable shop app: manifest + icons + service worker, per shop.

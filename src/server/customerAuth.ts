@@ -17,7 +17,7 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
-import { brandOf, emailSchema, phoneSchema, type Shop } from "./domain";
+import { appShortName, brandOf, emailSchema, phoneSchema, type Shop } from "./domain";
 import { cookies as teamCookies, digest, matches as teamMatches, newSession as teamSession, passwordHash, readInput, type AppEnv } from "./accounts";
 import { audit, fail } from "./sandbox";
 import { drain, enqueue, msgShop } from "./messaging";
@@ -367,12 +367,13 @@ export async function shopManifest(c: Ctx, slug: string) {
   const iconBase = onHost ? "" : `/${encodeURIComponent(slug)}`;
   const icons = [
     { src: `${iconBase}/icon-192.png`, sizes: "192x192", type: "image/png" },
-    { src: `${iconBase}/icon-512.png`, sizes: "512x512", type: "image/png", purpose: "any maskable" },
+    { src: `${iconBase}/icon-512.png`, sizes: "512x512", type: "image/png", purpose: "any" },
+    { src: `${iconBase}/icon-512.png`, sizes: "512x512", type: "image/png", purpose: "maskable" },
   ];
   const manifest = {
     id: `${P("/me")}`,
     name: shop.name,
-    short_name: shop.name.length > 12 ? shop.name.split(/\s+/)[0].slice(0, 12) : shop.name,
+    short_name: appShortName(shop.name),
     description: `Book and manage your visits at ${shop.name}.`,
     start_url: `${P("/me")}?source=pwa`,
     scope,

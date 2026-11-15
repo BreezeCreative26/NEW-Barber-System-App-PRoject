@@ -9,6 +9,7 @@ import { dateLabel, datePlus, money, time, setCurrency } from "./fixtures";
 import { ReviewCard, type OwnReview } from "./Reviews";
 import { applyThemeColor, brandStyle, serverBrand, themeClass, type ShopBrand, shopPath } from "./theme";
 import { MoveFlow } from "./MoveFlow";
+import { InstallPrompt, isIOS, promptInstall, registerShopWorker, standalone, swScope, useInstallEvent } from "./InstallPrompt";
 
 type Profile = { id: string; phone: string; name: string; email: string; birthday: string; preferred_staff_id: string; marketing_opt_in: number; contact_pref?: "AUTO" | "EMAIL" | "NONE"; needs_sms_choice?: boolean; sms_stopped_at?: number | null; complete?: boolean; notes: string; version: number; member_since: number; has_password?: boolean; account_email?: string; email_verified?: boolean };
 type Visit = {
@@ -170,6 +171,7 @@ export function CustomerArea({ slug }: { slug: string }) {
         </span>
         <span className="sp-powered">Powered by foliyo</span>
       </footer>
+      <InstallPrompt slug={me.shop.slug} shopName={me.shop.name} signedIn />
       <ShopTabBar slug={me.shop.slug} active={tab === "profile" ? "account" : "visits"} signedIn />
     </div>
   );
@@ -460,39 +462,29 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
 }
 
 // ---- Installed app: home-screen install + notifications ----------------------------------
-type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
-const standalone = () => (typeof matchMedia !== "undefined" && matchMedia("(display-mode: standalone)").matches) || (navigator as unknown as { standalone?: boolean }).standalone === true;
-const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !/crios|fxios/i.test(navigator.userAgent);
 function urlB64ToUint8Array(b64: string) {
   const pad = "=".repeat((4 - (b64.length % 4)) % 4);
   const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from([...raw].map((ch) => ch.charCodeAt(0)));
 }
-// Registers the shared worker at this shop's scope so the installed app is per shop.
-export async function registerShopWorker(slug: string) {
-  if (!("serviceWorker" in navigator)) return null;
-  try { return await navigator.serviceWorker.register("/sw.js", { scope: `/${slug}/` }); } catch { return null; }
-}
 function AppCard({ slug, A, shopName, hasPassword, onSetPassword }: { slug: string; A: string; shopName: string; hasPassword: boolean; onSetPassword: () => void }) {
-  const [installEvt, setInstallEvt] = useState<InstallEvent | null>(null);
+  const installEvt = useInstallEvent();
   const [installed, setInstalled] = useState(standalone());
   const [push, setPush] = useState<{ enabled: boolean; public_key: string; subscribed: boolean; permission: NotificationPermission | "unsupported" } | null>(null);
   const [busy, setBusy] = useState(false);
   const [dismissed, setDismissed] = useState(() => localStorage.getItem(`foliyo:${slug}:install-dismissed`) === "1");
   useEffect(() => {
     registerShopWorker(slug);
-    const onPrompt = (e: Event) => { e.preventDefault(); setInstallEvt(e as InstallEvent); };
     const onInstalled = () => setInstalled(true);
-    window.addEventListener("beforeinstallprompt", onPrompt);
     window.addEventListener("appinstalled", onInstalled);
-    return () => { window.removeEventListener("beforeinstallprompt", onPrompt); window.removeEventListener("appinstalled", onInstalled); };
+    return () => window.removeEventListener("appinstalled", onInstalled);
   }, [slug]);
   useEffect(() => {
     (async () => {
       const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
       let endpoint = "";
       if (supported) {
-        const reg = await navigator.serviceWorker.getRegistration(`/${slug}/`);
+        const reg = await navigator.serviceWorker.getRegistration(swScope(slug));
         const sub = await reg?.pushManager.getSubscription();
         endpoint = sub?.endpoint || "";
       }
@@ -502,16 +494,13 @@ function AppCard({ slug, A, shopName, hasPassword, onSetPassword }: { slug: stri
   }, [A, slug]);
   async function install() {
     if (!installEvt) return;
-    await installEvt.prompt();
-    const { outcome } = await installEvt.userChoice;
-    if (outcome === "accepted") setInstalled(true);
-    setInstallEvt(null);
+    if (await promptInstall(installEvt)) setInstalled(true);
   }
   async function togglePush() {
     if (!push || !push.enabled || push.permission === "unsupported") return;
     setBusy(true);
     try {
-      const reg = (await navigator.serviceWorker.getRegistration(`/${slug}/`)) || (await registerShopWorker(slug));
+      const reg = (await navigator.serviceWorker.getRegistration(swScope(slug))) || (await registerShopWorker(slug));
       if (!reg) return;
       await navigator.serviceWorker.ready;
       const perm = await Notification.requestPermission();
