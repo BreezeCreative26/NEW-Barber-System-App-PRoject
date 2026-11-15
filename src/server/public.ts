@@ -394,7 +394,8 @@ pub.get("/shops/:slug/page", async (c) => {
   // Soonest bookable slot per barber for their most popular service, cheap enough to run per view.
   const popular = (services.results as { id: string; popular: number }[])[0];
   const soonest: { staff_id: string; staff_name: string; date: string; start_min: number; service_id: string; price_pence: number }[] = [];
-  if (popular) {
+  // Optional extra: a hiccup here (busy database, odd rule) must never take the whole shop page down.
+  if (popular) try {
     const { minStart, maxDate } = limits(shop, now);
     const horizon = datePlus(today, 7) < maxDate ? datePlus(today, 7) : maxDate;
     const ctx = await rangeContext(c, shop, null, popular.id, today, horizon, []);
@@ -409,6 +410,9 @@ pub.get("/shops/:slug/page", async (c) => {
           }
     }
     soonest.sort((a, b) => a.date.localeCompare(b.date) || a.start_min - b.start_min);
+  } catch (err) {
+    soonest.length = 0;
+    console.error("shop page: soonest slots skipped", err instanceof Error ? err.message.slice(0, 200) : String(err));
   }
   return c.json({
     shop: publicShop(shop),
