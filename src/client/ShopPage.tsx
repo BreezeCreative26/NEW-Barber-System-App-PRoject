@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { type BookingPreset } from "./PublicBooking";
 import { Avatar, Icon } from "./ui";
 import { ShopTabBar } from "./ShopTabBar";
-import { InstallPrompt } from "./InstallPrompt";
+import { CustomerPrompts } from "./ReviewPrompt";
 import { money, time, dateLabel, setCurrency } from "./fixtures";
 import { PublicReviews, Stars, type PublicReview } from "./Reviews";
 import { applyThemeColor, brandStyle, serverBrand, themeClass, type ShopBrand, type ShopTheme, shopPath } from "./theme";
@@ -182,7 +182,7 @@ export function ShopPage({ slug }: { slug: string }) {
   return (
     <>
       <ShopPageView data={data} me={me} mine={mine} />
-      <InstallPrompt slug={data.shop.slug} shopName={data.shop.name} signedIn={!!me} brand={{ accent: data.page.accent, theme: data.page.theme as ShopTheme, logo_url: data.page.logo_url, logo_tone: (data.page.logo_tone || "") as ShopBrand["logo_tone"], primary_hex: data.page.primary_hex, secondary_hex: data.page.secondary_hex }} />
+      <CustomerPrompts slug={data.shop.slug} shopName={data.shop.name} signedIn={!!me} brand={{ accent: data.page.accent, theme: data.page.theme as ShopTheme, logo_url: data.page.logo_url, logo_tone: (data.page.logo_tone || "") as ShopBrand["logo_tone"], primary_hex: data.page.primary_hex, secondary_hex: data.page.secondary_hex }} />
     </>
   );
 }

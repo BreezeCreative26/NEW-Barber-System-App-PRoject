@@ -6,7 +6,7 @@ import { z } from "zod";
 import { brandOf, dayStarts, phoneSchema, ref, shopToday, type Customer, type Shop, type StoredBooking } from "./domain";
 import { digest, passwordHash, readInput, type AppEnv } from "./accounts";
 import { audit, checkVersionUpdate, fail, readBooking, syncCustomerDetails } from "./sandbox";
-import { leaveReview, ownReviewView, reviewEligibility, reviewSchema, type ReviewRow } from "./presence";
+import { leaveReview, ownReviewView, reviewEligibility, reviewSchema, REVIEW_WINDOW_MS, type ReviewRow } from "./presence";
 import { drain, enqueue, msgShop, providerStatus } from "./messaging";
 import { byPhone, clearSession, currentAccount, customerAuth, customerPassword, customerSessionToken, recordConsent, setSession } from "./customerAuth";
 import {
@@ -422,6 +422,37 @@ acct.post("/bookings/:id/reschedule", async (c) => {
   const body = await readInput(c, moveBody);
   const { booking, staffName } = await ownBooking(c, shop, cust, c.req.param("id")!);
   return c.json(await moveByCustomer(c, shop, booking, staffName, body));
+});
+// One-time pop-ups for a signed-in customer, remembered on their account (so once per person, on
+// any device): the "add the app" message, and a review request from their barber for their latest
+// visit. The review pop-up never shows again once they've left a review at this shop; "Not now"
+// hides it until their next visit.
+acct.get("/prompts", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug")!);
+  const a = await currentAccount(c, shop);
+  if (!a) return c.json({ install_seen: true, review: null });
+  const cust = await linkedCustomer(c, shop, a);
+  const flags = await c.env.DB.prepare("SELECT install_prompt_at, review_prompt_booking FROM customer_accounts WHERE id=? AND shop_id=?").bind(a.id, shop.id).first<{ install_prompt_at: number | null; review_prompt_booking: string | null }>();
+  const reviewed = await c.env.DB.prepare("SELECT 1 AS x FROM reviews r LEFT JOIN bookings x ON x.id=r.booking_id WHERE r.shop_id=? AND (r.customer_id=? OR x.phone=?) LIMIT 1").bind(shop.id, cust.id, cust.phone).first();
+  const visit = reviewed
+    ? null
+    : await c.env.DB.prepare(
+        "SELECT b.id, b.service_name, b.date, b.start_min, s.name AS staff_name, COALESCE(s.photo_url,'') AS staff_photo, COALESCE(s.colour,'sage') AS staff_colour FROM bookings b LEFT JOIN staff s ON s.shop_id=b.shop_id AND s.id=b.staff_id WHERE b.shop_id=? AND (b.customer_id=? OR b.phone=?) AND b.status='COMPLETED' AND b.end_at>? ORDER BY b.start_at DESC LIMIT 1",
+      ).bind(shop.id, cust.id, cust.phone, Date.now() - REVIEW_WINDOW_MS).first<{ id: string; service_name: string; date: string; start_min: number; staff_name: string | null; staff_photo: string; staff_colour: string }>();
+  const gp = visit ? await c.env.DB.prepare("SELECT google_review_url FROM shop_pages WHERE shop_id=?").bind(shop.id).first<{ google_review_url: string }>() : null;
+  return c.json({
+    install_seen: !!flags?.install_prompt_at,
+    first_name: (cust.name || a.name || "").split(" ")[0] || "",
+    review: visit && visit.id !== flags?.review_prompt_booking ? { ...visit, google_review_url: gp?.google_review_url || "" } : null,
+  });
+});
+acct.post("/prompts", async (c) => {
+  const shop = await shopBySlug(c, c.req.param("slug")!);
+  const a = await requireAccount(c, shop);
+  const b = await readInput(c, z.object({ install: z.literal(true).optional(), review_dismissed: z.string().uuid().optional() }).strict());
+  if (b.install) await c.env.DB.prepare("UPDATE customer_accounts SET install_prompt_at=COALESCE(install_prompt_at, ?) WHERE id=? AND shop_id=?").bind(Date.now(), a.id, shop.id).run();
+  if (b.review_dismissed) await c.env.DB.prepare("UPDATE customer_accounts SET review_prompt_booking=? WHERE id=? AND shop_id=?").bind(b.review_dismissed, a.id, shop.id).run();
+  return c.json({ ok: true });
 });
 // Review a completed visit while signed in (same rule as the manage link: once, within 60 days).
 acct.post("/bookings/:id/review", async (c) => {

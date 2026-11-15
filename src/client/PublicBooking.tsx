@@ -9,7 +9,7 @@ import { ReviewCard, type OwnReview } from "./Reviews";
 import { applyThemeColor, brandStyle, serverBrand, themeClass, type ShopBrand, shopPath } from "./theme";
 import { ShopTabBar } from "./ShopTabBar";
 import { MoveFlow } from "./MoveFlow";
-import { InstallPrompt } from "./InstallPrompt";
+import { CustomerPrompts } from "./ReviewPrompt";
 
 // Connected customer booking for /book/:slug and /manage/:token.
 // Reads and writes the same local D1 records as the owner workspace.
@@ -950,7 +950,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     return (
       <div className={wrap} style={brandStyle(shop.shop.brand) as CSSProperties}>
         <TestBanner />
-        <InstallPrompt slug={slug} shopName={shop.shop.name} signedIn={!!customer} brand={shop.shop.brand} />
+        <CustomerPrompts slug={slug} shopName={shop.shop.name} signedIn={!!customer} brand={shop.shop.brand} review={false} />
         <BookingTopBar slug={slug} name={shop.shop.name} logo={shop.shop.logo_url} customer={customer} />
         <main id="main-content" className="booking-body">
           <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} sentTo={confirmed.sent_to || []} signedIn={!!customer} account={confirmed.account ?? null} />

@@ -45,22 +45,23 @@ export async function promptInstall(evt: InstallEvent) {
 
 const seenKey = (slug: string) => `foliyo:${slug}:install-pop`;
 // Wears the shop's own website look: colours, light/dark, fonts and corner style.
-export function InstallPrompt({ slug, shopName, signedIn, brand }: { slug: string; shopName: string; signedIn: boolean; brand?: Partial<ShopBrand> | null }) {
+export function InstallPrompt({ slug, shopName, signedIn, brand, seen: seenOnAccount, onSeen }: { slug: string; shopName: string; signedIn: boolean; brand?: Partial<ShopBrand> | null; seen?: boolean; onSeen?: () => void }) {
   const evt = useInstallEvent();
   const [open, setOpen] = useState(false);
   const ios = typeof navigator !== "undefined" && isIOS();
   useEffect(() => {
-    if (!signedIn || standalone()) return;
+    if (!signedIn || standalone() || seenOnAccount) return;
     let seen = false;
     try { seen = localStorage.getItem(seenKey(slug)) === "1"; } catch { /* private mode */ }
     if (seen) return;
     void registerShopWorker(slug);
     if (ios || evt) setOpen(true);
-  }, [signedIn, slug, evt, ios]);
+  }, [signedIn, slug, evt, ios, seenOnAccount]);
   if (!open) return null;
   const close = () => {
     try { localStorage.setItem(seenKey(slug), "1"); } catch { /* private mode */ }
     setOpen(false);
+    onSeen?.();
   };
   const icon = onShopHost(slug) ? "/icon-192.png" : `/${encodeURIComponent(slug)}/icon-192.png`;
   const look = brand || serverBrand()?.brand || null;
