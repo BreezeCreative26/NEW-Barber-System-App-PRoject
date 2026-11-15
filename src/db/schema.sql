@@ -833,8 +833,8 @@ BEGIN
     LEFT JOIN staff_schedule_overrides o ON o.shop_id=h.shop_id AND o.staff_id=h.staff_id AND o.date=b.date
     WHERE h.shop_id=b.shop_id AND h.staff_id=b.staff_id AND h.weekday=ollo_weekday(b.date)
       AND COALESCE(o.enabled,h.enabled)=1
-      AND b.start_min >= GREATEST(COALESCE(o.starts,h.starts), s.opens, ((s.week_json::jsonb)->h.weekday->>'starts')::int)
-      AND b.start_min + b.duration_min + b.buffer_min <= LEAST(COALESCE(o.ends,h.ends), s.closes, ((s.week_json::jsonb)->h.weekday->>'ends')::int)
+      AND b.start_min >= CASE WHEN o.id IS NOT NULL THEN o.starts ELSE GREATEST(h.starts, s.opens, ((s.week_json::jsonb)->h.weekday->>'starts')::int) END
+      AND b.start_min + b.duration_min + b.buffer_min <= CASE WHEN o.id IS NOT NULL THEN o.ends ELSE LEAST(h.ends, s.closes, ((s.week_json::jsonb)->h.weekday->>'ends')::int) END
       AND ((s.week_json::jsonb)->h.weekday->>'enabled')::int = 1
       AND NOT (COALESCE(o.break_end,h.break_end) > COALESCE(o.break_start,h.break_start)
                AND b.start_min < COALESCE(o.break_end,h.break_end)

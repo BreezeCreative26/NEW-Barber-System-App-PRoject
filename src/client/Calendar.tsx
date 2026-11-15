@@ -726,7 +726,10 @@ export function Calendar({
                       start < b.start_min + b.duration_min + b.buffer_min,
                   );
                   // Outside the normal hours is just shaded (bookable like any time; customers can't see it).
-                  const after = !reason && !!shift?.enabled && (start < Math.max(dayHours.starts, shift.starts) || start >= Math.min(dayHours.ends, shift.ends));
+                  const dated = w.schedule_overrides.some((o) => o.staff_id === s.id && o.date === date);
+                  const from = dated ? shift!.starts : Math.max(dayHours.starts, shift?.starts ?? 0);
+                  const to = dated ? shift!.ends : Math.min(dayHours.ends, shift?.ends ?? 0);
+                  const after = !reason && !!shift?.enabled && (start < from || start >= to);
                   return { start, reason, busy, after };
                 },
               );
