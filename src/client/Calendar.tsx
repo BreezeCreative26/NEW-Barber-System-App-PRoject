@@ -9,7 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type { WorkspaceData, StoredBooking, Staff, StaffBlock } from "../server/domain";
-import { Avatar, BlockIcons, Icon } from "./ui";
+import { Avatar, BlockIcons, Icon, IconLegend } from "./ui";
 import { time, money, datePlus, shopDayOf } from "./fixtures";
 import { DENSITY_PRESETS, type Density } from "./calendarDensity";
 
@@ -310,6 +310,9 @@ export function Calendar({
   const occupied = bookings.filter(
     (b) => !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
+  // What is drawn on the board: no-shows stay where they were, in red, so the day still reads true.
+  // They don't count as taken time (occupied) and can't be dragged.
+  const shown = bookings.filter((b) => b.status !== "CANCELLED");
   const dayBookings = w.bookings.filter(
     (b) => b.date === date && !["CANCELLED", "NO_SHOW"].includes(b.status),
   );
@@ -789,7 +792,7 @@ export function Calendar({
               const colour = s.colour || ["sage", "sand", "blue", "clay"][w.staff.findIndex((member) => member.id === s.id) % 4];
               const byService = w.shop.card_colour === "SERVICE";
               const cardColour = (b: StoredBooking) => (byService ? w.services.find((x) => x.id === b.service_id)?.colour || colour : colour);
-              const lanes = layoutLanes(occupied.filter((b) => b.staff_id === s.id));
+              const lanes = layoutLanes(shown.filter((b) => b.staff_id === s.id));
               return (
                 <div
                   className="barber-column"
@@ -942,7 +945,7 @@ export function Calendar({
                       {dropReason && <small>{HARD_REASONS.has(dropReason) ? `Can't: ${dropReason.toLowerCase()}` : `${dropReason} · drop to book anyway`}</small>}
                     </div>
                   )}
-                  {occupied
+                  {shown
                     .filter((b) => b.staff_id === s.id)
                     .map((b) => {
                       const lane = lanes.get(b.id) ?? { lane: 0, lanes: 1 };
@@ -951,7 +954,7 @@ export function Calendar({
                       <button
                         key={b.id}
                         type="button"
-                        className={`calendar-event ${cardColour(b)} ${b.status === "COMPLETED" ? "finished" : ""} ${b.duration_min < 15 ? "compact-event" : ""} ${lane.lanes > 1 ? "overlapping" : ""}`}
+                        className={`calendar-event ${cardColour(b)} ${b.status === "COMPLETED" ? "finished" : ""} ${b.status === "NO_SHOW" ? "no-show" : ""} ${b.duration_min < 15 ? "compact-event" : ""} ${lane.lanes > 1 ? "overlapping" : ""}`}
                         data-status={b.status}
                         data-lanes={lane.lanes > 1 ? lane.lanes : undefined}
                         style={{
@@ -984,6 +987,10 @@ export function Calendar({
                               paid={paid.has(b.id)}
                               regular={!!b.customer_id && regulars.has(b.customer_id)}
                               deposit={b.deposit_status === "PAID"}
+                              depositDue={b.deposit_status === "PENDING"}
+                              notes={!!b.notes?.trim()}
+                              group={!!b.group_id}
+                              noShow={b.status === "NO_SHOW"}
                             />
                           );
                           // How many lines fit: the preset caps it, the card's height decides.
@@ -996,7 +1003,6 @@ export function Calendar({
                               <strong>
                                 <time>{time(b.start_min)}</time> {b.attendee_name || b.customer_name}
                                 {lines === 1 && <span className="event-inline"> · {b.service_name}</span>}
-                                {b.group_id && <Icon name="users" size={11} className="event-group" />}
                                 {lines < 3 && <span className="event-inline-icons">{icons}</span>}
                               </strong>
                               {lines >= 2 && (
@@ -1085,6 +1091,7 @@ export function Calendar({
             </span>
             <span className="legend-note">Card colour = {w.shop.card_colour === "SERVICE" ? "service" : "barber"}</span>
           </div>
+          <IconLegend />
           <p id="timetable-keyboard-help">
             Click any 15-minute cell to book there — greyed cells (outside hours, breaks, occupied) still
             work, you just confirm you mean it. Press and drag a confirmed appointment to move it: the top
@@ -1187,6 +1194,8 @@ export function WeekView({
   const staff = person ? [person] : [];
   const active = (b: RangeBooking) =>
     !["CANCELLED", "NO_SHOW"].includes(b.status);
+  // No-shows stay on the week too (in red); they just don't count towards the day's load.
+  const onBoard = (b: RangeBooking) => b.status !== "CANCELLED";
   const rostered = (staffId: string, d: string) => {
     const weekday = new Date(d + "T12:00:00Z").getUTCDay();
     const day = shopDayOf(w.shop, d);
@@ -1210,13 +1219,13 @@ export function WeekView({
   const cardColour = (i: number, b: { service_id?: string }) => (w.shop.card_colour === "SERVICE" ? w.services.find((x) => x.id === b.service_id)?.colour || colour(i) : colour(i));
   const s = person;
   const dayRanges = days.map((d) => shopDayOf(w.shop, d)).filter((x) => x.enabled);
-  const mine = (bookings || []).filter((b) => s && b.staff_id === s.id && active(b) && days.includes(b.date));
+  const mine = (bookings || []).filter((b) => s && b.staff_id === s.id && onBoard(b) && days.includes(b.date));
   let gridStart = Math.floor(Math.min(...dayRanges.map((x) => x.starts), ...mine.map((b) => b.start_min), 24 * 60) / 60) * 60;
   let gridEnd = Math.ceil(Math.max(...dayRanges.map((x) => x.ends), ...mine.map((b) => b.start_min + b.duration_min), 0) / 60) * 60;
   if (!isFinite(gridStart) || gridStart >= gridEnd) { gridStart = 9 * 60; gridEnd = 18 * 60; }
   const hours: number[] = [];
   for (let m = gridStart; m < gridEnd; m += 60) hours.push(m);
-  const PX = 56; // pixels per hour
+  const PX = 64; // pixels per hour (a 30-minute visit is tall enough for time + name)
   const total = ((gridEnd - gridStart) / 60) * PX;
   return (
     <div className="week-view week-person" aria-busy={loading}>
@@ -1230,11 +1239,11 @@ export function WeekView({
           ))}
         </div>
       )}
-      {s && <p className="week-person-title"><strong>{s.name}</strong> · {mine.length} appointment{mine.length === 1 ? "" : "s"} this week</p>}
+      {s && <p className="week-person-title"><strong>{s.name}</strong> · {mine.filter(active).length} appointment{mine.filter(active).length === 1 ? "" : "s"} this week</p>}
       <div className="week-view-head">
         <span className="week-view-corner" aria-hidden="true" />
         {days.map((d) => {
-          const dayBookings = mine.filter((b) => b.date === d);
+          const dayBookings = mine.filter((b) => b.date === d && active(b));
           const booked = dayBookings.reduce((n, b) => n + b.duration_min, 0);
           const open = s ? rostered(s.id, d) : 0;
           const pct = open ? Math.min(100, Math.round((booked / open) * 100)) : 0;
@@ -1272,20 +1281,28 @@ export function WeekView({
               <div className={`week-col ${off ? "off" : ""} ${shut ? "shop-closed" : ""} ${d === w.today ? "today" : ""}`} key={d} role="group" aria-label={`${s.name}, ${d}${shut ? ", shop closed" : off ? ", not working" : ""}`}>
                 {hours.map((m) => <i className="week-line" key={m} style={{ top: ((m - gridStart) / 60) * PX }} aria-hidden="true" />)}
                 {off && !cell.length && <span className="week-off">{shut ? "Shop closed" : "Not working"}</span>}
-                {cell.map((b) => (
-                  <button
-                    type="button"
-                    className={`week-card ${cardColour(0, b)} ${b.status === "COMPLETED" ? "done" : ""}`}
-                    key={b.id}
-                    style={{ top: ((b.start_min - gridStart) / 60) * PX, height: Math.max(24, (b.duration_min / 60) * PX - 2) } as CSSProperties}
-                    onClick={() => onOpen(b.id)}
-                    title={`${time(b.start_min)} ${b.customer_name} · ${b.service_name} · ${money(b.price_pence)}`}
-                  >
-                    <strong>{time(b.start_min)}{b.channel === "ONLINE" && <i className="week-card-dot" aria-label="Booked online" />}</strong>
-                    <span className="week-card-name">{b.customer_name}</span>
-                    <small>{b.service_name}{b.series_id ? " ↻" : ""}</small>
-                  </button>
-                ))}
+                {cell.map((b) => {
+                  const h = Math.max(24, (b.duration_min / 60) * PX - 2);
+                  const who = b.attendee_name || b.customer_name;
+                  return (
+                    <button
+                      type="button"
+                      className={`week-card ${cardColour(0, b)} ${b.status === "COMPLETED" ? "done" : ""} ${b.status === "NO_SHOW" ? "no-show" : ""} ${h < 40 ? "one-line" : ""}`}
+                      key={b.id}
+                      style={{ top: ((b.start_min - gridStart) / 60) * PX, height: h } as CSSProperties}
+                      onClick={() => onOpen(b.id)}
+                      title={`${time(b.start_min)} ${who} · ${b.service_name} · ${money(b.price_pence)}${b.status === "NO_SHOW" ? " · No-show" : ""}`}
+                    >
+                      {/* Time and name share the first line so the name shows even on a 30-minute visit. */}
+                      <strong>
+                        <time>{time(b.start_min)}</time>
+                        <span className="week-card-name">{who}</span>
+                        {b.channel === "ONLINE" && <i className="week-card-dot" aria-label="Booked online" />}
+                      </strong>
+                      {h >= 40 && <small>{b.status === "NO_SHOW" ? "No-show · " : ""}{b.service_name}{b.series_id ? " ↻" : ""}</small>}
+                    </button>
+                  );
+                })}
               </div>
             );
           })}

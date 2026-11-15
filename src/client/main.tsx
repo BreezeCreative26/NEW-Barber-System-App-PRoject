@@ -7,10 +7,12 @@ import { Admin } from "./Admin";
 import { VerifyEmail } from "./VerifyEmail";
 import { AppErrorBoundary, installErrorReporting, parseRoute, reportClientError } from "./boot";
 import { installToaster } from "./toaster";
+import { installTooltips } from "./tooltip";
 export { reportClientError };
 
 installErrorReporting();
 installToaster();
+installTooltips();
 // Desktop browsers only open a date field's calendar from its small icon; phones open it on any tap.
 // Make a click anywhere on a date/time field open the picker on desktop too (the timetable's date
 // chip is a hidden date field laid over the label, so without this a mouse click did nothing).

@@ -831,23 +831,44 @@ export function StatusPill({ tone = "good", children, ...rest }: { tone?: "good"
   );
 }
 
-export function BlockIcons({ online, regular, series, walkIn, paid, deposit }: { online?: boolean; regular?: boolean; series?: boolean; walkIn?: boolean; paid?: boolean; deposit?: boolean }) {
-  const items: [boolean | undefined, string, string][] = [
-    [regular, "heart", "Returning customer"],
-    [series, "repeat", "Standing booking"],
-    [online, "cloud", "Booked online"],
-    [walkIn, "footprints", "Walk-in"],
-    [deposit && !paid, "wallet", "Deposit paid"],
-    [paid, "paid", "Paid"],
-  ];
-  const shown = items.filter(([on]) => on);
+// The small icons on an appointment card. Each has a plain-English meaning shown on hover (desktop)
+// and read out by screen readers; IconLegend lists them all under "How the timetable works".
+export const BLOCK_ICONS: { key: string; icon: string; label: string; hint: string; tone: string }[] = [
+  { key: "noShow", icon: "alert", label: "No-show", hint: "The customer didn't turn up. Kept on the calendar in red.", tone: "noshow" },
+  { key: "paid", icon: "paid", label: "Paid", hint: "Payment has been taken for this visit.", tone: "paid" },
+  { key: "deposit", icon: "wallet", label: "Deposit paid", hint: "A deposit was paid online; the rest is due in the shop.", tone: "deposit" },
+  { key: "depositDue", icon: "hourglass", label: "Deposit waiting", hint: "Waiting for the customer to pay their deposit.", tone: "due" },
+  { key: "online", icon: "globe", label: "Booked online", hint: "The customer booked themselves online.", tone: "online" },
+  { key: "walkIn", icon: "footprints", label: "Walk-in", hint: "Came in without a booking.", tone: "walkin" },
+  { key: "regular", icon: "heart", label: "Returning customer", hint: "Has visited before.", tone: "regular" },
+  { key: "series", icon: "repeat", label: "Standing booking", hint: "Part of a repeating booking.", tone: "series" },
+  { key: "group", icon: "users", label: "Group booking", hint: "Booked together with other people.", tone: "group" },
+  { key: "notes", icon: "file", label: "Has notes", hint: "There are notes on this appointment. Open it to read them.", tone: "notes" },
+];
+export function BlockIcons(props: { online?: boolean; regular?: boolean; series?: boolean; walkIn?: boolean; paid?: boolean; deposit?: boolean; depositDue?: boolean; notes?: boolean; group?: boolean; noShow?: boolean }) {
+  const on = (k: string) => !!(props as Record<string, boolean | undefined>)[k] && !(k === "deposit" && props.paid);
+  const shown = BLOCK_ICONS.filter((i) => on(i.key));
   if (!shown.length) return null;
   return (
-    <span className="block-icons" aria-label={shown.map(([, , l]) => l).join(", ")}>
-      {shown.map(([, icon, label]) => (
-        <Icon key={icon} name={icon} size={12} className={icon === "paid" ? "paid" : icon === "wallet" ? "deposit" : icon === "heart" ? "regular" : ""} />
+    <span className="block-icons" aria-label={shown.map((i) => i.label).join(", ")}>
+      {shown.map((i) => (
+        <span key={i.key} className={`bi bi-${i.tone}`} data-tip={i.label} aria-hidden="true">
+          <Icon name={i.icon} size={10} />
+        </span>
       ))}
-      <span className="visually-hidden">{shown.map(([, , l]) => l).join(", ")}</span>
+      <span className="visually-hidden">{shown.map((i) => i.label).join(", ")}</span>
     </span>
+  );
+}
+export function IconLegend() {
+  return (
+    <ul className="icon-legend" aria-label="What the appointment icons mean" data-testid="icon-legend">
+      {BLOCK_ICONS.map((i) => (
+        <li key={i.key}>
+          <span className={`bi bi-${i.tone}`} aria-hidden="true"><Icon name={i.icon} size={10} /></span>
+          <span><b>{i.label}</b> {i.hint}</span>
+        </li>
+      ))}
+    </ul>
   );
 }

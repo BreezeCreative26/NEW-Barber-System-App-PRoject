@@ -790,6 +790,9 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
     .all<Row>();
   let sent = 0, failed = 0, retried = 0;
   for (const row of due.results) {
+    // One bad row must never stall the rest of the queue (confirmations go out instantly): any
+    // unexpected error puts just that row back for a retry a minute later and moves on.
+    try {
     // The claim must be exclusive. Two drains often overlap (Vercel cron, the lazy sweep, and every
     // un-scoped drain() call after a write), and both can SELECT the same QUEUED row. The claim
     // repeats the SELECT's conditions so only one of them wins: a QUEUED row that is (still) due, or a
@@ -852,6 +855,10 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
     } else {
       const next = now + BACKOFF_MIN[Math.min(attempt - 1, BACKOFF_MIN.length - 1)] * 60000;
       await db.prepare("UPDATE notifications SET status='QUEUED', next_attempt_at=?, provider=?, error=?, status_note=? WHERE id=?").bind(next, d.provider, d.error.slice(0, 400), `Attempt ${attempt} failed; retrying.`, row.id).run();
+      retried++;
+    }
+      } catch (err) {
+      await db.prepare("UPDATE notifications SET status='QUEUED', next_attempt_at=?, error=? WHERE id=?").bind(now + 60000, (err instanceof Error ? err.message : String(err)).slice(0, 400), row.id).run().catch(() => {});
       retried++;
     }
   }
