@@ -128,7 +128,9 @@ test("tell everyone: every matching waiter gets one text with the exact time and
   for (const t of texts) {
     expect(t.body).toMatch(/10:30/);
     expect(t.body).toMatch(/First to book gets it/);
-    expect(t.body).toContain(`/book?service=${service}&staff=${staff}&date=${date}&start=630&step=2&wl=`);
+    const short = t.body.match(/\/s\/([A-Za-z0-9]{8})/)?.[1];
+    const url = short ? (await sql`SELECT url FROM sms_links WHERE code = ${short}`)[0]?.url : t.body;
+    expect(url).toContain(`/book?service=${service}&staff=${staff}&date=${date}&start=630&step=2&wl=`);
   }
   expect(await sql`SELECT count(*)::int AS n FROM waitlist_announcements WHERE shop_id = ${shopId}`).toEqual([{ n: 2 }]);
   // Andy books it from the link → his request is BOOKED and linked; Erin stays OPEN.

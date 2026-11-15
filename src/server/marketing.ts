@@ -2,7 +2,7 @@
 // Everything here is for foliyo itself (not for shops): super admins only.
 //
 // Rules built in, because these are unsolicited-style messages in the UK (PECR / UK GDPR):
-//  - every email carries the company identity and a one-click unsubscribe; every text says "Reply STOP to opt out"
+//  - every email carries the company identity and a one-click unsubscribe; every text carries an opt-out link
 //  - an unsubscribed contact (or a STOP reply) is never contacted again, whatever list they are in
 //  - texts only go out 09:00 to 20:00 UK time, Monday to Saturday
 //  - a campaign cannot start until an admin confirms the contacts may lawfully be contacted
@@ -161,7 +161,7 @@ export const DEFAULT_COPY = {
   subject: "Run your barber shop on foliyo",
   heading: "Your own booking app, ready in minutes.",
   body: "Hi {first},\n\nfoliyo is new booking software for barber shops. Your customers book on your own page with your logo, you get one shared calendar for the whole team, and texts and reminders are built in.\n\nIt takes a few minutes to set up and there is a free trial.",
-  sms_body: "Hi {first}, it's foliyo. New booking software for barbers: your own booking page, calendar and reminders. Free trial: {link}",
+  sms_body: "Hi {first}, foliyo: online booking and reminders for barbers. Free trial: {link}",
   cta_label: "Start your free trial",
   why: "You are receiving this because we think foliyo is relevant to {business}, a business we found publicly listed as a barber or hair business.",
 };
@@ -173,8 +173,8 @@ export const linkFor = (c: Campaign, origin: string) => c.cta_url || `${origin}/
 
 export function renderSms(c: Campaign, ct: Contact, origin: string) {
   let s = cleanFirst(merge(c.sms_body, ct, linkFor(c, origin))).trim();
-  if (!/\bSTOP\b/i.test(s)) s += " Reply STOP to opt out.";
-  return s;
+  // Texts come from a name, which can't be replied to, so the way out is a link (shortened when sent).
+  return `${s.replace(/\s*Reply STOP to opt out\.?\s*$/i, "")} Opt out: ${origin}/u/${ct.unsub_token}`;
 }
 export async function renderEmail(db: DB, c: Campaign, ct: Contact, origin: string) {
   const pb = await platformBilling(db);

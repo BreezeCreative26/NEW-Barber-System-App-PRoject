@@ -71,7 +71,7 @@ test("booking created → confirmation queued on SMS and email, shop-branded, ne
     expect(["SENT", "QUEUED"]).toContain(n.status);
     expect(n.body).toContain("Northline Test Barbers");
     expect(n.body).not.toMatch(/OLLO/i);
-    expect(n.body).toMatch(/\/(manage\/|me\?visit=)/); // account holders land in their account, guests get the one-time link
+    expect(n.body).toMatch(/\/(manage\/|me\?visit=|s\/[A-Za-z0-9]{8})/); // account/guest link, or its short link when the text would run past one part
   }
   const email = mine.find((n) => n.channel === "EMAIL")!;
   expect(email.recipient).toBe("msg-customer@example.test");

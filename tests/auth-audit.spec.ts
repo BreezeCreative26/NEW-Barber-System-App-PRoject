@@ -91,7 +91,10 @@ test("booking confirmation email links account holders to /me?visit=…, never a
   expect(rows.length, "confirmation queued").toBeGreaterThan(0);
   // The SMS body carries the same link the email CTA uses.
   const sms = rows.find((n: { channel: string }) => n.channel === "SMS") || rows[0];
-  expect(sms.body).toContain(`/me?visit=${bj.booking.id}`);
+  // Long links are shortened so the text stays one part; the short link must lead to the same place.
+  const short = sms.body.match(/https?:\/\/\S+\/s\/[A-Za-z0-9]{8}/)?.[0];
+  const target = short ? (await c.get(short, { maxRedirects: 0 })).headers()["location"] : sms.body;
+  expect(target).toContain(`/me?visit=${bj.booking.id}`);
   for (const n of rows) expect(n.body).not.toContain("/manage/");
   await c.dispose();
 });

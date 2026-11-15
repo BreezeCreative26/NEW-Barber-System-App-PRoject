@@ -3,6 +3,7 @@
 // reply-to address, no foliyo mark. Texts are billed to the shop at the normal per-text rate and
 // emails are free. Every message carries a way out (STOP on texts, an unsubscribe link on emails),
 // and texts only go out 09:00 to 20:00 UK time, Monday to Saturday.
+import { previewSms, smsName } from "./smsText";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import type { Database as DB } from "../db/client";
@@ -25,27 +26,27 @@ export const PRESETS: { kind: Kind; title: string; blurb: string; audience: "ALL
   { kind: "launch", title: "We take bookings online", blurb: "Tell customers about your new booking page.", audience: "ALL", channel: "EMAIL",
     copy: { subject: "Book online with {shop}", heading: "Book your next visit online", cta_label: "Book online",
       body: "{shop} now has online booking. You can book, change or cancel an appointment any time, and we will remind you before each visit.\n\nMake your free account in under a minute and your details will be ready for next time.",
-      sms_body: "Hi {first}, {shop} now takes bookings online. Book and manage your appointments any time: {link}" } },
+      sms_body: "Hi {first}, {shop} now takes bookings online: {link}" } },
   { kind: "offer", title: "Special offer", blurb: "A deal or discount for your customers.", audience: "OPTED_IN", channel: "BOTH",
     copy: { subject: "An offer from {shop}", heading: "A little something from us", cta_label: "Book now",
       body: "We have an offer for our customers: [describe your offer].\n\nIt runs until [end date]. Book online and mention it when you arrive.",
-      sms_body: "Hi {first}, {shop} has an offer: [describe your offer], until [end date]. Book here: {link}" } },
+      sms_body: "Hi {first}, {shop} offer: [your offer] until [end date]. Book: {link}" } },
   { kind: "quiet", title: "Fill quiet days", blurb: "Free slots this week? Let people know.", audience: "RECENT", channel: "BOTH",
     copy: { subject: "A few free slots at {shop}", heading: "We have space this week", cta_label: "See free times",
       body: "We have a few free appointments coming up and would love to see you.\n\nPick a time that suits you and book in under a minute.",
-      sms_body: "Hi {first}, {shop} has a few free slots this week. Grab one here: {link}" } },
+      sms_body: "Hi {first}, {shop} has free slots this week: {link}" } },
   { kind: "winback", title: "We miss you", blurb: "Bring back people who have not visited in a while.", audience: "LAPSED", channel: "BOTH",
     copy: { subject: "We miss you at {shop}", heading: "It has been a while", cta_label: "Book your next visit",
       body: "It has been a couple of months since your last visit to {shop}, and we would love to see you again.\n\nBook your next appointment online in under a minute.",
-      sms_body: "Hi {first}, it has been a while since your last visit to {shop}. Book your next one here: {link}" } },
+      sms_body: "Hi {first}, we miss you at {shop}! Book: {link}" } },
   { kind: "hours", title: "Opening hours change", blurb: "Holidays, new hours or a temporary closure.", audience: "RECENT", channel: "EMAIL",
     copy: { subject: "Opening hours at {shop}", heading: "A change to our opening hours", cta_label: "Book online",
       body: "We are changing our opening hours: [describe the change and dates].\n\nYou can see free times and book online any time.",
-      sms_body: "Hi {first}, a change at {shop}: [describe the change and dates]. Book online: {link}" } },
+      sms_body: "Hi {first}, {shop}: [the change and dates]. Book: {link}" } },
   { kind: "service", title: "New service", blurb: "Introduce something new on your menu.", audience: "ALL", channel: "EMAIL",
     copy: { subject: "New at {shop}: [service name]", heading: "Something new at {shop}", cta_label: "Book it now",
       body: "We now offer [service name] for [price]. [One line about what it is and who it is for.]\n\nBook it online at a time that suits you.",
-      sms_body: "Hi {first}, new at {shop}: [service name] for [price]. Book here: {link}" } },
+      sms_body: "Hi {first}, new at {shop}: [service] [price]. Book: {link}" } },
   { kind: "custom", title: "Write your own", blurb: "Start from a blank page.", audience: "ALL", channel: "EMAIL",
     copy: { subject: "", heading: "", body: "", cta_label: "Book online", sms_body: "" } },
 ];
@@ -57,6 +58,16 @@ const token = () => Array.from(crypto.getRandomValues(new Uint8Array(18))).map((
 const first = (name: string) => (name || "").trim().split(/\s+/)[0] || "";
 const merge = (t: string, v: { first: string; shop: string; link: string }) =>
   t.replace(/\{first\}/g, v.first || "there").replace(/\{shop\}/g, v.shop).replace(/\{link\}/g, v.link).replace(/Hi there,?/g, "Hi,");
+
+// Opt-out for texts: a link (an alpha sender can't take a STOP reply). Old drafts ending in
+// "Reply STOP to opt out." lose that line.
+const withOptOut = (text: string, unsub: string) => {
+  const base = text.replace(/\s*Reply STOP to opt out\.?\s*$/i, "").trim();
+  return unsub ? `${base} Opt out: ${unsub}` : `${base} Reply STOP to opt out.`;
+};
+// Every text must fit one part (one charge). Checked on the text as it will really be sent.
+const oneTextProblem = (p: { characters: number; parts: number }) =>
+  p.parts > 1 ? [`This text is ${p.characters} characters once the booking and opt-out links are added. Keep it to 160 so it costs one text each.`] : [];
 
 // Next moment texts are allowed (now if the window is open). Steps in 30 minute jumps, at most 8 days.
 export function nextSmsWindow(now: number) {
@@ -153,9 +164,10 @@ export async function sendAnnouncement(db: DB, shop: MsgShop, f: Fields, origin:
   const stmts: ReturnType<typeof enqueue> = [];
   const flush = async () => { if (stmts.length) { await db.batch(stmts.splice(0)); } };
   for (const c of a.sms) {
-    const v = { first: first(c.name), shop: shop.name, link };
-    let text = merge(f.sms_body, v).trim();
-    if (!/\bSTOP\b/i.test(text)) text += " Reply STOP to opt out.";
+    const v = { first: first(c.name), shop: smsName(shop.name), link };
+    // Texts come from the shop's name, which can't be replied to: the way out is a link.
+    const tok = await tokenOf(c);
+    const text = withOptOut(merge(f.sms_body, v).trim(), tok ? shopUrl(shop.slug!, `/u/c/${tok}`, origin) : "");
     stmts.push(...enqueue(db, shop, { name: first(c.name), phone: c.e164 }, "shop_announcement", { sms: text, subject: "", heading: "", body: "" }, { related: { type: "announce", id: `${id}:${c.id}` }, origin, channel: "SMS", now, sendAt, force: false, note: startAt > now + 60000 ? "Scheduled" : sendAt > now ? "Held until texts can go out (09:00 to 20:00, Monday to Saturday)" : "" }));
     if (stmts.length >= 200) await flush();
   }
@@ -205,15 +217,16 @@ export function mountShopCampaigns(app: Hono<any>, h: Helpers) {
     const link = shopUrl(shop.slug, "/book", origin(c));
     const sample = a.sms[0] ?? a.email[0] ?? { name: "Alex Morgan" };
     const v = { first: first(sample.name) || "Alex", shop: shop.name, link };
-    let smsText = merge(f.sms_body, v).trim(); if (!/\bSTOP\b/i.test(smsText)) smsText += " Reply STOP to opt out.";
+    const sent = previewSms(withOptOut(merge(f.sms_body, { ...v, shop: smsName(shop.name) }).trim(), shopUrl(shop.slug, `/u/c/${"x".repeat(36)}`, origin(c))));
+    const smsText = sent.text;
     const { copyFor, emailHtml } = await import("./messaging");
     const { brandOf } = await import("./domain");
     const r = copyFor("shop_announcement", { sms: smsText, subject: merge(f.subject, v), heading: merge(f.heading, v), body: merge(f.body, v), cta_label: f.cta_label, cta_url: link }, shop);
     const html = emailHtml(shop, brandOf(shop), origin(c), r, { phone: shop.phone, email: shop.email, unsubscribe: shopUrl(shop.slug, "/u/c/preview", origin(c)) }, true);
     return c.json({
-      problems: problems(f),
+      problems: [...problems(f), ...(f.channel !== "EMAIL" ? oneTextProblem(sent) : [])],
       customers: a.total, extra: a.extra, held_back: a.held, sms: a.sms.length, email: a.email.length, landline: a.landline, no_contact: a.noContact,
-      sms_text: smsText, sms_length: smsText.length, email_subject: r.subject, email_html: f.channel === "SMS" ? null : html,
+      sms_text: smsText, sms_length: sent.characters, sms_parts: f.channel === "EMAIL" ? 0 : sent.parts, email_subject: r.subject, email_html: f.channel === "SMS" ? null : html,
       cost_pence: a.sms.length * 8, sms_window_open: smsWindowOpen(),
     });
   });
@@ -271,6 +284,11 @@ export function mountShopCampaigns(app: Hono<any>, h: Helpers) {
     const f = withDefaults(rest as Fields);
     if (!b.confirm) h.fail(400, "Please confirm these are your own customers.");
     const pr = problems(f); if (pr.length) h.fail(400, pr[0]);
+    if (f.channel !== "EMAIL") {
+      const { shop: s0 } = await shopInfo(c);
+      const one = oneTextProblem(previewSms(withOptOut(merge(f.sms_body, { first: "Alexandra", shop: smsName(s0.name), link: shopUrl(s0.slug || "shop", "/book", origin(c)) }).trim(), shopUrl(s0.slug || "shop", `/u/c/${"x".repeat(36)}`, origin(c)))));
+      if (one.length) h.fail(400, one[0]);
+    }
     if (f.send_at && (f.send_at < Date.now() - 60000 || f.send_at > Date.now() + 60 * 86400000)) h.fail(400, "Pick a time within the next 60 days.");
     const { shop, acked } = await shopInfo(c);
     if (!shop.slug) h.fail(409, "Set your shop address first so customers have a page to book on.");

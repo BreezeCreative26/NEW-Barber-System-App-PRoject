@@ -963,3 +963,10 @@ ALTER TABLE shops ADD CONSTRAINT shops_customer_code_signin_check CHECK (custome
 ALTER TABLE shops ADD COLUMN IF NOT EXISTS card_reader_fee_bps INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE shops DROP CONSTRAINT IF EXISTS shops_card_reader_fee_bps_check;
 ALTER TABLE shops ADD CONSTRAINT shops_card_reader_fee_bps_check CHECK (card_reader_fee_bps BETWEEN 0 AND 1000);
+-- Short links for texts (0070): <shop address>/s/<code> redirects to the stored URL.
+CREATE TABLE IF NOT EXISTS sms_links (
+  code TEXT PRIMARY KEY,
+  shop_id TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL,
+  created_at BIGINT NOT NULL
+);
