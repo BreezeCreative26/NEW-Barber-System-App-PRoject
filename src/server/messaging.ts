@@ -816,17 +816,13 @@ export async function drain(db: DB, limit = 25, now = Date.now(), related?: { ty
       row.html = toCustomerDomain(row.html, row.shop_slug, row.custom_web_domain, fb);
       row.body = toCustomerDomain(row.body, row.shop_slug, row.custom_web_domain, fb);
     }
-    // Texts are fitted to one part (one charge) before sending; the log keeps exactly what went out.
-    if (row.channel === "SMS") {
-      const fitted = await fitSms(row.body, (u) => shortLink(db, row.shop_id, u, row.id));
-      if (fitted !== row.body) {
-        await db.prepare("UPDATE notifications SET body=? WHERE id=?").bind(fitted, row.id).run();
-        row.body = fitted;
-      }
-    }
     const attempt = row.attempts + 1;
     let d: Delivery;
     try {
+      // Texts are fitted to one part (one charge) inside sendSms, with long links shortened. The
+      // stored body is never rewritten: the notifications log is immutable by design (a DB trigger
+      // refuses any body change), and an earlier rewrite here threw on every long-link text, which
+      // left confirmations stuck in SENDING and stalled every message queued behind them.
       d = row.channel === "EMAIL" ? await sendEmail(row) : row.channel === "WA" ? await sendWa(db, row) : row.channel === "PUSH" ? await sendPush(db, row) : await sendSms(row, db);
     } catch (e) {
       d = { ok: false, provider: row.channel === "EMAIL" ? "resend" : row.channel === "WA" ? "infobip" : row.channel === "PUSH" ? "webpush" : "sms", error: e instanceof Error ? e.message : "network error" };
