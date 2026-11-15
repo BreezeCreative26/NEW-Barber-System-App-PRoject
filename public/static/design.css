@@ -5458,3 +5458,49 @@ html.ws-dark .workspace .settings-body :is(.customer-pages li, .billing-card-row
   .settings-nav .settings-nav-label { background: transparent !important; padding: 10px 12px 4px !important; }
   .settings-nav-group[data-open="true"] .settings-nav-label { color: var(--ink) !important; }
 }
+
+/* ===== Navigation: grouped menu (Daily / Team / Shop / Account) ===== */
+.sidebar-group { display: block; padding: 14px 14px 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: rgba(255,255,255,.38); }
+.sidebar-items > .sidebar-group:first-child { padding-top: 4px; }
+.sidebar.rail.collapsed .sidebar-group { height: 1px; padding: 0; margin: 8px 14px; background: rgba(255,255,255,.12); font-size: 0; }
+html:not(.ws-dark) .sidebar.light .sidebar-group { color: var(--muted); }
+.tab-sheet-group { display: block; padding: 10px 14px 2px; font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.tab-sheet-group:first-child { padding-top: 4px; }
+.tab-sheet { max-height: calc(100dvh - 160px); overflow-y: auto; }
+
+/* ===== Pay runs on phones: barber picker scrolls sideways instead of running off screen ===== */
+@media (max-width: 760px) {
+  .wallet-page-grid { grid-template-columns: 1fr; }
+  .wallet-barber-list { position: static; display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; margin: 0 -4px; padding-left: 4px; padding-right: 4px; scrollbar-width: none; }
+  .wallet-barber-list::-webkit-scrollbar { display: none; }
+  .wallet-barber-list button { flex: 0 0 auto; min-width: 200px; max-width: 78vw; scroll-snap-align: start; }
+}
+
+/* ===== Messages & reminders: channel cards without the heavy green frames ===== */
+.workspace .settings-body .chan-card { border: 0 !important; background: var(--canvas, #f5f6f8); box-shadow: none !important; border-radius: 14px; }
+.workspace .settings-body .chan-card.on { background: color-mix(in srgb, var(--accent) 6%, var(--canvas, #f5f6f8)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent) !important; }
+.workspace .settings-body .chan-card .notice, .workspace .settings-body .chan-card label:has(> input[type="checkbox"]) { background: transparent; }
+
+/* ===== Members & access: two even columns, form card no longer squeezed to one side ===== */
+.workspace .settings-body .account-grid { grid-template-columns: 1fr; gap: 16px; margin-top: 0; }
+.workspace .settings-body .account-grid > .workspace-panel { max-width: none; }
+.workspace .settings-body .account-member { background: var(--canvas, #f5f6f8); border: 0 !important; border-radius: 14px; }
+
+/* ===== Activity log: a tidy timeline instead of shouty capitals ===== */
+.workspace .workspace-audit { list-style: none; padding: 0; margin: 0; display: grid; gap: 0; }
+.workspace .workspace-audit li { display: grid; grid-template-columns: 1fr auto; gap: 2px 16px; padding: 12px 4px; border: 0; border-bottom: 1px solid var(--line-2); margin: 0; }
+.workspace .workspace-audit li:last-child { border-bottom: 0; }
+.workspace .workspace-audit strong { font-size: 14px; font-weight: 600; }
+.workspace .workspace-audit time { grid-column: 2; grid-row: 1; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.workspace .workspace-audit p { grid-column: 1 / -1; margin: 0; font-size: 13px; color: var(--muted); }
+.workspace .workspace-audit small { grid-column: 1 / -1; font-size: 12px; color: var(--muted); opacity: .8; }
+
+/* ===== Services list: category tools read as small quiet links, not a row of underlines ===== */
+.studio-category-tools .linklike { text-decoration: none; font-weight: 600; font-size: 12px; color: var(--muted); padding: 2px 6px; border-radius: 6px; }
+.studio-category-tools .linklike:hover:not(:disabled) { color: var(--accent-dark, var(--accent)); background: var(--soft); }
+.studio-category-tools .linklike:disabled { opacity: .35; }
+
+/* ===== Page headers: consistent spacing and a calmer divider ===== */
+.workspace .workspace-heading { padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid var(--line-2); }
+.workspace .workspace-heading h1 { letter-spacing: -0.02em; }
+.workspace .workspace-heading p { max-width: 680px; }

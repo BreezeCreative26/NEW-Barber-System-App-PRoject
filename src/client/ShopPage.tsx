@@ -279,7 +279,7 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
                 {page.logo_url ? <img className="sp-hero-logo" src={page.logo_url} alt="" /> : <span className="sp-hero-logo sp-hero-initials">{initials(shop.name)}</span>}
                 <span className={`sp-open ${data.open_now ? "open" : ""}`} data-testid="open-now" data-el="hero.open">
                   <i aria-hidden="true" />
-                  {data.open_now ? `Open now · until ${time((todayHours as { ends: number }).ends)}` : todayHours.open && nextOpen ? `Closed · opens ${nextOpen}` : nextOpen ? `Closed today · opens ${nextOpen}` : "Closed"}
+                  {data.open_now && todayHours.open ? `Open now · until ${time((todayHours as { ends: number }).ends)}` : todayHours.open && nextOpen ? `Closed · opens ${nextOpen}` : nextOpen ? `Closed today · opens ${nextOpen}` : "Closed"}
                 </span>
                 <h1 data-el="hero.title">{shop.name}</h1>
                 <p className="sp-strap" data-el="hero.strap">{page.strapline || "Book your next visit online in under a minute."}</p>
