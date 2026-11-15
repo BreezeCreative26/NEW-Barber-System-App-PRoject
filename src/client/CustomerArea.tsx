@@ -171,7 +171,7 @@ export function CustomerArea({ slug }: { slug: string }) {
         </span>
         <span className="sp-powered">Powered by foliyo</span>
       </footer>
-      <InstallPrompt slug={me.shop.slug} shopName={me.shop.name} signedIn />
+      <InstallPrompt slug={me.shop.slug} shopName={me.shop.name} signedIn brand={me.shop.brand} />
       <ShopTabBar slug={me.shop.slug} active={tab === "profile" ? "account" : "visits"} signedIn />
     </div>
   );

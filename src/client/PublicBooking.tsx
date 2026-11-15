@@ -950,7 +950,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
     return (
       <div className={wrap} style={brandStyle(shop.shop.brand) as CSSProperties}>
         <TestBanner />
-        <InstallPrompt slug={slug} shopName={shop.shop.name} signedIn={!!customer} />
+        <InstallPrompt slug={slug} shopName={shop.shop.name} signedIn={!!customer} brand={shop.shop.brand} />
         <BookingTopBar slug={slug} name={shop.shop.name} logo={shop.shop.logo_url} customer={customer} />
         <main id="main-content" className="booking-body">
           <ConfirmationCard booking={confirmed.booking} token={confirmed.manage_token} slug={slug} sentTo={confirmed.sent_to || []} signedIn={!!customer} account={confirmed.account ?? null} />
