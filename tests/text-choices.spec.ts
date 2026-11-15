@@ -48,7 +48,8 @@ test("a new shop starts with texts off and email replies going to the owner", as
   const box = await outbox(s.r);
   expect(box.messaging.msg_sms).toBe(0);
   expect(box.messaging.msg_reply_to).toBe(s.email);
-  expect(box.messaging.msg_sms_kinds).toBe("confirm,reminder,change");
+  // Old group names saved on new shops read back as the individual texts they cover.
+  expect(box.messaging.msg_sms_kinds).toBe("confirm,reminder_day,reminder_soon,moved,cancelled");
   // Texts cannot be switched on without accepting the per-text price.
   const cur = box.messaging;
   const refused = await s.r.put(base + "/shop/messaging", { data: { ...cur, msg_sms: 1 } });

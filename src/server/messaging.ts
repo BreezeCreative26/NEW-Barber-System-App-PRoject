@@ -1,3 +1,4 @@
+import { SMS_KIND_OF, normaliseSmsKinds, type SmsKind } from "./smsKinds";
 import { fitSms, gsmSafe, smsName } from "./smsText";
 import { recordUsage } from "./billing";
 // Messaging: the outbox becomes a real delivery queue.
@@ -493,17 +494,8 @@ export const waAvailable = () => !WHATSAPP_RETIRED && (waLive() || providerStatu
 // Which texts a shop sends. Owners pick these when they switch texts on; anything not listed goes by email.
 // Sign-in codes, contact checks, staff-sent payment links, tests and marketing are not in here: they have
 // their own switches (code sign-in, the campaign confirmation) or are a deliberate staff action.
-export const SMS_KINDS = ["confirm", "reminder", "change", "waitlist", "review"] as const;
-export type SmsKind = (typeof SMS_KINDS)[number];
-export const SMS_KIND_OF: Partial<Record<string, SmsKind>> = {
-  booking_confirmed: "confirm",
-  booking_reminder: "reminder", booking_reminder_soon: "reminder",
-  booking_moved: "change", booking_cancelled: "change",
-  waitlist_joined: "waitlist", waitlist_offer: "waitlist", waitlist_open: "waitlist", waitlist_booked: "waitlist", waitlist_released: "waitlist",
-  review_request: "review", google_review: "review",
-};
-export const smsKindsOf = (shop: { msg_sms_kinds?: string | null }): SmsKind[] =>
-  (shop.msg_sms_kinds ?? SMS_KINDS.join(",")).split(",").map((x) => x.trim()).filter((x): x is SmsKind => (SMS_KINDS as readonly string[]).includes(x));
+export { SMS_KINDS, SMS_KIND_OF, type SmsKind } from "./smsKinds";
+export const smsKindsOf = (shop: { msg_sms_kinds?: string | null }): SmsKind[] => normaliseSmsKinds(shop.msg_sms_kinds);
 export const smsKindAllowed = (shop: { msg_sms_kinds?: string | null }, template?: string) => {
   const kind = template ? SMS_KIND_OF[template] : undefined;
   return !kind || smsKindsOf(shop).includes(kind);
