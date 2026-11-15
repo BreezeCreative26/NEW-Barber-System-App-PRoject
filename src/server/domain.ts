@@ -279,6 +279,8 @@ export type Hours = {
   ends: number;
   break_start: number;
   break_end: number;
+  /** Set when these are dated (calendar-changed) hours: they win over the shop's opening hours. */
+  dated?: number;
 };
 export type Holiday = {
   id: string;
@@ -1155,10 +1157,15 @@ export const moveSchema = z
   .strict();
 // Reasons a shop user may knowingly override from the calendar. Public booking never can.
 // True when a time is outside the shop's/barber's hours (the customer view would refuse it).
+export function workBounds(shop: Parameters<typeof shopWeek>[0], hours: Hours, date: string): [number, number] {
+  if (hours.dated) return [hours.starts, hours.ends];
+  const day = shopDay(shop, weekday(date));
+  return [Math.max(day.starts, hours.starts), Math.min(day.ends, hours.ends)];
+}
 export function isOutsideHours(shop: Shop, hours: Hours | null, date: string, start: number, duration: number): boolean {
   if (!hours?.enabled) return false;
-  const day = shopDay(shop, weekday(date));
-  return start < Math.max(day.starts, hours.starts) || start + duration + shopBuffer(shop) > Math.min(day.ends, hours.ends);
+  const [from, to] = workBounds(shop, hours, date);
+  return start < from || start + duration + shopBuffer(shop) > to;
 }
 // A barber's day off and a closed day (weekday off or holiday) are also staff-overridable "book anyway"
 // reasons; repeat series still skip them (see CLOSED_DAY_REASONS) so a weekly run never lands there by itself.
@@ -1471,7 +1478,8 @@ export function effectiveHours(
   weekly: Hours | null,
   override: ScheduleOverride | null,
 ): Hours | null {
-  return override ? { ...override, weekday: weekday(override.date) } : weekly;
+  // Dated hours are what the barber works that day, even outside the shop's usual opening hours.
+  return override ? { ...override, weekday: weekday(override.date), dated: 1 } : weekly;
 }
 // A barber offers a service only when someone has ticked it: no rule row means "not offered".
 export function offers(rules: StaffServiceRule[], staffId: string, serviceId?: string): boolean {
@@ -1608,8 +1616,8 @@ export function slotReason(
   if (!hours?.enabled) return "Barber off duty";
   if (
     !staffView &&
-    (start < Math.max(day.starts, hours.starts) ||
-      start + duration + buf > Math.min(day.ends, hours.ends))
+    (start < workBounds(shop, hours, date)[0] ||
+      start + duration + buf > workBounds(shop, hours, date)[1])
   )
     return "Outside working hours";
   if (

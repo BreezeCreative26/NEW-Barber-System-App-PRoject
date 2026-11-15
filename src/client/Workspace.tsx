@@ -7298,7 +7298,7 @@ function OverrideEditor({
           defaultValue={o?.reason ?? "Changed on the calendar"}
         />
       </Field>
-      <p className="workspace-footnote">Equal break times mean no break. Shop opening hours still apply.</p>
+      <p className="workspace-footnote">Equal break times mean no break. These hours apply this day even outside normal opening hours, including online.</p>
     </SaveForm>
   );
 }

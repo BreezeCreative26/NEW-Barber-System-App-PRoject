@@ -317,6 +317,14 @@ export function holdKeyOf(c: Ctx) {
   const k = c.req.header("x-hold-key") || "";
   return /^[A-Za-z0-9-]{16,64}$/.test(k) ? k : "";
 }
+// Start times to try on a day: the shop's opening hours plus any dated hours a barber works outside them.
+export function startsFor(shop: Shop, ctx: Range, date: string): number[] {
+  const base = dayStarts(shop, date);
+  if (!base.length) return base;
+  const set = new Set(base);
+  for (const o of ctx.overrides) if (o.date === date && o.enabled) for (let m = Math.ceil(o.starts / 15) * 15; m < o.ends; m += 15) set.add(m);
+  return [...set].sort((a, b) => a - b);
+}
 export function slotFor(shop: Shop, ctx: Range, staff: Staff, date: string, minute: number, minStart: number) {
   const h = effectiveHours(
     ctx.hours.find((x) => x.staff_id === staff.id && x.weekday === weekday(date)) ?? null,
@@ -393,7 +401,7 @@ pub.get("/shops/:slug/page", async (c) => {
     for (const st of ctx.staff) {
       let found = false;
       for (let date = today; date <= horizon && !found; date = datePlus(date, 1))
-        for (const m of dayStarts(shop, date))
+        for (const m of startsFor(shop, ctx, date))
           if (!slotFor(shop, ctx, st, date, m, minStart)) {
             soonest.push({ staff_id: st.id, staff_name: st.name, date, start_min: m, service_id: popular.id, price_pence: ctx.quotes.get(st.id)!.price_pence });
             found = true;
@@ -464,7 +472,7 @@ pub.get("/shops/:slug/days", async (c) => {
     const open = new Set<number>();
     let closed = true;
     for (const staff of ctx.staff)
-      for (const m of dayStarts(shop, date)) {
+      for (const m of startsFor(shop, ctx, date)) {
         const reason = slotFor(shop, ctx, staff, date, m, minStart);
         if (!reason) open.add(m);
         if (!closedReasons.includes(reason)) closed = false;
@@ -506,7 +514,7 @@ pub.get("/shops/:slug/next", async (c) => {
   const seenDays = new Set<string>();
   for (let date = today; date <= maxDate && results.length < q.limit; date = datePlus(date, 1)) {
     let firstOnDay: (typeof results)[number] | null = null;
-    for (const m of dayStarts(shop, date)) {
+    for (const m of startsFor(shop, ctx, date)) {
       if (firstOnDay) break;
       for (const staff of ctx.staff)
         if (!slotFor(shop, ctx, staff, date, m, minStart)) {
@@ -538,12 +546,12 @@ pub.get("/shops/:slug/team-next", async (c) => {
   const team = ctx.staff.map((staff) => {
     let next: { date: string; start_min: number } | null = null;
     outer: for (let date = today; date <= to; date = datePlus(date, 1))
-      for (const m of dayStarts(shop, date))
+      for (const m of startsFor(shop, ctx, date))
         if (!slotFor(shop, ctx, staff, date, m, minStart)) {
           next = { date, start_min: m };
           break outer;
         }
-    const offToday = !shopShut && dayStarts(shop, today).every((m) => closedReasons.includes(slotFor(shop, ctx, staff, today, m, 0)));
+    const offToday = !shopShut && startsFor(shop, ctx, today).every((m) => closedReasons.includes(slotFor(shop, ctx, staff, today, m, 0)));
     const quote = ctx.quotes.get(staff.id)!;
     return { staff_id: staff.id, off_today: offToday, next, price_pence: quote.price_pence, duration_min: quote.duration_min };
   });
@@ -658,7 +666,7 @@ pub.get("/shops/:slug/availability", async (c) => {
   const ctx = await rangeContext(c, shop, q.staff_id ? [q.staff_id] : null, q.service_id, q.date, q.date, q.addon_ids);
   // Any-barber: each open slot is assigned to the least-booked eligible barber so demand spreads.
   const load = new Map(ctx.staff.map((s) => [s.id, ctx.bookings.filter((b) => b.staff_id === s.id).length]));
-  const slots = dayStarts(shop, q.date)
+  const slots = startsFor(shop, ctx, q.date)
     .map((start_min) => {
       const open = ctx.staff
         .filter((s) => !slotFor(shop, ctx, s, q.date, start_min, minStart))
@@ -694,7 +702,7 @@ pub.get("/shops/:slug/availability", async (c) => {
   // Any-barber: who is in today and who is off, so a barber with a day off shows "Day off"
   // instead of vanishing. Off = no time of the day is open for a reason other than closure.
   const team = q.staff_id ? undefined : ctx.staff.map((s) => {
-    const starts = dayStarts(shop, q.date);
+    const starts = startsFor(shop, ctx, q.date);
     const off = starts.length === 0 || starts.every((m) => closedReasons.includes(slotFor(shop, ctx, s, q.date, m, minStart)));
     return { id: s.id, name: s.name, off, price_pence: ctx.quotes.get(s.id)!.price_pence, duration_min: ctx.quotes.get(s.id)!.duration_min };
   });
