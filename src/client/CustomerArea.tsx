@@ -337,7 +337,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
           {mode === "register" && (
             <form onSubmit={register} className="ca-form" data-testid="register-form">
               <label><span>Your name</span><input type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required minLength={2} data-testid="register-name" /></label>
-              <label><span>Mobile number</span><input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07700 900123" required data-testid="register-phone" /><small className="ca-hint">{smsOffered ? "For your booking and text reminders." : "So the shop can reach you about your booking."}</small></label>
+              <label><span>Mobile number</span><input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required data-testid="register-phone" /><small className="ca-hint">{smsOffered ? "For your booking and text reminders." : "So the shop can reach you about your booking."}</small></label>
               <label><span>Email</span><input type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required data-testid="register-email" /><small className="ca-hint">You'll sign in with this. Confirmations and reminders come here too.</small></label>
               {PasswordFields({ confirm: true })}
               <div className="ca-consent" data-testid="register-consent">
@@ -398,7 +398,7 @@ function SignIn({ slug, A, onDone, startMode, seedProfile }: { slug: string; A: 
 
           {mode === "code" && (
             <form onSubmit={startCode} className="ca-form" data-testid="code-form">
-              <label><span>Mobile number</span><input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07700 900123" required data-testid="signin-phone" /></label>
+              <label><span>Mobile number</span><input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required data-testid="signin-phone" /></label>
               {Err()}
               <div className="ca-form-actions">
                 <Button variant="ghost" onClick={() => go("login")}>Back</Button>

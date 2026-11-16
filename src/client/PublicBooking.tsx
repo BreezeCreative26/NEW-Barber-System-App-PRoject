@@ -1144,7 +1144,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                     <div className="customer-fields">
                       {[
                         { id: "name", label: "Your name", placeholder: "Jamie Taylor", type: "text", auto: "name" },
-                        { id: "phone", label: "Mobile number", placeholder: "07700 900123", type: "tel", auto: "tel" },
+                        { id: "phone", label: "Mobile number", placeholder: "", type: "tel", auto: "tel" },
                         { id: "email", label: "Email address", placeholder: "jamie@example.com", type: "email", auto: "email" },
                         { id: "password", label: "Choose a password", placeholder: "", type: "password", auto: "new-password" },
                       ].map((field) => (
