@@ -837,15 +837,24 @@ sandbox.get("/workspace", async (c) => {
   )
     .bind(sid, issueScope, issueScope, Date.now())
     .all<StoredBooking>();
-  const deliberate = new Set(
-    (
-      await c.env.DB.prepare(
-        "SELECT entity_id FROM audit_events WHERE shop_id=? AND entity_type='booking' AND action IN ('BOOKING_CREATED','RESCHEDULED') AND (reason ILIKE '%outside normal working hours%' OR reason ILIKE '%overrode: barber has a day off%' OR reason ILIKE '%overrode: shop closed%') AND entity_id IN (SELECT id FROM bookings WHERE shop_id=? AND start_at>?)",
-      )
-        .bind(sid, sid, Date.now())
-        .all<{ entity_id: string }>()
-    ).results.map((r) => r.entity_id),
-  );
+  // What the shop knowingly agreed to, per booking: "book anyway" over a lunch break, blocked time,
+  // a day off etc. ("overrode: X"), booking outside hours, or "Keep" when hours changed later.
+  // Only that exact reason is excused — if the day changes again for a different reason it still shows.
+  const deliberate = new Map<string, Set<string>>();
+  for (const r of (
+    await c.env.DB.prepare(
+      "SELECT entity_id, action, reason FROM audit_events WHERE shop_id=? AND entity_type='booking' AND action IN ('BOOKING_CREATED','RESCHEDULED','ITEMS_UPDATED','SCHEDULE_OVERRIDE_KEPT') AND (reason ILIKE '%overrode:%' OR reason ILIKE '%outside normal working hours%' OR action='SCHEDULE_OVERRIDE_KEPT') AND entity_id IN (SELECT id FROM bookings WHERE shop_id=? AND start_at>?)",
+    )
+      .bind(sid, sid, Date.now())
+      .all<{ entity_id: string; action: string; reason: string }>()
+  ).results) {
+    const set = deliberate.get(r.entity_id) ?? new Set<string>();
+    for (const m of r.reason.matchAll(/overrode: ([^).]+)/gi)) set.add(m[1].trim().toLowerCase());
+    if (/outside normal working hours/i.test(r.reason)) set.add("outside working hours");
+    const kept = r.action === "SCHEDULE_OVERRIDE_KEPT" ? /Kept although (.+?): shop chose/i.exec(r.reason) : null;
+    if (kept) set.add(kept[1].trim().toLowerCase());
+    deliberate.set(r.entity_id, set);
+  }
   const issues = future.results
     .filter(
       (b) =>
@@ -879,7 +888,7 @@ sandbox.get("/workspace", async (c) => {
       // Booked into out-of-hours time the barber opened: fine.
       if (reason && b.items_json?.includes('"OOH"')) return [];
       // Booked there on purpose by the shop (outside hours, or "book anyway" on a day off / closed day).
-      if ((reason === "Outside working hours" || CLOSED_DAY_REASONS.has(reason)) && deliberate.has(b.id)) return [];
+      if (reason && deliberate.get(b.id)?.has(reason.toLowerCase())) return [];
       return reason ? [{ booking_id: b.id, ref: ref(b), reason }] : [];
     });
   // Money is personal: a barber without "pay" only ever receives their own payments, so the wallet
