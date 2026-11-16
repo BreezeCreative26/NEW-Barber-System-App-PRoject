@@ -43,9 +43,9 @@ async function sectionNav(page: Page, name: string) {
       return;
     }
   }
-  // Phone: remaining sections live behind the More sheet.
+  // Phone: "More" opens the full side menu (same items as the desktop menu).
   await nav.getByTestId("tab-more").click();
-  await nav.getByRole("menuitem", { name, exact: true }).click();
+  await page.getByTestId("rail").getByRole("button", { name, exact: true }).click();
 }
 
 // Status / search filters live behind the toolbar "Filters" toggle; idempotent.

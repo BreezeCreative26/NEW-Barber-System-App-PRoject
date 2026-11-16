@@ -2595,6 +2595,8 @@ export function Workspace() {
           more={phoneMore}
           current={tab}
           onSelect={goTo}
+          onMore={() => setSidebarOpen((o) => !o)}
+          moreOpen={sidebarOpen}
           fab={{
             label: "New booking",
             disabled: !w || !online || !can("book"),
