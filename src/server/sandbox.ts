@@ -750,14 +750,15 @@ async function visitFlags<T extends { customer_id?: string | null; staff_id: str
   const ids = [...new Set(rows.filter((r) => r.customer_id && !(r as { busy?: number }).busy).map((r) => r.customer_id!))];
   if (!ids.length) return rows;
   const marks = ids.map(() => "?").join(",");
-  const [visits, prefs] = await Promise.all([
-    c.env.DB.prepare(`SELECT customer_id, staff_id, COUNT(*)::int AS n, MIN(start_at) AS first_at FROM bookings WHERE shop_id=? AND status='COMPLETED' AND customer_id IN (${marks}) GROUP BY customer_id, staff_id`).bind(c.get("shopId"), ...ids).all<{ customer_id: string; staff_id: string; n: number; first_at: number }>(),
+  const [visits, prefs, firsts] = await Promise.all([
+    c.env.DB.prepare(`SELECT customer_id, staff_id, COUNT(*)::int AS n FROM bookings WHERE shop_id=? AND status='COMPLETED' AND customer_id IN (${marks}) GROUP BY customer_id, staff_id`).bind(c.get("shopId"), ...ids).all<{ customer_id: string; staff_id: string; n: number }>(),
     c.env.DB.prepare(`SELECT id, preferred_staff_id FROM customers WHERE shop_id=? AND id IN (${marks})`).bind(c.get("shopId"), ...ids).all<{ id: string; preferred_staff_id: string | null }>(),
+    // First visit = their earliest visit that is (or will be) attended. Cancelled and no-show visits
+    // don't count, so someone with two upcoming bookings is "first visit" only on the earlier one.
+    c.env.DB.prepare(`SELECT customer_id, MIN(start_at) AS first_at FROM bookings WHERE shop_id=? AND status IN ('CONFIRMED','CHECKED_IN','IN_SERVICE','COMPLETED') AND customer_id IN (${marks}) GROUP BY customer_id`).bind(c.get("shopId"), ...ids).all<{ customer_id: string; first_at: number }>(),
   ]);
-  const first = new Map<string, number>(), top = new Map<string, { staff: string; n: number }>();
+  const first = new Map<string, number>(firsts.results.map((f) => [f.customer_id, Number(f.first_at)])), top = new Map<string, { staff: string; n: number }>();
   for (const v of visits.results) {
-    const at = Number(v.first_at);
-    if (!first.has(v.customer_id) || at < first.get(v.customer_id)!) first.set(v.customer_id, at);
     const t = top.get(v.customer_id);
     if (!t || v.n > t.n) top.set(v.customer_id, { staff: v.staff_id, n: v.n });
   }
@@ -3747,9 +3748,13 @@ sandbox.post("/bookings", async (c) => {
   }
   return c.json({ ...result, notified, account_invite }, result.replayed ? 200 : 201);
 });
-sandbox.get("/bookings/:id", async (c) =>
-  c.json({ booking: redact(c.get("account"), await readBooking(c, c.req.param("id"), true)) }),
-);
+// Single visit (the appointment panel reloads it after every change): same first-visit / usual-barber
+// flags as the calendar, so the panel's badges don't vanish after a save.
+sandbox.get("/bookings/:id", async (c) => {
+  const b = redact(c.get("account"), await readBooking(c, c.req.param("id"), true));
+  const [flagged] = await visitFlags(c, [b]).catch(() => [b]);
+  return c.json({ booking: flagged });
+});
 sandbox.patch("/bookings/:id/details", async (c) => {
   const body = await input(c, bookingDetailsSchema);
   const b = await readBooking(c, c.req.param("id"));
@@ -3870,8 +3875,6 @@ sandbox.post("/bookings/:id/status", async (c) => {
   if (b.version !== body.version) fail(409, "record_changed");
   if (!allowed[b.status]?.includes(body.status))
     fail(409, "invalid_transition");
-  if (["CANCELLED", "NO_SHOW"].includes(body.status) && body.reason.length < 3)
-    fail(400, "A reason of at least three characters is required");
   if (body.status === "NO_SHOW") {
     const shop = await readShop(c);
     if (Date.now() < b.start_at + shop.no_show_grace * 60000)
@@ -3887,7 +3890,7 @@ sandbox.post("/bookings/:id/status", async (c) => {
       "booking",
       b.id,
       body.status,
-      body.reason || "Status updated by the shop.",
+      body.reason || ({ CANCELLED: "Cancelled by the shop.", NO_SHOW: "Marked as a no-show." } as Record<string, string>)[body.status] || "Status updated by the shop.",
       true,
     ),
   );
@@ -4806,7 +4809,8 @@ sandbox.get("/bookings/:id/timeline", async (c) => {
 });
 // Cancel every remaining (future, confirmed) visit in a standing series.
 sandbox.post("/series/:id/cancel", async (c) => {
-  const body = await input(c, z.object({ reason: z.string().trim().min(3).max(300), from_booking_id: z.string().uuid().optional(), notify: z.boolean().default(true) }).strict());
+  const body = await input(c, z.object({ reason: z.string().trim().max(300).default(""), from_booking_id: z.string().uuid().optional(), notify: z.boolean().default(true) }).strict());
+  if (!body.reason) body.reason = "Cancelled by the shop";
   const seriesId = c.req.param("id");
   const rows = await c.env.DB.prepare(
     "SELECT id,staff_id,status,start_at,version FROM bookings WHERE shop_id=? AND series_id=? AND status='CONFIRMED' ORDER BY start_at",
