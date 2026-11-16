@@ -6300,3 +6300,20 @@ html:not(.ws-dark) .sidebar.light .sidebar-group { color: var(--muted); }
   box-shadow: none !important;
 }
 .workspace .settings-body small.helper { border: 0 !important; padding-left: 0; padding-right: 0; }
+
+/* Settings side menu: a white panel with a thin outline (matching the Settings boxes) instead of
+   sitting on the grey page. Selected item gets the light green tint; hover is a faint tint, not grey. */
+.workspace .settings-nav {
+  background: var(--surface, #fff) !important;
+  border: 1px solid var(--line, #e7e8ee) !important;
+  border-radius: 16px;
+  padding: 8px !important;
+  box-shadow: none !important;
+}
+.workspace .settings-nav button[role="tab"]:hover { background: color-mix(in srgb, var(--accent, #00b894) 6%, #fff); }
+.workspace .settings-nav button[role="tab"][aria-selected="true"] {
+  background: var(--mint-soft, color-mix(in srgb, var(--accent, #00b894) 12%, #fff)) !important;
+  box-shadow: inset 2px 0 0 var(--accent-fill, var(--accent)) !important;
+}
+.workspace .settings-nav .settings-nav-label:hover,
+.workspace .settings-nav-group[data-open="true"] .settings-nav-label { background: transparent; }
