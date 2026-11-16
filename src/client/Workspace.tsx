@@ -1586,7 +1586,7 @@ export function Workspace() {
   // Confirmation messages clear themselves: 4 s, or 8 s while an Undo is on offer.
   useEffect(() => {
     if (!notice) return;
-    const t = window.setTimeout(() => setNotice(""), undo ? 8000 : 4000);
+    const t = window.setTimeout(() => setNotice(""), undo ? 8000 : 2500);
     return () => window.clearTimeout(t);
   }, [notice, undo]);
   useEffect(() => {
@@ -7434,6 +7434,14 @@ function OverrideEditor({
           defaultValue={o?.date ?? date}
         />
       </Field>
+      {(() => {
+        const leave = w.days_off.find((d) => d.staff_id === staff.id && d.date === (o?.date ?? date));
+        return leave ? (
+          <Notice tone="warning" icon="calendar">
+            <span data-testid="override-leave-note"><strong>{staff.name.split(" ")[0]} has {leave.reason || "leave"} booked this day.</strong> Saving working hours takes the leave off and gives the day back to their allowance.</span>
+          </Notice>
+        ) : null;
+      })()}
       <label className="workspace-check">
         <input
           name="enabled"

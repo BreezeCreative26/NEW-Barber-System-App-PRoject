@@ -6228,3 +6228,23 @@ html:not(.ws-dark) .sidebar.light .sidebar-group { color: var(--muted); }
 .ask-choice:focus-visible { outline: 2px solid var(--accent, #00805c); outline-offset: 2px; }
 /* Phone number in the customer footer reads as a link (WCAG link-in-text-block) */
 .sp-footer a[href^="tel:"] { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+/* ==========================================================================
+   Pop-up messages v2: top centre, out of the way of bottom action buttons
+   (Checkout, Save, Book…). They never block a tap: only their own buttons
+   (Undo, Retry, ×) take clicks. Plain "Saved." clears in 2.5 s.
+   ========================================================================== */
+[data-toast] {
+  top: calc(14px + var(--toast-stack, 0px)) !important; bottom: auto !important;
+  left: 50% !important; right: auto !important; transform: translateX(-50%);
+  max-width: min(460px, calc(100vw - 24px)); width: max-content;
+  pointer-events: none;
+}
+[data-toast] button, [data-toast] a, [data-toast] .button { pointer-events: auto; }
+@keyframes toast-in-top { from { opacity: 0; transform: translate(-50%, -8px) scale(.98); } to { opacity: 1; transform: translateX(-50%); } }
+[data-toast] { animation: toast-in-top .2s cubic-bezier(.2, .8, .2, 1) both; }
+[data-toast="ok"]:not([data-keep]) { animation: toast-in-top .2s cubic-bezier(.2, .8, .2, 1) both, foliyo-notice-out .3s ease 2.3s forwards; }
+[data-toast="ok"]:has(.undo-button) { animation: toast-in-top .2s cubic-bezier(.2, .8, .2, 1) both, foliyo-notice-out .3s ease 7.7s forwards; }
+@media (max-width: 767px) {
+  [data-toast] { top: calc(64px + env(safe-area-inset-top, 0px) + var(--toast-stack, 0px)) !important; bottom: auto !important; left: 50% !important; right: auto !important; width: calc(100vw - 24px); }
+}
