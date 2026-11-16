@@ -6260,3 +6260,10 @@ html:not(.ws-dark) .sidebar.light .sidebar-group { color: var(--muted); }
 @media (max-width: 767px) {
   .workspace .connected-calendar .calendar-event strong .event-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
+/* Phone cards with room: a long customer name wraps to a second line instead of being cut off. */
+@media (max-width: 767px) {
+  .workspace .connected-calendar .calendar-event strong.wrap-name { align-items: flex-start; white-space: normal; }
+  .workspace .connected-calendar .calendar-event strong.wrap-name > time,
+  .workspace .connected-calendar .calendar-event strong.wrap-name .event-inline-icons { align-self: flex-start; }
+  .workspace .connected-calendar .calendar-event strong.wrap-name .event-name { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: clip; }
+}
