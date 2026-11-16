@@ -1076,3 +1076,9 @@ ALTER TABLE services ADD COLUMN IF NOT EXISTS price_from INTEGER NOT NULL DEFAUL
 
 -- 0076
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS requested_staff INTEGER NOT NULL DEFAULT 0;
+
+-- 0077
+ALTER TABLE staff_blocks ADD COLUMN IF NOT EXISTS offer_id TEXT;
+CREATE INDEX IF NOT EXISTS staff_blocks_offer ON staff_blocks(offer_id) WHERE offer_id IS NOT NULL;
+ALTER TABLE waitlist_offers DROP CONSTRAINT IF EXISTS waitlist_offers_source_check;
+ALTER TABLE waitlist_offers ADD CONSTRAINT waitlist_offers_source_check CHECK (source IN ('MANUAL','AUTO','HOLD'));

@@ -24,7 +24,7 @@ export type WaitlistRow = {
 };
 export type OfferRow = {
   id: string; shop_id: string; entry_id: string; staff_id: string; service_id: string; date: string; start_min: number; token_hash: string;
-  status: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "SUPERSEDED" | "LOST"; source: "MANUAL" | "AUTO"; booking_id: string | null;
+  status: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "SUPERSEDED" | "LOST"; source: "MANUAL" | "AUTO" | "HOLD"; booking_id: string | null;
   expires_at: number; created_at: number; responded_at: number | null;
 };
 export type ShopQueueSettings = {
@@ -167,9 +167,19 @@ export async function matchesFor(c: Ctx, shop: Shop & ShopQueueSettings, entry0:
 
 // ---- Housekeeping ---------------------------------------------------------------
 // Lazily expire offers and past-date entries for a shop. Cheap; called on every queue read.
+// Held spaces (source HOLD) that ran out: close the request, expire the offer and free the calendar.
+// Cheap and idempotent; called on calendar reads, offer reads and by the platform sweep.
+export async function expireHeldSlots(db: Ctx["env"]["DB"], now = Date.now(), shopId: string | null = null) {
+  await db.batch([
+    db.prepare("UPDATE waitlist_entries SET status='CLOSED',offer_id=NULL,version=version+1,updated_at=? WHERE offer_id IN (SELECT id FROM waitlist_offers WHERE source='HOLD' AND status='PENDING' AND expires_at<=? AND (? IS NULL OR shop_id=?))").bind(now, now, shopId, shopId),
+    db.prepare("UPDATE waitlist_offers SET status='EXPIRED',responded_at=? WHERE source='HOLD' AND status='PENDING' AND expires_at<=? AND (? IS NULL OR shop_id=?)").bind(now, now, shopId, shopId),
+    db.prepare("DELETE FROM staff_blocks WHERE offer_id IS NOT NULL AND (? IS NULL OR shop_id=?) AND NOT EXISTS (SELECT 1 FROM waitlist_offers o WHERE o.id=staff_blocks.offer_id AND o.status='PENDING')").bind(shopId, shopId),
+  ]);
+}
 export async function sweep(c: Ctx, shop: Shop & ShopQueueSettings, now = Date.now()) {
   const today = shopToday(shop.timezone, now);
-  const expired = await c.env.DB.prepare("SELECT o.*, e.customer_name, e.phone, e.email, e.date AS entry_date FROM waitlist_offers o JOIN waitlist_entries e ON e.id=o.entry_id WHERE o.shop_id=? AND o.status='PENDING' AND o.expires_at<=?")
+  await expireHeldSlots(c.env.DB, now, shop.id).catch(() => {});
+  const expired = await c.env.DB.prepare("SELECT o.*, e.customer_name, e.phone, e.email, e.date AS entry_date FROM waitlist_offers o JOIN waitlist_entries e ON e.id=o.entry_id WHERE o.shop_id=? AND o.status='PENDING' AND o.source<>'HOLD' AND o.expires_at<=?")
     .bind(shop.id, now)
     .all<OfferRow & { customer_name: string; phone: string; email: string; entry_date: string }>();
   const statements: D1PreparedStatement[] = [];
@@ -309,6 +319,7 @@ export async function releaseDueSlots(c: Ctx, shop: Shop & ShopQueueSettings, no
 // Platform pass (lazy sweep / cron): release every parked slot whose delay has passed, across all
 // shops that have one. Builds a minimal request context because message links need the origin.
 export async function sweepWaitlistPlatform(db: Ctx["env"]["DB"], origin: string, now = Date.now()) {
+  await expireHeldSlots(db, now).catch(() => {});
   const due = await db.prepare("SELECT DISTINCT shop_id FROM waitlist_pending_slots WHERE notify_at<=? LIMIT 100").bind(now).all<{ shop_id: string }>();
   if (!due.results.length) return 0;
   const c = { env: { DB: db }, req: { url: `${origin}/api/cron/messages` } } as unknown as Ctx;
@@ -362,4 +373,72 @@ export async function queueReviewRequest(c: Ctx, shopId: string, bookingId: stri
   await queueMessage(c, shop, sendTo, "review_request", body, { type: "booking", id: bookingId }).run();
   await drainSoon(c, 2, { type: "booking", id: bookingId });
   return body;
+}
+
+// ---- Hold a space ------------------------------------------------------------------
+// A barber keeps a time for a named customer and sends them a link. The hold is a waiting-list
+// entry + offer (source HOLD) and a calendar block tied to the offer, so nobody else books it.
+// The customer signs in (or creates an account) on the link, then confirms; the block becomes the booking.
+export type HoldInput = { staff_id: string; service_id: string; date: string; start_min: number; customer_name: string; phone: string; email: string; notes: string; hold_min: number; send: boolean };
+async function holdMessage(c: Ctx, shop: Shop & ShopQueueSettings, to: { name: string; phone: string; email: string }, v: { service: string; barber: string; date: string; start_min: number; expires: number; raw: string }, offerId: string) {
+  const { enqueue, msgShop } = await import("./messaging");
+  const origin = process.env.APP_ORIGIN || new URL(c.req.url).origin;
+  const link = shopUrl(shop.slug!, `/offer/${v.raw}`, origin);
+  const ms = await msgShop(c, shop.id);
+  const rows = enqueue(c.env.DB, ms, { name: to.name.split(" ")[0], phone: to.phone, email: to.email }, "slot_held", { service: v.service, barber: v.barber.split(" ")[0], date: fmtDate(v.date), time: fmtTime(v.start_min), expires: fmtStamp(v.expires, shop.timezone), link }, { related: { type: "waitlist_offer", id: offerId }, origin });
+  return { rows, link };
+}
+export async function createHold(c: Ctx, shop: Shop & ShopQueueSettings, h: HoldInput, duration: number, actor: string, now = Date.now()) {
+  const staff = await c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=? AND active=1").bind(shop.id, h.staff_id).first<{ name: string }>();
+  const service = await c.env.DB.prepare("SELECT name FROM services WHERE shop_id=? AND id=?").bind(shop.id, h.service_id).first<{ name: string }>();
+  if (!staff || !service) return null;
+  // One request per customer/day/service (table rule): reuse it and retire whatever it was offered before.
+  const existing = await c.env.DB.prepare("SELECT id, offer_id FROM waitlist_entries WHERE shop_id=? AND date=? AND phone=? AND service_id=?").bind(shop.id, h.date, h.phone, h.service_id).first<{ id: string; offer_id: string | null }>();
+  const entryId = existing?.id ?? uid();
+  const offerId = uid();
+  const raw = uid() + uid();
+  const expires = now + h.hold_min * 60000;
+  const end = Math.min(1440, h.start_min + Math.ceil(duration / 15) * 15);
+  const blockId = uid();
+  const msg = h.send ? await holdMessage(c, shop, { name: h.customer_name, phone: h.phone, email: h.email }, { service: service.name, barber: staff.name, date: h.date, start_min: h.start_min, expires, raw }, offerId) : { rows: [], link: shopUrl(shop.slug!, `/offer/${raw}`, process.env.APP_ORIGIN || new URL(c.req.url).origin) };
+  await c.env.DB.batch([
+    existing
+      ? c.env.DB.prepare("UPDATE waitlist_entries SET staff_id=?,customer_name=?,email=?,notes=?,status='OFFERED',offer_id=NULL,date_to=?,from_min=0,to_min=1440,daypart='ANY',version=version+1,updated_at=? WHERE id=?").bind(h.staff_id, h.customer_name, h.email, h.notes, h.date, now, entryId)
+      : c.env.DB.prepare("INSERT INTO waitlist_entries(id,shop_id,staff_id,service_id,customer_name,phone,email,date,date_to,from_min,to_min,daypart,notes,status,offers_made,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,0,1440,'ANY',?,'OFFERED',0,0,?,?)").bind(entryId, shop.id, h.staff_id, h.service_id, h.customer_name, h.phone, h.email, h.date, h.date, h.notes, now, now),
+    c.env.DB.prepare("UPDATE waitlist_offers SET status='SUPERSEDED',responded_at=? WHERE shop_id=? AND entry_id=? AND status='PENDING'").bind(now, shop.id, entryId),
+    c.env.DB.prepare("INSERT INTO waitlist_offers(id,shop_id,entry_id,staff_id,service_id,date,start_min,token_hash,status,source,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,'PENDING','HOLD',?,?)").bind(offerId, shop.id, entryId, h.staff_id, h.service_id, h.date, h.start_min, await digest(raw), expires, now),
+    c.env.DB.prepare("UPDATE waitlist_entries SET status='OFFERED',offer_id=?,offers_made=offers_made+1,version=version+1,updated_at=? WHERE id=?").bind(offerId, now, entryId),
+    // An older hold for the same request frees its time.
+    c.env.DB.prepare("DELETE FROM staff_blocks WHERE shop_id=? AND offer_id IS NOT NULL AND offer_id IN (SELECT id FROM waitlist_offers WHERE entry_id=? AND status<>'PENDING')").bind(shop.id, entryId),
+    c.env.DB.prepare("INSERT INTO staff_blocks(id,shop_id,staff_id,date,start_min,end_min,reason,kind,created_by,created_at,offer_id) VALUES(?,?,?,?,?,?,?,'OTHER',?,?,?)").bind(blockId, shop.id, h.staff_id, h.date, h.start_min, end, `Held · ${h.customer_name}`.slice(0, 120), actor, now, offerId),
+    ...msg.rows,
+    c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shop.id, "waitlist", entryId, "SLOT_HELD", actor, `${service.name} with ${staff.name} on ${h.date} at ${fmtTime(h.start_min)} held for ${h.customer_name} until ${fmtStamp(expires, shop.timezone)}.${h.send ? " Confirmation link queued." : ""}`, now),
+  ]);
+  if (msg.rows.length) await drainSoon(c, 3, { type: "waitlist_offer", id: offerId });
+  return { offer_id: offerId, entry_id: entryId, block_id: blockId, link: msg.link, expires_at: expires, sent: msg.rows.length > 0 };
+}
+// New link (the raw token is never stored) and the message again.
+export async function resendHold(c: Ctx, shop: Shop & ShopQueueSettings, offerId: string, actor: string, now = Date.now()) {
+  const o = await c.env.DB.prepare("SELECT o.*, e.customer_name, e.phone, e.email FROM waitlist_offers o JOIN waitlist_entries e ON e.id=o.entry_id WHERE o.shop_id=? AND o.id=? AND o.source='HOLD'").bind(shop.id, offerId).first<OfferRow & { customer_name: string; phone: string; email: string }>();
+  if (!o || o.status !== "PENDING" || o.expires_at <= now) return null;
+  const [staff, service] = await Promise.all([
+    c.env.DB.prepare("SELECT name FROM staff WHERE shop_id=? AND id=?").bind(shop.id, o.staff_id).first<{ name: string }>(),
+    c.env.DB.prepare("SELECT name FROM services WHERE shop_id=? AND id=?").bind(shop.id, o.service_id).first<{ name: string }>(),
+  ]);
+  const raw = uid() + uid();
+  const msg = await holdMessage(c, shop, { name: o.customer_name, phone: o.phone, email: o.email }, { service: service?.name ?? "", barber: staff?.name ?? "", date: o.date, start_min: o.start_min, expires: o.expires_at, raw }, o.id);
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE waitlist_offers SET token_hash=? WHERE id=? AND status='PENDING'").bind(await digest(raw), o.id),
+    ...msg.rows,
+    c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shop.id, "waitlist", o.entry_id, "SLOT_HOLD_RESENT", actor, "Confirmation link sent again (the earlier link no longer works).", now),
+  ]);
+  if (msg.rows.length) await drainSoon(c, 3, { type: "waitlist_offer", id: o.id });
+  return { link: msg.link, sent: msg.rows.length > 0 };
+}
+export function releaseHoldStatements(c: Ctx, shopId: string, offerId: string, status: "DECLINED" | "SUPERSEDED", now = Date.now()) {
+  return [
+    c.env.DB.prepare("UPDATE waitlist_entries SET status='CLOSED',offer_id=NULL,version=version+1,updated_at=? WHERE shop_id=? AND offer_id=?").bind(now, shopId, offerId),
+    c.env.DB.prepare("UPDATE waitlist_offers SET status=?,responded_at=? WHERE shop_id=? AND id=? AND status='PENDING'").bind(status, now, shopId, offerId),
+    c.env.DB.prepare("DELETE FROM staff_blocks WHERE shop_id=? AND offer_id=?").bind(shopId, offerId),
+  ];
 }
