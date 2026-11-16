@@ -271,6 +271,23 @@ export function AppointmentPanel({
   }
   const goMove = guarded(onMove), goRebook = guarded(onRebook), goEdit = guarded(onEdit), goShare = guarded(onShare), goSeriesMove = guarded(onSeriesMove);
   const customer = timeline?.customer ?? null;
+  const quickRow = !confirm && !step && ["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status);
+  // ⋯ menu: lives in the header beside Reschedule / Cancel (or beside Close when there are no quick actions).
+  const moreMenu = (
+    <details className="panel-more" onToggle={(e) => { const d = e.currentTarget; if (d.open) { const close = (ev: MouseEvent) => { if (!d.contains(ev.target as Node)) { d.open = false; document.removeEventListener("click", close, true); } }; document.addEventListener("click", close, true); } }}>
+      <summary aria-label="More actions" title="More actions"><Icon name="more" size={18} /></summary>
+      <div className="panel-more-menu">
+        <button type="button" onClick={goEdit}><Icon name="user" size={14} /> Edit name and phone</button>
+        {booking.status === "CONFIRMED" && <button type="button" onClick={goMove} data-testid="move-with-form"><Icon name="calendar" size={14} /> Reschedule with the booking form</button>}
+        {["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && canTakePayment && onCheckout && (
+          <button type="button" onClick={() => onStatus("COMPLETED", "")}><Icon name="checks" size={14} /> Mark done without payment</button>
+        )}
+        <button type="button" onClick={goShare}><Icon name="message" size={14} /> Share confirmation</button>
+        <button type="button" onClick={copyDetails}><Icon name="external" size={14} /> {copied ? "Copied" : "Copy details"}</button>
+        {!canTakePayment && <span className="panel-more-note"><Icon name="lock" size={14} /> Payments are taken on the shop device</span>}
+      </div>
+    </details>
+  );
 
   return (
     <div className="panel-scrim" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -319,15 +336,18 @@ export function AppointmentPanel({
             <h2 id="panel-title">
               {time(booking.start_min)} · {booking.attendee_name || booking.customer_name}
             </h2>
-            <IconButton name="close" label="Close appointment panel" onClick={onClose} />
+            <span className="panel-title-actions">
+              {!quickRow && !confirm && !step && moreMenu}
+              <IconButton name="close" label="Close appointment panel" onClick={onClose} />
+            </span>
           </div>
           <p className="panel-subtitle">
             {longDate(booking.date)} · {booking.duration_min} min · ref {`BRB-${String(booking.sequence).padStart(4, "0")}`}
           </p>
           {/* The everyday changes, right under the title so they're seen without scrolling. Choosing one
               opens its step right here (the header never scrolls), so the whole job happens in view. */}
-          {!confirm && !step && ["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && (
-            <div className="panel-quick" role="group" aria-label="Change this appointment" data-testid="panel-quick">
+          {quickRow && (
+            <div className="panel-quick has-more" role="group" aria-label="Change this appointment" data-testid="panel-quick">
               {booking.status === "CONFIRMED" && (
                 <button type="button" className="panel-quick-btn" onClick={onPickSlot ? guarded(onPickSlot) : goMove} disabled={!!busy} data-testid="quick-reschedule"><Icon name="calendar" size={16} /> Reschedule</button>
               )}
@@ -335,6 +355,7 @@ export function AppointmentPanel({
                 <button type="button" className="panel-quick-btn" onClick={() => setConfirm({ status: "NO_SHOW" })} disabled={!!busy} data-testid="quick-no-show"><Icon name="userRound" size={16} /> No-show</button>
               )}
               <button type="button" className="panel-quick-btn danger" onClick={() => setConfirm({ status: "CANCELLED" })} disabled={!!busy} data-testid="quick-cancel"><Icon name="close" size={16} /> Cancel</button>
+              {moreMenu}
             </div>
           )}
           {confirm && (
@@ -665,19 +686,6 @@ export function AppointmentPanel({
           <Button variant={["COMPLETED", "CANCELLED", "NO_SHOW"].includes(booking.status) ? "primary" : "ghost"} onClick={goRebook}>
             <Icon name="calendar" size={16} /> Book again
           </Button>
-          <details className="panel-more">
-            <summary aria-label="More actions"><Icon name="more" size={18} /></summary>
-            <div className="panel-more-menu">
-              <button type="button" onClick={goEdit}><Icon name="user" size={14} /> Edit name and phone</button>
-              {booking.status === "CONFIRMED" && <button type="button" onClick={goMove} data-testid="move-with-form"><Icon name="calendar" size={14} /> Reschedule with the booking form</button>}
-              {["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && canTakePayment && onCheckout && (
-                <button type="button" onClick={() => onStatus("COMPLETED", "")}><Icon name="checks" size={14} /> Mark done without payment</button>
-              )}
-              <button type="button" onClick={goShare}><Icon name="message" size={14} /> Share confirmation</button>
-              <button type="button" onClick={copyDetails}><Icon name="external" size={14} /> {copied ? "Copied" : "Copy details"}</button>
-              {!canTakePayment && <span className="panel-more-note"><Icon name="lock" size={14} /> Payments are taken on the shop device</span>}
-            </div>
-          </details>
         </footer>}
       </aside>
     </div>
