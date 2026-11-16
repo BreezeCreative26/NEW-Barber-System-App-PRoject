@@ -4083,7 +4083,7 @@ const prefsSchema = z
   .object({
     calendar_density: z.enum(["COMPACT", "STANDARD", "LARGE"]).optional(),
     // Personal workspace look (admin side only): curated accent + light/dark.
-    workspace_theme: z.object({ accent: z.enum(["forest", "ink", "ocean", "clay", "plum", "slate"]), mode: z.enum(["light", "dark"]), rail: z.enum(["classic", "graphite", "gunmetal", "titanium", "midnight", "bronze", "rose"]).optional() }).strict().optional(),
+    workspace_theme: z.object({ accent: z.enum(["forest", "ink", "ocean", "clay", "plum", "slate"]), mode: z.enum(["light", "dark"]), rail: z.enum(["classic", "beam", "beam-mint", "beam-violet", "beam-blue", "beam-ember", "graphite", "gunmetal", "titanium", "midnight", "bronze", "rose"]).optional() }).strict().optional(),
   })
   .strict();
 sandbox.put("/me/prefs", async (c) => {

@@ -6331,22 +6331,31 @@ body:has(.settings-shell),
 }
 
 /* ---- Side bar finish (Settings → Diary & policies → Your workspace look) ----
-   Metal finishes paint the whole side bar with a layered gradient (base + sheen + fine grain).
-   A soft inner edge on the right gives it depth against the white page. "Black" = no class. */
-html.ws-rail-metal .workspace .sidebar.rail,
-html.ws-rail-metal .workspace .rail {
+   "Lit black": near-black base with a soft light falling from the top corner and a faint diagonal
+   beam (set per finish in --ws-rail-bg). A thin light edge on the right fades out downwards, and the
+   selected item is a glass pill with a hairline top highlight. "Black" = no class. */
+html.ws-rail-lit .workspace .sidebar.rail,
+html.ws-rail-lit .workspace .rail {
   background: var(--ws-rail-bg) !important;
-  background-attachment: local;
-  box-shadow: inset -1px 0 0 rgba(255,255,255,.07), inset 1px 0 0 rgba(255,255,255,.03);
-  border-right-color: rgba(0,0,0,.35);
+  border-right: 0 !important;
+  box-shadow: none;
 }
-html.ws-rail-metal .workspace .sidebar.rail .sidebar-item:hover { background: rgba(255,255,255,.08); }
-html.ws-rail-metal .workspace .sidebar.rail .sidebar-item[aria-current] {
-  background: linear-gradient(90deg, rgba(255,255,255,.14), rgba(255,255,255,.04));
-  box-shadow: inset 2px 0 0 var(--ws-fill, var(--mint)), inset 0 1px 0 rgba(255,255,255,.08);
+html.ws-rail-lit .workspace .sidebar.rail::after {
+  content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 1px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,.22) 0%, rgba(255,255,255,.06) 35%, rgba(255,255,255,.03) 100%);
 }
-html.ws-rail-metal .sidebar-bottom { border-top-color: rgba(255,255,255,.1); }
-html.ws-rail-metal .sidebar-group { color: rgba(255,255,255,.5); }
+html.ws-rail-lit .workspace .sidebar.rail .sidebar-item { border: 1px solid transparent; }
+html.ws-rail-lit .workspace .sidebar.rail .sidebar-item:hover { background: rgba(255,255,255,.05); color: #fff; }
+html.ws-rail-lit .workspace .sidebar.rail .sidebar-item[aria-current] {
+  background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.035)) !important;
+  border-color: rgba(255,255,255,.1);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 1px 2px rgba(0,0,0,.4) !important;
+  color: #fff;
+}
+html.ws-rail-lit .workspace .sidebar.rail .sidebar-item[aria-current] svg { color: #fff; }
+html.ws-rail-lit .sidebar-bottom { border-top-color: rgba(255,255,255,.08); }
+html.ws-rail-lit .sidebar-group { color: rgba(255,255,255,.42); }
+html.ws-rail-lit .workspace .sidebar.rail .sidebar-toggle:hover { background: rgba(255,255,255,.06); }
 
 /* The picker: small side-bar previews with a name under each. */
 .ws-rails { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px; }
