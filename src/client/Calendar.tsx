@@ -1047,9 +1047,11 @@ export function Calendar({
                           // cramming name and service into one truncated row.
                           const cap = compact && preset.lines === 1 && px >= 44 ? 2 : preset.lines;
                           const lines = Math.min(cap, px >= 3 * 15 + 8 ? 3 : px >= 2 * 15 + 6 ? 2 : 1);
+                          // Tall enough for the name to take two lines and still show the service under it.
+                          const roomy = px >= 56;
                           return (
                             <>
-                              <strong>
+                              <strong className={roomy ? "wrap-name" : undefined}>
                                 <time>{time(b.start_min)}</time> <span className="event-name">{b.attendee_name || b.customer_name}</span>
                                 {lines === 1 && <span className="event-inline"> · {b.service_name}</span>}
                                 {lines < 3 && <span className="event-inline-icons">{icons}</span>}
