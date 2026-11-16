@@ -46,7 +46,7 @@ import { HOLD_MAX_MS, LEFT_MS, LIVE, liveArgs, holderHash, holdEnds } from "./ho
 import customerAccounts from "./customers";
 import { channelsFor, drain, enqueue, fmtDate, fmtTime, msgShop, pushFor, waAvailable, type Channel, type MessageTemplate, type Recipient } from "./messaging";
 import { currentAccount as currentCustomerAccount, customerPassword, ensureAccount, openSession as openCustomerSession, sendWelcome } from "./customerAuth";
-import { autoOffer, slotFreed, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
+import { autoOffer, releaseHoldStatements, slotFreed, drainSoon, helpers as wl, queueMessage, render, shopWithQueue, sweep, templatesOf, type OfferRow, type WaitlistRow } from "./waitlist";
 import { leaveReview, ownReviewView, publicReviews, publicReviewsByStaff, reviewEligibility, reviewForBooking, reviewSchema } from "./presence";
 import { CARDS_READY_SQL, createDepositSession, depositView, depositsOnline, paymentPolicy, expireHolds, keepDepositInLedger, markDepositPaid, refundDeposit, retrieveSession, stripeConnect, stripeLive } from "./stripe";
 import { shopUrl } from "./hosts";
@@ -1227,11 +1227,23 @@ const offerView = (o: OfferRow, entry: WaitlistRow, shop: Shop & Partial<Branded
   duration_min: service?.duration_min ?? 0,
   customer_first: entry.customer_name.split(" ")[0],
   booking_id: o.booking_id,
+  source: o.source,
   shop: { name: shop.name, address: shop.address, slug: shop.slug, timezone: shop.timezone, currency: shop.currency || "GBP", cancel_hours: shop.cancel_hours, logo_url: shop.logo_url || "", brand: brandOf(shop) },
 });
 pub.get("/offer/:token", async (c) => {
   await throttle(c, "offer", clientKey(c), 60);
   const { shop, offer, entry, staffName, service } = await offerByToken(c);
+  // Held spaces are confirmed by a signed-in customer: say who is signed in, and prefill sign-up.
+  if (offer.source === "HOLD") {
+    const who = await currentCustomerAccount(c, shop).catch(() => null);
+    const terms = shop.terms_text && (shop.terms_version || 0) > 0 ? { version: shop.terms_version, text: shop.terms_text } : null;
+    return c.json({
+      offer: offerView(offer, entry, shop, staffName, service),
+      account: who ? { name: who.name, email: who.email } : null,
+      prefill: offer.status === "PENDING" ? { name: entry.customer_name, phone: entry.phone, email: entry.email } : null,
+      terms,
+    });
+  }
   return c.json({ offer: offerView(offer, entry, shop, staffName, service) });
 });
 pub.post("/offer/:token/accept", async (c) => {
@@ -1241,6 +1253,7 @@ pub.post("/offer/:token/accept", async (c) => {
   if (offer.status === "ACCEPTED" && offer.booking_id) {
     return c.json({ offer: offerView(offer, entry, shop, staffName, service), booking: customerView(await readBooking(c, offer.booking_id), shop, staffName), manage_token: null, replayed: true });
   }
+  if (offer.source === "HOLD") return acceptHold(c, shop, offer, entry, staffName, service);
   if (offer.status !== "PENDING") fail(409, offer.status === "EXPIRED" ? "This offer has expired. You are still on the list." : "This offer is no longer open.");
   const svc = await c.env.DB.prepare("SELECT version FROM services WHERE shop_id=? AND id=?").bind(shop.id, offer.service_id).first<{ version: number }>();
   const { minStart, maxDate } = limits(shop);
@@ -1280,6 +1293,16 @@ pub.post("/offer/:token/decline", async (c) => {
   await throttle(c, "offer-write", clientKey(c), 30);
   const { shop, offer, entry, staffName, service } = await offerByToken(c);
   if (offer.status !== "PENDING") fail(409, "This offer is no longer open.");
+  if (offer.source === "HOLD") {
+    await c.env.DB.batch([
+      ...releaseHoldStatements(c as never, shop.id, offer.id, "DECLINED"),
+      audit(c, "waitlist", entry.id, "SLOT_HOLD_DECLINED", "Customer said no to the held time; it is free again."),
+    ]);
+    await recordHoldEvent(c, shop.id, offer, entry, staffName, "declined");
+    await autoOffer(c, shop, { staff_id: offer.staff_id, date: offer.date, start_min: offer.start_min }, "decline");
+    const fresh = (await c.env.DB.prepare("SELECT * FROM waitlist_offers WHERE id=?").bind(offer.id).first<OfferRow>())!;
+    return c.json({ offer: offerView(fresh, entry, shop, staffName, service), left: true });
+  }
   const now = Date.now();
   const leave = body.leave;
   const templates = templatesOf(shop);
@@ -1295,6 +1318,53 @@ pub.post("/offer/:token/decline", async (c) => {
   const fresh = (await c.env.DB.prepare("SELECT * FROM waitlist_offers WHERE id=?").bind(offer.id).first<OfferRow>())!;
   return c.json({ offer: offerView(fresh, entry, shop, staffName, service), left: leave });
 });
+
+// A held space: the customer must be signed in (the account is the booker, like any online booking).
+// The calendar block that kept the time is removed first so the booking can take its place; if the
+// booking still fails, the block goes back so the hold stands.
+async function acceptHold(c: Ctx, shop: Awaited<ReturnType<typeof shopWithQueue>>, offer: OfferRow, entry: WaitlistRow, staffName: string, service: { name: string; price_pence: number; duration_min: number } | null) {
+  if (offer.status === "EXPIRED" || (offer.status === "PENDING" && offer.expires_at <= Date.now())) fail(409, "This hold has run out. Get in touch with the shop for another time.");
+  if (offer.status !== "PENDING") fail(409, "This hold is no longer open.");
+  const who = await currentCustomerAccount(c, shop);
+  if (!who) return fail(401, "sign_in_required");
+  if (!who.email) fail(400, "Add an email address to your account");
+  const block = await c.env.DB.prepare("SELECT * FROM staff_blocks WHERE shop_id=? AND offer_id=?").bind(shop.id, offer.id).first<StaffBlock & { offer_id: string }>();
+  if (block) await c.env.DB.prepare("DELETE FROM staff_blocks WHERE shop_id=? AND id=?").bind(shop.id, block.id).run();
+  const svc = await c.env.DB.prepare("SELECT version FROM services WHERE shop_id=? AND id=?").bind(shop.id, offer.service_id).first<{ version: number }>();
+  let result: Awaited<ReturnType<typeof createBooking>>;
+  try {
+    result = await createBooking(
+      c,
+      { request_id: offer.id, staff_id: offer.staff_id, service_id: offer.service_id, customer_name: who.name || entry.customer_name, attendee_name: "", phone: who.phone || entry.phone, email: who.email, notes: entry.notes, date: offer.date, start_min: offer.start_min, addon_ids: [], quote: { service_version: svc!.version, shop_version: shop.version }, source: "TEST_BOOKING" },
+      "ONLINE",
+      // The shop chose this time for them: no lead-time or booking-window limits.
+      { minStart: Date.now() },
+    );
+  } catch (err) {
+    if (block) await c.env.DB.prepare("INSERT INTO staff_blocks(id,shop_id,staff_id,date,start_min,end_min,reason,kind,created_by,created_at,offer_id) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING").bind(block.id, block.shop_id, block.staff_id, block.date, block.start_min, block.end_min, block.reason, block.kind, block.created_by, block.created_at, block.offer_id).run().catch(() => {});
+    await c.env.DB.batch([audit(c, "waitlist", entry.id, "SLOT_HOLD_FAILED", `Customer tried to confirm the held time but it could not be booked (${err instanceof Error ? err.message : String(err)}).`)]);
+    return fail(409, "We couldn't book this time automatically. Please call the shop and they'll sort it.");
+  }
+  const now = Date.now();
+  const manage = await issueManageToken(c, result!.booking);
+  const templates = templatesOf(shop);
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE waitlist_offers SET status='ACCEPTED',booking_id=?,responded_at=? WHERE id=? AND status='PENDING'").bind(result!.booking.id, now, offer.id),
+    c.env.DB.prepare("UPDATE waitlist_entries SET status='BOOKED',booking_id=?,offer_id=NULL,version=version+1,updated_at=? WHERE id=?").bind(result!.booking.id, now, entry.id),
+    c.env.DB.prepare("DELETE FROM staff_blocks WHERE shop_id=? AND offer_id=?").bind(shop.id, offer.id),
+    queueMessage(c, shop, { phone: result!.booking.phone, email: result!.booking.email }, "waitlist_booked", render(templates.waitlist_booked, { service: service?.name ?? "", barber: staffName.split(" ")[0], shop: shop.name, date: wl.fmtDate(offer.date), time: wl.fmtTime(offer.start_min), ref: ref(result!.booking), manage: manage ? shopUrl(shop.slug!, `/manage/${manage}`, new URL(c.req.url).origin) : "(see the shop)" }), { type: "booking", id: result!.booking.id }),
+    audit(c, "waitlist", entry.id, "SLOT_HOLD_CONFIRMED", `Customer confirmed the held time online; booking ${ref(result!.booking)} created.`),
+  ]);
+  await drainSoon(c, 2, { type: "booking", id: result!.booking.id });
+  await alertOwners(c.env.DB, shop.id, "new_booking", result!.booking, { staffName, origin: new URL(c.req.url).origin }).catch(() => 0);
+  const fresh = (await c.env.DB.prepare("SELECT * FROM waitlist_offers WHERE id=?").bind(offer.id).first<OfferRow>())!;
+  return c.json({ offer: offerView(fresh, entry, shop, staffName, service), booking: customerView(result!.booking, shop, staffName), manage_token: manage, replayed: result!.replayed }, 201);
+}
+// The barber's bell when a held time is turned down (a confirmation rings through alertOwners).
+async function recordHoldEvent(c: Ctx, shopId: string, offer: OfferRow, entry: WaitlistRow, staffName: string, _what: "declined") {
+  const pseudo = { id: offer.id, shop_id: shopId, staff_id: offer.staff_id, date: offer.date, start_min: offer.start_min, customer_name: entry.customer_name, attendee_name: "", service_name: "", status: "CANCELLED" } as unknown as StoredBooking;
+  await recordEvent(c.env.DB, shopId, "cancelled", pseudo, staffName, "customer").catch(() => {});
+}
 
 // Customer manage links ---------------------------------------------------
 export function customerView(b: StoredBooking, shop: Shop & Partial<BrandedShop>, staffName: string | null) {

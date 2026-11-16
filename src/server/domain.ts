@@ -342,6 +342,8 @@ export type StaffBlock = {
   kind: "LUNCH" | "TRAINING" | "PERSONAL" | "SICK" | "OTHER";
   created_by: string;
   created_at: number;
+  // Set when the block is a "held for a customer" space (waitlist_offers source HOLD).
+  offer_id?: string | null;
 };
 export type StoredBooking = {
   customer_id: string | null;

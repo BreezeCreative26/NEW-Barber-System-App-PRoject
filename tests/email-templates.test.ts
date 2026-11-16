@@ -29,6 +29,7 @@ const V: Record<MessageTemplate, Record<string, string | number>> = {
   staff_invite: { inviter: "Dana Owner", role: "Barber", link: `${origin}/workspace?invite=tok_inv` },
   waitlist_joined: { date: "Sat 4 Oct", daypart: "morning", service: "Beard trim", barber: "any barber" },
   waitlist_offer: { service: "Beard trim", barber: "Ada", date: "Sat 4 Oct", time: "09:15", expires: "18:00 today", link: `${origin}/offer/tok_off` },
+  slot_held: { service: "Skin fade", barber: "Ada", date: "Sat 4 Oct", time: "10:00", expires: "18:00 today", link: `${origin}/offer/tok_hold` },
   google_review: { rating: 5, service: "Skin fade", barber: "Jay", link: "https://g.page/r/abc/review" },
   account_welcome: { link: `${origin}/fade-lab/me?welcome=tok`, install: 1 },
   account_reset: { link: `${origin}/fade-lab/me?reset=tok` },

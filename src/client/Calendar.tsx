@@ -171,6 +171,8 @@ export function Calendar({
   onRemoveBlock,
   onResize,
   onHold,
+  onHoldSlot,
+  quickMenu = false,
   team,
   paid = new Set<string>(),
   density = "STANDARD",
@@ -201,6 +203,10 @@ export function Calendar({
   onRemoveBlock?: (block: StaffBlock) => void;
   // An online customer is mid-booking this time ("Booking in progress"); click to see who / book over it.
   onHold?: (hold: NonNullable<WorkspaceData["holds"]>[number]) => void;
+  // "Hold for someone" from the slot menu: keep the time for a customer and send them a link.
+  onHoldSlot?: (draft: CalendarDraft) => void;
+  // Clicking a free slot opens a small menu (Book / Block time / Hold) instead of booking straight away.
+  quickMenu?: boolean;
   // Extra (non-rostered) barbers the user added to the day via "Scheduled team".
   team?: Set<string>;
 }) {
@@ -242,6 +248,19 @@ export function Calendar({
     return () => node.removeEventListener("touchmove", block);
   }).current;
   const [hover, setHover] = useState<{ staffId: string; start: number } | null>(null);
+  const [slotMenu, setSlotMenu] = useState<(CalendarDraft & { x: number; y: number; name: string; canBlock: boolean; canHold: boolean }) | null>(null);
+  useEffect(() => {
+    if (!slotMenu) return;
+    const close = (e: Event) => {
+      if (e.type === "keydown" && (e as globalThis.KeyboardEvent).key !== "Escape") return;
+      if (e.type === "pointerdown" && (e.target as HTMLElement).closest?.(".slot-menu")) return;
+      setSlotMenu(null);
+    };
+    window.addEventListener("keydown", close);
+    window.addEventListener("pointerdown", close, true);
+    window.addEventListener("resize", close);
+    return () => { window.removeEventListener("keydown", close); window.removeEventListener("pointerdown", close, true); window.removeEventListener("resize", close); };
+  }, [slotMenu]);
   const [focusedSlot, setFocusedSlot] = useState<
     (CalendarDraft & { date: string }) | null
   >(null);
@@ -598,6 +617,33 @@ export function Calendar({
 
   return (
     <>
+      {slotMenu && (
+        <div
+          className="slot-menu"
+          role="menu"
+          aria-label={`${time(slotMenu.start)} with ${slotMenu.name}`}
+          data-testid="slot-menu"
+          style={{ left: Math.max(8, Math.min(slotMenu.x - 110, (typeof window !== "undefined" ? window.innerWidth : 1200) - 228)), top: Math.max(8, Math.min(slotMenu.y + 6, (typeof window !== "undefined" ? window.innerHeight : 800) - 210)) }}
+        >
+          <div className="slot-menu-head">
+            <strong>{time(slotMenu.start)}</strong> · {slotMenu.name}
+            {slotMenu.outside && <small>{slotMenu.outside}</small>}
+          </div>
+          <button type="button" role="menuitem" autoFocus data-testid="slot-menu-book" onClick={() => { const d = slotMenu; setSlotMenu(null); onDraft({ staffId: d.staffId, start: d.start, outside: d.outside }); }}>
+            <Icon name="plus" size={16} /><span><b>Book someone in</b><small>Add an appointment here</small></span>
+          </button>
+          {slotMenu.canBlock && (
+            <button type="button" role="menuitem" data-testid="slot-menu-block" onClick={() => { const d = slotMenu; setSlotMenu(null); const st = w.staff.find((x) => x.id === d.staffId); if (st) onAction?.("block", st, d.start); }}>
+              <Icon name="blocked" size={16} /><span><b>Block time off</b><small>Lunch, training, personal…</small></span>
+            </button>
+          )}
+          {slotMenu.canHold && (
+            <button type="button" role="menuitem" data-testid="slot-menu-hold" onClick={() => { const d = slotMenu; setSlotMenu(null); onHoldSlot?.({ staffId: d.staffId, start: d.start, outside: d.outside }); }}>
+              <Icon name="hourglass" size={16} /><span><b>Hold for someone</b><small>Keep it and send them a link</small></span>
+            </button>
+          )}
+        </div>
+      )}
       <div
         className={`calendar-scroll connected-scroll ${compact ? "compact" : ""} density-${density.toLowerCase()}`}
         data-density={density}
@@ -836,7 +882,13 @@ export function Calendar({
                                   : `Add booking at ${time(start)}`
                         }
                         disabled={disabled || hard}
-                        onClick={() => onDraft({ staffId: s.id, start, outside: reason || (busy ? "Occupied" : "") || undefined })}
+                        onClick={(e) => {
+                          const draft = { staffId: s.id, start, outside: reason || (busy ? "Occupied" : "") || undefined };
+                          const future = date > today || (date === today && start > currentMinute);
+                          if (!quickMenu || !future) return onDraft(draft);
+                          const r = e.currentTarget.getBoundingClientRect();
+                          setSlotMenu({ ...draft, x: e.clientX || r.left + r.width / 2, y: e.clientY || r.top + r.height / 2, name: s.name.split(" ")[0], canBlock: !!onAction, canHold: !!onHoldSlot && !busy });
+                        }}
                         onContextMenu={
                           onAction && !hard && date >= today
                             ? (e) => {
@@ -870,8 +922,8 @@ export function Calendar({
                     .map((k) => (
                       <div
                         key={k.id}
-                        className={`calendar-block kind-${k.kind.toLowerCase()}`}
-                        data-testid="calendar-block"
+                        className={`calendar-block kind-${k.kind.toLowerCase()} ${k.offer_id ? "held" : ""}`}
+                        data-testid={k.offer_id ? "calendar-held" : "calendar-block"}
                         style={{ top: ((k.start_min - begin) / 15) * step, height: Math.max(eventMin, ((k.end_min - k.start_min) / 15) * step - 3) }}
                         title={`${time(k.start_min)}–${time(k.end_min)} · ${blockLabel(k)}${k.kind !== "OTHER" ? ` (${BLOCK_LABELS[k.kind].toLowerCase()})` : ""}`}
                       >
@@ -879,10 +931,10 @@ export function Calendar({
                           type="button"
                           className="calendar-block-body"
                           onClick={() => onBlock?.(k)}
-                          aria-label={`${s.name}: blocked ${time(k.start_min)} to ${time(k.end_min)}, ${blockLabel(k)}`}
+                          aria-label={`${s.name}: ${k.offer_id ? "held" : "blocked"} ${time(k.start_min)} to ${time(k.end_min)}, ${blockLabel(k)}`}
                         >
                           <strong>
-                            <Icon name="blocked" size={11} /> {blockLabel(k)}
+                            <Icon name={k.offer_id ? "hourglass" : "blocked"} size={11} /> {blockLabel(k)}
                           </strong>
                           {k.end_min - k.start_min >= 30 && (
                             <span>
@@ -890,7 +942,7 @@ export function Calendar({
                             </span>
                           )}
                         </button>
-                        {onRemoveBlock && !disabled && (
+                        {onRemoveBlock && !disabled && !k.offer_id && (
                           <button type="button" className="calendar-block-remove" aria-label={`Remove block: ${blockLabel(k)} ${time(k.start_min)}–${time(k.end_min)}`} title="Remove this block" onClick={() => onRemoveBlock(k)}>
                             <Icon name="close" size={12} />
                           </button>

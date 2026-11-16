@@ -54,7 +54,7 @@ export const MESSAGE_TEMPLATES = [
   "signin_code", "staff_invite", "waitlist_joined", "waitlist_offer", "waitlist_open", "waitlist_booked", "waitlist_released", "review_request", "test_message", "pay_link",
   "verify_contact", "password_reset", "account_welcome", "account_reset", "shop_address", "owner_new_booking", "owner_cancelled", "owner_moved", "owner_review", "owner_no_show", "owner_daily_summary", "owner_callback",
   "invoice", "credit_note", "owner_signin_link", "trial_ending", "trial_ended", "payment_overdue", "account_readonly", "broadcast", "admin_alert_digest",
-  "owner_welcome", "email_verify", "google_review", "shop_announcement",
+  "owner_welcome", "email_verify", "google_review", "shop_announcement", "slot_held",
 ] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
 
@@ -144,6 +144,14 @@ export function copyFor(template: MessageTemplate, v: MessageVars, shop: { name:
         heading: `${when} is yours if you want it.`,
         lines: [`${v.service} with ${v.barber}`, `Held until ${v.expires}.`],
         cta: { label: "Take this time", href: String(v.link) },
+      };
+    case "slot_held":
+      return {
+        sms: `${n}: ${v.barber} is holding a ${v.service} for you on ${when}. Confirm it by ${v.expires}: ${v.link}`,
+        subject: `${v.barber} is holding ${when} for you`,
+        heading: `${when} is held for you, ${who}.`,
+        lines: [`${v.service} with ${v.barber} at ${s}.`, `Confirm by ${v.expires} or it is released.`, "You'll create a quick account (or sign in) so you can manage the visit afterwards."],
+        cta: { label: "Confirm my booking", href: String(v.link) },
       };
     case "waitlist_open":
       return {
@@ -524,7 +532,7 @@ const WA_CAPABLE = new Set<MessageTemplate>(["booking_confirmed", "booking_moved
 
 // Emails to a shop's customers carry the shop's look only, no foliyo mark. Owner, staff and billing
 // emails stay foliyo-branded.
-const CUSTOMER_FACING = new Set<MessageTemplate>(["booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon", "signin_code", "waitlist_joined", "waitlist_offer", "waitlist_open", "waitlist_booked", "waitlist_released", "review_request", "google_review", "test_message", "pay_link", "verify_contact", "password_reset", "account_welcome", "account_reset", "shop_announcement"]);
+const CUSTOMER_FACING = new Set<MessageTemplate>(["slot_held", "booking_confirmed", "booking_moved", "booking_cancelled", "booking_reminder", "booking_reminder_soon", "signin_code", "waitlist_joined", "waitlist_offer", "waitlist_open", "waitlist_booked", "waitlist_released", "review_request", "google_review", "test_message", "pay_link", "verify_contact", "password_reset", "account_welcome", "account_reset", "shop_announcement"]);
 
 // Returns prepared statements so callers can batch them with their own writes.
 export function enqueue(db: DB, shop: MsgShop, to: Recipient, template: MessageTemplate, vars: MessageVars, opts: EnqueueOpts, both = BOTH_CHANNELS.has(template)) {

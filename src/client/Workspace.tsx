@@ -32,6 +32,7 @@ import { AppointmentPanel, type Timeline } from "./AppointmentPanel";
 import { ServiceStudio, BarberStudio, type BarberTab } from "./Studio";
 import { Calendar, WeekView, blockLabel, type CalendarDraft, type RangeBooking } from "./Calendar";
 import { BlockDialog } from "./BlockDialog";
+import { HoldDialog, HeldDialog, type HoldCustomer } from "./HoldDialog";
 import { PayRunsPage, MyPay } from "./PayRunsPage";
 import { DENSITIES, DENSITY_PRESETS, resolveDensity, usePhone, writeLocalPrefs, type Density } from "./calendarDensity";
 import { Shifts } from "./Shifts";
@@ -1360,7 +1361,11 @@ type Editor =
       draft?: CalendarDraft;
       rebook?: StoredBooking;
       waitlist?: WaitlistEntry;
+      // "Book now" from Hold for someone: the chosen customer and service, on the clicked time.
+      hold?: { customer: HoldCustomer; service_id: string };
     }
+  | { kind: "hold"; draft: CalendarDraft }
+  | { kind: "held"; item: StaffBlock }
   | { kind: "walkin"; staffId?: string }
   | { kind: "block"; item: Staff; at?: number }
   | { kind: "removeBlock"; item: StaffBlock }
@@ -3090,6 +3095,8 @@ export function Workspace() {
                             if (ok) setEditor({ kind: "booking", draft: { staffId: h.staff_id, start: h.start_min, outside: "Held" } });
                           }}
                           columnMenu={false}
+                          quickMenu={!moving}
+                          onHoldSlot={(draft) => setEditor({ kind: "hold", draft })}
                           canSetHours={manager}
                           onAction={(action, staffMember, at) => {
                             if (action === "hours") setEditor({ kind: "override", item: staffMember, override: w.schedule_overrides.find((o) => o.staff_id === staffMember.id && o.date === date) });
@@ -3140,7 +3147,7 @@ export function Workspace() {
                                 }
                               : undefined
                           }
-                          onBlock={(k) => setEditor({ kind: "block", item: w.staff.find((s) => s.id === k.staff_id)!, at: k.start_min })}
+                          onBlock={(k) => (k.offer_id ? setEditor({ kind: "held", item: k }) : setEditor({ kind: "block", item: w.staff.find((s) => s.id === k.staff_id)!, at: k.start_min }))}
                           onRemoveBlock={(k) => setEditor({ kind: "removeBlock", item: k })}
                           onMoveBlocked={(b, reason) =>
                             setNotice(`Can't move ${b.attendee_name || b.customer_name} there — ${reason === "Past time" ? "that time has passed" : reason === "Shop closed" ? "the shop is closed then" : reason === "Day off" ? "the barber is off that day" : reason.toLowerCase()}.`)
@@ -3583,7 +3590,35 @@ export function Workspace() {
           }}
         />
       )}
-      {w && editor && editor.kind !== "detail" && editor.kind !== "block" && (
+      {w && editor?.kind === "hold" && (
+        <HoldDialog
+          w={w}
+          staffId={editor.draft.staffId}
+          date={date || w.today}
+          start={editor.draft.start}
+          api={api}
+          onClose={() => setEditor(null)}
+          onDone={(msg) => { setEditor(null); setNotice(msg); void refresh({ background: true }).catch(() => {}); }}
+          onBookNow={(customer, service_id) => setEditor({ kind: "booking", draft: editor.draft, hold: { customer, service_id } })}
+        />
+      )}
+      {w && editor?.kind === "held" && (
+        <HeldDialog
+          w={w}
+          block={editor.item}
+          api={api}
+          onClose={() => setEditor(null)}
+          onDone={(msg) => { setEditor(null); setNotice(msg); void refresh({ background: true }).catch(() => {}); }}
+          onBookNow={async (customer, service_id, k) => {
+            try {
+              await api(`/holds/${k.offer_id}?book=1`, "DELETE");
+              void refresh({ background: true }).catch(() => {});
+              setEditor({ kind: "booking", draft: { staffId: k.staff_id, start: k.start_min }, hold: { customer, service_id } });
+            } catch (e) { setError(e instanceof Error ? e.message : "Could not open the booking."); }
+          }}
+        />
+      )}
+      {w && editor && editor.kind !== "detail" && editor.kind !== "block" && editor.kind !== "hold" && editor.kind !== "held" && (
         <WorkspaceEditor
           key={
             editor.kind +
@@ -7030,6 +7065,7 @@ function WorkspaceEditor({
           draft={e.draft}
           rebook={e.rebook}
           waitlist={e.waitlist}
+          hold={e.hold}
           saved={saved}
         />
       )}
@@ -7776,6 +7812,7 @@ function BookingForm({
   draft,
   rebook: rebookInput,
   waitlist,
+  hold,
   saved,
 }: {
   w: WorkspaceData;
@@ -7783,6 +7820,7 @@ function BookingForm({
   draft?: CalendarDraft;
   rebook?: StoredBooking;
   waitlist?: WaitlistEntry;
+  hold?: { customer: HoldCustomer; service_id: string };
   booking?: StoredBooking;
   saved: EditorProps["saved"];
 }) {
@@ -7797,10 +7835,21 @@ function BookingForm({
         date: waitlist.date,
         price_pence: 0,
       } as unknown as StoredBooking)
-    : undefined);
+    : hold
+      ? ({
+          customer_id: hold.customer.id,
+          customer_name: hold.customer.name,
+          phone: hold.customer.phone,
+          email: hold.customer.email,
+          staff_id: draft?.staffId || "",
+          service_id: hold.service_id,
+          date: initialDate,
+          price_pence: 0,
+        } as unknown as StoredBooking)
+      : undefined);
   const rebookBase = rebook && rebook.date > w.today ? rebook.date : w.today;
   const [date, setDate] = useState(
-    b?.date || (waitlist ? waitlist.date : rebook ? datePlus(rebookBase, 21) : initialDate),
+    b?.date || (waitlist ? waitlist.date : hold ? initialDate : rebook ? datePlus(rebookBase, 21) : initialDate),
   );
   const reviewRef = useRef<HTMLElement>(null);
   const [reviewContact, setReviewContact] = useState({ name: "", phone: "" });
@@ -8135,7 +8184,7 @@ function BookingForm({
           </span>
         </aside>
       )}
-      {rebook && !waitlist && (
+      {rebook && !waitlist && !hold && (
         <aside className="booking-slot-origin" aria-label="Previous visit">
           <Icon name="repeat" size={16} />
           <span>
@@ -8295,7 +8344,7 @@ function BookingForm({
         <div className="booking-col">
           <section className="booking-when" aria-labelledby="booking-when-heading">
             <h3 id="booking-when-heading">{b ? "New time" : "Time"}</h3>
-            {rebook && !waitlist && (
+            {rebook && !waitlist && !hold && (
               <div className="booking-date-shortcuts" aria-label="Rebooking date shortcuts">
                 <span>In</span>
                 {[3, 4, 6].map((weeks) => (

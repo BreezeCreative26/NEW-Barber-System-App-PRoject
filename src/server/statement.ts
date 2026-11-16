@@ -43,6 +43,7 @@ const TEMPLATE_LABEL: Record<string, string> = {
   staff_invite: "Team invite",
   waitlist_joined: "Waitlist joined",
   waitlist_offer: "Waitlist offer",
+  slot_held: "Time held for a customer",
   waitlist_open: "Waitlist: slot open",
   waitlist_booked: "Waitlist booked",
   waitlist_released: "Waitlist released",

@@ -80,7 +80,7 @@ import {
   type AuditEvent,
  shopBuffer, colourSchema, imageRef, isOffered, offers, categorySchema } from "./domain";
 
-import { slotFreed, makeOffer, matchesFor, rangeDates, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
+import { createHold, resendHold, releaseHoldStatements, slotFreed, makeOffer, matchesFor, rangeDates, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { logoTone, optimiseImage } from "./images";
 import { billingSummary, entitlements, setFeature, syncSeats, hasFeature, features as billingFeatures } from "./billing";
 import { runningStatement, statementCsv } from "./statement";
@@ -324,6 +324,10 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && /^\/bookings\/[^/]+\/manage-link$/.test(path)) ||
       (method === "POST" && /^\/bookings\/[^/]+\/notify-flush$/.test(path)) ||
       (method === "POST" && /^\/waitlist\/[^/]+\/status$/.test(path)) ||
+      (method === "POST" && path === "/holds") ||
+      (method === "GET" && /^\/holds\/[^/]+$/.test(path)) ||
+      (method === "POST" && /^\/holds\/[^/]+\/resend$/.test(path)) ||
+      (method === "DELETE" && /^\/holds\/[^/]+$/.test(path)) ||
       (method === "GET" && /^\/bookings\/[^/]+$/.test(path)) ||
       (method === "POST" &&
         (path === "/bookings" ||
@@ -1643,6 +1647,66 @@ export const waitlistSettingsSchema = z
     version: z.number().int().min(0),
   })
   .strict();
+// ---- Hold a space for a customer (see waitlist.ts createHold) ----
+const holdSchema = z.object({
+  staff_id: z.string().uuid(),
+  service_id: z.string().uuid(),
+  date: dateSchema,
+  start_min: z.number().int().min(0).max(1425).refine((v) => v % 15 === 0),
+  customer_name: z.string().trim().min(1).max(100),
+  phone: z.string().transform((s) => s.replace(/[\s()-]/g, "")).refine((s) => /^(?:\+44|0)7\d{9}$/.test(s), "Enter a valid UK mobile number"),
+  email: z.string().trim().max(200).email().or(z.literal("")).default(""),
+  notes: z.string().trim().max(500).default(""),
+  hold_min: z.number().int().min(15).max(2880).optional(),
+  send: z.boolean().default(true),
+  force: z.boolean().default(false),
+}).strict();
+sandbox.post("/holds", async (c) => {
+  const b = await input(c, holdSchema);
+  scopeStaff(c, b.staff_id);
+  const shop = await shopWithQueue(c, c.get("shopId"));
+  if (!shop.slug) fail(409, "Set up your booking page first so the customer has somewhere to confirm.");
+  if (b.send && !b.phone && !b.email) fail(400, "Add a mobile or email so we can send the link.");
+  const data = await availabilityContext(c, b.staff_id, b.service_id, b.date);
+  const quote = calculateQuote(data.service, data.rule, data.addons, data.links, []);
+  const start = localInstant(b.date, b.start_min, data.shop.timezone);
+  if (start === null || start < Date.now()) fail(409, "That time has passed.");
+  const reason = slotReason(data.shop, data.staff, data.hours, data.holidays, data.bookings, b.date, b.start_min, quote.duration_min, 0, undefined, data.daysOff, data.blocks, true, data.ooh);
+  if (reason && (!b.force || !overridable(reason))) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
+  // Never past the visit itself: a hold that outlives the time is pointless.
+  const holdMin = Math.max(15, Math.min(b.hold_min ?? Math.max(shop.waitlist_offer_hold_min, 240), Math.floor((start! - Date.now()) / 60000)));
+  const r = await createHold(c, shop, { ...b, hold_min: holdMin }, quote.duration_min, c.get("actor"));
+  if (!r) return fail(404, "Barber or service not available");
+  return c.json({ ok: true, hold: { ...r, duration_min: quote.duration_min } }, 201);
+});
+sandbox.get("/holds/:offerId", async (c) => {
+  const row = await c.env.DB.prepare("SELECT o.id, o.status, o.date, o.start_min, o.expires_at, o.staff_id, o.service_id, o.created_at, e.customer_name, e.phone, e.email, e.notes, s.name AS service_name FROM waitlist_offers o JOIN waitlist_entries e ON e.id=o.entry_id LEFT JOIN services s ON s.shop_id=o.shop_id AND s.id=o.service_id WHERE o.shop_id=? AND o.id=? AND o.source='HOLD'").bind(c.get("shopId"), c.req.param("offerId")).first();
+  if (!row) return fail(404, "Hold not found");
+  return c.json({ hold: row });
+});
+sandbox.post("/holds/:offerId/resend", async (c) => {
+  await input(c, z.object({}).strict());
+  const shop = await shopWithQueue(c, c.get("shopId"));
+  const o = await c.env.DB.prepare("SELECT staff_id FROM waitlist_offers WHERE shop_id=? AND id=? AND source='HOLD'").bind(shop.id, c.req.param("offerId")).first<{ staff_id: string }>();
+  if (!o) return fail(404, "Hold not found");
+  scopeStaff(c, o.staff_id);
+  const r = await resendHold(c, shop, c.req.param("offerId"), c.get("actor"));
+  if (!r) return fail(409, "This hold has ended.");
+  return c.json({ ok: true, ...r });
+});
+// Release: the time goes back on the calendar. `book: true` is used when staff book the customer in
+// straight away (the booking form then saves into the freed time).
+sandbox.delete("/holds/:offerId", async (c) => {
+  const sid = c.get("shopId");
+  const o = await c.env.DB.prepare("SELECT staff_id, entry_id, status FROM waitlist_offers WHERE shop_id=? AND id=? AND source='HOLD'").bind(sid, c.req.param("offerId")).first<{ staff_id: string; entry_id: string; status: string }>();
+  if (!o) return fail(404, "Hold not found");
+  scopeStaff(c, o.staff_id);
+  await c.env.DB.batch([
+    ...releaseHoldStatements(c, sid, c.req.param("offerId"), "SUPERSEDED"),
+    audit(c, "waitlist", o.entry_id, "SLOT_HOLD_RELEASED", c.req.query("book") ? "Hold released to book the customer in directly." : "Hold released by the shop; the time is free again."),
+  ]);
+  return c.json({ ok: true });
+});
 sandbox.put("/shop/waitlist", async (c) => {
   const b = await input(c, waitlistSettingsSchema);
   await checkVersionUpdate(

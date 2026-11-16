@@ -1,15 +1,18 @@
-// /offer/<token>: the waiting-list customer's reply page. One held time, two buttons. No sign-in.
+// /offer/<token>: the customer's reply page. One held time, two buttons.
+// Waiting-list offers need no sign-in. A space the barber held for someone (source HOLD) is confirmed
+// by a signed-in customer: they create an account (prefilled) or sign in, then confirm.
 import { Boot } from "./boot";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties, type FormEvent } from "react";
 import { Avatar, Button, Icon, Notice } from "./ui";
 import { dateLabel, money, time, setCurrency } from "./fixtures";
 import { applyThemeColor, brandStyle, themeClass, type ShopBrand, shopPath } from "./theme";
 
 type Offer = {
   id: string; status: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "SUPERSEDED" | "LOST"; date: string; start_min: number; expires_at: number;
-  staff_name: string; service_name: string; price_pence: number; duration_min: number; customer_first: string; booking_id: string | null;
+  staff_name: string; service_name: string; price_pence: number; duration_min: number; customer_first: string; booking_id: string | null; source?: "MANUAL" | "AUTO" | "HOLD";
   shop: { name: string; address: string; slug: string | null; timezone: string; currency?: string; cancel_hours: number; logo_url?: string; brand?: ShopBrand };
 };
+type HoldInfo = { account: { name: string; email: string } | null; prefill: { name: string; phone: string; email: string } | null; terms: { version: number; text: string } | null };
 type Accepted = { booking: { reference: string; date: string; start_min: number }; manage_token: string | null };
 class ApiError extends Error {
   constructor(message: string, public status: number, public code = "") {
@@ -31,13 +34,19 @@ export function OfferPage({ token }: { token: string }) {
   const [done, setDone] = useState<Accepted | null>(null);
   const [left, setLeft] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [hold, setHold] = useState<HoldInfo | null>(null);
+  const load = () =>
+    api<{ offer: Offer } & Partial<HoldInfo>>(`/offer/${token}`).then((r) => {
+      setOffer(r.offer);
+      if (r.offer.source === "HOLD") setHold({ account: r.account ?? null, prefill: r.prefill ?? null, terms: r.terms ?? null });
+      return r;
+    });
   useEffect(() => {
-    api<{ offer: Offer }>(`/offer/${token}`)
+    load()
       .then((r) => {
         setCurrency(r.offer.shop.currency);
-        setOffer(r.offer);
       applyThemeColor(r.offer.shop.brand);
-        document.title = `A time has opened up · ${r.offer.shop.name}`;
+        document.title = r.offer.source === "HOLD" ? `Your held time · ${r.offer.shop.name}` : `A time has opened up · ${r.offer.shop.name}`;
       })
       .catch((e) => setError(e instanceof Error ? e.message : "This link is not valid."));
   }, [token]);
@@ -50,6 +59,7 @@ export function OfferPage({ token }: { token: string }) {
       setOffer(r.offer);
     } catch (e) {
       const err = e as ApiError;
+      if (err.status === 401) { setHold((h) => (h ? { ...h, account: null } : h)); setActionError("Please sign in first."); return; }
       setActionError(err.code === "slot_taken" ? "Sorry — that time was taken just before you tapped. You are still on the list and we will offer the next one." : err.message);
       api<{ offer: Offer }>(`/offer/${token}`).then((r) => setOffer(r.offer)).catch(() => {});
     } finally {
@@ -110,6 +120,8 @@ export function OfferPage({ token }: { token: string }) {
               )}
               <p className="ca-fine">Cancel or move online up to {offer.shop.cancel_hours} hours ahead. Pay in the shop.</p>
             </>
+          ) : offer.status === "PENDING" && !expired && offer.source === "HOLD" && hold ? (
+            <HeldTime offer={offer} hold={hold} busy={busy} minutesLeft={minutesLeft} actionError={actionError} onSignedIn={() => load().catch(() => {})} onAccept={accept} onDecline={() => decline(true)} />
           ) : offer.status === "PENDING" && !expired ? (
             <>
               <span className="eyebrow">A TIME HAS OPENED UP</span>
@@ -151,6 +163,8 @@ export function OfferPage({ token }: { token: string }) {
               <h1>
                 {offer.status === "ACCEPTED"
                   ? "This time is already booked for you."
+                  : offer.source === "HOLD" && (left || offer.status === "DECLINED")
+                    ? "No problem — we’ve let the shop know."
                   : left
                     ? "You’re off the list."
                     : offer.status === "DECLINED"
@@ -162,6 +176,8 @@ export function OfferPage({ token }: { token: string }) {
               <p className="ca-lead">
                 {offer.status === "ACCEPTED"
                   ? `${offer.service_name} on ${dateLabel(offer.date)} at ${time(offer.start_min)}. Check your messages for the manage link.`
+                  : offer.source === "HOLD"
+                    ? "The time has been released. Book another time whenever suits you."
                   : left
                     ? `We won’t message you about ${dateLabel(offer.date)} again.`
                     : `We’ll message you if another time opens up on ${dateLabel(offer.date)}.`}
@@ -176,6 +192,86 @@ export function OfferPage({ token }: { token: string }) {
           <p className="ca-fine">Pay in the shop. Nothing is charged online.</p>
         </div>
       </main>
+    </div>
+  );
+}
+
+// Held for you: who/when, then account (create or sign in), then a single Confirm button.
+function HeldTime({ offer, hold, busy, minutesLeft, actionError, onSignedIn, onAccept, onDecline }: { offer: Offer; hold: HoldInfo; busy: boolean; minutesLeft: number; actionError: string; onSignedIn: () => void; onAccept: () => void; onDecline: () => void }) {
+  const slug = offer.shop.slug || "";
+  const A = `/shops/${encodeURIComponent(slug)}/account`;
+  const [mode, setMode] = useState<"register" | "login">("register");
+  const [name, setName] = useState(hold.prefill?.name || "");
+  const [phone, setPhone] = useState(hold.prefill?.phone || "");
+  const [email, setEmail] = useState(hold.prefill?.email || "");
+  const [password, setPassword] = useState("");
+  const [terms, setTerms] = useState(false);
+  const [err, setErr] = useState("");
+  const [working, setWorking] = useState(false);
+  const left = minutesLeft >= 120 ? `${Math.round(minutesLeft / 60)} hours` : `${minutesLeft} minute${minutesLeft === 1 ? "" : "s"}`;
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setWorking(true);
+    setErr("");
+    try {
+      if (mode === "register") await api(`${A}/register`, "POST", { name: name.trim(), phone: phone.trim(), email: email.trim(), password, marketing_opt_in: 0, contact_pref: "AUTO", accept_terms_version: hold.terms && terms ? hold.terms.version : 0 });
+      else await api(`${A}/login`, "POST", { email: email.trim(), password });
+      onSignedIn();
+    } catch (x) {
+      const m = x instanceof Error ? x.message : "Could not continue.";
+      setErr(m);
+      if (/already an account/i.test(m)) setMode("login");
+    } finally {
+      setWorking(false);
+    }
+  }
+  return (
+    <div className="held-time" data-testid="held-time">
+      <span className="eyebrow">HELD FOR YOU</span>
+      <h1>{offer.customer_first}, {offer.staff_name.split(" ")[0]} is holding this time for you.</h1>
+      <div className="offer-slot" data-testid="offer-slot">
+        <Avatar initials={initials(offer.staff_name)} size="large" />
+        <div>
+          <b>{dateLabel(offer.date)} · {time(offer.start_min)}</b>
+          <span>{offer.service_name} with {offer.staff_name.split(" ")[0]} · {offer.duration_min} min · {money(offer.price_pence)}</span>
+        </div>
+      </div>
+      <ol className="held-steps" aria-label="Steps">
+        <li className={hold.account ? "done" : "on"}><span>1</span>{hold.account ? "Signed in" : "Your account"}</li>
+        <li className={hold.account ? "on" : ""}><span>2</span>Confirm</li>
+      </ol>
+      {hold.account ? (
+        <>
+          <p className="held-who">Booking as <strong>{hold.account.name || hold.account.email}</strong>{hold.account.email ? ` · ${hold.account.email}` : ""}</p>
+          {actionError && <p className="form-error" role="alert">{actionError}</p>}
+          <div className="ca-form-actions">
+            <Button variant="ghost" onClick={onDecline} disabled={busy} data-testid="hold-decline">I can’t make it</Button>
+            <Button onClick={onAccept} disabled={busy} data-testid="hold-confirm"><Icon name="check" size={16} /> {busy ? "Booking…" : "Confirm my booking"}</Button>
+          </div>
+        </>
+      ) : (
+        <form className="ca-form held-form" onSubmit={submit} data-testid="hold-account-form">
+          <div className="held-tabs" role="tablist">
+            <button type="button" role="tab" aria-selected={mode === "register"} onClick={() => { setMode("register"); setErr(""); }}>I’m new here</button>
+            <button type="button" role="tab" aria-selected={mode === "login"} onClick={() => { setMode("login"); setErr(""); }}>I have an account</button>
+          </div>
+          {mode === "register" && (
+            <>
+              <label><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" data-testid="hold-name" /></label>
+              <label><span>Mobile</span><input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required autoComplete="tel" data-testid="hold-phone" /></label>
+            </>
+          )}
+          <label><span>Email</span><input type="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete={mode === "login" ? "username" : "email"} data-testid="hold-email" /></label>
+          <label><span>{mode === "register" ? "Choose a password" : "Password"}</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === "register" ? 8 : 1} autoComplete={mode === "register" ? "new-password" : "current-password"} data-testid="hold-password" /></label>
+          {mode === "register" && hold.terms && (
+            <label className="held-terms"><input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} required /> <span>I accept {offer.shop.name}’s booking terms</span></label>
+          )}
+          {(err || actionError) && <p className="form-error" role="alert">{err || actionError}</p>}
+          <Button type="submit" disabled={working} data-testid="hold-account-submit">{working ? "One moment…" : mode === "register" ? "Create account & continue" : "Sign in & continue"} <Icon name="arrowRight" size={16} /></Button>
+          <button type="button" className="ca-linkish" onClick={onDecline} disabled={busy} data-testid="hold-decline">I can’t make it — release this time</button>
+        </form>
+      )}
+      <Notice icon="clock">Held for another <strong>{left}</strong>. After that the time is released.</Notice>
     </div>
   );
 }
