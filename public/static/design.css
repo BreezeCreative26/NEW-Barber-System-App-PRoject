@@ -6317,3 +6317,15 @@ html:not(.ws-dark) .sidebar.light .sidebar-group { color: var(--muted); }
 }
 .workspace .settings-nav .settings-nav-label:hover,
 .workspace .settings-nav-group[data-open="true"] .settings-nav-label { background: transparent; }
+
+/* Settings page background: white instead of the grey app canvas. The panels get a thin outline
+   (instead of relying on the grey to stand out) so sections stay clearly separated. */
+html:has(.settings-shell),
+body:has(.settings-shell),
+.workspace:has(.settings-shell) { background: var(--surface, #fff) !important; }
+.workspace .settings-body .workspace-panel,
+.workspace .settings-body .panel-card,
+.workspace .settings-body > section {
+  border: 1px solid var(--line, #e7e8ee) !important;
+  box-shadow: none !important;
+}
