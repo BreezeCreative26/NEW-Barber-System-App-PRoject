@@ -3255,6 +3255,16 @@ sandbox.post("/schedule/apply", async (c) => {
       ? c.env.DB.prepare("UPDATE staff_schedule_overrides SET date=?,enabled=?,starts=?,ends=?,break_start=?,break_end=?,reason=?,version=version+1 WHERE shop_id=? AND staff_id=? AND id=? AND version=?").bind(b.date, b.enabled, b.starts, b.ends, b.break_start, b.break_end, b.reason, sid, change.staff_id, changeId, b.version ?? -1)
       : c.env.DB.prepare("INSERT INTO staff_schedule_overrides(id,shop_id,staff_id,date,enabled,starts,ends,break_start,break_end,reason) VALUES(?,?,?,?,?,?,?,?,?,?)").bind(changeId, sid, change.staff_id, b.date, b.enabled, b.starts, b.ends, b.break_start, b.break_end, b.reason);
     await checkVersionUpdate(c, write, audit(c, "schedule_override", changeId, change.override_id ? "DATED_HOURS_UPDATED" : "DATED_HOURS_CREATED", `${b.date}: ${b.reason}. ${body.decisions.length} appointment decision(s) applied.`, true));
+    // Working hours on a day that had leave booked: they're coming in, so the leave comes off
+    // (otherwise the leave keeps winning and the new hours never show). The day goes back to their allowance.
+    if (b.enabled) {
+      const leave = await c.env.DB.prepare("SELECT id, reason FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date=?").bind(sid, change.staff_id, b.date).all<{ id: string; reason: string }>();
+      if (leave.results.length)
+        await c.env.DB.batch([
+          c.env.DB.prepare("DELETE FROM staff_days_off WHERE shop_id=? AND staff_id=? AND date=?").bind(sid, change.staff_id, b.date),
+          audit(c, "staff", change.staff_id, "DAY_OFF_REMOVED", `${b.date}: ${leave.results[0].reason || "Leave"} removed because working hours were set for the day.`, true),
+        ]);
+    }
   } else if (change.kind === "weekly") {
     const b = change.change;
     const writes = [c.env.DB.prepare("UPDATE staff SET version=version+1, follows_shop_hours=? WHERE shop_id=? AND id=? AND version=?").bind(b.follow ? 1 : 0, sid, change.staff_id, b.version)];

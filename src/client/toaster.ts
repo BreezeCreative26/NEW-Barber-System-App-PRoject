@@ -1,5 +1,5 @@
-// Errors and "Saved" confirmations on the staff side show as pop-ups in the bottom-right corner
-// (bottom of the screen on phones) instead of pushing the page down at the top of a panel.
+// Errors and "Saved" confirmations on the staff side show as pop-ups at the top centre of the screen
+// (under the top bar on phones), clear of the action buttons that sit at the bottom of sheets and panels, instead of pushing the page down at the top of a panel.
 // Every screen already renders them as .workspace-error / .workspace-success; this marks those
 // elements as toasts and stacks them, so no screen needs its own toast code. Buttons inside a
 // message (Retry, Undo, Discard edits…) keep working because the real element is shown.
