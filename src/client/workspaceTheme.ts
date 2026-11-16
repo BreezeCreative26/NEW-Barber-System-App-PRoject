@@ -15,17 +15,36 @@ export const WS_ACCENTS = [
 ] as const;
 export type WsAccent = (typeof WS_ACCENTS)[number]["id"];
 export type WsMode = "light" | "dark";
-export type WorkspaceTheme = { accent: WsAccent; mode: WsMode };
-export const DEFAULT_WS_THEME: WorkspaceTheme = { accent: "forest", mode: "light" };
+
+// Side bar finish. "classic" is the original flat black. The others are dark brushed-metal finishes:
+// a soft diagonal base, a faint vertical sheen and a fine horizontal grain, all dark enough that the
+// white labels stay easy to read. One string per finish, used by both the side bar and the swatch.
+const grain = "repeating-linear-gradient(180deg, rgba(255,255,255,.022) 0 1px, rgba(0,0,0,0) 1px 3px)";
+const sheen = "linear-gradient(100deg, rgba(255,255,255,0) 18%, rgba(255,255,255,.075) 38%, rgba(255,255,255,0) 58%)";
+const metal = (a: string, b: string, c: string) => `${grain}, ${sheen}, linear-gradient(165deg, ${a} 0%, ${b} 46%, ${c} 100%)`;
+export const WS_RAILS = [
+  { id: "classic", name: "Black", bg: "#0b0b0c" },
+  { id: "graphite", name: "Graphite", bg: metal("#3a3d44", "#1c1e23", "#0c0d10") },
+  { id: "gunmetal", name: "Gunmetal", bg: metal("#46505e", "#222831", "#0d1015") },
+  { id: "titanium", name: "Titanium", bg: metal("#5d636c", "#2f333a", "#16181c") },
+  { id: "midnight", name: "Midnight chrome", bg: metal("#2c3b5c", "#141c30", "#070a13") },
+  { id: "bronze", name: "Bronze", bg: metal("#5c4330", "#2c2017", "#120d09") },
+  { id: "rose", name: "Rose gold", bg: metal("#6a4446", "#331f22", "#140c0d") },
+] as const;
+export type WsRail = (typeof WS_RAILS)[number]["id"];
+
+export type WorkspaceTheme = { accent: WsAccent; mode: WsMode; rail?: WsRail };
+export const DEFAULT_WS_THEME: WorkspaceTheme = { accent: "forest", mode: "light", rail: "classic" };
 
 const LS_KEY = "foliyo:ws-theme";
 const isAccent = (v: unknown): v is WsAccent => WS_ACCENTS.some((a) => a.id === v);
 const isMode = (v: unknown): v is WsMode => v === "light" || v === "dark";
+const isRail = (v: unknown): v is WsRail => WS_RAILS.some((r) => r.id === v);
 
 export function parseWsTheme(v: unknown): WorkspaceTheme | null {
   if (!v || typeof v !== "object") return null;
   const o = v as Record<string, unknown>;
-  return { accent: isAccent(o.accent) ? o.accent : DEFAULT_WS_THEME.accent, mode: isMode(o.mode) ? o.mode : DEFAULT_WS_THEME.mode };
+  return { accent: isAccent(o.accent) ? o.accent : DEFAULT_WS_THEME.accent, mode: isMode(o.mode) ? o.mode : DEFAULT_WS_THEME.mode, rail: isRail(o.rail) ? o.rail : "classic" };
 }
 export function readLocalWsTheme(): WorkspaceTheme | null {
   try {
@@ -58,12 +77,22 @@ export function applyWsTheme(t: WorkspaceTheme) {
   root.style.setProperty("--ws-fill", a.fill);
   root.style.setProperty("--ws-fill-hover", a.fillHover);
   root.style.setProperty("--ws-fill-ink", a.fillInk);
+  const r = WS_RAILS.find((x) => x.id === t.rail) ?? WS_RAILS[0];
+  if (r.id === "classic") {
+    root.classList.remove("ws-rail-metal");
+    root.style.removeProperty("--ws-rail-bg");
+  } else {
+    root.classList.add("ws-rail-metal");
+    root.style.setProperty("--ws-rail-bg", r.bg);
+  }
+  root.dataset.wsRail = r.id;
 }
 export function clearWsTheme() {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   for (const x of WS_ACCENTS) root.classList.remove(`ws-accent-${x.id}`);
-  root.classList.remove("ws-dark");
-  for (const k of ["--ws-accent", "--ws-accent-dark", "--ws-soft", "--ws-rail", "--ws-fill", "--ws-fill-hover", "--ws-fill-ink"]) root.style.removeProperty(k);
+  root.classList.remove("ws-dark", "ws-rail-metal");
+  delete root.dataset.wsRail;
+  for (const k of ["--ws-rail-bg", "--ws-accent", "--ws-accent-dark", "--ws-soft", "--ws-rail", "--ws-fill", "--ws-fill-hover", "--ws-fill-ink"]) root.style.removeProperty(k);
   root.style.colorScheme = "";
 }

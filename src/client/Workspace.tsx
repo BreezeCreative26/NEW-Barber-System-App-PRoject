@@ -53,7 +53,7 @@ import { themeClass, type ShopBrand } from "./theme";
 import { ShopPageView, type PageData as ShopPageData, type SectionVariants } from "./ShopPage";
 import { SmsBillingAck, SmsKindsPicker, SmsSenderField } from "./SmsSender";
 import { TemplateEditor } from "./TemplateEditor";
-import { WS_ACCENTS, DEFAULT_WS_THEME, applyWsTheme, parseWsTheme, readLocalWsTheme, writeLocalWsTheme, type WorkspaceTheme } from "./workspaceTheme";
+import { WS_ACCENTS, WS_RAILS, DEFAULT_WS_THEME, applyWsTheme, parseWsTheme, readLocalWsTheme, writeLocalWsTheme, type WorkspaceTheme } from "./workspaceTheme";
 import { ask, askCheck, askChoice } from "./confirm";
 import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
 
@@ -4125,7 +4125,7 @@ function WorkspaceLookPanel({ w }: { w: WorkspaceData }) {
       <div className="workspace-section-heading">
         <div>
           <h2 id="ws-look-heading">Your workspace look</h2>
-          <p className="workspace-footnote">Just for you, on the admin side: buttons, highlights and the side rail. Your shop page and customer pages keep their own theme (Settings → Shop page).</p>
+          <p className="workspace-footnote">Just for you, on the admin side: buttons, highlights and the side bar. Your shop page and customer pages keep their own theme (Settings → Shop page).</p>
         </div>
       </div>
       <div className="ws-look">
@@ -4135,6 +4135,20 @@ function WorkspaceLookPanel({ w }: { w: WorkspaceData }) {
             {WS_ACCENTS.map((a) => (
               <button key={a.id} type="button" role="radio" aria-checked={t.accent === a.id} aria-label={a.name} title={a.name} className="ws-swatch" style={{ background: a.fill, color: a.fillInk }} onClick={() => pick({ ...t, accent: a.id })} data-testid={`ws-accent-${a.id}`}>
                 {t.accent === a.id && <Icon name="check" size={16} />}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <span className="workspace-field"><span>Side bar finish</span></span>
+          <div className="ws-rails" role="radiogroup" aria-label="Side bar finish">
+            {WS_RAILS.map((r) => (
+              <button key={r.id} type="button" role="radio" aria-checked={(t.rail ?? "classic") === r.id} className="ws-rail-swatch" onClick={() => pick({ ...t, rail: r.id })} data-testid={`ws-rail-${r.id}`}>
+                <span className="ws-rail-chip" style={{ background: r.bg }} aria-hidden="true">
+                  <i /><i /><i />
+                  {(t.rail ?? "classic") === r.id && <Icon name="check" size={14} />}
+                </span>
+                <span className="ws-rail-name">{r.name}</span>
               </button>
             ))}
           </div>
