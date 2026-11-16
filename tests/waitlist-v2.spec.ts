@@ -60,7 +60,7 @@ const outbox = async (r: APIRequestContext) => ((await (await r.get(base + "/not
 const fastForward = (shopId: string) => sql`UPDATE waitlist_pending_slots SET notify_at = ${Date.now() - 1000} WHERE shop_id = ${shopId}`;
 
 test("delay: a cancelled slot is parked, a re-book by hand drops it silently, otherwise the next in line is told after the delay (cron path)", async () => {
-  const { r, c, w, P, shopId } = await fixture();
+  const { r, c, w, P, shopId, slug } = await fixture();
   const date = weekdayAhead();
   const staff = w.staff[0].id, service = w.services[0].id;
   const s = await settings(r, { waitlist_delay_min: 5, waitlist_mode: "ORDER" });
@@ -100,6 +100,7 @@ test("delay: a cancelled slot is parked, a re-book by hand drops it silently, ot
   expect(msg?.body).toMatch(/\/offer\//);
   // Re-freeing the same slot twice only ever parks one row (upsert) — and delay 0 acts at once.
   await settings(r, { waitlist_delay_min: 0 });
+  await registerCustomer(c, slug, { name: "Waiting Wendy", phone: ph(2) });
   const acc = await (await c.post(`${pub}/offer/${msg!.body.match(/\/offer\/([a-f0-9-]{72})/)![1]}/accept`, { data: {} })).json();
   await join(c, P, service, date, ph(4), "Instant Ivy");
   const cancel3 = await r.post(base + `/bookings/${acc.booking.id}/status`, { data: { status: "CANCELLED", reason: "Testing instant", version: acc.booking.version } });
@@ -147,7 +148,7 @@ test("tell everyone: every matching waiter gets one text with the exact time and
 });
 
 test("time windows and date ranges: a customer's own from/to and 'any day up to' are respected when matching and when a slot frees", async () => {
-  const { r, c, w, P } = await fixture();
+  const { r, c, w, P, slug } = await fixture();
   const d1 = weekdayAhead(3);
   const d2 = weekdayAhead(7); // always later than d1 (a Tue-Fri exists within any 7 days)
   const staff = w.staff[0].id, service = w.services[0].id;
@@ -185,6 +186,7 @@ test("time windows and date ranges: a customer's own from/to and 'any day up to'
   expect((await r.post(base + `/waitlist/${roryRow.id}/offer`, { data: { staff_id: onD2.staff_id, start_min: onD2.start_min, date: dateIn(40), version: roryRow.version } })).status()).toBe(409);
   const offer = await r.post(base + `/waitlist/${roryRow.id}/offer`, { data: { staff_id: onD2.staff_id, start_min: onD2.start_min, date: d2, version: roryRow.version } });
   expect(offer.status(), await offer.text()).toBe(201);
+  await registerCustomer(c, slug, { name: "Range Rory", phone: ph(22) });
   const acc = await (await c.post(`${pub}/offer/${(await offer.json()).offer.link.split("/offer/")[1]}/accept`, { data: {} })).json();
   expect(acc.booking.date).toBe(d2);
   // Rory (any time, d1–d2) has just accepted a d2 time, so only Nina is still waiting on d1.

@@ -163,7 +163,7 @@ export function StaffLoginPanel({ w, api, staff, onChanged }: { w: WorkspaceData
                 <span>Also text the link</span>
               </label>
             )}
-            {alsoText && canSms && <label className="workspace-field"><span>Their mobile</span><input type="tel" inputMode="tel" value={phone} maxLength={20} placeholder="07700 900123" onChange={(e) => setPhone(e.target.value)} /></label>}
+            {alsoText && canSms && <label className="workspace-field"><span>Their mobile</span><input type="tel" inputMode="tel" value={phone} maxLength={20} onChange={(e) => setPhone(e.target.value)} /></label>}
             <div className="panel-actions-row">
               <Button type="submit" disabled={busy || !staff.active || !email.trim()} data-testid="staff-login-invite"><Icon name="message" size={14} /> {busy ? "Sending…" : "Email invitation"}</Button>
             </div>

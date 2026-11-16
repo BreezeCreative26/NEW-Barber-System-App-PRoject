@@ -93,7 +93,7 @@ export function StepTeam({ w, api, refresh, setNotice, setError, goTo, onNext, o
                 <form className="setup-invite" onSubmit={(e) => { e.preventDefault(); run(() => sendInvite(s), setError); }} data-testid="invite-form">
                   <div className="setup-grid-2">
                     <F label="Email"><input type="email" inputMode="email" value={inv.email} onChange={(e) => setInv({ ...inv, email: e.target.value })} placeholder="them@example.com" data-testid="invite-email" /></F>
-                    <F label="Mobile"><input type="tel" inputMode="tel" value={inv.phone} onChange={(e) => setInv({ ...inv, phone: e.target.value })} placeholder="07700 900123" data-testid="invite-phone" /></F>
+                    <F label="Mobile"><input type="tel" inputMode="tel" value={inv.phone} onChange={(e) => setInv({ ...inv, phone: e.target.value })} data-testid="invite-phone" /></F>
                     <F label="Role" hint={ROLE_HINT[inv.role]}>
                       <select value={inv.role} onChange={(e) => setInv({ ...inv, role: e.target.value })}>
                         {canNameOwner && <option value="OWNER">Owner</option>}<option value="BARBER">Barber</option><option value="RECEPTION">Reception</option>{isOwner && <option value="MANAGER">Manager</option>}

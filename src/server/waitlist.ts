@@ -418,7 +418,7 @@ export async function createHold(c: Ctx, shop: Shop & ShopQueueSettings, h: Hold
   return { offer_id: offerId, entry_id: entryId, block_id: blockId, link: msg.link, expires_at: expires, sent: msg.rows.length > 0 };
 }
 // New link (the raw token is never stored) and the message again.
-export async function resendHold(c: Ctx, shop: Shop & ShopQueueSettings, offerId: string, actor: string, now = Date.now()) {
+export async function resendHold(c: Ctx, shop: Shop & ShopQueueSettings, offerId: string, actor: string, now = Date.now(), send = true) {
   const o = await c.env.DB.prepare("SELECT o.*, e.customer_name, e.phone, e.email FROM waitlist_offers o JOIN waitlist_entries e ON e.id=o.entry_id WHERE o.shop_id=? AND o.id=? AND o.source='HOLD'").bind(shop.id, offerId).first<OfferRow & { customer_name: string; phone: string; email: string }>();
   if (!o || o.status !== "PENDING" || o.expires_at <= now) return null;
   const [staff, service] = await Promise.all([
@@ -426,11 +426,14 @@ export async function resendHold(c: Ctx, shop: Shop & ShopQueueSettings, offerId
     c.env.DB.prepare("SELECT name FROM services WHERE shop_id=? AND id=?").bind(shop.id, o.service_id).first<{ name: string }>(),
   ]);
   const raw = uid() + uid();
-  const msg = await holdMessage(c, shop, { name: o.customer_name, phone: o.phone, email: o.email }, { service: service?.name ?? "", barber: staff?.name ?? "", date: o.date, start_min: o.start_min, expires: o.expires_at, raw }, o.id);
+  // send=false: a fresh link for staff to copy and share themselves (nothing is messaged).
+  const msg = send
+    ? await holdMessage(c, shop, { name: o.customer_name, phone: o.phone, email: o.email }, { service: service?.name ?? "", barber: staff?.name ?? "", date: o.date, start_min: o.start_min, expires: o.expires_at, raw }, o.id)
+    : { rows: [], link: shopUrl(shop.slug!, `/offer/${raw}`, process.env.APP_ORIGIN || new URL(c.req.url).origin) };
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE waitlist_offers SET token_hash=? WHERE id=? AND status='PENDING'").bind(await digest(raw), o.id),
     ...msg.rows,
-    c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shop.id, "waitlist", o.entry_id, "SLOT_HOLD_RESENT", actor, "Confirmation link sent again (the earlier link no longer works).", now),
+    c.env.DB.prepare("INSERT INTO audit_events(id,shop_id,entity_type,entity_id,action,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(uid(), shop.id, "waitlist", o.entry_id, send ? "SLOT_HOLD_RESENT" : "SLOT_HOLD_LINK_COPIED", actor, send ? "Confirmation link sent again (the earlier link no longer works)." : "New confirmation link made for staff to share (the earlier link no longer works).", now),
   ]);
   if (msg.rows.length) await drainSoon(c, 3, { type: "waitlist_offer", id: o.id });
   return { link: msg.link, sent: msg.rows.length > 0 };

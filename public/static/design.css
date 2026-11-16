@@ -6093,3 +6093,22 @@ select { line-height: 1.25; }
   .move-bar > svg { display: none; }
   .move-bar .button { min-height: 40px; padding: 0 12px; }
 }
+
+/* Hold link ready: sent / not sent + copy link */
+.hold-ready { display: grid; gap: 12px; }
+.hold-ready-status { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 12px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4; }
+.hold-ready-status svg { flex: none; margin-top: 2px; }
+.hold-ready-status.ok { background: color-mix(in srgb, #16a34a 10%, transparent); color: #166534; }
+.hold-ready-status.warn { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #92400e; }
+.hold-link { display: flex; gap: 8px; align-items: center; }
+.hold-link input { flex: 1; min-width: 0; height: 44px; padding: 0 12px; border-radius: 10px; font-size: 13px; text-overflow: ellipsis; }
+.hold-link .button { flex: none; white-space: nowrap; }
+@media (max-width: 560px) { .hold-link { flex-direction: column; align-items: stretch; } .hold-link .button { justify-content: center; } }
+/* Offer page: why we ask for an account */
+.held-why { margin: 0 0 4px; font-size: 14px; color: var(--muted, #6b7280); line-height: 1.45; }
+/* Sidebar group headings: readable contrast on the dark rail (WCAG AA) */
+.sidebar-group { color: rgba(255,255,255,.62); }
+html:not(.ws-dark) .sidebar.light .sidebar-group { color: var(--muted); }
+/* Offer page account tabs: unselected tab text meets AA contrast on the grey track */
+.held-tabs button { color: #3f4652; }
+.held-tabs button[aria-selected=true] { color: var(--ink, #0b0b0c); }
