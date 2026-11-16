@@ -1247,7 +1247,7 @@ function WalkInForm({ w, saved, staffId }: { w: WorkspaceData; saved: EditorProp
           <input name="customer_name" maxLength={100} placeholder="Walk-in" />
         </Field>
         <Field label="Mobile (optional)">
-          <input name="phone" inputMode="tel" maxLength={20} placeholder="07700 900123" />
+          <input name="phone" inputMode="tel" maxLength={20} />
         </Field>
       </div>
       <Field label="Notes (optional)">
@@ -4011,7 +4011,7 @@ function BusinessDetailsPanel({ w, refresh }: { w: WorkspaceData; refresh: () =>
           <Field label="Address"><textarea name="address" maxLength={300} defaultValue={shop.address} rows={2} /></Field>
           <div className="workspace-form-grid">
             <Field label="Shop mobile" hint={shop.phone_verified_at ? "Verified" : shop.phone ? "Not verified yet" : "Used for owner alerts and the AI receptionist."}>
-              <input name="phone" type="tel" inputMode="tel" maxLength={20} defaultValue={shop.phone || ""} placeholder="07700 900123" data-testid="biz-phone" />
+              <input name="phone" type="tel" inputMode="tel" maxLength={20} defaultValue={shop.phone || ""} data-testid="biz-phone" />
             </Field>
             <Field label="Shop email" hint={shop.email_verified_at ? "Verified" : "Replies to customer messages come here."}>
               <input name="email" type="email" maxLength={254} defaultValue={shop.email || ""} data-testid="biz-email" />
@@ -6522,7 +6522,7 @@ function CustomerForm({
               <input name="name" required minLength={2} maxLength={100} defaultValue={customer?.name} autoComplete="off" />
             </Field>
             <Field label="Mobile number">
-              <input name="phone" type="tel" required defaultValue={customer?.phone} placeholder="07700 900123" autoComplete="off" />
+              <input name="phone" type="tel" required defaultValue={customer?.phone} autoComplete="off" />
             </Field>
             <Field label={customer?.email ? "Email" : "Email address"}>
               <input name="email" type="email" required={!customer || !!customer.email} maxLength={254} defaultValue={customer?.email} autoComplete="off" />
@@ -7781,7 +7781,6 @@ function CustomerPicker({
               onChange={(e) => setPhone(e.target.value)}
               type="tel"
               required={!!name.trim()}
-              placeholder="07700 900123"
               autoComplete="off"
             />
           </Field>

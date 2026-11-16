@@ -1,6 +1,6 @@
 // /offer/<token>: the customer's reply page. One held time, two buttons.
-// Waiting-list offers need no sign-in. A space the barber held for someone (source HOLD) is confirmed
-// by a signed-in customer: they create an account (prefilled) or sign in, then confirm.
+// Every offer is confirmed by a signed-in customer, like any online booking: a cancellation-watch offer
+// and a space the barber held (source HOLD) both ask them to create an account (prefilled) or sign in first.
 import { Boot } from "./boot";
 import { useEffect, useState, type CSSProperties, type FormEvent } from "react";
 import { Avatar, Button, Icon, Notice } from "./ui";
@@ -38,7 +38,7 @@ export function OfferPage({ token }: { token: string }) {
   const load = () =>
     api<{ offer: Offer } & Partial<HoldInfo>>(`/offer/${token}`).then((r) => {
       setOffer(r.offer);
-      if (r.offer.source === "HOLD") setHold({ account: r.account ?? null, prefill: r.prefill ?? null, terms: r.terms ?? null });
+      setHold({ account: r.account ?? null, prefill: r.prefill ?? null, terms: r.terms ?? null });
       return r;
     });
   useEffect(() => {
@@ -140,19 +140,26 @@ export function OfferPage({ token }: { token: string }) {
               <Notice icon="clock">
                 Held for you for another <strong>{minutesLeft} minute{minutesLeft === 1 ? "" : "s"}</strong>. After that it goes to the next person waiting.
               </Notice>
-              {actionError && (
-                <p className="form-error" role="alert">
-                  {actionError}
-                </p>
+              {hold && !hold.account ? (
+                <AccountStep offer={offer} hold={hold} actionError={actionError} submitLabel="to take it" onSignedIn={() => load().catch(() => {})} />
+              ) : (
+                <>
+                  {hold?.account && <p className="held-who">Booking as <strong>{hold.account.name || hold.account.email}</strong>{hold.account.email ? ` · ${hold.account.email}` : ""}</p>}
+                  {actionError && (
+                    <p className="form-error" role="alert">
+                      {actionError}
+                    </p>
+                  )}
+                  <div className="ca-form-actions">
+                    <Button variant="ghost" onClick={() => decline(false)} disabled={busy} data-testid="offer-decline">
+                      Not this time, keep me on the list
+                    </Button>
+                    <Button onClick={accept} disabled={busy} data-testid="offer-accept">
+                      <Icon name="check" size={16} /> {busy ? "Booking…" : "Take it"}
+                    </Button>
+                  </div>
+                </>
               )}
-              <div className="ca-form-actions">
-                <Button variant="ghost" onClick={() => decline(false)} disabled={busy} data-testid="offer-decline">
-                  Not this time, keep me on the list
-                </Button>
-                <Button onClick={accept} disabled={busy} data-testid="offer-accept">
-                  <Icon name="check" size={16} /> {busy ? "Booking…" : "Take it"}
-                </Button>
-              </div>
               <button type="button" className="ca-linkish" onClick={() => decline(true)} disabled={busy} data-testid="offer-leave">
                 I’m sorted elsewhere — take me off the list
               </button>
@@ -196,8 +203,8 @@ export function OfferPage({ token }: { token: string }) {
   );
 }
 
-// Held for you: who/when, then account (create or sign in), then a single Confirm button.
-function HeldTime({ offer, hold, busy, minutesLeft, actionError, onSignedIn, onAccept, onDecline }: { offer: Offer; hold: HoldInfo; busy: boolean; minutesLeft: number; actionError: string; onSignedIn: () => void; onAccept: () => void; onDecline: () => void }) {
+// Create an account (prefilled from the request) or sign in, then the page reloads as signed in.
+function AccountStep({ offer, hold, actionError, submitLabel, onSignedIn, onDecline, busy }: { offer: Offer; hold: HoldInfo; actionError: string; submitLabel: string; onSignedIn: () => void; onDecline?: () => void; busy?: boolean }) {
   const slug = offer.shop.slug || "";
   const A = `/shops/${encodeURIComponent(slug)}/account`;
   const [mode, setMode] = useState<"register" | "login">("register");
@@ -208,7 +215,6 @@ function HeldTime({ offer, hold, busy, minutesLeft, actionError, onSignedIn, onA
   const [terms, setTerms] = useState(false);
   const [err, setErr] = useState("");
   const [working, setWorking] = useState(false);
-  const left = minutesLeft >= 120 ? `${Math.round(minutesLeft / 60)} hours` : `${minutesLeft} minute${minutesLeft === 1 ? "" : "s"}`;
   async function submit(e: FormEvent) {
     e.preventDefault();
     setWorking(true);
@@ -225,6 +231,34 @@ function HeldTime({ offer, hold, busy, minutesLeft, actionError, onSignedIn, onA
       setWorking(false);
     }
   }
+  return (
+    <form className="ca-form held-form" onSubmit={submit} data-testid="hold-account-form">
+      <p className="held-why">Sign in or create a free account {submitLabel}. It takes a few seconds and keeps your booking safe.</p>
+      <div className="held-tabs" role="tablist">
+        <button type="button" role="tab" aria-selected={mode === "register"} onClick={() => { setMode("register"); setErr(""); }}>I’m new here</button>
+        <button type="button" role="tab" aria-selected={mode === "login"} onClick={() => { setMode("login"); setErr(""); }}>I have an account</button>
+      </div>
+      {mode === "register" && (
+        <>
+          <label><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" data-testid="hold-name" /></label>
+          <label><span>Mobile</span><input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required autoComplete="tel" data-testid="hold-phone" /></label>
+        </>
+      )}
+      <label><span>Email</span><input type="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete={mode === "login" ? "username" : "email"} data-testid="hold-email" /></label>
+      <label><span>{mode === "register" ? "Choose a password" : "Password"}</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === "register" ? 8 : 1} autoComplete={mode === "register" ? "new-password" : "current-password"} data-testid="hold-password" /></label>
+      {mode === "register" && hold.terms && (
+        <label className="held-terms"><input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} required /> <span>I accept {offer.shop.name}’s booking terms</span></label>
+      )}
+      {(err || actionError) && <p className="form-error" role="alert">{err || actionError}</p>}
+      <Button type="submit" disabled={working} data-testid="hold-account-submit">{working ? "One moment…" : mode === "register" ? "Create account & continue" : "Sign in & continue"} <Icon name="arrowRight" size={16} /></Button>
+      {onDecline && <button type="button" className="ca-linkish" onClick={onDecline} disabled={busy} data-testid="hold-decline">I can’t make it — release this time</button>}
+    </form>
+  );
+}
+
+// Held for you: who/when, then account (create or sign in), then a single Confirm button.
+function HeldTime({ offer, hold, busy, minutesLeft, actionError, onSignedIn, onAccept, onDecline }: { offer: Offer; hold: HoldInfo; busy: boolean; minutesLeft: number; actionError: string; onSignedIn: () => void; onAccept: () => void; onDecline: () => void }) {
+  const left = minutesLeft >= 120 ? `${Math.round(minutesLeft / 60)} hours` : `${minutesLeft} minute${minutesLeft === 1 ? "" : "s"}`;
   return (
     <div className="held-time" data-testid="held-time">
       <span className="eyebrow">HELD FOR YOU</span>
@@ -250,26 +284,7 @@ function HeldTime({ offer, hold, busy, minutesLeft, actionError, onSignedIn, onA
           </div>
         </>
       ) : (
-        <form className="ca-form held-form" onSubmit={submit} data-testid="hold-account-form">
-          <div className="held-tabs" role="tablist">
-            <button type="button" role="tab" aria-selected={mode === "register"} onClick={() => { setMode("register"); setErr(""); }}>I’m new here</button>
-            <button type="button" role="tab" aria-selected={mode === "login"} onClick={() => { setMode("login"); setErr(""); }}>I have an account</button>
-          </div>
-          {mode === "register" && (
-            <>
-              <label><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" data-testid="hold-name" /></label>
-              <label><span>Mobile</span><input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required autoComplete="tel" data-testid="hold-phone" /></label>
-            </>
-          )}
-          <label><span>Email</span><input type="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete={mode === "login" ? "username" : "email"} data-testid="hold-email" /></label>
-          <label><span>{mode === "register" ? "Choose a password" : "Password"}</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === "register" ? 8 : 1} autoComplete={mode === "register" ? "new-password" : "current-password"} data-testid="hold-password" /></label>
-          {mode === "register" && hold.terms && (
-            <label className="held-terms"><input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} required /> <span>I accept {offer.shop.name}’s booking terms</span></label>
-          )}
-          {(err || actionError) && <p className="form-error" role="alert">{err || actionError}</p>}
-          <Button type="submit" disabled={working} data-testid="hold-account-submit">{working ? "One moment…" : mode === "register" ? "Create account & continue" : "Sign in & continue"} <Icon name="arrowRight" size={16} /></Button>
-          <button type="button" className="ca-linkish" onClick={onDecline} disabled={busy} data-testid="hold-decline">I can’t make it — release this time</button>
-        </form>
+        <AccountStep offer={offer} hold={hold} actionError={actionError} submitLabel="to confirm" onSignedIn={onSignedIn} onDecline={onDecline} busy={busy} />
       )}
       <Notice icon="clock">Held for another <strong>{left}</strong>. After that the time is released.</Notice>
     </div>

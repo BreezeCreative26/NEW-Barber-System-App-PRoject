@@ -174,7 +174,7 @@ function StepShop({ w, api, refresh, data, reload, setNotice, setError, onNext }
         <F label="Shop name"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required minLength={2} maxLength={100} data-testid="setup-shop-name" /></F>
         <F label="Currency"><select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value as "GBP" })}><option value="GBP">£ GBP</option><option value="EUR">€ EUR</option><option value="USD">$ USD</option></select></F>
         <F label="Shop mobile" hint="For verification codes, password resets and booking alerts. Customers don't see it unless you add it to your shop page.">
-          <input type="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="07700 900123" maxLength={20} data-testid="setup-shop-phone" />
+          <input type="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} maxLength={20} data-testid="setup-shop-phone" />
         </F>
         <F label="Shop email" hint="Replies to customer emails go here.">
           <input type="email" inputMode="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} maxLength={254} data-testid="setup-shop-email" />

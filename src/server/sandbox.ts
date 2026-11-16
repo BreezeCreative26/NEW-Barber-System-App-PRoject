@@ -1701,12 +1701,12 @@ sandbox.get("/holds/:offerId", async (c) => {
   return c.json({ hold: row });
 });
 sandbox.post("/holds/:offerId/resend", async (c) => {
-  await input(c, z.object({}).strict());
+  const body = await input(c, z.object({ send: z.boolean().default(true) }).strict());
   const shop = await shopWithQueue(c, c.get("shopId"));
   const o = await c.env.DB.prepare("SELECT staff_id FROM waitlist_offers WHERE shop_id=? AND id=? AND source='HOLD'").bind(shop.id, c.req.param("offerId")).first<{ staff_id: string }>();
   if (!o) return fail(404, "Hold not found");
   scopeStaff(c, o.staff_id);
-  const r = await resendHold(c, shop, c.req.param("offerId"), c.get("actor"));
+  const r = await resendHold(c, shop, c.req.param("offerId"), c.get("actor"), Date.now(), body.send);
   if (!r) return fail(409, "This hold has ended.");
   return c.json({ ok: true, ...r });
 });

@@ -1233,18 +1233,16 @@ const offerView = (o: OfferRow, entry: WaitlistRow, shop: Shop & Partial<Branded
 pub.get("/offer/:token", async (c) => {
   await throttle(c, "offer", clientKey(c), 60);
   const { shop, offer, entry, staffName, service } = await offerByToken(c);
-  // Held spaces are confirmed by a signed-in customer: say who is signed in, and prefill sign-up.
-  if (offer.source === "HOLD") {
-    const who = await currentCustomerAccount(c, shop).catch(() => null);
-    const terms = shop.terms_text && (shop.terms_version || 0) > 0 ? { version: shop.terms_version, text: shop.terms_text } : null;
-    return c.json({
-      offer: offerView(offer, entry, shop, staffName, service),
-      account: who ? { name: who.name, email: who.email } : null,
-      prefill: offer.status === "PENDING" ? { name: entry.customer_name, phone: entry.phone, email: entry.email } : null,
-      terms,
-    });
-  }
-  return c.json({ offer: offerView(offer, entry, shop, staffName, service) });
+  // Held spaces and cancellation-watch offers are both confirmed by a signed-in customer: say who is
+  // signed in, and prefill sign-up from the request.
+  const who = await currentCustomerAccount(c, shop).catch(() => null);
+  const terms = shop.terms_text && (shop.terms_version || 0) > 0 ? { version: shop.terms_version, text: shop.terms_text } : null;
+  return c.json({
+    offer: offerView(offer, entry, shop, staffName, service),
+    account: who ? { name: who.name, email: who.email } : null,
+    prefill: offer.status === "PENDING" ? { name: entry.customer_name, phone: entry.phone, email: entry.email } : null,
+    terms,
+  });
 });
 pub.post("/offer/:token/accept", async (c) => {
   await readInput(c, z.object({}).strict());
@@ -1255,13 +1253,17 @@ pub.post("/offer/:token/accept", async (c) => {
   }
   if (offer.source === "HOLD") return acceptHold(c, shop, offer, entry, staffName, service);
   if (offer.status !== "PENDING") fail(409, offer.status === "EXPIRED" ? "This offer has expired. You are still on the list." : "This offer is no longer open.");
+  // Like any online booking, the time goes to a signed-in customer (their account is the booker).
+  const who = await currentCustomerAccount(c, shop);
+  if (!who) return fail(401, "sign_in_required");
+  if (!who.email) fail(400, "Add an email address to your account");
   const svc = await c.env.DB.prepare("SELECT version FROM services WHERE shop_id=? AND id=?").bind(shop.id, offer.service_id).first<{ version: number }>();
   const { minStart, maxDate } = limits(shop);
   let result: Awaited<ReturnType<typeof createBooking>>;
   try {
     result = await createBooking(
       c,
-      { request_id: offer.id, staff_id: offer.staff_id, service_id: offer.service_id, customer_name: entry.customer_name, attendee_name: "", phone: entry.phone, email: entry.email, notes: entry.notes, date: offer.date, start_min: offer.start_min, addon_ids: [], quote: { service_version: svc!.version, shop_version: shop.version }, source: "TEST_BOOKING" },
+      { request_id: offer.id, staff_id: offer.staff_id, service_id: offer.service_id, customer_name: who.name || entry.customer_name, attendee_name: "", phone: who.phone || entry.phone, email: who.email, notes: entry.notes, date: offer.date, start_min: offer.start_min, addon_ids: [], quote: { service_version: svc!.version, shop_version: shop.version }, source: "TEST_BOOKING" },
       "ONLINE",
       { minStart, maxDate },
     );
@@ -1281,7 +1283,7 @@ pub.post("/offer/:token/accept", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE waitlist_offers SET status='ACCEPTED',booking_id=?,responded_at=? WHERE id=? AND status='PENDING'").bind(result!.booking.id, now, offer.id),
     c.env.DB.prepare("UPDATE waitlist_entries SET status='BOOKED',booking_id=?,version=version+1,updated_at=? WHERE id=?").bind(result!.booking.id, now, entry.id),
-    queueMessage(c, shop, entry, "waitlist_booked", render(templates.waitlist_booked, { service: service?.name ?? "", barber: staffName.split(" ")[0], shop: shop.name, date: wl.fmtDate(offer.date), time: wl.fmtTime(offer.start_min), ref: ref(result!.booking), manage: manage ? shopUrl(shop.slug!, `/manage/${manage}`, new URL(c.req.url).origin) : "(see the shop)" }), { type: "booking", id: result!.booking.id }),
+    queueMessage(c, shop, { phone: result!.booking.phone, email: result!.booking.email }, "waitlist_booked", render(templates.waitlist_booked, { service: service?.name ?? "", barber: staffName.split(" ")[0], shop: shop.name, date: wl.fmtDate(offer.date), time: wl.fmtTime(offer.start_min), ref: ref(result!.booking), manage: manage ? shopUrl(shop.slug!, `/manage/${manage}`, new URL(c.req.url).origin) : "(see the shop)" }), { type: "booking", id: result!.booking.id }),
     audit(c, "waitlist", entry.id, "WAITLIST_OFFER_ACCEPTED", `Customer accepted the offer online; booking ${ref(result!.booking)} created.`),
   ]);
   await drainSoon(c, 2, { type: "booking", id: result!.booking.id });

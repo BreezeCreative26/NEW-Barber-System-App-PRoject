@@ -4,8 +4,11 @@
 import { test, expect, request, type APIRequestContext } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { base, origin, openFixtureShop, openQueue, section } from "./fixture";
+import { registerCustomer } from "./shop";
 
 const pub = origin + "/api/public";
+// Offers are taken by a signed-in customer (like any online booking): sign the waiter in first.
+const signIn = (c: APIRequestContext, slug: string, phone: string, name = "Waiting Customer") => registerCustomer(c, slug, { name, phone });
 async function fixture() {
   const r = await request.newContext({ extraHTTPHeaders: { Origin: origin } });
   const res = await r.post(base + "/auth/demo", { data: { fixture: true } });
@@ -33,7 +36,7 @@ async function queue(r: APIRequestContext, status = "ACTIVE") {
 }
 
 test("join → matches → manual offer → outbox → customer accepts → booked, entry linked, messages recorded", async () => {
-  const { r, c, w, P } = await fixture();
+  const { r, c, w, P, slug } = await fixture();
   const date = weekdayAhead();
   const joined = await join(c, P, w.services[0].id, date, "07700900555", "Wanda Waits", "AFTERNOON");
   expect(joined.auto_offer).toBe(true);
@@ -78,11 +81,14 @@ test("join → matches → manual offer → outbox → customer accepts → book
   const view = await (await c.get(`${pub}/offer/${token}`)).json();
   expect(view.offer).toMatchObject({ status: "PENDING", start_min: matches[0].start_min, customer_first: "Wanda", staff_name: matches[0].staff_name });
   expect((await c.get(`${pub}/offer/${"x".repeat(72)}`)).status()).toBe(404);
+  // Not signed in: refused, nothing booked.
+  expect((await c.post(`${pub}/offer/${token}/accept`, { data: {} })).status()).toBe(401);
+  const wanda = await signIn(c, slug, "07700900555", "Wanda Waits");
   const accept = await c.post(`${pub}/offer/${token}/accept`, { data: {} });
   expect(accept.status(), await accept.text()).toBe(201);
   const acc = await accept.json();
   expect(acc.booking.reference).toMatch(/^BRB-\d{4}$/);
-  expect(acc.booking.phone).toBe("07700900555");
+  expect(acc.booking.phone).toBe(wanda.phone);
   expect(acc.manage_token).toMatch(/^[a-f0-9-]{72}$/);
   // Replay is safe; declining after acceptance is refused.
   expect((await c.post(`${pub}/offer/${token}/accept`, { data: {} })).status()).toBe(200);
@@ -100,7 +106,7 @@ test("join → matches → manual offer → outbox → customer accepts → book
 });
 
 test("decline puts the customer back in line and the slot cascades to the next waiter; decline+leave closes; auto-offer on owner cancel and customer cancel", async () => {
-  const { r, c, w, P } = await fixture();
+  const { r, c, w, P, slug } = await fixture();
   const date = weekdayAhead();
   // v2 waits `waitlist_delay_min` (default 5) before telling anyone a slot freed; this test checks the cascade itself, so act at once.
   {
@@ -143,6 +149,7 @@ test("decline puts the customer back in line and the slot cascades to the next w
   const manual = await r.post(base + `/waitlist/${fay.id}/offer`, { data: { staff_id: slot.staff_id, start_min: slot.start_min, version: fayNow.version } });
   expect(manual.status(), await manual.text()).toBe(201);
   const fayToken = (await manual.json()).offer.link.split("/offer/")[1];
+  await signIn(c, slug, "07700900561", "First Fay");
   const acc = await (await c.post(`${pub}/offer/${fayToken}/accept`, { data: {} })).json();
   expect(acc.booking.start_min).toBe(slot.start_min);
   await join(c, P, w.services[0].id, date, "07700900563", "Third Tia", "ANY");
@@ -152,6 +159,7 @@ test("decline puts the customer back in line and the slot cascades to the next w
   expect(q3.waitlist.find((e) => e.customer_name === "Third Tia")).toMatchObject({ status: "OFFERED", offer_source: "AUTO", offer_start_min: slot.start_min });
   // Customer-side cancel (manage link) also frees a slot to the queue: Tia accepts, a fourth waits, Tia cancels via manage link → fourth offered.
   const tiaMsg = (await (await r.get(base + "/notifications")).json()).notifications.find((n: { template: string; recipient: string }) => n.template === "waitlist_offer" && n.recipient === "07700900563");
+  await signIn(c, slug, "07700900563", "Third Tia");
   const tiaAcc = await (await c.post(`${pub}/offer/${tiaMsg.body.match(/\/offer\/([a-f0-9-]{72})/)![1]}/accept`, { data: {} })).json();
   await join(c, P, w.services[0].id, date, "07700900564", "Fourth Finn", "ANY");
   const mc = await c.post(`${pub}/manage/${tiaAcc.manage_token}/cancel`, { data: { version: tiaAcc.booking.version } });
@@ -163,6 +171,7 @@ test("decline puts the customer back in line and the slot cascades to the next w
   const off = await r.put(base + "/shop/waitlist", { data: { waitlist_auto_offer: 0, waitlist_offer_hold_min: 60, waitlist_delay_min: 0, templates: nb.templates, version: shop.version } });
   expect(off.status(), await off.text()).toBe(200);
   const finnMsg = nb.notifications.find((n: { template: string; recipient: string }) => n.template === "waitlist_offer" && n.recipient === "07700900564");
+  await signIn(c, slug, "07700900564", "Fourth Finn");
   const finnAcc = await (await c.post(`${pub}/offer/${finnMsg.body.match(/\/offer\/([a-f0-9-]{72})/)![1]}/accept`, { data: {} })).json();
   await join(c, P, w.services[0].id, date, "07700900565", "Fifth Faye", "ANY");
   const shop2 = (await (await r.get(base + "/workspace")).json()).shop;
@@ -271,6 +280,13 @@ test("browser: queue chip → drawer → offer a time → copy message; bell kee
   await expect(cp.getByTestId("offer-slot")).toContainText(chosenTime);
   a11y = await new AxeBuilder({ page: cp }).withTags(["wcag2a", "wcag2aa"]).analyze();
   expect(a11y.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
+  // Not signed in yet: the offer asks them to create an account (prefilled) first, then they take it.
+  await expect(cp.getByTestId("hold-account-form")).toBeVisible();
+  await cp.getByTestId("hold-email").fill(`browser-${Date.now()}@example.test`);
+  await cp.getByTestId("hold-password").fill("Fictional-test-pass-2026!");
+  const terms = cp.locator(".held-terms input");
+  if (await terms.count()) await terms.check();
+  await cp.getByTestId("hold-account-submit").click();
   await cp.getByTestId("offer-accept").click();
   await expect(cp.getByRole("heading", { level: 1 })).toContainText("You’re in");
   await expect(cp.getByTestId("offer-manage-link")).toHaveAttribute("href", /^\/manage\//);
