@@ -6438,3 +6438,57 @@ html.ws-rail-lit .workspace .sidebar.rail { box-shadow: inset -1px 0 0 rgba(255,
   .workspace .topbar .wallet-chip b { white-space: nowrap; }
   .workspace .topbar .wallet-chip small { max-width: none !important; width: 0; min-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
+
+/* ===== Appointment cards: subtle glass (calendar day view + week view) =====
+   Same colour names as before, each now set as one accent (--ev). The card is a translucent tint
+   of it with a soft white sheen at the top, a hairline edge in the same colour, a bright inner top
+   highlight and a faint coloured shadow, so it reads like tinted glass instead of flat paint.
+   Text is a deep shade of the accent. Finished and no-show keep their own styles. */
+.workspace .calendar-event.sage,  .workspace .week-card.sage  { --ev: #00b386; }
+.workspace .calendar-event.sand,  .workspace .week-card.sand  { --ev: #f59e0b; }
+.workspace .calendar-event.blue,  .workspace .week-card.blue  { --ev: #2b7fff; }
+.workspace .calendar-event.clay,  .workspace .week-card.clay  { --ev: #f05252; }
+.workspace .calendar-event.plum,  .workspace .week-card.plum  { --ev: #7c5cff; }
+.workspace .calendar-event.slate, .workspace .week-card.slate { --ev: #5b6b82; }
+.workspace .calendar-event.mint,  .workspace .week-card.mint  { --ev: #10b981; }
+.workspace .calendar-event.coral, .workspace .week-card.coral { --ev: #f7704f; }
+.workspace .calendar-event.gold,  .workspace .week-card.gold  { --ev: #d4a106; }
+.workspace .calendar-event.teal,  .workspace .week-card.teal  { --ev: #0fb3a8; }
+.workspace .calendar-event.rose,  .workspace .week-card.rose  { --ev: #e8508a; }
+.workspace .calendar-event.ink,   .workspace .week-card.ink   { --ev: #3d4656; }
+
+.workspace :is(.calendar-event, .week-card):is(.sage,.sand,.blue,.clay,.plum,.slate,.mint,.coral,.gold,.teal,.rose,.ink):not(.finished):not(.done):not(.no-show) {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.72) 0%, rgba(255,255,255,.28) 55%, rgba(255,255,255,.12) 100%),
+    color-mix(in srgb, var(--ev) 15%, #fff);
+  border: 1px solid color-mix(in srgb, var(--ev) 26%, transparent);
+  border-left: 3px solid var(--ev);
+  color: color-mix(in srgb, var(--ev) var(--ev-body, 58%), #0b0b0c);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -1px 0 color-mix(in srgb, var(--ev) 10%, transparent),
+    0 1px 2px color-mix(in srgb, var(--ev) 16%, transparent),
+    0 6px 14px -8px color-mix(in srgb, var(--ev) 45%, transparent);
+  transition: box-shadow .15s, transform .15s, background .15s;
+}
+.workspace :is(.calendar-event, .week-card):is(.sage,.sand,.blue,.clay,.plum,.slate,.mint,.coral,.gold,.teal,.rose,.ink):not(.finished):not(.done):not(.no-show) :is(strong, time, .event-name) {
+  color: color-mix(in srgb, var(--ev) var(--ev-head, 66%), #0b0b0c);
+}
+/* Light accents need darker text to stay easy to read. */
+.workspace :is(.calendar-event, .week-card):is(.sand, .gold) { --ev-head: 48%; --ev-body: 44%; }
+.workspace :is(.calendar-event, .week-card):is(.mint, .teal, .sage) { --ev-head: 58%; --ev-body: 52%; }
+.workspace .calendar-event:is(.sage,.sand,.blue,.clay,.plum,.slate,.mint,.coral,.gold,.teal,.rose,.ink):not(.finished):not(.no-show):hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.95),
+    0 2px 4px color-mix(in srgb, var(--ev) 18%, transparent),
+    0 10px 22px -10px color-mix(in srgb, var(--ev) 60%, transparent);
+}
+/* Finished: the same glass, in neutral grey. */
+.workspace .calendar-event.finished, .workspace .week-card.done {
+  background: linear-gradient(180deg, rgba(255,255,255,.75), rgba(255,255,255,.3)), #eef0f3;
+  border: 1px solid rgba(100,110,125,.18);
+  border-left: 3px solid #a9afba;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 1px 2px rgba(14,15,18,.05);
+}
+/* Overlapping cards keep a thin white gap between them. */
+.workspace .calendar-event.overlapping:not(.no-show) { outline: 1px solid #fff; outline-offset: 0; }
