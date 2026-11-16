@@ -430,6 +430,8 @@ export type WorkspaceData = {
   cards_ready?: boolean;
   logo_url?: string;
   logo_tone?: string;
+  /** The number customers call (Settings → Business details); blank = not shown anywhere. */
+  public_phone?: string;
   staff: Staff[];
   services: Service[];
   addons: Addon[];
@@ -1204,6 +1206,10 @@ export const moveSchema = z
     // Message the customer about the new time (held briefly so Undo can cancel it). Off unless asked.
     // true = their usual channel; { sms, email } = exactly those (each only if the booking has it).
     notify: z.union([z.boolean(), z.object({ sms: z.boolean(), email: z.boolean() }).strict()]).default(false),
+    // Out-of-hours charge after the move. Omitted = decided automatically (normal hours → no charge,
+    // fully inside an out-of-hours window → the barber's charge); a time only partly outside normal
+    // hours needs the shop to choose, and the server answers 409 ooh_choice until it does.
+    ooh_fee: z.enum(["charge", "none"]).optional(),
   })
   .strict();
 // Reasons a shop user may knowingly override from the calendar. Public booking never can.

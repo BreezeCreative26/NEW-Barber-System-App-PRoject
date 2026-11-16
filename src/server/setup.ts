@@ -176,6 +176,9 @@ const contactSchema = z.object({
   vat_number: z.string().trim().max(32).default(""),
   company_number: z.string().trim().max(32).default(""),
   website: z.union([z.literal(""), z.string().trim().url().max(300)]).default(""),
+  // The number customers call (landline or mobile). Shown on the shop page, booking screens and emails.
+  // Blank = no number anywhere. Omitted = left as it is.
+  public_phone: z.string().trim().max(20).regex(/^[0-9+()\s-]*$/, "Use digits, spaces and + only").optional(),
 }).strict();
 setup.put("/contact", async (c) => {
   requireManager(c);
@@ -189,6 +192,9 @@ setup.put("/contact", async (c) => {
     c.env.DB.prepare(
       `UPDATE shops SET name=?, kind=?, phone=?, email=?, address=?, timezone=?, currency=?, legal_name=?, vat_number=?, company_number=?, website=?, version=version+1${phoneChanged ? ", phone_verified_at=NULL" : ""}${emailChanged ? ", email_verified_at=NULL" : ""} WHERE id=?`,
     ).bind(b.name, b.kind, phone || "", b.email, b.address, b.timezone, b.currency, b.legal_name, b.vat_number, b.company_number, b.website, shop.id),
+    ...(b.public_phone !== undefined
+      ? [c.env.DB.prepare("INSERT INTO shop_pages(shop_id,phone,updated_at) VALUES(?,?,?) ON CONFLICT (shop_id) DO UPDATE SET phone=excluded.phone, version=shop_pages.version+1, updated_at=excluded.updated_at").bind(shop.id, b.public_phone.replace(/\s+/g, " "), Date.now())]
+      : []),
     audit(c, "shop", shop.id, "SHOP_CONTACT_UPDATED", `${b.kind.toLowerCase()} · ${phone ? "mobile set" : "no mobile"} · ${b.email ? "email set" : "no email"}.`),
   ]);
   return c.json({ shop: await readShop(c) });

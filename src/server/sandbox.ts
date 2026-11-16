@@ -818,7 +818,7 @@ sandbox.get("/workspace", async (c) => {
     scoped(
       "SELECT * FROM staff_schedule_overrides WHERE shop_id=? AND (? IS NULL OR staff_id=?) ORDER BY date",
     ),
-    c.env.DB.prepare("SELECT logo_url, logo_tone FROM shop_pages WHERE shop_id=?").bind(sid),
+    c.env.DB.prepare("SELECT logo_url, logo_tone, phone FROM shop_pages WHERE shop_id=?").bind(sid),
     scoped("SELECT * FROM staff_blocks WHERE shop_id=? AND (? IS NULL OR staff_id=?) AND date>=? ORDER BY date,start_min", [shopToday(shop.timezone)]),
     c.env.DB.prepare("SELECT * FROM service_categories WHERE shop_id=? ORDER BY sort_order,name").bind(sid),
     c.env.DB.prepare("SELECT * FROM staff_ooh WHERE shop_id=? AND date>=? ORDER BY date,starts").bind(sid, datePlusServer(shopToday(shop.timezone), -62)),
@@ -905,6 +905,7 @@ sandbox.get("/workspace", async (c) => {
     cards_ready: await shopCanTakeCards(c.env.DB, sid),
     logo_url: (result[11].results[0] as { logo_url?: string } | undefined)?.logo_url || "",
     logo_tone: (result[11].results[0] as { logo_tone?: string } | undefined)?.logo_tone || "",
+    public_phone: (result[11].results[0] as { phone?: string } | undefined)?.phone || "",
     account,
     staff,
     services,
@@ -4648,6 +4649,47 @@ sandbox.get("/pay-runs/:id/transfers", async (c) => {
   const rows = await c.env.DB.prepare("SELECT * FROM transfers WHERE shop_id=? AND pay_run_id=? ORDER BY created_at").bind(c.get("shopId"), c.req.param("id")).all();
   return c.json({ transfers: rows.results });
 });
+// Where a moved visit sits against the barber's normal hours, and what that means for its
+// out-of-hours charge: inside normal hours → none; wholly inside an out-of-hours window the barber
+// opened → their charge; only partly outside → the shop chooses (body.ooh_fee). An explicit choice
+// always wins (Undo uses it to put the price back exactly). Paid visits keep their price.
+async function oohAfterMove(
+  c: Ctx,
+  b: StoredBooking,
+  data: Awaited<ReturnType<typeof availabilityContext>>,
+  body: { date: string; start_min: number; ooh_fee?: "charge" | "none" },
+) {
+  const items = JSON.parse(b.items_json) as BookingItem[];
+  const current = items.find((i) => i.kind === "OOH");
+  const fee = data.staff.ooh_fee_pence ?? 0;
+  const same = { price_pence: b.price_pence, items_json: b.items_json, changed: false, note: "", ask: null as null | { charged: boolean; fee_pence: number; barber: string } };
+  if (!current && fee <= 0) return same;
+  const paid = await c.env.DB.prepare("SELECT 1 AS x FROM payments WHERE shop_id=? AND booking_id=? AND voided_at IS NULL LIMIT 1").bind(c.get("shopId"), b.id).first();
+  if (paid) return same;
+  const inHours = !slotReason(data.shop, data.staff, data.hours, data.holidays, [], body.date, body.start_min, b.duration_min, 0, undefined, data.daysOff, [], false);
+  const inWindow = data.ooh.some((w) => body.start_min >= w.starts && body.start_min + b.duration_min + shopBuffer(data.shop) <= w.ends);
+  // Only a visit that already carries the charge and lands partly outside hours needs a decision.
+  // One without it gains it only by moving wholly into an out-of-hours window (same rule as booking).
+  let want: "charge" | "none";
+  if (body.ooh_fee) want = body.ooh_fee;
+  else if (inHours) want = "none";
+  else if (inWindow) want = "charge";
+  else if (!current) return same;
+  else return { ...same, ask: { charged: true, fee_pence: current.price_pence, barber: data.staff.name.split(" ")[0] } };
+  const amount = want === "charge" ? (current && !inWindow ? current.price_pence : fee || current?.price_pence || 0) : 0;
+  if ((current?.price_pence ?? 0) === amount) return same;
+  const next = items.filter((i) => i.kind !== "OOH");
+  if (amount > 0) next.push({ kind: "OOH", id: "ooh", name: "Out-of-hours", price_pence: amount, duration_min: 0 });
+  const price = b.price_pence - (current?.price_pence ?? 0) + amount;
+  const money = (p: number) => `£${(p / 100).toFixed(2)}`;
+  return {
+    price_pence: price,
+    items_json: JSON.stringify(next),
+    changed: true,
+    note: amount > 0 ? ` · out-of-hours charge ${money(amount)} added (${money(b.price_pence)} → ${money(price)})` : ` · out-of-hours charge removed (${money(b.price_pence)} → ${money(price)})`,
+    ask: null,
+  };
+}
 sandbox.post("/bookings/:id/reschedule", async (c) => {
   const body = await input(c, moveSchema);
   const b = await readBooking(c, c.req.param("id"));
@@ -4682,23 +4724,28 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
   if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
   const start = localInstant(body.date, body.start_min, data.shop.timezone)!;
   const holdChecks = holdStatements(c.env.DB, { shopId: c.get("shopId"), staffId: body.staff_id, startAt: start, endAt: start + b.duration_min * 60000, channel: "OWNER", force: body.force, ownHash: "" });
+  // Out-of-hours charge follows the new time (never once the visit has been paid).
+  const ooh = await oohAfterMove(c, b, data, body);
+  if (ooh.ask) return c.json({ error: "ooh_choice", message: "Choose whether to keep the out-of-hours charge.", ooh: ooh.ask }, 409);
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE bookings SET staff_id=?,date=?,start_min=?,start_at=?,end_at=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
+      "UPDATE bookings SET staff_id=?,date=?,start_min=?,start_at=?,end_at=?,price_pence=?,items_json=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?",
     ).bind(
       body.staff_id,
       body.date,
       body.start_min,
       start,
       start + b.duration_min * 60000,
+      ooh.price_pence,
+      ooh.items_json,
       Date.now(),
       c.get("shopId"),
       b.id,
       body.version,
     ),
-    audit(c, "booking", b.id, "RESCHEDULED", (reason && overridden ? `${body.reason} (overrode: ${reason})` : body.reason) + (isOutsideHours(data.shop, data.hours, body.date, body.start_min, b.duration_min) ? " (outside normal working hours)" : ""), true),
-    [c.env.DB.prepare("SELECT ollo_lock_shop(?)").bind(c.get("shopId")), ...holdChecks, ...(overridden ? [forceSlot(c)] : [])],
+    audit(c, "booking", b.id, "RESCHEDULED", (reason && overridden ? `${body.reason} (overrode: ${reason})` : body.reason) + (isOutsideHours(data.shop, data.hours, body.date, body.start_min, b.duration_min) ? " (outside normal working hours)" : "") + ooh.note, true),
+    [c.env.DB.prepare("SELECT ollo_lock_shop(?)").bind(c.get("shopId")), ...holdChecks, ...(overridden ? [forceSlot(c)] : []), ...(ooh.changed ? [c.env.DB.prepare("SELECT set_config('ollo.edit_items', '1', true)")] : [])],
   );
   await slotFreed(c, await shopWithQueue(c, c.get("shopId")), { staff_id: b.staff_id, date: b.date, start_min: b.start_min }, "move");
   const after = await readBooking(c, b.id);
