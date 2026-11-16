@@ -654,6 +654,13 @@ export function Sidebar({
   shop?: { name: string; logo?: string | null; tone?: string; caption?: string } | null;
   footer?: ReactNode;
 }) {
+  // The menu scrolls, so its hover labels (narrow rail only) sit outside it in fixed position,
+  // placed next to the item being pointed at.
+  const placeTip = (e: { currentTarget: HTMLElement }) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    e.currentTarget.style.setProperty("--tip-x", `${Math.round(r.right + 10)}px`);
+    e.currentTarget.style.setProperty("--tip-y", `${Math.round(r.top + r.height / 2)}px`);
+  };
   const render = (n: NavItem) => (
     <button
       key={n.key}
@@ -662,6 +669,8 @@ export function Sidebar({
       aria-current={current === n.key ? "page" : undefined}
       aria-label={n.label}
       title={collapsed ? n.label : undefined}
+      onMouseEnter={placeTip}
+      onFocus={placeTip}
       onClick={() => {
         onSelect(n.key);
         onClose?.();
@@ -677,6 +686,7 @@ export function Sidebar({
       {open && <div className="sidebar-backdrop" onClick={onClose} aria-hidden="true" />}
       <nav
         className={`sidebar rail${collapsed ? " collapsed" : ""}${open ? " open" : ""}`}
+        id="workspace-side-menu"
         aria-label="Workspace sections"
         data-testid="rail"
         data-collapsed={collapsed ? "true" : "false"}
@@ -734,7 +744,9 @@ export function Sidebar({
   );
 }
 
-export function TabBar({ items, more = [], current, onSelect, fab }: { items: NavItem[]; more?: NavItem[]; current: string; onSelect: (key: string) => void; fab?: { label: string; onClick: () => void; disabled?: boolean } }) {
+// onMore: when given, "More" opens the full side menu (the same menu as desktop) instead of the
+// small pop-up list; moreOpen reflects whether that menu is showing.
+export function TabBar({ items, more = [], current, onSelect, fab, onMore, moreOpen = false }: { items: NavItem[]; more?: NavItem[]; current: string; onSelect: (key: string) => void; fab?: { label: string; onClick: () => void; disabled?: boolean }; onMore?: () => void; moreOpen?: boolean }) {
   const [open, setOpen] = useState(false);
   // Two tabs left of the +, the rest right of it; "More" only when there is something for it.
   const left = items.slice(0, 2), right = items.slice(2);
@@ -757,12 +769,12 @@ export function TabBar({ items, more = [], current, onSelect, fab }: { items: Na
       )}
       {right.map(render)}
       {more.length > 0 && (
-        <button type="button" className="tab-more" aria-expanded={open} aria-haspopup="menu" aria-current={moreActive && !open ? "page" : undefined} onClick={() => setOpen((o) => !o)} data-testid="tab-more">
+        <button type="button" className="tab-more" aria-expanded={onMore ? moreOpen : open} aria-haspopup={onMore ? "dialog" : "menu"} aria-controls={onMore ? "workspace-side-menu" : undefined} aria-current={moreActive && !(onMore ? moreOpen : open) ? "page" : undefined} onClick={() => (onMore ? onMore() : setOpen((o) => !o))} data-testid="tab-more">
           <Icon name="more" />
           More
         </button>
       )}
-      {open && (
+      {open && !onMore && (
         <div className="tab-sheet" role="menu" aria-label="More sections">
           {more.map((n, i) => [
             n.group && n.group !== more[i - 1]?.group ? <span key={`g-${n.group}`} className="tab-sheet-group" aria-hidden="true">{n.group}</span> : null,

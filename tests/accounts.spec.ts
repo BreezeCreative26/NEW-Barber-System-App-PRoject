@@ -610,9 +610,9 @@ for (const width of [320, 390, 768, 844, 1024, 1440, 1920])
           const shown = await staffNav.getByRole("button").allTextContents();
           if (await staffNav.getByTestId("tab-more").count()) {
             await staffNav.getByTestId("tab-more").click();
-            const more = await staffNav.getByRole("menuitem").allTextContents();
-            await staffNav.getByTestId("tab-more").click();
-            return [...shown.filter((t) => t && t !== "More"), ...more];
+            const more = await staffPage.getByTestId("rail").locator(".sidebar-item").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") || ""));
+            await staffPage.getByTestId("sidebar-close").click();
+            return [...shown.filter((t) => t && t !== "More"), ...more.filter((t) => !shown.includes(t))];
           }
           return shown.filter(Boolean);
         })()
