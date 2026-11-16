@@ -1362,7 +1362,7 @@ type Editor =
       rebook?: StoredBooking;
       waitlist?: WaitlistEntry;
       // "Book now" from Hold for someone: the chosen customer and service, on the clicked time.
-      hold?: { customer: HoldCustomer; service_id: string };
+      hold?: { customer: HoldCustomer; service_id: string; offer_id?: string };
     }
   | { kind: "hold"; draft: CalendarDraft }
   | { kind: "held"; item: StaffBlock }
@@ -3609,13 +3609,9 @@ export function Workspace() {
           api={api}
           onClose={() => setEditor(null)}
           onDone={(msg) => { setEditor(null); setNotice(msg); void refresh({ background: true }).catch(() => {}); }}
-          onBookNow={async (customer, service_id, k) => {
-            try {
-              await api(`/holds/${k.offer_id}?book=1`, "DELETE");
-              void refresh({ background: true }).catch(() => {});
-              setEditor({ kind: "booking", draft: { staffId: k.staff_id, start: k.start_min }, hold: { customer, service_id } });
-            } catch (e) { setError(e instanceof Error ? e.message : "Could not open the booking."); }
-          }}
+          // The hold stays until the booking is saved (the form books over its own held time), so
+          // closing the form without saving leaves the customer's space exactly as it was.
+          onBookNow={(customer, service_id, k) => setEditor({ kind: "booking", draft: { staffId: k.staff_id, start: k.start_min, outside: "Blocked time" }, hold: { customer, service_id, offer_id: k.offer_id || undefined } })}
         />
       )}
       {w && editor && editor.kind !== "detail" && editor.kind !== "block" && editor.kind !== "hold" && editor.kind !== "held" && (
@@ -7775,7 +7771,7 @@ function CustomerPicker({
           {!!name.trim() && !pickedId && (
             <div style={{ gridColumn: "1 / -1" }}>
               <Field label="Email address" hint="So they get their confirmation and reminders">
-                <input name="email" type="email" required placeholder="name@example.com" autoComplete="off" data-testid="customer-email" />
+                <input name="email" type="email" required defaultValue={initial?.email || ""} placeholder="name@example.com" autoComplete="off" data-testid="customer-email" />
               </Field>
             </div>
           )}
@@ -7820,7 +7816,7 @@ function BookingForm({
   draft?: CalendarDraft;
   rebook?: StoredBooking;
   waitlist?: WaitlistEntry;
-  hold?: { customer: HoldCustomer; service_id: string };
+  hold?: { customer: HoldCustomer; service_id: string; offer_id?: string };
   booking?: StoredBooking;
   saved: EditorProps["saved"];
 }) {
@@ -8154,6 +8150,8 @@ function BookingForm({
             overHeld.current,
           );
           if (b && (result as { notify?: MoveNotice } | undefined)?.notify) flushMoveNotice(b.id, (result as { notify: MoveNotice }).notify);
+          // Booked from a held space: the hold has done its job — release it (the time is now the booking).
+          if (hold?.offer_id && result?.booking) api(`/holds/${hold.offer_id}?book=1`, "DELETE").catch(() => {});
           // Link the waitlist request to the saved visit; a failure here never undoes the booking.
           if (waitlist && result?.booking)
             api(`/waitlist/${waitlist.id}/status`, "POST", {
@@ -8241,7 +8239,7 @@ function BookingForm({
                     w={w}
                     initial={
                       rebook
-                        ? { id: rebook.customer_id || null, name: rebook.customer_name, phone: rebook.phone }
+                        ? { id: rebook.customer_id || null, name: rebook.customer_name, phone: rebook.phone, email: rebook.email || "" }
                         : null
                     }
                     onChange={(c) => {
