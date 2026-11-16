@@ -12,11 +12,9 @@ type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
 type Found = { id: string; name: string; phone: string; email: string };
 type HeldRow = { id: string; status: string; date: string; start_min: number; expires_at: number; staff_id: string; service_id: string; customer_name: string; phone: string; email: string; service_name: string };
 
-const LENGTHS = [
-  { min: 60, label: "1 hour" },
-  { min: 240, label: "4 hours" },
-  { min: 1440, label: "1 day" },
-];
+const lengthLabel = (m: number) => (m < 60 ? `${m} min` : m < 1440 ? `${+(m / 60).toFixed(1)} hour${m === 60 ? "" : "s"}` : `${+(m / 1440).toFixed(1)} day${m === 1440 ? "" : "s"}`);
+// Quick choices around the shop's default (Settings → Waiting list → Holding a space).
+const lengthsFor = (def: number) => [...new Set([60, def, 240, 1440])].sort((a, b) => a - b).slice(0, 4);
 const mobileOk = (p: string) => /^(?:\+44|0)7\d{9}$/.test(p.replace(/[\s()-]/g, ""));
 const leftLabel = (ms: number) => {
   const m = Math.max(0, Math.round(ms / 60000));
@@ -38,7 +36,9 @@ export function HoldDialog({ w, staffId, date, start, api, onClose, onDone, onBo
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [length, setLength] = useState(240);
+  const defaultHold = w.shop.slot_hold_min ?? 240;
+  const lengths = lengthsFor(defaultHold);
+  const [length, setLength] = useState(defaultHold);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const seq = useRef(0);
@@ -119,8 +119,10 @@ export function HoldDialog({ w, staffId, date, start, api, onClose, onDone, onBo
         <div className="workspace-field">
           <span>Hold for</span>
           <div className="block-quick" role="radiogroup" aria-label="Hold for">
-            {LENGTHS.map((l) => (
-              <button key={l.min} type="button" role="radio" aria-checked={length === l.min} className={`block-chip ${length === l.min ? "on" : ""}`} onClick={() => setLength(l.min)}>{l.label}</button>
+            {lengths.map((m) => (
+              <button key={m} type="button" role="radio" aria-checked={length === m} className={`block-chip ${length === m ? "on" : ""}`} onClick={() => setLength(m)} data-testid={`hold-len-${m}`}>
+                {lengthLabel(m)}{m === defaultHold ? " · default" : ""}
+              </button>
             ))}
           </div>
         </div>

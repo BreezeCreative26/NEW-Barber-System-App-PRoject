@@ -1082,3 +1082,13 @@ ALTER TABLE staff_blocks ADD COLUMN IF NOT EXISTS offer_id TEXT;
 CREATE INDEX IF NOT EXISTS staff_blocks_offer ON staff_blocks(offer_id) WHERE offer_id IS NOT NULL;
 ALTER TABLE waitlist_offers DROP CONSTRAINT IF EXISTS waitlist_offers_source_check;
 ALTER TABLE waitlist_offers ADD CONSTRAINT waitlist_offers_source_check CHECK (source IN ('MANUAL','AUTO','HOLD'));
+
+-- 0078_slot_hold_setting.sql
+-- "Hold a space": how long a held time is kept for the customer by default (minutes).
+-- The barber can still pick another length per hold; this is what the Hold screen starts on.
+ALTER TABLE shops ADD COLUMN IF NOT EXISTS slot_hold_min INTEGER NOT NULL DEFAULT 240;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='shops_slot_hold_min_check') THEN
+    ALTER TABLE shops ADD CONSTRAINT shops_slot_hold_min_check CHECK (slot_hold_min BETWEEN 15 AND 2880);
+  END IF;
+END $$;
