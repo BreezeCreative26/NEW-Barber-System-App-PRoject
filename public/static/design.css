@@ -6001,3 +6001,8 @@ html.ws-dark .bi-online, html.ws-dark .bi-walkin, html.ws-dark .bi-series, html.
   .modal .block-dialog .workspace-save-actions .button.primary { order: 2; }
   .modal .block-dialog .workspace-footnote { display: none; }
 }
+
+/* Settings → Holding a space */
+.slot-hold-setting { display: grid; gap: 10px; margin-bottom: 8px; }
+.slot-hold-setting .block-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.slot-hold-setting .workspace-field { max-width: 220px; }

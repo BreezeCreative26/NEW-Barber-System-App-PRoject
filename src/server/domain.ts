@@ -63,6 +63,8 @@ export type Shop = {
   pay_show_owner_share?: number;
   // Waiting list is optional (0037). Off hides the queue in the workspace and the join card online.
   waitlist_enabled?: number;
+  // Hold a space (0078): default minutes a held time is kept for the customer (15–2880).
+  slot_hold_min?: number;
   stripe_location_id?: string;
   // Setup (0014): shop contact + verification, kind drives starter menus, wizard state, owner alerts.
   phone?: string;

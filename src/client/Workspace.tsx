@@ -4823,13 +4823,13 @@ type Providers = { email: { provider: "resend" | "mailbox"; from: string; custom
 type Messaging = { customer_code_signin?: number; msg_sms: number; msg_email: number; msg_wa?: number; msg_reminders: number; msg_reminder_hours: number; msg_reminder_steps?: string; msg_quiet_on?: number; msg_quiet_start?: number; msg_quiet_end?: number; msg_reply_to: string; msg_sms_sender: string; msg_sms_kinds?: string };
 const CHANNEL_LABEL: Record<string, string> = { SMS: "Text", EMAIL: "Email", WA: "WhatsApp (retired)", PUSH: "Push" };
 type OutboxData = {
-  shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; sms_billing?: { unit_pence: number; included_units: number; acknowledged_at: number | null; live: boolean }; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_enabled?: number; waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_mode?: "ORDER" | "EVERYONE"; waitlist_delay_min?: number } };
+  shop_version?: number; notifications: (OutboxRow & { subject?: string; provider?: string; attempts?: number; error?: string; sent_at?: number | null })[]; counts_30d: Record<string, number>; providers: Providers; messaging: Messaging; sms_billing?: { unit_pence: number; included_units: number; acknowledged_at: number | null; live: boolean }; templates: Record<string, string>; defaults: Record<string, string>; settings: { waitlist_enabled?: number; waitlist_auto_offer: number; waitlist_offer_hold_min: number; waitlist_mode?: "ORDER" | "EVERYONE"; waitlist_delay_min?: number; slot_hold_min?: number } };
 // One data load (providers, channels, templates, outbox) feeds four Settings sections. `show`
 // picks which slice renders so each section stays short; test ids are unchanged.
 type MessagesSlice = "messages" | "waitlist" | "alerts" | "ai";
 function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; show?: MessagesSlice }) {
   const [data, setData] = useState<OutboxData | null>(null);
-  const [form, setForm] = useState<{ enabled: number; auto: number; hold: number; mode: "ORDER" | "EVERYONE"; delay: number; templates: Record<string, string> } | null>(null);
+  const [form, setForm] = useState<{ enabled: number; auto: number; hold: number; mode: "ORDER" | "EVERYONE"; delay: number; slotHold: number; templates: Record<string, string> } | null>(null);
   const [msg, setMsg] = useState<Messaging | null>(null);
   const [state, setState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
   const [msgState, setMsgState] = useState<{ kind: "idle" | "saving" | "saved" | "error"; text: string }>({ kind: "idle", text: "" });
@@ -4842,7 +4842,7 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
     api<OutboxData>(`/notifications?limit=60${filter ? `&status=${filter}` : ""}`)
       .then((d) => {
         setData(d);
-        setForm((f) => f ?? { enabled: d.settings.waitlist_enabled ?? 1, auto: d.settings.waitlist_auto_offer, hold: d.settings.waitlist_offer_hold_min, mode: d.settings.waitlist_mode ?? "ORDER", delay: d.settings.waitlist_delay_min ?? 5, templates: { ...d.templates } });
+        setForm((f) => f ?? { enabled: d.settings.waitlist_enabled ?? 1, auto: d.settings.waitlist_auto_offer, hold: d.settings.waitlist_offer_hold_min, mode: d.settings.waitlist_mode ?? "ORDER", delay: d.settings.waitlist_delay_min ?? 5, slotHold: d.settings.slot_hold_min ?? 240, templates: { ...d.templates } });
         setMsg((m) => m ?? d.messaging);
       })
       .catch((e) => setState({ kind: "error", text: e instanceof Error ? e.message : "Could not load." }));
@@ -4854,7 +4854,7 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
     if (!form) return;
     setState({ kind: "saving", text: "" });
     try {
-      const r = await api<{ shop: { version: number } }>("/shop/waitlist", "PUT", { waitlist_enabled: form.enabled, waitlist_auto_offer: form.auto, waitlist_offer_hold_min: form.hold, waitlist_mode: form.mode, waitlist_delay_min: form.delay, templates: form.templates, version: data?.shop_version ?? w.shop.version });
+      const r = await api<{ shop: { version: number } }>("/shop/waitlist", "PUT", { waitlist_enabled: form.enabled, waitlist_auto_offer: form.auto, waitlist_offer_hold_min: form.hold, waitlist_mode: form.mode, waitlist_delay_min: form.delay, slot_hold_min: form.slotHold, templates: form.templates, version: data?.shop_version ?? w.shop.version });
       setData((d) => (d ? { ...d, shop_version: r.shop.version } : d));
       setState({ kind: "saved", text: "Saved. New offers use this wording; existing messages are unchanged." });
     } catch (err) {
@@ -5118,6 +5118,20 @@ function WaitlistSettingsPanel({ w, show = "messages" }: { w: WorkspaceData; sho
             })()}
           </fieldset>
           </>)}
+          <h3>Holding a space</h3>
+          <div className="slot-hold-setting" data-testid="slot-hold-setting">
+            <p className="workspace-footnote">When a barber taps a free time and picks <strong>Hold for someone</strong>, the customer gets a link to sign up and confirm. This is how long the time stays held before it frees up. Barbers can still pick a different length on each hold. It never runs past the appointment itself.</p>
+            <div className="block-quick" role="radiogroup" aria-label="Default hold time">
+              {[30, 60, 120, 240, 480, 1440, 2880].map((m) => (
+                <button key={m} type="button" role="radio" aria-checked={form.slotHold === m} className={`block-chip ${form.slotHold === m ? "on" : ""}`} onClick={() => setForm({ ...form, slotHold: m })} data-testid={`slot-hold-${m}`}>
+                  {m < 60 ? `${m} min` : m < 1440 ? `${m / 60} hour${m === 60 ? "" : "s"}` : `${m / 1440} day${m === 1440 ? "" : "s"}`}
+                </button>
+              ))}
+            </div>
+            <Field label="Or exactly (minutes)">
+              <input type="number" min={15} max={2880} step={15} value={form.slotHold} onChange={(e) => setForm({ ...form, slotHold: Math.max(15, Math.min(2880, Math.round((Number(e.target.value) || 15) / 15) * 15)) })} data-testid="slot-hold-minutes" />
+            </Field>
+          </div>
           {state.text && (
             <p className={state.kind === "error" ? "workspace-error" : "workspace-success"} role={state.kind === "error" ? "alert" : "status"}>
               {state.text}
