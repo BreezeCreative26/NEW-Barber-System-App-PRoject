@@ -6271,3 +6271,32 @@ html:not(.ws-dark) .sidebar.light .sidebar-group { color: var(--muted); }
 /* Appointment cards fill their barber column: an old fixed width (100% - 12px) was overriding
    left/right and leaving a gap on the right. Overlapping cards keep their inline lane width. */
 .workspace .connected-calendar .calendar-event:not(.overlapping) { left: 2px; right: 2px; width: auto; }
+
+/* Booked time: no grey wash behind appointments — the slot under a card looks like any other
+   working slot, so only the appointment colour shows. */
+.workspace .timetable-slot.occupied { background: transparent; }
+.workspace .timetable-slot.occupied span { color: inherit; }
+
+/* Settings: no grey boxes. Barber cards, notes, rows and panels inside Settings are white with a
+   thin outline, so the page reads as one clean surface. (Switches and code chips keep their tint.) */
+.workspace .settings-body .account-member,
+.workspace .settings-body .notice:not(.warning):not(.error):not(.success),
+.workspace .settings-body .week-hours-row,
+.workspace .settings-body .customer-pages > li,
+.workspace .settings-body .billing-timeline > li,
+.workspace .settings-body .billing-addons > li,
+.workspace .settings-body .switch-row,
+.workspace .settings-body .billing-card-row,
+.workspace .settings-body .tpl,
+.workspace .settings-body .payments-card,
+.workspace .settings-body .review-ask,
+.workspace .settings-body .review-ack,
+.workspace .settings-body .sms-bill-ack,
+.workspace .settings-body label.workspace-toggle,
+.workspace .settings-body small.helper,
+.workspace .settings-body .rem-chip {
+  background: var(--surface, #fff) !important;
+  border: 1px solid var(--line, #e7e8ee) !important;
+  box-shadow: none !important;
+}
+.workspace .settings-body small.helper { border: 0 !important; padding-left: 0; padding-right: 0; }
