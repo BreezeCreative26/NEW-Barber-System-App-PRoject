@@ -2,6 +2,7 @@
 // manage-a-visit page. Small on purpose — nothing from the owner workspace is imported here.
 import { createRoot } from "react-dom/client";
 import "./fonts.css";
+import { installPickers } from "./pickers";
 import { PublicBooking, ManageBooking, presetFromLocation } from "./PublicBooking";
 import { ShopPage } from "./ShopPage";
 import { CustomerArea } from "./CustomerArea";
@@ -9,6 +10,7 @@ import { OfferPage } from "./OfferPage";
 import { AppErrorBoundary, APP_AREAS, BUILD_ID, installErrorReporting, parseRoute } from "./boot";
 
 installErrorReporting();
+installPickers();
 const { hostSlug, area, param, shopSlug } = parseRoute();
 
 // The shop's app on the home screen. The worker is shared; its scope is the shop ("/" on the
