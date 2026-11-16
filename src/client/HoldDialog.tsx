@@ -186,7 +186,15 @@ export function HeldDialog({ w, block, api, onClose, onDone, onBookNow }: {
             </Button>
           )}
           {row && (
-            <Button disabled={busy} onClick={() => onBookNow({ id: null, name: row.customer_name, phone: row.phone, email: row.email }, row.service_id, block)} data-testid="held-book-now">
+            <Button
+              disabled={busy}
+              onClick={async () => {
+                // Use their customer record when the mobile already belongs to one (no retyping, no duplicate).
+                const match = await api<{ customers: Found[] }>(`/customers?${new URLSearchParams({ q: row.phone, limit: "3" })}`).then((r) => r.customers.find((c) => c.phone === row.phone)).catch(() => undefined);
+                onBookNow(match ? { id: match.id, name: match.name, phone: match.phone, email: match.email || row.email } : { id: null, name: row.customer_name, phone: row.phone, email: row.email }, row.service_id, block);
+              }}
+              data-testid="held-book-now"
+            >
               <Icon name="calendarCheck" size={16} /> Book them in
             </Button>
           )}

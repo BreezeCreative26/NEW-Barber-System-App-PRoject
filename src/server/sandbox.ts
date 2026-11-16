@@ -80,7 +80,7 @@ import {
   type AuditEvent,
  shopBuffer, colourSchema, imageRef, isOffered, offers, categorySchema } from "./domain";
 
-import { createHold, resendHold, releaseHoldStatements, slotFreed, makeOffer, matchesFor, rangeDates, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
+import { createHold, expireHeldSlots, resendHold, releaseHoldStatements, slotFreed, makeOffer, matchesFor, rangeDates, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { logoTone, optimiseImage } from "./images";
 import { billingSummary, entitlements, setFeature, syncSeats, hasFeature, features as billingFeatures } from "./billing";
 import { runningStatement, statementCsv } from "./statement";
@@ -731,7 +731,18 @@ sandbox.get("/changes", async (c) => {
     .first<{ at: number; n: number }>();
   c.header("Cache-Control", "no-store");
   const held = await holdsCursor(c.env.DB, c.get("shopId")).catch(() => "0");
-  return c.json({ cursor: `${row?.at ?? 0}:${row?.n ?? 0}:${held}`, at: Number(row?.at ?? 0), now: Date.now() });
+  // Spaces held for a customer: a lapsed one is cleared here (the live view asks every few seconds),
+  // and the count rides in the cursor so open calendars redraw when one appears or goes.
+  const kept = await c.env.DB.prepare("SELECT (SELECT COUNT(*) FROM staff_blocks WHERE shop_id=? AND offer_id IS NOT NULL) AS n, EXISTS(SELECT 1 FROM waitlist_offers WHERE shop_id=? AND source='HOLD' AND status='PENDING' AND expires_at<=?) AS lapsed")
+    .bind(c.get("shopId"), c.get("shopId"), Date.now())
+    .first<{ n: number; lapsed: boolean | number }>()
+    .catch(() => null);
+  let keptN = Number(kept?.n ?? 0);
+  if (kept?.lapsed) {
+    await expireHeldSlots(c.env.DB, Date.now(), c.get("shopId")).catch(() => {});
+    keptN = -1;
+  }
+  return c.json({ cursor: `${row?.at ?? 0}:${row?.n ?? 0}:${held}:${keptN}`, at: Number(row?.at ?? 0), now: Date.now() });
 });
 // Calendar flags worked out per response (not stored): a customer's first visit, and whether this is
 // their usual barber (set as preferred on their record, or the barber they've seen most, 2+ visits).
@@ -762,6 +773,7 @@ async function visitFlags<T extends { customer_id?: string | null; staff_id: str
 }
 sandbox.get("/workspace", async (c) => {
   const sid = c.get("shopId");
+  await expireHeldSlots(c.env.DB, Date.now(), sid).catch(() => {});
   const shop = await readShop(c);
   const account = c.get("account");
   // Same calendar for everyone: all columns and all appointments (others' details are hidden for
