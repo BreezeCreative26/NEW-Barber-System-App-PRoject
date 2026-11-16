@@ -6329,3 +6329,35 @@ body:has(.settings-shell),
   border: 1px solid var(--line, #e7e8ee) !important;
   box-shadow: none !important;
 }
+
+/* ---- Side bar finish (Settings → Diary & policies → Your workspace look) ----
+   Metal finishes paint the whole side bar with a layered gradient (base + sheen + fine grain).
+   A soft inner edge on the right gives it depth against the white page. "Black" = no class. */
+html.ws-rail-metal .workspace .sidebar.rail,
+html.ws-rail-metal .workspace .rail {
+  background: var(--ws-rail-bg) !important;
+  background-attachment: local;
+  box-shadow: inset -1px 0 0 rgba(255,255,255,.07), inset 1px 0 0 rgba(255,255,255,.03);
+  border-right-color: rgba(0,0,0,.35);
+}
+html.ws-rail-metal .workspace .sidebar.rail .sidebar-item:hover { background: rgba(255,255,255,.08); }
+html.ws-rail-metal .workspace .sidebar.rail .sidebar-item[aria-current] {
+  background: linear-gradient(90deg, rgba(255,255,255,.14), rgba(255,255,255,.04));
+  box-shadow: inset 2px 0 0 var(--ws-fill, var(--mint)), inset 0 1px 0 rgba(255,255,255,.08);
+}
+html.ws-rail-metal .sidebar-bottom { border-top-color: rgba(255,255,255,.1); }
+html.ws-rail-metal .sidebar-group { color: rgba(255,255,255,.5); }
+
+/* The picker: small side-bar previews with a name under each. */
+.ws-rails { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px; }
+.ws-rail-swatch { display: grid; gap: 6px; justify-items: center; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; color: var(--ink); }
+.ws-rail-chip { position: relative; width: 100%; height: 64px; border-radius: 12px; display: grid; align-content: start; gap: 5px; padding: 10px 9px; box-shadow: 0 1px 2px rgba(14,15,18,.12); border: 2px solid transparent; overflow: hidden; }
+.ws-rail-chip i { display: block; height: 5px; border-radius: 3px; background: rgba(255,255,255,.5); }
+.ws-rail-chip i:nth-child(1) { width: 70%; background: rgba(255,255,255,.85); }
+.ws-rail-chip i:nth-child(2) { width: 55%; }
+.ws-rail-chip i:nth-child(3) { width: 62%; }
+.ws-rail-chip svg { position: absolute; right: 6px; bottom: 6px; color: #fff; }
+.ws-rail-swatch[aria-checked="true"] .ws-rail-chip { border-color: var(--ink); box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--ink); }
+.ws-rail-swatch:focus-visible .ws-rail-chip { outline: 2px solid var(--accent); outline-offset: 3px; }
+.ws-rail-name { font-size: var(--fs-12); font-weight: 600; color: var(--muted); text-align: center; line-height: 1.2; }
+.ws-rail-swatch[aria-checked="true"] .ws-rail-name { color: var(--ink); }

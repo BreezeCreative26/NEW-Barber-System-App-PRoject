@@ -112,7 +112,7 @@ test("workspace accent is personal and persists across reloads", async ({ page }
   await expect(page.getByRole("button", { name: "New booking", exact: true })).toBeVisible();
   await expect(page.locator("html")).toHaveClass(/ws-accent-ocean/);
   const prefs = JSON.parse((await (await page.request.get(base + "/workspace")).json()).account.prefs_json);
-  expect(prefs.workspace_theme).toEqual({ accent: "ocean", mode: "light" });
+  expect(prefs.workspace_theme).toMatchObject({ accent: "ocean", mode: "light" });
   // Customer pages are untouched by the admin accent.
   const slug = (await (await page.request.get(base + "/workspace")).json()).shop.slug as string;
   await page.goto(`/${slug}`);
