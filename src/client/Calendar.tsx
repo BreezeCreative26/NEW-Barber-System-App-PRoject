@@ -1050,7 +1050,7 @@ export function Calendar({
                           return (
                             <>
                               <strong>
-                                <time>{time(b.start_min)}</time> {b.attendee_name || b.customer_name}
+                                <time>{time(b.start_min)}</time> <span className="event-name">{b.attendee_name || b.customer_name}</span>
                                 {lines === 1 && <span className="event-inline"> · {b.service_name}</span>}
                                 {lines < 3 && <span className="event-inline-icons">{icons}</span>}
                               </strong>

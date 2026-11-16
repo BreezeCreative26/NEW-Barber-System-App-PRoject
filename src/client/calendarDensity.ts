@@ -24,9 +24,9 @@ export type DensityPreset = {
 };
 
 export const DENSITY_PRESETS: Record<Density, DensityPreset> = {
-  COMPACT: { key: "COMPACT", label: "Compact", blurb: "Whole day on one screen. One line per appointment.", step: 20, headerH: 40, eventMin: 18, gutter: 52, gutterPhone: 40, column: 140, columnPhone: 172, lines: 1, halfHourLabels: true },
-  STANDARD: { key: "STANDARD", label: "Standard", blurb: "Most of the day at a glance. Name and service.", step: 30, headerH: 48, eventMin: 24, gutter: 56, gutterPhone: 44, column: 170, columnPhone: 184, lines: 2, halfHourLabels: false },
-  LARGE: { key: "LARGE", label: "Large", blurb: "Bigger blocks, easier to read from a distance.", step: 44, headerH: 64, eventMin: 32, gutter: 64, gutterPhone: 44, column: 190, columnPhone: 196, lines: 3, halfHourLabels: false },
+  COMPACT: { key: "COMPACT", label: "Compact", blurb: "Whole day on one screen. One line per appointment.", step: 20, headerH: 40, eventMin: 18, gutter: 52, gutterPhone: 40, column: 140, columnPhone: 216, lines: 1, halfHourLabels: true },
+  STANDARD: { key: "STANDARD", label: "Standard", blurb: "Most of the day at a glance. Name and service.", step: 30, headerH: 48, eventMin: 24, gutter: 56, gutterPhone: 44, column: 170, columnPhone: 224, lines: 2, halfHourLabels: false },
+  LARGE: { key: "LARGE", label: "Large", blurb: "Bigger blocks, easier to read from a distance.", step: 44, headerH: 64, eventMin: 32, gutter: 64, gutterPhone: 44, column: 190, columnPhone: 224, lines: 3, halfHourLabels: false },
 };
 
 export const DEFAULT_DENSITY: Density = "STANDARD";

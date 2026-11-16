@@ -6248,3 +6248,15 @@ html:not(.ws-dark) .sidebar.light .sidebar-group { color: var(--muted); }
 @media (max-width: 767px) {
   [data-toast] { top: calc(64px + env(safe-area-inset-top, 0px) + var(--toast-stack, 0px)) !important; bottom: auto !important; left: 50% !important; right: auto !important; width: calc(100vw - 24px); }
 }
+
+/* Phone calendar cards: icons always stay visible. On a one-line card the service text gives way
+   first (ellipsis), and the icons sit pinned at the right edge instead of being pushed off. */
+@media (max-width: 767px) {
+  .workspace .connected-calendar .calendar-event strong { display: flex; align-items: center; gap: 0; min-width: 0; white-space: nowrap; overflow: hidden; }
+  .workspace .connected-calendar .calendar-event strong > time { flex: 0 0 auto; margin-right: 4px; }
+  .workspace .connected-calendar .calendar-event strong .event-inline { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .workspace .connected-calendar .calendar-event strong .event-inline-icons { flex: 0 0 auto; margin-left: auto; padding-left: 4px; }
+}
+@media (max-width: 767px) {
+  .workspace .connected-calendar .calendar-event strong .event-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
