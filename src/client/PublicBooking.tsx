@@ -18,6 +18,7 @@ export type PublicShop = {
     id: string;
     name: string;
     address: string;
+    phone?: string;
     slug: string;
     timezone: string;
     currency?: string;
@@ -131,7 +132,7 @@ type CustomerBooking = {
   attendee_name?: string;
   group_id?: string | null;
   version: number;
-  shop: { name: string; address: string; slug: string | null; timezone: string; currency?: string; logo_url?: string; brand?: ShopBrand };
+  shop: { name: string; address: string; phone?: string; slug: string | null; timezone: string; currency?: string; logo_url?: string; brand?: ShopBrand };
   can_manage: boolean;
   late_change: boolean;
   deposit_status?: "NONE" | "PENDING" | "PAID" | "REFUNDED" | "EXPIRED";
@@ -2269,6 +2270,11 @@ function ConfirmationCard({
             <Icon name="pin" /> <span>Directions</span>
           </a>
         )}
+        {booking.shop.phone && (
+          <a className="action-tile" href={`tel:${booking.shop.phone.replace(/[^\d+]/g, "")}`} data-testid="confirm-call">
+            <Icon name="call" /> <span>Call the shop</span>
+          </a>
+        )}
         {link && !sentTo.includes("SMS") && (
           <a
             className="action-tile"
@@ -2465,7 +2471,7 @@ export function ManageBooking({ token }: { token: string }) {
             <>
               {!booking.can_manage && booking.status === "CONFIRMED" && (
                 <Notice tone="warning" icon="clock">
-                  This visit is too close to change online. Contact the shop directly.
+                  This visit is too close to change online. {booking.shop.phone ? <>Call the shop on <a href={`tel:${booking.shop.phone.replace(/[^\d+]/g, "")}`}>{booking.shop.phone}</a>.</> : "Contact the shop directly."}
                 </Notice>
               )}
               {booking.can_manage && booking.late_change && (
@@ -2485,6 +2491,11 @@ export function ManageBooking({ token }: { token: string }) {
                   {booking.shop.address && (
                     <a className="action-tile" href={mapsUrl(booking.shop.address)} target="_blank" rel="noreferrer">
                       <Icon name="pin" /> <span>Directions</span>
+                    </a>
+                  )}
+                  {booking.shop.phone && (
+                    <a className="action-tile" href={`tel:${booking.shop.phone.replace(/[^\d+]/g, "")}`} data-testid="manage-call">
+                      <Icon name="call" /> <span>Call the shop</span>
                     </a>
                   )}
                 </div>

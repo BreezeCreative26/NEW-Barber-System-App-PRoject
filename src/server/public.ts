@@ -142,7 +142,7 @@ pub.route("/shops/:slug/account", customerAccounts);
 
 export async function shopBySlug(c: Ctx, slug: string) {
   const shop = await c.env.DB.prepare(
-    `SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex, ${CARDS_READY_SQL} FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1 AND s.suspended_at IS NULL`,
+    `SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex, COALESCE(p.phone,'') AS public_phone, ${CARDS_READY_SQL} FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.slug=? AND s.online_booking=1 AND s.suspended_at IS NULL`,
   )
     .bind(slug.toLowerCase())
     .first<BrandedShop>();
@@ -159,11 +159,13 @@ export function limits(shop: Shop, now = Date.now()) {
     maxDate: datePlus(today, shop.booking_window_days),
   };
 }
-export type BrandedShop = Shop & { cards_ready?: number; logo_url: string; accent: string; theme_json: string; logo_tone?: string };
+export type BrandedShop = Shop & { cards_ready?: number; logo_url: string; accent: string; theme_json: string; logo_tone?: string; public_phone?: string };
 const publicShop = (s: Shop & Partial<BrandedShop>) => ({
   id: s.id,
   name: s.name,
   address: s.address,
+  // The number customers call (Settings → Business details). Never the owner's private mobile.
+  phone: s.public_phone || "",
   logo_url: s.logo_url || "",
   brand: brandOf(s),
   slug: s.slug,
@@ -1397,7 +1399,7 @@ export function customerView(b: StoredBooking, shop: Shop & Partial<BrandedShop>
     group_id: b.group_id,
     channel: b.channel,
     version: b.version,
-    shop: { name: shop.name, address: shop.address, slug: shop.slug, timezone: shop.timezone, currency: shop.currency || "GBP", logo_url: shop.logo_url || "", brand: brandOf(shop) },
+    shop: { name: shop.name, address: shop.address, phone: shop.public_phone || "", slug: shop.slug, timezone: shop.timezone, currency: shop.currency || "GBP", logo_url: shop.logo_url || "", brand: brandOf(shop) },
     can_manage: b.status === "CONFIRMED" && b.start_at > now + shop.lead_time_min * 60000,
     late_change: late,
     ...depositView(b),
@@ -1430,7 +1432,7 @@ async function bookingByToken(c: Ctx) {
     .first<{ booking_id: string; shop_id: string }>();
   if (!row) return fail(404, "Booking link not found");
   c.set("shopId", row.shop_id);
-  const shop = await c.env.DB.prepare(`SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex, ${CARDS_READY_SQL} FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?`)
+  const shop = await c.env.DB.prepare(`SELECT s.*, COALESCE(p.logo_url,'') AS logo_url, COALESCE(p.accent,'ollo') AS accent, COALESCE(p.theme_json,'{}') AS theme_json, COALESCE(p.logo_tone,'') AS logo_tone, COALESCE(p.primary_hex,'') AS primary_hex, COALESCE(p.secondary_hex,'') AS secondary_hex, COALESCE(p.phone,'') AS public_phone, ${CARDS_READY_SQL} FROM shops s LEFT JOIN shop_pages p ON p.shop_id=s.id WHERE s.id=?`)
     .bind(row.shop_id)
     .first<BrandedShop>();
   const booking = await readBooking(c, row.booking_id);
@@ -1658,15 +1660,24 @@ export async function moveByCustomer(c: Ctx, shop: Shop, booking: StoredBooking,
   );
   if (reason) fail(409, hiddenReasons.includes(reason) ? "slot_taken" : reason);
   const start = localInstant(body.date, body.start_min, shop.timezone)!;
+  // Customers can only move into normal opening hours, so an out-of-hours charge never follows them.
+  const items = JSON.parse(booking.items_json) as BookingItem[];
+  const oohItem = items.find((i) => i.kind === "OOH");
+  const paidAlready = oohItem ? await c.env.DB.prepare("SELECT 1 AS x FROM payments WHERE shop_id=? AND booking_id=? AND voided_at IS NULL LIMIT 1").bind(shop.id, booking.id).first() : null;
+  const dropOoh = !!oohItem && !paidAlready;
+  const newPrice = dropOoh ? booking.price_pence - oohItem!.price_pence : booking.price_pence;
+  const newItems = dropOoh ? JSON.stringify(items.filter((i) => i.kind !== "OOH")) : booking.items_json;
   await checkVersionUpdate(
     c,
     c.env.DB.prepare(
-      "UPDATE bookings SET date=?,start_min=?,start_at=?,end_at=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=? AND status='CONFIRMED'",
+      "UPDATE bookings SET date=?,start_min=?,start_at=?,end_at=?,price_pence=?,items_json=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=? AND status='CONFIRMED'",
     ).bind(
       body.date,
       body.start_min,
       start,
       start + booking.duration_min * 60000,
+      newPrice,
+      newItems,
       Date.now(),
       shop.id,
       booking.id,
@@ -1677,9 +1688,10 @@ export async function moveByCustomer(c: Ctx, shop: Shop, booking: StoredBooking,
       "booking",
       booking.id,
       "RESCHEDULED",
-      `Moved by customer online from ${booking.date} ${String(Math.floor(booking.start_min / 60)).padStart(2, "0")}:${String(booking.start_min % 60).padStart(2, "0")}.`,
+      `Moved by customer online from ${booking.date} ${String(Math.floor(booking.start_min / 60)).padStart(2, "0")}:${String(booking.start_min % 60).padStart(2, "0")}.${dropOoh ? ` Out-of-hours charge removed (£${(booking.price_pence / 100).toFixed(2)} → £${(newPrice / 100).toFixed(2)}).` : ""}`,
       true,
     ),
+    dropOoh ? [c.env.DB.prepare("SELECT set_config('ollo.edit_items', '1', true)")] : [],
   );
   await slotFreed(c, await shopWithQueue(c, shop.id), { staff_id: booking.staff_id, date: booking.date, start_min: booking.start_min }, "customer-move");
   const after = await readBooking(c, booking.id);

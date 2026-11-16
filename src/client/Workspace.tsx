@@ -54,7 +54,7 @@ import { ShopPageView, type PageData as ShopPageData, type SectionVariants } fro
 import { SmsBillingAck, SmsKindsPicker, SmsSenderField } from "./SmsSender";
 import { TemplateEditor } from "./TemplateEditor";
 import { WS_ACCENTS, DEFAULT_WS_THEME, applyWsTheme, parseWsTheme, readLocalWsTheme, writeLocalWsTheme, type WorkspaceTheme } from "./workspaceTheme";
-import { ask, askCheck } from "./confirm";
+import { ask, askCheck, askChoice } from "./confirm";
 import { money, time, datePlus, shopWeekOf, shopDayOf, setCurrency, currencySymbol, type ShopDayLite } from "./fixtures";
 
 const reference = (b: StoredBooking) =>
@@ -99,8 +99,32 @@ class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public code = "",
+    public data: Record<string, unknown> = {},
   ) {
     super(message);
+  }
+}
+// A move that lands partly outside the barber's normal hours: the shop decides whether the
+// out-of-hours charge stays. Fully in hours (charge dropped) and fully out-of-hours are automatic.
+const hadOoh = (b: StoredBooking) => (JSON.parse(b.items_json || "[]") as { kind: string }[]).some((i) => i.kind === "OOH");
+type OohAsk = { charged: boolean; fee_pence: number; barber: string };
+async function withOoh<T>(run: (extra: { ooh_fee?: "charge" | "none" }) => Promise<T>): Promise<T> {
+  try {
+    return await run({});
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.code !== "ooh_choice") throw e;
+    const o = e.data.ooh as OohAsk;
+    const fee = `£${(o.fee_pence / 100).toFixed(2).replace(/\.00$/, "")}`;
+    const pick = await askChoice({
+      title: "Part of this time is outside normal hours",
+      body: o.charged ? `It was booked with ${o.barber}'s ${fee} out-of-hours charge. Keep it?` : `Add ${o.barber}'s ${fee} out-of-hours charge?`,
+      choices: o.charged
+        ? [{ id: "charge", label: `Keep the ${fee} charge`, primary: true }, { id: "none", label: "Remove the charge", detail: "Normal price" }]
+        : [{ id: "charge", label: `Add ${fee}`, primary: true }, { id: "none", label: "Normal price" }],
+    });
+    if (!pick) throw new ApiError("Move cancelled.", 0, "cancelled");
+    return run({ ooh_fee: pick as "charge" | "none" });
   }
 }
 async function api<T>(
@@ -153,6 +177,8 @@ async function api<T>(
           result.message ||
           "Request failed. Retry without reloading the page.",
         response.status,
+        String(result.error || ""),
+        result,
       );
     }
     return result;
@@ -3063,14 +3089,14 @@ export function Workspace() {
                               if (!ok) return;
                               setMoving(null);
                               try {
-                                const r = await overHold((held) => api<{ booking: StoredBooking; notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: draft.start, staff_id: draft.staffId, reason: "Moved on the timetable", version: b.version, notify: ok.notify, ...(draft.outside || held ? { force: true } : {}) }), "move");
+                                const r = await withOoh((x) => overHold((held) => api<{ booking: StoredBooking; notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: draft.start, staff_id: draft.staffId, reason: "Moved on the timetable", version: b.version, notify: ok.notify, ...x, ...(draft.outside || held ? { force: true } : {}) }), "move"));
                                 const n = r.notify ?? null;
                                 flushMoveNotice(b.id, n);
                                 setNotice(`Moved ${b.attendee_name || b.customer_name} to ${at}${same ? "" : ` with ${who}`}.${noticeSuffix(b, n)}`);
                                 const from = { date: b.date, start_min: b.start_min, staff_id: b.staff_id };
-                                setUndo({ label: `back to ${time(from.start_min)}`, run: async () => { const cur = (await api<{ booking: StoredBooking }>(`/bookings/${b.id}`)).booking; const u = await api<{ notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo timetable move", version: cur.version, force: true, notify: n && Date.now() >= n.send_at ? ok.notify : undefined }); flushMoveNotice(b.id, u.notify ?? null); } });
+                                setUndo({ label: `back to ${time(from.start_min)}`, run: async () => { const cur = (await api<{ booking: StoredBooking }>(`/bookings/${b.id}`)).booking; const u = await api<{ notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo timetable move", version: cur.version, force: true, ooh_fee: hadOoh(b) ? "charge" : "none", notify: n && Date.now() >= n.send_at ? ok.notify : undefined }); flushMoveNotice(b.id, u.notify ?? null); } });
                                 await refresh({ background: true });
-                              } catch (e) { setError(e instanceof Error ? e.message : "Could not move the appointment."); }
+                              } catch (e) { if (!(e instanceof ApiError && e.code === "cancelled")) setError(e instanceof Error ? e.message : "Could not move the appointment."); }
                               return;
                             }
                             setEditor({ kind: "booking", draft });
@@ -3170,7 +3196,7 @@ export function Workspace() {
                                   if (!ok) return;
                                   setPanelError("");
                                   try {
-                                    const r = await overHold((held) => api<{ booking: StoredBooking; notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: to.start, staff_id: to.staffId, reason: to.override ? `Moved on the calendar (over: ${to.override.toLowerCase()})` : "Moved on the calendar", version: b.version, notify: ok.notify, ...(to.override || held ? { force: true } : {}) }), "move");
+                                    const r = await withOoh((x) => overHold((held) => api<{ booking: StoredBooking; notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { date, start_min: to.start, staff_id: to.staffId, reason: to.override ? `Moved on the calendar (over: ${to.override.toLowerCase()})` : "Moved on the calendar", version: b.version, notify: ok.notify, ...x, ...(to.override || held ? { force: true } : {}) }), "move"));
                                     const n = r.notify ?? null;
                                     flushMoveNotice(b.id, n);
                                     setNotice(`Moved to ${at}${same ? "" : ` with ${who}`}.${noticeSuffix(b, n)}`);
@@ -3180,14 +3206,14 @@ export function Workspace() {
                                       run: async () => {
                                         const cur = (await api<{ booking: StoredBooking }>(`/bookings/${b.id}`)).booking;
                                         // Inside the hold the pending message is simply dropped; after it, the customer is told it's back.
-                                        const u = await api<{ notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo calendar move", version: cur.version, force: true, notify: n && Date.now() >= n.send_at ? ok.notify : undefined });
+                                        const u = await api<{ notify?: MoveNotice }>(`/bookings/${b.id}/reschedule`, "POST", { ...from, reason: "Undo calendar move", version: cur.version, force: true, ooh_fee: hadOoh(b) ? "charge" : "none", notify: n && Date.now() >= n.send_at ? ok.notify : undefined });
                                         flushMoveNotice(b.id, u.notify ?? null);
                                       },
                                     });
                                     await refresh();
                                     void r;
                                   } catch (e) {
-                                    setError(e instanceof Error ? e.message : "Could not move the appointment.");
+                                    if (!(e instanceof ApiError && e.code === "cancelled")) setError(e instanceof Error ? e.message : "Could not move the appointment.");
                                   }
                                 }
                               : undefined
@@ -3993,6 +4019,7 @@ function BusinessDetailsPanel({ w, refresh }: { w: WorkspaceData; refresh: () =>
           onSave={async (f) => {
             await api("/setup/contact", "PUT", {
               name: text(f, "name"), kind: text(f, "kind") || "BARBER", phone: text(f, "phone"), email: text(f, "email"), address: text(f, "address"),
+              public_phone: text(f, "public_phone"),
               timezone: text(f, "timezone"), currency: text(f, "currency") || "GBP",
               legal_name: text(f, "legal_name"), vat_number: text(f, "vat_number"), company_number: text(f, "company_number"), website: text(f, "website"),
             });
@@ -4009,6 +4036,9 @@ function BusinessDetailsPanel({ w, refresh }: { w: WorkspaceData; refresh: () =>
             </Field>
           </div>
           <Field label="Address"><textarea name="address" maxLength={300} defaultValue={shop.address} rows={2} /></Field>
+          <Field label="Phone number for customers" hint="Shown on your shop page with a Call button, on booking confirmations and in emails. Leave blank to hide it.">
+            <input name="public_phone" type="tel" inputMode="tel" maxLength={20} defaultValue={w.public_phone || ""} data-testid="biz-public-phone" />
+          </Field>
           <div className="workspace-form-grid">
             <Field label="Shop mobile" hint={shop.phone_verified_at ? "Verified" : shop.phone ? "Not verified yet" : "Used for owner alerts and the AI receptionist."}>
               <input name="phone" type="tel" inputMode="tel" maxLength={20} defaultValue={shop.phone || ""} data-testid="biz-phone" />
@@ -8156,15 +8186,15 @@ function BookingForm({
         if (request.current.payload !== serial)
           request.current = { payload: serial, key: crypto.randomUUID() };
         try {
-          const result = await overHold(
+          const result = await withOoh((x) => overHold(
             (held) => saved(
               b ? `/bookings/${b.id}/reschedule` : "/bookings",
               "POST",
-              held ? { ...(b ? payload : { ...payload, request_id: request.current.key }), force: true } : b ? payload : { ...payload, request_id: request.current.key },
+              held ? { ...(b ? { ...payload, ...x } : { ...payload, request_id: request.current.key }), force: true } : b ? { ...payload, ...x } : { ...payload, request_id: request.current.key },
             ),
             b ? "move" : "book",
             overHeld.current,
-          );
+          ));
           if (b && (result as { notify?: MoveNotice } | undefined)?.notify) flushMoveNotice(b.id, (result as { notify: MoveNotice }).notify);
           // Booked from a held space: the hold has done its job — release it (the time is now the booking).
           if (hold?.offer_id && result?.booking) api(`/holds/${hold.offer_id}?book=1`, "DELETE").catch(() => {});

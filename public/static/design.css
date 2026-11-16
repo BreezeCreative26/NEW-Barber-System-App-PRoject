@@ -6217,3 +6217,14 @@ html:not(.ws-dark) .sidebar.light .sidebar-group { color: var(--muted); }
   .panel-quick.has-more > .panel-more summary { width: 44px; }
   .appointment-panel .panel-actions > .button:first-child:not(:only-child) { flex: 1 1 100%; }
 }
+
+/* Choice dialog (e.g. keep / remove the out-of-hours charge): big tappable answers */
+.ask-choices { display: grid; gap: 8px; margin: 4px 0 4px; }
+.ask-choice { display: grid; gap: 2px; text-align: left; width: 100%; min-height: 52px; padding: 12px 14px; border: 1.5px solid var(--line, #e3e3e6); border-radius: 12px; background: #fff; color: var(--ink, #0b0b0c); font: inherit; cursor: pointer; }
+.ask-choice strong { font-size: 15px; font-weight: 650; }
+.ask-choice small { color: var(--muted, #6b7280); font-size: 12.5px; }
+.ask-choice:hover { border-color: var(--ink, #0b0b0c); }
+.ask-choice.primary { border-color: var(--accent, #00805c); background: color-mix(in srgb, var(--accent, #00805c) 8%, #fff); }
+.ask-choice:focus-visible { outline: 2px solid var(--accent, #00805c); outline-offset: 2px; }
+/* Phone number in the customer footer reads as a link (WCAG link-in-text-block) */
+.sp-footer a[href^="tel:"] { color: inherit; text-decoration: underline; text-underline-offset: 2px; }

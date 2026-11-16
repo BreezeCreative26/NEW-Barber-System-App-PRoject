@@ -20,7 +20,7 @@ type Visit = {
   price_pence: number; cancel_hours: number; version: number; can_manage: boolean; late_change: boolean; series_id: string | null; attendee_name?: string; group_id?: string | null; items: { id: string; name: string; price_pence: number }[];
 };
 type Me = {
-  shop: { name: string; slug: string; address: string; timezone: string; currency?: string; cancel_hours: number; lead_time_min: number; today: string; logo_url?: string; brand?: ShopBrand; google_review_url?: string; channels?: { sms: boolean; email: boolean; code?: boolean } };
+  shop: { name: string; slug: string; address: string; phone?: string; timezone: string; currency?: string; cancel_hours: number; lead_time_min: number; today: string; logo_url?: string; brand?: ShopBrand; google_review_url?: string; channels?: { sms: boolean; email: boolean; code?: boolean } };
   profile: Profile;
   upcoming: Visit[];
   history: Visit[];
@@ -169,6 +169,7 @@ export function CustomerArea({ slug }: { slug: string }) {
         <span>
           {me.shop.name}
           {me.shop.address && ` · ${me.shop.address}`}
+          {me.shop.phone && <> · <a href={`tel:${me.shop.phone.replace(/[^\d+]/g, "")}`} data-testid="account-call">{me.shop.phone}</a></>}
         </span>
         <span className="sp-powered">Powered by foliyo</span>
       </footer>

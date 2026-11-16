@@ -350,6 +350,14 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
                   <span className="sp-member-go">Rebook <Icon name="right" size={14} /></span>
                 </a>
               )}
+              {page.phone && (
+                <a className="sp-member-card" href={`tel:${page.phone.replace(/[^\d+]/g, "")}`} data-testid="member-call">
+                  <span className="sp-member-label"><Icon name="call" size={14} /> Call the shop</span>
+                  <b>{page.phone}</b>
+                  <small>Questions, or a time you can't see online.</small>
+                  <span className="sp-member-go">Call now <Icon name="right" size={14} /></span>
+                </a>
+              )}
             </div>
           </section>
         )}

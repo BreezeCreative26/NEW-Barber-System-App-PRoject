@@ -18,10 +18,14 @@ export type CheckItem = { id: string; label: string; detail?: string; initial: b
 // One or more tick boxes under an optional heading (e.g. "Let Leo know": Text / Email).
 type CheckOptions = AskOptions & { checks: CheckItem[]; heading?: string; hint?: string };
 type Checked = Record<string, boolean>;
+// Two or more answers plus Cancel (e.g. "Keep £10 charge" / "Remove it"). Resolves the chosen id or null.
+export type Choice = { id: string; label: string; detail?: string; primary?: boolean };
+type ChoiceOptions = AskOptions & { choices: Choice[] };
 type Request =
   | { kind: "confirm"; opts: AskOptions; resolve: (v: boolean) => void }
   | { kind: "check"; opts: CheckOptions; resolve: (v: Checked | null) => void }
-  | { kind: "text"; opts: TextOptions; resolve: (v: string | null) => void };
+  | { kind: "text"; opts: TextOptions; resolve: (v: string | null) => void }
+  | { kind: "choice"; opts: ChoiceOptions; resolve: (v: string | null) => void };
 
 let root: Root | null = null;
 let push: ((r: Request) => void) | null = null;
@@ -45,6 +49,9 @@ function enqueue(r: Request) {
 export function ask(opts: AskOptions): Promise<boolean> {
   return new Promise((resolve) => enqueue({ kind: "confirm", opts, resolve }));
 }
+export function askChoice(opts: ChoiceOptions): Promise<string | null> {
+  return new Promise((resolve) => enqueue({ kind: "choice", opts, resolve }));
+}
 // Confirm with tick boxes. Resolves null on cancel, otherwise { [id]: ticked }.
 export function askCheck(opts: CheckOptions): Promise<Checked | null> {
   return new Promise((resolve) => enqueue({ kind: "check", opts, resolve }));
@@ -67,6 +74,7 @@ function Host() {
   const done = (value: boolean | string | Checked | null) => {
     if (current.kind === "confirm") current.resolve(value === true);
     else if (current.kind === "check") current.resolve(value && typeof value === "object" ? value : null);
+    else if (current.kind === "choice") current.resolve(typeof value === "string" ? value : null);
     else current.resolve(typeof value === "string" ? value : null);
     setItems((xs) => xs.slice(1));
   };
@@ -170,14 +178,28 @@ function AskDialog({ req, onDone }: { req: Request; onDone: (v: boolean | string
             {req.opts.hint && <p className="ask-checks-hint">{req.opts.hint}</p>}
           </fieldset>
         )}
-        <div className="ask-actions">
+        {req.kind === "choice" && (
+          <div className="ask-choices" data-testid="confirm-choices">
+            {req.opts.choices.map((c) => (
+              <button key={c.id} type="button" className={`ask-choice ${c.primary ? "primary" : ""}`} onClick={() => onDone(c.id)} data-testid={`confirm-choice-${c.id}`}>
+                <strong>{c.label}</strong>
+                {c.detail && <small>{c.detail}</small>}
+              </button>
+            ))}
+          </div>
+        )}
+        {req.kind === "choice" ? (
+          <div className="ask-actions">
+            <button type="button" className="button secondary" onClick={cancel} data-testid="confirm-cancel">{opts.cancel || "Cancel"}</button>
+          </div>
+        ) : <div className="ask-actions">
           <button type="button" className="button secondary" onClick={cancel} data-testid="confirm-cancel">
             {opts.cancel || "Cancel"}
           </button>
           <button type="submit" className={`button ${tone === "danger" ? "danger" : "primary"}`} data-testid="confirm-accept">
             {opts.confirm || "Confirm"}
           </button>
-        </div>
+        </div>}
       </form>
     </dialog>
   );
