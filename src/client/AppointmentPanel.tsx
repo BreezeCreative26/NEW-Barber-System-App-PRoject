@@ -148,7 +148,6 @@ export function AppointmentPanel({
   const [more, setMore] = useState(false);
   const ref = useRef<HTMLElement>(null);
   const [confirm, setConfirm] = useState<null | { status: string; series?: boolean }>(null);
-  const [reason, setReason] = useState("");
   // Cancelling: tell the customer by default. Only offered when we have a way to reach them.
   const [tell, setTell] = useState(true);
   const [fromThis, setFromThis] = useState(true);
@@ -196,7 +195,6 @@ export function AppointmentPanel({
   }, [booking.id]);
   useEffect(() => {
     setConfirm(null);
-    setReason("");
     setNoteOpen(false);
     setCheckout(false);
     setVoiding(null);
@@ -267,7 +265,6 @@ export function AppointmentPanel({
       /* clipboard unavailable in some contexts; nothing else to do */
     }
   }
-  const needsReason = confirm && ["CANCELLED", "NO_SHOW"].includes(confirm.status);
   const goMove = guarded(onMove), goRebook = guarded(onRebook), goEdit = guarded(onEdit), goShare = guarded(onShare), goSeriesMove = guarded(onSeriesMove);
   const customer = timeline?.customer ?? null;
 
@@ -303,6 +300,16 @@ export function AppointmentPanel({
                 <Icon name="users" size={12} /> Group
               </span>
             )}
+            {/* Same signals as the calendar card (see BLOCK_ICONS), in words. */}
+            {booking.first_visit && booking.source !== "WALK_IN" && (
+              <span className="channel-badge flag-first" data-testid="badge-first-visit"><Icon name="sparkles" size={12} /> First visit</span>
+            )}
+            {booking.fav_barber && (
+              <span className="channel-badge flag-fav" data-testid="badge-fav"><Icon name="heart" size={12} /> Favourite barber</span>
+            )}
+            {!!booking.requested_staff && (
+              <span className="channel-badge flag-req" data-testid="badge-requested"><Icon name="userRound" size={12} /> Asked for {barber?.name.split(" ")[0] || "this barber"}</span>
+            )}
           </div>
           <div className="panel-title-line">
             <h2 id="panel-title">
@@ -313,11 +320,12 @@ export function AppointmentPanel({
           <p className="panel-subtitle">
             {longDate(booking.date)} · {booking.duration_min} min · ref {`BRB-${String(booking.sequence).padStart(4, "0")}`}
           </p>
-          {/* The everyday changes, right under the title so they're seen without scrolling. */}
-          {["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && (
+          {/* The everyday changes, right under the title so they're seen without scrolling. Choosing one
+              opens its step right here (the header never scrolls), so the whole job happens in view. */}
+          {!confirm && ["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && (
             <div className="panel-quick" role="group" aria-label="Change this appointment" data-testid="panel-quick">
               {booking.status === "CONFIRMED" && (
-                <button type="button" className="panel-quick-btn" onClick={goMove} disabled={!!busy} data-testid="quick-reschedule"><Icon name="calendar" size={16} /> Reschedule</button>
+                <button type="button" className="panel-quick-btn" onClick={onPickSlot ? guarded(onPickSlot) : goMove} disabled={!!busy} data-testid="quick-reschedule"><Icon name="calendar" size={16} /> Reschedule</button>
               )}
               {booking.status === "CONFIRMED" && (isPast || !noShowEarly) && (
                 <button type="button" className="panel-quick-btn" onClick={() => setConfirm({ status: "NO_SHOW" })} disabled={!!busy} data-testid="quick-no-show"><Icon name="userRound" size={16} /> No-show</button>
@@ -325,6 +333,48 @@ export function AppointmentPanel({
               <button type="button" className="panel-quick-btn danger" onClick={() => setConfirm({ status: "CANCELLED" })} disabled={!!busy} data-testid="quick-cancel"><Icon name="close" size={16} /> Cancel</button>
             </div>
           )}
+          {confirm && (
+            <section className={`panel-confirm-inline ${confirm.status === "NO_SHOW" ? "noshow" : "cancel"}`} role="alert" aria-label="Confirm change" data-testid="panel-confirm">
+              <strong>
+                {confirm.series
+                  ? "Cancel this standing booking?"
+                  : confirm.status === "NO_SHOW"
+                    ? `Mark ${(booking.attendee_name || booking.customer_name).split(" ")[0]} as a no-show?`
+                    : `Cancel ${time(booking.start_min)} with ${(booking.attendee_name || booking.customer_name).split(" ")[0]}?`}
+              </strong>
+              {confirm.series && (
+                <div className="panel-radio">
+                  <label><input type="radio" checked={fromThis} onChange={() => setFromThis(true)} /> This and later visits ({laterInSeries.length})</label>
+                  <label><input type="radio" checked={!fromThis} onChange={() => setFromThis(false)} /> All remaining visits ({remainingSeries.length})</label>
+                </div>
+              )}
+              {confirm.status === "NO_SHOW" && noShowEarly && (
+                <Notice tone="warning">No-show is available {w.shop.no_show_grace} minutes after the start time.</Notice>
+              )}
+              {confirm.status === "NO_SHOW" && !noShowEarly && <small className="panel-confirm-hint">It stays on the calendar in red and counts on their record.</small>}
+              {confirm.status === "CANCELLED" && (booking.phone || booking.email || booking.customer_email) && (
+                <label className="ask-check panel-tell" data-testid="cancel-tell-customer">
+                  <input type="checkbox" checked={tell} onChange={(e) => setTell(e.target.checked)} />
+                  <span><strong>Tell {(booking.attendee_name || booking.customer_name).split(" ")[0]}</strong><small>By text or email, as they prefer</small></span>
+                </label>
+              )}
+              <div className="panel-confirm-actions">
+                <Button variant="ghost" onClick={() => setConfirm(null)} disabled={busy !== ""}>Back</Button>
+                <Button
+                  variant="danger"
+                  disabled={busy !== "" || (confirm.status === "NO_SHOW" && noShowEarly)}
+                  onClick={async () => {
+                    if (confirm.series) await onSeriesCancel("", fromThis, tell);
+                    else await onStatus(confirm.status, "", confirm.status === "CANCELLED" ? tell : undefined);
+                  }}
+                  data-testid="panel-confirm-go"
+                >
+                  {busy ? "Saving…" : confirm.series ? "Cancel visits" : confirm.status === "NO_SHOW" ? "Mark no-show" : "Cancel appointment"}
+                </Button>
+              </div>
+            </section>
+          )}
+          {error && confirm && <p className="workspace-error panel-header-error" role="alert">{error}</p>}
         </header>
 
         <div className="panel-body">
@@ -526,51 +576,7 @@ export function AppointmentPanel({
               }}
             />
           )}
-          {/* Confirm step for status changes */}
-          {confirm && (
-            <section className="panel-card panel-confirm" role="alert" aria-label="Confirm change">
-              <strong>
-                {confirm.series
-                  ? "Cancel standing booking"
-                  : `Mark as ${labels[confirm.status].toLowerCase()}`}
-              </strong>
-              {confirm.series && (
-                <div className="panel-radio">
-                  <label><input type="radio" checked={fromThis} onChange={() => setFromThis(true)} /> This and later visits ({laterInSeries.length})</label>
-                  <label><input type="radio" checked={!fromThis} onChange={() => setFromThis(false)} /> All remaining visits ({remainingSeries.length})</label>
-                </div>
-              )}
-              {confirm.status === "NO_SHOW" && noShowEarly && (
-                <Notice tone="warning">No-show is available {w.shop.no_show_grace} minutes after the start time.</Notice>
-              )}
-              <label className="panel-reason">
-                <span>{needsReason ? "Reason (required)" : "Note (optional)"}</span>
-                <textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} rows={2} required={!!needsReason} minLength={needsReason ? 3 : undefined} />
-              </label>
-              {confirm.status === "CANCELLED" && (booking.phone || booking.email || booking.customer_email) && (
-                <label className="ask-check panel-tell" data-testid="cancel-tell-customer">
-                  <input type="checkbox" checked={tell} onChange={(e) => setTell(e.target.checked)} />
-                  <span><strong>Tell {(booking.attendee_name || booking.customer_name).split(" ")[0]} it is cancelled</strong><small>They get a text or email, as they prefer.</small></span>
-                </label>
-              )}
-              <div className="panel-actions-row">
-                <Button
-                  variant={["CANCELLED", "NO_SHOW"].includes(confirm.status) ? "danger" : "primary"}
-                  disabled={busy !== "" || (needsReason && reason.trim().length < 3) || (confirm.status === "NO_SHOW" && noShowEarly)}
-                  onClick={async () => {
-                    if (confirm.series) await onSeriesCancel(reason.trim(), fromThis, tell);
-                    else await onStatus(confirm.status, reason.trim(), confirm.status === "CANCELLED" ? tell : undefined);
-                    setConfirm(null);
-                    setReason("");
-                  }}
-                >
-                  {busy ? "Saving…" : confirm.series ? "Cancel visits" : `Confirm ${labels[confirm.status].toLowerCase()}`}
-                </Button>
-                <Button variant="ghost" onClick={() => setConfirm(null)}>Back</Button>
-              </div>
-            </section>
-          )}
-          {error && <p className="workspace-error" role="alert">{error}</p>}
+          {error && !confirm && <p className="workspace-error" role="alert">{error}</p>}
           {switchError && <p className="workspace-error" role="alert">{switchError}</p>}
           {nextAction && (
             <section className="dialog-close-warning" role="alert">
@@ -637,7 +643,6 @@ export function AppointmentPanel({
                   <Icon name="checks" size={16} /> {busy === "COMPLETED" ? "Saving…" : "Mark done"}
                 </Button>
               )}
-              {booking.status === "CONFIRMED" && onPickSlot && <Button variant="secondary" onClick={guarded(onPickSlot)} data-testid="pick-slot"><Icon name="calendar" size={16} /> Move on timetable</Button>}
             </>
           )}
           {booking.status === "COMPLETED" && outstanding > 0 && canTakePayment && onCheckout && !checkout && (
@@ -652,6 +657,7 @@ export function AppointmentPanel({
             <summary aria-label="More actions"><Icon name="more" size={18} /></summary>
             <div className="panel-more-menu">
               <button type="button" onClick={goEdit}><Icon name="user" size={14} /> Edit name and phone</button>
+              {booking.status === "CONFIRMED" && <button type="button" onClick={goMove} data-testid="move-with-form"><Icon name="calendar" size={14} /> Reschedule with the booking form</button>}
               {["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && canTakePayment && onCheckout && (
                 <button type="button" onClick={() => onStatus("COMPLETED", "")}><Icon name="checks" size={14} /> Mark done without payment</button>
               )}

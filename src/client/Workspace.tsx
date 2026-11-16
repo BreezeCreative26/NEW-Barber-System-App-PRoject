@@ -2611,8 +2611,11 @@ export function Workspace() {
           {moving && (
             <div className="move-bar" role="status" data-testid="move-bar">
               <Icon name="calendar" size={18} />
-              <span>Moving <b>{moving.attendee_name || moving.customer_name}</b> · {moving.service_name} · click a free slot on the timetable. Change the day with the arrows above.</span>
-              <Button variant="ghost" onClick={() => setMoving(null)}>Cancel</Button>
+              <span>
+                <b>Pick a new time for {(moving.attendee_name || moving.customer_name).split(" ")[0]}</b>
+                <small>Now {new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date(moving.date + "T12:00:00Z"))} · {time(moving.start_min)} · {moving.service_name}. Tap a free slot; use the arrows for another day.</small>
+              </span>
+              <Button variant="ghost" onClick={() => setMoving(null)} data-testid="move-cancel">Cancel</Button>
             </div>
           )}
           {notice && (

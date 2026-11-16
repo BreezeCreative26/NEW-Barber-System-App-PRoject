@@ -1195,7 +1195,8 @@ export const moveSchema = z
       .max(1425)
       .refine((v) => v % 15 === 0),
     staff_id: z.string().uuid(),
-    reason: z.string().trim().min(3).max(300),
+    // Optional: moves don't need a reason (the history records what changed either way).
+    reason: z.string().trim().max(300).transform((r) => r || "Rescheduled by the shop").default("Rescheduled by the shop"),
     version,
     // Fresha-style override: the shop chooses to double-book or book outside rostered hours.
     // Only soft reasons yield (see OVERRIDABLE_REASONS); past time / closed shop never do.
