@@ -6267,3 +6267,7 @@ html:not(.ws-dark) .sidebar.light .sidebar-group { color: var(--muted); }
   .workspace .connected-calendar .calendar-event strong.wrap-name .event-inline-icons { align-self: flex-start; }
   .workspace .connected-calendar .calendar-event strong.wrap-name .event-name { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: clip; }
 }
+
+/* Appointment cards fill their barber column: an old fixed width (100% - 12px) was overriding
+   left/right and leaving a gap on the right. Overlapping cards keep their inline lane width. */
+.workspace .connected-calendar .calendar-event:not(.overlapping) { left: 2px; right: 2px; width: auto; }
