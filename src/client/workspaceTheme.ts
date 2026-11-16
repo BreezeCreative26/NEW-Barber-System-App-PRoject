@@ -24,13 +24,14 @@ const lit = (glow: string, beam: string) =>
   `radial-gradient(130% 55% at 100% 0%, ${glow} 0%, rgba(0,0,0,0) 62%), ` +
   `linear-gradient(118deg, rgba(0,0,0,0) 34%, ${beam} 46%, rgba(0,0,0,0) 60%), ` +
   `radial-gradient(90% 40% at 0% 100%, rgba(255,255,255,.035) 0%, rgba(0,0,0,0) 70%), #050506`;
+// `glow` is the light colour (r,g,b) — the main buttons pick it up as a faint halo so they match.
 export const WS_RAILS = [
-  { id: "classic", name: "Black", bg: "#0b0b0c" },
-  { id: "beam", name: "Spotlight", bg: lit("rgba(255,255,255,.16)", "rgba(255,255,255,.055)") },
-  { id: "beam-mint", name: "Mint glow", bg: lit("rgba(0,232,176,.22)", "rgba(0,232,176,.06)") },
-  { id: "beam-violet", name: "Violet glow", bg: lit("rgba(139,92,246,.28)", "rgba(139,92,246,.07)") },
-  { id: "beam-blue", name: "Blue glow", bg: lit("rgba(59,130,246,.26)", "rgba(59,130,246,.07)") },
-  { id: "beam-ember", name: "Ember glow", bg: lit("rgba(249,115,22,.22)", "rgba(249,115,22,.06)") },
+  { id: "classic", name: "Black", bg: "#0b0b0c", glow: "" },
+  { id: "beam", name: "Spotlight", bg: lit("rgba(255,255,255,.16)", "rgba(255,255,255,.055)"), glow: "255,255,255" },
+  { id: "beam-mint", name: "Mint glow", bg: lit("rgba(0,232,176,.22)", "rgba(0,232,176,.06)"), glow: "0,232,176" },
+  { id: "beam-violet", name: "Violet glow", bg: lit("rgba(139,92,246,.28)", "rgba(139,92,246,.07)"), glow: "139,92,246" },
+  { id: "beam-blue", name: "Blue glow", bg: lit("rgba(59,130,246,.26)", "rgba(59,130,246,.07)"), glow: "59,130,246" },
+  { id: "beam-ember", name: "Ember glow", bg: lit("rgba(249,115,22,.22)", "rgba(249,115,22,.06)"), glow: "249,115,22" },
 ] as const;
 export type WsRail = (typeof WS_RAILS)[number]["id"];
 
@@ -82,9 +83,11 @@ export function applyWsTheme(t: WorkspaceTheme) {
   if (r.id === "classic") {
     root.classList.remove("ws-rail-lit", "ws-rail-metal");
     root.style.removeProperty("--ws-rail-bg");
+    root.style.removeProperty("--ws-glow");
   } else {
     root.classList.add("ws-rail-lit");
     root.style.setProperty("--ws-rail-bg", r.bg);
+    root.style.setProperty("--ws-glow", r.glow);
   }
   root.dataset.wsRail = r.id;
 }
@@ -94,6 +97,6 @@ export function clearWsTheme() {
   for (const x of WS_ACCENTS) root.classList.remove(`ws-accent-${x.id}`);
   root.classList.remove("ws-dark", "ws-rail-lit", "ws-rail-metal");
   delete root.dataset.wsRail;
-  for (const k of ["--ws-rail-bg", "--ws-accent", "--ws-accent-dark", "--ws-soft", "--ws-rail", "--ws-fill", "--ws-fill-hover", "--ws-fill-ink"]) root.style.removeProperty(k);
+  for (const k of ["--ws-rail-bg", "--ws-glow", "--ws-accent", "--ws-accent-dark", "--ws-soft", "--ws-rail", "--ws-fill", "--ws-fill-hover", "--ws-fill-ink"]) root.style.removeProperty(k);
   root.style.colorScheme = "";
 }
