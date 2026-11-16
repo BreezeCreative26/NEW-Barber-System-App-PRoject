@@ -204,6 +204,10 @@ export function AppointmentPanel({
       if (ref.current && !ref.current.contains(document.activeElement)) ref.current.focus();
     });
   }, [booking.id, booking.version]);
+  useEffect(() => setEditingItems(false), [booking.id]);
+  // A step (change service / checkout) takes over the sheet: only that screen, its actions pinned at the bottom.
+  const step: "" | "items" | "checkout" = editingItems && onItems ? "items" : checkout && onCheckout ? "checkout" : "";
+  const canEditItems = !!onItems && ["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && payments.filter((p) => !p.voided_at).length === 0;
 
   // Phone bottom sheet: drag the grab handle / header down to close it (like an iOS sheet).
   const drag = useRef<{ y: number; t: number; dy: number } | null>(null);
@@ -272,7 +276,7 @@ export function AppointmentPanel({
     <div className="panel-scrim" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <aside
         ref={ref}
-        className="appointment-panel"
+        className={`appointment-panel ${step ? "in-step" : ""}`}
         role="dialog"
         aria-modal="false"
         aria-labelledby="panel-title"
@@ -322,7 +326,7 @@ export function AppointmentPanel({
           </p>
           {/* The everyday changes, right under the title so they're seen without scrolling. Choosing one
               opens its step right here (the header never scrolls), so the whole job happens in view. */}
-          {!confirm && ["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && (
+          {!confirm && !step && ["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && (
             <div className="panel-quick" role="group" aria-label="Change this appointment" data-testid="panel-quick">
               {booking.status === "CONFIRMED" && (
                 <button type="button" className="panel-quick-btn" onClick={onPickSlot ? guarded(onPickSlot) : goMove} disabled={!!busy} data-testid="quick-reschedule"><Icon name="calendar" size={16} /> Reschedule</button>
@@ -377,7 +381,48 @@ export function AppointmentPanel({
           {error && confirm && <p className="workspace-error panel-header-error" role="alert">{error}</p>}
         </header>
 
-        <div className="panel-body">
+        <div className={`panel-body ${step ? "is-step" : ""}`}>
+          {step === "items" && onItems && (
+            <section className="panel-step" aria-label="Change service, price or time">
+              <div className="panel-step-head">
+                <strong><Icon name="scissors" size={15} /> Change service, price or time</strong>
+                <small>{barber?.name.split(" ")[0] || "Barber"} · {time(booking.start_min)}–{time(booking.start_min + booking.duration_min)}</small>
+              </div>
+              <EditItems
+                booking={booking}
+                w={w}
+                items={items}
+                busy={!!busy}
+                onCancel={() => setEditingItems(false)}
+                onSave={async (body) => {
+                  const r = await onItems(body);
+                  setEditingItems(false);
+                  return r;
+                }}
+              />
+            </section>
+          )}
+          {step === "checkout" && onCheckout && (
+            <Checkout
+              booking={booking}
+              w={w}
+              payments={payments}
+              busy={busy === "CHECKOUT"}
+              onRecord={async (body) => {
+                await onCheckout(body);
+                setCheckout(false);
+              }}
+              onCancel={() => setCheckout(false)}
+              api={api}
+              cardLive={cardLive}
+              onPaid={async () => {
+                await onPaid?.();
+                setCheckout(false);
+              }}
+            />
+          )}
+          {step && error && <p className="workspace-error" role="alert">{error}</p>}
+          {!step && <>
           {/* Customer card */}
           <section className="panel-card panel-customer" aria-label="Customer">
             <div className="panel-customer-head">
@@ -436,20 +481,7 @@ export function AppointmentPanel({
                 {time(booking.start_min)} – {time(booking.start_min + booking.duration_min)}
               </span>
             </div>
-            {editingItems && onItems ? (
-              <EditItems
-                booking={booking}
-                w={w}
-                items={items}
-                busy={!!busy}
-                onCancel={() => setEditingItems(false)}
-                onSave={async (body) => {
-                  const r = await onItems(body);
-                  setEditingItems(false);
-                  return r;
-                }}
-              />
-            ) : (
+            {(
               <ul className="panel-items">
                 {items.map((i) => (
                   <li key={i.id}>
@@ -467,13 +499,6 @@ export function AppointmentPanel({
                   </span>
                   <span>{money(booking.price_pence)}</span>
                 </li>
-                {onItems && ["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && payments.filter((p) => !p.voided_at).length === 0 && (
-                  <li className="panel-items-edit">
-                    <button type="button" className="panel-inline-action" onClick={() => setEditingItems(true)} disabled={!!busy} data-testid="edit-items">
-                      <Icon name="scissors" size={13} /> Change service, price or time
-                    </button>
-                  </li>
-                )}
               </ul>
             )}
             <PaidStrip payments={payments} booking={booking} canVoid={canVoid && !!onVoidPayment} onVoid={(p) => { setVoiding(p); setVoidReason(""); }} />
@@ -557,25 +582,6 @@ export function AppointmentPanel({
             </section>
           )}
 
-          {checkout && onCheckout && (
-            <Checkout
-              booking={booking}
-              w={w}
-              payments={payments}
-              busy={busy === "CHECKOUT"}
-              onRecord={async (body) => {
-                await onCheckout(body);
-                setCheckout(false);
-              }}
-              onCancel={() => setCheckout(false)}
-              api={api}
-              cardLive={cardLive}
-              onPaid={async () => {
-                await onPaid?.();
-                setCheckout(false);
-              }}
-            />
-          )}
           {error && !confirm && <p className="workspace-error" role="alert">{error}</p>}
           {switchError && <p className="workspace-error" role="alert">{switchError}</p>}
           {nextAction && (
@@ -619,10 +625,11 @@ export function AppointmentPanel({
               </ol>
             )}
           </section>}
+          </>}
         </div>
 
         {/* Sticky contextual actions */}
-        <footer className="panel-actions" aria-label="Appointment actions">
+        {!step && <footer className="panel-actions" aria-label="Appointment actions">
           {/* One ceremony: Checkout. Payment method (card via reader / QR, cash, transfer, voucher)
               is chosen on the checkout screen; recording it completes the visit. */}
           {["CONFIRMED", "CHECKED_IN", "IN_SERVICE"].includes(booking.status) && (
@@ -634,7 +641,7 @@ export function AppointmentPanel({
                     <Icon name="checks" size={16} /> {busy ? "Completing…" : "Complete · £0"}
                   </Button>
                 ) : (
-                  <Button disabled={!!busy} onClick={() => setCheckout(true)} data-testid="take-payment">
+                  <Button disabled={!!busy} onClick={() => { setEditingItems(false); setCheckout(true); }} data-testid="take-payment">
                     <Icon name="wallet" size={16} /> Checkout · {money(outstanding)}
                   </Button>
                 ))
@@ -648,6 +655,11 @@ export function AppointmentPanel({
           {booking.status === "COMPLETED" && outstanding > 0 && canTakePayment && onCheckout && !checkout && (
             <Button variant="secondary" disabled={!!busy} onClick={() => setCheckout(true)} data-testid="take-payment">
               <Icon name="wallet" size={16} /> Record payment · {money(outstanding)}
+            </Button>
+          )}
+          {canEditItems && (
+            <Button variant="secondary" disabled={!!busy} onClick={guarded(() => { setCheckout(false); setEditingItems(true); })} title="Change service, price or time" data-testid="edit-items">
+              <Icon name="scissors" size={16} /> Change service
             </Button>
           )}
           <Button variant={["COMPLETED", "CANCELLED", "NO_SHOW"].includes(booking.status) ? "primary" : "ghost"} onClick={goRebook}>
@@ -666,7 +678,7 @@ export function AppointmentPanel({
               {!canTakePayment && <span className="panel-more-note"><Icon name="lock" size={14} /> Payments are taken on the shop device</span>}
             </div>
           </details>
-        </footer>
+        </footer>}
       </aside>
     </div>
   );
@@ -781,12 +793,11 @@ function EditItems({
           <input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} data-testid="items-price" />
         </label>
         <label className="panel-reason">
-          <span>Time{timeChanged ? <em> · was {cat.duration} min</em> : null}</span>
+          <span>Time (min){timeChanged ? <em> · was {cat.duration}</em> : null}</span>
           <span className="items-stepper">
             <button type="button" aria-label="5 minutes less" onClick={() => setDuration((d) => Math.max(5, d - 5))}>−</button>
             <input type="number" min={5} max={480} step={5} value={duration} onChange={(e) => setDuration(Math.max(5, Math.round((Number(e.target.value) || 5) / 5) * 5))} data-testid="items-duration" />
             <button type="button" aria-label="5 minutes more" onClick={() => setDuration((d) => Math.min(480, d + 5))}>+</button>
-            <small>min</small>
           </span>
         </label>
       </div>
@@ -827,9 +838,9 @@ function EditItems({
         <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. mate's rates" maxLength={300} data-testid="items-reason" />
       </label>
       {error && <p className="workspace-error" role="alert">{error}</p>}
-      <div className="panel-actions-row">
-        <Button type="submit" disabled={busy} data-testid="items-save">Save changes</Button>
+      <div className="step-actions">
         <Button variant="ghost" type="button" onClick={onCancel}>Cancel</Button>
+        <Button type="submit" disabled={busy} data-testid="items-save"><Icon name="check" size={16} /> Save changes</Button>
       </div>
     </form>
   );

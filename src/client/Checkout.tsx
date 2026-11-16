@@ -66,6 +66,7 @@ export function Checkout({
   const [split, setSplit] = useState<Tender[]>([]);
   const [note, setNote] = useState("");
   const [card, setCard] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
   // Card reader (Revolut): the customer can add a tip on the machine, so ask every time.
   // The machine offers 10% / 20% / 30% of the amount charged; "other" covers a custom tip typed on it.
   const [readerTip, setReaderTip] = useState<null | "no" | 10 | 20 | 30 | "other">(null);
@@ -175,7 +176,6 @@ export function Checkout({
             <input aria-label="Custom tip" type="number" inputMode="decimal" min={0} step="0.5" placeholder="Other" value={customTip} onChange={(e) => setCustomTip(e.target.value)} />
           </span>
         </div>
-        <small>Tips are recorded against the barber, 100%.</small>
       </fieldset>}
 
       {noMethod ? (
@@ -187,12 +187,11 @@ export function Checkout({
             <button key={m.key} type="button" className="method-tile" aria-pressed={method === m.key} data-testid={`method-${m.key.toLowerCase()}`} onClick={() => { setMethod(m.key); setCard(false); setReaderTip(null); }}>
               <Icon name={m.icon} size={18} />
               <b>{m.label}</b>
-              {m.key === "CARD" && <small>Tap on their phone or reader</small>}
-              {m.key === "READER" && <small>Your own machine (Revolut)</small>}
+
             </button>
           ))}
         </div>
-        {!cardLive && <small className="helper" data-testid="card-not-set-up">Card payments need online payments set up (Settings → Payments). Until then, use Card reader for your own machine (Revolut), or record cash, transfer, voucher or other.</small>}
+        {!cardLive && <small className="helper" data-testid="card-not-set-up">Card through foliyo needs Settings → Payments. Use Card reader for your own machine.</small>}
       </fieldset>}
 
       {readerAsk && (
@@ -240,15 +239,32 @@ export function Checkout({
         </ul>
       )}
 
-      <label className="panel-reason">
-        <span>Note (optional)</span>
-        <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder="e.g. paid for his son too" />
-      </label>
+      <div className="checkout-extras">
+      {remaining > 0 && !noMethod && (
+        <details className="checkout-more">
+          <summary>Split payment</summary>
+          <div className="checkout-split-add">
+            <SplitAmount max={remaining} onAdd={(pence) => { setSplit([...split, { method, service_pence: pence, tip_pence: tipPence }]); setTip(0); setCustomTip(""); }} />
+          </div>
+        </details>
+      )}
+      {noteOpen ? (
+        <label className="panel-reason checkout-note">
+          <span>Note</span>
+          <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder="e.g. paid for his son too" autoFocus />
+        </label>
+      ) : (
+        <button type="button" className="panel-inline checkout-note-add" onClick={() => setNoteOpen(true)} data-testid="checkout-add-note">+ Add a note</button>
+      )}
+      </div>
 
       {api && card && (
         <CardAtChair api={api} booking={booking} amount={{ service_pence: remaining, tip_pence: tipPence, discount_pence: discount, complete: true, note: note.trim() }} live={!!cardLive} onPaid={async () => { await onPaid?.(); }} onClose={() => setCard(false)} />
       )}
-      <div className="panel-actions-row checkout-actions">
+      <div className="step-actions checkout-actions">
+        <Button variant="ghost" onClick={onCancel}>
+          Back
+        </Button>
         {free ? (
           <Button disabled={!canRecord} onClick={() => record(true)} data-testid="record-payment">
             <Icon name="checks" size={16} />
@@ -271,19 +287,7 @@ export function Checkout({
             {busy ? "Recording…" : readerAsk && !readerAnswered ? "Answer the tip question first" : `${method === "CASH" ? "Cash taken" : "Paid"} · ${money(remaining + tipPence)} · complete`}
           </Button>
         )}
-        {remaining > 0 && (
-          <details className="checkout-more">
-            <summary>Split</summary>
-            <div className="checkout-split-add">
-              <SplitAmount max={remaining} onAdd={(pence) => { setSplit([...split, { method, service_pence: pence, tip_pence: tipPence }]); setTip(0); setCustomTip(""); }} />
-            </div>
-          </details>
-        )}
-        <Button variant="ghost" onClick={onCancel}>
-          Back
-        </Button>
       </div>
-      <p className="drawer-note left">{cardLive ? "Card goes through the reader or a pay link and reaches the barber's payout automatically. Cash, transfer, voucher and other are recorded here." : "Completes the visit and writes the ledger your wallet and pay runs read from."}</p>
     </section>
   );
 }

@@ -6112,3 +6112,78 @@ html:not(.ws-dark) .sidebar.light .sidebar-group { color: var(--muted); }
 /* Offer page account tabs: unselected tab text meets AA contrast on the grey track */
 .held-tabs button { color: #3f4652; }
 .held-tabs button[aria-selected=true] { color: var(--ink, #0b0b0c); }
+
+/* ==========================================================================
+   Appointment panel steps: "Change service" and "Checkout" take over the sheet,
+   laid out to fit without scrolling; their buttons are pinned at the bottom.
+   ========================================================================== */
+.appointment-panel.in-step .panel-header { padding-bottom: 10px; }
+.panel-body.is-step { display: flex; flex-direction: column; gap: 10px; padding-bottom: 0; }
+.panel-body.is-step > .panel-step, .panel-body.is-step > .checkout { flex: 1 0 auto; display: flex; flex-direction: column; gap: 10px; border: 0; padding: 0; background: transparent; box-shadow: none; }
+.panel-step-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.panel-step-head strong { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; letter-spacing: -.01em; }
+.panel-step-head small { color: var(--muted); font-size: 12.5px; }
+.panel-step .panel-items-editor { flex: 1 0 auto; display: flex; flex-direction: column; gap: 10px; }
+.panel-step .items-editor-row { grid-template-columns: 1fr 1fr; gap: 10px; }
+.panel-step .panel-reason { gap: 4px; margin: 0; }
+.panel-step .panel-reason > span { font-size: 12px; font-weight: 600; color: var(--muted); }
+.panel-step .panel-reason input, .panel-step .panel-reason select { min-height: 42px; font-size: 14px; }
+.panel-step .items-stepper { display: grid; grid-template-columns: 42px minmax(0, 1fr) 42px; gap: 6px; width: 100%; }
+.panel-step .items-stepper button { width: 42px; height: 42px; border-radius: 10px; }
+.panel-step .items-stepper input { width: 100%; min-height: 42px; font-size: 14px; }
+.panel-step .items-addons { padding: 6px 10px 8px; gap: 4px; }
+.panel-step .items-editor-total { margin-top: auto; padding-top: 10px; }
+
+/* Pinned bottom actions for a step (Back/Cancel + the main button). */
+.step-actions {
+  position: sticky; bottom: 0; z-index: 4; margin: auto -20px 0; padding: 10px 20px calc(10px + var(--sheet-safe-bottom, 0px));
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: center;
+  background: var(--surface, #fff); border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px rgba(14, 17, 26, 0.05);
+}
+.step-actions .button { min-height: 48px; justify-content: center; border-radius: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step-actions > .button:only-child { grid-column: 1 / -1; }
+
+/* Checkout, compact */
+.checkout .checkout-head { display: none; }
+.checkout .checkout-lines { gap: 4px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2, #f6f7f9); }
+.checkout .checkout-lines > div { min-height: 30px; }
+.checkout .checkout-discount .checkout-money-input { height: 32px; }
+.checkout .checkout-due { padding-top: 6px; }
+.checkout .checkout-due dd { font-size: 22px; }
+.checkout fieldset { gap: 6px; }
+.checkout legend { margin-bottom: 4px; font-size: 12px; }
+.checkout .checkout-chips { flex-wrap: nowrap; gap: 6px; }
+.checkout .checkout-chips .chip { flex: 1 1 0; min-width: 0; padding: 0 6px; height: 38px; justify-content: center; }
+.checkout .checkout-chips .chip-input { flex: 1.3 1 0; min-width: 0; height: 38px; }
+.checkout .checkout-chips .chip-input input { width: 100%; }
+.checkout .method-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.checkout .method-tile { min-height: 0; padding: 8px 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
+.checkout .method-tile svg { margin: 0; }
+.checkout .method-tile b { font-size: 12.5px; white-space: nowrap; }
+.checkout .helper { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.checkout-extras { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 6px 12px; }
+.checkout-extras .checkout-more summary, .checkout-extras .checkout-note-add { padding: 4px 0; font-size: 13px; }
+.checkout-extras .checkout-note { flex: 1 1 100%; }
+.checkout-extras .checkout-more[open] { flex: 1 1 100%; }
+.checkout .checkout-reader-tip { margin: 0; padding: 8px 10px 10px; }
+.checkout .checkout-reader-tip .checkout-chips { flex-wrap: wrap; }
+.checkout .checkout-reader-tip .chip { flex: 0 1 auto; }
+.checkout .card-at-chair { margin: 0; }
+
+@media (max-width: 900px) {
+  .step-actions { margin: auto -12px 0; padding-left: 12px; padding-right: 12px; }
+  .panel-body.is-step { padding-left: 12px; padding-right: 12px; }
+  .appointment-panel.in-step .panel-subtitle { display: none; }
+  .appointment-panel.in-step .panel-title-row { margin-bottom: 4px; }
+  .checkout .checkout-lines > div { min-height: 26px; }
+}
+@media (max-width: 380px) {
+  .checkout .checkout-chips { flex-wrap: wrap; }
+  .checkout .checkout-chips .chip-input { flex-basis: 100%; }
+}
+/* Phone: the everyday sheet fits too (customer card, visit card, More link) */
+@media (max-width: 900px) {
+  .appointment-panel .panel-body:not(.is-step) { gap: 8px; padding-top: 8px; }
+  .appointment-panel .panel-more-toggle { padding-top: 10px; padding-bottom: 10px; }
+}
