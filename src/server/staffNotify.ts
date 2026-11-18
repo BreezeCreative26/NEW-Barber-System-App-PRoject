@@ -63,12 +63,16 @@ async function pushToTeam(db: DB, shopId: string, p: { title: string; body: stri
   const subs = (await db.prepare(
     "SELECT s.id,s.account_id,s.endpoint,s.p256dh,s.auth,s.failures,m.role,m.staff_id,m.permissions_json FROM staff_push_subscriptions s JOIN app_memberships m ON m.id=s.account_id AND m.shop_id=s.shop_id WHERE s.shop_id=? AND m.active=1",
   ).bind(shopId).all<SubRow>()).results;
+  // Each login's unread count rides along so the phone can put the number on the app icon even
+  // while the app is closed (the page only sets it when open). One count per login, not per device.
+  const counts = new Map<string, number>();
   for (const s of subs) {
     const role = s.role === "SHOP" ? "RECEPTION" : s.role;
     const v: Viewer = { id: s.account_id, role, staff_id: s.staff_id, perms: effectivePerms(role, s.permissions_json) };
     if (!seesAll(v) && p.staff_id !== v.staff_id) continue;
+    if (!counts.has(v.id)) counts.set(v.id, await listFor(db, shopId, v).then((r) => r.unread).catch(() => 0));
     try {
-      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify({ title: p.title, body: p.body, url: "/workspace", tag: p.tag }), { TTL: 6 * 3600, urgency: "high" });
+      await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify({ title: p.title, body: p.body, url: "/workspace", tag: p.tag, badge_count: counts.get(v.id) || 0 }), { TTL: 6 * 3600, urgency: "high" });
       await db.prepare("UPDATE staff_push_subscriptions SET last_used_at=?, failures=0 WHERE id=?").bind(Date.now(), s.id).run();
     } catch (err) {
       const code = (err as { statusCode?: number }).statusCode ?? 0;
