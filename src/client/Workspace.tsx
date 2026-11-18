@@ -7487,21 +7487,25 @@ function OverrideEditor({
 function OohEditor({ staff, date, w, saved }: { staff: Staff; date: string; w: WorkspaceData; saved: EditorProps["saved"] }) {
   const win = (w.ooh || []).find((o) => o.staff_id === staff.id && o.date === date);
   const first = staff.name.split(" ")[0];
-  const fee = staff.ooh_fee_pence ?? 500;
+  const fee = win?.fee_pence ?? staff.ooh_fee_pence ?? 500;
   return (
     <SaveForm
       label={win ? "Save out-of-hours time" : "Open out-of-hours time"}
-      onSave={(f) => saved(`/staff/${staff.id}/ooh`, "POST", { date: text(f, "date"), starts: minute(text(f, "starts")), ends: minute(text(f, "ends")), note: text(f, "note") })}
+      onSave={(f) => saved(`/staff/${staff.id}/ooh`, "POST", { date: text(f, "date"), starts: minute(text(f, "starts")), ends: minute(text(f, "ends")), note: text(f, "note"), fee_pence: Math.max(0, Math.round(Number(text(f, "fee") || 0) * 100)) })}
       footer={win ? <Button type="button" variant="secondary" onClick={() => void saved(`/staff/${staff.id}/ooh/${win.id}`, "DELETE")} data-testid="ooh-close">Close out-of-hours time</Button> : undefined}
     >
       <Notice icon="clock">
-        <strong>{first} · {new Date(date + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}.</strong> These times show to the team as out of hours and glow orange on online booking. Customers see a notice and pay {first}'s out-of-hours charge of <strong>{money(fee)}</strong> on top (change it in Barbers › Profile). Works on days off too.
+        <strong>{first} · {new Date(date + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}.</strong> These times show to the team as out of hours and glow orange on online booking. Customers see a notice and pay the out-of-hours charge you set below on top of the service price, for every slot in this block. Works on closed days and days off too.
       </Notice>
       <Field label="Date"><input name="date" type="date" required defaultValue={win?.date ?? date} /></Field>
       <div className="workspace-form-grid">
         <Field label="From"><input name="starts" type="time" step={900} required defaultValue={clock(win?.starts ?? 18 * 60)} /></Field>
         <Field label="Until"><input name="ends" type="time" step={900} required defaultValue={clock(win?.ends ?? 20 * 60)} /></Field>
       </div>
+      <Field label="Out-of-hours charge for this block">
+        <span className="money-input"><b>£</b><input name="fee" type="number" min={0} max={1000} step={0.5} required defaultValue={(fee / 100).toFixed(2)} data-testid="ooh-fee" /></span>
+      </Field>
+      <p className="workspace-footnote">Added to every appointment booked in this time. £0 opens the time at normal prices.</p>
       <Field label="Note for the team (optional)"><input name="note" maxLength={100} defaultValue={win?.note ?? ""} placeholder="e.g. Late cuts before the wedding" /></Field>
     </SaveForm>
   );
@@ -7666,7 +7670,7 @@ type Slots = {
   overridden: boolean;
   service_name: string;
   cancel_hours: number;
-  slots: { start_min: number; reason: string; outside?: boolean; taken?: boolean; past?: boolean }[];
+  slots: { start_min: number; reason: string; outside?: boolean; taken?: boolean; past?: boolean; ooh?: boolean; ooh_fee_pence?: number }[];
   price_pence: number;
   duration_min: number;
   /** The length the customer is told (menu length), whatever the calendar block is. */
@@ -8493,7 +8497,7 @@ function BookingForm({
               // On a day off / closed day nothing is free, so start at the usual opening time rather than midnight.
               const closedDay = pickable.length > 0 && pickable.every((x) => x.reason === "Shop closed" || x.reason === "Barber has a day off") ? pickable[0].reason : "";
               const firstFree = pickable.find((x) => !x.reason && !x.outside && !x.taken) || (closedDay ? pickable.find((x) => x.start_min >= w.shop.opens && !x.taken) : undefined) || pickable.find((x) => !x.taken) || pickable[0];
-              const opt = (x: { start_min: number; taken?: boolean }) => <option key={x.start_min} value={x.start_min}>{time(x.start_min)}{x.taken ? " · overlaps" : ""}</option>;
+              const opt = (x: { start_min: number; taken?: boolean; ooh?: boolean; ooh_fee_pence?: number }) => <option key={x.start_min} value={x.start_min}>{time(x.start_min)}{x.ooh ? ` · out of hours${x.ooh_fee_pence ? ` +${money(x.ooh_fee_pence)}` : ""}` : ""}{x.taken ? " · overlaps" : ""}</option>;
               const chosen = start ? slots.slots.find((x) => String(x.start_min) === start) : undefined;
               return (
                 <>
