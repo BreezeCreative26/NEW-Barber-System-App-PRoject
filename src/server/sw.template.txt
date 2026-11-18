@@ -76,8 +76,15 @@ self.addEventListener("push", (event) => {
     renotify: !!data.tag,
     data: { url: data.url || "/" },
   };
+  // App icon number: the server sends this login's unread count with each push, so the home-screen
+  // icon shows it even when the app is closed (iPhone home-screen app / Android installed app).
+  const count = Number(data.badge_count);
+  const badge = Number.isFinite(count) && self.navigator && "setAppBadge" in self.navigator
+    ? (count > 0 ? self.navigator.setAppBadge(count) : self.navigator.clearAppBadge()).catch(() => {})
+    : Promise.resolve();
   event.waitUntil(
     Promise.all([
+      badge,
       self.registration.showNotification(title, options),
       // Tell any open window so the in-app bell refreshes at once.
       self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => list.forEach((c) => c.postMessage({ type: "foliyo-push", tag: data.tag || "" }))),
