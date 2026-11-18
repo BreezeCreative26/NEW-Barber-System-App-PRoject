@@ -4039,11 +4039,11 @@ function BusinessDetailsPanel({ w, refresh }: { w: WorkspaceData; refresh: () =>
             </Field>
           </div>
           <Field label="Address"><textarea name="address" maxLength={300} defaultValue={shop.address} rows={2} /></Field>
-          <Field label="Phone number for customers" hint="Shown on your shop page with a Call button, on booking confirmations and in emails. Leave blank to hide it.">
+          <Field label="Public phone number (shown on your website)" hint="The number customers call. Shows on your website with a Call button, on booking confirmations and in emails.">
             <input name="public_phone" type="tel" inputMode="tel" maxLength={20} defaultValue={w.public_phone || ""} data-testid="biz-public-phone" />
           </Field>
           <div className="workspace-form-grid">
-            <Field label="Shop mobile (private)" hint={`${shop.phone_verified_at ? "Verified. " : shop.phone ? "Not verified yet. " : ""}Owner alerts and the AI receptionist only. Never shown to customers.`}>
+            <Field label="Mobile for alerts and codes" hint={`${shop.phone_verified_at ? "Verified. " : shop.phone ? "Not verified yet. " : ""}Where we text you booking alerts and codes. Doesn't go on your website.`}>
               <input name="phone" type="tel" inputMode="tel" maxLength={20} defaultValue={shop.phone || ""} data-testid="biz-phone" />
             </Field>
             <Field label="Shop email" hint={shop.email_verified_at ? "Verified" : "Replies to customer messages come here."}>
