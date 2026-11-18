@@ -7,7 +7,7 @@ import { Avatar, Icon } from "./ui";
 import { ShopTabBar } from "./ShopTabBar";
 import { CustomerPrompts } from "./ReviewPrompt";
 import { money, time, dateLabel, setCurrency } from "./fixtures";
-import { PublicReviews, Stars, type PublicReview } from "./Reviews";
+import { PublicReviews, ReviewReply, Stars, type PublicReview } from "./Reviews";
 import { applyThemeColor, brandStyle, serverBrand, themeClass, type ShopBrand, type ShopTheme, shopPath } from "./theme";
 import { copyOf, type PageCopy } from "../server/domain";
 
@@ -509,11 +509,7 @@ export function ShopPageView({ data, me, mine, preview = false, onSelect, select
                             <span>{r.service_name} · {new Date(r.created_at).toLocaleDateString("en-GB", { month: "short", year: "numeric" })}</span>
                           </header>
                           {r.body && <p>{r.body}</p>}
-                          {r.reply && (
-                            <p className="sp-review-reply">
-                              <Icon name="messageReply" size={14} /> <strong>Shop reply</strong> {r.reply}
-                            </p>
-                          )}
+                          <ReviewReply r={r} />
                         </li>
                       ))}
                     </ul>
