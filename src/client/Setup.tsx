@@ -149,11 +149,11 @@ function useBusy() {
 // ---- 1. Your shop ---------------------------------------------------------------------------------
 function StepShop({ w, api, refresh, data, reload, setNotice, setError, onNext }: StepProps) {
   const shop = w.shop as Shop & { phone?: string; email?: string; kind?: string; phone_verified_at?: number | null; email_verified_at?: number | null };
-  const [form, setForm] = useState({ name: shop.name, kind: (shop.kind || data.kind || "BARBER") as "BARBER" | "HAIR" | "SALON", phone: shop.phone || "", email: shop.email || w.account?.email || "", address: shop.address || "", timezone: shop.timezone || "Europe/London", currency: (shop.currency || "GBP") as "GBP" | "EUR" | "USD" });
+  const [form, setForm] = useState({ name: shop.name, kind: (shop.kind || data.kind || "BARBER") as "BARBER" | "HAIR" | "SALON", phone: shop.phone || "", email: shop.email || w.account?.email || "", address: shop.address || "", timezone: shop.timezone || "Europe/London", currency: (shop.currency || "GBP") as "GBP" | "EUR" | "USD", public_phone: w.public_phone || "" });
   const { busy, run } = useBusy();
   // After a save the server normalises the mobile (+44…) — take its values so the form isn't "dirty".
-  useEffect(() => { setForm((f) => ({ ...f, name: shop.name, phone: shop.phone || "", email: shop.email || f.email, address: shop.address || "", kind: (shop.kind || f.kind) as "BARBER" })); }, [shop.version]);
-  const dirty = form.name !== shop.name || form.kind !== (shop.kind || "BARBER") || form.phone !== (shop.phone || "") || form.email !== (shop.email || "") || form.address !== (shop.address || "") || form.currency !== shop.currency;
+  useEffect(() => { setForm((f) => ({ ...f, name: shop.name, phone: shop.phone || "", email: shop.email || f.email, address: shop.address || "", kind: (shop.kind || f.kind) as "BARBER", public_phone: w.public_phone || "" })); }, [shop.version, w.public_phone]);
+  const dirty = form.name !== shop.name || form.kind !== (shop.kind || "BARBER") || form.phone !== (shop.phone || "") || form.email !== (shop.email || "") || form.address !== (shop.address || "") || form.currency !== shop.currency || form.public_phone !== (w.public_phone || "");
   async function save() {
     await api("/setup/contact", "PUT", form);
     await refresh(); await reload();
@@ -173,7 +173,10 @@ function StepShop({ w, api, refresh, data, reload, setNotice, setError, onNext }
       <div className="setup-grid-2">
         <F label="Shop name"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required minLength={2} maxLength={100} data-testid="setup-shop-name" /></F>
         <F label="Currency"><select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value as "GBP" })}><option value="GBP">£ GBP</option><option value="EUR">€ EUR</option><option value="USD">$ USD</option></select></F>
-        <F label="Shop mobile" hint="For verification codes, password resets and booking alerts. Customers don't see it unless you add it to your shop page.">
+        <F label="Phone number for customers" hint="The number customers call. Shown on your website with a Call button, on confirmations and in emails. Leave blank to hide it.">
+          <input type="tel" inputMode="tel" value={form.public_phone} onChange={(e) => setForm({ ...form, public_phone: e.target.value })} maxLength={20} placeholder="01449 700407" data-testid="setup-public-phone" />
+        </F>
+        <F label="Shop mobile (private)" hint="Only for verification codes, password resets and booking alerts to you. Never shown to customers.">
           <input type="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} maxLength={20} data-testid="setup-shop-phone" />
         </F>
         <F label="Shop email" hint="Replies to customer emails go here.">

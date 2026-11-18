@@ -4043,7 +4043,7 @@ function BusinessDetailsPanel({ w, refresh }: { w: WorkspaceData; refresh: () =>
             <input name="public_phone" type="tel" inputMode="tel" maxLength={20} defaultValue={w.public_phone || ""} data-testid="biz-public-phone" />
           </Field>
           <div className="workspace-form-grid">
-            <Field label="Shop mobile" hint={shop.phone_verified_at ? "Verified" : shop.phone ? "Not verified yet" : "Used for owner alerts and the AI receptionist."}>
+            <Field label="Shop mobile (private)" hint={`${shop.phone_verified_at ? "Verified. " : shop.phone ? "Not verified yet. " : ""}Owner alerts and the AI receptionist only. Never shown to customers.`}>
               <input name="phone" type="tel" inputMode="tel" maxLength={20} defaultValue={shop.phone || ""} data-testid="biz-phone" />
             </Field>
             <Field label="Shop email" hint={shop.email_verified_at ? "Verified" : "Replies to customer messages come here."}>
