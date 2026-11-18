@@ -28,6 +28,8 @@ export type ReviewRow = {
   status: "PUBLISHED" | "HIDDEN";
   reply: string;
   reply_at: number | null;
+  /** Barber who wrote the reply (their photo shows with it); null = the shop. */
+  reply_staff_id?: string | null;
   version: number;
   created_at: number;
   updated_at: number;
@@ -87,18 +89,23 @@ export async function leaveReview(c: Ctx, shop: Shop, b: StoredBooking, input: z
 // Customer's own view of a review (on the manage page / in /me).
 export const ownReviewView = (r: ReviewRow | null) => (r ? { id: r.id, rating: r.rating, body: r.body, status: r.status, reply: r.reply, created_at: r.created_at } : null);
 
+// Who replied: a barber's first name + photo (small picture next to their reply), or null = the shop.
+type ReplyCols = { reply_name?: string | null; reply_photo?: string | null };
+function withReplyBy<T extends ReplyCols>({ reply_name, reply_photo, ...r }: T) {
+  return { ...r, reply_by: reply_name ? { name: reply_name.split(" ")[0], photo_url: reply_photo || "" } : null };
+}
 // Public summary + newest published reviews for the shop page and JSON-LD.
 export async function publicReviews(db: D1Database, shopId: string, limit = 12) {
   const [agg, rows] = await db.batch([
     db.prepare("SELECT COUNT(*) AS n, AVG(rating) AS avg FROM reviews WHERE shop_id=? AND status='PUBLISHED'").bind(shopId),
     db.prepare(
-      "SELECT r.id,r.rating,r.body,r.display_name,r.reply,r.reply_at,r.created_at,r.service_name,s.name AS staff_name FROM reviews r LEFT JOIN staff s ON s.shop_id=r.shop_id AND s.id=r.staff_id WHERE r.shop_id=? AND r.status='PUBLISHED' ORDER BY r.created_at DESC LIMIT ?",
+      "SELECT r.id,r.rating,r.body,r.display_name,r.reply,r.reply_at,r.created_at,r.service_name,s.name AS staff_name,rs.name AS reply_name,rs.photo_url AS reply_photo FROM reviews r LEFT JOIN staff s ON s.shop_id=r.shop_id AND s.id=r.staff_id LEFT JOIN staff rs ON rs.shop_id=r.shop_id AND rs.id=r.reply_staff_id WHERE r.shop_id=? AND r.status='PUBLISHED' ORDER BY r.created_at DESC LIMIT ?",
     ).bind(shopId, limit),
   ]);
   const a = (agg.results[0] as { n: number; avg: number | null }) ?? { n: 0, avg: null };
   return {
     summary: { count: a.n, average: a.n ? Math.round((a.avg ?? 0) * 10) / 10 : null },
-    reviews: rows.results as { id: string; rating: number; body: string; display_name: string; reply: string; reply_at: number | null; created_at: number; service_name: string; staff_name: string | null }[],
+    reviews: (rows.results as ({ id: string; rating: number; body: string; display_name: string; reply: string; reply_at: number | null; created_at: number; service_name: string; staff_name: string | null } & ReplyCols)[]).map(withReplyBy),
   };
 }
 
@@ -106,9 +113,9 @@ export async function publicReviews(db: D1Database, shopId: string, limit = 12) 
 // review the shop hides disappears from the barber's card as well as the shop-wide list.
 export async function publicReviewsByStaff(db: D1Database, shopId: string, perBarber = 20) {
   const rows = (await db
-    .prepare("SELECT r.id,r.staff_id,r.rating,r.body,r.display_name,r.reply,r.reply_at,r.created_at,r.service_name,s.name AS staff_name FROM reviews r LEFT JOIN staff s ON s.shop_id=r.shop_id AND s.id=r.staff_id WHERE r.shop_id=? AND r.status='PUBLISHED' AND r.staff_id IS NOT NULL ORDER BY r.created_at DESC LIMIT 1000")
+    .prepare("SELECT r.id,r.staff_id,r.rating,r.body,r.display_name,r.reply,r.reply_at,r.created_at,r.service_name,s.name AS staff_name,rs.name AS reply_name,rs.photo_url AS reply_photo FROM reviews r LEFT JOIN staff s ON s.shop_id=r.shop_id AND s.id=r.staff_id LEFT JOIN staff rs ON rs.shop_id=r.shop_id AND rs.id=r.reply_staff_id WHERE r.shop_id=? AND r.status='PUBLISHED' AND r.staff_id IS NOT NULL ORDER BY r.created_at DESC LIMIT 1000")
     .bind(shopId)
-    .all<{ id: string; staff_id: string; rating: number; body: string; display_name: string; reply: string; reply_at: number | null; created_at: number; service_name: string; staff_name: string | null }>()).results;
+    .all<{ id: string; staff_id: string; rating: number; body: string; display_name: string; reply: string; reply_at: number | null; created_at: number; service_name: string; staff_name: string | null } & ReplyCols>()).results.map(withReplyBy);
   const out: Record<string, { count: number; average: number; reviews: typeof rows }> = {};
   for (const r of rows) {
     const b = (out[r.staff_id] ??= { count: 0, average: 0, reviews: [] });

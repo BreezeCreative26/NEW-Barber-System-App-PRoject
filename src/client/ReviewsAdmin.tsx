@@ -6,7 +6,7 @@ import type { WorkspaceData } from "../server/domain";
 import { Avatar, Button, Icon, Notice } from "./ui";
 
 type Api = <T>(path: string, method?: string, body?: unknown) => Promise<T>;
-export type ReviewRowView = { id: string; staff_id: string | null; rating: number; body: string; display_name: string; status: "PUBLISHED" | "HIDDEN"; reply: string; reply_at: number | null; version: number; created_at: number; service_name: string; staff_name: string | null; visit_date: string };
+export type ReviewRowView = { id: string; staff_id: string | null; rating: number; body: string; display_name: string; status: "PUBLISHED" | "HIDDEN"; reply: string; reply_at: number | null; reply_staff_id?: string | null; version: number; created_at: number; service_name: string; staff_name: string | null; visit_date: string };
 type ReviewsData = { reviews: ReviewRowView[]; summary: { count: number; average: number | null; hidden: number }; by_staff?: { staff_id: string; name: string; count: number; average: number; low: number }[]; scope?: "all" | "own" };
 
 const avg = (list: ReviewRowView[]) => (list.length ? Math.round((list.reduce((n, r) => n + r.rating, 0) / list.length) * 10) / 10 : null);
@@ -18,6 +18,9 @@ export function ReviewsPanel({ w, api, staffId }: { w: WorkspaceData; api: Api; 
   const [replying, setReplying] = useState<{ id: string; text: string } | null>(null);
   const [filter, setFilter] = useState<"ALL" | "PUBLISHED" | "HIDDEN">("ALL");
   const canModerate = !w.account || ["OWNER", "MANAGER"].includes(w.account.role);
+  // Barbers reply to reviews of their own appointments; the reply shows with their photo on the website.
+  const myStaff = w.account?.staff_id || null;
+  const canReply = (r: { staff_id: string | null }) => canModerate || (!!myStaff && r.staff_id === myStaff) || !!(w.account?.perms as { setup?: boolean } | undefined)?.setup;
   const load = () =>
     api<ReviewsData>("/reviews")
       .then((r) => {
@@ -168,8 +171,11 @@ export function ReviewsPanel({ w, api, staffId }: { w: WorkspaceData; api: Api; 
                 )}
               </div>
               {r.reply && replying?.id !== r.id && (
-                <div className="rv2-reply review-reply">
-                  <strong>Your reply</strong>
+                <div className={`rv2-reply review-reply ${r.reply_staff_id ? "by-barber" : ""}`}>
+                  <strong>
+                    {r.reply_staff_id && <Avatar initials={initials(w.staff.find((s) => s.id === r.reply_staff_id)?.name || "?")} src={photoOf(r.reply_staff_id)} size="xs" />}
+                    {r.reply_staff_id ? (r.reply_staff_id === myStaff ? "Your reply" : `${(w.staff.find((s) => s.id === r.reply_staff_id)?.name || "Barber").split(" ")[0]} replied`) : canModerate ? "Your reply" : "Shop reply"}
+                  </strong>
                   <p>{r.reply}</p>
                 </div>
               )}
@@ -185,14 +191,16 @@ export function ReviewsPanel({ w, api, staffId }: { w: WorkspaceData; api: Api; 
                   </div>
                 </div>
               )}
-              {canModerate && replying?.id !== r.id && (
+              {canReply(r) && replying?.id !== r.id && (
                 <div className="rv2-actions review-admin-actions">
                   <button type="button" onClick={() => setReplying({ id: r.id, text: r.reply })} data-testid="review-reply">
                     <Icon name="messageReply" size={14} /> {r.reply ? "Edit reply" : "Reply"}
                   </button>
-                  <button type="button" onClick={() => act(r.id, "status", { status: r.status === "HIDDEN" ? "PUBLISHED" : "HIDDEN", version: r.version })} data-testid="review-toggle">
-                    <Icon name={r.status === "HIDDEN" ? "eye" : "eyeOff"} size={14} /> {r.status === "HIDDEN" ? "Show on website" : "Hide"}
-                  </button>
+                  {canModerate && (
+                    <button type="button" onClick={() => act(r.id, "status", { status: r.status === "HIDDEN" ? "PUBLISHED" : "HIDDEN", version: r.version })} data-testid="review-toggle">
+                      <Icon name={r.status === "HIDDEN" ? "eye" : "eyeOff"} size={14} /> {r.status === "HIDDEN" ? "Show on website" : "Hide"}
+                    </button>
+                  )}
                 </div>
               )}
             </li>

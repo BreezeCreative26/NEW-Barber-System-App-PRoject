@@ -296,6 +296,8 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && path === "/pay-runs/bulk") ||
       (method === "PUT" && path === "/me/prefs") ||
       (method === "GET" && [ "/inbox", "/inbox/push" ].includes(path)) ||
+      // Replying to a review: owners/managers any, a barber only their own (checked in the route).
+      (method === "POST" && /^\/reviews\/[^/]+\/reply$/.test(path)) ||
       (path === "/announcements" || path.startsWith("/announcements/")) ||
       (method === "POST" && [ "/inbox/read", "/inbox/push", "/inbox/clear", "/inbox/restore", "/inbox/dismiss" ].includes(path)) ||
       (method === "DELETE" && path === "/inbox/push") ||
@@ -351,7 +353,7 @@ sandbox.use("*", async (c, next) => {
       (method === "POST" && path === "/shop/voice/rotate") ||
       (method === "POST" && ["/notifications/test", "/notifications/sweep", "/shop/payments/connect"].includes(path)) ||
       (method === "POST" && /^\/notifications\/[^/]+\/resend$/.test(path)) ||
-      (method === "POST" && /^\/reviews\/[^/]+\/(status|reply)$/.test(path)) ||
+      (method === "POST" && /^\/reviews\/[^/]+\/status$/.test(path)) ||
       (method === "POST" && /^\/customers\/[^/]+\/erase$/.test(path)) ||
       (method === "POST" && path === "/media") ||
       (["GET", "POST", "PUT"].includes(method) && path.startsWith("/billing")) ||
@@ -2331,11 +2333,18 @@ sandbox.post("/reviews/:id/status", async (c) => {
 sandbox.post("/reviews/:id/reply", async (c) => {
   const b = await input(c, replySchema);
   const r = await readReview(c, c.req.param("id"));
+  const a = c.get("account");
+  // Owners, managers and barbers trusted with setup reply to any review; a barber only to their own.
+  const own = !!a?.staff_id && a.staff_id === r.staff_id;
+  const manages = !a || ["OWNER", "MANAGER"].includes(a.role) || !!a.perms?.setup;
+  if (!manages && !own) fail(403, "You can only reply to reviews of your own appointments");
+  // A reply on your own review is signed by you (your photo and name show with it); otherwise it's the shop's.
+  const by = own ? a!.staff_id : null;
   const now = Date.now();
   await checkVersionUpdate(
     c,
-    c.env.DB.prepare("UPDATE reviews SET reply=?,reply_at=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(b.reply, b.reply ? now : null, now, c.get("shopId"), r.id, b.version),
-    audit(c, "review", r.id, "REVIEW_REPLIED", b.reply ? "Owner replied publicly." : "Owner removed their reply.", true),
+    c.env.DB.prepare("UPDATE reviews SET reply=?,reply_at=?,reply_staff_id=?,version=version+1,updated_at=? WHERE shop_id=? AND id=? AND version=?").bind(b.reply, b.reply ? now : null, b.reply ? by : null, now, c.get("shopId"), r.id, b.version),
+    audit(c, "review", r.id, "REVIEW_REPLIED", b.reply ? `${by ? "Barber" : "Shop"} replied publicly.` : "Reply removed.", true),
   );
   return c.json({ review: await readReview(c, r.id) });
 });

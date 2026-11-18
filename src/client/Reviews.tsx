@@ -4,7 +4,25 @@ import { useState } from "react";
 import { Button, Icon, Notice } from "./ui";
 
 export type OwnReview = { id: string; rating: number; body: string; status: "PUBLISHED" | "HIDDEN"; reply: string; created_at: number } | null;
-export type PublicReview = { id: string; rating: number; body: string; display_name: string; reply: string; reply_at: number | null; created_at: number; service_name: string; staff_name: string | null };
+export type PublicReview = { id: string; rating: number; body: string; display_name: string; reply: string; reply_at: number | null; created_at: number; service_name: string; staff_name: string | null; reply_by?: { name: string; photo_url: string } | null };
+
+// A reply under a public review: the barber's small photo + first name when they wrote it, else "Shop reply".
+export function ReviewReply({ r }: { r: Pick<PublicReview, "reply" | "reply_by"> }) {
+  if (!r.reply) return null;
+  const by = r.reply_by;
+  return (
+    <div className={`sp-review-reply ${by ? "by-barber" : ""}`} data-testid="review-reply-public">
+      {by ? (
+        by.photo_url ? <img className="sp-reply-photo" src={by.photo_url} alt="" loading="lazy" decoding="async" /> : <span className="sp-reply-photo initials" aria-hidden="true">{by.name.slice(0, 1).toUpperCase()}</span>
+      ) : (
+        <Icon name="messageReply" size={14} />
+      )}
+      <p>
+        <strong>{by ? `${by.name} replied` : "Shop reply"}</strong> {r.reply}
+      </p>
+    </div>
+  );
+}
 
 export function Stars({ value, size = 16, label }: { value: number; size?: number; label?: string }) {
   return (
@@ -151,11 +169,7 @@ export function PublicReviews({ reviews, rating, variant = "cards", title = "Rev
               </span>
             </header>
             {r.body && <p>{r.body}</p>}
-            {r.reply && (
-              <p className="sp-review-reply">
-                <Icon name="messageReply" size={14} /> <strong>Shop reply</strong> {r.reply}
-              </p>
-            )}
+            <ReviewReply r={r} />
           </li>
         ))}
       </ul>

@@ -6521,3 +6521,10 @@ html.ws-rail-lit .workspace .sidebar.rail { box-shadow: inset -1px 0 0 rgba(255,
 .booking-app .booking-dates button.ooh::after { background: #f59e0b; }
 .booking-app .booking-dates button.ooh.chosen { background: #f59e0b; border-color: #d97706; color: #fff; }
 .booking-app .booking-dates button.ooh.chosen > small { color: #fff; }
+/* Review replies: a barber's reply shows their small photo + first name; the shop's keeps the reply icon. */
+.sp-review-reply { display: flex; align-items: flex-start; gap: 8px; }
+.sp-review-reply > p { margin: 0; }
+.sp-review-reply .sp-reply-photo { flex: none; width: 24px; height: 24px; border-radius: 50%; object-fit: cover; margin-top: 1px; box-shadow: 0 0 0 2px #fff, 0 1px 3px rgba(0,0,0,.18); }
+.sp-review-reply .sp-reply-photo.initials { display: grid; place-items: center; background: var(--accent, #10b981); color: #fff; font-size: 11px; font-weight: 700; }
+.sp-review-reply > svg { flex: none; margin-top: 3px; }
+.rv2 .rv2-reply.by-barber strong { display: inline-flex; align-items: center; gap: 6px; }
