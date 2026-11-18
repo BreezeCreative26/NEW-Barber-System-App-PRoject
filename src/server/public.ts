@@ -8,6 +8,7 @@ import {
   calculateQuote,
   dateSchema,
   effectiveHours,
+  shopBuffer,
   localInstant,
   publicBookingSchema,
   groupBookingSchema,
@@ -338,14 +339,11 @@ export function slotFor(shop: Shop, ctx: Range, staff: Staff, date: string, minu
   );
   return slotReason(shop, staff, h, ctx.holidays, ctx.bookings, date, minute, ctx.quotes.get(staff.id)!.duration_min, minStart, undefined, ctx.daysOff, ctx.blocks, false, ctx.ooh);
 }
-// True when an open time is only open because the barber opened out-of-hours time (it carries their charge).
+// True when the visit sits inside out-of-hours time the barber opened: every slot they open that way
+// carries their charge, even if their hours for the day were also set to cover it.
 export function isOohSlot(shop: Shop, ctx: Range, staff: Staff, date: string, minute: number) {
-  if (!ctx.ooh.some((o) => o.staff_id === staff.id && o.date === date)) return false;
-  const h = effectiveHours(
-    ctx.hours.find((x) => x.staff_id === staff.id && x.weekday === weekday(date)) ?? null,
-    ctx.overrides.find((o) => o.staff_id === staff.id && o.date === date) ?? null,
-  );
-  return !!slotReason(shop, staff, h, ctx.holidays, [], date, minute, ctx.quotes.get(staff.id)!.duration_min, 0, undefined, ctx.daysOff, [], false, []);
+  const dur = ctx.quotes.get(staff.id)!.duration_min + shopBuffer(shop);
+  return ctx.ooh.some((o) => o.staff_id === staff.id && o.date === date && minute >= o.starts && minute + dur <= o.ends);
 }
 const closedReasons = ["Shop closed", "Barber off duty", "Barber has a day off"];
 // Never disclose who holds a slot or why a barber blocked their time.
