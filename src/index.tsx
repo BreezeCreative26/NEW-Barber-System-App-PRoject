@@ -157,17 +157,41 @@ app.get("/s/:code", async (c) => {
 app.get("/pay-run/:id", (c) => adminPublic.fetch(new Request(new URL(`/pay-run/${c.req.param("id")}${new URL(c.req.url).search}`, c.req.url), c.req.raw), c.env));
 // Printable invoice / credit note (token in the query string; emailed to billing contacts).
 app.get("/invoice/:id", (c) => adminPublic.fetch(new Request(new URL(`/invoice/${c.req.param("id")}${new URL(c.req.url).search}`, c.req.url), c.req.raw), c.env));
-app.get("/api/health", (c) =>
-  c.json({
+// Health: the public answer is just "up" + which build is live. Provider details (payments mode,
+// message senders, telemetry) only for the cron/monitoring secret, so outsiders learn nothing extra.
+app.get("/api/health", (c) => {
+  const secret = process.env.CRON_SECRET;
+  const full = !secret || c.req.header("authorization") === `Bearer ${secret}`;
+  const base = {
     status: "ok",
-    mode: process.env.NODE_ENV === "production" ? "production" : "development",
     livePayments: stripeStatus().provider === "stripe",
+    persistence: !!c.env?.DB,
+    commit: telemetryStatus().commit,
+  };
+  if (!full) return c.json(base);
+  return c.json({
+    ...base,
+    mode: process.env.NODE_ENV === "production" ? "production" : "development",
     payments: stripeStatus(),
     messaging: providerStatus(),
     telemetry: telemetryStatus(),
-    persistence: !!c.env?.DB,
-  }),
-);
+  });
+});
+// Addresses people (and AI tools) try first: send them to the real pages.
+app.get("/pricing", (c) => c.redirect("/#pricing", 301));
+app.get("/privacy", (c) => c.redirect("/legal/privacy", 301));
+app.get("/terms", (c) => c.redirect("/legal/terms", 301));
+app.get("/cookies", (c) => c.redirect("/legal/cookies", 301));
+// How to report a security problem (RFC 9116).
+app.get("/.well-known/security.txt", (c) => {
+  const origin = publicOrigin(c);
+  const expires = new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10) + "T00:00:00.000Z";
+  c.header("Cache-Control", "public, max-age=86400");
+  return c.text(
+    [`Contact: mailto:hello@foliyo.co.uk`, `Expires: ${expires}`, `Preferred-Languages: en`, `Canonical: ${origin}/.well-known/security.txt`, `Policy: ${origin}/legal/terms`, ""].join("\n"),
+  );
+});
+app.get("/security.txt", (c) => c.redirect("/.well-known/security.txt", 301));
 // Browser error reports (from the React boundary / window.onerror). Tiny schema, same-origin only,
 // 30 per client per 10 minutes, forwarded to the same sink as server errors.
 const clientErrorSchema = (b: unknown) => {

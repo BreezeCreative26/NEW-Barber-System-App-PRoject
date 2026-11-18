@@ -215,8 +215,9 @@ test("cron route sweeps and drains; rejects a wrong secret when one is configure
     expect(body.drained).toBeDefined();
     expect(body.providers.email.provider).toMatch(/^(mailbox|resend)$/);
   }
+  // Public health is minimal; provider details need the monitoring secret.
   const health = await (await c.get(origin + "/api/health")).json();
-  expect(health.messaging).toBeDefined();
+  expect(health.status).toBe("ok");
 });
 
 test("browser: Settings → Messages shows provider status, saves channel settings, sends a test, previews an email", async ({ page }) => {
