@@ -173,10 +173,10 @@ function StepShop({ w, api, refresh, data, reload, setNotice, setError, onNext }
       <div className="setup-grid-2">
         <F label="Shop name"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required minLength={2} maxLength={100} data-testid="setup-shop-name" /></F>
         <F label="Currency"><select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value as "GBP" })}><option value="GBP">£ GBP</option><option value="EUR">€ EUR</option><option value="USD">$ USD</option></select></F>
-        <F label="Phone number for customers" hint="The number customers call. Shown on your website with a Call button, on confirmations and in emails. Leave blank to hide it.">
+        <F label="Public phone number (shown on your website)" hint="The number customers call. Shows on your website with a Call button, on booking confirmations and in emails.">
           <input type="tel" inputMode="tel" value={form.public_phone} onChange={(e) => setForm({ ...form, public_phone: e.target.value })} maxLength={20} placeholder="01449 700407" data-testid="setup-public-phone" />
         </F>
-        <F label="Shop mobile (private)" hint="Only for verification codes, password resets and booking alerts to you. Never shown to customers.">
+        <F label="Mobile for alerts and codes" hint="Where we text you booking alerts, sign-in codes and password resets. This one doesn't go on your website.">
           <input type="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} maxLength={20} data-testid="setup-shop-phone" />
         </F>
         <F label="Shop email" hint="Replies to customer emails go here.">
