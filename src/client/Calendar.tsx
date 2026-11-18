@@ -914,7 +914,7 @@ export function Calendar({
                             : busy
                               ? "Occupied"
                               : ooh && (n === 0 || !slots[n - 1].ooh)
-                                ? "Out of hours"
+                                ? (() => { const o = (w.ooh || []).find((x) => x.staff_id === s.id && x.date === date && start >= x.starts && start < x.ends); const f = o?.fee_pence ?? s.ooh_fee_pence ?? 0; return f ? `Out of hours · +${money(f)}` : "Out of hours"; })()
                                 : `${time(start)} +`}
                         </span>
                       </button>

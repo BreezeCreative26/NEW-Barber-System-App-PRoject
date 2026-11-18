@@ -9,6 +9,7 @@ import {
   dateSchema,
   effectiveHours,
   shopBuffer,
+  oohFeeOf,
   localInstant,
   publicBookingSchema,
   groupBookingSchema,
@@ -341,9 +342,9 @@ export function slotFor(shop: Shop, ctx: Range, staff: Staff, date: string, minu
 }
 // True when the visit sits inside out-of-hours time the barber opened: every slot they open that way
 // carries their charge, even if their hours for the day were also set to cover it.
-export function isOohSlot(shop: Shop, ctx: Range, staff: Staff, date: string, minute: number) {
+export function oohWindowFor(shop: Shop, ctx: Range, staff: Staff, date: string, minute: number) {
   const dur = ctx.quotes.get(staff.id)!.duration_min + shopBuffer(shop);
-  return ctx.ooh.some((o) => o.staff_id === staff.id && o.date === date && minute >= o.starts && minute + dur <= o.ends);
+  return ctx.ooh.find((o) => o.staff_id === staff.id && o.date === date && minute >= o.starts && minute + dur <= o.ends);
 }
 const closedReasons = ["Shop closed", "Barber off duty", "Barber has a day off"];
 // Never disclose who holds a slot or why a barber blocked their time.
@@ -486,17 +487,19 @@ pub.get("/shops/:slug/days", async (c) => {
   const days = Array.from({ length: 14 }, (_, i) => datePlus(from, i)).map((date) => {
     if (date > maxDate) return { date, available: 0, closed: false, beyond: true, reason: "" as const };
     const open = new Set<number>();
+    const normal = new Set<number>();
     let closed = true;
     for (const staff of ctx.staff)
       for (const m of startsFor(shop, ctx, date)) {
         const reason = slotFor(shop, ctx, staff, date, m, minStart);
-        if (!reason) open.add(m);
+        if (!reason) { open.add(m); if (!oohWindowFor(shop, ctx, staff, date, m)) normal.add(m); }
         if (!closedReasons.includes(reason)) closed = false;
       }
     // Why a day can't be booked: the whole shop is shut, or the barber(s) aren't working.
     // Customers see "Closed" only for the first; a barber's day off reads "Day off".
     const shopShut = !shopDay(shop, weekday(date)).enabled || ctx.holidays.some((h) => h.date === date);
-    return { date, available: open.size, closed, beyond: false, reason: closed ? (shopShut ? ("shop" as const) : ("off" as const)) : ("" as const) };
+    // Only out-of-hours time is open this day: the date shows as "Out of hours", not a normal open day.
+    return { date, available: open.size, closed, beyond: false, reason: closed ? (shopShut ? ("shop" as const) : ("off" as const)) : ("" as const), ...(open.size && !normal.size ? { ooh_only: true } : {}) };
   });
   const durations = [...ctx.quotes.values()].map((q) => q.duration_min);
   const prices = [...ctx.quotes.values()].map((q) => q.price_pence);
@@ -684,13 +687,14 @@ pub.get("/shops/:slug/availability", async (c) => {
   const load = new Map(ctx.staff.map((s) => [s.id, ctx.bookings.filter((b) => b.staff_id === s.id).length]));
   const slots = startsFor(shop, ctx, q.date)
     .map((start_min) => {
-      const ooh = new Map<string, boolean>();
+      const ooh = new Map<string, OohWindow | undefined>();
       const open = ctx.staff
         .filter((s) => !slotFor(shop, ctx, s, q.date, start_min, minStart))
-        .map((s) => (ooh.set(s.id, isOohSlot(shop, ctx, s, q.date, start_min)), s))
+        .map((s) => (ooh.set(s.id, oohWindowFor(shop, ctx, s, q.date, start_min)), s))
         // Any-barber: someone working normal hours is offered before an out-of-hours opening.
-        .sort((a, b) => Number(ooh.get(a.id)) - Number(ooh.get(b.id)) || load.get(a.id)! - load.get(b.id)! || a.name.localeCompare(b.name));
-      const fee = (s: Staff) => (ooh.get(s.id) ? s.ooh_fee_pence ?? 0 : 0);
+        .sort((a, b) => Number(!!ooh.get(a.id)) - Number(!!ooh.get(b.id)) || load.get(a.id)! - load.get(b.id)! || a.name.localeCompare(b.name));
+      // Each opened block carries its own price (or the barber's default).
+      const fee = (s: Staff) => (ooh.get(s.id) ? oohFeeOf(ooh.get(s.id), s) : 0);
       const oohOf = (s: Staff) => (ooh.get(s.id) ? { ooh: true, ooh_fee_pence: fee(s) } : {});
       if (open.length) {
         const chosen = open[0];

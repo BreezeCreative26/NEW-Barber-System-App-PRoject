@@ -242,7 +242,9 @@ export type Staff = {
   review_message?: string;
 };
 /** Time a barber has opened outside their normal hours for one day (can be a day off). */
-export type OohWindow = { id: string; shop_id: string; staff_id: string; date: string; starts: number; ends: number; note: string; created_at: number };
+export type OohWindow = { id: string; shop_id: string; staff_id: string; date: string; starts: number; ends: number; note: string; created_at: number; /** This block's charge (pence); null = the barber's default. */ fee_pence?: number | null };
+/** The charge for one out-of-hours block: its own price, else the barber's default. */
+export const oohFeeOf = (w: Pick<OohWindow, "fee_pence"> | undefined, staff: Pick<Staff, "ooh_fee_pence">) => w?.fee_pence ?? staff.ooh_fee_pence ?? 0;
 export type OohSlot = Pick<OohWindow, "starts" | "ends"> & Partial<Pick<OohWindow, "staff_id" | "date">>;
 export type ServiceCategory = { id: string; shop_id: string; name: string; description: string; sort_order: number };
 export type Service = {

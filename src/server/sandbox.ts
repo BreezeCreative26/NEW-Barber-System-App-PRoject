@@ -78,7 +78,7 @@ import {
   type StoredBooking,
   type Holiday,
   type AuditEvent,
- shopBuffer, colourSchema, imageRef, isOffered, offers, categorySchema } from "./domain";
+ shopBuffer, oohFeeOf, colourSchema, imageRef, isOffered, offers, categorySchema } from "./domain";
 
 import { createHold, expireHeldSlots, resendHold, releaseHoldStatements, slotFreed, makeOffer, matchesFor, rangeDates, queueReviewRequest, shopWithQueue, sweep, templatesSchema, templatesOf, DEFAULT_TEMPLATES, type WaitlistRow } from "./waitlist";
 import { logoTone, optimiseImage } from "./images";
@@ -3129,7 +3129,7 @@ async function saveOverride(c: Ctx, overrideId: string, editing: boolean) {
 }
 // Out-of-hours: one window per barber per day, bookable online (orange) with the barber's charge.
 const oohSchema = z
-  .object({ date: dateSchema, starts: z.number().int().min(0).max(1425), ends: z.number().int().min(15).max(1440), note: z.string().trim().max(100).default("") })
+  .object({ date: dateSchema, starts: z.number().int().min(0).max(1425), ends: z.number().int().min(15).max(1440), note: z.string().trim().max(100).default(""), fee_pence: z.number().int().min(0).max(100000).nullable().optional() })
   .strict()
   .refine((o) => o.ends > o.starts && o.starts % 15 === 0 && o.ends % 15 === 0, "Pick start and finish times on the quarter hour, finishing after the start");
 sandbox.post("/staff/:id/ooh", async (c) => {
@@ -3139,9 +3139,9 @@ sandbox.post("/staff/:id/ooh", async (c) => {
   const b = await input(c, oohSchema);
   const sid = c.get("shopId");
   await c.env.DB.batch([
-    c.env.DB.prepare("INSERT INTO staff_ooh(id,shop_id,staff_id,date,starts,ends,note,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT (shop_id,staff_id,date) DO UPDATE SET starts=EXCLUDED.starts, ends=EXCLUDED.ends, note=EXCLUDED.note")
-      .bind(id(), sid, staffId, b.date, b.starts, b.ends, b.note, Date.now()),
-    audit(c, "staff", staffId, "OUT_OF_HOURS_SET", `${b.date} ${fmtTime(b.starts)}–${fmtTime(b.ends)} opened out of hours${b.note ? `: ${b.note}` : ""}.`),
+    c.env.DB.prepare("INSERT INTO staff_ooh(id,shop_id,staff_id,date,starts,ends,note,created_at,fee_pence) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT (shop_id,staff_id,date) DO UPDATE SET starts=EXCLUDED.starts, ends=EXCLUDED.ends, note=EXCLUDED.note, fee_pence=EXCLUDED.fee_pence")
+      .bind(id(), sid, staffId, b.date, b.starts, b.ends, b.note, Date.now(), b.fee_pence ?? null),
+    audit(c, "staff", staffId, "OUT_OF_HOURS_SET", `${b.date} ${fmtTime(b.starts)}–${fmtTime(b.ends)} opened out of hours${b.fee_pence != null ? ` at £${(b.fee_pence / 100).toFixed(2)}` : ""}${b.note ? `: ${b.note}` : ""}.`),
   ]);
   return c.json({ ok: true }, 201);
 });
@@ -3479,7 +3479,7 @@ sandbox.get("/availability", async (c) => {
               true,
               data.ooh,
             ),
-      ooh: data.ooh.some((o) => start_min >= o.starts && start_min + duration + shopBuffer(data.shop) <= o.ends),
+      ...(() => { const o = data.ooh.find((o) => start_min >= o.starts && start_min + duration + shopBuffer(data.shop) <= o.ends); return o ? { ooh: true, ooh_fee_pence: oohFeeOf(o, data.staff) } : { ooh: false }; })(),
       };
     });
   return c.json({
@@ -3602,9 +3602,9 @@ export async function createBooking(
   const overridden = (!!reason && channel === "OWNER" && !!options.force && overridable(reason) && !inPast) || (outsideHours && !reason);
   if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
   // Out-of-hours: inside a window the barber opened and outside their normal hours → their charge applies.
-  const inOohWindow = data.ooh.some((w) => b.start_min >= w.starts && b.start_min + block + shopBuffer(data.shop) <= w.ends);
-  // Every slot opened as out-of-hours carries the charge, even when the day's hours were also widened to cover it.
-  const oohFee = inOohWindow ? data.staff.ooh_fee_pence ?? 0 : 0;
+  const oohWin = data.ooh.find((w) => b.start_min >= w.starts && b.start_min + block + shopBuffer(data.shop) <= w.ends);
+  // Every slot opened as out-of-hours carries that block's charge, even when the day's hours were also widened to cover it.
+  const oohFee = oohWin ? oohFeeOf(oohWin, data.staff) : 0;
   if (oohFee > 0) {
     quote.items.push({ kind: "OOH", id: "ooh", name: "Out-of-hours", price_pence: oohFee, duration_min: 0 });
     quote.price_pence += oohFee;
@@ -4683,13 +4683,14 @@ async function oohAfterMove(
 ) {
   const items = JSON.parse(b.items_json) as BookingItem[];
   const current = items.find((i) => i.kind === "OOH");
-  const fee = data.staff.ooh_fee_pence ?? 0;
+  const landing = data.ooh.find((w) => body.start_min >= w.starts && body.start_min + b.duration_min + shopBuffer(data.shop) <= w.ends);
+  const fee = landing ? oohFeeOf(landing, data.staff) : data.staff.ooh_fee_pence ?? 0;
   const same = { price_pence: b.price_pence, items_json: b.items_json, changed: false, note: "", ask: null as null | { charged: boolean; fee_pence: number; barber: string } };
   if (!current && fee <= 0) return same;
   const paid = await c.env.DB.prepare("SELECT 1 AS x FROM payments WHERE shop_id=? AND booking_id=? AND voided_at IS NULL LIMIT 1").bind(c.get("shopId"), b.id).first();
   if (paid) return same;
   const inHours = !slotReason(data.shop, data.staff, data.hours, data.holidays, [], body.date, body.start_min, b.duration_min, 0, undefined, data.daysOff, [], false);
-  const inWindow = data.ooh.some((w) => body.start_min >= w.starts && body.start_min + b.duration_min + shopBuffer(data.shop) <= w.ends);
+  const inWindow = !!landing;
   // Only a visit that already carries the charge and lands partly outside hours needs a decision.
   // One without it gains it only by moving wholly into an out-of-hours window (same rule as booking).
   let want: "charge" | "none";

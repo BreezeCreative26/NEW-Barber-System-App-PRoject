@@ -99,7 +99,7 @@ type Availability = {
   quote: { service_version: number; shop_version: number };
 };
 // reason: "shop" = the whole shop is shut; "off" = the barber (or every barber) isn't working.
-type DaySummary = { date: string; available: number; closed: boolean; beyond: boolean; reason?: "shop" | "off" | "" };
+type DaySummary = { date: string; available: number; closed: boolean; beyond: boolean; reason?: "shop" | "off" | ""; ooh_only?: boolean };
 // Fair order for "Anyone": a fresh random order per page visit, stable while the customer looks.
 const shuffleSeed = Math.random();
 function fairOrder<T extends { id: string }>(list: T[], salt: string): T[] {
@@ -1510,7 +1510,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                       const dayOff = !!info && info.closed && info.reason === "off";
                       // A barber's day off stays tappable so we can say who else is in that day.
                       const disabled = beyond || (info ? info.closed && !dayOff : false);
-                      const level = !info || beyond ? "" : dayOff ? "dayoff" : info.closed ? "closed" : info.available === 0 ? "full" : info.available < 6 ? "low" : "open";
+                      const level = !info || beyond ? "" : dayOff ? "dayoff" : info.closed ? "closed" : info.available === 0 ? "full" : info.ooh_only ? "ooh" : info.available < 6 ? "low" : "open";
                       return (
                         <button
                           key={d}
@@ -1525,7 +1525,7 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                           }}
                           aria-pressed={date === d}
                           aria-label={`${dateLabel(d)}, ${
-                            !info ? "checking" : beyond ? "opens later" : dayOff ? "day off" : info.closed ? "closed" : info.available === 0 ? "fully booked" : `${info.available} times`
+                            !info ? "checking" : beyond ? "opens later" : dayOff ? "day off" : info.closed ? "closed" : info.available === 0 ? "fully booked" : info.ooh_only ? `out of hours only, ${info.available} times` : `${info.available} times`
                           }`}
                         >
                           <span>{d === shop.today ? "Today" : dateLabel(d, { weekday: "short" })}</span>
@@ -1539,6 +1539,8 @@ export function PublicBooking({ slug, preset, onLoaded, onSignedIn }: { slug: st
                                   ? "Day off"
                                   : info.closed
                                   ? "Closed"
+                                  : info.available && info.ooh_only
+                                    ? "Out of hours"
                                   : info.available
                                     ? `${info.available} times`
                                     : "Full"}
