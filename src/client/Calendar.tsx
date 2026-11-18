@@ -295,6 +295,8 @@ export function Calendar({
   // Scheduled team (Fresha): rostered barbers show by default; others only when the user adds them
   // for the day (or when they hold an appointment). A barber filter overrides all of that.
   const rostered = (s: Staff) => {
+    // Out-of-hours time opened this day puts them on the timetable, even on a closed day or day off.
+    if ((w.ooh || []).some((o) => o.staff_id === s.id && o.date === date)) return true;
     const shift = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date) || w.hours.find((h) => h.staff_id === s.id && h.weekday === weekdayOf);
     return !!shift?.enabled && !w.days_off.some((d) => d.staff_id === s.id && d.date === date);
   };
@@ -421,10 +423,11 @@ export function Calendar({
     const shift = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date) || w.hours.find((h) => h.staff_id === s.id && h.weekday === new Date(date + "T12:00:00Z").getUTCDay());
     const leave = w.days_off.some((d) => d.staff_id === s.id && d.date === date);
     if (!s.active) return "Inactive barber";
-    if (closed) return "Shop closed";
-    if (leave) return "Day off";
-    if (!shift?.enabled) return "Off duty";
-    if (start >= shift.break_start && start < shift.break_end) return "Break";
+    const oohHere = (w.ooh || []).some((o) => o.staff_id === s.id && o.date === date && start >= o.starts && start < o.ends);
+    if (closed && !oohHere) return "Shop closed";
+    if (leave && !oohHere) return "Day off";
+    if (!shift?.enabled && !oohHere) return "Off duty";
+    if (!oohHere && shift && start >= shift.break_start && start < shift.break_end) return "Break";
     const moving = excludeId ? dayBookings.find((b) => b.id === excludeId) : null;
     const dur = moving?.duration_min ?? 15;
     if (dayBlocks.some((k) => k.staff_id === s.id && start < k.end_min && start + dur > k.start_min)) return "Blocked";
@@ -1250,20 +1253,23 @@ export function WeekView({
   const rostered = (staffId: string, d: string) => {
     const weekday = new Date(d + "T12:00:00Z").getUTCDay();
     const day = shopDayOf(w.shop, d);
+    // Out-of-hours time opened this day counts as working time (even on a closed day or day off).
+    const oohMin = (w.ooh || []).filter((o) => o.staff_id === staffId && o.date === d).reduce((n, o) => n + (o.ends - o.starts), 0);
     if (!day.enabled || w.holidays.some((h) => h.date === d))
-      return 0;
-    if (w.days_off.some((x) => x.staff_id === staffId && x.date === d)) return 0;
+      return oohMin;
+    if (w.days_off.some((x) => x.staff_id === staffId && x.date === d)) return oohMin;
     const override = w.schedule_overrides.find(
       (o) => o.staff_id === staffId && o.date === d,
     );
     const h =
       override ??
       w.hours.find((x) => x.staff_id === staffId && x.weekday === weekday);
-    if (!h?.enabled) return 0;
+    if (!h?.enabled) return oohMin;
     return (
       Math.min(h.ends, day.ends) -
       Math.max(h.starts, day.starts) -
-      Math.max(0, h.break_end - h.break_start)
+      Math.max(0, h.break_end - h.break_start) +
+      oohMin
     );
   };
   const colour = (i: number) => staff[i]?.colour || ["sage", "sand", "blue", "clay"][i % 4];

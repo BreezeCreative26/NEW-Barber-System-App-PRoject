@@ -3477,7 +3477,9 @@ sandbox.get("/availability", async (c) => {
               data.daysOff,
               data.blocks,
               true,
+              data.ooh,
             ),
+      ooh: data.ooh.some((o) => start_min >= o.starts && start_min + duration + shopBuffer(data.shop) <= o.ends),
       };
     });
   return c.json({
@@ -3601,7 +3603,8 @@ export async function createBooking(
   if (reason && !overridden) fail(409, reason === "Slot taken" ? "slot_taken" : reason);
   // Out-of-hours: inside a window the barber opened and outside their normal hours → their charge applies.
   const inOohWindow = data.ooh.some((w) => b.start_min >= w.starts && b.start_min + block + shopBuffer(data.shop) <= w.ends);
-  const oohFee = inOohWindow && !!slotReason(data.shop, data.staff, data.hours, data.holidays, [], b.date, b.start_min, block, 0, undefined, data.daysOff, [], false) ? data.staff.ooh_fee_pence ?? 0 : 0;
+  // Every slot opened as out-of-hours carries the charge, even when the day's hours were also widened to cover it.
+  const oohFee = inOohWindow ? data.staff.ooh_fee_pence ?? 0 : 0;
   if (oohFee > 0) {
     quote.items.push({ kind: "OOH", id: "ooh", name: "Out-of-hours", price_pence: oohFee, duration_min: 0 });
     quote.price_pence += oohFee;
@@ -4691,8 +4694,8 @@ async function oohAfterMove(
   // One without it gains it only by moving wholly into an out-of-hours window (same rule as booking).
   let want: "charge" | "none";
   if (body.ooh_fee) want = body.ooh_fee;
-  else if (inHours) want = "none";
   else if (inWindow) want = "charge";
+  else if (inHours) want = "none";
   else if (!current) return same;
   else return { ...same, ask: { charged: true, fee_pence: current.price_pence, barber: data.staff.name.split(" ")[0] } };
   const amount = want === "charge" ? (current && !inWindow ? current.price_pence : fee || current?.price_pence || 0) : 0;
@@ -4736,6 +4739,7 @@ sandbox.post("/bookings/:id/reschedule", async (c) => {
     data.daysOff,
     data.blocks,
     true,
+    data.ooh,
   );
   const moveInstant = localInstant(body.date, body.start_min, data.shop.timezone);
   const movedToPast = moveInstant !== null && moveInstant < Date.now();

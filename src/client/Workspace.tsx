@@ -2844,6 +2844,7 @@ export function Workspace() {
                     {calendarView === "day" && !barber && date && (() => {
                       const wd = new Date(date + "T12:00:00Z").getUTCDay();
                       const rostered = (s: Staff) => {
+                        if ((w.ooh || []).some((o) => o.staff_id === s.id && o.date === date)) return true;
                         const sh = w.schedule_overrides.find((o) => o.staff_id === s.id && o.date === date) || w.hours.find((h) => h.staff_id === s.id && h.weekday === wd);
                         return !!sh?.enabled && !w.days_off.some((d) => d.staff_id === s.id && d.date === date);
                       };
